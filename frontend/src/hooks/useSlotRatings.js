@@ -43,7 +43,8 @@ const IDLE = Object.freeze({ key: null, status: 'idle', data: null });
  * @param {?string} args.eventType `'SUNRISE' | 'SUNSET'`
  * @param {boolean} args.open whether the box is expanded
  * @returns {{
- *   rows: ?Array<{username: string, rating: ?number, updatedAt: ?string, mine: boolean}>,
+ *   rows: ?Array<{username: string, rating: ?number, updatedAt: ?string, mine: boolean,
+ *     seen: ?string}>,
  *   eventTime: ?string,
  *   forecastRunAt: ?string,
  *   loading: boolean,
@@ -136,6 +137,9 @@ export function useSlotRatings({
       rating: r.rating ?? null,
       updatedAt: r.updatedAt ?? null,
       mine: Boolean(r.mine),
+      // The "what did you see" tag (valley-mist-plan M3). Dropping it here left the list's tag line
+      // permanently empty: the list reads rows as THIS hook shapes them, not as the server sent them.
+      seen: r.seen ?? null,
     }));
   }, [data]);
   const loading = Boolean(slotKey && open && (!held || (held.status === 'loading' && !held.data)));

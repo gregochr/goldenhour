@@ -61,7 +61,18 @@ Checkstyle and SpotBugs gate those in CI.
    removing it or "consolidating" it in a review — the dual-engine
    consolidation is a tracked architecture item, not a cleanup. Note also: no
    store keeps per-run rating history; `cached_evaluation` and `forecast_score`
-   are latest-wins by design.
+   are latest-wins by design. Likewise `cloud_verification`'s
+   `deleteIncompleteVerifications` names only the observations the sampling
+   REQUIRES: the recorded-only columns (the V175 far-point mid/high/dark-side
+   readings, V187's `observer_temp_c`/`observer_dew_point_c`) must never join
+   it, or the first run after the deploy re-walks the whole history.
+   `outcome_rating` follows the column-scoped-update rule (the `app_user`
+   settings columns' lost-update precedent): an existing row is changed by ONE
+   statement that writes only the columns its request owns (`updateRating`,
+   `updateSeen`; `updateRow` only for a "didn't see it" that names its tag), never
+   a read followed by a save, so overlapping star and tag writes cannot restore
+   each other's stale value. The pairing rule lives in the SQL; V187's CHECK is
+   the last line of defence and a tag-only update it refuses is a 409.
 
 4. **Hot topics are recomputed live on every serve.** Build-time enrichment
    must ride an in-memory `AtomicReference` carrier (`NlcClarityService`,

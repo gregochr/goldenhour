@@ -62,6 +62,29 @@ class CalibrationControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/admin/calibration serves the mist-prone bucket and its seen tally (V187)")
+    @WithMockUser(roles = "ADMIN")
+    void getCalibration_servesMistProne() throws Exception {
+        CalibrationBucket mist = new CalibrationBucket(
+                "MIST_LIKELY", 3, 0.0, 1.0, 0.33, 0.67, 1, 0, null);
+        CalibrationReport base = report();
+        when(calibrationService.report(FROM, TO)).thenReturn(new CalibrationReport(base.from(), base.to(),
+                base.outcomesInRange(), base.scoredPairs(), base.overall(), base.byDaysAhead(),
+                base.byModel(), base.bucketsByBuild(), base.bucketsByPromptHash(), mist,
+                java.util.Map.of("MIST", 2, "UNTAGGED", 1)));
+
+        mockMvc.perform(get("/api/admin/calibration")
+                .param("from", "2026-05-01")
+                .param("to", "2026-05-31")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mistProne.key").value("MIST_LIKELY"))
+                .andExpect(jsonPath("$.mistProne.missedOpportunities").value(1))
+                .andExpect(jsonPath("$.mistProneSeenCounts.MIST").value(2))
+                .andExpect(jsonPath("$.mistProneSeenCounts.UNTAGGED").value(1));
+    }
+
+    @Test
     @DisplayName("GET /api/admin/calibration defaults to a trailing 90-day window")
     @WithMockUser(roles = "ADMIN")
     void getCalibration_noParams_usesTrailingNinetyDays() throws Exception {

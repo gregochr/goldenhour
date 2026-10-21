@@ -43,6 +43,37 @@ describe('outcomeRatingApi', () => {
     expect(body.rating).toBeNull();
   });
 
+  it('leaves seen OUT of the body when it is not given, so the server keeps the earlier tag', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+
+    await putRating({
+      locationId: 7, eventDate: '2026-06-14', eventType: 'SUNSET', rating: 3,
+    });
+    await putRating({
+      locationId: 7, eventDate: '2026-06-14', eventType: 'SUNSET', rating: 3, seen: undefined,
+    });
+
+    for (const [, body] of apiClient.put.mock.calls) {
+      expect(Object.keys(body)).not.toContain('seen');
+    }
+  });
+
+  it('sends seen as a name to set it and as an explicit null to clear it - never conflated', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+
+    await putRating({
+      locationId: 7, eventDate: '2026-06-14', eventType: 'SUNSET', rating: 3, seen: 'MIST',
+    });
+    await putRating({
+      locationId: 7, eventDate: '2026-06-14', eventType: 'SUNSET', rating: 3, seen: null,
+    });
+
+    const [set, clear] = apiClient.put.mock.calls.map((call) => call[1]);
+    expect(set.seen).toBe('MIST');
+    expect(Object.keys(clear)).toContain('seen');
+    expect(clear.seen).toBeNull();
+  });
+
   it('lets a refusal through to the caller (the hook rolls back on any rejection)', async () => {
     apiClient.put.mockRejectedValue(Object.assign(new Error('403'), { response: { status: 403 } }));
     await expect(putRating({

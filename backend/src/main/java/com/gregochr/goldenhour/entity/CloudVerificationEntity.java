@@ -126,6 +126,20 @@ public class CloudVerificationEntity {
     @Column(name = "observer_high_cloud")
     private Integer observerHighCloud;
 
+    /**
+     * Analysed 2 m temperature (deg C) at the observer at the event hour (V187) - half of the
+     * valley-mist saturation proxy. Recorded, never required: null on every row before V187.
+     */
+    @Column(name = "observer_temp_c")
+    private Double observerTempC;
+
+    /**
+     * Analysed 2 m dew point (deg C) at the observer at the event hour (V187) - the other half of the
+     * saturation proxy. Recorded, never required: null on every row before V187.
+     */
+    @Column(name = "observer_dew_point_c")
+    private Double observerDewPointC;
+
     /** The archive hour actually sampled, or {@code null} if unavailable. */
     @Column(name = "observed_at")
     private LocalDateTime observedAt;

@@ -4,7 +4,8 @@ import ProPill from '../shared/ProPill.jsx';
 import OutcomeAdminList from './OutcomeAdminList.jsx';
 import {
   CHANGE, LITE_LOCKED, LITE_PROMPT, NOT_SEEN_BUTTON, NOT_SEEN_DONE, QUESTION, RATED_PREFIX,
-  REPLACE_NOT_SEEN, SAVE_FAILED, ratedNumeral, replaceMeta, spokenRating, starLabel, unratedMeta,
+  REPLACE_NOT_SEEN, SAVE_FAILED, SEEN_GROUP_LABEL, SEEN_TAGS, TAG_SAVE_FAILED, ratedNumeral, replaceMeta,
+  spokenRating, starLabel, unratedMeta,
 } from './outcomeRatingCopy.js';
 
 const STARS = [1, 2, 3, 4, 5];
@@ -36,6 +37,74 @@ export function ratingView({
   if (mine && !changing && !saving && !saveError) return 'done';
   return 'grid';
 }
+
+/**
+ * Whether the "what did you see" chip row is drawn — exported for the same reason {@link ratingView}
+ * is: the row changes the card's height, and the callout (which places itself from its own dependency
+ * list) must be able to name it.
+ *
+ * <ul>
+ *   <li>{@code 'done'} — only for a record that HAS a star ({@code mine.rating != null}): a "didn't see
+ *       it" record carries NOT_SEEN on its own and has nothing to tag.</li>
+ *   <li>{@code 'grid'} — only while changing an existing star (the row stays where it was in the done
+ *       layout, so Change does not move it); never for the first rating, whose saving grid must not
+ *       grow a row mid-flight.</li>
+ *   <li>{@code 'lite'} — always, dimmed: tagging is part of Pro, and the lock is shown, not hidden.</li>
+ * </ul>
+ *
+ * @param {object} state the same fields {@link ratingView} reads
+ * @returns {boolean}
+ */
+export function showsSeenChips(state) {
+  const view = ratingView(state);
+  if (view === 'lite') return true;
+  if (state.mine?.rating == null) return false;
+  return view === 'done' || (view === 'grid' && Boolean(state.changing));
+}
+
+/**
+ * The chip row: four toggle buttons (Colour · Mist · Inversion · Flat) in a labelled group, the
+ * current tag {@code aria-pressed}. Tapping a chip sets it; tapping the pressed one clears it. A busy
+ * or locked row is {@code aria-disabled}, never {@code disabled} (a disabled control that held focus
+ * drops it to the body), and a locked press answers in words through {@code onLocked}.
+ */
+function SeenChips({
+  current, locked, busy, onPick,
+}) {
+  const captionId = useId();
+  return (
+    <div
+      className={`wf-seen${locked ? ' is-locked' : ''}${busy ? ' is-saving' : ''}`}
+      role="group"
+      aria-labelledby={captionId}
+      aria-busy={busy ? 'true' : undefined}
+      data-testid="outcome-rating-seen"
+    >
+      <span className="wf-seen-q" id={captionId}>{SEEN_GROUP_LABEL}</span>
+      {SEEN_TAGS.map(({ tag, label }) => (
+        <button
+          key={tag}
+          type="button"
+          className="wf-seen-chip"
+          data-testid="outcome-rating-seen-chip"
+          data-tag={tag}
+          aria-pressed={locked ? false : current === tag}
+          aria-disabled={locked || busy ? 'true' : undefined}
+          onClick={() => onPick(tag)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+SeenChips.propTypes = {
+  current: PropTypes.string,
+  locked: PropTypes.bool.isRequired,
+  busy: PropTypes.bool.isRequired,
+  onPick: PropTypes.func.isRequired,
+};
 
 /** `★★★☆☆` as two runs, so the filled and the empty carry their own colours. Decorative. */
 function Glyphs({ rating }) {
@@ -92,6 +161,10 @@ Glyphs.propTypes = { rating: PropTypes.number.isRequired };
  * @param {function(boolean): void} props.onChangingChange
  * @param {function(?number): Promise<boolean>} props.onRate 1..5, or null for "didn't see it";
  *        resolves true when the save landed
+ * @param {function(?string): Promise<boolean>} [props.onTag] saves the "what did you see" tag
+ *        ({@code COLOUR|MIST|INVERSION|FLAT}, or null to clear) against the current star
+ * @param {boolean} [props.tagSaving] a tag save for this slot is in flight
+ * @param {boolean} [props.tagSaveError] the last tag save for this slot failed
  * @param {function(): void} [props.onClearError] clears this slot's save error — pressed Change, and on unmount
  * @param {?object} [props.admin] the Admin's "All ratings" box (O5a, plan §2 #7), drawn under the
  *        reader's own block in either layout; null for every other role, which never mounts it. Its
@@ -101,7 +174,8 @@ Glyphs.propTypes = { rating: PropTypes.number.isRequired };
  */
 export default function OutcomeRatingBlock({
   event, mine = null, userRole = null, saving = false, saveError = false, changing = false,
-  onChangingChange, onRate, onClearError = null, admin = null,
+  onChangingChange, onRate, onClearError = null, admin = null, onTag = null, tagSaving = false,
+  tagSaveError = false,
 }) {
   const view = ratingView({
     userRole, mine, changing, saving, saveError,
@@ -165,6 +239,23 @@ export default function OutcomeRatingBlock({
   };
 
   const kindAttr = event.eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
+  const withChips = showsSeenChips({
+    userRole, mine, changing, saving, saveError,
+  });
+  /** A chip press: a locked one answers in words, a live one saves (pressing the held tag clears it). */
+  const pressTag = (tag) => {
+    if (view === 'lite') { setTapped(true); return; }
+    if (saving || tagSaving || !onTag) return;
+    onTag(mine?.seen === tag ? null : tag);
+  };
+  const chips = withChips ? (
+    <SeenChips
+      current={mine?.seen ?? null}
+      locked={view === 'lite'}
+      busy={saving || tagSaving}
+      onPick={pressTag}
+    />
+  ) : null;
   // ADMIN only: the role is checked HERE as well as by the callout that builds the prop, so a caller
   // that passed `admin` for another role would still draw nothing; and never beside the Lite lock.
   // The fixed `key` is load-bearing: the list sits at a different child index in the 'done' and 'grid'
@@ -207,6 +298,17 @@ export default function OutcomeRatingBlock({
             {CHANGE}
           </button>
         </div>
+        {chips}
+        {chips && (
+          <div className="wf-rate-status" role="status" data-testid="outcome-rating-tag-status">
+            {tagSaveError ? (
+              <>
+                <i aria-hidden="true" />
+                {TAG_SAVE_FAILED}
+              </>
+            ) : null}
+          </div>
+        )}
         {adminList}
       </div>
     );
@@ -273,16 +375,17 @@ export default function OutcomeRatingBlock({
       >
         {NOT_SEEN_BUTTON}
       </button>
+      {chips}
       {locked ? (
         <p className="wf-rate-note" role="status" data-testid="outcome-rating-note">
           {tapped ? LITE_LOCKED : LITE_PROMPT}
         </p>
       ) : (
         <div className="wf-rate-status" role="status" data-testid="outcome-rating-status">
-          {saveError ? (
+          {saveError || tagSaveError ? (
             <>
               <i aria-hidden="true" />
-              {SAVE_FAILED}
+              {saveError ? SAVE_FAILED : TAG_SAVE_FAILED}
             </>
           ) : null}
         </div>
@@ -298,10 +401,15 @@ OutcomeRatingBlock.propTypes = {
     dayLabel: PropTypes.string,
     time: PropTypes.string,
   }).isRequired,
-  mine: PropTypes.shape({ rating: PropTypes.number, updatedAt: PropTypes.string }),
+  mine: PropTypes.shape({
+    rating: PropTypes.number, updatedAt: PropTypes.string, seen: PropTypes.string,
+  }),
   userRole: PropTypes.string,
   saving: PropTypes.bool,
   saveError: PropTypes.bool,
+  onTag: PropTypes.func,
+  tagSaving: PropTypes.bool,
+  tagSaveError: PropTypes.bool,
   changing: PropTypes.bool,
   onChangingChange: PropTypes.func.isRequired,
   onRate: PropTypes.func.isRequired,
@@ -316,6 +424,7 @@ OutcomeRatingBlock.propTypes = {
       rating: PropTypes.number,
       updatedAt: PropTypes.string,
       mine: PropTypes.bool,
+      seen: PropTypes.string,
     })),
     eventTime: PropTypes.string,
     forecastRunAt: PropTypes.string,

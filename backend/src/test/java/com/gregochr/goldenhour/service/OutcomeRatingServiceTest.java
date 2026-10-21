@@ -3,8 +3,10 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.OutcomeRatingEntity;
+import com.gregochr.goldenhour.entity.SeenTag;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.OutcomeRatingDto;
+import com.gregochr.goldenhour.model.SeenChoice;
 import com.gregochr.goldenhour.model.SlotRatingRow;
 import com.gregochr.goldenhour.model.SlotRatingsDto;
 import com.gregochr.goldenhour.repository.AppUserRepository;
@@ -12,6 +14,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.OutcomeRatingRepository;
 import com.gregochr.goldenhour.service.AsOfEventResolver.AsOfEvent;
 import com.gregochr.goldenhour.service.OutcomeRatingStore.RatedRun;
+import com.gregochr.goldenhour.service.OutcomeRatingStore.Write;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -111,7 +114,7 @@ class OutcomeRatingServiceTest {
 
         OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 4);
 
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 4, SUNRISE_INSTANT,
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 4, null, Write.RATING, SUNRISE_INSTANT,
                 new RatedRun(7L, RUN_AT, 99L, 4), NOW);
         assertThat(dto).isEqualTo(new OutcomeRatingDto(LOCATION_ID, "Hartside", DAY, TargetType.SUNRISE,
                 4, NOW, RUN_AT, 7L, 4));
@@ -124,7 +127,7 @@ class OutcomeRatingServiceTest {
 
         OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, null);
 
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, SUNRISE_INSTANT,
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, null, Write.RATING, SUNRISE_INSTANT,
                 RatedRun.NONE, NOW);
         assertThat(dto.rating()).isNull();
         assertThat(dto.forecastRunAt()).isNull();
@@ -148,7 +151,7 @@ class OutcomeRatingServiceTest {
 
         OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 2);
 
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 2, SUNRISE_INSTANT,
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 2, null, Write.RATING, SUNRISE_INSTANT,
                 new RatedRun(7L, RUN_AT, 99L, 4), NOW);
         verifyNoInteractions(resolver);
         assertThat(dto.forecastRating()).isEqualTo(4);
@@ -167,7 +170,7 @@ class OutcomeRatingServiceTest {
 
         service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 2);
 
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 2, SUNRISE_INSTANT,
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 2, null, Write.RATING, SUNRISE_INSTANT,
                 new RatedRun(7L, RUN_AT, 99L, 4), NOW);
     }
 
@@ -179,7 +182,7 @@ class OutcomeRatingServiceTest {
         service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 1);
         service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 5);
 
-        verify(store, times(2)).upsert(anyLong(), anyLong(), any(), any(), any(), any(), any(),
+        verify(store, times(2)).upsert(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
                 any());
     }
 
@@ -249,7 +252,7 @@ class OutcomeRatingServiceTest {
         verifyNoInteractions(store);
 
         serviceAt(boundary.plusNanos(1)).rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 3);
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 3, SUNRISE_INSTANT,
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 3, null, Write.RATING, SUNRISE_INSTANT,
                 new RatedRun(7L, RUN_AT, 99L, 4), boundary.plusNanos(1));
     }
 
@@ -286,13 +289,13 @@ class OutcomeRatingServiceTest {
         when(resolver.resolve(any(), any(), any(), any())).thenReturn(AsOfEvent.NONE);
 
         service.rate("pro", LOCATION_ID, oldest, TargetType.SUNRISE, 3);
-        verify(store).upsert(USER_ID, LOCATION_ID, oldest, TargetType.SUNRISE, 3,
+        verify(store).upsert(USER_ID, LOCATION_ID, oldest, TargetType.SUNRISE, 3, null, Write.RATING,
                 oldest.atTime(5, 41).toInstant(ZoneOffset.UTC), RatedRun.NONE, NOW);
 
         assertThatThrownBy(() -> service.rate("pro", LOCATION_ID, tooOld, TargetType.SUNRISE, 3))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("That sunrise is too old to rate");
-        verify(store, times(1)).upsert(anyLong(), anyLong(), any(), any(), any(), any(), any(),
+        verify(store, times(1)).upsert(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
                 any());
     }
 
@@ -379,9 +382,9 @@ class OutcomeRatingServiceTest {
         when(locationRepository.findById(LOCATION_ID)).thenReturn(Optional.of(location));
         Instant later = NOW.minusSeconds(60);
         when(repository.findAllForSlot(LOCATION_ID, DAY, TargetType.SUNRISE)).thenReturn(List.of(
-                new SlotRatingRow(USER_ID, "pro", null, NOW, SUNRISE_INSTANT, RUN_AT, 7L),
+                new SlotRatingRow(USER_ID, "pro", null, NOW, SUNRISE_INSTANT, RUN_AT, 7L, null),
                 new SlotRatingRow(1L, "admin", 4, later, SUNRISE_INSTANT.minusSeconds(5), RUN_AT.minusSeconds(5),
-                        6L)));
+                        6L, null)));
 
         SlotRatingsDto out = service.slotRatings("admin", LOCATION_ID, DAY, TargetType.SUNRISE);
 
@@ -442,5 +445,184 @@ class OutcomeRatingServiceTest {
         assertThatThrownBy(() -> service.slotRatings("admin", LOCATION_ID, DAY, TargetType.SUNRISE))
                 .isInstanceOf(NoSuchElementException.class);
         verify(repository, never()).findAllForSlot(any(), any(), any());
+    }
+
+    // ── the seen tag (valley-mist-plan M3) ──────────────────────────────────────
+
+    private static OutcomeRatingEntity stored(Integer rating, SeenTag seen) {
+        return OutcomeRatingEntity.builder().userId(USER_ID).locationId(LOCATION_ID).eventDate(DAY)
+                .eventType(TargetType.SUNRISE).rating(rating).seen(seen).eventTime(SUNRISE_INSTANT)
+                .pipelineRunId(7L).forecastRunAt(RUN_AT).forecastEvaluationId(99L).forecastRating(4)
+                .createdAt(NOW).updatedAt(NOW.plusSeconds(5)).build();
+    }
+
+    /**
+     * The user, location and sunrise exist; the reader already has {@code before} for the slot and, once
+     * the write has run, the table holds {@code after} (the service answers with the row as STORED).
+     */
+    private void worldWithEarlier(OutcomeRatingEntity before, OutcomeRatingEntity after) {
+        when(userRepository.findByUsername("pro")).thenReturn(Optional.of(user(USER_ID, "pro")));
+        when(locationRepository.findById(LOCATION_ID)).thenReturn(Optional.of(location));
+        when(solarEventFreshness.eventTime(location, DAY, TargetType.SUNRISE)).thenReturn(SUNRISE);
+        when(repository.findByUserIdAndLocationIdAndEventDateAndEventType(USER_ID, LOCATION_ID, DAY,
+                TargetType.SUNRISE)).thenReturn(Optional.of(before), Optional.of(after));
+    }
+
+    private static final RatedRun KEPT_RUN = new RatedRun(7L, RUN_AT, 99L, 4);
+
+    @Test
+    @DisplayName("rate: a first rating with a tag stores it, and answers from the request")
+    void rate_firstRatingWithATag() {
+        world(SERVED);
+
+        OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 4,
+                new SeenChoice(SeenTag.MIST));
+
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 4, SeenTag.MIST,
+                Write.TAG, SUNRISE_INSTANT, KEPT_RUN, NOW);
+        assertThat(dto.seen()).isEqualTo(SeenTag.MIST);
+        assertThat(dto.rating()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("rate: a request that names no seen is a RATING write - it hands the store no tag to "
+            + "write - and the answer is the row as stored, kept tag included")
+    void rate_absentSeenIsARatingWrite() {
+        worldWithEarlier(stored(3, SeenTag.MIST), stored(5, SeenTag.MIST));
+
+        OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 5);
+
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 5, null,
+                Write.RATING, SUNRISE_INSTANT, KEPT_RUN, NOW);
+        assertThat(dto.seen()).isEqualTo(SeenTag.MIST);
+        assertThat(dto.rating()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("rate: a tag with a star is a TAG write, and the answer carries the STORED star, not the "
+            + "request's - a tag tap can never carry a stale star back")
+    void rate_tagWithAStarIsATagWriteAndAnswersWithTheStoredStar() {
+        // The reader's screen says 3 stars; another device has made it 5. The tag lands on the 5.
+        worldWithEarlier(stored(5, null), stored(5, SeenTag.MIST));
+
+        OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 3,
+                new SeenChoice(SeenTag.MIST));
+
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 3, SeenTag.MIST,
+                Write.TAG, SUNRISE_INSTANT, KEPT_RUN, NOW);
+        assertThat(dto.rating()).as("the stored star, untouched by the request's").isEqualTo(5);
+        assertThat(dto.seen()).isEqualTo(SeenTag.MIST);
+    }
+
+    @Test
+    @DisplayName("rate: an explicit null seen with a star is a TAG write of null (a clear)")
+    void rate_explicitNullSeenClears() {
+        worldWithEarlier(stored(3, SeenTag.MIST), stored(3, null));
+
+        OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 3,
+                SeenChoice.CLEAR);
+
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 3, null,
+                Write.TAG, SUNRISE_INSTANT, KEPT_RUN, NOW);
+        assertThat(dto.seen()).isNull();
+    }
+
+    @Test
+    @DisplayName("rate: a new tag replaces the earlier one")
+    void rate_newTagReplaces() {
+        worldWithEarlier(stored(3, SeenTag.MIST), stored(3, SeenTag.FLAT));
+
+        OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 3,
+                new SeenChoice(SeenTag.FLAT));
+
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 3, SeenTag.FLAT,
+                Write.TAG, SUNRISE_INSTANT, KEPT_RUN, NOW);
+        assertThat(dto.seen()).isEqualTo(SeenTag.FLAT);
+    }
+
+    @Test
+    @DisplayName("rate: NOT_SEEN beside a star is a 400, before any lookup")
+    void rate_notSeenTagWithAStarIsRefused() {
+        assertThatThrownBy(() -> service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 3,
+                new SeenChoice(SeenTag.NOT_SEEN)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("seen NOT_SEEN goes with \"didn't see it\", not a star rating");
+
+        verifyNoInteractions(userRepository, locationRepository, store);
+    }
+
+    @Test
+    @DisplayName("rate: a sighting tag beside 'didn't see it' (no star) is a 400, before any lookup")
+    void rate_sightingTagWithNoStarIsRefused() {
+        for (SeenTag tag : List.of(SeenTag.COLOUR, SeenTag.MIST, SeenTag.INVERSION, SeenTag.FLAT)) {
+            assertThatThrownBy(() -> service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, null,
+                    new SeenChoice(tag)))
+                    .as("tag %s", tag)
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("a \"didn't see it\" rating can only carry seen NOT_SEEN");
+        }
+
+        verifyNoInteractions(userRepository, locationRepository, store);
+    }
+
+    @Test
+    @DisplayName("rate: 'didn't see it' with its tag is ONE BOTH write; with a clear it is a BOTH write of "
+            + "null; with nothing it is a RATING write")
+    void rate_notSeenRecordModes() {
+        world(AsOfEvent.NONE);
+
+        OutcomeRatingDto tagged = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, null,
+                new SeenChoice(SeenTag.NOT_SEEN));
+        service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, null, SeenChoice.CLEAR);
+        service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, null);
+
+        assertThat(tagged.seen()).isEqualTo(SeenTag.NOT_SEEN);
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, SeenTag.NOT_SEEN,
+                Write.BOTH, SUNRISE_INSTANT, RatedRun.NONE, NOW);
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, null,
+                Write.BOTH, SUNRISE_INSTANT, RatedRun.NONE, NOW);
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, null,
+                Write.RATING, SUNRISE_INSTANT, RatedRun.NONE, NOW);
+    }
+
+    @Test
+    @DisplayName("rate: a refusal from the store (a stale tag, 409) reaches the caller untouched")
+    void rate_aStaleTagConflictPropagates() {
+        worldWithEarlier(stored(5, null), stored(5, null));
+        org.mockito.Mockito.doThrow(new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.CONFLICT, OutcomeRatingStore.STALE_RATING_MESSAGE))
+                .when(store).upsert(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
+                        any());
+
+        assertThatThrownBy(() -> service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 3,
+                new SeenChoice(SeenTag.MIST)))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("The rating changed");
+    }
+
+    @Test
+    @DisplayName("myRatings and slotRatings serve the tag")
+    void readsServeTheTag() {
+        when(userRepository.findByUsername("pro")).thenReturn(Optional.of(user(USER_ID, "pro")));
+        when(repository.findByUserIdAndEventDateBetweenOrderByEventDateAscIdAsc(USER_ID, DAY, DAY))
+                .thenReturn(List.of(
+                        OutcomeRatingEntity.builder().userId(USER_ID).locationId(LOCATION_ID).eventDate(DAY)
+                                .eventType(TargetType.SUNRISE).rating(4).seen(SeenTag.INVERSION)
+                                .eventTime(SUNRISE_INSTANT).createdAt(NOW).updatedAt(NOW).build()));
+        when(locationRepository.findAllById(Set.of(LOCATION_ID))).thenReturn(List.of(location));
+
+        assertThat(service.myRatings("pro", DAY, DAY)).extracting(OutcomeRatingDto::seen)
+                .containsExactly(SeenTag.INVERSION);
+
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user(1L, "admin")));
+        when(locationRepository.findById(LOCATION_ID)).thenReturn(Optional.of(location));
+        when(repository.findAllForSlot(LOCATION_ID, DAY, TargetType.SUNRISE)).thenReturn(List.of(
+                new SlotRatingRow(USER_ID, "pro", 4, NOW, SUNRISE_INSTANT, RUN_AT, 7L, SeenTag.MIST),
+                new SlotRatingRow(1L, "admin", 3, NOW, SUNRISE_INSTANT, RUN_AT, 7L, null)));
+
+        SlotRatingsDto all = service.slotRatings("admin", LOCATION_ID, DAY, TargetType.SUNRISE);
+
+        assertThat(all.ratings()).extracting(SlotRatingsDto.Row::seen)
+                .containsExactly(SeenTag.MIST, null);
     }
 }

@@ -319,7 +319,7 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             + " e.location.name, e.targetDate, e.targetType, e.daysAhead, e.forecastRunAt,"
             + " e.evaluationModel, e.rating, e.fierySkyPotential, e.goldenHourPotential,"
             + " o.actualRating, o.fierySkyActual, o.goldenHourActual, o.wentOut, o.id,"
-            + " e.appBuild, e.promptHash)"
+            + " e.appBuild, e.promptHash, e.mistPotential)"
             + " FROM ForecastEvaluationEntity e, ActualOutcomeEntity o"
             + " WHERE e.location.id = o.location.id"
             + " AND e.targetDate = o.outcomeDate"
@@ -345,7 +345,9 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
      * bounds the event date, inclusive at both ends.
      *
      * <p>The projection uses the narrower {@code CalibrationPair} constructor rather than null
-     * literals: the record has no fiery-sky or golden-hour actual and no trip flag.
+     * literals: the record has no fiery-sky or golden-hour actual and no trip flag. It does carry the
+     * row's valley-mist band ({@code e.mistPotential}, the forecast Claude echoed) and the reader's
+     * {@code seen} tag (V187), which the mist-prone bucket and its tag tally read.
      *
      * @param from start of the event-date window (inclusive)
      * @param to   end of the event-date window (inclusive)
@@ -354,7 +356,7 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
     @Query("SELECT new com.gregochr.goldenhour.model.CalibrationPair("
             + " e.location.name, e.targetDate, e.targetType, e.daysAhead, e.forecastRunAt,"
             + " e.evaluationModel, r.forecastRating, e.fierySkyPotential, e.goldenHourPotential,"
-            + " r.rating, r.userId, e.appBuild, e.promptHash)"
+            + " r.rating, r.userId, e.appBuild, e.promptHash, e.mistPotential, r.seen)"
             + " FROM ForecastEvaluationEntity e, OutcomeRatingEntity r"
             + " WHERE e.id = r.forecastEvaluationId"
             + " AND e.rating IS NOT NULL"

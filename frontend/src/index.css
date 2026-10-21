@@ -7995,11 +7995,58 @@ button.wf-hc.also.on:hover {
 .wf-rate-change:hover {
   color: var(--color-plex-text);
 }
+/* The "what did you see" chips (valley-mist-plan M3): Colour · Mist · Inversion · Flat, under the stars of
+   a rated block (and, dimmed, in the Lite lock). Four toggle buttons that WRAP — at the phone card's
+   238px inner width they do not fit one line (Inversion alone is ~84px), so `flex-wrap` puts the fourth
+   on a second row and `flex: 1 1 auto` lets each row fill the width. 36px high, taller than the 24px
+   WCAG 2.2 minimum and shorter than the 40/44px of the primary controls: this is a secondary choice and
+   two rows of it must not dominate a 266px card. The pressed chip takes the star control's selected
+   treatment; saving dims to .55 and the Lite lock to .45, both `aria-disabled` and never `disabled`. */
+.wf-seen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* The visible caption: a full-width first line of the wrapping row, in the block's meta voice. */
+.wf-seen-q {
+  flex: 0 0 100%;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+}
+.wf-seen-chip {
+  flex: 1 1 auto;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 9px;
+  background: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-seen-chip:hover {
+  border-color: var(--color-plex-text-muted);
+  color: var(--color-plex-text);
+}
+.wf-seen-chip[aria-pressed='true'] {
+  border-color: var(--color-star);
+  background: var(--color-star-selected-bg);
+  color: var(--color-plex-text);
+}
+.wf-seen.is-saving {
+  opacity: 0.55;
+}
+.wf-seen.is-locked {
+  opacity: 0.45;
+}
 /* ⚠️ An INSET ring on every control in the block: `.wf-callout-body` scrolls (`overflow-y: auto`
    clips on both axes) and has no side padding, so an outset ring at the first and last column is cut
    off — the `.wf-callout-comfort:focus-visible` note above has the same geometry. */
 .wf-rate-star:focus-visible,
 .wf-rate-ns:focus-visible,
+.wf-seen-chip:focus-visible,
 .wf-rate-change:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: -2px;
@@ -8105,6 +8152,16 @@ button.wf-hc.also.on:hover {
   font-size: 12px;
   letter-spacing: 1px;
 }
+/* The rating cell: the stars (or "Not seen") with the reader's "what did you see" word under them. */
+.wf-adm-c {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.wf-adm-tag {
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
 .wf-adm-t {
   min-width: 56px;
   font-family: var(--font-mono);
@@ -8149,7 +8206,8 @@ button.wf-hc.also.on:hover {
    choice marked by nothing. */
 @media (forced-colors: active) {
   .wf-rate-star[data-selected],
-  .wf-rate-ns[data-selected] {
+  .wf-rate-ns[data-selected],
+  .wf-seen-chip[aria-pressed='true'] {
     border-color: Highlight;
     border-width: 3px;
   }

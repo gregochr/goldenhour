@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.SeenTag;
 import com.gregochr.goldenhour.model.CalibrationBucket;
 import com.gregochr.goldenhour.model.CalibrationPair;
 import com.gregochr.goldenhour.model.CalibrationReport;
@@ -43,6 +44,12 @@ public class ForecastCalibrationService {
 
     /** Bucket key used when an evaluation carried no model. */
     private static final String UNKNOWN_MODEL_KEY = "UNKNOWN";
+
+    /** Bucket key of the mist-prone bucket: pairs whose forecast carried the LIKELY mist band. */
+    static final String MIST_PRONE_KEY = "MIST_LIKELY";
+
+    /** {@code seen} count key for a rating given with no tag (and for every {@code actual_outcome}). */
+    static final String UNTAGGED_KEY = "UNTAGGED";
 
     /** Bucket key used when a forecast row carried no recorded build or prompt fingerprint. */
     private static final String UNKNOWN_KEY = "UNKNOWN";
@@ -91,6 +98,8 @@ public class ForecastCalibrationService {
         int outcomesInRange = actualOutcomeRepository.findAllByOutcomeDateBetween(from, to).size()
                 + Math.toIntExact(outcomeRatingRepository.countByEventDateBetween(from, to));
 
+        List<CalibrationPair> mistPairs = pairs.stream().filter(CalibrationPair::mistLikely).toList();
+
         CalibrationReport report = new CalibrationReport(
                 from,
                 to,
@@ -100,14 +109,19 @@ public class ForecastCalibrationService {
                 bucketsByDaysAhead(pairs),
                 bucketsByModel(pairs),
                 bucketsByKey(pairs, CalibrationPair::appBuild),
-                bucketsByKey(pairs, CalibrationPair::promptHash));
+                bucketsByKey(pairs, CalibrationPair::promptHash),
+                mistPairs.isEmpty() ? null : CalibrationBucket.of(MIST_PRONE_KEY, mistPairs),
+                seenCounts(mistPairs));
 
         LOG.info("[CALIBRATION] window={}..{} outcomes={} scoredPairs={} "
-                + "meanAbsError={} missedOpportunities={} wastedTrips={}",
+                + "meanAbsError={} missedOpportunities={} wastedTrips={} mistPronePairs={} "
+                + "mistProneMissedOpportunities={}",
                 from, to, outcomesInRange, pairs.size(),
                 report.overall().meanAbsoluteRatingError(),
                 report.overall().missedOpportunities(),
-                report.overall().wastedTrips());
+                report.overall().wastedTrips(),
+                mistPairs.size(),
+                report.mistProne() == null ? 0 : report.mistProne().missedOpportunities());
         return report;
     }
 
@@ -145,6 +159,29 @@ public class ForecastCalibrationService {
         }
         return existing.forecastRunAt() == null
                 || candidate.forecastRunAt().isAfter(existing.forecastRunAt());
+    }
+
+    /**
+     * Tallies what readers said they saw across a set of pairs: tag name to count, {@code UNTAGGED}
+     * for a pair with no tag. Insertion order is the enum's, then {@code UNTAGGED}, so reports diff
+     * cleanly; a tag nobody gave is absent rather than zero.
+     *
+     * @param pairs the pairs to tally
+     * @return tag name to number of pairs, empty for no pairs
+     */
+    private Map<String, Integer> seenCounts(List<CalibrationPair> pairs) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (SeenTag tag : SeenTag.values()) {
+            long n = pairs.stream().filter(pair -> pair.seen() == tag).count();
+            if (n > 0) {
+                counts.put(tag.name(), Math.toIntExact(n));
+            }
+        }
+        long untagged = pairs.stream().filter(pair -> pair.seen() == null).count();
+        if (untagged > 0) {
+            counts.put(UNTAGGED_KEY, Math.toIntExact(untagged));
+        }
+        return counts;
     }
 
     /**

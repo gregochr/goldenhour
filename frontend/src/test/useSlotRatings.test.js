@@ -85,10 +85,27 @@ describe('useSlotRatings — when it reads', () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.failed).toBe(false);
     expect(result.current.rows).toEqual([
-      { username: 'jgregory', rating: null, updatedAt: null, mine: true },
+      { username: 'jgregory', rating: null, updatedAt: null, mine: true, seen: null },
     ]);
     expect(result.current.eventTime).toBe('2026-06-14T20:10:00Z');
     expect(result.current.forecastRunAt).toBe('2026-06-14T17:05:00Z');
+  });
+
+  it('carries each row\'s seen tag through, and null for a row without one (valley-mist-plan M3)', async () => {
+    fetchAllRatingsForSlot.mockResolvedValue({
+      ...ANSWER([]),
+      ratings: [
+        { username: 'zoe', rating: 5, updatedAt: '2026-06-14T21:30:00Z', mine: false, seen: 'MIST' },
+        { username: 'pat', rating: null, updatedAt: '2026-06-14T21:31:00Z', mine: false, seen: 'NOT_SEEN' },
+        { username: 'mhart', rating: 4, updatedAt: '2026-06-14T21:32:00Z', mine: false },
+      ],
+    });
+    const { result, rerender } = mount();
+    rerender({ enabled: true, ...SLOT, open: true });
+    await settle();
+
+    expect(result.current.rows.map((r) => [r.username, r.seen]))
+      .toEqual([['zoe', 'MIST'], ['pat', 'NOT_SEEN'], ['mhart', null]]);
   });
 
   it('does not ask again when the box is collapsed and re-expanded (first expand only)', async () => {

@@ -115,7 +115,8 @@ const KEY = rowKey(LOCATION.id, YESTERDAY, 'SUNSET');
 
 /** What `useOutcomeRatings` returns, with `rate`/`clearSaveError` spied. */
 function ratingsFor({
-  mine = [], saving = [], saveError = [], loaded = true, coversDate = null,
+  mine = [], saving = [], saveError = [], loaded = true, coversDate = null, tagSaving = [],
+  tagSaveError = [],
 } = {}) {
   return {
     loaded,
@@ -125,7 +126,10 @@ function ratingsFor({
     mine: new Map(mine),
     saving: new Set(saving),
     saveError: new Set(saveError),
+    tagSaving: new Set(tagSaving),
+    tagSaveError: new Set(tagSaveError),
     rate: vi.fn().mockResolvedValue(true),
+    rateTag: vi.fn().mockResolvedValue(true),
     clearSaveError: vi.fn(),
   };
 }
@@ -332,6 +336,59 @@ describe('MapCallout — what the block is handed', () => {
     expect(ratings.rate).toHaveBeenLastCalledWith(7, YESTERDAY, 'SUNSET', null);
   });
 
+  it('a chip press calls ratings.rateTag with the place, the window\'s date and type, and the tag', async () => {
+    const ratings = ratingsFor({ mine: [[KEY, { rating: 4, updatedAt: 'x' }]] });
+    await mount({ ratings });
+    await act(async () => { fireEvent.click(screen.getByText('Mist')); });
+    expect(ratings.rateTag).toHaveBeenCalledWith(7, YESTERDAY, 'SUNSET', 'MIST');
+    expect(ratings.rate).not.toHaveBeenCalled();
+  });
+
+  it('pressing the held chip clears it: rateTag with null', async () => {
+    const ratings = ratingsFor({ mine: [[KEY, { rating: 4, updatedAt: 'x', seen: 'MIST' }]] });
+    await mount({ ratings });
+    await act(async () => { fireEvent.click(screen.getByText('Mist')); });
+    expect(ratings.rateTag).toHaveBeenCalledWith(7, YESTERDAY, 'SUNSET', null);
+  });
+
+  it('reads the tag-saving and tag-failed flags for THIS slot\'s key alone', async () => {
+    const other = rowKey(8, YESTERDAY, 'SUNSET');
+    const ratings = ratingsFor({
+      mine: [[KEY, { rating: 4, updatedAt: 'x' }]], tagSaving: [other], tagSaveError: [other],
+    });
+    await mount({ ratings });
+    expect(screen.getByTestId('outcome-rating-tag-status').textContent).toBe('');
+    for (const c of screen.getAllByTestId('outcome-rating-seen-chip')) {
+      expect(c.getAttribute('aria-disabled')).toBeNull();
+    }
+  });
+
+  it('shows the tag-failed line for this key', async () => {
+    const failed = ratingsFor({ mine: [[KEY, { rating: 4, updatedAt: 'x' }]], tagSaveError: [KEY] });
+    await mount({ ratings: failed });
+    expect(screen.getByTestId('outcome-rating-tag-status').textContent).toContain('Tag not saved');
+  });
+
+  it('shows the chips busy for this key\'s tag save, and a press asks for nothing (positive control)', async () => {
+    const ratings = ratingsFor({ mine: [[KEY, { rating: 4, updatedAt: 'x' }]], tagSaving: [KEY] });
+    await mount({ ratings });
+    for (const c of screen.getAllByTestId('outcome-rating-seen-chip')) {
+      expect(c.getAttribute('aria-disabled')).toBe('true');
+    }
+    await act(async () => { fireEvent.click(screen.getByText('Mist')); });
+    expect(ratings.rateTag).not.toHaveBeenCalled();
+  });
+
+  it('a chip press by an Admin re-fetches the slot\'s list once it lands (the tag is part of the list)', async () => {
+    fetchAllRatingsForSlot.mockResolvedValue({ eventTime: null, forecastRunAt: null, ratings: [] });
+    const ratings = ratingsFor({ mine: [[KEY, { rating: 4, updatedAt: 'x' }]] });
+    await mount({ ratings, userRole: 'ADMIN' });
+    await act(async () => { fireEvent.click(screen.getByTestId('outcome-admin-toggle')); });
+    const before = fetchAllRatingsForSlot.mock.calls.length;
+    await act(async () => { fireEvent.click(screen.getByText('Flat')); });
+    expect(fetchAllRatingsForSlot.mock.calls.length).toBeGreaterThan(before);
+  });
+
   it('clears the failed-save line for this key when the block asks (Change, or unmounting)', async () => {
     const ratings = ratingsFor({ mine: [[KEY, { rating: 3, updatedAt: 'x' }]] });
     const { unmount } = await mount({ ratings });
@@ -460,6 +517,27 @@ describe('MapCallout — the rating block repaints the card (plan §1 #3)', () =
     expect(calls).toBeGreaterThan(0);
   });
 
+  it('re-measures when the chip row comes with the record (the done row grows by the chips)', async () => {
+    // Unrated -> rated also flips the view, so isolate the chips: the same view ('done'), a tag failure line.
+    const calls = await repaintsAfter(
+      ({ rerender }) => rerender(element({
+        ratings: ratingsFor({ mine: [[KEY, { rating: 5, updatedAt: 'x' }]], tagSaveError: [KEY] }),
+      })),
+      { ratings: ratingsFor({ mine: [[KEY, { rating: 5, updatedAt: 'x' }]] }) },
+    );
+    expect(calls).toBeGreaterThan(0);
+  });
+
+  it('re-measures when the chip row goes away with the star (the view stays "done")', async () => {
+    const calls = await repaintsAfter(
+      ({ rerender }) => rerender(element({
+        ratings: ratingsFor({ mine: [[KEY, { rating: null, updatedAt: 'x', seen: 'NOT_SEEN' }]] }),
+      })),
+      { ratings: ratingsFor({ mine: [[KEY, { rating: 4, updatedAt: 'x' }]] }) },
+    );
+    expect(calls).toBeGreaterThan(0);
+  });
+
   it('control: an unrelated re-render with the same layout does not repaint', async () => {
     const calls = await repaintsAfter(
       ({ rerender }) => rerender(element({ ratings: ratingsFor(), rating: 4 })),
@@ -530,6 +608,24 @@ describe('MapCallout — the Admin\'s "All ratings" list (O5a)', () => {
     await expand();
     await expand();
     expect(fetchAllRatingsForSlot).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a reader\'s seen tag in the list, THROUGH the hook and the callout (server row to screen)', async () => {
+    fetchAllRatingsForSlot.mockResolvedValue({
+      eventTime: `${YESTERDAY}T20:10:00Z`,
+      forecastRunAt: `${YESTERDAY}T18:10:00Z`,
+      ratings: [
+        { username: 'zoe', rating: 5, updatedAt: `${YESTERDAY}T21:30:00Z`, mine: false, seen: 'MIST' },
+        { username: 'mhart', rating: 4, updatedAt: `${YESTERDAY}T21:00:00Z`, mine: false },
+      ],
+    });
+    await mount({ userRole: 'ADMIN' });
+    await expand();
+
+    const tags = screen.getAllByTestId('outcome-admin-seen');
+    expect(tags).toHaveLength(1);
+    expect(tags[0]).toHaveTextContent('Mist');
+    expect(tags[0].closest('[data-testid="outcome-admin-row"]')).toHaveTextContent('zoe');
   });
 
   it.each([

@@ -62,7 +62,7 @@ class OutcomeRatingRepositoryTest {
 
     private void insert(long user, long location, LocalDate date, TargetType type, Integer rating, Instant at) {
         repository.insertRow(user, location, date, type.name(), rating, EVENT, 5L,
-                Instant.parse("2026-10-14T01:05:00Z"), 8L, 3, "v2.28.0", at);
+                Instant.parse("2026-10-14T01:05:00Z"), 8L, 3, "v2.28.0", at, null);
         entityManager.flush();
         entityManager.clear();
     }
@@ -89,12 +89,116 @@ class OutcomeRatingRepositoryTest {
     }
 
     @Test
+    @DisplayName("V187: the slot read projects each row's seen tag, null for an untagged one; updateRow "
+            + "replaces and clears it")
+    void seen_isStoredProjectedReplacedAndCleared() {
+        Instant at = Instant.parse("2026-10-14T08:00:00Z");
+        repository.insertRow(alice, LOCATION, DAY, TargetType.SUNRISE.name(), 4, EVENT, null, null, null, null,
+                "v2.28.0", at, "MIST");
+        repository.insertRow(bob, LOCATION, DAY, TargetType.SUNRISE.name(), 3, EVENT, null, null, null, null,
+                "v2.28.0", at.plusSeconds(1), null);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(repository.findAllForSlot(LOCATION, DAY, TargetType.SUNRISE))
+                .extracting(SlotRatingRow::username, SlotRatingRow::seen)
+                .containsExactly(tuple("bob", null), tuple("alice", com.gregochr.goldenhour.entity.SeenTag.MIST));
+
+        repository.updateRow(alice, LOCATION, DAY, TargetType.SUNRISE, 4, EVENT, null, null, null, null,
+                "v2.28.0", at.plusSeconds(2), com.gregochr.goldenhour.entity.SeenTag.INVERSION);
+        entityManager.clear();
+        assertThat(repository.findByUserIdAndLocationIdAndEventDateAndEventType(alice, LOCATION, DAY,
+                TargetType.SUNRISE).orElseThrow().getSeen())
+                .isEqualTo(com.gregochr.goldenhour.entity.SeenTag.INVERSION);
+
+        repository.updateRow(alice, LOCATION, DAY, TargetType.SUNRISE, 4, EVENT, null, null, null, null,
+                "v2.28.0", at.plusSeconds(3), null);
+        entityManager.clear();
+        assertThat(repository.findByUserIdAndLocationIdAndEventDateAndEventType(alice, LOCATION, DAY,
+                TargetType.SUNRISE).orElseThrow().getSeen()).isNull();
+    }
+
+    private OutcomeRatingEntity stored(long user) {
+        entityManager.clear();
+        return repository.findByUserIdAndLocationIdAndEventDateAndEventType(user, LOCATION, DAY,
+                TargetType.SUNRISE).orElseThrow();
+    }
+
+    private void insertTagged(long user, Integer rating, String seen) {
+        repository.insertRow(user, LOCATION, DAY, TargetType.SUNRISE.name(), rating, EVENT, 5L,
+                Instant.parse("2026-10-14T01:05:00Z"), 8L, 3, "v2.28.0", Instant.parse("2026-10-14T08:00:00Z"),
+                seen);
+        entityManager.flush();
+    }
+
+    @Test
+    @DisplayName("updateSeen writes the tag and updated_at and NO other column")
+    void updateSeen_isColumnScoped() {
+        insertTagged(alice, 4, "COLOUR");
+        Instant later = Instant.parse("2026-10-14T09:30:00Z");
+
+        int n = repository.updateSeen(alice, LOCATION, DAY, TargetType.SUNRISE,
+                com.gregochr.goldenhour.entity.SeenTag.MIST, later);
+
+        OutcomeRatingEntity row = stored(alice);
+        assertThat(n).isEqualTo(1);
+        assertThat(row.getSeen()).isEqualTo(com.gregochr.goldenhour.entity.SeenTag.MIST);
+        assertThat(row.getUpdatedAt()).isEqualTo(later);
+        assertThat(row.getRating()).isEqualTo(4);
+        assertThat(row.getEventTime()).isEqualTo(EVENT);
+        assertThat(row.getPipelineRunId()).isEqualTo(5L);
+        assertThat(row.getForecastEvaluationId()).isEqualTo(8L);
+        assertThat(row.getForecastRating()).isEqualTo(3);
+        assertThat(row.getAppBuild()).isEqualTo("v2.28.0");
+        assertThat(row.getCreatedAt()).isEqualTo(Instant.parse("2026-10-14T08:00:00Z"));
+        assertThat(repository.updateSeen(bob, LOCATION + 9, DAY, TargetType.SUNRISE, null, later)).isZero();
+    }
+
+    @Test
+    @DisplayName("updateRating writes the star and keeps a compatible tag; the pairing rule runs in the SQL")
+    void updateRating_keepsOrDropsTheTagInSql() {
+        Instant later = Instant.parse("2026-10-14T09:30:00Z");
+        insertTagged(alice, 4, "MIST");
+        repository.updateRating(alice, LOCATION, DAY, TargetType.SUNRISE, 2, true, EVENT, 5L, null, 8L, 3,
+                "v2.29.0", later);
+        assertThat(stored(alice).getRating()).isEqualTo(2);
+        assertThat(stored(alice).getSeen()).isEqualTo(com.gregochr.goldenhour.entity.SeenTag.MIST);
+        assertThat(stored(alice).getAppBuild()).isEqualTo("v2.29.0");
+
+        // a sighting does not survive 'didn't see it'
+        repository.updateRating(alice, LOCATION, DAY, TargetType.SUNRISE, null, false, EVENT, 5L, null, 8L,
+                3, "v2.29.0", later);
+        assertThat(stored(alice).getRating()).isNull();
+        assertThat(stored(alice).getSeen()).isNull();
+    }
+
+    @Test
+    @DisplayName("updateRating drops NOT_SEEN beside a star and keeps it beside none; an untagged row stays so")
+    void updateRating_notSeenPairing() {
+        Instant later = Instant.parse("2026-10-14T09:30:00Z");
+        insertTagged(alice, null, "NOT_SEEN");
+        repository.updateRating(alice, LOCATION, DAY, TargetType.SUNRISE, null, false, EVENT, null, null, null,
+                null, "v2.29.0", later);
+        assertThat(stored(alice).getSeen()).isEqualTo(com.gregochr.goldenhour.entity.SeenTag.NOT_SEEN);
+
+        repository.updateRating(alice, LOCATION, DAY, TargetType.SUNRISE, 5, true, EVENT, null, null, null,
+                null, "v2.29.0", later);
+        assertThat(stored(alice).getRating()).isEqualTo(5);
+        assertThat(stored(alice).getSeen()).isNull();
+
+        insertTagged(bob, 3, null);
+        repository.updateRating(bob, LOCATION, DAY, TargetType.SUNRISE, 4, true, EVENT, null, null, null,
+                null, "v2.29.0", later);
+        assertThat(stored(bob).getSeen()).isNull();
+    }
+
+    @Test
     @DisplayName("V182: insertRow stores the build, a null build stores NULL, and updateRow replaces it")
     void appBuild_isStoredAndReplaced() {
         Instant at = Instant.parse("2026-10-14T08:00:00Z");
         insert(alice, LOCATION, DAY, TargetType.SUNRISE, 4, at);
         repository.insertRow(bob, LOCATION, DAY, TargetType.SUNRISE.name(), 3, EVENT, null, null, null,
-                null, null, at);
+                null, null, at, null);
         entityManager.flush();
         entityManager.clear();
 
@@ -105,7 +209,7 @@ class OutcomeRatingRepositoryTest {
                 bob, LOCATION, DAY, TargetType.SUNRISE).orElseThrow().getAppBuild()).isNull();
 
         int updated = repository.updateRow(alice, LOCATION, DAY, TargetType.SUNRISE, 2, EVENT, null, null,
-                null, null, "v2.29.0", at.plusSeconds(60));
+                null, null, "v2.29.0", at.plusSeconds(60), null);
         entityManager.clear();
 
         assertThat(updated).isEqualTo(1);
@@ -150,7 +254,7 @@ class OutcomeRatingRepositoryTest {
                 bob, LOCATION, DAY, TargetType.SUNRISE)).isFalse();
 
         int missing = repository.updateRow(bob, LOCATION, DAY, TargetType.SUNRISE, 1, EVENT, null, null,
-                null, null, null, Instant.parse("2026-10-14T12:00:00Z"));
+                null, null, null, Instant.parse("2026-10-14T12:00:00Z"), null);
         assertThat(missing).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM outcome_rating", Integer.class)).isEqualTo(1);
     }

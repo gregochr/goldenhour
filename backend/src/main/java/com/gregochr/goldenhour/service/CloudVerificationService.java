@@ -46,6 +46,13 @@ import java.util.stream.Collectors;
  * <p>Pressure-level cloud (850 to 300 hPa, recorded on the forecast side only) is deliberately NOT
  * fetched from the ERA5 archive: the archive returns null for those variables (checked 2026-10-13),
  * so do not add them to {@code ARCHIVE_HOURLY}.
+ *
+ * <p>The observer's 2 m temperature and dew point at the event hour ({@code observer_temp_c},
+ * {@code observer_dew_point_c}, V187) are the valley-mist saturation proxy: how close to saturation
+ * the reanalysis put the air, for the "forecast saturation versus reanalysis saturation" report the
+ * plan describes (not built yet, and with the caveat that a 31 km reanalysis cell cannot see a
+ * river). <b>Recorded, never required</b> - the V175 rule: they are not in {@code
+ * deleteIncompleteVerifications}, so a row with them null is complete and is never re-walked.
  */
 @Service
 public class CloudVerificationService {
@@ -58,8 +65,14 @@ public class CloudVerificationService {
      */
     static final int ARCHIVE_LAG_DAYS = 6;
 
-    /** Hourly variables requested from the archive — the same three layers the forecast uses. */
-    private static final String ARCHIVE_HOURLY = "cloud_cover_low,cloud_cover_mid,cloud_cover_high";
+    /**
+     * Hourly variables requested from the archive: the same three cloud layers the forecast uses, plus
+     * the 2 m temperature and dew point that give the observer point its saturation proxy (V187,
+     * valley-mist-plan M3). Five variables stay inside Open-Meteo's ten-variable weight unit, so the
+     * request costs no more of the daily call budget than the three did.
+     */
+    private static final String ARCHIVE_HOURLY =
+            "cloud_cover_low,cloud_cover_mid,cloud_cover_high,temperature_2m,dew_point_2m";
 
     /**
      * Archive points sampled per evaluation: the three solar-cone bearings, the observer, and the
@@ -530,8 +543,22 @@ public class CloudVerificationService {
             builder.horizonLowCloud(low).horizonMidCloud(mid).horizonHighCloud(high)
                     .observedAt(LocalDateTime.parse(hourly.getTime().get(idx)));
         } else {
-            builder.observerLowCloud(low).observerMidCloud(mid).observerHighCloud(high);
+            builder.observerLowCloud(low).observerMidCloud(mid).observerHighCloud(high)
+                    .observerTempC(valueAt(hourly.getTemperature2m(), idx))
+                    .observerDewPointC(valueAt(hourly.getDewPoint2m(), idx));
         }
+    }
+
+    /**
+     * Returns the reading at an index, or {@code null} if the series is absent, too short or holds
+     * no value there.
+     *
+     * @param values the hourly series
+     * @param idx    the resolved index
+     * @return the reading, or {@code null}
+     */
+    private Double valueAt(List<Double> values, int idx) {
+        return values == null || idx < 0 || idx >= values.size() ? null : values.get(idx);
     }
 
     /**

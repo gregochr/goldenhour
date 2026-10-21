@@ -2,7 +2,7 @@ import { useId } from 'react';
 import PropTypes from 'prop-types';
 import {
   ADMIN_EMPTY, ADMIN_LOAD_FAILED, ADMIN_LOADING, ADMIN_NOT_SEEN, adminFooter, adminHeader,
-  adminStamp, spokenRating,
+  adminStamp, seenLabel, spokenRating,
 } from './outcomeRatingCopy.js';
 
 /**
@@ -30,6 +30,10 @@ const stars = (rating) => Math.min(5, Math.max(1, Math.round(rating)));
  * so the toggle's {@code aria-controls} always names an element; the one status line inside it is
  * mounted with the panel, so the loading and failure sentences arrive in a region that already exists.
  *
+ * <p>A reader's "what did you see" tag (valley-mist-plan M3) sits under their rating as a small word —
+ * Colour, Mist, Inversion or Flat. A "not seen" row says "Not seen" already, so its NOT_SEEN tag adds
+ * nothing, and a row with no tag adds nothing either.
+ *
  * <p>Each rating is a decorative glyph run with a visually hidden "3 out of 5" beside it (a row never
  * says its star count twice), or "Not seen". The caller's row leads; the server's order is kept below it.
  *
@@ -40,7 +44,8 @@ const stars = (rating) => Math.min(5, Math.max(1, Math.round(rating)));
  * @param {function(): void} props.admin.onToggle
  * @param {boolean} props.admin.loading the first fetch is out
  * @param {boolean} [props.admin.failed] the latest fetch failed
- * @param {?Array<{username: string, rating: ?number, updatedAt: ?string, mine: boolean}>} props.admin.rows
+ * @param {?Array<{username: string, rating: ?number, updatedAt: ?string, mine: boolean,
+ *        seen: ?string}>} props.admin.rows
  *        null until a fetch has answered
  * @param {?string} props.admin.eventTime the event instant the ratings are for
  * @param {?string} props.admin.forecastRunAt the run they were recorded against, or null
@@ -90,17 +95,25 @@ export default function OutcomeAdminList({ eventType, admin }) {
                     data-mine={row.mine ? '' : undefined}
                   >
                     <span className="wf-adm-u">{row.username}</span>
-                    {row.rating == null ? (
-                      <span className="wf-adm-nsv">{ADMIN_NOT_SEEN}</span>
-                    ) : (
-                      <span className="wf-adm-g">
-                        <span aria-hidden="true">
-                          <span className="wf-rate-on">{'★'.repeat(stars(row.rating))}</span>
-                          <span className="wf-rate-off">{'☆'.repeat(5 - stars(row.rating))}</span>
+                    <span className="wf-adm-c">
+                      {row.rating == null ? (
+                        <span className="wf-adm-nsv">{ADMIN_NOT_SEEN}</span>
+                      ) : (
+                        <span className="wf-adm-g">
+                          <span aria-hidden="true">
+                            <span className="wf-rate-on">{'★'.repeat(stars(row.rating))}</span>
+                            <span className="wf-rate-off">{'☆'.repeat(5 - stars(row.rating))}</span>
+                          </span>
+                          <span className="sr-only">{spokenRating(stars(row.rating))}</span>
                         </span>
-                        <span className="sr-only">{spokenRating(stars(row.rating))}</span>
-                      </span>
-                    )}
+                      )}
+                      {seenLabel(row.seen) && (
+                        <span className="wf-adm-tag" data-testid="outcome-admin-seen">
+                          <span className="sr-only">Saw: </span>
+                          {seenLabel(row.seen)}
+                        </span>
+                      )}
+                    </span>
                     <span className="wf-adm-t">{adminStamp(row.updatedAt)}</span>
                   </li>
                 ))}
@@ -128,6 +141,7 @@ OutcomeAdminList.propTypes = {
       rating: PropTypes.number,
       updatedAt: PropTypes.string,
       mine: PropTypes.bool,
+      seen: PropTypes.string,
     })),
     eventTime: PropTypes.string,
     forecastRunAt: PropTypes.string,

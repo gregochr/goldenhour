@@ -390,7 +390,7 @@ describe('useOutcomeRatings — an optimistic save', () => {
     expect(result.current.saveError.has(KEY)).toBe(false);
   });
 
-  it('drops the response of an OVERTAKEN request — a slow failure cannot undo a newer tap', async () => {
+  it('queues a second tap behind the first: a failure of the first rolls back, then the second runs and wins', async () => {
     const slow = deferred();
     const fast = deferred();
     putRating.mockReturnValueOnce(slow.promise).mockReturnValueOnce(fast.promise);
@@ -401,20 +401,22 @@ describe('useOutcomeRatings — an optimistic save', () => {
     let second;
     act(() => { first = result.current.rate(7, '2026-06-14', 'SUNSET', 2); });
     act(() => { second = result.current.rate(7, '2026-06-14', 'SUNSET', 5); });
+    await settle();
+    // Serialised per slot: the second PUT has not been issued while the first is out.
+    expect(putRating).toHaveBeenCalledTimes(1);
+
+    let firstSaved;
+    await act(async () => { slow.reject(new Error('timeout')); firstSaved = await first; });
+    expect(firstSaved).toBe(false);
+    expect(putRating).toHaveBeenCalledTimes(2);
 
     await act(async () => { fast.resolve(ROW(7, 5)); await second; });
     expect(result.current.mine.get(KEY).rating).toBe(5);
     expect(result.current.saving.has(KEY)).toBe(false);
-
-    // The older request now FAILS. It must change nothing.
-    let firstSaved;
-    await act(async () => { slow.reject(new Error('timeout')); firstSaved = await first; });
-    expect(firstSaved).toBe(false);
-    expect(result.current.mine.get(KEY).rating).toBe(5);
     expect(result.current.saveError.has(KEY)).toBe(false);
   });
 
-  it('drops an overtaken SUCCESS too — the older answer cannot repaint what the newer tap decided', async () => {
+  it('keeps the slot saving until the LAST queued write settles, and issues them in order', async () => {
     const slow = deferred();
     const fast = deferred();
     putRating.mockReturnValueOnce(slow.promise).mockReturnValueOnce(fast.promise);
@@ -426,13 +428,15 @@ describe('useOutcomeRatings — an optimistic save', () => {
     act(() => { result.current.rate(7, '2026-06-14', 'SUNSET', 5); });
 
     await act(async () => { slow.resolve(ROW(7, 2)); await first; });
-    // The newer request is still in flight: the slot is still saving and still shows the newer tap.
+    expect(putRating.mock.calls.map((call) => call[0].rating)).toEqual([2, 5]);
+    // The second is now in flight: the slot shows the newer tap and is still saving.
     expect(result.current.mine.get(KEY).rating).toBe(5);
     expect(result.current.saving.has(KEY)).toBe(true);
     await act(async () => { fast.resolve(ROW(7, 5)); });
+    expect(result.current.saving.has(KEY)).toBe(false);
   });
 
-  it('rolls back to the value held BEFORE the first of two overlapping saves', async () => {
+  it('rolls a failed write back to the value held BEFORE it - which, queued, is the earlier write\'s result', async () => {
     fetchMyRatings.mockResolvedValue([ROW(7, 1)]);
     const a = deferred();
     const b = deferred();
@@ -440,12 +444,13 @@ describe('useOutcomeRatings — an optimistic save', () => {
     const { result } = mount();
     await settle();
 
-    act(() => { result.current.rate(7, '2026-06-14', 'SUNSET', 2); });
+    let first;
     let second;
+    act(() => { first = result.current.rate(7, '2026-06-14', 'SUNSET', 2); });
     act(() => { second = result.current.rate(7, '2026-06-14', 'SUNSET', 3); });
+    await act(async () => { a.resolve(ROW(7, 2)); await first; });
     await act(async () => { b.reject(new Error('500')); await second; });
-    expect(result.current.mine.get(KEY).rating).toBe(1);
-    await act(async () => { a.reject(new Error('500')); });
+    expect(result.current.mine.get(KEY).rating).toBe(2);
   });
 
   it('a save that resolves after unmount reports false (it landed on nothing)', async () => {

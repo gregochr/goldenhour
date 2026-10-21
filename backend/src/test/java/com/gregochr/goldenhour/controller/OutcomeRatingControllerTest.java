@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.SeenTag;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.OutcomeRatingDto;
+import com.gregochr.goldenhour.model.SeenChoice;
 import com.gregochr.goldenhour.model.SlotRatingsDto;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -149,7 +151,7 @@ class OutcomeRatingControllerTest extends AbstractControllerTest {
     @WithMockUser(username = "pro", roles = "PRO_USER")
     @DisplayName("PUT: PRO records the rating and gets the stored row back")
     void put_proRecords() throws Exception {
-        when(outcomeRatingService.rate("pro", 10L, DAY, TargetType.SUNRISE, 4)).thenReturn(dto(4));
+        when(outcomeRatingService.rate("pro", 10L, DAY, TargetType.SUNRISE, 4, null)).thenReturn(dto(4));
 
         mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isOk())
@@ -162,20 +164,20 @@ class OutcomeRatingControllerTest extends AbstractControllerTest {
     @WithMockUser(username = "boss", roles = "ADMIN")
     @DisplayName("PUT: ADMIN records too; a rating absent from the body means 'didn't see it' (null)")
     void put_adminRecordsNotSeen() throws Exception {
-        when(outcomeRatingService.rate("boss", 10L, DAY, TargetType.SUNSET, null)).thenReturn(dto(null));
+        when(outcomeRatingService.rate("boss", 10L, DAY, TargetType.SUNSET, null, null)).thenReturn(dto(null));
 
         mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"locationId\":10,\"eventDate\":\"2026-10-14\",\"eventType\":\"SUNSET\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.rating").doesNotExist());
-        verify(outcomeRatingService).rate("boss", 10L, DAY, TargetType.SUNSET, null);
+        verify(outcomeRatingService).rate("boss", 10L, DAY, TargetType.SUNSET, null, null);
     }
 
     @Test
     @WithMockUser(username = "pro", roles = "PRO_USER")
     @DisplayName("PUT: an explicit null rating is also 'didn't see it'")
     void put_explicitNullRating() throws Exception {
-        when(outcomeRatingService.rate("pro", 10L, DAY, TargetType.SUNRISE, null)).thenReturn(dto(null));
+        when(outcomeRatingService.rate("pro", 10L, DAY, TargetType.SUNRISE, null, null)).thenReturn(dto(null));
 
         mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"locationId\":10,\"eventDate\":\"2026-10-14\","
@@ -187,7 +189,7 @@ class OutcomeRatingControllerTest extends AbstractControllerTest {
     @WithMockUser(username = "pro", roles = "PRO_USER")
     @DisplayName("PUT: a service refusal (out of range, not happened yet, too old) is a 400 with its sentence")
     void put_serviceRefusalIs400() throws Exception {
-        when(outcomeRatingService.rate(any(), any(), any(), any(), any()))
+        when(outcomeRatingService.rate(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new IllegalArgumentException("That sunrise has not happened yet"));
 
         mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON).content(BODY))
@@ -199,7 +201,7 @@ class OutcomeRatingControllerTest extends AbstractControllerTest {
     @WithMockUser(username = "pro", roles = "PRO_USER")
     @DisplayName("PUT: an unknown location is a 404")
     void put_unknownLocation404() throws Exception {
-        when(outcomeRatingService.rate(any(), any(), any(), any(), any()))
+        when(outcomeRatingService.rate(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new NoSuchElementException("Location not found: 10"));
 
         mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON).content(BODY))
@@ -318,5 +320,126 @@ class OutcomeRatingControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/outcome/ratings/all").param("locationId", "99").param("date", "2026-10-14")
                         .param("eventType", "SUNRISE"))
                 .andExpect(status().isNotFound());
+    }
+
+    // ── the seen tag on the wire (valley-mist-plan M3) ───────────────────────────
+
+    private static String bodyWith(String seenJson) {
+        return "{\"locationId\":10,\"eventDate\":\"2026-10-14\",\"eventType\":\"SUNRISE\","
+                + "\"rating\":4" + seenJson + "}";
+    }
+
+    @Test
+    @WithMockUser(username = "pro", roles = "PRO_USER")
+    @DisplayName("PUT: a seen tag reaches the service as a choice holding it, and is echoed back")
+    void put_seenTagReachesTheService() throws Exception {
+        when(outcomeRatingService.rate("pro", 10L, DAY, TargetType.SUNRISE, 4, new SeenChoice(SeenTag.MIST)))
+                .thenReturn(new OutcomeRatingDto(10L, "Hartside", DAY, TargetType.SUNRISE, 4, RECORDED,
+                        null, null, null, SeenTag.MIST));
+
+        mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyWith(",\"seen\":\"MIST\"")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.seen").value("MIST"));
+    }
+
+    @Test
+    @WithMockUser(username = "pro", roles = "PRO_USER")
+    @DisplayName("PUT: seen ABSENT reaches the service as null (keep), an explicit null as CLEAR - the "
+            + "two are different requests")
+    void put_absentAndExplicitNullSeenAreDistinct() throws Exception {
+        when(outcomeRatingService.rate("pro", 10L, DAY, TargetType.SUNRISE, 4, null)).thenReturn(dto(4));
+        when(outcomeRatingService.rate("pro", 10L, DAY, TargetType.SUNRISE, 4, SeenChoice.CLEAR))
+                .thenReturn(dto(4));
+
+        mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyWith("")))
+                .andExpect(status().isOk());
+        verify(outcomeRatingService).rate("pro", 10L, DAY, TargetType.SUNRISE, 4, null);
+        verify(outcomeRatingService, never()).rate("pro", 10L, DAY, TargetType.SUNRISE, 4, SeenChoice.CLEAR);
+
+        mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyWith(",\"seen\":null")))
+                .andExpect(status().isOk());
+        verify(outcomeRatingService).rate("pro", 10L, DAY, TargetType.SUNRISE, 4, SeenChoice.CLEAR);
+    }
+
+    @Test
+    @WithMockUser(username = "pro", roles = "PRO_USER")
+    @DisplayName("PUT: an unknown seen tag is a 400 that never reaches the service")
+    void put_unknownSeenTag400() throws Exception {
+        mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyWith(",\"seen\":\"FOG\"")))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(outcomeRatingService);
+    }
+
+    @Test
+    @WithMockUser(username = "lite", roles = "LITE_USER")
+    @DisplayName("PUT: a LITE account stays 403 whatever it tags")
+    void put_liteWithSeen403() throws Exception {
+        mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyWith(",\"seen\":\"MIST\"")))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(outcomeRatingService);
+    }
+
+    @Test
+    @WithMockUser(username = "pro", roles = "PRO_USER")
+    @DisplayName("PUT: the service's seen refusal is a 400 with its sentence")
+    void put_seenRefusalIs400() throws Exception {
+        when(outcomeRatingService.rate(any(), any(), any(), any(), any(), any()))
+                .thenThrow(new IllegalArgumentException("seen NOT_SEEN goes with \"didn't see it\""));
+
+        mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyWith(",\"seen\":\"NOT_SEEN\"")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("seen NOT_SEEN goes with \"didn't see it\""));
+    }
+
+    @Test
+    @WithMockUser(username = "pro", roles = "PRO_USER")
+    @DisplayName("PUT: a tag that no longer fits the stored star answers 409 with its sentence")
+    void put_staleTag409() throws Exception {
+        when(outcomeRatingService.rate(any(), any(), any(), any(), any(), any()))
+                .thenThrow(new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.CONFLICT,
+                        "The rating changed \u2014 reload and try again"));
+
+        mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyWith(",\"seen\":\"MIST\"")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("The rating changed \u2014 reload and try again"));
+    }
+
+    @Test
+    @WithMockUser(username = "pro", roles = "PRO_USER")
+    @DisplayName("GET: a tagged row serves seen, an untagged row omits it")
+    void getMine_servesSeenWhenPresent() throws Exception {
+        when(outcomeRatingService.myRatings("pro", DAY, DAY)).thenReturn(List.of(
+                new OutcomeRatingDto(10L, "Hartside", DAY, TargetType.SUNRISE, 4, RECORDED, null, null, null,
+                        SeenTag.INVERSION),
+                dto(3)));
+
+        mockMvc.perform(get("/api/outcome/ratings").param("from", "2026-10-14").param("to", "2026-10-14"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].seen").value("INVERSION"))
+                .andExpect(jsonPath("$[1].seen").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser(username = "boss", roles = "ADMIN")
+    @DisplayName("ALL: each row serves its tag, omitted when none")
+    void all_servesSeenPerRow() throws Exception {
+        when(outcomeRatingService.slotRatings("boss", 10L, DAY, TargetType.SUNRISE)).thenReturn(
+                new SlotRatingsDto(null, null, null, List.of(
+                        new SlotRatingsDto.Row("boss", 4, RECORDED, true, SeenTag.COLOUR),
+                        new SlotRatingsDto.Row("pro", 2, RECORDED, false))));
+
+        mockMvc.perform(get("/api/outcome/ratings/all").param("locationId", "10").param("date", "2026-10-14")
+                        .param("eventType", "SUNRISE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ratings[0].seen").value("COLOUR"))
+                .andExpect(jsonPath("$.ratings[1].seen").doesNotExist());
     }
 }

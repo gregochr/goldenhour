@@ -4,8 +4,10 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.OutcomeRatingEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.SeenTag;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.OutcomeRatingDto;
+import com.gregochr.goldenhour.model.SeenChoice;
 import com.gregochr.goldenhour.model.SlotRatingRow;
 import com.gregochr.goldenhour.model.SlotRatingsDto;
 import com.gregochr.goldenhour.repository.AppUserRepository;
@@ -25,6 +27,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -94,7 +97,8 @@ public class OutcomeRatingService {
     }
 
     /**
-     * Records (or replaces) a user's rating of a window that has already happened.
+     * Records (or replaces) a user's rating of a window that has already happened, leaving any
+     * earlier {@code seen} tag as it is.
      *
      * @param username   the authenticated user
      * @param locationId the location rated
@@ -102,16 +106,52 @@ public class OutcomeRatingService {
      * @param type       SUNRISE or SUNSET
      * @param rating     1–5, or null for "didn't see it"
      * @return the stored rating with the provenance it was recorded against
-     * @throws IllegalArgumentException when an argument is missing or out of range, the event has not
+     * @see #rate(String, Long, LocalDate, TargetType, Integer, SeenChoice)
+     */
+    public OutcomeRatingDto rate(String username, Long locationId, LocalDate date, TargetType type,
+            Integer rating) {
+        return rate(username, locationId, date, type, rating, null);
+    }
+
+    /**
+     * Records (or replaces) a user's rating of a window that has already happened.
+     *
+     * <p><b>The {@code seen} contract</b> (valley-mist-plan M3): {@code null} (the property was not
+     * sent) keeps the earlier tag; {@link SeenChoice#CLEAR} (an explicit JSON {@code null}) clears it;
+     * a choice holding a tag sets it. The one exception to "keeps": an earlier tag that cannot stand
+     * beside the new rating - {@code NOT_SEEN} beside a star, or a sighting beside "didn't see it" -
+     * is cleared rather than kept, since it described the answer being replaced. The tag is
+     * independent of the star otherwise.
+     *
+     * <p><b>Column-scoped writes.</b> An existing row is never read-modified-written: the request
+     * picks ONE statement that writes only its own columns (see {@code OutcomeRatingStore.Write}), so a
+     * tag tap and a star tap that overlap cannot restore each other's stale value. A tag tap whose star
+     * has since changed underneath it is refused by V187's CHECK and answers 409.
+     *
+     * @param username   the authenticated user
+     * @param locationId the location rated
+     * @param date       the event date
+     * @param type       SUNRISE or SUNSET
+     * @param rating     1–5, or null for "didn't see it"
+     * @param seen       what the reader says they saw: absent, a clear, or a tag
+     * @return the stored rating with the provenance it was recorded against
+     * @throws IllegalArgumentException when an argument is missing or out of range, {@code seen} is
+     *         {@code NOT_SEEN} beside a star or a sighting beside "didn't see it", the event has not
      *         passed (this place's own event time plus the 30-minute afterglow, on the real clock), or
      *         it is older than {@link #MAX_RATING_AGE_DAYS}
      * @throws NoSuchElementException  when the user or the location does not exist
      */
     public OutcomeRatingDto rate(String username, Long locationId, LocalDate date, TargetType type,
-            Integer rating) {
+            Integer rating, SeenChoice seen) {
         requireSlot(locationId, date, type);
         if (rating != null && (rating < 1 || rating > 5)) {
             throw new IllegalArgumentException("rating must be between 1 and 5");
+        }
+        SeenTag requested = seen == null ? null : seen.tag();
+        if (requested != null && !agrees(requested, rating)) {
+            throw new IllegalArgumentException(requested == SeenTag.NOT_SEEN
+                    ? "seen NOT_SEEN goes with \"didn't see it\", not a star rating"
+                    : "a \"didn't see it\" rating can only carry seen NOT_SEEN");
         }
         AppUserEntity user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new NoSuchElementException("User not found"));
@@ -128,14 +168,31 @@ public class OutcomeRatingService {
         }
 
         Instant eventTime = eventUtc.toInstant(ZoneOffset.UTC);
-        RatedRun run = repository
-                .findByUserIdAndLocationIdAndEventDateAndEventType(user.getId(), locationId, date, type)
-                .filter(earlier -> earlier.getForecastRunAt() != null)
+        Optional<OutcomeRatingEntity> earlier = repository
+                .findByUserIdAndLocationIdAndEventDateAndEventType(user.getId(), locationId, date, type);
+        RatedRun run = earlier
+                .filter(e -> e.getForecastRunAt() != null)
                 .map(OutcomeRatingService::provenanceOf)
                 .orElseGet(() -> resolve(location, date, type, eventTime));
-        store.upsert(user.getId(), locationId, date, type, rating, eventTime, run, now);
-        return new OutcomeRatingDto(locationId, location.getName(), date, type, rating, now,
-                run.forecastRunAt(), run.pipelineRunId(), run.forecastRating());
+        // Which columns an existing row's update may write - chosen from the REQUEST alone, never from the
+        // row read above (that copy can be stale by the time the statement runs):
+        //   no seen sent            -> RATING: the star; a compatible tag stays, a contradicted one goes (in SQL)
+        //   seen sent, with a star  -> TAG: the tag alone, so a tag tap never carries a stale star back
+        //   seen sent, no star      -> BOTH: "didn't see it" and its tag are one answer, one statement
+        OutcomeRatingStore.Write mode = seen == null ? OutcomeRatingStore.Write.RATING
+                : rating != null ? OutcomeRatingStore.Write.TAG : OutcomeRatingStore.Write.BOTH;
+        store.upsert(user.getId(), locationId, date, type, rating, requested, mode, eventTime, run, now);
+        if (earlier.isEmpty()) {
+            return new OutcomeRatingDto(locationId, location.getName(), date, type, rating, now,
+                    run.forecastRunAt(), run.pipelineRunId(), run.forecastRating(), requested);
+        }
+        // An update wrote only some columns, so the answer is the row as stored, not the request.
+        OutcomeRatingEntity stored = repository
+                .findByUserIdAndLocationIdAndEventDateAndEventType(user.getId(), locationId, date, type)
+                .orElseThrow(() -> new IllegalStateException("Rating vanished after it was stored"));
+        return new OutcomeRatingDto(locationId, location.getName(), date, type, stored.getRating(),
+                stored.getUpdatedAt(), stored.getForecastRunAt(), stored.getPipelineRunId(),
+                stored.getForecastRating(), stored.getSeen());
     }
 
     /**
@@ -162,7 +219,7 @@ public class OutcomeRatingService {
         return rows.stream()
                 .map(r -> new OutcomeRatingDto(r.getLocationId(), names.get(r.getLocationId()),
                         r.getEventDate(), r.getEventType(), r.getRating(), r.getUpdatedAt(),
-                        r.getForecastRunAt(), r.getPipelineRunId(), r.getForecastRating()))
+                        r.getForecastRunAt(), r.getPipelineRunId(), r.getForecastRating(), r.getSeen()))
                 .toList();
     }
 
@@ -189,7 +246,7 @@ public class OutcomeRatingService {
         List<SlotRatingRow> rows = repository.findAllForSlot(locationId, date, type);
         List<SlotRatingsDto.Row> out = rows.stream()
                 .map(r -> new SlotRatingsDto.Row(r.username(), r.rating(), r.updatedAt(),
-                        r.userId().equals(caller.getId())))
+                        r.userId().equals(caller.getId()), r.seen()))
                 .toList();
         if (!rows.isEmpty()) {
             // The stored values: the event time survives a later change to the solar library, and the
@@ -219,6 +276,14 @@ public class OutcomeRatingService {
         AsOfEvent asOf = asOfEventResolver.resolve(location, date, type, eventTime);
         return new RatedRun(asOf.pipelineRunId(), asOf.runAt(), asOf.forecastEvaluationId(),
                 asOf.forecastRating());
+    }
+
+    /**
+     * Whether a tag can stand beside a rating: {@code NOT_SEEN} goes with "didn't see it" (no star)
+     * and only with it, and every other tag goes with a star. The same pairing V187's CHECK states.
+     */
+    private static boolean agrees(SeenTag tag, Integer rating) {
+        return (tag == SeenTag.NOT_SEEN) == (rating == null);
     }
 
     private static void requireSlot(Long locationId, LocalDate date, TargetType type) {

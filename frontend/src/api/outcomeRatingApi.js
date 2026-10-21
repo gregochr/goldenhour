@@ -21,7 +21,8 @@ const BASE_URL = '/api';
  * @param {string} to last event date, `YYYY-MM-DD`
  * @returns {Promise<Array<{locationId: number, locationName: string, eventDate: string,
  *   eventType: string, rating: ?number, updatedAt: string, forecastRunAt: ?string,
- *   pipelineRunId: ?number, forecastRating: ?number}>>}
+ *   pipelineRunId: ?number, forecastRating: ?number, seen: ?string}>>} `seen` is absent when the
+ *   reader gave no tag
  */
 export async function fetchMyRatings(from, to) {
   const response = await apiClient.get(`${BASE_URL}/outcome/ratings`, { params: { from, to } });
@@ -39,15 +40,22 @@ export async function fetchMyRatings(from, to) {
  * @param {string} body.eventDate `YYYY-MM-DD`
  * @param {'SUNRISE'|'SUNSET'} body.eventType
  * @param {?number} body.rating 1..5, or null for "not seen"
+ * @param {?string} [body.seen] what the reader says they saw (valley-mist-plan M3): `COLOUR`, `MIST`,
+ *   `INVERSION`, `FLAT` or `NOT_SEEN`. THREE states, and the difference is the contract: left out
+ *   (`undefined`) the server keeps the earlier tag; `null` clears it; a name sets it. `NOT_SEEN`
+ *   goes with a null rating only, a sighting with a star only (400 otherwise).
  * @returns {Promise<{locationId: number, eventDate: string, eventType: string, rating: ?number,
- *   updatedAt: string}>} the stored row
+ *   updatedAt: string, seen: ?string}>} the stored row (`seen` is absent when there is no tag)
  */
 export async function putRating({
-  locationId, eventDate, eventType, rating,
+  locationId, eventDate, eventType, rating, seen,
 }) {
-  const response = await apiClient.put(`${BASE_URL}/outcome/ratings`, {
+  const body = {
     locationId, eventDate, eventType, rating,
-  });
+  };
+  // `undefined` is "not sent" (JSON drops it); `null` is a deliberate clear and must go on the wire.
+  if (seen !== undefined) body.seen = seen;
+  const response = await apiClient.put(`${BASE_URL}/outcome/ratings`, body);
   return response.data;
 }
 
@@ -65,7 +73,8 @@ export async function putRating({
  * @param {string} date `YYYY-MM-DD`
  * @param {'SUNRISE'|'SUNSET'} eventType
  * @returns {Promise<{eventTime: ?string, forecastRunAt: ?string, pipelineRunId: ?number,
- *   ratings: Array<{username: string, rating: ?number, updatedAt: string, mine: boolean}>}>}
+ *   ratings: Array<{username: string, rating: ?number, updatedAt: string, mine: boolean,
+ *   seen: ?string}>}>}
  */
 export async function fetchAllRatingsForSlot(locationId, date, eventType) {
   const response = await apiClient.get(`${BASE_URL}/outcome/ratings/all`, {

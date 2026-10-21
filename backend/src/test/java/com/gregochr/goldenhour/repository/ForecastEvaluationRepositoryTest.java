@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.service.ConfidenceDeriver;
 import com.gregochr.goldenhour.service.OutcomeService;
 import com.gregochr.goldenhour.entity.TideDetails;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.SeenTag;
 import com.gregochr.goldenhour.entity.TargetType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -922,6 +923,52 @@ class ForecastEvaluationRepositoryTest {
                 .isEqualTo(3);
     }
 
+    // --- V186/V187: the mist band and the seen tag ride the pairs ---
+
+    @Test
+    @DisplayName("V186: findCalibrationPairs carries the forecast row's mist band, and never a seen tag")
+    void findCalibrationPairs_projectsMistPotentialAndNoSeenTag() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        ForecastEvaluationEntity mist = buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1);
+        mist.setMistPotential("LIKELY");
+        repository.save(mist);
+        repository.save(buildHaikuEvaluation(
+                edinburgh, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        outcomeRepository.save(buildOutcome(durham, date, TargetType.SUNSET, 5));
+        outcomeRepository.save(buildOutcome(edinburgh, date, TargetType.SUNSET, 5));
+
+        List<CalibrationPair> pairs = repository.findCalibrationPairs(date, date);
+
+        assertThat(pairs).extracting(CalibrationPair::locationName, CalibrationPair::mistPotential,
+                CalibrationPair::seen).containsExactlyInAnyOrder(
+                org.assertj.core.api.Assertions.tuple("Durham UK", "LIKELY", null),
+                org.assertj.core.api.Assertions.tuple("Edinburgh UK", null, null));
+        assertThat(pairs.stream().filter(CalibrationPair::mistLikely)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("V187: findCalibrationPairsFromRatings carries the forecast row's mist band and the "
+            + "reader's seen tag, null for a rating given with none")
+    void findCalibrationPairsFromRatings_projectsMistPotentialAndSeenTag() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        ForecastEvaluationEntity mist = buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1);
+        mist.setMistPotential("LIKELY");
+        mist = repository.save(mist);
+        ForecastEvaluationEntity plain = repository.save(buildHaikuEvaluation(
+                edinburgh, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        saveRating(11L, durham, date, 4, mist.getId(), 2, SeenTag.MIST);
+        saveRating(12L, edinburgh, date, 4, plain.getId(), 3, null);
+
+        List<CalibrationPair> pairs = repository.findCalibrationPairsFromRatings(date, date);
+
+        assertThat(pairs).extracting(CalibrationPair::outcomeKey, CalibrationPair::mistPotential,
+                CalibrationPair::seen).containsExactlyInAnyOrder(
+                org.assertj.core.api.Assertions.tuple("rating:11", "LIKELY", SeenTag.MIST),
+                org.assertj.core.api.Assertions.tuple("rating:12", null, null));
+    }
+
     // --- findCalibrationPairsFromRatings: forecast scored against what a reader said they saw ---
 
     @Test
@@ -1050,7 +1097,13 @@ class ForecastEvaluationRepositoryTest {
 
     private void saveRating(long userId, LocationEntity location, LocalDate date, Integer rating,
             Long forecastEvaluationId, Integer forecastRating) {
+        saveRating(userId, location, date, rating, forecastEvaluationId, forecastRating, null);
+    }
+
+    private void saveRating(long userId, LocationEntity location, LocalDate date, Integer rating,
+            Long forecastEvaluationId, Integer forecastRating, SeenTag seen) {
         entityManager.persistAndFlush(OutcomeRatingEntity.builder()
+                .seen(seen)
                 .userId(userId)
                 .locationId(location.getId())
                 .eventDate(date)
