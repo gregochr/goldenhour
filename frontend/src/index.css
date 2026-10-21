@@ -2556,8 +2556,8 @@ button.wf-hc.on:hover {
    topic keeps one colour across the arm. `plain` takes chrome ink rather than being forced into the
    nearest channel — a colour names a claim.
 
-   ⚠️ `plain` is NOT "shouldn't happen". `badgeChannel` matches by SUBSTRING, so six recognised,
-   badge-capable kinds land there — INVERSION, DUST, BLUEBELL, EQUINOX, METEOR, SUPERMOON — including
+   ⚠️ `plain` is NOT "shouldn't happen". `badgeChannel` matches by SUBSTRING, so seven recognised,
+   badge-capable kinds land there — INVERSION, MIST, DUST, BLUEBELL, EQUINOX, METEOR, SUPERMOON — including
    two of the rarest things this app can show. The deleted `.wf-promo[data-channel='plain']` block
    carried that warning and M5 moved it here rather than letting it go with the strip, because the
    misreading it corrects ("unrecognised, so give supermoon a hue of its own") is the one a future

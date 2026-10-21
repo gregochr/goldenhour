@@ -133,6 +133,37 @@ class HotTopicEventEnricherTest {
     }
 
     @Test
+    @DisplayName("MIST keeps the event its detector stamped and gains that event's own clock time")
+    void mist_detectorStampedEvent_gainsItsTime() {
+        HotTopic sunset = enrichOne(topic("MIST", null).withEvent("SUNSET", null));
+        HotTopic sunrise = enrichOne(topic("MIST", null).withEvent("SUNRISE", null));
+
+        assertThat(sunset.eventType()).isEqualTo("SUNSET");
+        assertThat(sunset.eventTime()).isEqualTo("21:41");
+        assertThat(sunrise.eventType()).isEqualTo("SUNRISE");
+        assertThat(sunrise.eventTime()).isEqualTo("04:43");
+    }
+
+    @Test
+    @DisplayName("MIST with no stamped event (the admin simulation) falls back to SUNRISE")
+    void mist_noStampedEvent_fallsBackToSunrise() {
+        HotTopic result = enrichOne(topic("MIST", null));
+
+        assertThat(result.eventType()).isEqualTo("SUNRISE");
+        assertThat(result.eventTime()).isEqualTo("04:43");
+    }
+
+    @Test
+    @DisplayName("a type whose detector does not stamp its event is not completed: an event set "
+            + "with no time stays as it was")
+    void otherTypes_eventWithoutTime_unchanged() {
+        HotTopic result = enrichOne(topic("INVERSION", null).withEvent("SUNSET", null));
+
+        assertThat(result.eventType()).isEqualTo("SUNSET");
+        assertThat(result.eventTime()).isNull();
+    }
+
+    @Test
     @DisplayName("a two-day run of the same type gets one distinct event time per date")
     void twoDayRun_distinctPerDayTimes() {
         LocalDate d2 = DATE.plusDays(1);

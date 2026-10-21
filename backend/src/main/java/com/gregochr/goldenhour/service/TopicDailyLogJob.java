@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TopicDailyLogEntity;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
@@ -86,6 +87,14 @@ import java.util.Map;
  *       yet: {@code ComingUpConditionsBuilder}'s inversion rarity stays pinned to the config
  *       fallback by owner decision (2026-10-02) until enough of this log exists, and switching it
  *       is a separate change.</li>
+ *   <li><b>MIST_CALC</b> — {@code slot_atmosphere.mist_score}/{@code mist_potential} (V185,
+ *       valley-mist-plan M1b), the deterministic {@code ValleyMistCalculator} reading written for
+ *       every {@code mist_prone} candidate the pipeline fetched weather for, triaged or not. The
+ *       {@code INVERSION_CALC} shape on both events: measured rows only (scored flag, score and
+ *       band all present), present when the stored band is {@code LIKELY}, intensity the region's
+ *       highest score, nothing for an unmeasured region. The name carries the population, so a
+ *       rarity computation reads {@value #TYPE_MIST} alone. Nothing reads it yet:
+ *       {@code ComingUpConditionsBuilder}'s mist rarity stays pinned to the config fallback.</li>
  *   <li><b>SNOW</b> — {@code slot_atmosphere} (survivor-only; the only source — the
  *       {@code forecast_evaluation} snow columns were dropped in V116). The plan's candidate list
  *       names one "SNOW" topic, but the codebase has two live snow strategies:
@@ -160,6 +169,14 @@ public class TopicDailyLogJob {
      * rarity computation and never mixed with {@link #TYPE_INVERSION}.
      */
     static final String TYPE_INVERSION_LEGACY = "INVERSION";
+
+    /**
+     * Valley mist, logged from the calculator's own readings ({@code slot_atmosphere}) — the
+     * unbiased population a later rarity census reads. A new name from the first night it is
+     * written, so unlike inversion it has no legacy twin; a rarity computation reads this type
+     * alone.
+     */
+    static final String TYPE_MIST = "MIST_CALC";
 
     static final String TYPE_SPRING_TIDE = "SPRING_TIDE";
     static final String TYPE_KING_TIDE = "KING_TIDE";
@@ -243,6 +260,7 @@ public class TopicDailyLogJob {
         LocalDate yesterday = ForecastHorizon.today(clock).minusDays(1);
         logDustAndStormSurge(yesterday);
         logInversion(yesterday);
+        logMist(yesterday);
         logSnow(yesterday);
         logTides(yesterday);
         logAurora(yesterday);
@@ -330,6 +348,49 @@ public class TopicDailyLogJob {
             persist(TYPE_INVERSION, date, byRegion);
         } catch (Exception e) {
             LOG.warn("Topic daily log: INVERSION failed for {}: {}", date, e.getMessage());
+        }
+    }
+
+    /**
+     * Valley mist (valley-mist-plan M1b): SUNRISE and SUNSET rows (mist forming at dusk over a
+     * river is a real evening shot, unlike a sea of cloud), and only rows carrying a calculator
+     * measurement — {@code mist_scored} true with a non-null score and a stored band. An
+     * unflagged ({@code mist_prone} false) site's row is scored with a null score and is not part of
+     * this population. Present exactly when a row's stored band is {@code LIKELY}, the band the
+     * hot topic fires on (never FOGBOUND, never POSSIBLE); intensity is the region's highest score.
+     * A measured region with no LIKELY slot logs {@code present = false} — a measured absence, the
+     * denominator a rate needs, the same shape {@code INVERSION_CALC} has — and a region with no
+     * measurement that night logs nothing: unmeasured, never "no mist". The band is READ, never
+     * re-derived from the score, and Claude's echo (which does not exist yet) is never consulted.
+     */
+    private void logMist(LocalDate date) {
+        try {
+            List<SlotAtmosphereEntity> rows = slotAtmosphereRepository.findInDateRange(date, date);
+            Map<Long, Reading> byRegion = new LinkedHashMap<>();
+
+            for (SlotAtmosphereEntity row : rows) {
+                if (!EVENT_TARGET_TYPES.contains(row.getEventType()) || !row.isMistScored()) {
+                    continue;
+                }
+                Double score = row.getMistScore();
+                if (score == null || row.getMistPotential() == null) {
+                    continue;
+                }
+                RegionEntity region = regionOf(row.getLocation());
+                if (region == null || region.getId() == null) {
+                    continue;
+                }
+                Reading reading = byRegion.computeIfAbsent(region.getId(), id -> new Reading());
+                if (MistPotential.LIKELY.name().equals(row.getMistPotential())) {
+                    reading.present = true;
+                    reading.landedOnWindow = Boolean.TRUE;
+                }
+                reading.maxIntensity = maxOf(reading.maxIntensity, BigDecimal.valueOf(score));
+            }
+
+            persist(TYPE_MIST, date, byRegion);
+        } catch (Exception e) {
+            LOG.warn("Topic daily log: MIST failed for {}: {}", date, e.getMessage());
         }
     }
 

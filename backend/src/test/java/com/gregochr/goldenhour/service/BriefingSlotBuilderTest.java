@@ -586,6 +586,33 @@ class BriefingSlotBuilderTest {
     }
 
     @Test
+    @DisplayName("valley-mist M1b: saturated air reads 'Mist likely' on a mist_prone site and 'Mist "
+            + "risk' on any other")
+    void mistFlag_followsTheLocationsMistProneFact() {
+        for (boolean mistProne : new boolean[] {true, false}) {
+            LocationEntity loc = LocationEntity.builder()
+                    .id(11L).name("River").lat(54.8).lon(-1.6)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .mistProne(mistProne)
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+            LocalDateTime sunriseTime = LocalDateTime.of(2026, 3, 25, 6, 15);
+            when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(sunriseTime);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+            OpenMeteoForecastResponse forecast = buildForecastResponse();
+            forecast.getHourly().getRelativeHumidity2m().replaceAll(ignored -> 96);
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, forecast),
+                    sunriseTime.toLocalDate(), TargetType.SUNRISE);
+
+            assertThat(slot.flags()).contains(mistProne ? "Mist likely" : "Mist risk")
+                    .doesNotContain(mistProne ? "Mist risk" : "Mist likely");
+        }
+    }
+
+    @Test
     @DisplayName("Solar service exception returns null slot")
     void solarException_returnsNull() {
         LocationEntity loc = LocationEntity.builder()

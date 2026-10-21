@@ -134,6 +134,13 @@ describe('buildHandoff — topic filtering, de-duping and naming', () => {
     expect(result.topics[0].color).toBe('#C4787F');
   });
 
+  it('gives valley mist its own air-family swatch, not the unrecognised-type default', () => {
+    const result = buildHandoff(TODAY, [
+      { type: 'MIST', label: 'Valley mist', date: TODAY },
+    ]);
+    expect(result.topics[0].color).toBe('#8FA3B8');
+  });
+
   it('gives an unrecognised type the default swatch colour rather than throwing', () => {
     const result = buildHandoff(TODAY, [
       { type: 'MYSTERY_TOPIC', label: 'A new kind of topic', date: TODAY },

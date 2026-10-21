@@ -221,6 +221,9 @@ public class ComingUpScoringProperties {
 
         /** Inversion-specific knobs. */
         private Inversion inversion = new Inversion();
+
+        /** Valley-mist-specific knobs (valley-mist-plan M1b). */
+        private Mist mist = new Mist();
     }
 
     /**
@@ -269,6 +272,30 @@ public class ComingUpScoringProperties {
     }
 
     /**
+     * Valley mist knobs (valley-mist-plan M1b). The twin of {@link Inversion}: rarity stays on
+     * {@link #fallbackMeanGapDays} unconditionally until enough of the unbiased
+     * {@code topic_daily_log} series {@code TopicDailyLogJob} writes under {@code MIST_CALC}
+     * exists (the log starts with this change, so the figure is a first guess, not a census), and a
+     * future change must read {@code MIST_CALC} alone. Magnitude reuses the calculator's own 0–10
+     * scale; an occurrence counts as magnitude-worthy at {@link #magnitudeThresholdScore}, well
+     * inside the LIKELY band (6 and above) so a clear, calm, saturated morning stands out from one
+     * that only just qualifies.
+     */
+    @Getter
+    @Setter
+    public static class Mist {
+
+        /** Rarity fallback — a first estimate for a flagged site's likely days, revisited with the log. */
+        private double fallbackMeanGapDays = 6.0;
+
+        /** Mist score (0–10) at or above which an occurrence counts as magnitude-worthy. */
+        private double magnitudeThresholdScore = 8.0;
+
+        /** Magnitude assigned once {@link #magnitudeThresholdScore} is cleared. */
+        private double magnitudeAboveBits = 5.0;
+    }
+
+    /**
      * Each standing condition's cadence word (design README §2: {@code persistent} — present most
      * days; {@code recurrent} — arrives in bursts on a stable rate; {@code deterministic} — on an
      * ephemeris), authored here rather than derived (plan §7/§11.16) — there is no presence series
@@ -286,5 +313,8 @@ public class ComingUpScoringProperties {
 
         /** Valley inversions are present on most qualifying mornings (plan D4). */
         private String inversion = "persistent";
+
+        /** Valley mist arrives in bursts, on a clear calm spell (valley-mist-plan M1b). */
+        private String mist = "recurrent";
     }
 }

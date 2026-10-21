@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.CoverageReason;
@@ -38,6 +39,41 @@ final class CoverageReasons {
     static final int NEVER_SCORED_FROM_DAYS_AHEAD = 4;
 
     private CoverageReasons() {
+    }
+
+    /**
+     * Whether a region folded to {@link CoverageReason#STOOD_DOWN} was stood down mostly for
+     * visibility: strictly more than half of the slots weather triage stood down did so under its
+     * visibility rule (fog or heavy mist), so the honesty filter words the blank "Fog forecast"
+     * rather than "Too unsettled to forecast". A minority or an exact tie keeps the old wording,
+     * the same "claiming a specific cause needs a majority" direction the fold itself takes.
+     * Only meaningful for a region {@link #of} returned {@code STOOD_DOWN} for; it changes the
+     * wording, never the {@link CoverageReason} (Ask reads that as a stand-down either way).
+     *
+     * @param scoreableSlots the region's slots that {@link BriefingSlot#couldCarryRating} admits
+     * @param date           the window's date
+     * @param type           the window's event
+     * @param latestBySlot   latest non-cached disposition per {@code location|date|type}
+     * @return true when a strict majority of the triage stand-downs were for low visibility
+     */
+    static boolean fogMajority(List<BriefingSlot> scoreableSlots, LocalDate date, TargetType type,
+            Map<String, LatestDisposition> latestBySlot) {
+        if (scoreableSlots == null || latestBySlot == null) {
+            return false;
+        }
+        int triaged = 0;
+        int lowVisibility = 0;
+        for (BriefingSlot slot : scoreableSlots) {
+            LatestDisposition latest = latestBySlot.get(
+                    EvaluationViewService.stabilitySkipKey(slot.locationName(), date, type));
+            if (latest != null && latest.category() == DispositionCategory.SKIPPED_TRIAGED) {
+                triaged++;
+                if (latest.lowVisibility()) {
+                    lowVisibility++;
+                }
+            }
+        }
+        return lowVisibility * 2 > triaged;
     }
 
     /**

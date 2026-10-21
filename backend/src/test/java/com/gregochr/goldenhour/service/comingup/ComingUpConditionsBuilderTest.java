@@ -104,15 +104,15 @@ class ComingUpConditionsBuilderTest {
                 bits, false, null, coincidence, coincidence.isEmpty() ? null : "joined", List.of(), List.of(), null);
     }
 
-    // ── Always three conditions ─────────────────────────────────────────
+    // ── Always four conditions ──────────────────────────────────────────
 
     @Test
-    @DisplayName("the strip always carries the three first-ship conditions, even with nothing to show")
-    void alwaysThreeConditions() {
+    @DisplayName("the strip always carries the four conditions, even with nothing to show")
+    void alwaysFourConditions() {
         List<ComingUpCondition> conditions = builder.build(TODAY, List.of(), List.of());
 
         assertThat(conditions).extracting(ComingUpCondition::type)
-                .containsExactly("COASTAL_TIDES", "DUST", "VALLEY_INVERSIONS");
+                .containsExactly("COASTAL_TIDES", "DUST", "VALLEY_INVERSIONS", "VALLEY_MIST");
         assertThat(conditions).allSatisfy(c -> assertThat(c.occurrences()).isEmpty());
     }
 
@@ -127,7 +127,7 @@ class ComingUpConditionsBuilderTest {
         List<ComingUpCondition> conditions = builder.build(TODAY, List.of(springRun, kingRun), List.of());
 
         assertThat(conditions).extracting(ComingUpCondition::type).containsExactly(
-                "COASTAL_TIDES", "DUST", "VALLEY_INVERSIONS");
+                "COASTAL_TIDES", "DUST", "VALLEY_INVERSIONS", "VALLEY_MIST");
         ComingUpCondition tides = conditions.getFirst();
         assertThat(tides.occurrences()).hasSize(2);
         assertThat(tides.occurrences()).extracting(ComingUpConditionOccurrence::label)
@@ -317,7 +317,7 @@ class ComingUpConditionsBuilderTest {
         assertThat(tides.occurrences().getFirst().valueLabel()).isNull();
         // The other two conditions still built normally — one run's failure is isolated.
         assertThat(conditions).extracting(ComingUpCondition::type)
-                .containsExactly("COASTAL_TIDES", "DUST", "VALLEY_INVERSIONS");
+                .containsExactly("COASTAL_TIDES", "DUST", "VALLEY_INVERSIONS", "VALLEY_MIST");
     }
 
     // ── Dust: evidentiary bar ────────────────────────────────────────────
@@ -586,6 +586,179 @@ class ComingUpConditionsBuilderTest {
                 .isEqualTo(round1(expectedFallback + aboveBits));
         assertThat(inversion.occurrences()).hasSize(6);
         assertThat(inversion.interim()).isTrue();
+    }
+
+    // ── Valley mist (valley-mist-plan M1b) ───────────────────────────────
+
+    /** A scored slot_atmosphere row carrying a valley-mist band, the shape a fresh write produces. */
+    private static SlotAtmosphereEntity mistReading(LocationEntity location, LocalDate date,
+            TargetType event, Double score, String band) {
+        SlotAtmosphereEntity entity = new SlotAtmosphereEntity();
+        entity.setLocation(location);
+        entity.setEvaluationDate(date);
+        entity.setEventType(event);
+        entity.setMistScored(true);
+        entity.setMistScore(score);
+        entity.setMistPotential(band);
+        return entity;
+    }
+
+    private void serve(List<SlotAtmosphereEntity> rows) {
+        when(slotAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+            LocalDate from = invocation.getArgument(0);
+            LocalDate to = invocation.getArgument(1);
+            return rows.stream()
+                    .filter(r -> !r.getEvaluationDate().isBefore(from) && !r.getEvaluationDate().isAfter(to))
+                    .toList();
+        });
+    }
+
+    private ComingUpCondition mist() {
+        return builder.build(TODAY, List.of(), List.of()).get(3);
+    }
+
+    @Test
+    @DisplayName("mist trailing history lists a day when ANY reading is LIKELY, at either event, "
+            + "and never a POSSIBLE, FOGBOUND, NONE or unflagged-site row")
+    void buildMist_trailingHistoryCountsLikelyDaysOnly() {
+        LocationEntity river = LocationEntity.builder().id(4L).name("River").lat(1.0).lon(1.0).build();
+        LocalDate sunriseDay = TODAY.minusDays(10);
+        LocalDate sunsetDay = TODAY.minusDays(9);
+        serve(List.of(
+                mistReading(river, sunriseDay, TargetType.SUNRISE, 7.0, "LIKELY"),
+                mistReading(river, sunsetDay, TargetType.SUNSET, 6.0, "LIKELY"),
+                mistReading(river, TODAY.minusDays(8), TargetType.SUNRISE, 5.0, "POSSIBLE"),
+                mistReading(river, TODAY.minusDays(7), TargetType.SUNRISE, 9.0, "FOGBOUND"),
+                mistReading(river, TODAY.minusDays(6), TargetType.SUNRISE, 1.0, "NONE"),
+                mistReading(river, TODAY.minusDays(5), TargetType.SUNRISE, null, null)));
+
+        ComingUpCondition mist = mist();
+
+        assertThat(mist.occurrences()).extracting(ComingUpConditionOccurrence::date)
+                .containsExactly(sunriseDay, sunsetDay);
+        assertThat(mist.occurrences()).extracting(ComingUpConditionOccurrence::status)
+                .containsOnly("heldBack");
+        assertThat(mist.occurrences().getFirst().valueLabel()).isEqualTo("7/10");
+        assertThat(mist.name()).isEqualTo("Valley mist");
+        assertThat(mist.rateLabel()).startsWith("2 likely days since ");
+        assertThat(mist.interim()).isTrue();
+        assertThat(mist.cadence()).isEqualTo("recurrent");
+    }
+
+    @Test
+    @DisplayName("mist trailing window is yesterday back 60 days: a LIKELY row today is the forward "
+            + "read's, not history; the window edges are in and the day beyond is out")
+    void buildMist_trailingWindowBoundaries() {
+        LocationEntity river = LocationEntity.builder().id(4L).name("River").lat(1.0).lon(1.0).build();
+        LocalDate yesterday = TODAY.minusDays(1);
+        LocalDate oldestIn = TODAY.minusDays(60);
+        serve(List.of(
+                mistReading(river, TODAY, TargetType.SUNRISE, 7.0, "LIKELY"),
+                mistReading(river, yesterday, TargetType.SUNRISE, 7.0, "LIKELY"),
+                mistReading(river, oldestIn, TargetType.SUNRISE, 7.0, "LIKELY"),
+                mistReading(river, TODAY.minusDays(61), TargetType.SUNRISE, 7.0, "LIKELY")));
+
+        ComingUpCondition mist = mist();
+
+        assertThat(mist.occurrences()).extracting(ComingUpConditionOccurrence::date)
+                .containsExactly(oldestIn, yesterday, TODAY);
+        assertThat(mist.occurrences().stream().filter(o -> o.status().equals("heldBack")).count())
+                .isEqualTo(2);
+        assertThat(mist.rateLabel()).startsWith("2 likely days since ");
+    }
+
+    @Test
+    @DisplayName("an unscored (pre-V185) row carrying a stale LIKELY band is not an occurrence")
+    void buildMist_unscoredRowIgnored() {
+        LocationEntity river = LocationEntity.builder().id(4L).name("River").lat(1.0).lon(1.0).build();
+        SlotAtmosphereEntity row = mistReading(river, TODAY.minusDays(3), TargetType.SUNRISE, 8.0, "LIKELY");
+        row.setMistScored(false);
+        serve(List.of(row));
+
+        assertThat(mist().occurrences()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("mist forward peak is the highest-scored LIKELY slot in Plan's window, either event")
+    void buildMist_forwardPeakIsTheBestLikelySlot() {
+        LocationEntity river = LocationEntity.builder().id(4L).name("River").lat(1.0).lon(1.0).build();
+        LocalDate peakDate = TODAY.plusDays(2);
+        serve(List.of(
+                mistReading(river, TODAY.plusDays(1), TargetType.SUNRISE, 6.0, "LIKELY"),
+                mistReading(river, peakDate, TargetType.SUNSET, 8.0, "LIKELY"),
+                mistReading(river, TODAY.plusDays(3), TargetType.SUNRISE, 9.9, "POSSIBLE")));
+
+        ComingUpCondition mist = mist();
+
+        assertThat(mist.peak()).isNotNull();
+        assertThat(mist.peak().valueLabel()).isEqualTo("8/10");
+        assertThat(mist.occurrences()).hasSize(1);
+        assertThat(mist.occurrences().getFirst().date()).isEqualTo(peakDate);
+        assertThat(mist.occurrences().getFirst().status()).isEqualTo("insidePlan");
+    }
+
+    @Test
+    @DisplayName("mist with nothing LIKELY has no peak and says none in the last 60 days")
+    void buildMist_nothingLikely() {
+        serve(List.of());
+
+        ComingUpCondition mist = mist();
+
+        assertThat(mist.peak()).isNull();
+        assertThat(mist.occurrences()).isEmpty();
+        assertThat(mist.rateLabel()).isEqualTo("none in the last 60 days");
+    }
+
+    @Test
+    @DisplayName("mist rarity stays on the config fallback however many likely days the window shows, "
+            + "and magnitude clears only at the configured score")
+    void mistRarityNeverUpgrades() {
+        LocationEntity river = LocationEntity.builder().id(4L).name("River").lat(1.0).lon(1.0).build();
+        List<SlotAtmosphereEntity> rows = new java.util.ArrayList<>();
+        for (int i = 1; i <= 12; i++) {
+            rows.add(mistReading(river, TODAY.minusDays(i * 4L), TargetType.SUNRISE, 8.0, "LIKELY"));
+        }
+        rows.add(mistReading(river, TODAY.minusDays(2), TargetType.SUNRISE, 6.0, "LIKELY"));
+        serve(rows);
+
+        ComingUpCondition mist = mist();
+
+        ComingUpScoringProperties.Mist config = new ComingUpScoringProperties().getRecurrent().getMist();
+        double rarity = SurpriseScore.rarity(config.getFallbackMeanGapDays());
+        assertThat(mist.quantLabel())
+                .startsWith(ComingUpConditionsBuilder.frequencyPhrase(rarity, "most mornings"));
+        assertThat(mist.occurrences()).hasSize(13);
+        // A standout (8/10) gets the magnitude bits, the plain 6/10 day only the default.
+        assertThat(mist.occurrences().stream()
+                .filter(o -> o.date().equals(TODAY.minusDays(4))).findFirst().orElseThrow().bits())
+                .isEqualTo(round1(rarity + config.getMagnitudeAboveBits()));
+        assertThat(mist.occurrences().stream()
+                .filter(o -> o.date().equals(TODAY.minusDays(2))).findFirst().orElseThrow().bits())
+                .isEqualTo(round1(rarity + SurpriseScore.DEFAULT_MAGNITUDE_BITS));
+    }
+
+    @Test
+    @DisplayName("a LIKELY band with no score is still an occurrence, labelled by the band")
+    void buildMist_likelyWithoutScore() {
+        LocationEntity river = LocationEntity.builder().id(4L).name("River").lat(1.0).lon(1.0).build();
+        serve(List.of(mistReading(river, TODAY.minusDays(3), TargetType.SUNRISE, null, "LIKELY")));
+
+        ComingUpCondition mist = mist();
+
+        assertThat(mist.occurrences()).hasSize(1);
+        assertThat(mist.occurrences().getFirst().valueLabel()).isEqualTo("likely");
+    }
+
+    @Test
+    @DisplayName("a failing mist read degrades to an empty condition, never the whole feed")
+    void buildMist_readFailureIsIsolated() {
+        when(slotAtmosphereRepository.findInDateRange(any(), any()))
+                .thenThrow(new IllegalStateException("db down"));
+
+        ComingUpCondition mist = mist();
+
+        assertThat(mist.occurrences()).isEmpty();
+        assertThat(mist.peak()).isNull();
     }
 
     // ── Owner decision (2026-09-29): hot topics / Coming up apply no stability-skip or triage

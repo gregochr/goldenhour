@@ -811,6 +811,32 @@ class BriefingVerdictEvaluatorTest {
         }
 
         @Test
+        @DisplayName("valley-mist M1b: humidity over 90% reads 'Mist likely' on a mist_prone site and "
+                + "'Mist risk' everywhere else — same trigger, only the word differs")
+        void mistFlagIsWordedBySite() {
+            var saturated = new BriefingVerdictEvaluator.WeatherMetrics(
+                    20, BigDecimal.ZERO, 15000, 95, 30, 25, false);
+
+            assertThat(evaluator.buildFlags(saturated, NO_TIDE, true))
+                    .contains("Mist likely").doesNotContain("Mist risk");
+            assertThat(evaluator.buildFlags(saturated, NO_TIDE, false))
+                    .contains("Mist risk").doesNotContain("Mist likely");
+            // The two-argument form is the unflagged site, unchanged.
+            assertThat(evaluator.buildFlags(saturated, NO_TIDE))
+                    .contains("Mist risk").doesNotContain("Mist likely");
+        }
+
+        @Test
+        @DisplayName("a mist_prone site below the humidity trigger gets neither mist flag")
+        void mistProneBelowTriggerHasNoMistFlag() {
+            var dry = new BriefingVerdictEvaluator.WeatherMetrics(
+                    20, BigDecimal.ZERO, 15000, 80, 30, 25, false);
+
+            assertThat(evaluator.buildFlags(dry, NO_TIDE, true))
+                    .doesNotContain("Mist likely", "Mist risk");
+        }
+
+        @Test
         @DisplayName("Active rain flag for precip > 2mm")
         void activeRain() {
             assertThat(evaluator.buildFlags(
