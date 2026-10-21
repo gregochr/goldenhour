@@ -204,6 +204,8 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithBluebellConditions(any(), any(), any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
+                .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
                 .thenReturn(Optional.empty());
 

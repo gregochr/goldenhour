@@ -190,6 +190,15 @@ public class SlotAtmosphereWriter {
         // Codex P1 against round 3's own unify-onto-one-rule fix).
         row.setInversionScore(data.inversionScore());
         row.setInversionScored(true);
+        // Valley mist (V185, valley-mist-plan M1a): the identical rule. augmentWithValleyMist ran
+        // ValleyMistCalculator for a mist_prone site before this write, so data.mistScore() is
+        // populated for a flagged site the calculator could score and null for an unflagged one or
+        // one it could not. mistScored is true on EVERY write, with a score and with a null one:
+        // a fresh null is an authoritative answer, not an absent one (a row from before V185 is
+        // the only mist_scored = false).
+        row.setMistScore(data.mistScore());
+        row.setMistScored(true);
+        row.setMistPotential(data.mistPotential() == null ? null : data.mistPotential().name());
         row.setEvaluatedAt(Instant.now(clock));
         repository.save(row);
     }

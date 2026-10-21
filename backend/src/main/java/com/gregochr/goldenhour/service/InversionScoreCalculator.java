@@ -138,7 +138,7 @@ public final class InversionScoreCalculator {
         double windSpeed = w.windSpeedMs().doubleValue();
         int lowCloud = data.cloud().lowCloudPercent();
 
-        double score = moistureScore(tempDewGap) + windScore(windSpeed);
+        double score = MoistureScoring.gapScore(tempDewGap) + windScore(windSpeed);
 
         // Cloud veto: too little cloud to form a sea, or so much that the viewpoint is inside it.
         if (lowCloud < MIN_CLOUD_PERCENT || lowCloud > MAX_CLOUD_PERCENT) {
@@ -207,32 +207,6 @@ public final class InversionScoreCalculator {
             return true;
         }
         return elevationMetres > data.aerosol().boundaryLayerHeightMetres();
-    }
-
-    /**
-     * Scores available moisture from the temperature–dew point gap (0–5). This is the only
-     * moisture term — see the class note on why relative humidity is not counted separately.
-     *
-     * @param tempDewGap temperature minus dew point, in °C
-     * @return 0–5, higher the nearer the surface air is to saturation
-     */
-    private static double moistureScore(double tempDewGap) {
-        if (tempDewGap <= 0.5) {
-            return 5.0;
-        }
-        if (tempDewGap <= 1.0) {
-            return 4.0;
-        }
-        if (tempDewGap <= 2.0) {
-            return 3.0;
-        }
-        if (tempDewGap <= 3.0) {
-            return 2.0;
-        }
-        if (tempDewGap <= 5.0) {
-            return 1.0;
-        }
-        return 0.0;
     }
 
     /**

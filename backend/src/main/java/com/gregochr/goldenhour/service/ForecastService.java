@@ -407,8 +407,13 @@ public class ForecastService {
                 forecastResponse);
         AtmosphericData withInversion = augmentor.augmentWithInversionScore(
                 withSurge, location.getElevationMetres(), location.isOverlooksWater());
+        // Valley mist (V185, valley-mist-plan M1a): scored for a mist_prone site only, here and
+        // before the readings write and both triage checks below, exactly like the inversion score
+        // above — so a stood-down candidate still records it (the two-question rule).
+        AtmosphericData withMist = augmentor.augmentWithValleyMist(
+                withInversion, location.isMistProne());
         AtmosphericData forecastData = augmentor.augmentWithBluebellConditions(
-                withInversion, location.getLocationType(), location.getBluebellExposure(), date);
+                withMist, location.getLocationType(), location.getBluebellExposure(), date);
 
         // Record conditions for every place whose weather was fetched — the ONE seam every
         // caller of fetchWeatherAndTriage shares (the batch collector's scheduled AND

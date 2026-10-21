@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudData;
 import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
@@ -67,6 +68,8 @@ public final class TestAtmosphericData {
     private StormSurgeBreakdown surge = null;
     private Double adjustedRangeMetres = null;
     private Double astronomicalRangeMetres = null;
+    private Double mistScore = null;
+    private MistPotential mistPotential = null;
 
     private TestAtmosphericData() {
     }
@@ -279,6 +282,16 @@ public final class TestAtmosphericData {
         return this;
     }
 
+    public TestAtmosphericData mistScore(Double val) {
+        this.mistScore = val;
+        return this;
+    }
+
+    public TestAtmosphericData mistPotential(MistPotential val) {
+        this.mistPotential = val;
+        return this;
+    }
+
     /**
      * Builds the {@link AtmosphericData} from the configured values.
      *
@@ -297,6 +310,7 @@ public final class TestAtmosphericData {
                 directionalCloud, tide, cloudApproach, mistTrend,
                 locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
                 inversionScore,
-                bluebellConditionScore, stability, stabilityReason, pressureTrend);
+                bluebellConditionScore, stability, stabilityReason, pressureTrend,
+                mistScore, mistPotential);
     }
 }

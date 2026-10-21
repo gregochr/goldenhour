@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.LocationEnrichmentResult;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -22,6 +23,7 @@ import java.util.Set;
 
 import java.util.NoSuchElementException;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -152,6 +154,58 @@ class LocationControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.solarEventType").isArray())
                 .andExpect(jsonPath("$.solarEventType[0]").value("SUNSET"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/locations carries mistProne:true through to the AddLocationRequest")
+    void addLocation_mistProneTrue_reachesTheService() throws Exception {
+        when(locationService.add(any(AddLocationRequest.class)))
+                .thenReturn(buildEntity(4L, "Brathay", 54.43, -3.03));
+
+        mockMvc.perform(post("/api/locations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Brathay\",\"lat\":54.43,\"lon\":-3.03,"
+                                + "\"mistProne\":true}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<AddLocationRequest> captor = ArgumentCaptor.forClass(AddLocationRequest.class);
+        verify(locationService).add(captor.capture());
+        assertThat(captor.getValue().mistProne()).isEqualTo(Boolean.TRUE);
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id} carries mistProne:false through to the UpdateLocationRequest")
+    void updateLocation_mistProneFalse_reachesTheService() throws Exception {
+        when(locationService.update(eq(1L), any(UpdateLocationRequest.class)))
+                .thenReturn(buildEntity(1L, "Durham UK", 54.7753, -1.5849));
+
+        mockMvc.perform(put("/api/locations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mistProne\":false}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<UpdateLocationRequest> captor = ArgumentCaptor.forClass(UpdateLocationRequest.class);
+        verify(locationService).update(eq(1L), captor.capture());
+        assertThat(captor.getValue().mistProne()).isEqualTo(Boolean.FALSE);
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id} with no mistProne key leaves it null: the don't-change contract")
+    void updateLocation_noMistProneKey_isNull() throws Exception {
+        when(locationService.update(eq(1L), any(UpdateLocationRequest.class)))
+                .thenReturn(buildEntity(1L, "Durham UK", 54.7753, -1.5849));
+
+        mockMvc.perform(put("/api/locations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"solarEventTypes\":[\"SUNSET\"]}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<UpdateLocationRequest> captor = ArgumentCaptor.forClass(UpdateLocationRequest.class);
+        verify(locationService).update(eq(1L), captor.capture());
+        assertThat(captor.getValue().mistProne()).isNull();
     }
 
     @Test

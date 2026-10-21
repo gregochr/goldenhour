@@ -33,6 +33,10 @@ public class OpenMeteoForecastResponse {
 
         private List<String> time;
 
+        /** Total cloud cover, all layers, in percent. Read only by the valley-mist trend. */
+        @JsonProperty("cloud_cover")
+        private List<Integer> cloudCover;
+
         @JsonProperty("cloud_cover_low")
         private List<Integer> cloudCoverLow;
 

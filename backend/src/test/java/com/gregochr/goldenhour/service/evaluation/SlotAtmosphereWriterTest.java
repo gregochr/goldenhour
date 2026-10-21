@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideRiskLevel;
@@ -212,6 +213,92 @@ class SlotAtmosphereWriterTest {
         SlotAtmosphereEntity saved = captureSave();
         assertThat(saved.getInversionScore()).isNull();
         assertThat(saved.isInversionScored()).isTrue();
+    }
+
+    @Test
+    @DisplayName("V185: captures the valley mist calculator's score and sets mistScored true")
+    void capturesMistScore_whenFlaggedSiteScored() {
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.empty());
+        AtmosphericData scored = inlandData().withValleyMist(6.5, MistPotential.LIKELY);
+
+        writer(true).write(location(), DATE, SUNSET, scored);
+
+        SlotAtmosphereEntity saved = captureSave();
+        assertThat(saved.getMistScore()).isEqualTo(6.5);
+        assertThat(saved.isMistScored()).isTrue();
+    }
+
+    @Test
+    @DisplayName("V185: mistScored is ALSO true on a write whose score is null (an unflagged site, or "
+            + "a flagged one the calculator could not score) — a fresh null is an authoritative "
+            + "answer, never an absent one; the V158 rule verbatim")
+    void mistScored_trueEvenWhenScoreNull() {
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.empty());
+
+        writer(true).write(location(), DATE, SUNSET, inlandData());
+
+        SlotAtmosphereEntity saved = captureSave();
+        assertThat(saved.getMistScore()).isNull();
+        assertThat(saved.isMistScored()).isTrue();
+    }
+
+    @Test
+    @DisplayName("V185: FOGBOUND and LIKELY at the SAME score are stored as distinguishable bands")
+    void mistPotential_isPersistedSoFogboundIsNotRebuiltAsLikely() {
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.empty());
+
+        writer(true).write(location(), DATE, SUNSET,
+                inlandData().withValleyMist(8.0, MistPotential.FOGBOUND));
+        SlotAtmosphereEntity fog = captureSave();
+        org.mockito.Mockito.reset(repository);
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.empty());
+        writer(true).write(location(), DATE, SUNSET,
+                inlandData().withValleyMist(8.0, MistPotential.LIKELY));
+        SlotAtmosphereEntity likely = captureSave();
+
+        assertThat(fog.getMistScore()).isEqualTo(likely.getMistScore());
+        assertThat(fog.getMistPotential()).isEqualTo("FOGBOUND");
+        assertThat(likely.getMistPotential()).isEqualTo("LIKELY");
+    }
+
+    @Test
+    @DisplayName("V185: a write with no mist reading stores a null band, and clears an earlier one")
+    void mistPotential_nullWhenNoReading_clearsEarlierBand() {
+        SlotAtmosphereEntity existing = new SlotAtmosphereEntity();
+        existing.setLocation(location());
+        existing.setEvaluationDate(DATE);
+        existing.setEventType(SUNSET);
+        existing.setMistScore(8.0);
+        existing.setMistPotential("FOGBOUND");
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.of(existing));
+
+        writer(true).write(location(), DATE, SUNSET, inlandData());
+
+        assertThat(captureSave().getMistPotential()).isNull();
+    }
+
+    @Test
+    @DisplayName("V185: a later write with no mist score clears the earlier cycle's score on the same key")
+    void mistScore_isOverwrittenByTheLatestSubmission() {
+        SlotAtmosphereEntity existing = new SlotAtmosphereEntity();
+        existing.setLocation(location());
+        existing.setEvaluationDate(DATE);
+        existing.setEventType(SUNSET);
+        existing.setMistScore(8.0);
+        existing.setMistScored(true);
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.of(existing));
+
+        writer(true).write(location(), DATE, SUNSET, inlandData());
+
+        SlotAtmosphereEntity saved = captureSave();
+        assertThat(saved.getMistScore()).isNull();
+        assertThat(saved.isMistScored()).isTrue();
     }
 
     @Test

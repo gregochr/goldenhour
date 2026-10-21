@@ -1135,6 +1135,76 @@ class LocationServiceTest {
         verify(locationRepository).save(existing);
     }
 
+    // --- mist_prone (valley-mist-plan M1a) ---
+
+    @Test
+    @DisplayName("add() persists mistProne=true, and absent or null reads as false")
+    void add_mistProne() {
+        when(locationRepository.existsByName(any())).thenReturn(false);
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.add(new AddLocationRequest("Brathay", 54.43, -3.03, null, null, null, null,
+                null, null, null, null, null, null, null, true));
+        locationService.add(new AddLocationRequest("Unflagged", 54.43, -3.03, null, null, null, null,
+                null, null, null, null, null, null, null, null));
+        locationService.add(new AddLocationRequest("Legacy", 54.43, -3.03, null, null, null, null,
+                null, null, null, null, null, null, null));
+
+        ArgumentCaptor<LocationEntity> captor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(locationRepository, times(3)).save(captor.capture());
+        assertThat(captor.getAllValues()).extracting(LocationEntity::isMistProne)
+                .containsExactly(true, false, false);
+    }
+
+    @Test
+    @DisplayName("add() with mistProne=true leaves overlooksWater false — the two flags are independent")
+    void add_mistProne_doesNotImplyOverlooksWater() {
+        when(locationRepository.existsByName(any())).thenReturn(false);
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.add(new AddLocationRequest("Brathay", 54.43, -3.03, null, null, null, null,
+                null, null, null, null, null, false, false, true));
+
+        ArgumentCaptor<LocationEntity> captor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(locationRepository).save(captor.capture());
+        assertThat(captor.getValue().isMistProne()).isTrue();
+        assertThat(captor.getValue().isOverlooksWater()).isFalse();
+    }
+
+    @Test
+    @DisplayName("update() sets mistProne on an existing location — the owner's tick path")
+    void update_setsMistProne() {
+        LocationEntity existing = buildEntity("Brathay", 54.43, -3.03);
+        existing.setGridLat(54.43);
+        existing.setGridLng(-3.03);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        LocationEntity ticked = locationService.update(1L, new UpdateLocationRequest(
+                null, null, null, null, null, null, null, true));
+        assertThat(ticked.isMistProne()).isTrue();
+
+        LocationEntity unticked = locationService.update(1L, new UpdateLocationRequest(
+                null, null, null, null, null, null, null, false));
+        assertThat(unticked.isMistProne()).isFalse();
+    }
+
+    @Test
+    @DisplayName("update() with mistProne absent leaves the flag as it was")
+    void update_nullMistProne_leavesFlagUnchanged() {
+        LocationEntity existing = buildEntity("Brathay", 54.43, -3.03);
+        existing.setGridLat(54.43);
+        existing.setGridLng(-3.03);
+        existing.setMistProne(true);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        LocationEntity result = locationService.update(1L, new UpdateLocationRequest(
+                "Brathay", null, null, null, null, null, null));
+
+        assertThat(result.isMistProne()).isTrue();
+    }
+
     private LocationEntity buildEntity(String name, double lat, double lon) {
         return LocationEntity.builder()
                 .id(1L)

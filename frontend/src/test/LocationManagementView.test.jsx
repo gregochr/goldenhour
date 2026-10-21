@@ -340,12 +340,71 @@ describe('LocationManagementView', () => {
         locationTypes: ['LANDSCAPE'],
         tideTypes: [],
         regionId: null,
+        mistProne: false,
       });
     });
 
     await waitFor(() => {
       expect(onChanged).toHaveBeenCalled();
     });
+  });
+
+  it('inline edit shows the mist checkbox unchecked for an unflagged place and submits a tick', async () => {
+    updateLocation.mockResolvedValue({});
+    fetchLocations
+      .mockResolvedValueOnce(MOCK_LOCATIONS)
+      .mockResolvedValueOnce(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+
+    const mist = screen.getByRole('checkbox', { name: /Mist forms here: valley floor, riverside, lake shore/ });
+    expect(mist).toBe(screen.getByTestId('inline-edit-mist-prone'));
+    expect(mist).not.toBeChecked();
+    fireEvent.click(mist);
+    expect(mist).toBeChecked();
+    fireEvent.click(screen.getByTestId('inline-edit-save'));
+
+    await waitFor(() => {
+      expect(updateLocation).toHaveBeenCalledWith(1, expect.objectContaining({ mistProne: true }));
+    });
+  });
+
+  it('inline edit starts checked for a flagged place and submits the untick', async () => {
+    updateLocation.mockResolvedValue({});
+    const flagged = [{ ...MOCK_LOCATIONS[0], mistProne: true }, ...MOCK_LOCATIONS.slice(1)];
+    fetchLocations.mockResolvedValueOnce(flagged).mockResolvedValueOnce(flagged);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('mist-prone-badge-1')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+
+    const mist = screen.getByTestId('inline-edit-mist-prone');
+    expect(mist).toBeChecked();
+    fireEvent.click(mist);
+    expect(mist).not.toBeChecked();
+    fireEvent.click(screen.getByTestId('inline-edit-save'));
+
+    await waitFor(() => {
+      expect(updateLocation).toHaveBeenCalledWith(1, expect.objectContaining({ mistProne: false }));
+    });
+  });
+
+  it('shows no mist badge on an unflagged place', async () => {
+    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('mist-prone-badge-1')).not.toBeInTheDocument();
   });
 
   it('editing a multi-typed location keeps every type, not just the first', async () => {
@@ -833,6 +892,94 @@ describe('LocationManagementView', () => {
 
     fireEvent.click(overlooksWater);
     expect(overlooksWater).toBeChecked();
+  });
+
+  it('add form offers the mist checkbox beside overlooks water, unchecked by default', async () => {
+    geocodePlace.mockResolvedValue({ lat: 54.43, lon: -3.03, displayName: 'Brathay, UK' });
+    enrichLocation.mockResolvedValue({
+      bortleClass: 3, skyBrightnessSqm: 21.7, elevationMetres: 54, gridLat: 54.43, gridLng: -3.03,
+    });
+    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-btn')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('add-location-btn'));
+    fireEvent.change(screen.getByTestId('place-name-input'), { target: { value: 'Brathay' } });
+    fireEvent.click(screen.getByTestId('geocode-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('manual-toggles-panel')).toBeInTheDocument();
+    });
+
+    const mist = screen.getByTestId('mist-prone-checkbox');
+    expect(mist).not.toBeChecked();
+    expect(mist.closest('label')).toHaveTextContent(
+      'Mist forms here: valley floor, riverside, lake shore',
+    );
+    fireEvent.click(mist);
+    expect(mist).toBeChecked();
+  });
+
+  it('a ticked mist checkbox reaches the confirm dialog and the addLocation payload', async () => {
+    geocodePlace.mockResolvedValue({ lat: 54.43, lon: -3.03, displayName: 'Brathay, UK' });
+    enrichLocation.mockResolvedValue({
+      bortleClass: 3, skyBrightnessSqm: 21.7, elevationMetres: 54, gridLat: 54.43, gridLng: -3.03,
+    });
+    addLocation.mockResolvedValue({});
+    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-btn')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('add-location-btn'));
+    fireEvent.change(screen.getByTestId('place-name-input'), { target: { value: 'Brathay' } });
+    fireEvent.click(screen.getByTestId('geocode-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('mist-prone-checkbox')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('mist-prone-checkbox'));
+    fireEvent.click(screen.getByTestId('review-confirm-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-mist-prone')).toHaveTextContent('Yes');
+    });
+    fireEvent.click(screen.getByTestId('confirm-save-btn'));
+
+    await waitFor(() => {
+      expect(addLocation).toHaveBeenCalledWith(expect.objectContaining({ mistProne: true }));
+    });
+  });
+
+  it('an unticked mist checkbox sends mistProne false and the confirm dialog says No', async () => {
+    geocodePlace.mockResolvedValue({ lat: 54.43, lon: -3.03, displayName: 'Brathay, UK' });
+    enrichLocation.mockResolvedValue({
+      bortleClass: 3, skyBrightnessSqm: 21.7, elevationMetres: 54, gridLat: 54.43, gridLng: -3.03,
+    });
+    addLocation.mockResolvedValue({});
+    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-btn')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('add-location-btn'));
+    fireEvent.change(screen.getByTestId('place-name-input'), { target: { value: 'Brathay' } });
+    fireEvent.click(screen.getByTestId('geocode-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('mist-prone-checkbox')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('review-confirm-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-mist-prone')).toHaveTextContent('No');
+    });
+    fireEvent.click(screen.getByTestId('confirm-save-btn'));
+
+    await waitFor(() => {
+      expect(addLocation).toHaveBeenCalledWith(expect.objectContaining({ mistProne: false }));
+    });
   });
 
   it('shows enriching spinner while enrichment is loading', async () => {

@@ -87,6 +87,15 @@ class OpenMeteoClientTest {
     }
 
     @Test
+    @DisplayName("FORECAST_PARAMS requests total cloud_cover as its own variable, for the valley-mist trend")
+    void forecastParams_requestTotalCloudCover() {
+        // Split on the comma: "cloud_cover_low" contains "cloud_cover", so a contains() check
+        // would pass on the layer series alone.
+        assertThat(OpenMeteoClient.FORECAST_PARAMS.split(","))
+                .contains("cloud_cover", "wind_speed_10m", "dew_point_2m", "temperature_2m");
+    }
+
+    @Test
     @DisplayName("fetchAirQuality() delegates to airQualityApi with correct parameters")
     void fetchAirQuality_delegatesToApi() {
         OpenMeteoAirQualityResponse expected = new OpenMeteoAirQualityResponse();

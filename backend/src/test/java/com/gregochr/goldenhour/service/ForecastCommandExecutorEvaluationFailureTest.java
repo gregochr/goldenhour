@@ -68,6 +68,7 @@ import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -217,6 +218,8 @@ class ForecastCommandExecutorEvaluationFailureTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         when(augmentor.augmentWithInversionScore(any(), any(), anyBoolean())).thenAnswer(inv -> inv.getArgument(0));
         when(augmentor.augmentWithBluebellConditions(any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
         AtmosphericData data = TestAtmosphericData.builder().targetType(TargetType.SUNSET).build();
         when(openMeteoService.getAtmosphericDataFromCache(any(), any(), any()))
