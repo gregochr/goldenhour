@@ -44,10 +44,10 @@ class SolarSchedulePreviewServiceTest {
         runs = mock(PipelineRunRepository.class);
         service = new SolarSchedulePreviewService(configs, runs, factory,
                 Clock.fixed(NOW, ZoneOffset.UTC));
-        when(configs.findByJobKey(SolarForecastJobs.NIGHTLY_JOB)).thenReturn(Optional.of(
-                cronRow(SolarForecastJobs.NIGHTLY_JOB)));
-        when(configs.findByJobKey(SolarForecastJobs.INTRADAY_JOB)).thenReturn(Optional.of(
-                cronRow(SolarForecastJobs.INTRADAY_JOB)));
+        when(configs.findByJobKey(ForecastCycleJobs.NIGHTLY_JOB)).thenReturn(Optional.of(
+                cronRow(ForecastCycleJobs.NIGHTLY_JOB)));
+        when(configs.findByJobKey(ForecastCycleJobs.INTRADAY_JOB)).thenReturn(Optional.of(
+                cronRow(ForecastCycleJobs.INTRADAY_JOB)));
     }
 
     private static SchedulerJobConfigEntity cronRow(String key) {
@@ -73,7 +73,7 @@ class SolarSchedulePreviewServiceTest {
         assertThat(preview.referencePoint().lon()).isEqualTo(-1.575);
         assertThat(preview.generatedAt()).isEqualTo(NOW);
         assertThat(preview.jobs()).extracting(SolarSchedulePreviewService.JobPreview::jobKey)
-                .containsExactly(SolarForecastJobs.NIGHTLY_JOB, SolarForecastJobs.INTRADAY_JOB);
+                .containsExactly(ForecastCycleJobs.NIGHTLY_JOB, ForecastCycleJobs.INTRADAY_JOB);
 
         SolarSchedulePreviewService.JobPreview morning = preview.jobs().get(0);
         assertThat(morning.ruleSource()).isEqualTo("PROPOSED");
@@ -103,7 +103,7 @@ class SolarSchedulePreviewServiceTest {
     @Test
     @DisplayName("today's and tomorrow's figures are the trigger's own, for the UK dates of the clock")
     void todayAndTomorrow_matchTheTrigger() {
-        SolarOffsetTrigger trigger = factory.create(SolarForecastJobs.NIGHTLY_JOB, SolarEvent.SUNRISE,
+        SolarOffsetTrigger trigger = factory.create(ForecastCycleJobs.NIGHTLY_JOB, SolarEvent.SUNRISE,
                 255, "0 0 1 * * *");
         SolarOffsetTrigger.Fire today = trigger.fireFor(LocalDate.of(2026, 10, 13));
         SolarOffsetTrigger.Fire tomorrow = trigger.fireFor(LocalDate.of(2026, 10, 14));
@@ -123,11 +123,11 @@ class SolarSchedulePreviewServiceTest {
     @DisplayName("a job already switched to SOLAR_OFFSET is shown under its stored rule")
     void solarRow_showsStoredRule() {
         SchedulerJobConfigEntity solar = SchedulerJobConfigEntity.builder()
-                .jobKey(SolarForecastJobs.INTRADAY_JOB).displayName("x")
+                .jobKey(ForecastCycleJobs.INTRADAY_JOB).displayName("x")
                 .scheduleType(ScheduleType.SOLAR_OFFSET).solarEvent(SolarEvent.SUNSET)
                 .solarOffsetMinutes(100).cronExpression("0 0 14 * * *")
                 .status(SchedulerJobStatus.ACTIVE).build();
-        when(configs.findByJobKey(SolarForecastJobs.INTRADAY_JOB)).thenReturn(Optional.of(solar));
+        when(configs.findByJobKey(ForecastCycleJobs.INTRADAY_JOB)).thenReturn(Optional.of(solar));
 
         SolarSchedulePreviewService.JobPreview afternoon = service.preview().jobs().get(1);
 
@@ -163,7 +163,7 @@ class SolarSchedulePreviewServiceTest {
     @Test
     @DisplayName("a missing row still previews under the proposed rule, with no stored type or status")
     void missingRow_stillPreviews() {
-        when(configs.findByJobKey(SolarForecastJobs.NIGHTLY_JOB)).thenReturn(Optional.empty());
+        when(configs.findByJobKey(ForecastCycleJobs.NIGHTLY_JOB)).thenReturn(Optional.empty());
 
         SolarSchedulePreviewService.JobPreview morning = service.preview().jobs().get(0);
 

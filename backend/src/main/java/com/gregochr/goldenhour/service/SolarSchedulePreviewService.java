@@ -25,7 +25,7 @@ import java.util.List;
  *
  * <p>⚠️ <b>Every figure comes from {@link SolarOffsetTrigger#fireFor}</b>, the arithmetic the
  * scheduler itself uses, so the preview can never disagree with what will fire. A job that is not
- * yet solar is shown under the plan's proposed rule ({@link SolarForecastJobs#proposedRule}) with
+ * yet solar is shown under the plan's proposed rule ({@link ForecastCycleJobs#proposedRule}) with
  * {@code ruleSource} {@code "PROPOSED"}; a solar job under its stored one ({@code "STORED"}).
  * Times are ISO instants (the frontend formats them); the earliest and latest fire times of day are
  * UK local {@code HH:mm}. Nothing here writes anything.
@@ -139,8 +139,8 @@ public class SolarSchedulePreviewService {
     public Preview preview() {
         Instant now = clock.instant();
         List<JobPreview> jobs = new ArrayList<>();
-        for (String key : SolarForecastJobs.keys()) {
-            jobs.add(previewJob(key, now));
+        for (ForecastCycleJobs.Job job : ForecastCycleJobs.solarCapableJobs()) {
+            jobs.add(previewJob(job.key(), now));
         }
         SolarReferencePoint point = triggerFactory.referencePoint();
         return new Preview(new ReferencePoint(point.lat(), point.lon()), now, jobs);
@@ -150,7 +150,7 @@ public class SolarSchedulePreviewService {
         SchedulerJobConfigEntity config = configs.findByJobKey(jobKey).orElse(null);
         boolean solar = config != null && config.getScheduleType() == ScheduleType.SOLAR_OFFSET
                 && config.getSolarEvent() != null && config.getSolarOffsetMinutes() != null;
-        SolarForecastJobs.Rule proposed = SolarForecastJobs.proposedRule(jobKey);
+        ForecastCycleJobs.Rule proposed = ForecastCycleJobs.proposedRule(jobKey);
         SolarEvent event = solar ? config.getSolarEvent() : proposed.event();
         int offset = solar ? config.getSolarOffsetMinutes() : proposed.offsetMinutes();
         String cron = config == null ? null : config.getCronExpression();
@@ -178,7 +178,7 @@ public class SolarSchedulePreviewService {
             }
         }
 
-        return new JobPreview(jobKey, SolarForecastJobs.cycleOf(jobKey).name(),
+        return new JobPreview(jobKey, ForecastCycleJobs.cycleOf(jobKey).name(),
                 config == null ? null : config.getScheduleTypeRaw(),
                 config == null ? null : config.getStatus().name(), cron, event, offset,
                 solar ? "STORED" : "PROPOSED", dayFire(trigger.fireFor(today)),
@@ -198,7 +198,7 @@ public class SolarSchedulePreviewService {
     private Long medianDurationSeconds(String jobKey) {
         List<Long> seconds = pipelineRuns
                 .findTop14ByCycleTypeAndStatusOrderByTriggerTimeDesc(
-                        SolarForecastJobs.cycleOf(jobKey), PipelineRunStatus.COMPLETED).stream()
+                        ForecastCycleJobs.cycleOf(jobKey), PipelineRunStatus.COMPLETED).stream()
                 .filter(run -> run.getTriggerTime() != null && run.getCompletedAt() != null)
                 .map(run -> Duration.between(run.getTriggerTime(), run.getCompletedAt()).getSeconds())
                 .sorted(Comparator.naturalOrder())

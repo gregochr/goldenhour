@@ -276,7 +276,7 @@ public class DynamicSchedulerService {
         SolarEvent newEvent = null;
         Integer newOffset = null;
         if (newType == ScheduleType.SOLAR_OFFSET) {
-            if (!SolarForecastJobs.allowed(jobKey)) {
+            if (!ForecastCycleJobs.allowed(jobKey)) {
                 throw new IllegalArgumentException("Job '" + jobKey + "' may not be switched to "
                         + "SOLAR_OFFSET; only the two forecast cycle jobs may");
             }

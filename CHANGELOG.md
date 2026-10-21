@@ -7,6 +7,78 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [v2.29.2] - 2026-10-20
 
+### Changed — every "Show on map" opens the Map tab; the Plan-tab map overlay no longer opens (overlay convergence, C4)
+
+Fourth phase of retiring the Plan tab's map overlay (`docs/engineering/overlay-convergence-plan.md`, O-6). The seven producers that opened the "Aurora tonight" / "Sunrise tomorrow" modal now all take the ONE structured `source:'plan'` door the location sheet footer already used, and the overlay can no longer be opened:
+
+- **The Regional planner's drill-down pin** (an `event` trigger), **its location names** and **the spot sheet's rows** (`location`), and **the pick dialog's *Show {region} on map* / *Open {location} on map*** (`region` / `location`) go through the shell's `openMapTab`. It closes the pick dialog, spot sheet and window popup FIRST, merges the Plan's live rating floor and reach tier, and `App.openMapTabFromPlan` resolves the window, region, location, spot-set lens and headline. The pick dialog's two actions are drawn only when the shell has a Map door (they were left calling nothing when it had none), and still close the dialog and popup themselves.
+- **A region door keeps its region.** It lands on the region's top-rated spot as the overlay did, but now also frames the region: an away region switches scope to the whole catalogue instead of stranding one callout outside it, and the camera is the region's fit rather than a fly to the one place.
+- **Coming up's coastal and dark-sky cards and their day chips** send the `coming-up` trigger: the exact spot set becomes the breadcrumb's named, clearable lens with its subject filter, and the headline names the card and day. A spot the card NAMES is exempt from the unrated / stand-down withholding (it draws as an unscored pin, so a card beyond the rated horizon no longer opens on an empty map) but not from the reader's own filters (rating floor, reach, subject, dark sky); when nothing is left the crumb says why ("none of the 3 named spots is rated for this day", or "...passes your filters"), never "showing 0 spots". With no Map door at all the pane is handed no dates, so none of its cards is a button.
+- **The aurora banner** (shown on every tab) sends an `aurora` trigger for the night in progress; `handleAuroraViewOnMap` was kept and rewritten, not deleted. It reads the Plan's lens from the briefing context it already sits in. Its Map door is offered only when the Map tab has a night row to select (the C3 offer's own live-night test, or a rated run); a stale or inactive status with a forecast on screen shows no call to action instead of opening the map on a solar window.
+- **A map-sourced door is a window change and nothing more.** The banner pressed ON the Map tab (and the four-day sheet's footer) select the window without writing the lens, scope or camera, and no longer end a standing door lens or unmount its breadcrumb: the map holds the last Plan door separately from the latest handoff, so the floor, reach, scope and origin it named stay named. The shell's own dialogs (a Map-hosted four-day sheet) are closed first through a closer the shell registers with `App`. `MapView` now follows a night named by a map-sourced handoff.
+- **The breadcrumb's return names the tab the door came from** (an extension of the doors plan's D2, not a reversal): `← Plan`, `← Coming up` or `← Operations`. The return lands on that tab and focuses the control that was pressed if it is still mounted (a Coming up card), otherwise that tab's button. The arrival is announced once per door through a visually hidden status region next to the strip.
+- **A SIMULATED alert has no map** (C3 / aurora-banner-plan D9), so its banner is honest rather than dead: an admin's press opens the Operations tab and the call to action reads "Operations →" (never "Generate scores →"); for anyone else the banner is a statement with no tab stop, a default cursor and the plain word "Test alert". The old hash writes (`#map`, both no-ops since v1 retirement D1) are gone. The Operations press writes `#manage/metrics` (Job Runs, where the simulation lives) first, but `ManageView` reads the hash only when it mounts, so it lands there only when the Operations pane is first opened this session; with it already mounted the admin arrives on the sub-tab they left. LITE accounts still receive no aurora status, hence no banner and no door.
+
+`App` loses `handleShowOnMap`, `openFullMapTab`, the `mapOverlay` state, the settings-edge overlay close and the `MapOverlay` mount; `WindowFirstShell` loses its `onShowOnMap` prop. A door no longer writes any state the Plan tab reads. The v1-retirement §8 item 9 route (an overlay opened OVER a Plan dialog by the planner's 🗺 or the banner) is closed rather than guarded. `MapOverlay.jsx`, `utils/mapOverlay.js` and `MapView`'s `overlayMode` branches are untouched until C5.
+
+Known limits: the aurora `detail` prose and astro explanations the overlay's popup showed still have no home (plan §3 C2 note, an open owner call); whether Operations should grow an Aurora sub-tab for the banner to land on is an open owner question.
+
+### Changed — the Map tab opens on an aurora alert even before any sunrise or sunset is forecast (overlay convergence, C3)
+
+Third phase of retiring the Plan tab's map overlay (`docs/engineering/overlay-convergence-plan.md`, O-6, owner decision D4). Until now `App` withheld the whole Map tab whenever no sunrise or sunset forecast had arrived, so the aurora banner (shown on every tab) could reach a map only through the overlay. A PRO or ADMIN account with a **real MODERATE or STRONG alert** now gets the Map tab with no solar forecast at all: the window control holds the live aurora night alone, the tab opens on it in aurora mode, and the field, the viewline, the callout and the phone peek sheet work on it as on any aurora window. The landing card does not open (there is nothing solar to say).
+
+A real alert whose scoring run has stored nothing yet also gets a **live-night row** on a tab that does have a forecast: the window control's night rows come from stored results only (D-14), so a live field had no row to select it by. The row's best is the highest star among the live per-location scores — the same figure the field paints. A night that has a stored run keeps its stored row untouched, and on a real alert the stored-run preview now covers the night in progress even with no solar dates (otherwise its one row would read "—" beside a painted field).
+
+Unchanged by design: a LITE account (no aurora status, role checked again in the new predicate), a quiet or inactive alert, and an alert below MODERATE (per-location scores are fetched only from MODERATE up, so there would be nothing to draw) all still withhold the tab. **A simulated alert (admin test data) offers neither the tab nor the row**: a simulation has no scores and no stored run, `aurora-banner-plan.md` D9 ("a simulated alert asks for nothing") and the aurora-simulation isolation rule keep it off every user-facing surface, and a tab built on one would be an empty map dressed as a forecast; the banner still shows it with its test tube. The Plan→Map doors are not moved by this change (the banner's door follows in C4), and the overlay is untouched. With forecast data the tab receives the same props and renders the same solar rows as before.
+
+Also in this change: the tab is never offered on a status whose night has ended; when the alert clears while the Map tab is the tab in force, the shell now selects Plan explicitly and moves focus to the Plan tab button (so the next alert does not snap the reader back); the live row waits for the stored-dates list to answer; a hides-only forecast keeps its comfort card (the day-mode rule now tests "no solar event") and never enters aurora; a night-only window control has an accessible name (kind, night, time if known, best star), single-window steppers say "Only one window", and the phone Windows section has a heading. The live row is appended on a tab that does have a forecast too (a deliberate deviation: the same D-14 gap), after that date's sunset like a stored night's row; every solar row and its order is unchanged.
+
+Known limits: a live night that gains a stored run mid-session is not converted (the stored-dates list is read once per role). For the C6 docs sweep: the live row's `bestOfNight` runs over LIVE per-location scores (`getAuroraLocations`), a new population for that licensed Map-tab client-max derivation, to be added to CLAUDE.md's Backend-heavy member list.
+
+### Added — the location sheet and callout carry the forecast detail the overlay popup showed (overlay convergence, C2)
+
+Phase C2 of the Plan-tab map overlay's retirement (`docs/engineering/overlay-convergence-plan.md`,
+owner decision D3): the facts the overlay's marker popup showed and the Map tab's surfaces did not now
+live where a reader on the tab can reach them. Each open window row of the location sheet carries, under
+its prose, the conditions badges (dust, cloud inversion, bluebell, rising tide, sea state, storm surge),
+the wind and comfort rows and the "Forecast generated" footer, read from the same slim forecast row and
+lazily fetched detail row the popup used. The detail is fetched only for a row the reader opens, with a
+skeleton while it loads; a failed fetch costs the badges quietly and leaves the rest. Gating mirrors the
+popup's: a LITE reader gets the plain "High aerosols" wording, no inversion badge and a locked bluebell
+badge (CLAUDE.md's 0.45 greyed pattern is applied to the badge's edge and wash, not its text, because 0.45 on 10.5px text fails AA). The map callout gains the aurora alert level beside the stars on an aurora window and the
+travel-day notice on a solar one. A location with none of these facts draws exactly the sheet and
+callout it drew before.
+
+The score bars and the golden and blue hour line were already on the sheet. The live tide indicator is
+not ported (the sheet's tide block already reads the served `window.tideFacts`), the admin Run forecast
+button is the later O-7 phase, and the aurora `detail` text and astro explanations have no home yet: the
+sheet shows only solar windows, and giving it night rows is not part of this series. Nothing moves
+doors yet — the overlay is still what its seven triggers open until C4.
+
+### Fixed — the watchdog finds an evening run whose deadline falls after UK midnight
+
+The evening refresh fires at 20:00 UTC, so with a long budget its deadline or timeout failure can land after UK midnight, when the watchdog's today-only run query no longer returned it. The evening check now looks back to the earlier of the UK day start and now minus the evening budget minus an hour.
+
+### Added — evening sunrise refresh cycle (dormant)
+
+A third forecast cycle, `evening_sunrise_refresh`, re-evaluates tomorrow's sunrise alone at 20:00 UTC (every stability, bypassing the cache gate, its own `photocast.pipeline.evening-safety-timeout` wait budget of PT2H, bounds PT30M..PT3H30M). It is seeded PAUSED (V184), so nothing runs until it is resumed from the Scheduler screen. The cycle gives no failure evidence: its settle claims the run and applies no count or reset, and it never blocks or reorders the other cycles' failure settling.
+
+### Changed — scheduler solar panel describes the evening refresh's budget
+
+The sun-relative panel's safety-budget note no longer says two forecast cycles can never be running at once. It now states each cycle's budget (3 h 30 min for the overnight and afternoon cycles, 2 h for the evening sunrise refresh) and that their briefing builds run one after the other when the afternoon cycle is still finishing in late spring and summer. A test pins that the evening job gets no fixed/sun-relative switch.
+
+### Added — the forecast-cycle watchdog watches the evening sunrise refresh
+
+`SolarForecastJobs` is now `ForecastCycleJobs`, a registry of the three scheduled forecast cycles (nightly, intraday, evening) of which the first two are solar-capable. The watchdog walks all three. For the evening refresh, which serves no solar event, it alerts when the fire was missed, when the run was failed by the safety timeout, or when a forecast batch is still outstanding after the evening budget (`photocast.pipeline.evening-safety-timeout`); a run still building its briefing after its batches finished is not an alert. The two main cycles' checks are unchanged. The evening job stays paused until the owner resumes it.
+
+### Changed — the pipeline orchestrator reads a cycle's shape from the cycle type
+
+Groundwork for an evening refresh of tomorrow's sunrise; nothing observable changes. The orchestrator's
+`intraday` flag is replaced by properties of `CycleType` (`publishesStabilitySnapshot`,
+`recordsReclassifyPhase`, `failureEvidence`), the wait budget is chosen per cycle type (both still the
+configured safety timeout), and a candidate strategy can now say it bypasses the CACHED gate
+(`bypassesCacheGate`, false for every existing strategy).
+
 ### Added — the Plan→Map door carries every overlay trigger (overlay convergence, C1)
 
 First phase of retiring the Plan tab's map overlay onto the Map tab (`docs/engineering/overlay-convergence-plan.md`, O-6). The structured `source: 'plan'` door now carries everything the overlay's seven triggers carry, so a later phase can move each producer onto it. No door moves in this change and nothing about the overlay itself changes: it still opens, looks and behaves as before.
