@@ -209,10 +209,11 @@ the result is in the findings below and it killed M4.
   wind 0.1, 37% low cloud — LIKELY), and a windy or overcast night (NONE).
 - **Gate:** `ForecastDataAugmentor.augmentWithValleyMist(data, mistProne)` runs for `mist_prone` sites only,
   in `fetchWeatherAndTriage` beside `augmentWithInversionScore`, BEFORE the readings write and triage.
-- **`slot_atmosphere.mist_score DOUBLE NULL` + `mist_scored BOOLEAN NOT NULL DEFAULT FALSE`** (V185,
-  with `mist_prone`) — the V158 pair exactly, `mist_scored` true on EVERY write of the current writer,
+- **`slot_atmosphere.mist_score DOUBLE NULL` + `mist_scored BOOLEAN NOT NULL DEFAULT FALSE` + `mist_potential
+  VARCHAR(10) NULL`** (V185, with `mist_prone`; the band's enum name is stored because FOGBOUND is decided by
+  event visibility, not the score, so two slots can share a score and differ in band) — the V158 pair exactly, `mist_scored` true on EVERY write of the current writer,
   unflagged sites included, for the same reason (a fresh null is an answer; a pre-column row is not). `SlotSignals
-  .Readings` carries both. No Claude echo exists yet, so no `effective…` fallback is needed in M1; M2 adds
+  .Readings` carries all three. No Claude echo exists yet, so no `effective…` fallback is needed in M1; M2 adds
   the echo and the `effectiveMistScore()` twin of `effectiveInversionScore()`.
 - **`MistHotTopicStrategy`** (`"MIST"`, priority 2, SUNRISE and SUNSET rows — unlike the inversion, mist
   forming at dusk over a river is a real evening shot — regions of mist-prone sites at LIKELY or above,

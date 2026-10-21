@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
@@ -263,10 +264,64 @@ class SlotSignalReaderTest {
     }
 
     @Test
+    @DisplayName("V185: the reader maps the stored band name onto Readings.mistPotential")
+    void readings_mapsMistPotential() {
+        LocationEntity loc = location(23L);
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
+        a.setLocation(loc);
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setMistScore(8.0);
+        a.setMistScored(true);
+        a.setMistPotential("FOGBOUND");
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(a));
+
+        SlotSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.readings().mistPotential()).isEqualTo(MistPotential.FOGBOUND);
+    }
+
+    @Test
+    @DisplayName("V185: the stored band name parses null-safely: null, every known name, and garbage")
+    void parsePotential_isNullSafe() {
+        assertThat(SlotSignals.Readings.parsePotential(null)).isNull();
+        assertThat(SlotSignals.Readings.parsePotential("")).isNull();
+        assertThat(SlotSignals.Readings.parsePotential("not-a-band")).isNull();
+        assertThat(SlotSignals.Readings.parsePotential("likely")).isNull();
+        for (MistPotential p : MistPotential.values()) {
+            assertThat(SlotSignals.Readings.parsePotential(p.name())).isEqualTo(p);
+        }
+    }
+
+    @Test
+    @DisplayName("V185: an unknown stored band name reads as null through the reader, never throws")
+    void readings_unknownMistPotentialReadsNull() {
+        LocationEntity loc = location(24L);
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
+        a.setLocation(loc);
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setMistScore(8.0);
+        a.setMistScored(true);
+        a.setMistPotential("GARBAGE");
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(a));
+
+        SlotSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.readings().mistScore()).isEqualTo(8.0);
+        assertThat(s.readings().mistPotential()).isNull();
+    }
+
+    @Test
     @DisplayName("EMPTY readings carries no mist reading and is not scored")
     void emptyReadings_mistIsAbsent() {
         assertThat(SlotSignals.Readings.EMPTY.mistScore()).isNull();
         assertThat(SlotSignals.Readings.EMPTY.mistScored()).isFalse();
+        assertThat(SlotSignals.Readings.EMPTY.mistPotential()).isNull();
     }
 
     @Test

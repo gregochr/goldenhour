@@ -160,6 +160,15 @@ public class SlotAtmosphereEntity {
     @Column(name = "mist_scored", nullable = false)
     private boolean mistScored;
 
+    /**
+     * The {@code MistPotential} band's enum NAME for {@link #mistScore}, or null exactly when the
+     * score is null. Stored because FOGBOUND is decided by event-hour visibility, not by the score:
+     * a white frame and a LIKELY morning can share a score, and a reader rebuilding the band from
+     * the score alone would recommend the white frame.
+     */
+    @Column(name = "mist_potential", length = 10)
+    private String mistPotential;
+
     /** Total storm surge in metres (pressure + wind), or null. Feeds the STORM_SURGE facts line. */
     @Column(name = "surge_total_m")
     private Double surgeTotalMetres;

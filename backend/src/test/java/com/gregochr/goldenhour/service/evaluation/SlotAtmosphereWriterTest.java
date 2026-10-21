@@ -245,6 +245,44 @@ class SlotAtmosphereWriterTest {
     }
 
     @Test
+    @DisplayName("V185: FOGBOUND and LIKELY at the SAME score are stored as distinguishable bands")
+    void mistPotential_isPersistedSoFogboundIsNotRebuiltAsLikely() {
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.empty());
+
+        writer(true).write(location(), DATE, SUNSET,
+                inlandData().withValleyMist(8.0, MistPotential.FOGBOUND));
+        SlotAtmosphereEntity fog = captureSave();
+        org.mockito.Mockito.reset(repository);
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.empty());
+        writer(true).write(location(), DATE, SUNSET,
+                inlandData().withValleyMist(8.0, MistPotential.LIKELY));
+        SlotAtmosphereEntity likely = captureSave();
+
+        assertThat(fog.getMistScore()).isEqualTo(likely.getMistScore());
+        assertThat(fog.getMistPotential()).isEqualTo("FOGBOUND");
+        assertThat(likely.getMistPotential()).isEqualTo("LIKELY");
+    }
+
+    @Test
+    @DisplayName("V185: a write with no mist reading stores a null band, and clears an earlier one")
+    void mistPotential_nullWhenNoReading_clearsEarlierBand() {
+        SlotAtmosphereEntity existing = new SlotAtmosphereEntity();
+        existing.setLocation(location());
+        existing.setEvaluationDate(DATE);
+        existing.setEventType(SUNSET);
+        existing.setMistScore(8.0);
+        existing.setMistPotential("FOGBOUND");
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.of(existing));
+
+        writer(true).write(location(), DATE, SUNSET, inlandData());
+
+        assertThat(captureSave().getMistPotential()).isNull();
+    }
+
+    @Test
     @DisplayName("V185: a later write with no mist score clears the earlier cycle's score on the same key")
     void mistScore_isOverwrittenByTheLatestSubmission() {
         SlotAtmosphereEntity existing = new SlotAtmosphereEntity();

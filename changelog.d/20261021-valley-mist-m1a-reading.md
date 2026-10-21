@@ -12,7 +12,7 @@ checkbox (at add time, or on an existing place from its inline edit). For a mark
 air, a small temperature–dew point gap, the air cooling toward it, wet ground, and the model's own
 haze) rather than waiting for the 2 km model to saturate, which it did not on the Brathay morning.
 The 0–10 score and its band (NONE, POSSIBLE, LIKELY, FOGBOUND) are recorded in `slot_atmosphere`
-(`mist_score`, `mist_scored`, V185) for every marked place the pipeline fetches weather for,
+(`mist_score`, `mist_scored`, `mist_potential`, V185; the band is stored because a fogbound white frame can share a score with a LIKELY morning) for every marked place the pipeline fetches weather for,
 whatever the triage verdict, exactly as the inversion score is. No Claude call is added and no
 star changes. The moisture scale is now one shared helper that the cloud inversion calculator
 also uses, with its outputs unchanged. The hourly weather request gains the total `cloud_cover`

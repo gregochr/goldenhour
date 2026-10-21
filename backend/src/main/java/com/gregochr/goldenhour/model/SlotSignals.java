@@ -187,6 +187,11 @@ public record SlotSignals(
      *                                  before V185. The V158 {@link #inversionScored()} rule
      *                                  verbatim: a fresh {@code true} row's null score is an
      *                                  authoritative answer
+     * @param mistPotential             the band for {@link #mistScore()}, or null when there is no
+     *                                  score or the stored name is not a known band (never throws).
+     *                                  Carried separately because FOGBOUND is decided by event-hour
+     *                                  visibility, not by the score: two slots with the same score
+     *                                  can be LIKELY and FOGBOUND
      */
     public record Readings(
             BigDecimal aerosolOpticalDepth,
@@ -203,7 +208,8 @@ public record SlotSignals(
             Double inversionScore,
             boolean inversionScored,
             Double mistScore,
-            boolean mistScored) {
+            boolean mistScored,
+            MistPotential mistPotential) {
 
         /**
          * Backward-compatible constructor for readings that carry no valley-mist columns (every
@@ -232,12 +238,29 @@ public record SlotSignals(
             this(aerosolOpticalDepth, dust, pm25, surgeRiskLevel, snowDepthMetres,
                     freezingLevelMetres, humidity, surgeTotalMetres, surgeWindSpeedMs,
                     surgeWindDirectionDegrees, temperatureCelsius, inversionScore,
-                    inversionScored, null, false);
+                    inversionScored, null, false, null);
+        }
+
+        /**
+         * Parses a stored band name, tolerating a null or unknown one.
+         *
+         * @param name the {@code slot_atmosphere.mist_potential} value, or null
+         * @return the band, or null for a null or unrecognised name
+         */
+        public static MistPotential parsePotential(String name) {
+            if (name == null) {
+                return null;
+            }
+            try {
+                return MistPotential.valueOf(name);
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
         }
 
         /** The all-absent readings, used for a key that has only scores. */
         public static final Readings EMPTY = new Readings(
                 null, null, null, null, null, null, null, null, null, null, null, null, false,
-                null, false);
+                null, false, null);
     }
 }

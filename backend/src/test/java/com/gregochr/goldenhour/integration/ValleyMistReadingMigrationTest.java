@@ -74,6 +74,12 @@ class ValleyMistReadingMigrationTest {
             assertColumn(st, "locations", "mist_prone", "boolean", "NO");
             assertColumn(st, "slot_atmosphere", "mist_score", "double precision", "YES");
             assertColumn(st, "slot_atmosphere", "mist_scored", "boolean", "NO");
+            assertColumn(st, "slot_atmosphere", "mist_potential", "character varying", "YES");
+            try (ResultSet rs = st.executeQuery("SELECT character_maximum_length FROM information_schema.columns "
+                    + "WHERE table_name = 'slot_atmosphere' AND column_name = 'mist_potential'")) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getInt(1)).as("VARCHAR(10) holds the longest band name FOGBOUND").isEqualTo(10);
+            }
 
             try (ResultSet rs = st.executeQuery(
                     "SELECT mist_prone FROM locations WHERE id = " + locationId)) {
@@ -81,23 +87,27 @@ class ValleyMistReadingMigrationTest {
                 assertThat(rs.getBoolean(1)).as("a location planted before V185 is not flagged").isFalse();
             }
             try (ResultSet rs = st.executeQuery(
-                    "SELECT mist_score, mist_scored FROM slot_atmosphere WHERE location_id = " + locationId)) {
+                    "SELECT mist_score, mist_scored, mist_potential FROM slot_atmosphere "
+                            + "WHERE location_id = " + locationId)) {
                 assertThat(rs.next()).isTrue();
+                assertThat(rs.getString("mist_potential")).as("no band on a pre-column row").isNull();
                 assertThat(rs.getObject("mist_score")).as("no score on a pre-column row").isNull();
                 assertThat(rs.getBoolean("mist_scored"))
                         .as("a pre-column row is NOT an authoritative answer").isFalse();
                 assertThat(rs.next()).isFalse();
             }
 
-            // A fresh write can carry mist_scored TRUE with a NULL score (the authoritative null).
+            // A fresh write: mist_scored TRUE, and the band name stored beside a (high) score.
             st.executeUpdate("INSERT INTO slot_atmosphere (location_id, evaluation_date, event_type, "
-                    + "mist_score, mist_scored, evaluated_at) VALUES (" + locationId
-                    + ", DATE '2026-10-18', 'SUNRISE', NULL, TRUE, TIMESTAMPTZ '2026-10-17 20:00:00+00')");
+                    + "mist_score, mist_scored, mist_potential, evaluated_at) VALUES (" + locationId
+                    + ", DATE '2026-10-18', 'SUNRISE', 9.5, TRUE, 'FOGBOUND', TIMESTAMPTZ '2026-10-17 20:00:00+00')");
             try (ResultSet rs = st.executeQuery(
-                    "SELECT mist_score, mist_scored FROM slot_atmosphere WHERE evaluation_date = DATE '2026-10-18'")) {
+                    "SELECT mist_score, mist_scored, mist_potential FROM slot_atmosphere "
+                            + "WHERE evaluation_date = DATE '2026-10-18'")) {
                 assertThat(rs.next()).isTrue();
-                assertThat(rs.getObject("mist_score")).isNull();
+                assertThat(rs.getDouble("mist_score")).isEqualTo(9.5);
                 assertThat(rs.getBoolean("mist_scored")).isTrue();
+                assertThat(rs.getString("mist_potential")).isEqualTo("FOGBOUND");
             }
         }
     }

@@ -198,6 +198,7 @@ public class SlotAtmosphereWriter {
         // the only mist_scored = false).
         row.setMistScore(data.mistScore());
         row.setMistScored(true);
+        row.setMistPotential(data.mistPotential() == null ? null : data.mistPotential().name());
         row.setEvaluatedAt(Instant.now(clock));
         repository.save(row);
     }
