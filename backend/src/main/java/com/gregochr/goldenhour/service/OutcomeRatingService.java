@@ -123,6 +123,11 @@ public class OutcomeRatingService {
      * is cleared rather than kept, since it described the answer being replaced. The tag is
      * independent of the star otherwise.
      *
+     * <p><b>Column-scoped writes.</b> An existing row is never read-modified-written: the request
+     * picks ONE statement that writes only its own columns (see {@code OutcomeRatingStore.Write}), so a
+     * tag tap and a star tap that overlap cannot restore each other's stale value. A tag tap whose star
+     * has since changed underneath it is refused by V187's CHECK and answers 409.
+     *
      * @param username   the authenticated user
      * @param locationId the location rated
      * @param date       the event date
@@ -169,11 +174,25 @@ public class OutcomeRatingService {
                 .filter(e -> e.getForecastRunAt() != null)
                 .map(OutcomeRatingService::provenanceOf)
                 .orElseGet(() -> resolve(location, date, type, eventTime));
-        SeenTag stored = seen != null ? requested
-                : earlier.map(OutcomeRatingEntity::getSeen).filter(tag -> agrees(tag, rating)).orElse(null);
-        store.upsert(user.getId(), locationId, date, type, rating, stored, eventTime, run, now);
-        return new OutcomeRatingDto(locationId, location.getName(), date, type, rating, now,
-                run.forecastRunAt(), run.pipelineRunId(), run.forecastRating(), stored);
+        // Which columns an existing row's update may write - chosen from the REQUEST alone, never from the
+        // row read above (that copy can be stale by the time the statement runs):
+        //   no seen sent            -> RATING: the star; a compatible tag stays, a contradicted one goes (in SQL)
+        //   seen sent, with a star  -> TAG: the tag alone, so a tag tap never carries a stale star back
+        //   seen sent, no star      -> BOTH: "didn't see it" and its tag are one answer, one statement
+        OutcomeRatingStore.Write mode = seen == null ? OutcomeRatingStore.Write.RATING
+                : rating != null ? OutcomeRatingStore.Write.TAG : OutcomeRatingStore.Write.BOTH;
+        store.upsert(user.getId(), locationId, date, type, rating, requested, mode, eventTime, run, now);
+        if (earlier.isEmpty()) {
+            return new OutcomeRatingDto(locationId, location.getName(), date, type, rating, now,
+                    run.forecastRunAt(), run.pipelineRunId(), run.forecastRating(), requested);
+        }
+        // An update wrote only some columns, so the answer is the row as stored, not the request.
+        OutcomeRatingEntity stored = repository
+                .findByUserIdAndLocationIdAndEventDateAndEventType(user.getId(), locationId, date, type)
+                .orElseThrow(() -> new IllegalStateException("Rating vanished after it was stored"));
+        return new OutcomeRatingDto(locationId, location.getName(), date, type, stored.getRating(),
+                stored.getUpdatedAt(), stored.getForecastRunAt(), stored.getPipelineRunId(),
+                stored.getForecastRating(), stored.getSeen());
     }
 
     /**

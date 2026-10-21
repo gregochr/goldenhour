@@ -168,8 +168,8 @@ describe('rateTag', () => {
   });
 });
 
-describe('a tag save overtaken by a star save', () => {
-  it('leaves nothing stuck in flight: both busy flags clear when the newest write settles', async () => {
+describe('writes for one slot are serialised', () => {
+  it('a star tapped while a tag save is in flight is queued: its PUT is issued only after the tag settles', async () => {
     const { result } = await mounted([ROW(3)]);
     const tag = deferred();
     const star = deferred();
@@ -179,20 +179,44 @@ describe('a tag save overtaken by a star save', () => {
     let starSave;
     act(() => { tagSave = result.current.rateTag(...SLOT, 'MIST'); });
     act(() => { starSave = result.current.rate(...SLOT, 5); });
-    expect(result.current.tagSaving.has(KEY)).toBe(true);
-    expect(result.current.saving.has(KEY)).toBe(true);
+    await act(async () => { await Promise.resolve(); });
+
+    expect(putRating).toHaveBeenCalledTimes(1);
+    expect(putRating.mock.calls[0][0]).toMatchObject({ rating: 3, seen: 'MIST' });
+
+    await act(async () => { tag.resolve({ rating: 3, updatedAt: 'T2', seen: 'MIST' }); await tagSave; });
+    expect(putRating).toHaveBeenCalledTimes(2);
+    expect(putRating.mock.calls[1][0].rating).toBe(5);
+    expect(putRating.mock.calls[1][0].seen).toBeUndefined();
 
     await act(async () => { star.resolve({ rating: 5, updatedAt: 'T3', seen: 'MIST' }); await starSave; });
-
-    expect(result.current.tagSaving.has(KEY)).toBe(false);
+    expect(result.current.mine.get(KEY)).toEqual({ rating: 5, updatedAt: 'T3', seen: 'MIST' });
     expect(result.current.saving.has(KEY)).toBe(false);
-    // The overtaken tag answer arrives late, success or not, and repaints nothing.
-    await act(async () => { tag.resolve({ rating: 3, updatedAt: 'T2', seen: 'MIST' }); await tagSave; });
-    expect(result.current.mine.get(KEY).rating).toBe(5);
     expect(result.current.tagSaving.has(KEY)).toBe(false);
   });
 
-  it('drops a late tag FAILURE too - no rollback, no error flag', async () => {
+  it('a tag tapped while a star save is in flight is queued, and carries the star the slot holds when its turn comes', async () => {
+    const { result } = await mounted([ROW(3)]);
+    const star = deferred();
+    const tag = deferred();
+    putRating.mockReturnValueOnce(star.promise).mockReturnValueOnce(tag.promise);
+
+    let starSave;
+    let tagSave;
+    act(() => { starSave = result.current.rate(...SLOT, 5); });
+    act(() => { tagSave = result.current.rateTag(...SLOT, 'FLAT'); });
+    await act(async () => { await Promise.resolve(); });
+    expect(putRating).toHaveBeenCalledTimes(1);
+
+    await act(async () => { star.resolve({ rating: 5, updatedAt: 'T2' }); await starSave; });
+
+    expect(putRating).toHaveBeenCalledTimes(2);
+    expect(putRating.mock.calls[1][0]).toMatchObject({ rating: 5, seen: 'FLAT' });
+    await act(async () => { tag.resolve({ rating: 5, updatedAt: 'T3', seen: 'FLAT' }); await tagSave; });
+    expect(result.current.mine.get(KEY)).toEqual({ rating: 5, updatedAt: 'T3', seen: 'FLAT' });
+  });
+
+  it('a failed write does not break the queue: the write behind it still runs', async () => {
     const { result } = await mounted([ROW(3)]);
     const tag = deferred();
     const star = deferred();
@@ -202,12 +226,51 @@ describe('a tag save overtaken by a star save', () => {
     let starSave;
     act(() => { tagSave = result.current.rateTag(...SLOT, 'MIST'); });
     act(() => { starSave = result.current.rate(...SLOT, 5); });
-    await act(async () => { star.resolve({ rating: 5, updatedAt: 'T3' }); await starSave; });
     await act(async () => { tag.reject(new Error('500')); await tagSave; });
+    expect(result.current.tagSaveError.has(KEY)).toBe(true);
+    expect(putRating).toHaveBeenCalledTimes(2);
 
-    expect(result.current.mine.get(KEY).rating).toBe(5);
-    expect(result.current.tagSaveError.has(KEY)).toBe(false);
+    await act(async () => { star.resolve({ rating: 5, updatedAt: 'T3' }); await starSave; });
+    expect(result.current.mine.get(KEY)).toEqual({ rating: 5, updatedAt: 'T3' });
+    expect(result.current.saving.has(KEY)).toBe(false);
     expect(result.current.tagSaving.has(KEY)).toBe(false);
+  });
+
+  it('a queued tag whose slot lost its star by its turn asks for nothing', async () => {
+    const { result } = await mounted([ROW(3)]);
+    const star = deferred();
+    putRating.mockReturnValueOnce(star.promise);
+
+    let starSave;
+    let tagSave;
+    act(() => { starSave = result.current.rate(...SLOT, null); });
+    act(() => { tagSave = result.current.rateTag(...SLOT, 'MIST'); });
+    let tagResult;
+    await act(async () => {
+      star.resolve({ rating: null, updatedAt: 'T2', seen: 'NOT_SEEN' });
+      await starSave;
+      tagResult = await tagSave;
+    });
+
+    expect(tagResult).toBe(false);
+    expect(putRating).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes for DIFFERENT slots are not queued behind each other', async () => {
+    const { result } = await mounted([ROW(3), ROW(3, { locationId: 8 })]);
+    const first = deferred();
+    const second = deferred();
+    putRating.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+    act(() => { result.current.rate(...SLOT, 5); });
+    act(() => { result.current.rate(8, '2026-06-14', 'SUNSET', 4); });
+
+    expect(putRating).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      first.resolve({ rating: 5, updatedAt: 'T2' });
+      second.resolve({ rating: 4, updatedAt: 'T2' });
+      await Promise.resolve();
+    });
   });
 });
 

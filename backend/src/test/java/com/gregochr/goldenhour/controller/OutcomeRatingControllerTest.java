@@ -399,6 +399,21 @@ class OutcomeRatingControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(username = "pro", roles = "PRO_USER")
+    @DisplayName("PUT: a tag that no longer fits the stored star answers 409 with its sentence")
+    void put_staleTag409() throws Exception {
+        when(outcomeRatingService.rate(any(), any(), any(), any(), any(), any()))
+                .thenThrow(new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.CONFLICT,
+                        "The rating changed \u2014 reload and try again"));
+
+        mockMvc.perform(put("/api/outcome/ratings").contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyWith(",\"seen\":\"MIST\"")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("The rating changed \u2014 reload and try again"));
+    }
+
+    @Test
+    @WithMockUser(username = "pro", roles = "PRO_USER")
     @DisplayName("GET: a tagged row serves seen, an untagged row omits it")
     void getMine_servesSeenWhenPresent() throws Exception {
         when(outcomeRatingService.myRatings("pro", DAY, DAY)).thenReturn(List.of(

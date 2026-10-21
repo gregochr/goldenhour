@@ -118,6 +118,80 @@ class OutcomeRatingRepositoryTest {
                 TargetType.SUNRISE).orElseThrow().getSeen()).isNull();
     }
 
+    private OutcomeRatingEntity stored(long user) {
+        entityManager.clear();
+        return repository.findByUserIdAndLocationIdAndEventDateAndEventType(user, LOCATION, DAY,
+                TargetType.SUNRISE).orElseThrow();
+    }
+
+    private void insertTagged(long user, Integer rating, String seen) {
+        repository.insertRow(user, LOCATION, DAY, TargetType.SUNRISE.name(), rating, EVENT, 5L,
+                Instant.parse("2026-10-14T01:05:00Z"), 8L, 3, "v2.28.0", Instant.parse("2026-10-14T08:00:00Z"),
+                seen);
+        entityManager.flush();
+    }
+
+    @Test
+    @DisplayName("updateSeen writes the tag and updated_at and NO other column")
+    void updateSeen_isColumnScoped() {
+        insertTagged(alice, 4, "COLOUR");
+        Instant later = Instant.parse("2026-10-14T09:30:00Z");
+
+        int n = repository.updateSeen(alice, LOCATION, DAY, TargetType.SUNRISE,
+                com.gregochr.goldenhour.entity.SeenTag.MIST, later);
+
+        OutcomeRatingEntity row = stored(alice);
+        assertThat(n).isEqualTo(1);
+        assertThat(row.getSeen()).isEqualTo(com.gregochr.goldenhour.entity.SeenTag.MIST);
+        assertThat(row.getUpdatedAt()).isEqualTo(later);
+        assertThat(row.getRating()).isEqualTo(4);
+        assertThat(row.getEventTime()).isEqualTo(EVENT);
+        assertThat(row.getPipelineRunId()).isEqualTo(5L);
+        assertThat(row.getForecastEvaluationId()).isEqualTo(8L);
+        assertThat(row.getForecastRating()).isEqualTo(3);
+        assertThat(row.getAppBuild()).isEqualTo("v2.28.0");
+        assertThat(row.getCreatedAt()).isEqualTo(Instant.parse("2026-10-14T08:00:00Z"));
+        assertThat(repository.updateSeen(bob, LOCATION + 9, DAY, TargetType.SUNRISE, null, later)).isZero();
+    }
+
+    @Test
+    @DisplayName("updateRating writes the star and keeps a compatible tag; the pairing rule runs in the SQL")
+    void updateRating_keepsOrDropsTheTagInSql() {
+        Instant later = Instant.parse("2026-10-14T09:30:00Z");
+        insertTagged(alice, 4, "MIST");
+        repository.updateRating(alice, LOCATION, DAY, TargetType.SUNRISE, 2, true, EVENT, 5L, null, 8L, 3,
+                "v2.29.0", later);
+        assertThat(stored(alice).getRating()).isEqualTo(2);
+        assertThat(stored(alice).getSeen()).isEqualTo(com.gregochr.goldenhour.entity.SeenTag.MIST);
+        assertThat(stored(alice).getAppBuild()).isEqualTo("v2.29.0");
+
+        // a sighting does not survive 'didn't see it'
+        repository.updateRating(alice, LOCATION, DAY, TargetType.SUNRISE, null, false, EVENT, 5L, null, 8L,
+                3, "v2.29.0", later);
+        assertThat(stored(alice).getRating()).isNull();
+        assertThat(stored(alice).getSeen()).isNull();
+    }
+
+    @Test
+    @DisplayName("updateRating drops NOT_SEEN beside a star and keeps it beside none; an untagged row stays so")
+    void updateRating_notSeenPairing() {
+        Instant later = Instant.parse("2026-10-14T09:30:00Z");
+        insertTagged(alice, null, "NOT_SEEN");
+        repository.updateRating(alice, LOCATION, DAY, TargetType.SUNRISE, null, false, EVENT, null, null, null,
+                null, "v2.29.0", later);
+        assertThat(stored(alice).getSeen()).isEqualTo(com.gregochr.goldenhour.entity.SeenTag.NOT_SEEN);
+
+        repository.updateRating(alice, LOCATION, DAY, TargetType.SUNRISE, 5, true, EVENT, null, null, null,
+                null, "v2.29.0", later);
+        assertThat(stored(alice).getRating()).isEqualTo(5);
+        assertThat(stored(alice).getSeen()).isNull();
+
+        insertTagged(bob, 3, null);
+        repository.updateRating(bob, LOCATION, DAY, TargetType.SUNRISE, 4, true, EVENT, null, null, null,
+                null, "v2.29.0", later);
+        assertThat(stored(bob).getSeen()).isNull();
+    }
+
     @Test
     @DisplayName("V182: insertRow stores the build, a null build stores NULL, and updateRow replaces it")
     void appBuild_isStoredAndReplaced() {

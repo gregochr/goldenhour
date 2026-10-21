@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.OutcomeRatingRepository;
 import com.gregochr.goldenhour.service.AsOfEventResolver.AsOfEvent;
 import com.gregochr.goldenhour.service.OutcomeRatingStore.RatedRun;
+import com.gregochr.goldenhour.service.OutcomeRatingStore.Write;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -113,7 +114,7 @@ class OutcomeRatingServiceTest {
 
         OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 4);
 
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 4, null, SUNRISE_INSTANT,
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 4, null, Write.RATING, SUNRISE_INSTANT,
                 new RatedRun(7L, RUN_AT, 99L, 4), NOW);
         assertThat(dto).isEqualTo(new OutcomeRatingDto(LOCATION_ID, "Hartside", DAY, TargetType.SUNRISE,
                 4, NOW, RUN_AT, 7L, 4));
@@ -126,7 +127,7 @@ class OutcomeRatingServiceTest {
 
         OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, null);
 
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, null, SUNRISE_INSTANT,
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, null, Write.RATING, SUNRISE_INSTANT,
                 RatedRun.NONE, NOW);
         assertThat(dto.rating()).isNull();
         assertThat(dto.forecastRunAt()).isNull();
@@ -150,7 +151,7 @@ class OutcomeRatingServiceTest {
 
         OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 2);
 
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 2, null, SUNRISE_INSTANT,
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 2, null, Write.RATING, SUNRISE_INSTANT,
                 new RatedRun(7L, RUN_AT, 99L, 4), NOW);
         verifyNoInteractions(resolver);
         assertThat(dto.forecastRating()).isEqualTo(4);
@@ -169,7 +170,7 @@ class OutcomeRatingServiceTest {
 
         service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 2);
 
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 2, null, SUNRISE_INSTANT,
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 2, null, Write.RATING, SUNRISE_INSTANT,
                 new RatedRun(7L, RUN_AT, 99L, 4), NOW);
     }
 
@@ -181,7 +182,7 @@ class OutcomeRatingServiceTest {
         service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 1);
         service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 5);
 
-        verify(store, times(2)).upsert(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(),
+        verify(store, times(2)).upsert(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
                 any());
     }
 
@@ -251,7 +252,7 @@ class OutcomeRatingServiceTest {
         verifyNoInteractions(store);
 
         serviceAt(boundary.plusNanos(1)).rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 3);
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 3, null, SUNRISE_INSTANT,
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 3, null, Write.RATING, SUNRISE_INSTANT,
                 new RatedRun(7L, RUN_AT, 99L, 4), boundary.plusNanos(1));
     }
 
@@ -288,13 +289,13 @@ class OutcomeRatingServiceTest {
         when(resolver.resolve(any(), any(), any(), any())).thenReturn(AsOfEvent.NONE);
 
         service.rate("pro", LOCATION_ID, oldest, TargetType.SUNRISE, 3);
-        verify(store).upsert(USER_ID, LOCATION_ID, oldest, TargetType.SUNRISE, 3, null,
+        verify(store).upsert(USER_ID, LOCATION_ID, oldest, TargetType.SUNRISE, 3, null, Write.RATING,
                 oldest.atTime(5, 41).toInstant(ZoneOffset.UTC), RatedRun.NONE, NOW);
 
         assertThatThrownBy(() -> service.rate("pro", LOCATION_ID, tooOld, TargetType.SUNRISE, 3))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("That sunrise is too old to rate");
-        verify(store, times(1)).upsert(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(),
+        verify(store, times(1)).upsert(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
                 any());
     }
 
@@ -448,70 +449,95 @@ class OutcomeRatingServiceTest {
 
     // ── the seen tag (valley-mist-plan M3) ──────────────────────────────────────
 
-    /** The user, location and sunrise exist and the reader already has {@code earlier} for the slot. */
-    private void worldWithEarlier(Integer rating, SeenTag seen) {
+    private static OutcomeRatingEntity stored(Integer rating, SeenTag seen) {
+        return OutcomeRatingEntity.builder().userId(USER_ID).locationId(LOCATION_ID).eventDate(DAY)
+                .eventType(TargetType.SUNRISE).rating(rating).seen(seen).eventTime(SUNRISE_INSTANT)
+                .pipelineRunId(7L).forecastRunAt(RUN_AT).forecastEvaluationId(99L).forecastRating(4)
+                .createdAt(NOW).updatedAt(NOW.plusSeconds(5)).build();
+    }
+
+    /**
+     * The user, location and sunrise exist; the reader already has {@code before} for the slot and, once
+     * the write has run, the table holds {@code after} (the service answers with the row as STORED).
+     */
+    private void worldWithEarlier(OutcomeRatingEntity before, OutcomeRatingEntity after) {
         when(userRepository.findByUsername("pro")).thenReturn(Optional.of(user(USER_ID, "pro")));
         when(locationRepository.findById(LOCATION_ID)).thenReturn(Optional.of(location));
         when(solarEventFreshness.eventTime(location, DAY, TargetType.SUNRISE)).thenReturn(SUNRISE);
         when(repository.findByUserIdAndLocationIdAndEventDateAndEventType(USER_ID, LOCATION_ID, DAY,
-                TargetType.SUNRISE)).thenReturn(Optional.of(
-                        OutcomeRatingEntity.builder().userId(USER_ID).locationId(LOCATION_ID).eventDate(DAY)
-                                .eventType(TargetType.SUNRISE).rating(rating).seen(seen)
-                                .eventTime(SUNRISE_INSTANT).pipelineRunId(7L).forecastRunAt(RUN_AT)
-                                .forecastEvaluationId(99L).forecastRating(4).createdAt(NOW).updatedAt(NOW)
-                                .build()));
+                TargetType.SUNRISE)).thenReturn(Optional.of(before), Optional.of(after));
     }
 
     private static final RatedRun KEPT_RUN = new RatedRun(7L, RUN_AT, 99L, 4);
 
     @Test
-    @DisplayName("rate: a tag reaches the store and the response, independent of the star")
-    void rate_seenTagIsStoredAndReturned() {
+    @DisplayName("rate: a first rating with a tag stores it, and answers from the request")
+    void rate_firstRatingWithATag() {
         world(SERVED);
 
         OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 4,
                 new SeenChoice(SeenTag.MIST));
 
         verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 4, SeenTag.MIST,
-                SUNRISE_INSTANT, KEPT_RUN, NOW);
+                Write.TAG, SUNRISE_INSTANT, KEPT_RUN, NOW);
         assertThat(dto.seen()).isEqualTo(SeenTag.MIST);
         assertThat(dto.rating()).isEqualTo(4);
     }
 
     @Test
-    @DisplayName("rate: a re-rate that does not mention seen KEEPS the earlier tag")
-    void rate_absentSeenKeepsTheEarlierTag() {
-        worldWithEarlier(3, SeenTag.MIST);
+    @DisplayName("rate: a request that names no seen is a RATING write - it hands the store no tag to "
+            + "write - and the answer is the row as stored, kept tag included")
+    void rate_absentSeenIsARatingWrite() {
+        worldWithEarlier(stored(3, SeenTag.MIST), stored(5, SeenTag.MIST));
 
         OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 5);
 
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 5, SeenTag.MIST,
-                SUNRISE_INSTANT, KEPT_RUN, NOW);
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 5, null,
+                Write.RATING, SUNRISE_INSTANT, KEPT_RUN, NOW);
+        assertThat(dto.seen()).isEqualTo(SeenTag.MIST);
+        assertThat(dto.rating()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("rate: a tag with a star is a TAG write, and the answer carries the STORED star, not the "
+            + "request's - a tag tap can never carry a stale star back")
+    void rate_tagWithAStarIsATagWriteAndAnswersWithTheStoredStar() {
+        // The reader's screen says 3 stars; another device has made it 5. The tag lands on the 5.
+        worldWithEarlier(stored(5, null), stored(5, SeenTag.MIST));
+
+        OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 3,
+                new SeenChoice(SeenTag.MIST));
+
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 3, SeenTag.MIST,
+                Write.TAG, SUNRISE_INSTANT, KEPT_RUN, NOW);
+        assertThat(dto.rating()).as("the stored star, untouched by the request's").isEqualTo(5);
         assertThat(dto.seen()).isEqualTo(SeenTag.MIST);
     }
 
     @Test
-    @DisplayName("rate: an explicit null seen CLEARS the earlier tag")
+    @DisplayName("rate: an explicit null seen with a star is a TAG write of null (a clear)")
     void rate_explicitNullSeenClears() {
-        worldWithEarlier(3, SeenTag.MIST);
+        worldWithEarlier(stored(3, SeenTag.MIST), stored(3, null));
 
         OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 3,
                 SeenChoice.CLEAR);
 
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 3, null, SUNRISE_INSTANT,
-                KEPT_RUN, NOW);
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 3, null,
+                Write.TAG, SUNRISE_INSTANT, KEPT_RUN, NOW);
         assertThat(dto.seen()).isNull();
     }
 
     @Test
     @DisplayName("rate: a new tag replaces the earlier one")
     void rate_newTagReplaces() {
-        worldWithEarlier(3, SeenTag.MIST);
+        worldWithEarlier(stored(3, SeenTag.MIST), stored(3, SeenTag.FLAT));
 
-        service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 3, new SeenChoice(SeenTag.FLAT));
+        OutcomeRatingDto dto = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 3,
+                new SeenChoice(SeenTag.FLAT));
 
         verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 3, SeenTag.FLAT,
-                SUNRISE_INSTANT, KEPT_RUN, NOW);
+                Write.TAG, SUNRISE_INSTANT, KEPT_RUN, NOW);
+        assertThat(dto.seen()).isEqualTo(SeenTag.FLAT);
     }
 
     @Test
@@ -540,8 +566,9 @@ class OutcomeRatingServiceTest {
     }
 
     @Test
-    @DisplayName("rate: 'didn't see it' may carry NOT_SEEN, a clear, or nothing")
-    void rate_notSeenRecordMayCarryNotSeenOrNothing() {
+    @DisplayName("rate: 'didn't see it' with its tag is ONE BOTH write; with a clear it is a BOTH write of "
+            + "null; with nothing it is a RATING write")
+    void rate_notSeenRecordModes() {
         world(AsOfEvent.NONE);
 
         OutcomeRatingDto tagged = service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, null,
@@ -551,37 +578,26 @@ class OutcomeRatingServiceTest {
 
         assertThat(tagged.seen()).isEqualTo(SeenTag.NOT_SEEN);
         verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, SeenTag.NOT_SEEN,
-                SUNRISE_INSTANT, RatedRun.NONE, NOW);
-        verify(store, times(2)).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, null,
-                SUNRISE_INSTANT, RatedRun.NONE, NOW);
+                Write.BOTH, SUNRISE_INSTANT, RatedRun.NONE, NOW);
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, null,
+                Write.BOTH, SUNRISE_INSTANT, RatedRun.NONE, NOW);
+        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, null,
+                Write.RATING, SUNRISE_INSTANT, RatedRun.NONE, NOW);
     }
 
     @Test
-    @DisplayName("rate: an absent seen keeps an earlier tag only while it can stand beside the new rating")
-    void rate_absentSeenDropsATagTheNewRatingContradicts() {
-        // 'didn't see it' (NOT_SEEN) replaced by a star: NOT_SEEN cannot stand beside a star.
-        worldWithEarlier(null, SeenTag.NOT_SEEN);
-        service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 4);
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, 4, null, SUNRISE_INSTANT,
-                KEPT_RUN, NOW);
-    }
+    @DisplayName("rate: a refusal from the store (a stale tag, 409) reaches the caller untouched")
+    void rate_aStaleTagConflictPropagates() {
+        worldWithEarlier(stored(5, null), stored(5, null));
+        org.mockito.Mockito.doThrow(new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.CONFLICT, OutcomeRatingStore.STALE_RATING_MESSAGE))
+                .when(store).upsert(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
+                        any());
 
-    @Test
-    @DisplayName("rate: an earlier NOT_SEEN stays beside a new 'didn't see it' when none is sent")
-    void rate_absentSeenKeepsNotSeenBesideNoStar() {
-        worldWithEarlier(null, SeenTag.NOT_SEEN);
-        service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, null);
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, SeenTag.NOT_SEEN,
-                SUNRISE_INSTANT, KEPT_RUN, NOW);
-    }
-
-    @Test
-    @DisplayName("rate: a star replaced by 'didn't see it' drops the sighting tag it carried")
-    void rate_absentSeenDropsASightingWhenTheStarGoes() {
-        worldWithEarlier(4, SeenTag.COLOUR);
-        service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, null);
-        verify(store).upsert(USER_ID, LOCATION_ID, DAY, TargetType.SUNRISE, null, null, SUNRISE_INSTANT,
-                KEPT_RUN, NOW);
+        assertThatThrownBy(() -> service.rate("pro", LOCATION_ID, DAY, TargetType.SUNRISE, 3,
+                new SeenChoice(SeenTag.MIST)))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("The rating changed");
     }
 
     @Test

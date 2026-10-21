@@ -300,6 +300,11 @@ Claude's judgement, as the inversion already is).
   it, a name sets it (`SeenChoice` and a deserialiser that overrides `getAbsentValue`). A kept tag the new
   rating contradicts (`NOT_SEEN` beside a new star, a sighting beside "didn't see it") is dropped. Two
   400s: `NOT_SEEN` with a star, a sighting with "didn't see it". V187 also CHECKs the pairing.
+- **Writes are column-scoped** (Codex review of #1273): an existing row is never read-modified-written.
+  No `seen` sent is a rating-only UPDATE with the keep-or-drop pairing rule in the SQL; `seen` with a star
+  is a tag-only UPDATE (it never writes the star); `seen` with "didn't see it" is one UPDATE of both. A tag
+  update the V187 CHECK refuses (the star changed underneath) is a 409. The client serialises writes per
+  slot, so a tag tap and a star tap are never in the air together.
 - **"Didn't see it" sends `NOT_SEEN`**, so the record says so in its own words; there is no NOT_SEEN chip.
 - **A tag save has its own in-flight and failed sets** in `useOutcomeRatings`, so the block stays in its
   "You rated" layout while a tag saves; a failed one rolls back the tag alone.

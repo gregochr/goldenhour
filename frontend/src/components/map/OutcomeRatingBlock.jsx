@@ -77,6 +77,7 @@ function SeenChips({
       className={`wf-seen${locked ? ' is-locked' : ''}${busy ? ' is-saving' : ''}`}
       role="group"
       aria-labelledby={captionId}
+      aria-busy={busy ? 'true' : undefined}
       data-testid="outcome-rating-seen"
     >
       <span className="wf-seen-q" id={captionId}>{SEEN_GROUP_LABEL}</span>

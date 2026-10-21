@@ -144,6 +144,17 @@ describe('the "what did you see" chips — pressing', () => {
     expect(onTag).not.toHaveBeenCalled();
   });
 
+  it('reads aria-busy on the group while a save (a star re-rate or a tag) is in flight, and not otherwise', () => {
+    const { unmount } = render(<Harness initialChanging saving />);
+    expect(row().getAttribute('aria-busy')).toBe('true');
+    unmount();
+    const second = render(<Harness tagSaving />);
+    expect(row().getAttribute('aria-busy')).toBe('true');
+    second.unmount();
+    render(<Harness />);
+    expect(row().hasAttribute('aria-busy')).toBe(false);
+  });
+
   it('keeps the "You rated" layout while a tag saves: the done row and Change stay', () => {
     render(<Harness tagSaving />);
     expect(screen.getByTestId('outcome-rating-change')).toBeTruthy();

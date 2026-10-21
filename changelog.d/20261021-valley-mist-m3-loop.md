@@ -11,4 +11,4 @@ verification pass now also records the observer point's 2 m temperature and dew 
 re-walked and no report reads them yet. The calibration report gains a mist-prone bucket, the pairs whose
 forecast carried the LIKELY valley-mist band, with the count of what readers said they saw; its
 missed opportunities, a stay-home forecast on a morning rated 4 or 5, is the number the plan exists to
-drive to zero. The migration is proven by CI only.
+drive to zero. Rating and tag writes to an existing row are column-scoped, so a tag tap and a star tap that overlap cannot undo each other (a tag that no longer fits a star changed elsewhere answers 409), and the Map serialises them per slot. The migration is proven by CI only.

@@ -143,6 +143,8 @@ export function useOutcomeRatings({
   /** A counter bumped when any write starts or settles; a key's last touch, compared with a read's start. */
   const touchClockRef = useRef(0);
   const touchedAtRef = useRef(new Map());
+  /** Per key, the newest write queued or in flight: the tail the next write waits behind. */
+  const queueRef = useRef(new Map());
 
   useEffect(() => {
     canRateRef.current = canRate;
@@ -221,9 +223,13 @@ export function useOutcomeRatings({
    * star save is {@code 'rating'} (the block shows its saving layout), a tag save {@code 'tag'} (the
    * block stays where it is). {@code seen} is the tag to send: undefined leaves it out of the PUT.
    */
-  const write = useCallback(async (kind, locationId, eventDate, eventType, value, seen) => {
+  const execute = useCallback(async (kind, locationId, eventDate, eventType, requested, seen) => {
     if (!canRateRef.current || rewoundRef.current) return false;
     const key = rowKey(locationId, eventDate, eventType);
+    // A tag tap carries the star the slot holds NOW, read when its turn comes: it may have queued behind a
+    // star save, and the star it was pressed against is no longer the one to send.
+    const value = kind === 'tag' ? mineRef.current.get(key)?.rating : requested;
+    if (kind === 'tag' && value == null) return false;
     const setBusy = kind === 'tag' ? setTagSaving : setSaving;
     const setFail = kind === 'tag' ? setTagFailed : setFailed;
     writeSeqRef.current += 1;
@@ -283,6 +289,26 @@ export function useOutcomeRatings({
       return false;
     }
   }, [commitMine, flag, touch]);
+
+  /**
+   * Writes are SERIALISED per slot: a tag tap while a star save is in flight (or the reverse) waits for
+   * it and then runs, so two PUTs for one slot are never in the air together and the server can never
+   * see them cross. With nothing pending the write starts at once (synchronously as far as its first
+   * await), so the optimistic value shows without a tick's delay. {@link execute} never rejects, so the
+   * chain never breaks.
+   */
+  const write = useCallback((kind, locationId, eventDate, eventType, requested, seen) => {
+    const key = rowKey(locationId, eventDate, eventType);
+    const pending = queueRef.current.get(key);
+    const run = pending
+      ? pending.then(() => execute(kind, locationId, eventDate, eventType, requested, seen))
+      : execute(kind, locationId, eventDate, eventType, requested, seen);
+    queueRef.current.set(key, run);
+    run.then(() => {
+      if (queueRef.current.get(key) === run) queueRef.current.delete(key);
+    });
+    return run;
+  }, [execute]);
 
   /**
    * Saves a star (or "didn't see it" with null) — and, for "didn't see it", the NOT_SEEN tag that goes
