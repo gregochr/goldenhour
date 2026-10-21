@@ -1,5 +1,0 @@
-### Docs — far-cloud P1: Part B re-run on the verified Sonnet 5.5 era (2026-10-21)
-
-- `far-cloud-p1-plan.md` gains §15: with ERA5 verification at 2026-10-15 and 12,093 verified rows from the Sonnet 5.5 era, Part B and the Part D premise cross were re-run over the new export (2,251 location-gos, 2,120 verified). Sonnet 5.5's gos fail the ERA5 horizon premise less often than Haiku's (3.1% and 0.9% against 8.7% and 5.5%), and the Angel row still passes all three premises, so Part B cannot see the far-lid class by construction.
-- Sonnet 4.6 withdrew 118 of 490 all-pass Sonnet 5.5 gos (24.1%) and 7 of the 9 no-canvas gos, so its withdrawals are not concentrated where ERA5 says the faults are; R1 still fails D-1 parts 2, 3 and 4. Keeping Batch Near-Term on Sonnet 5.5 (§9 item 1) is now evidence-backed, with the stated ERA5 caveat; Part E remains the only test of wasted trips.
-- §12 step 6, §9 item 1 and the Status line record the re-run; the live line of work is the far-lid rule (§9 item 7), Part C sizing, the Meteosat observation and Part E. No Anthropic spend.

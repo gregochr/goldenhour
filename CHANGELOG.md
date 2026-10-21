@@ -5,6 +5,169 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.30.0] - 2026-10-21
+
+### Added — valley mist loop: what the reader saw, an ERA5 saturation proxy, a mist-prone calibration bucket
+
+The last build phase of `docs/engineering/valley-mist-plan.md` (M3, V187) closes the loop on a forecast
+that could not previously be checked. The "How was it?" block on a past window gains one optional row
+of chips under the stars, Colour, Mist, Inversion and Flat, saved with the same rating as a tag (`PUT
+/api/outcome/ratings` takes an optional `seen`: absent keeps the earlier tag, an explicit null clears
+it, and a tag that contradicts the new rating is dropped). A Lite reader sees the chips dimmed with the
+block's existing Pro line, and the Admin's "All ratings" list shows each reader's tag. The ERA5
+verification pass now also records the observer point's 2 m temperature and dew point at the event hour
+(`cloud_verification.observer_temp_c`, `observer_dew_point_c`), recorded but never required, so no row is
+re-walked and no report reads them yet. The calibration report gains a mist-prone bucket, the pairs whose
+forecast carried the LIKELY valley-mist band, with the count of what readers said they saw; its
+missed opportunities, a stay-home forecast on a morning rated 4 or 5, is the number the plan exists to
+drive to zero. Rating and tag writes to an existing row are column-scoped, so a tag tap and a star tap that overlap cannot undo each other (a tag that no longer fits a star changed elsewhere answers 409), and the Map serialises them per slot. The migration is proven by CI only.
+
+### Added — Valley mist: the sky prompt now judges a mist morning, instead of standing it down (M2)
+
+For a place an admin has marked "Mist forms here", a calm, clear, near-saturated morning that the
+valley-mist reading calls LIKELY is no longer stood down for low visibility before Claude sees it.
+Rain and a blocked solar horizon still stand it down; a POSSIBLE or fogbound reading, and every
+unmarked place, keep the 5 km rule exactly as before. Claude now reads a "valley mist conditions"
+block for those places (the tightest overnight gap and when it falls, the calmest wind, the sky) and
+is told, in one sentence, that thin mist under a clear sky is the shot there and a white frame is not.
+Its own reading comes back as `mist_potential`, is stored on the forecast, and shows as "Valley mist
+likely" or "Fogbound" on the map popup and the four-day sheet for Pro and Admin readers, the cloud
+inversion badge's twin. The general system prompt is untouched, so the batch cache prefix is shared
+as before. Where the valley-mist reading was never written for a slot, the hot topic and Coming up now
+fall back to Claude's own reading; where it was, the reading always wins.
+
+Cost: one extra Claude call per marked place per LIKELY sunrise or sunset that triage used to refuse. The M0
+measurement found at least 145 refused signature mornings in 180 days across the whole roster (a
+floor, from the top 60 places only), so a few calls a week on the near-term model once tens of places
+are marked; nothing is spent for an unmarked place. Migration V186 adds
+`forecast_evaluation.mist_potential` and the `MIST` score type. The valley-mist prompt regression
+cases are written but not run; their assertions await the owner.
+
+### Added — Valley mist: a Plan topic, a Coming up condition, and two honest words (M1b)
+
+PhotoCast now says when valley mist is likely, the evening before. For the places an admin has
+marked "Mist forms here", a clear, calm, near-saturated night puts a "Valley mist" topic on the
+Plan card for that sunrise (or sunset: mist forming at dusk over a river is a real evening shot),
+naming the regions and how many sites ("likely at 3 sites") with the cue "get there before the
+sun, it burns off within the hour". It is free and changes no star: it reads the reading M1a
+recorded, whatever the triage verdict, and fires on the LIKELY band only (not on a fogbound white
+frame, where the cue would be false, and not on POSSIBLE). Ask's "events" tool carries it with no
+change. Coming up gains a fourth standing condition, "Valley mist", beside "Valley inversions";
+its rarity stays on a config fallback, and the nightly topic log now records a `MIST_CALC` series
+(including measured nights with no mist) for the census that will replace it later.
+
+Two small wording fixes ride with it. A marked site whose air is saturated now reads "Mist likely"
+instead of "Mist risk" (the trigger is unchanged; every other site still says "Mist risk"). And a
+window blanked because weather triage stood most of a region down for low visibility now reads
+"Fog forecast" instead of "Too unsettled to forecast" (a tie or a minority keeps the old words);
+the reason comes from the same disposition read the Plan already makes, so no query is added. The
+Plan card's small "unsettled" note beside such a region is client text and does not yet follow.
+
+### Added — valley mist is read and recorded for flagged sites (M1a)
+
+PhotoCast now measures how likely photographable valley mist is at a place where mist forms around
+the camera: the riverside, valley floor or lake shore at dawn, the morning the River Brathay
+produced on 17 Oct 2026 that no surface could name. Nothing a reader sees changes yet: this is the
+reading half of the first phase (`docs/engineering/valley-mist-plan.md`), and the Valley mist hot
+topic, its Coming up condition and the daily log follow in M1b.
+
+An admin marks a place with the new "Mist forms here: valley floor, riverside, lake shore"
+checkbox (at add time, or on an existing place from its inline edit). For a marked place only,
+`ValleyMistCalculator` scores the radiative set-up from the night's hourly slots (a clear sky, calm
+air, a small temperature–dew point gap, the air cooling toward it, wet ground, and the model's own
+haze) rather than waiting for the 2 km model to saturate, which it did not on the Brathay morning.
+The 0–10 score and its band (NONE, POSSIBLE, LIKELY, FOGBOUND) are recorded in `slot_atmosphere`
+(`mist_score`, `mist_scored`, `mist_potential`, V185; the band is stored because a fogbound white frame can share a score with a LIKELY morning) for every marked place the pipeline fetches weather for,
+whatever the triage verdict, exactly as the inversion score is. No Claude call is added and no
+star changes. The moisture scale is now one shared helper that the cloud inversion calculator
+also uses, with its outputs unchanged. The hourly weather request gains the total `cloud_cover`
+variable (one more variable on the existing request, not an extra call). V185 is proven by CI
+only.
+
+### Docs — valley mist plan: M0 measured, M4 deleted, the calculator scores the set-up
+
+The production measurement for `docs/engineering/valley-mist-plan.md` is written into §3 M0: in 180
+days weather triage stood 1,266 sunrise slots down for low visibility, roughly 250 of them carrying the
+clear-calm-saturated signature, against 32 such mornings the sky prompt's own mist guidance ever
+reached. The 17 Oct Brathay morning was not a triage miss: the slot reached Claude with a 3.0 °C gap
+and 40 km visibility and was rated 2, and a side-by-side showed `best_match` over the UK is already the
+Met Office 2 km model, which did not saturate the river corridor either. M4 (a UKV side-fetch) is
+therefore deleted, and M1's `ValleyMistCalculator` is respecified to score the radiative set-up — a
+clear night, calm, a falling temperature and rising humidity at a flagged riverside site — with the
+temp–dew gap as a term rather than a gate, anchored on the measured rows as its first fixtures.
+
+### Fixed — a blanked region with no record no longer reads "Poor"
+
+The honesty filter words a region with no per-location forecast by why it has none, but a region
+whose record could not say why (no disposition for its slots, a tie, a renamed location, a failed
+lookup, a cycle still in flight) shared the weather stand-down wording, "Too unsettled to forecast".
+On the Plan tab that drew as "Poor" over an all-hatched field, which readers took for a rating, as
+a T+3 sunrise did on 2026-10-19. Such a region now reads "Not scored" (awaiting), with the summary
+"No per-location forecast — the record does not say why" and no claim about the weather. Only a
+region that weather triage really stood down keeps "Too unsettled to forecast", and a window with
+any such region still reads stand-down.
+
+### Changed — a stood-down window's "Poor" says it was the weather
+
+A Plan-tab card whose window was stood down by weather triage, and whose region the honesty filter
+had blanked, drew "Poor" over an all-hatched field with nothing beside it, which readers took for a
+rating. The card now prints `unsettled` beside the word, in the same quiet ink the region mean
+uses, and its spoken name reads "Poor, too unsettled to forecast"; the window popup's head says the
+same beside its badge. Only a blanked stand-down gets the note: a stood-down region that still has
+slots, and every rated, unrated or awaiting word, read as before.
+
+### Changed — docs: the Plan-tab map overlay is retired (overlay convergence, C6)
+
+CLAUDE.md and the four plans that described the Plan-tab map overlay as a live, frozen surface now record it as retired by overlay convergence C1–C5 (#1246 #1248 #1252 #1258 #1262), with dated notes rather than rewritten history, and CLAUDE.md gains the aurora-only Map tab (C3), the banner's door (C4) and the seven doors that now open the Map tab through one structured handoff. `docs/engineering/overlay-convergence-plan.md` is marked complete, its open owner questions are gathered into one list in §7, and its browser recipe describes the shipped behaviour. It also corrects the C5 entry: `HourlyComfortTable`'s kept hidden-header mode is dead in practice (the admin Prompt Test popup, its only consumer, passes no hourly rows), and the popup's Run Forecast button is unreachable, so no UI starts a single-location run until O-7. No code changed.
+
+### Docs — far-cloud P1: Part B re-run on the verified Sonnet 5.5 era (2026-10-21)
+
+- `far-cloud-p1-plan.md` gains §15: with ERA5 verification at 2026-10-15 and 12,093 verified rows from the Sonnet 5.5 era, Part B and the Part D premise cross were re-run over the new export (2,251 location-gos, 2,120 verified). Sonnet 5.5's gos fail the ERA5 horizon premise less often than Haiku's (3.1% and 0.9% against 8.7% and 5.5%), and the Angel row still passes all three premises, so Part B cannot see the far-lid class by construction.
+- Sonnet 4.6 withdrew 118 of 490 all-pass Sonnet 5.5 gos (24.1%) and 7 of the 9 no-canvas gos, so its withdrawals are not concentrated where ERA5 says the faults are; R1 still fails D-1 parts 2, 3 and 4. Keeping Batch Near-Term on Sonnet 5.5 (§9 item 1) is now evidence-backed, with the stated ERA5 caveat; Part E remains the only test of wasted trips.
+- §12 step 6, §9 item 1 and the Status line record the re-run; the live line of work is the far-lid rule (§9 item 7), Part C sizing, the Meteosat observation and Part E. No Anthropic spend.
+
+### Docs — far-cloud P1: Part A, the Angel's sun line (2026-10-21)
+
+- `far-cloud-p1-plan.md` gains §14, the result of Part A for the Angel of the North 2026-10-13 sunset: ERA5 and all four forecast models (day 0) show a continuous high-cloud deck (98–100%) from about 225 km along the sun line, exactly where the 1.3° ray reaches the 8 km high band, behind a 113 km cirrus canvas. The deck was forecastable on the day but unread: the prompt carried only far low cloud at 226 km. Model-level only; the owner's Meteosat look is still owed.
+- A first sizing hint, explicitly not a base rate: 577 exported rows carry `far_solar_high_cloud` (13–14 October only), 390 read ≥ 60% and 92 of those were rated go.
+- §9 gains item 7 (open): a far-lid rule keyed on a present canvas and far high ≥ 60%, which needs a prompt change and a replay on rebuilt prompts; §12 step 8 and the Status line record Part A as done for the Angel.
+
+### Docs — far-cloud P1: the Angel's Meteosat frame (2026-10-21)
+
+- `far-cloud-p1-plan.md` §14 records the owner's one Meteosat frame for 2026-10-13 at 16:50 UTC along 255° from Gateshead: clear coast, a streaky cirrus band at roughly 50–150 km, and a continuous grey-white sheet from about 200 km outward. It agrees with the ERA5 transect and the four models. One frame read by eye, not a measurement.
+- Part A's observation step is marked done in §2 and the Status line, and the Meteosat item is removed from §15's live-work list. No code, no Anthropic spend.
+
+### Docs — far-cloud P1: the far-lid rule sized on the first week of capture (2026-10-21)
+
+- `far-cloud-p1-plan.md` gains §16: over 3,029 slots (276 gos, all Sonnet 5.5) dated 14-24 October carrying `far_solar_high_cloud`, 187 gos had a canvas and 128 of those (68%) a far high lid behind it, 100 of them on 15 October alone, so a canvas-plus-lid cap would have withdrawn 128 of 276 gos. ERA5 cannot adjudicate the lid yet (its own far high was a lid on 553 of 578 verified slots, all 14-15 October).
+- The owner's first two recorded outcomes (Angel and Copt Hill, 15 October sunset, forecast 3★, observed 4★, cone and far high 100%) refute canvas-plus-lid as a verdict: the 13 and 15 October Angel differed overhead (0/0/0 against 99/100/100), not at the far point, and 15 October's error was an over-forecast low deck, a missed opportunity outside this plan's rules.
+- §9 item 7 is revised to "nothing overhead, horizon cirrus canvas, lid behind", still open and uncosted: the Angel shape is n = 1 (25 of 276 gos, none with an outcome), and it must be sized against the far mid/high dark-hour columns and pressure levels too. Open-Meteo's free daily limit (about 600 weighted calls) means one transect per day. No Anthropic spend.
+
+### Removed — the Plan-tab map overlay (overlay convergence, C5)
+
+Fifth phase of retiring the Plan tab's map overlay (`docs/engineering/overlay-convergence-plan.md`, O-6). Since C4 nothing could open it; this deletes it.
+
+- **Files deleted:** `components/MapOverlay.jsx`, `components/ForecastTypeSelector.jsx` (its `EVENT_TYPE_LABELS` had no reader outside the overlay) and `utils/mapOverlay.js`.
+- **`MapView` loses every `overlayMode` branch** (8,166 lines to 7,002): the context bar, the `advanced-filters-panel` drawer (EVENT / QUALITY / LOGISTICS), the Leaflet `Popup` and the phone `BottomSheet` that mounted `MarkerPopupContent`, the dead `'medallions'` toolbar copy, `HandoffPopupController`, `PopupResizer`, the drill-down emphasis (`emphasiseLocationName`, the `photocast-marker--focus` / `--muted` rules), the overlay's own `/drive-times` fetch (`driveMinutesFor` now reads `reachById` alone), the `retry: !overlayMode` forks, `zoomSnap`'s branch (it is `0`), the popup width CSS and the `focus` / `handoff*` props with their per-field effects. `WindowFirstMapPane` stops forwarding the legacy `handoff*` props and `onForecastRun`; a handoff with no `source` is no longer a handoff.
+- **`mapOverlay.js`'s pure resolution moved, not deleted.** `utils/mapDoor.js` now owns `resolveDoor` (which spot a door opens, which spot set it narrows to, what it is called), the door's headline and its structured payload read it; the overlay's narrative / caption / tone fields were rendering-only and are gone. `DARK_SKY_THRESHOLD` moved to `utils/darkSky.js`.
+- **One definition each of two C2 copies.** The location sheet's `useForecastDetail` and `TRIAGE_REASON_LABELS` / dust test / rising-tide window are now the ONLY definitions; `MarkerPopupContent` imports them. A failed detail fetch is no longer memoised as a null the popup then trusts (it retries on the next mount); the popup's inline-detail path, the only one the admin Prompt Test uses, is unchanged.
+- **Kept, because something else still reads it:** `MarkerPopupContent` (the admin Prompt Test view mounts it, with its 190 tests), `HourlyComfortTable`'s hidden-header mode and the `popup-hourly-table` id (that popup uses it), `markerUtils`, `makeMarkerIcon` (the tab's hidden medallions), `fetchTravelDayRanges` (the callout's travel-day notice), `LocationSheetFactsParity.test.jsx` (the popup still exists to disagree with the sheet), `.animate-popup-refresh` (`ManageView`).
+- **CSS removed:** `map-overlay-rise` / `.map-overlay-panel`, `.map-ctx-*`, the `.wf-map-toolbar` rule that only the overlay's dead toolbar used (the tab's `.wf-map-toolbar-cluster` is untouched).
+- **The Map tab's solar surfaces do not move:** a before/after render of the heat view, a location door and a region door (rendered markup and the props handed to the field) is byte-identical.
+
+Tests: the overlay-only cases are deleted (`MapOverlay`, `ForecastTypeSelector`, `MapViewMarkerEmphasis`, `MapViewBriefingScoreWiring`, `MapViewSunsetToggle`, `MapViewDarkSkyHandoff` - its twin cases already run through the structured door in `MapViewPlanHandoff` - and about forty "absent on the overlay" negatives and overlay-drawer cases elsewhere); every test that used `handoffEventType` / `handoffLocationName` as a convenient driver now drives the tab through `autoEventType` or a map-sourced `planHandoff`. `MapViewOverlayContext.test.jsx` became `MapViewTabChrome.test.jsx` (its two Map-tab cases). Four owner-decision pins that were routed through the overlay (when an alert ends, the saved rating floor and its saved copy, the stand-down lens and the drive-time filter are left alone) were ported to the Map tab's cases in `MapViewAuroraUnavailableFloor.test.jsx`; the mutation that clears them fails three of them. `resolveDoor` gained a briefing-rating case and a Bortle-4-exactly case. The Playwright spec `test/e2e/forecast.spec.js` now asserts the callout rather than a Leaflet popup; **it is not part of the local gate** (nothing here ran it).
+
+**Lost with the overlay (no Map-tab home):**
+- The aurora result's `detail` prose (Claude's explanation beyond the stars and alert level) and the astro night's cloud / visibility / moon / phase explanations. The sheet shows only solar windows and D3 kept the callout to the alert level word; whether either surface should grow them is still an open owner call (plan §3 C2 note, §7).
+- The popup's live tide indicator, its spring / king classification and its "Tide data fetched" footer (struck by D3: `window.tideFacts` is the one source of per-location tide).
+- ADMIN **Run forecast** from a map location (plan §4 #8, O-7: its own phase on the callout's actions row). Until it lands there is no map route to a hand-started single-location run.
+- The region "narrative band" (the region's gloss under a verdict-coloured head). The Map tab's region panel shows the served narrative (plan §5 Q2, probably no).
+- The SEASCAPE warning "No tide preferences set - check tide alignment before planning your shoot" (`tide-preferences-missing-badge`, shown to every role). It is really an admin data-hygiene signal; it needs a home on the callout's tide block or the admin Locations screen (owner call, plan §7).
+- The astro night's one-line `summary`, the "Not suitable for aurora photography" and astro no-data lines, the LITE hint ("Pro accounts get Fiery Sky & Golden Hour..."), and the Bortle WORD label (the callout shows `4 · dark`).
+- *Open the full Map tab →* and the overlay as the place a reader landed when the Map tab was withheld: the tab is now offered whenever a real aurora alert stands (C3), and otherwise the doors are withheld.
+
+Also: `askNightUntilAnswered` lost its `retry: false` option (its only caller was the overlay). `MarkerPopupContent`'s now-unpassed props (`onForecastRun`, tide fetch/classification, aurora and astro scores) are deliberately left in place: they hold the code the lost features above would be ported from.
+
 ## [v2.29.2] - 2026-10-20
 
 ### Changed — every "Show on map" opens the Map tab; the Plan-tab map overlay no longer opens (overlay convergence, C4)
