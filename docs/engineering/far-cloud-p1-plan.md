@@ -1,6 +1,6 @@
 # P1: wasted trips, the canvas rule and far decks, measured on the history we already have
 
-**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13). Part A run for the Angel 2026-10-21 (§14): a forecastable far high lid behind the canvas, unread by the prompt. Part B re-run on the verified Sonnet 5.5 era 2026-10-21 (§15): keeping Sonnet 5.5 is evidence-backed.
+**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13). Part A run for the Angel 2026-10-21 (§14): a forecastable far high lid behind the canvas, unread by the prompt. Meteosat agrees (2026-10-21). Part B re-run on the verified Sonnet 5.5 era 2026-10-21 (§15): keeping Sonnet 5.5 is evidence-backed.
 
 **Parent:** `far-cloud-lid-plan.md` §6 P1, which pre-registered hypotheses H1–H5. This plan builds P1
 and adds the analyses the reviews showed P1 cannot do without. Where it departs from a P1 rule, it
@@ -168,7 +168,7 @@ hour's own solar azimuth.
 
 **Owner's manual step, about 10 minutes.**
 - Look at Meteosat imagery for 13 October 15:30–17:20 UTC along the 257° bearing (EUMETSAT's public
-  viewer or any archive viewer).
+  viewer or any archive viewer) (done 2026-10-21, §14).
 - This is the plan's only observation, rather than a model.
 
 **Status.** Part A is exploratory, because it is the training case. It may say which mechanism to
@@ -581,7 +581,7 @@ That is about $6.28 in total at batch prices, primer batches excluded. Every arm
 - The Angel false go is the far-lid mechanism of H1 and H2: a horizon canvas with a continuous high deck behind it along the sun line.
 - It was forecastable on the day, since all four models agree with ERA5, but the prompt did not read it: production sampled only low cloud at 226 km.
 - The far-cloud-lid-plan's P2 capture (V175/V176) now records far mid/high and the pressure levels for every slot. The prospective H1, H2 and H5 test (§12 step 10) therefore reads stored values from 2026-10-13 onward.
-- This is model-level only. The plan's single observation, the Meteosat look along 255° for 15:30–17:20 UTC on 2026-10-13 (§2 Part A), is still owed by the owner.
+**Meteosat observation (2026-10-21):** the owner viewed the EUMETSAT Meteosat composite in Zoom Earth for 2026-10-13 at 17:50 BST, i.e. 16:50 UTC, twenty minutes before the 17:00 UTC slot (the frame is saved on the owner's Mac as `~/goldenhour-p1/meteosat_2026-10-13_1650Z_zoomearth.webp`, not committed). Along 255° from Gateshead it shows: north-east England and the coast clear (ground and city lights visible, a few thin streaks); a fibrous, streaky band of high cloud across the North Pennines, Cumbria and Dumfries at roughly 50–150 km, the cirrus canvas the prompt saw at 113 km; and a broad, continuous, more uniform grey-white sheet over the Isle of Man, the north Irish Sea and Northern Ireland from about 200 km outward. One frame, read by eye from a dusk composite, not a measurement; it agrees with the ERA5 transect and the four models (thin cirrus at the horizon, a solid lid behind it from about 225 km). Part A's observation step is done; a second frame at 17:10 UTC was not taken.
 
 **A first sizing hint, not a base rate.** Of the 98,255 exported `forecast_evaluation` rows, 577 (13–14 October only) carry `far_solar_high_cloud`. 390 of those read ≥ 60%, and 92 of the 390 were rated go. Two days inside one cirrus spell say nothing about frequency; Part C (§12 step 7) and the accruing capture do.
 
@@ -627,5 +627,4 @@ Sonnet 5.5's gos stand on ERA5-blocked horizons less often than Haiku's.
 **What this leaves as the live line of work:**
 - the far-lid rule (§9 item 7) on the V175/V176 capture;
 - Part C sizing (§12 step 7);
-- the Meteosat observation for the Angel (§2 Part A);
 - Part E.
