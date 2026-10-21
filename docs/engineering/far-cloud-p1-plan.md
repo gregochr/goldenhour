@@ -1,6 +1,6 @@
 # P1: wasted trips, the canvas rule and far decks, measured on the history we already have
 
-**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13).
+**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13). Part A run for the Angel 2026-10-21 (§14): a forecastable far high lid behind the canvas, unread by the prompt.
 
 **Parent:** `far-cloud-lid-plan.md` §6 P1, which pre-registered hypotheses H1–H5. This plan builds P1
 and adds the analyses the reviews showed P1 cannot do without. Where it departs from a P1 rule, it
@@ -408,6 +408,7 @@ Everything lives under `scripts/far-cloud-p1/`, plus one test-only Java change. 
 4. Part E's protocol: which locations, and who records.
 5. Whether Part A should also run for the other training cases.
 6. **Open:** whether to buy a narrower R1 arm that fires only on the Angel shape (10 of 513 gos), at about $4 (§13). Not yet decided.
+7. **Open:** a far-lid rule (canvas present, far high ≥ 60%) — prompt change + replay on rebuilt prompts, cost unestimated (§14).
 
 ## 10. Review record (2026-10-14)
 
@@ -505,7 +506,7 @@ Written after the exports, Part B, the Part D set, the probe fix (#1166) and the
 **Two to three weeks**
 6. **ERA5 verification catching up with Sonnet 5.5.** At the 2026-10-14 export the latest verified `target_date` was 2026-10-04 and Sonnet 5.5's first run was 2026-10-06, so every Sonnet 5.5 go was premise-unknown and Part B judged Haiku's gos only. The hourly `cloud_verification_backfill` job walks forward in slices; check `GET /api/admin/cloud-verification/backfill/status` weekly, and when verification passes about 2026-10-14, re-export `p1_forecasts.csv` and re-run Part B (free, no network). That is the first Part B that can judge Sonnet 5.5 gos and the Angel row.
 7. **Part C in the background**, now the probe passes: `size.py` under the 60-call daily Open-Meteo weight, so weeks; drop it if steps 3 and 6 settle the question.
-8. **Part A** (§9 Q5): about a week of calls, only if step 3 leaves the Angel mechanism open.
+8. **Part A** (§9 Q5): about a week of calls, only if step 3 leaves the Angel mechanism open. **Done 2026-10-21 for the Angel (§14)**; the other training cases (§9 Q5) are not run.
 
 **Months**
 9. **Twenty outcomes** at a few a week; the report dates its finish from the rate achieved. A star change waits for this.
@@ -556,3 +557,36 @@ That is about $6.28 in total at batch prices, primer batches excluded. Every arm
 - Under the owner's requirement (a wasted trip costs more than a missed sky), a model that withdraws a quarter of the other's gos is the safe direction if the two are equally accurate, and the switch is reversible.
 - R1 at a 55 cap is rejected as drafted. A narrower R1 that fires only on the Angel shape (10 of 513 gos) is a possible follow-up arm at about $4, not yet decided (§9 item 6, open).
 - Part B re-run after verification will say whether the 127 gos Sonnet 4.6 withdrew fail P-low more often than the 386 it kept. That is the one test that can adjudicate the switch without outcomes.
+
+## 14. Part A result: the Angel's sun line (2026-10-21)
+
+**Run.** `case.py --row-csv p1_forecasts.csv --row-id 101110` on 2026-10-21: 18 requests, 288 Open-Meteo weighted calls, no Anthropic spend. The report is `~/goldenhour-p1/case_2026-10-13.md` and `.csv` on the owner's Mac (not committed).
+- **Sources:** ERA5 (`models=era5`); the Historical Forecast API's day-0 low, mid and high for `best_match`, `ukmo_seamless`, `ecmwf_ifs025` and `icon_seamless`; and its pressure levels (§11 explains why day 0 is the only forecast lead).
+- **Transect:** every 25 km from 0 to 400 km along each hour's own solar azimuth, at 16:00, 17:00 and 18:00 UTC. Sunset was 17:14 UTC. The production slot was 17:00, with the sun 1.3° up at azimuth 255°.
+
+**What the production prompt saw** (the stored prompt for evaluation 101110):
+- Overhead: `Low 0%, Mid 0%, High 0%`.
+- Solar horizon at 113 km: `Low 7%, Mid 24%, High 91%`, which is a cirrus canvas.
+- Antisolar: 0/0/0.
+- `Beyond horizon (226km, solar azimuth): Low 0%`. The prompt carried no far mid or high: V175 has recorded them since 2026-10-13, but no prompt reads them.
+- Sonnet 5.5 rated it 4★ (20 of 20 in replay). The observed sky was 2★.
+
+**What lay on the sun line at 17:00 UTC:**
+- ERA5 high cloud was 96–99% from 125 km and 99–100% from 225 km to 400 km. Mid cloud was 21–49% from 125 km. Low cloud stayed under 25% to 325 km.
+- Every one of the four forecast models (day 0, issued that day) shows high cloud at 98–100% from 225 km to at least 325 km: `best_match` and `ukmo_seamless` 100% at 225–300 km, `ecmwf_ifs025` 100% at 225–375 km, `icon_seamless` 100% at 225–350 km.
+- The ray from the Angel at 1.3° reaches the 8 km high band at about 225 km (the report's own `h(d)` line gives 9.1 km at 225 km). That is exactly where the continuous deck begins, so the 113 km canvas sat under a lid the setting sun could not get beneath.
+- At 16:00 UTC (sun 9°) the same deck is present from 150 km in ERA5 (99–100%) and from 175 km in all four models.
+
+**Reading.**
+- The Angel false go is the far-lid mechanism of H1 and H2: a horizon canvas with a continuous high deck behind it along the sun line.
+- It was forecastable on the day, since all four models agree with ERA5, but the prompt did not read it: production sampled only low cloud at 226 km.
+- The far-cloud-lid-plan's P2 capture (V175/V176) now records far mid/high and the pressure levels for every slot. The prospective H1, H2 and H5 test (§12 step 10) therefore reads stored values from 2026-10-13 onward.
+- This is model-level only. The plan's single observation, the Meteosat look along 255° for 15:30–17:20 UTC on 2026-10-13 (§2 Part A), is still owed by the owner.
+
+**A first sizing hint, not a base rate.** Of the 98,255 exported `forecast_evaluation` rows, 577 (13–14 October only) carry `far_solar_high_cloud`. 390 of those read ≥ 60%, and 92 of the 390 were rated go. Two days inside one cirrus spell say nothing about frequency; Part C (§12 step 7) and the accruing capture do.
+
+**Implication for the rules.**
+- R1 as drafted, a fiery_sky cap keyed on "no canvas", was rejected in §13 as a blanket downgrade, and the Angel had a canvas.
+- A rule keyed instead on the **far high deck** is the shape this case points at: the canvas is present AND far high is ≥ 60% along the solar azimuth.
+- It cannot be replayed on stored prompts, because they carry no far high. Replaying it means rebuilding prompts from forecast rows, which is a prompt change, not a replay.
+- Recorded as §9 item 7, open.
