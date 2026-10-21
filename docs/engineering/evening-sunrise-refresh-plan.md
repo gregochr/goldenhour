@@ -1,6 +1,6 @@
 # Plan: an evening refresh of tomorrow's sunrise
 
-**Status: E1–E3 BUILT 2026-10-20** (E1 #1254, E2 #1255, E3a #1256, E3b #1257, E3c this docs sweep); the job ships PAUSED and **E4, the switch-on, is the owner's**. E5 was widened by the owner the same day (§4 E-D7). Written against `main` at `214a49ed`; revised the same day
+**Status: E1–E3 BUILT 2026-10-20** (E1 #1254, E2 #1255, E3a #1256, E3b #1257, E3c this docs sweep); the job ships PAUSED and **E4, the switch-on, is the owner's**. E5 was widened by the owner the same day (§4 E-D7); E4 started 2026-10-20 (first evening run clean, §5.1); E5's brief is §9.10, not started. Written against `main` at `214a49ed`; revised the same day
 against `dca621cc` after an adversarial review of the plan (§8), which changed the failure-counting
 design (E-D5), added a decision the first draft missed (E-D8), corrected the timing figures, and
 rewrote the build briefs (§9) so each phase can be handed to a Sonnet agent. The owner accepted the
@@ -234,6 +234,26 @@ and one Ask Ready precompute from the third, plus one or two unrecorded primer r
 here: its Open-Meteo quota use. Not verified by the review: that every column these queries name exists
 (the facts reviewer found them on the entities; nobody ran them).
 
+### 5.1 Measured, 2026-10-21
+
+The owner ran the queries above on production (7 days to 20 Oct; afternoons on 18–19 Oct were travel
+days and evaluated little or nothing, so the averages are over the five ordinary afternoons):
+
+| Per afternoon cycle | Calls (avg) | Cost (avg) | Range |
+|---|---|---|---|
+| Tomorrow's sunrise | ~213 | $0.61 | $0.47–0.77 |
+| Tomorrow's sunset (SETTLED cells already skipped) | ~104 | $0.29 | $0.02–0.50 |
+
+Overheads per cycle: briefing rebuild $0.096, Ask Ready precompute $0.186. The first evening run
+(pipeline run 292, 20 Oct) evaluated 172 slots (63 triaged away) for **$0.487** of sky calls, ran
+20:00–20:14 UTC, was claimed with no failure evidence at 20:12, and the overnight after it (293) settled
+FULL — so about **$0.78 a night** with its briefing and precompute.
+
+What follows for E5: the afternoon sheds about $0.90 a day ($0.61 moved to the evening, $0.29 saved
+outright), against the evening's ~$0.78–0.89. **Overnight + afternoon today's sunset only + evening
+costs about the same as the two-cycle setup did, or slightly less**, and buys the bedtime look at
+tomorrow's sunrise.
+
 ## 6. Phases
 
 Each phase is one PR from `main`. §9 holds the brief for each build phase.
@@ -253,8 +273,8 @@ Each phase is one PR from `main`. §9 holds the brief for each build phase.
   tab's tomorrow-sunrise card updated after it, no watchdog mail, and the next overnight's failure settle
   FULL.
 - **E5 — Optional (E-D7).** The afternoon evaluates today's sunset only: drop tomorrow's sunrise (moved
-  to the evening) and tomorrow's sunset (the saving), after a fortnight of clean evenings (E4) and the §5
-  figures. Never while the evening is paused.
+  to the evening) and tomorrow's sunset (the saving), after at least a week of clean evenings (E4; the
+  owner says when) and the §5 figures (§5.1). Never while the evening is paused. Brief: §9.10.
 
 Rollback at every stage after E2: pause the job. Nothing else depends on it.
 
@@ -550,3 +570,68 @@ the freshness caps' three-cycle derivation (E-D8). This plan: status line and §
 Sonnet builds E1, E2, E3a, E3b and E3c. E1 stays on Sonnet only with its stop-point and seam tests
 enforced: it is the phase where a "small" test edit can hide a behaviour change, or an unread property can
 pass every test. If an agent reports a stop, the orchestrator decides, not a second agent.
+
+### 9.10 E5 — the afternoon evaluates today's sunset only
+
+**When.** Only after the owner says the evening has run cleanly for long enough (at least a week of E4
+runs: each `EVENING` run COMPLETED inside its budget, the next overnight settled FULL, no watchdog mail).
+Never while `evening_sunrise_refresh` is paused: tomorrow's sunrise would then rest on the previous
+morning's overnight look, about 18 h old at bedtime.
+
+**Goal.** The afternoon cycle (`intraday_forecast_refresh`, `CycleType.INTRADAY`) evaluates **today's
+sunset only**. Tomorrow's sunrise belongs to the evening; tomorrow's sunset is left to the next overnight
+and the next afternoon (where it is "today's sunset"). The overnight is unchanged — in particular it keeps
+today's sunset, which becomes the only morning look at it. Measured effect: §5.1.
+
+**Files (main):** `service/batch/IntradayCandidateCollectionStrategy.java`,
+`service/batch/IntradayEligibilityPolicy.java`, `service/pipeline/PipelineOrchestrator.java` (only to pass
+the property below), `config/FreshnessProperties.java` (javadoc only), `service/batch/EveningEligibilityPolicy.java`
+and `service/batch/EveningCandidateCollectionStrategy.java` (javadoc only, where they describe the afternoon),
+`application-example.yml`, a new `db/migration/V<next>__intraday_job_description_today_sunset.sql`
+(re-read the latest number on `main`), CLAUDE.md, this plan's status line and §6.
+
+**Build.**
+1. `IntradayCandidateCollectionStrategy.includes(date, t)`: `date.equals(today) && t == SUNSET`, unless the
+   rollback property (step 3) is on, in which case the old decision window (T sunset, T+1 sunrise, T+1
+   sunset) exactly as today. Rewrite the class javadoc: the afternoon is the last look at tonight's sunset;
+   tomorrow's sunrise is the evening's, tomorrow's sunset the next overnight's and next afternoon's.
+2. `IntradayEligibilityPolicy`: with the narrowed window every candidate is today's sunset, which has no
+   later look, so every stability is included. Keep `hasGuaranteedLaterLook` and its SETTLED-tomorrow's-sunset
+   skip working for the rollback window (do not delete it: the rollback depends on it); update the javadoc
+   so its rationale no longer claims tomorrow's sunrise "has only the next morning's look".
+3. **Rollback property** `photocast.pipeline.intraday-decision-window` (boolean, default `false`). `true`
+   restores the full decision window with no release, only a restart — the way back if the evening proves
+   unreliable after E5 ships. The orchestrator builds `new IntradayCandidateCollectionStrategy(clock,
+   decisionWindow)`; keep a one-argument constructor only if tests need it.
+4. Migration: reword `intraday_forecast_refresh`'s description, guarded on V174's exact text (the shape of
+   V174 itself: `UPDATE … WHERE job_key = … AND description = '<V174 text>'`), to: "Re-evaluates tonight's
+   sunset ahead of it (a set time before it on the sun-relative schedule, else at its cron time), at every
+   stability. Tomorrow's sunrise is the evening sunrise refresh's; tomorrow's sunset is the next overnight
+   cycle's. Re-runs the briefing afterwards." Testcontainers test `IntradayJobDescriptionTodaySunsetMigrationTest`
+   (copy `IntradayJobDescriptionMigrationTest`'s shape): rewords the V174 text, leaves a hand-edited one alone.
+5. `FreshnessProperties` javadoc: the T+1 cap's "both cycles" reasoning names the afternoon's narrower window.
+   Do not change any cap value.
+6. `application-example.yml`: the property, default false, one comment line on what `true` does.
+7. CLAUDE.md: the *Dynamic scheduler* bullet's evening paragraph and every sentence describing the intraday
+   window (grep "decision window", "T+1 sunrise", "tomorrow's sunrise", "intraday"), the *Configuration*
+   line, the *Database Migrations* table row. Plan: status line and §6 E5 marked built.
+
+**Tests.** Strategy: default admits exactly (today, SUNSET) — not today's sunrise, not tomorrow's sunrise or
+sunset; with the property on, admits exactly the old three (copy the existing cases). Policy: today's sunset
+included at every stability; with the old window, SETTLED tomorrow's sunset is still skipped
+(`SKIPPED_NO_REFRESH_NEEDED`). `PipelineOrchestratorTest`: the intraday cycle's strategy honours the
+property. Existing tests that assert the old window: **these expectations change by design** — move each to
+the property-on case rather than deleting it, and list every one you moved in the hand-back. Any other
+existing test whose expected value changes is a stop.
+
+**Must not.** Touch the nightly or evening strategies' behaviour, any cache cap, the watchdog, or the
+evening's cache-gate bypass (it stays: it costs nothing and protects the evening if anything else ever
+writes tomorrow's sunrise first).
+
+**Gate.** §9.2's backend gate; the migration is proven by CI only.
+
+**After merge (owner).** On the first afternoon after the release: the INTRADAY run's
+`STABILITY_RECLASSIFY` detail shows only today's sunset considered, and its dispositions show no
+`days_ahead = 1` rows; that evening's `EVENING` run is unchanged. Rollback: set
+`photocast.pipeline.intraday-decision-window: true` in the production config and restart.
+
