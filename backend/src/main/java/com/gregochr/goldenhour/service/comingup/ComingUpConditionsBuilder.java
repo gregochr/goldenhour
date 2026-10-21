@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.DustHotTopicStrategy;
 import com.gregochr.goldenhour.service.InversionHotTopicStrategy;
+import com.gregochr.goldenhour.service.MistHotTopicStrategy;
 import com.gregochr.goldenhour.service.PlanHorizon;
 import com.gregochr.goldenhour.service.SlotSignalReader;
 import com.gregochr.goldenhour.service.TideRunBuilder;
@@ -40,10 +41,11 @@ import java.util.Optional;
  *
  * <p>Three rows at first ship, always present even with an empty occurrence list (D11/§11.20):
  * <b>Coastal tides</b> (one row for both spring and king runs), <b>Saharan dust</b> and
- * <b>Valley inversions</b>. Aurora, NLC and snow are excluded — no rate history exists for them yet
- * (plan §1.4).
+ * <b>Valley inversions</b>; <b>Valley mist</b> joined as a fourth with valley-mist-plan M1b (the
+ * twin of the inversion row, read off the stored BAND rather than a score cut). Aurora, NLC and
+ * snow are excluded — no rate history exists for them yet (plan §1.4).
  *
- * <h2>Magnitude is config-interim for dust and inversion, forever, at first ship</h2>
+ * <h2>Magnitude is config-interim for dust, inversion and mist, forever, at first ship</h2>
  *
  * <p>Plan D4: "Magnitude is interim: a config-defined bucketed mapping from the topic's intensity
  * scale to bits — never labelled {@code median} or {@code p90}." Dust is scored on its own AOD
@@ -157,14 +159,15 @@ public class ComingUpConditionsBuilder {
      *                   coastal-tides condition needs runs wholly inside Plan's window too
      * @param entries    the already-assembled chronology entries, for the promoted/insidePlan/
      *                   heldBack derivation (D11)
-     * @return the three conditions, always present even with an empty occurrence list
+     * @return the four conditions, always present even with an empty occurrence list
      */
     public List<ComingUpCondition> build(LocalDate builtFor, List<AlmanacEvent> allEvents,
             List<ComingUpEntry> entries) {
-        List<ComingUpCondition> conditions = new ArrayList<>(3);
+        List<ComingUpCondition> conditions = new ArrayList<>(4);
         conditions.add(buildCoastalTides(builtFor, allEvents, entries));
         conditions.add(buildDust(builtFor));
         conditions.add(buildInversion(builtFor));
+        conditions.add(buildMist(builtFor));
         return conditions;
     }
 
@@ -666,6 +669,106 @@ public class ComingUpConditionsBuilder {
     }
 
     private static double inversionMagnitude(double score, ComingUpScoringProperties.Inversion config) {
+        return score >= config.getMagnitudeThresholdScore()
+                ? config.getMagnitudeAboveBits() : SurpriseScore.DEFAULT_MAGNITUDE_BITS;
+    }
+
+    // ── Valley mist (valley-mist-plan M1b) ───────────────────────────────
+    //
+    // The twin of buildInversion, with three differences that follow from the subject. (1) The
+    // gate is the stored BAND (MistPotential.LIKELY, via MistHotTopicStrategy.isLikely), never a
+    // score cut: FOGBOUND is decided by event visibility, not the score, and the band is the
+    // calculator's own answer. (2) SUNRISE and SUNSET rows both count — mist forming at dusk over a
+    // river is a real evening shot — so a day counts when any of its readings is LIKELY. (3) There
+    // is no Claude echo and so no effective… fallback: a row with mist_scored false (written
+    // before V185) or no band contributes nothing, exactly as the hot topic reads it.
+    //
+    // The RARITY term is pinned to the config fallback by the same rule as the inversion's, until
+    // enough of the unbiased MIST_CALC log TopicDailyLogJob writes from M1b exists. A later change
+    // must read MIST_CALC alone. The historical occurrences below are display only.
+
+    private ComingUpCondition buildMist(LocalDate builtFor) {
+        int windowDays = scoringProperties.getRecurrent().getTrailingWindowDays();
+        LocalDate yesterday = builtFor.minusDays(1);
+        LocalDate windowStart = yesterday.minusDays(windowDays - 1L);
+        ComingUpScoringProperties.Mist mistConfig = scoringProperties.getRecurrent().getMist();
+
+        double rarityBits = SurpriseScore.rarity(mistConfig.getFallbackMeanGapDays());
+
+        // A LIKELY row may carry no score (the band is read, the score is a display figure), so the
+        // per-date maximum is tracked as a nullable.
+        Map<LocalDate, Double> maxScoreByDate = new LinkedHashMap<>();
+        try {
+            for (SlotSignals signal : slotSignalReader.read(windowStart, yesterday)) {
+                if (!isMistEvent(signal.eventType()) || !MistHotTopicStrategy.isLikely(signal)) {
+                    continue;
+                }
+                Double score = signal.readings().mistScore();
+                maxScoreByDate.merge(signal.date(), score == null ? Double.NEGATIVE_INFINITY : score,
+                        Math::max);
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("Valley mist trailing-window read failed — the condition will show no historical "
+                    + "occurrences rather than the whole feed failing: {}", e.toString());
+        }
+
+        List<LocalDate> dates = maxScoreByDate.keySet().stream().sorted().toList();
+        String rateLabel = dates.isEmpty()
+                ? "none in the last " + windowDays + " days"
+                : dates.size() + (dates.size() == 1 ? " likely day" : " likely days") + " since "
+                        + DATE_LABEL.format(dates.getFirst());
+
+        List<ComingUpConditionOccurrence> occurrences = new ArrayList<>();
+        for (LocalDate date : dates) {
+            double score = maxScoreByDate.get(date);
+            occurrences.add(new ComingUpConditionOccurrence(date, DATE_LABEL.format(date),
+                    mistValueLabel(score), null,
+                    round1(rarityBits + mistMagnitude(score, mistConfig)), null, STATUS_HELD_BACK, null));
+        }
+
+        ComingUpConditionPeak peak = null;
+        SlotSignals forwardPeak = null;
+        try {
+            forwardPeak = slotSignalReader.read(builtFor, PlanHorizon.lastPlanDate(builtFor)).stream()
+                    .filter(s -> passesPeakGate(s.eventType()))
+                    .filter(s -> isMistEvent(s.eventType()) && MistHotTopicStrategy.isLikely(s))
+                    .max(Comparator.comparingDouble(ComingUpConditionsBuilder::mistScoreOrFloor))
+                    .orElse(null);
+        } catch (RuntimeException e) {
+            LOG.warn("Valley mist forward-peak read failed — the peak cell will say so rather than the "
+                    + "whole feed failing: {}", e.toString());
+        }
+        if (forwardPeak != null) {
+            double score = mistScoreOrFloor(forwardPeak);
+            double bits = rarityBits + mistMagnitude(score, mistConfig);
+            String valueLabel = mistValueLabel(score);
+            peak = new ComingUpConditionPeak(DATE_LABEL.format(forwardPeak.date()), valueLabel, round1(bits));
+            occurrences.add(new ComingUpConditionOccurrence(forwardPeak.date(), DATE_LABEL.format(forwardPeak.date()),
+                    valueLabel, null, round1(bits), null, STATUS_INSIDE_PLAN, null));
+        }
+
+        String quantLabel = frequencyPhrase(rarityBits, "most mornings") + " · counts as a standout above "
+                + fmt0(mistConfig.getMagnitudeThresholdScore()) + "/10 (early threshold)";
+        return new ComingUpCondition("VALLEY_MIST", "Valley mist",
+                scoringProperties.getCadence().getMist(), true, rateLabel, quantLabel, peak, occurrences);
+    }
+
+    private static boolean isMistEvent(TargetType eventType) {
+        return eventType == TargetType.SUNRISE || eventType == TargetType.SUNSET;
+    }
+
+    /** The row's score, or negative infinity for a LIKELY band that carries none (sorts last). */
+    private static double mistScoreOrFloor(SlotSignals signal) {
+        Double score = signal.readings().mistScore();
+        return score == null ? Double.NEGATIVE_INFINITY : score;
+    }
+
+    /** "N/10" for a scored occurrence, the band word for a LIKELY row with no score. */
+    private static String mistValueLabel(double score) {
+        return Double.isInfinite(score) ? "likely" : reportedScore(score) + "/10";
+    }
+
+    private static double mistMagnitude(double score, ComingUpScoringProperties.Mist config) {
         return score >= config.getMagnitudeThresholdScore()
                 ? config.getMagnitudeAboveBits() : SurpriseScore.DEFAULT_MAGNITUDE_BITS;
     }

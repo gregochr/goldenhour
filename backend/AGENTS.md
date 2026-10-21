@@ -143,6 +143,15 @@ Checkstyle and SpotBugs gate those in CI.
       pipeline run forces later tail settles to `RESETS_ONLY`, so precompute must never run inside
       one.
 
+12. **The valley-mist topic fires on `LIKELY` only, reading the stored band**
+    (`MistHotTopicStrategy`, `ComingUpConditionsBuilder.buildMist`, `TopicDailyLogJob.logMist`).
+    FOGBOUND is deliberately excluded (a white frame, not mist with a view through it), POSSIBLE is
+    too weak a claim, and the band is *read* from `slot_atmosphere.mist_potential`, never rebuilt
+    from `mist_score` (FOGBOUND is decided by event visibility, not the score). A `mist_scored =
+    false` row contributes nothing and there is no Claude-echo fallback in M1b. Its Coming up
+    rarity is pinned to the config fallback like the inversion's. Do not widen the band or add a
+    score cut without a change to the plan.
+
 ### Bugs that were fixed and must not come back
 
 - **`forecast_score` is read in production; the dual-write swallow is

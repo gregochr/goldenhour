@@ -98,6 +98,23 @@ class WeatherTriageEvaluatorTest {
     }
 
     @Test
+    @DisplayName("valley-mist M1b: the visibility reason text is recognised by the helper the honesty "
+            + "filter reads it with — the evaluator's own output round-trips, other rules do not")
+    void lowVisibilityReason_roundTripsThroughTheSharedConstants() {
+        String visibility = evaluator.evaluate(buildData(20, 0, 4000, BigDecimal.ZERO, null))
+                .orElseThrow().reason();
+        String rain = evaluator.evaluate(buildData(20, 0, 30000, new BigDecimal("5.0"), null))
+                .orElseThrow().reason();
+        String cloud = evaluator.evaluate(buildData(95, 0, 30000, BigDecimal.ZERO, null))
+                .orElseThrow().reason();
+
+        assertThat(WeatherTriageEvaluator.isLowVisibilityReason(visibility)).isTrue();
+        assertThat(WeatherTriageEvaluator.isLowVisibilityReason(rain)).isFalse();
+        assertThat(WeatherTriageEvaluator.isLowVisibilityReason(cloud)).isFalse();
+        assertThat(WeatherTriageEvaluator.isLowVisibilityReason(null)).isFalse();
+    }
+
+    @Test
     @DisplayName("Visibility exactly 5000m passes triage (threshold is <5000)")
     void visibilityAtBoundary_passes() {
         AtmosphericData data = buildData(20, 0, 5000, BigDecimal.ZERO, null);

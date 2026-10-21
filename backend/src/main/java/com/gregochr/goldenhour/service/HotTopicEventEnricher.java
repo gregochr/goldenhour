@@ -45,6 +45,9 @@ public class HotTopicEventEnricher {
     /** Static event policy for topic types with a fixed solar anchor. Tides resolve dynamically. */
     private static final Map<String, String> EVENT_BY_TYPE = Map.ofEntries(
             Map.entry("INVERSION", SUNRISE),
+            // MIST names its own event per topic (sunrise AND sunset rows both count), so this
+            // entry is only the fallback for a topic that carries none: the admin simulation.
+            Map.entry("MIST", SUNRISE),
             Map.entry("DUST", SUNSET),
             Map.entry("SNOW_FRESH", SUNRISE),
             Map.entry("SNOW_MIST", SUNRISE),
@@ -55,6 +58,12 @@ public class HotTopicEventEnricher {
             Map.entry("NLC", NIGHT),
             Map.entry("METEOR", NIGHT),
             Map.entry("SUPERMOON", NIGHT));
+
+    /**
+     * Topic types whose detector stamps the event itself (it varies per topic, so no static policy
+     * can name it) and leaves the clock time to this class.
+     */
+    private static final Set<String> EVENT_STAMPED_BY_DETECTOR = Set.of("MIST");
 
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
@@ -109,9 +118,14 @@ public class HotTopicEventEnricher {
         HotTopic result = topic;
 
         // Photographic event type + time — skip when already set, or the topic has no date/anchor.
-        if (topic.eventType() == null && topic.date() != null) {
+        // A detector-stamped event with no time yet (MIST) keeps its event and gains the time.
+        boolean timeOnly = topic.eventType() != null && topic.eventTime() == null
+                && EVENT_STAMPED_BY_DETECTOR.contains(topic.type())
+                && (SUNRISE.equals(topic.eventType()) || SUNSET.equals(topic.eventType()));
+        if ((topic.eventType() == null || timeOnly) && topic.date() != null) {
             double[] latLon = resolveLatLon(topic, enabled);
-            String eventType = resolveEventType(topic, latLon, topic.date());
+            String eventType = timeOnly ? topic.eventType()
+                    : resolveEventType(topic, latLon, topic.date());
             if (eventType != null) {
                 result = result.withEvent(eventType,
                         computeEventTime(eventType, latLon[0], latLon[1], topic.date()));

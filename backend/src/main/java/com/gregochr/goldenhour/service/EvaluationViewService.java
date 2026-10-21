@@ -354,6 +354,7 @@ public class EvaluationViewService {
             boolean withCycles) {
         Map<String, Set<String>> dispositionsByKey = new HashMap<>();
         Map<String, Set<Long>> jobRunsByKey = new HashMap<>();
+        Map<String, Boolean> lowVisibilityByKey = new HashMap<>();
         try {
             for (Object[] row : forecastRunDispositionRepository
                     .findLatestNonCachedDispositions(start, end)) {
@@ -361,6 +362,11 @@ public class EvaluationViewService {
                 dispositionsByKey.computeIfAbsent(key, k -> new HashSet<>()).add((String) row[3]);
                 Long jobRunId = row.length > 5 ? (Long) row[5] : null;
                 jobRunsByKey.computeIfAbsent(key, k -> new HashSet<>()).add(jobRunId);
+                // Free-text reason of the same row; a tie between rows only counts as low
+                // visibility when every one of them says so (the safe, under-claiming direction).
+                String detail = row.length > 6 ? (String) row[6] : null;
+                lowVisibilityByKey.merge(key, WeatherTriageEvaluator.isLowVisibilityReason(detail),
+                        Boolean::logicalAnd);
             }
         } catch (RuntimeException e) {
             LOG.warn("[EXAMINED] Could not load batch dispositions for {}..{} - every slot in "
@@ -392,7 +398,9 @@ public class EvaluationViewService {
             boolean ended = submitted(category)
                     && !jobRunsByKey.get(key).contains(null)
                     && endedJobRuns.containsAll(jobRunsByKey.get(key));
-            latestBySlot.put(key, new LatestDisposition(category, ended));
+            boolean lowVisibility = category == DispositionCategory.SKIPPED_TRIAGED
+                    && Boolean.TRUE.equals(lowVisibilityByKey.get(key));
+            latestBySlot.put(key, new LatestDisposition(category, ended, lowVisibility));
         });
         return new ServeTriage(triagedByKey(triagedKeys, start, end, types), latestBySlot);
     }
@@ -448,8 +456,25 @@ public class EvaluationViewService {
      * @param cycleEnded for {@code EVALUATED}/{@code FORCE_EVALUATED} only: whether the cycle that
      *                   submitted it has finished, so a result still in flight can be told from one
      *                   that will never come; false for every other category
+     * @param lowVisibility for {@code SKIPPED_TRIAGED} only: whether the stand-down was weather
+     *                   triage's visibility rule (under 5 km), read off the disposition's own
+     *                   reason text in the same query; the honesty filter words a blanked region
+     *                   whose stand-downs are mostly this "Fog forecast"; false for every other
+     *                   category
      */
-    public record LatestDisposition(DispositionCategory category, boolean cycleEnded) {
+    public record LatestDisposition(DispositionCategory category, boolean cycleEnded,
+            boolean lowVisibility) {
+
+        /**
+         * A disposition that carries no visibility reason (every category but a visibility
+         * stand-down).
+         *
+         * @param category   what the pipeline last did with the slot
+         * @param cycleEnded whether the submitting cycle has finished
+         */
+        public LatestDisposition(DispositionCategory category, boolean cycleEnded) {
+            this(category, cycleEnded, false);
+        }
     }
 
     /**

@@ -42,6 +42,12 @@ public class BriefingVerdictEvaluator {
     /** Visibility in metres below which conditions are MARGINAL. */
     static final int VISIBILITY_MARGINAL = 10000;
 
+    /** The humidity flag at an ordinary site: saturated air is a hazard to a sky. */
+    static final String MIST_RISK_FLAG = "Mist risk";
+
+    /** The humidity flag at a {@code mist_prone} site, where saturated air is the subject. */
+    static final String MIST_LIKELY_FLAG = "Mist likely";
+
     /** Humidity percentage above which conditions are MARGINAL (mist risk). */
     static final int HUMIDITY_MARGINAL = 90;
 
@@ -284,6 +290,25 @@ public class BriefingVerdictEvaluator {
      * @return list of flag strings
      */
     public List<String> buildFlags(WeatherMetrics weather, TideContext tide) {
+        return buildFlags(weather, tide, false);
+    }
+
+    /**
+     * Builds the flag strings for a slot, wording the humidity flag by what the site is.
+     *
+     * <p>The humidity trigger ({@code > 90%}) is unchanged for every site, but the word is not: on
+     * a {@code mist_prone} site (valley floor, riverside, lake shore) saturated air is the shot,
+     * not a hazard, so the flag reads {@value #MIST_LIKELY_FLAG} instead of
+     * {@value #MIST_RISK_FLAG} (valley-mist-plan M1b, owner decision Q6). The flag is a wording
+     * of the briefing's own humidity reading; the valley-mist reading itself is
+     * {@code slot_atmosphere.mist_potential}.
+     *
+     * @param weather   the core weather metrics
+     * @param tide      the tide context (may have null tideState for inland locations)
+     * @param mistProne whether the slot's location is flagged {@code mist_prone}
+     * @return list of flag strings
+     */
+    public List<String> buildFlags(WeatherMetrics weather, TideContext tide, boolean mistProne) {
         List<String> flags = new ArrayList<>();
         if (weather.lowCloud() > CLOUD_STANDDOWN) {
             flags.add("Sun blocked");
@@ -301,7 +326,7 @@ public class BriefingVerdictEvaluator {
             flags.add("Reduced visibility");
         }
         if (weather.humidity() > HUMIDITY_MARGINAL) {
-            flags.add("Mist risk");
+            flags.add(mistProne ? MIST_LIKELY_FLAG : MIST_RISK_FLAG);
         }
         if (weather.midCloud() != null && weather.midCloud() >= MID_CLOUD_STANDDOWN) {
             flags.add("Grey ceiling");

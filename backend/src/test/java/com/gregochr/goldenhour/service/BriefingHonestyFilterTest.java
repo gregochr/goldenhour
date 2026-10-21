@@ -657,6 +657,121 @@ class BriefingHonestyFilterTest {
                 T_PLUS_0)));
     }
 
+    /**
+     * The three sample slots' latest dispositions, all SKIPPED_TRIAGED, the first
+     * {@code lowVisibilityCount} of them for the visibility rule (valley-mist M1b).
+     */
+    private static Map<String, EvaluationViewService.LatestDisposition> triagedWithVisibility(
+            int lowVisibilityCount) {
+        Map<String, EvaluationViewService.LatestDisposition> latest = new HashMap<>();
+        List<BriefingSlot> slots = threeSampleSlots();
+        for (int i = 0; i < slots.size(); i++) {
+            latest.put(EvaluationViewService.stabilitySkipKey(
+                            slots.get(i).locationName(), TODAY, TargetType.SUNSET),
+                    new EvaluationViewService.LatestDisposition(
+                            DispositionCategory.SKIPPED_TRIAGED, false, i < lowVisibilityCount));
+        }
+        return latest;
+    }
+
+    private static BriefingRegion blankedWithVisibility(int lowVisibilityCount) {
+        return firstRegion(BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"), List.of()),
+                0.5, triagedWithVisibility(lowVisibilityCount), T_PLUS_0));
+    }
+
+    @Test
+    @DisplayName("valley-mist M1b: a stand-down whose triage was mostly visibility reads 'Fog forecast', "
+            + "still STAND_DOWN and still a STOOD_DOWN coverage reason")
+    void visibilityMajority_readsFogForecast() {
+        BriefingRegion r = blankedWithVisibility(3);
+
+        assertThat(r.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        assertThat(r.verdictLabel()).isEqualTo("Fog forecast");
+        assertThat(r.summary()).isEqualTo(BriefingHonestyFilter.FOG_SUMMARY);
+        assertThat(r.glossDetail()).isEqualTo(BriefingHonestyFilter.FOG_GLOSS_DETAIL);
+        assertThat(r.coverageReason()).isEqualTo(com.gregochr.goldenhour.model.CoverageReason.STOOD_DOWN);
+        // Two of three is still a strict majority.
+        assertThat(blankedWithVisibility(2).verdictLabel()).isEqualTo("Fog forecast");
+    }
+
+    @Test
+    @DisplayName("valley-mist M1b: a visibility minority keeps 'Too unsettled to forecast'")
+    void visibilityMinority_keepsTooUnsettled() {
+        assertStandDownWording(blankedWithVisibility(1));
+        assertStandDownWording(blankedWithVisibility(0));
+    }
+
+    @Test
+    @DisplayName("valley-mist M1b: an exact tie keeps 'Too unsettled to forecast' — a specific cause "
+            + "needs a majority")
+    void visibilityTie_keepsTooUnsettled() {
+        // Four scoreable slots, two stood down for visibility and two for anything else.
+        List<BriefingSlot> four = List.of(
+                slot("Buttermere", Verdict.GO), slot("Wast Water", Verdict.GO),
+                slot("Coniston Water", Verdict.GO), slot("Ullswater", Verdict.GO));
+        Map<String, EvaluationViewService.LatestDisposition> latest = new HashMap<>();
+        for (int i = 0; i < four.size(); i++) {
+            latest.put(EvaluationViewService.stabilitySkipKey(
+                            four.get(i).locationName(), TODAY, TargetType.SUNSET),
+                    new EvaluationViewService.LatestDisposition(
+                            DispositionCategory.SKIPPED_TRIAGED, false, i < 2));
+        }
+        BriefingRegion region = regionWith("Northumberland", Verdict.GO, "Clear at 0 of 4",
+                DisplayVerdict.WORTH_IT, 0, four);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET, region, List.of()), 0.5, latest, T_PLUS_0));
+
+        assertStandDownWording(out);
+    }
+
+    @Test
+    @DisplayName("valley-mist M1b: only TRIAGE stand-downs make up the majority's denominator — two "
+            + "visibility stand-downs among three triaged and two stability skips is still fog")
+    void fogMajority_ignoresNonTriagedSlots() {
+        List<BriefingSlot> five = List.of(
+                slot("A", Verdict.GO), slot("B", Verdict.GO), slot("C", Verdict.GO),
+                slot("D", Verdict.GO), slot("E", Verdict.GO));
+        Map<String, EvaluationViewService.LatestDisposition> latest = new HashMap<>();
+        for (int i = 0; i < five.size(); i++) {
+            boolean triaged = i < 3;
+            latest.put(EvaluationViewService.stabilitySkipKey(
+                            five.get(i).locationName(), TODAY, TargetType.SUNSET),
+                    new EvaluationViewService.LatestDisposition(
+                            triaged ? DispositionCategory.SKIPPED_TRIAGED
+                                    : DispositionCategory.SKIPPED_STABILITY,
+                            false, i < 2));
+        }
+        BriefingRegion region = regionWith("Northumberland", Verdict.GO, "Clear at 0 of 5",
+                DisplayVerdict.WORTH_IT, 0, five);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET, region, List.of()), 0.5, latest, T_PLUS_0));
+
+        // Triage 3 beats stability 2, so the fold is STOOD_DOWN; 2 of 3 triaged are visibility.
+        assertThat(out.verdictLabel()).isEqualTo("Fog forecast");
+    }
+
+    @Test
+    @DisplayName("valley-mist M1b: a region that is not a triage stand-down never reads 'Fog forecast', "
+            + "whatever the lowVisibility flag says (it only ever rides a SKIPPED_TRIAGED row)")
+    void fogWording_onlyForAStandDown() {
+        Map<String, EvaluationViewService.LatestDisposition> latest = new HashMap<>();
+        for (BriefingSlot s : threeSampleSlots()) {
+            latest.put(EvaluationViewService.stabilitySkipKey(
+                            s.locationName(), TODAY, TargetType.SUNSET),
+                    new EvaluationViewService.LatestDisposition(
+                            DispositionCategory.SKIPPED_TRAVEL_DAY, false, true));
+        }
+
+        BriefingRegion r = firstRegion(BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"), List.of()),
+                0.5, latest, T_PLUS_0));
+
+        assertThat(r.verdictLabel()).isEqualTo("Not forecast");
+    }
+
     @Test
     @DisplayName("A submission that failed reads AWAITING 'Forecast unavailable'")
     void failedSubmission_isFailedWording() {

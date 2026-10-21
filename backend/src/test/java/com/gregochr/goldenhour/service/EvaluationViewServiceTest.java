@@ -3097,6 +3097,57 @@ class EvaluationViewServiceTest {
             verify(locationService, times(1)).findAllEnabled();
         }
 
+        private Object[] rowWithDetail(String location, String disposition, String detail) {
+            return new Object[] {location, DATE, SUNRISE.name(), disposition, AT, 7L, detail};
+        }
+
+        @Test
+        @DisplayName("valley-mist M1b: a SKIPPED_TRIAGED row whose own reason is the visibility rule "
+                + "is marked lowVisibility; any other reason, a missing reason and a non-triage "
+                + "category are not — all from the one existing disposition read")
+        void lowVisibilityIsReadOffTheDispositionsOwnReason() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            rowWithDetail("Fog", "SKIPPED_TRIAGED",
+                                    "Visibility 3200 m — poor visibility"),
+                            rowWithDetail("Rain", "SKIPPED_TRIAGED",
+                                    "Precipitation 3.1 mm — active rain"),
+                            rowWithDetail("NoText", "SKIPPED_TRIAGED", null),
+                            rowWithDetail("Stability", "SKIPPED_STABILITY",
+                                    "Visibility 3200 m — poor visibility")));
+
+            Map<String, EvaluationViewService.LatestDisposition> latest =
+                    service.loadServeTriage(DATE, DATE, Set.of(SUNRISE)).latestBySlot();
+
+            assertThat(latest.get(key("Fog")).lowVisibility()).isTrue();
+            assertThat(latest.get(key("Rain")).lowVisibility()).isFalse();
+            assertThat(latest.get(key("NoText")).lowVisibility()).isFalse();
+            assertThat(latest.get(key("Stability")).lowVisibility()).isFalse();
+            verify(forecastRunDispositionRepository, times(1))
+                    .findLatestNonCachedDispositions(DATE, DATE);
+        }
+
+        @Test
+        @DisplayName("a tie at the same instant counts as low visibility only if every tied row says so")
+        void tiedRows_needEveryRowToSayLowVisibility() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            rowWithDetail("Both", "SKIPPED_TRIAGED",
+                                    "Visibility 3200 m — poor visibility"),
+                            rowWithDetail("Both", "SKIPPED_TRIAGED",
+                                    "Visibility 2900 m — poor visibility"),
+                            rowWithDetail("Mixed", "SKIPPED_TRIAGED",
+                                    "Visibility 3200 m — poor visibility"),
+                            rowWithDetail("Mixed", "SKIPPED_TRIAGED",
+                                    "Precipitation 3.1 mm — active rain")));
+
+            Map<String, EvaluationViewService.LatestDisposition> latest =
+                    service.loadServeTriage(DATE, DATE, Set.of(SUNRISE)).latestBySlot();
+
+            assertThat(latest.get(key("Both")).lowVisibility()).isTrue();
+            assertThat(latest.get(key("Mixed")).lowVisibility()).isFalse();
+        }
+
         @Test
         @DisplayName("triagedByKey equals what getTriagedByBatchLocationNamesBulk returns on the "
                 + "same rows")

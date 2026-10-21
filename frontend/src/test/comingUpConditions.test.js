@@ -6,6 +6,7 @@ describe('familyOf', () => {
     expect(familyOf('COASTAL_TIDES')).toBe('coastal');
     expect(familyOf('DUST')).toBe('dust');
     expect(familyOf('VALLEY_INVERSIONS')).toBe('air');
+    expect(familyOf('VALLEY_MIST')).toBe('air');
   });
 
   it('degrades to night-sky for an unrecognised type rather than a blank swatch', () => {

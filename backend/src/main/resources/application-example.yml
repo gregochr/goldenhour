@@ -191,7 +191,7 @@ coming-up:
                                                # the interrupt band, log2(290)+1 would not — lowering
                                                # this is a re-census decision, see the class javadoc
     recurrent:                                # standing-conditions strip topics (plan §7 P4) —
-                            # dust and inversion, whose magnitude stays config-interim forever
+                            # dust, inversion and valley mist, whose magnitude stays config-interim forever
                             # (never a real distribution — D4)
       evidentiary-bar-arrivals: 5              # minimum arrivals in the trailing window before a
                                                # topic's rate is trusted over the config fallback
@@ -205,11 +205,17 @@ coming-up:
                                                # forecast_score is survivor-biased (plan D4)
         magnitude-threshold-score: 9.0          # the STRONG band's own floor (0–10 scale)
         magnitude-above-bits: 5.0               # magnitude once the threshold is cleared
+      mist:                                     # valley mist (valley-mist-plan M1b)
+        fallback-mean-gap-days: 6.0            # first guess; rarity stays pinned here until the
+                                               # MIST_CALC topic_daily_log series matures
+        magnitude-threshold-score: 8.0          # a standout, inside the LIKELY band (6 and above)
+        magnitude-above-bits: 5.0               # magnitude once the threshold is cleared
     cadence:                                    # standing-condition strip words (plan §7/§11.16) —
                             # authored here, not derived, until P7's topic_daily_log matures
       coastal-tides: "deterministic"
       dust: "recurrent"
       inversion: "persistent"
+      mist: "recurrent"
     peak-light-window-minutes: 90               # the peak gate's own bound (plan D4/D5) — not read
                             # arithmetically yet (v1 proxy is SUNRISE/SUNSET typing); routed
                             # through config rather than hardcoded, ready for P7

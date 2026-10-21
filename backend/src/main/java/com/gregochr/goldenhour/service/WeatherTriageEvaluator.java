@@ -27,6 +27,26 @@ public class WeatherTriageEvaluator {
     private static final BigDecimal PRECIP_THRESHOLD = new BigDecimal("2.0");
     private static final int VISIBILITY_THRESHOLD = 5000;
 
+    /** Start of rule 3's reason text; {@code forecast_run_disposition.detail} keeps it verbatim. */
+    static final String LOW_VISIBILITY_PREFIX = "Visibility ";
+
+    /** End of rule 3's reason text. */
+    static final String LOW_VISIBILITY_SUFFIX = " m — poor visibility";
+
+    /**
+     * Whether a stored triage reason text is rule 3's (visibility under 5 km). The disposition
+     * table keeps the reason as free text and no enum, so the honesty filter's "Fog forecast"
+     * wording (valley-mist-plan M1b) recognises it through the same two constants that build it;
+     * a test round-trips the evaluator's own output so the pair cannot drift apart.
+     *
+     * @param detail the {@code forecast_run_disposition.detail} text, or null
+     * @return true when the text is the low-visibility reason
+     */
+    static boolean isLowVisibilityReason(String detail) {
+        return detail != null && detail.startsWith(LOW_VISIBILITY_PREFIX)
+                && detail.endsWith(LOW_VISIBILITY_SUFFIX);
+    }
+
     /**
      * Evaluates atmospheric data against triage heuristics.
      *
@@ -56,7 +76,8 @@ public class WeatherTriageEvaluator {
         // Rule 3: Visibility < 5km
         if (data.weather().visibilityMetres() < VISIBILITY_THRESHOLD) {
             return Optional.of(new TriageResult(
-                    "Visibility " + data.weather().visibilityMetres() + " m — poor visibility",
+                    LOW_VISIBILITY_PREFIX + data.weather().visibilityMetres()
+                            + LOW_VISIBILITY_SUFFIX,
                     TriageRule.LOW_VISIBILITY));
         }
 

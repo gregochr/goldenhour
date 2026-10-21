@@ -308,6 +308,7 @@ describe('WindowComingUpConditions — the topic glyph (G4, plan §4.2)', () => 
     ['COASTAL_TIDES', '🌊'],
     ['DUST', '🏜️'],
     ['VALLEY_INVERSIONS', '☁️'],
+    ['VALLEY_MIST', '☁️'],
   ])('carries the %s condition\'s family glyph', (type, glyph) => {
     render(<WindowComingUpConditions conditions={[condition({ type })]} onGoToPlan={vi.fn()} />);
     expect(screen.getByTestId('condition-glyph')).toHaveTextContent(glyph);

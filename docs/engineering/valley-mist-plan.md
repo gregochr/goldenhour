@@ -2,8 +2,8 @@
 
 **Status:** M0 measured and the six decisions taken (2026-10-21, §5). **M1a built** (2026-10-21): the
 `mist_prone` flag, `ValleyMistCalculator`, and the `slot_atmosphere` reading (§3 M1, first four
-bullets and the writer). M1b (the hot topic, Coming up condition, daily log and wording fixes), M2
-and M3 are not built.
+bullets and the writer). **M1b built** (2026-10-21): the hot topic, Coming up condition, `MIST_CALC`
+daily log and the two wording fixes (§3 M1, last five bullets). M2 and M3 are not built.
 **Prompted by:** a River Brathay sunrise on 17 Oct 2026 — thick radiation mist on the river under a clear
 sky, low sun through it — that the pipeline would have stood down before Claude saw it, and that no surface
 would have named the night before. The owner's words: "Shame we missed this."
@@ -216,20 +216,20 @@ the result is in the findings below and it killed M4.
   .Readings` carries all three. No Claude echo exists yet, so no `effective…` fallback is needed in M1; M2 adds
   the echo and the `effectiveMistScore()` twin of `effectiveInversionScore()`.
 - **`MistHotTopicStrategy`** (`"MIST"`, priority 2, SUNRISE and SUNSET rows — unlike the inversion, mist
-  forming at dusk over a river is a real evening shot — regions of mist-prone sites at LIKELY or above,
+  forming at dusk over a river is a real evening shot — regions of mist-prone sites at LIKELY *(as built: LIKELY ONLY, never FOGBOUND — the white frame the band exists to keep apart, for which "burns off within the hour" is false — and never POSSIBLE)*,
   `SolarEventFreshness` drops passed events, one topic per remaining event) with a fact line naming the
   count of sites and the italic cue ("get there before the sun — it burns off within the hour"). Rides
   `GET /api/briefing` to every role; reaches Ask's `get_hot_topics` and the Coming up condition without
   further change; `AskEventType.key` already normalises a new type.
 - **Coming up "Valley mist" condition** beside "Valley inversions" (`SlotSignalReader`, forward peak and
   trailing history, rarity PINNED to the config fallback exactly as the inversion's is, until the log exists).
-- **`TopicDailyLogJob` series `MIST_CALC`** (SUNRISE and SUNSET rows at LIKELY+), the unbiased population
+- **`TopicDailyLogJob` series `MIST_CALC`** (SUNRISE and SUNSET rows; *as built: `present` only at LIKELY, a measured non-LIKELY row logs `present = false`, the `INVERSION_CALC` shape*), the unbiased population
   for a later rarity census — the `INVERSION_CALC` precedent, by name not by date.
 - **Wording honesty, two small fixes that belong with the reading:** `BriefingVerdictEvaluator`'s
   "Mist risk" flag reads "Mist likely" on a `mist_prone` site; and `BriefingHonestyFilter`'s `STOOD_DOWN`
   wording, "Too unsettled to forecast", is wrong for a region whose slots were all stood down for
   `LOW_VISIBILITY` — `CoverageReasons.of` already folds the latest disposition per slot, so a
-  LOW_VISIBILITY majority can read "Fog forecast" (the honest word; the plan-card-honesty rule, applied to
+  LOW_VISIBILITY majority can read "Fog forecast" *(as built: the reason is read off `forecast_run_disposition.detail` in the same single disposition read, a strict majority of the triage stand-downs, no added query)* (the honest word; the plan-card-honesty rule, applied to
   a reason that was always mis-worded).
 
 Tests: calculator table-driven on the M0 signatures; the writer's two columns; the strategy's region
