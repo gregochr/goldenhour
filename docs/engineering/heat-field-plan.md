@@ -645,7 +645,8 @@ anything mutating gets its own worktree; commit or stash before any review that 
 - **Shared-component blast radius**: `MapView` was mounted three times (v1 tab, v2 pane, overlay);
   **updated 2026-08-25** — the v1 Map tab died in v1 retirement D1, so `MapView` is mounted **twice**
   now (the pane, the overlay). Only the pane passes `heat`; the overlay deliberately still does not
-  (`docs/engineering/v1-retirement-plan.md` §3.3 fact 1). Same for any touch on `WindowSpotCard`
+  (`docs/engineering/v1-retirement-plan.md` §3.3 fact 1). **Updated 2026-10-21:** the overlay was
+  retired (overlay convergence C5), so `MapView` has one mount, the pane. Same for any touch on `WindowSpotCard`
   (shared strip/sheet) — peek/sheet snapshots of behaviour should pass unedited where unaffected.
 - **Hidden-pane first paint**: shell panes mount `display: none`; canvases measure 0 there. The
   rAF-retry + ResizeObserver patterns already exist (`drawThumbs(tries)` in the prototype,
