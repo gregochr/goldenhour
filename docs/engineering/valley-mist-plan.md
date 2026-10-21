@@ -154,9 +154,10 @@ the result is in the findings below and it killed M4.
    model DID saturate, a floor on the population, not its size.
 4. **M2's site sentence is load-bearing.** Ingleton shows Claude rates the full signature 2 when it is
    handed the numbers without the site fact and without being told the mist is the shot.
-5. **The shortlist is Q5's, by hand.** Walltown Crags, Sycamore Gap and the other Wall crags head the
-   refused table but stand above their valleys — possibly inversion sites with no elevation set rather
-   than mist sites; the lakeshore and riverside rows below them are the obvious first ticks.
+5. **The shortlist is Q5's, by hand.** Walltown Crags, Sycamore Gap and the other Wall sites head the
+   refused table, and the owner confirms they are mist sites (2026-10-21): the Whin Sill crags are a
+   ten-minute stroll from the road with negligible relief, and the mist sits around them, not below
+   them. They and the lakeshore and riverside rows beneath them are the first ticks.
 
 ### M1 — The reading and the topic ("what is happening"; no Claude cost, no star change)
 
@@ -297,7 +298,7 @@ Recorded here rather than removed so the question is not re-asked.
 **Decided 2026-10-21, all six as recommended** (owner, after reading the M0 results): Q1 a manual
 `mist_prone` boolean; Q2 mist inside the one star, one sky prompt; Q3 the triage exemption for flagged
 sites at LIKELY only; Q4 the `seen` tag on the outcome rating in M3; Q5 the tick list below as the first
-pass, the Wall crags left unticked pending a look at their metadata; Q6 "Valley mist" and "Fog forecast".
+pass, the Wall sites included; Q6 "Valley mist" and "Fog forecast".
 M1 may start.
 
 | # | Question | Recommendation |
@@ -306,7 +307,7 @@ M1 may start.
 | Q2 | Mist inside the sky star (one prompt) or a separate component with a combination rule? | Inside the star. "The star is the shot" and the inversion precedent; a second lane doubles cost and needs a merge rule with no evidence behind it. Revisit only if M3 shows Claude under-rates mist mornings it was shown. |
 | Q3 | Triage exemption scope: flagged sites at LIKELY only (recommended), or every site when the signature holds? | Flagged only. Cost is then owner-bounded, and a signature at an unflagged site has no geography to vouch for it. |
 | Q4 | The outcome rating's `seen` tag — a product change to the "How was it?" block. | Yes, in M3. It is the only verification valley mist can ever get here. |
-| Q5 | Roster: which sites to tick mist-prone? | Owner's call, by hand (M0 §3). First ticks suggested from the refused-mornings table: the Brathay, Rydal Water, Grasmere Shoreline, Loughrigg Tarn, Waterhead, Bowness Bay, both Derwent Water shores, Buttermere, Crummock, Little Langdale Tarn, Tarn Hows, Brothers Water, Ullswater South Shore, Clappersgate, Slater's Bridge; Ribblehead, Dent Head, Malham Tarn, Arncliffe, Burnsall, Kilnsey, Muker and Gunnerside; the Breamish Valley, the Wansbeck at Bothal, Lamley Viaduct. Walltown Crags and the Wall sites lead the table but stand above their valleys and may want `overlooksWater`/elevation instead. M1 ships whether or not any is ticked. |
+| Q5 | Roster: which sites to tick mist-prone? | Owner's call, by hand (M0 §3). First ticks suggested from the refused-mornings table: the Brathay, Rydal Water, Grasmere Shoreline, Loughrigg Tarn, Waterhead, Bowness Bay, both Derwent Water shores, Buttermere, Crummock, Little Langdale Tarn, Tarn Hows, Brothers Water, Ullswater South Shore, Clappersgate, Slater's Bridge; Ribblehead, Dent Head, Malham Tarn, Arncliffe, Burnsall, Kilnsey, Muker and Gunnerside; the Breamish Valley, the Wansbeck at Bothal, Lamley Viaduct; and the Hadrian's Wall sites that lead the refused table — Walltown Crags, Sycamore Gap, Highshield Crags, Steel Rigg & Winshield Crags, Caw Gap, Cawfields, Peel Craggs, Hotbank Crags, Cuddy's Crags, Housesteads — which the owner confirms are mist sites of negligible relief, not viewpoints above a valley. M1 ships whether or not any is ticked. |
 | Q6 | Wording: "Valley mist" for the topic and condition; "Fog forecast" for the honesty filter's stand-down. | As written; the design-bundle rule that a word must be true of the data. |
 
 ---
