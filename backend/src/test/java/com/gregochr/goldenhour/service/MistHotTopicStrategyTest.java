@@ -241,4 +241,54 @@ class MistHotTopicStrategyTest {
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
+
+    // ── Claude's echo as the fallback (valley-mist-plan M2) ──────────────
+
+    /** A row with the readings given and Claude's echo band on the score half. */
+    private static SlotSignals withEcho(LocationEntity location, LocalDate date, TargetType event,
+            boolean scored, MistPotential readingBand, String echoBand) {
+        SlotSignals.Readings readings = new SlotSignals.Readings(
+                null, null, null, null, null, null, null, null, null, null, null,
+                null, false, readingBand == null ? null : 7.0, scored, readingBand);
+        return new SlotSignals(location, date, event,
+                new SlotSignals.Scores(null, null, null, null, echoBand), readings);
+    }
+
+    @Test
+    @DisplayName("an unscored (pre-V185) row with a LIKELY Claude echo fires: the echo stands in")
+    void detect_unscoredRowWithLikelyEcho_fires() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                withEcho(location(1, "The Lake District"), FROM, TargetType.SUNRISE, false, null, "LIKELY")));
+        stubAhead(FROM, TargetType.SUNRISE);
+
+        assertThat(strategy.detect(FROM, TO)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a scored row with a NULL band and a LIKELY echo does not fire: the calculator's null wins")
+    void detect_scoredNullBandWithLikelyEcho_doesNotFire() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                withEcho(location(1, "The Lake District"), FROM, TargetType.SUNRISE, true, null, "LIKELY")));
+
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a scored POSSIBLE row beats a LIKELY echo: the echo never promotes the calculator's band")
+    void detect_scoredPossibleWithLikelyEcho_doesNotFire() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                withEcho(location(1, "The Lake District"), FROM, TargetType.SUNRISE, true,
+                        MistPotential.POSSIBLE, "LIKELY")));
+
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an unscored row with a FOGBOUND echo does not fire")
+    void detect_unscoredRowWithFogboundEcho_doesNotFire() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                withEcho(location(1, "The Lake District"), FROM, TargetType.SUNRISE, false, null, "FOGBOUND")));
+
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
 }

@@ -595,6 +595,28 @@ describe('MarkerPopupContent', () => {
     });
   });
 
+  describe('valley mist badge', () => {
+    it('shows "Valley mist likely" for LIKELY to a PRO reader', () => {
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, mistPotential: 'LIKELY' } });
+      expect(screen.getByTestId('mist-badge')).toHaveTextContent('Valley mist likely');
+    });
+
+    it('shows "Fogbound" for FOGBOUND', () => {
+      renderPopup({ role: 'ADMIN', forecast: { ...BASE_FORECAST, mistPotential: 'FOGBOUND' } });
+      expect(screen.getByTestId('mist-badge')).toHaveTextContent('Fogbound');
+    });
+
+    it.each(['POSSIBLE', 'NONE', undefined])('draws nothing for %s', (band) => {
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, mistPotential: band } });
+      expect(screen.queryByTestId('mist-badge')).not.toBeInTheDocument();
+    });
+
+    it('is hidden from a LITE reader', () => {
+      renderPopup({ role: 'LITE_USER', forecast: { ...BASE_FORECAST, mistPotential: 'LIKELY' } });
+      expect(screen.queryByTestId('mist-badge')).not.toBeInTheDocument();
+    });
+  });
+
   describe('rising tide badge', () => {
     it('shows badge when high tide is 33 min after sunrise', () => {
       renderPopup({

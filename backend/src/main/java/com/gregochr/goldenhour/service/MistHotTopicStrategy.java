@@ -32,10 +32,11 @@ import java.util.List;
  * {@link MistPotential#FOGBOUND} — a white frame, event-hour visibility under 300 m with no
  * clearing in the trend — which the band exists to keep apart from mist with a view through it. A
  * cue of "get there before the sun, it burns off within the hour" is false for fog that does not
- * clear. {@link MistPotential#POSSIBLE} is too weak a claim to put on a Plan card. A reading with
- * {@code mistScored == false} (a row written before V185) or no band contributes nothing: there is
- * no Claude echo to fall back to in M1b, so no {@code effective…} twin of
- * {@link SlotSignals#effectiveInversionScore()} exists yet (M2 adds both).
+ * clear. {@link MistPotential#POSSIBLE} is too weak a claim to put on a Plan card. The band is read
+ * through {@link SlotSignals#effectiveMistPotential()} since M2 (the twin of
+ * {@link SlotSignals#effectiveInversionScore()}): the calculator's band wherever it ran, including
+ * a deliberate null, and Claude's {@code forecast_score} MIST echo only for a row written before
+ * V185.
  *
  * <h2>The band, never the score</h2>
  *
@@ -128,16 +129,16 @@ public class MistHotTopicStrategy implements HotTopicStrategy {
     }
 
     /**
-     * Whether a slot's reading says photographable mist is likely: the writer ran the check this
-     * cycle and the stored band is exactly {@code LIKELY}.
+     * Whether a slot's reading says photographable mist is likely: the effective band
+     * ({@link SlotSignals#effectiveMistPotential()}) is exactly {@code LIKELY} &mdash; the
+     * calculator's own band where it ran, Claude's echo only for a slot it never reached.
      *
      * @param signals the slot's composite
      * @return true when the band is LIKELY (never FOGBOUND, POSSIBLE, NONE or absent)
      */
     public static boolean isLikely(SlotSignals signals) {
-        SlotSignals.Readings readings = signals.readings();
-        return readings != null && readings.mistScored()
-                && readings.mistPotential() == MistPotential.LIKELY;
+        return signals.readings() != null
+                && signals.effectiveMistPotential() == MistPotential.LIKELY;
     }
 
     /**

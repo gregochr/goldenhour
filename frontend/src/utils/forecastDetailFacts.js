@@ -97,8 +97,26 @@ function risingTideOffset(minutesAway, eventWord) {
 }
 
 /**
- * The detail-derived badges for one window, in the popup's order: dust, inversion, bluebell,
- * rising tide, sea state, surge. Each is {@code {key, tone, glyph, text, locked?}}; the glyph is
+ * Claude's valley mist reading as a badge, or null. Only the two readings worth a word draw one:
+ * LIKELY ("Valley mist likely") and FOGBOUND ("Fogbound", a white frame, not mist with a view
+ * through it). POSSIBLE, NONE and an absent field draw nothing. A lookup of a served band, the
+ * inversion badge's twin, shared by the popup and the sheet so the two cannot word it apart
+ * (valley-mist-plan M2).
+ *
+ * @param {?object} detail the detail row, or null
+ * @returns {?{tone: string, text: string}}
+ */
+export function mistBadgeOf(detail) {
+  switch (detail?.mistPotential) {
+    case 'LIKELY': return { tone: 'sea', text: 'Valley mist likely' };
+    case 'FOGBOUND': return { tone: 'amber', text: 'Fogbound' };
+    default: return null;
+  }
+}
+
+/**
+ * The detail-derived badges for one window, in the popup's order: dust, inversion, valley mist,
+ * bluebell, rising tide, sea state, surge. Each is {@code {key, tone, glyph, text, locked?}}; the glyph is
  * decorative and the text is the whole accessible reading.
  *
  * @param {?object} detail the detail row, or null while it loads / after a failed fetch
@@ -126,6 +144,10 @@ export function detailBadges(detail, { eventType, isPro }) {
         ? 'Strong cloud inversion — dramatic sea of clouds likely'
         : 'Moderate cloud inversion — cloud blanket below viewpoint possible',
     });
+  }
+  const mist = mistBadgeOf(detail);
+  if (isPro && mist) {
+    badges.push({ key: 'mist', tone: mist.tone, glyph: '🌫️', text: mist.text });
   }
   if (detail.bluebellScore != null && detail.bluebellScore >= BLUEBELL_MIN_SCORE) {
     badges.push(isPro

@@ -43,7 +43,7 @@ class OutputSchemaOrderTest {
         assertThat(keys(schema.path("properties"))).containsExactly(
                 "rating", "fiery_sky", "golden_hour", "summary", "headline",
                 "basic_fiery_sky", "basic_golden_hour", "basic_summary",
-                "inversion_score", "inversion_potential");
+                "inversion_score", "inversion_potential", "mist_potential");
         assertThat(keys(schema.path("properties").path("rating")))
                 .containsExactly("type", "enum", "description");
         assertThat(keys(schema.path("properties").path("inversion_potential")))

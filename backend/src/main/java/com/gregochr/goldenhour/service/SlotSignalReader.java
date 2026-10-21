@@ -146,6 +146,12 @@ public class SlotSignalReader {
             acc.bluebell = s.getScore();
             acc.bluebellSummary = s.getSummary();
         }
+        for (ForecastScoreEntity s : forecastScoreRepository.findComponentsByType(
+                ForecastType.MIST.getId(), from, to)) {
+            // The MIST row's summary is Claude's band name, as the INVERSION row's is its band.
+            accumulatorFor(byKey, s.getLocation(), s.getEvaluationDate(), s.getEventType())
+                    .mistBand = s.getSummary();
+        }
         for (SlotAtmosphereEntity a : slotAtmosphereRepository.findInDateRange(from, to)) {
             accumulatorFor(byKey, a.getLocation(), a.getEvaluationDate(), a.getEventType())
                     .readings = a;
@@ -173,6 +179,7 @@ public class SlotSignalReader {
         private String inversionBand;
         private Integer bluebell;
         private String bluebellSummary;
+        private String mistBand;
         private SlotAtmosphereEntity readings;
 
         private Accumulator(LocationEntity location, LocalDate date, TargetType eventType) {
@@ -183,11 +190,11 @@ public class SlotSignalReader {
 
         private SlotSignals build() {
             boolean noScores = inversion == null && inversionBand == null
-                    && bluebell == null && bluebellSummary == null;
+                    && bluebell == null && bluebellSummary == null && mistBand == null;
             SlotSignals.Scores scores = noScores
                     ? SlotSignals.Scores.EMPTY
                     : new SlotSignals.Scores(
-                            inversion, inversionBand, bluebell, bluebellSummary);
+                            inversion, inversionBand, bluebell, bluebellSummary, mistBand);
             SlotSignals.Readings r = readings == null
                     ? SlotSignals.Readings.EMPTY
                     : new SlotSignals.Readings(

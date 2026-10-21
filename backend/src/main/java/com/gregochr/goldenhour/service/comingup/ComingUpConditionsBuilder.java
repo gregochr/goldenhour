@@ -680,8 +680,9 @@ public class ComingUpConditionsBuilder {
     // score cut: FOGBOUND is decided by event visibility, not the score, and the band is the
     // calculator's own answer. (2) SUNRISE and SUNSET rows both count — mist forming at dusk over a
     // river is a real evening shot — so a day counts when any of its readings is LIKELY. (3) There
-    // is no Claude echo and so no effective… fallback: a row with mist_scored false (written
-    // before V185) or no band contributes nothing, exactly as the hot topic reads it.
+    // is the same effective band the hot topic reads (SlotSignals.effectiveMistPotential, M2): the
+    // calculator's band where it ran (a deliberate null included), Claude's forecast_score MIST
+    // echo only for a row written before V185.
     //
     // The RARITY term is pinned to the config fallback by the same rule as the inversion's, until
     // enough of the unbiased MIST_CALC log TopicDailyLogJob writes from M1b exists. A later change

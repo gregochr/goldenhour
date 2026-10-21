@@ -148,9 +148,19 @@ Checkstyle and SpotBugs gate those in CI.
     FOGBOUND is deliberately excluded (a white frame, not mist with a view through it), POSSIBLE is
     too weak a claim, and the band is *read* from `slot_atmosphere.mist_potential`, never rebuilt
     from `mist_score` (FOGBOUND is decided by event visibility, not the score). A `mist_scored =
-    false` row contributes nothing and there is no Claude-echo fallback in M1b. Its Coming up
+    false` row falls back to Claude's `forecast_score` MIST echo ONLY through
+    `SlotSignals.effectiveMistPotential()` (the `effectiveInversionScore()` rule: a scored row's
+    null band is an answer and is never overridden by an echo). Its Coming up
     rarity is pinned to the config fallback like the inversion's. Do not widen the band or add a
     score cut without a change to the plan.
+
+13. **The valley-mist triage exemption is `LIKELY` only, and the echo instruction lives in the
+    USER message.** `WeatherTriageEvaluator` skips rule 3 (visibility under 5 km) for a slot whose
+    `mistPotential` is exactly LIKELY (never POSSIBLE, FOGBOUND or an unflagged site); rules 1
+    and 2 still apply. The `VALLEY MIST CONDITIONS:` block and the `mist_potential` instruction
+    are in `PromptBuilder.buildUserMessage`, never the system prompt (the batch cache prefix every
+    site shares). Do not add text to a disposition `detail` for a mist candidate: the "Fog
+    forecast" wording matches that column's free text.
 
 ### Bugs that were fixed and must not come back
 

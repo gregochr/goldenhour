@@ -103,6 +103,33 @@ public record SlotSignals(
     }
 
     /**
+     * Returns the effective valley mist band for this key &mdash; the ONE rule every reader of
+     * valley mist uses (valley-mist-plan M2): {@link Readings#mistPotential()} (the deterministic
+     * calculator's own band, null included) when {@link Readings#mistScored()} says this row's
+     * writer ran the valley-mist check, else {@link Scores#mistBand()} (Claude's
+     * {@code forecast_score} MIST echo) as a stand-in for a slot the calculator never reached.
+     *
+     * <p>The {@link #effectiveInversionScore()} rule verbatim, round 4 included: a fresh
+     * {@code mistScored} row's null band is an AUTHORITATIVE answer (an unflagged site, or a
+     * flagged one the calculator could not score) and is returned as is, never overridden by an
+     * older echo that {@code ForecastScoreWriter} leaves in place indefinitely. The echo is
+     * consulted only for a row written before V185, or a key that has an echo and no reading at
+     * all. It works on the BAND, not a score, because the band is what the hot topic and Coming up
+     * consume and FOGBOUND is decided by visibility, not by any score. {@code TopicDailyLogJob}'s
+     * {@code MIST_CALC} series does NOT use this fallback: it reads the calculator alone, so its
+     * population stays unbiased.
+     *
+     * @return the effective band, or null when the calculator scored this slot and found nothing,
+     *         or when neither surface has anything (or only an unrecognised name) for this key
+     */
+    public MistPotential effectiveMistPotential() {
+        if (readings.mistScored()) {
+            return readings.mistPotential();
+        }
+        return Readings.parsePotential(scores.mistBand());
+    }
+
+    /**
      * Score-shaped slot signals from {@code forecast_score} — each nullable when that score was
      * not written for the key (ineligible location, out of season, or eval not yet returned).
      *
@@ -128,12 +155,29 @@ public record SlotSignals(
      *                        written before it was plumbed through read as null
      * @param bluebell        bluebell conditions score 1–5, or null
      * @param bluebellSummary the bluebell component's prose clause, or null
+     * @param mistBand        Claude's valley mist band (a {@link MistPotential} name) from the
+     *                        {@code forecast_score} MIST row's {@code summary}, or null. Read only
+     *                        through {@link SlotSignals#effectiveMistPotential()}
      */
     public record Scores(Integer inversion, String inversionBand, Integer bluebell,
-            String bluebellSummary) {
+            String bluebellSummary, String mistBand) {
+
+        /**
+         * Backward-compatible constructor for scores that carry no Claude valley mist echo (every
+         * fixture written before valley-mist-plan M2).
+         *
+         * @param inversion       cloud inversion score 0-10 (Claude's echo), or null
+         * @param inversionBand   the inversion row's stored classification, or null
+         * @param bluebell        bluebell conditions score 1-5, or null
+         * @param bluebellSummary the bluebell component's prose clause, or null
+         */
+        public Scores(Integer inversion, String inversionBand, Integer bluebell,
+                String bluebellSummary) {
+            this(inversion, inversionBand, bluebell, bluebellSummary, null);
+        }
 
         /** The all-absent scores, used for a key that has only readings. */
-        public static final Scores EMPTY = new Scores(null, null, null, null);
+        public static final Scores EMPTY = new Scores(null, null, null, null, null);
     }
 
     /**
@@ -180,8 +224,8 @@ public record SlotSignals(
      *                                  {@code ValleyMistCalculator}), or null when the site is not
      *                                  {@code mist_prone} or the calculator could not score it.
      *                                  V185 (valley-mist-plan M1a). Always pair with
-     *                                  {@link #mistScored()}; there is no Claude echo and so no
-     *                                  {@code effectiveMistScore()} yet (M2 adds both)
+     *                                  {@link #mistScored()}, or read the band through
+     *                                  {@link SlotSignals#effectiveMistPotential()}
      * @param mistScored                true when this row's writer ran the valley-mist check THIS
      *                                  cycle, whatever the score — false only for a row written
      *                                  before V185. The V158 {@link #inversionScored()} rule

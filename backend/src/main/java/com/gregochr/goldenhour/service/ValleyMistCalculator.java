@@ -217,6 +217,56 @@ public final class ValleyMistCalculator {
         return score >= POSSIBLE_MIN_SCORE ? MistPotential.POSSIBLE : MistPotential.NONE;
     }
 
+    /**
+     * The night-side facts the calculator scored, for the prompt to state (valley-mist-plan M2).
+     *
+     * @param minGapCelsius       the night-side minimum temperature minus dew point, rounded to
+     *                            the source's 0.1 C
+     * @param minGapHour          the {@code hoursRelativeToEvent} of the slot where that minimum
+     *                            falls (the earliest, when several tie)
+     * @param minWindMs           the night-side minimum 10 m wind, or null when no slot carried one
+     * @param meanCloudPercent    the night-side mean observer total cloud, or null when no slot
+     *                            carried one
+     */
+    public record NightFacts(double minGapCelsius, int minGapHour, Double minWindMs,
+            Double meanCloudPercent) {
+    }
+
+    /**
+     * Reads back the night-side facts {@link #calculate} scored from, so the prompt can state them
+     * rather than ask Claude to reproduce the number (the inversion precedent).
+     *
+     * @param data the atmospheric data carrying the {@link MistTrend}
+     * @return the facts, or null when there is no trend or fewer than {@value #MIN_NIGHT_SLOTS}
+     *         night-side slots (the cases in which {@link #calculate} returns null)
+     */
+    public static NightFacts nightFacts(AtmosphericData data) {
+        if (data == null || data.mistTrend() == null) {
+            return null;
+        }
+        List<MistTrend.MistSlot> night = nightSide(data.mistTrend(), data.targetType());
+        if (night == null || night.size() < MIN_NIGHT_SLOTS) {
+            return null;
+        }
+        MistTrend.MistSlot tightest = night.get(0);
+        for (MistTrend.MistSlot slot : night) {
+            if (roundedGap(slot) < roundedGap(tightest)) {
+                tightest = slot;
+            }
+        }
+        OptionalDouble cloud = night.stream()
+                .filter(s -> s.cloudCoverPercent() != null)
+                .mapToInt(MistTrend.MistSlot::cloudCoverPercent)
+                .average();
+        OptionalDouble wind = night.stream()
+                .filter(s -> s.windSpeedMs() != null)
+                .mapToDouble(MistTrend.MistSlot::windSpeedMs)
+                .min();
+        return new NightFacts(roundedGap(tightest), tightest.hoursRelativeToEvent(),
+                wind.isPresent() ? wind.getAsDouble() : null,
+                cloud.isPresent() ? cloud.getAsDouble() : null);
+    }
+
     private static boolean isFogbound(AtmosphericData data) {
         if (data.weather().visibilityMetres() >= FOGBOUND_VISIBILITY_M) {
             return false;

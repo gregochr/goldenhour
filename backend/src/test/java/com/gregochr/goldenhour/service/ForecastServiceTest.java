@@ -2495,6 +2495,42 @@ class ForecastServiceTest {
 
             assertThat(result.getInversion()).isNull();
         }
+
+        @Test
+        @DisplayName("a mist-prone slot (band present) stores Claude's mist_potential on the entity (V186)")
+        void evaluateAndPersist_mistProneSlot_storesClaudesMistPotential() {
+            AtmosphericData data = TestAtmosphericData.builder()
+                    .solarEventTime(SUNSET).targetType(TargetType.SUNSET)
+                    .mistScore(7.0).mistPotential(com.gregochr.goldenhour.model.MistPotential.LIKELY)
+                    .build();
+            SunsetEvaluation evaluation = new SunsetEvaluation(
+                    4, 20, 70, "Mist.", null, null, null, null, null, null, "LIKELY");
+
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(evaluation));
+            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
+
+            assertThat(result.getMistPotential()).isEqualTo("LIKELY");
+        }
+
+        @Test
+        @DisplayName("a slot with no mist band (unflagged site) drops a mist_potential Claude volunteered")
+        void evaluateAndPersist_unflaggedSlot_dropsAStrayMistPotential() {
+            AtmosphericData data = TestAtmosphericData.builder()
+                    .solarEventTime(SUNSET).targetType(TargetType.SUNSET).build();
+            SunsetEvaluation evaluation = new SunsetEvaluation(
+                    4, 20, 70, "Haze.", null, null, null, null, null, null, "FOGBOUND");
+
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(evaluation));
+            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
+
+            assertThat(result.getMistPotential()).isNull();
+        }
     }
 
     private AtmosphericData buildAtmosphericData(LocalDateTime eventTime, TargetType targetType) {

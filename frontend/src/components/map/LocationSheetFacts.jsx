@@ -20,7 +20,7 @@ const COMFORT_ICONS = {
 
 /**
  * The forecast detail one location-sheet window row carries below its prose: the conditions
- * badges (dust, cloud inversion, bluebell, rising tide, sea state, storm surge), the wind and
+ * badges (dust, cloud inversion, valley mist, bluebell, rising tide, sea state, storm surge), the wind and
  * comfort rows, and the "Forecast generated" footer — the facts the Plan-tab map overlay's popup
  * showed and the sheet did not (overlay convergence C2, `docs/engineering/overlay-convergence-plan.md`
  * §3 C2, owner decision D3).

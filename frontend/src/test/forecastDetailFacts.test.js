@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  comfortRows, detailBadges, generatedFooter, isDustEnhanced, risingTideOf,
+  comfortRows, detailBadges, generatedFooter, isDustEnhanced, mistBadgeOf, risingTideOf,
 } from '../utils/forecastDetailFacts.js';
 
 const PRO = { eventType: 'SUNSET', isPro: true };
@@ -76,6 +76,25 @@ describe('detailBadges', () => {
     expect(detailBadges({ inversionPotential: 'STRONG' }, LITE)).toEqual([]);
   });
 
+  it('shows Claude\'s valley mist reading to PRO only, for LIKELY and FOGBOUND alone', () => {
+    expect(detailBadges({ mistPotential: 'LIKELY' }, PRO)[0]).toMatchObject({
+      key: 'mist', tone: 'sea', text: 'Valley mist likely',
+    });
+    expect(detailBadges({ mistPotential: 'FOGBOUND' }, PRO)[0]).toMatchObject({
+      key: 'mist', tone: 'amber', text: 'Fogbound',
+    });
+    expect(detailBadges({ mistPotential: 'POSSIBLE' }, PRO)).toEqual([]);
+    expect(detailBadges({ mistPotential: 'NONE' }, PRO)).toEqual([]);
+    expect(detailBadges({ mistPotential: 'SOMETHING' }, PRO)).toEqual([]);
+    expect(detailBadges({}, PRO)).toEqual([]);
+    expect(detailBadges({ mistPotential: 'LIKELY' }, LITE)).toEqual([]);
+  });
+
+  it('mistBadgeOf is null for a missing detail', () => {
+    expect(mistBadgeOf(null)).toBeNull();
+    expect(mistBadgeOf(undefined)).toBeNull();
+  });
+
   it('shows bluebell from 2, with its summary for PRO and a locked upsell for LITE', () => {
     expect(detailBadges({ bluebellScore: 1 }, PRO)).toEqual([]);
     expect(detailBadges({ bluebellScore: 3, bluebellSummary: 'Carpets in the glen' }, PRO)[0])
@@ -115,6 +134,7 @@ describe('detailBadges', () => {
     const detail = {
       aerosolOpticalDepth: 0.5,
       inversionPotential: 'STRONG',
+      mistPotential: 'LIKELY',
       bluebellScore: 3,
       solarEventTime: '2026-08-14T19:41:00',
       nextHighTideTime: '2026-08-14T19:50:00',
@@ -124,7 +144,7 @@ describe('detailBadges', () => {
       surgeRiskLevel: 'HIGH',
     };
     expect(keys(detailBadges(detail, PRO))).toEqual([
-      'dust', 'inversion', 'bluebell', 'rising-tide', 'sea-state', 'surge',
+      'dust', 'inversion', 'mist', 'bluebell', 'rising-tide', 'sea-state', 'surge',
     ]);
   });
 });
