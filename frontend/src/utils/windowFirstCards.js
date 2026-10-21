@@ -525,6 +525,66 @@ function verdictMeanOf(scoped, top) {
 }
 
 /**
+ * What a card says beside a STAND_DOWN word over a blanked region (plan-card-verdict-honesty-plan.md
+ * H4). The visible form is short enough for the mean's own slot (it is the honesty filter's
+ * "Too unsettled to forecast", abridged); the spoken form is the filter's label in full, so the card
+ * and the popup's region rail speak one vocabulary.
+ */
+export const BLANKED_STAND_DOWN_VISIBLE = 'too unsettled';
+export const BLANKED_STAND_DOWN_SPOKEN = 'too unsettled to forecast';
+
+/**
+ * The region a window's verdict WORD came from when no region carries a mean to rank it by — the
+ * server's own {@code PlanWindowProjector.BY_RANK} order over mean-less regions: a region with
+ * slots ahead of a blanked one, a blanked region the honesty filter worded anything but AWAITING
+ * (a real stand-down) ahead of a blanked AWAITING one, then the name. Client twin of the three
+ * steps of that comparator that still discriminate once every mean is absent; a selection among
+ * served records, never a threshold.
+ *
+ * @param {Array<object>} regions the eligible region records
+ * @returns {?object} the region the word came from, or null for an empty list
+ */
+function pickMeanlessWordRegion(regions) {
+  let best = null;
+  const rank = (region) => {
+    const blanked = Array.isArray(region?.slots) && region.slots.length === 0;
+    return [blanked ? 1 : 0, blanked && resolveRegionDisplay(region) === 'AWAITING' ? 1 : 0];
+  };
+  for (const region of Array.isArray(regions) ? regions : []) {
+    if (!region) continue;
+    if (best === null) { best = region; continue; }
+    const [a1, a2] = rank(region);
+    const [b1, b2] = rank(best);
+    const before = a1 !== b1 ? a1 < b1
+      : a2 !== b2 ? a2 < b2
+        : String(region.regionName ?? '').localeCompare(String(best.regionName ?? '')) < 0;
+    if (before) best = region;
+  }
+  return best;
+}
+
+/**
+ * Whether the card's verdict word is a weather stand-down over a BLANKED region (plan-card-
+ * verdict-honesty-plan.md H4): the word is {@code STAND_DOWN} and the region it came from — the
+ * origin's region when scoped, else the window's top region (the one {@link verdictMeanOf} reads),
+ * else, with no mean anywhere, the projector's pick among mean-less regions — has an empty served
+ * {@code slots} list. The honesty filter empties a region's slots exactly when it blanks it, and
+ * since it words an unknown reason AWAITING, a blanked STAND_DOWN can only be weather triage: the
+ * card then says so rather than leave "Poor" to be read as a rating. A STAND_DOWN region that still
+ * has slots gets no qualifier.
+ *
+ * @param {string} verdict the verdict the card wears
+ * @param {?object} scoped the origin's region record when away, else null
+ * @param {?object} es the event summary
+ * @returns {boolean}
+ */
+function verdictBlankedOf(verdict, scoped, es) {
+  if (verdict !== 'STAND_DOWN') return false;
+  const region = scoped ?? topRegion(es) ?? pickMeanlessWordRegion(eligibleRegions(es));
+  return Array.isArray(region?.slots) && region.slots.length === 0;
+}
+
+/**
  * The region mean as the card prints it: always ONE decimal (plan-card-verdict-honesty-plan.md H1).
  *
  * <p>{@code BriefingRegion.meanRating} is already rounded to one place server-side, so this adds no
@@ -765,6 +825,10 @@ export function buildWindowCards(
       // `topMeanRating` stays untouched for the Order control; this is the honesty channel. The
       // away arm tests the SCOPED region, which is the one whose word `verdict` above wears.
       verdictMean: verdictMeanOf(scopedRegion, scopedRegion ? null : topRegion(es)),
+      // True when the word is a STAND_DOWN over a region the honesty filter blanked (empty `slots`):
+      // the card prints `too unsettled` beside "Poor" in the mean's own slot (H4). Read from the
+      // same region `verdictMean` reads, so the qualifier and the word cannot describe two regions.
+      verdictBlanked: verdictBlankedOf(verdict, scopedRegion, es),
       // The same region `topMeanRating` names, carrying how far it has moved since the previous
       // forecast run. Null — never a zero — when there is nothing to compare against; see
       // `topRegionMovement` for why the two must stay distinguishable.

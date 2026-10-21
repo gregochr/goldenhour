@@ -3945,6 +3945,37 @@ describe('WindowFirstHeatStrip — the region mean behind the verdict word (verd
   });
 });
 
+describe('WindowFirstHeatStrip — a blanked stand-down says the weather called it (verdict-honesty H4)', () => {
+  const POOR = { verdict: 'STAND_DOWN', verdictLabel: 'Poor', verdictMean: null };
+  const note = () => screen.queryByTestId('wf-heat-blanked');
+
+  it('prints `too unsettled` beside "Poor", in the mean\'s own cell, and voices it in the name', async () => {
+    await renderStrip({ cards: [stripCard({ ...POOR, verdictBlanked: true })] });
+
+    expect(note()).toHaveTextContent(/^too unsettled$/);
+    const verdict = screen.getByTestId('wf-heat-verdict');
+    expect(verdict).toHaveTextContent(/^Poor$/);
+    expect(note().parentElement).toBe(verdict.parentElement);
+    expect(note()).toHaveClass('wf-hc-mean');
+    expect(screen.getByRole('button', { name: /Poor, too unsettled to forecast/ })).toBeInTheDocument();
+    expect(screen.getByTestId('wf-heat-value-grid')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('prints neither the note nor the clause for a stood-down card WITH slots', async () => {
+    await renderStrip({ cards: [stripCard({ ...POOR, verdictBlanked: false })] });
+
+    expect(note()).toBeNull();
+    expect(screen.queryByTestId('wf-heat-mean')).toBeNull();
+    expect(screen.getByRole('button', { name: /Poor/ }).getAttribute('aria-labelledby')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Poor/ }).textContent).not.toMatch(/too unsettled/);
+  });
+
+  it('prints nothing for a card that never set the field', async () => {
+    await renderStrip({ cards: [stripCard({ ...POOR })] });
+    expect(note()).toBeNull();
+  });
+});
+
 describe('WindowFirstHeatStrip — a word with no rating behind it prints no mean and claims no region (review F1)', () => {
   // `topMeanRating` is the Order control's key and still non-null for a region the sample gate
   // withheld the verdict from; the card only PRINTS `verdictMean`, which `buildWindowCards` nulls for

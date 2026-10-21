@@ -2131,6 +2131,18 @@ button.wf-hc.on:hover {
   font-variant-numeric: tabular-nums;
   color: var(--color-plex-text-secondary);
 }
+/* `too unsettled` beside a blanked STAND_DOWN "Poor" (plan-card-verdict-honesty-plan.md H4): the
+   mean's own slot, ink and size, so no new colour. Unlike the figure it is TEXT, 13 characters at
+   10px (78px) against a value column that is 70.3px at a 320px viewport, so it is the part that
+   gives way: it shrinks and ellipsises, and the verdict word beside it does not ("Poor" is the
+   claim being qualified). The full phrase is the element's title and the card's spoken sentence. */
+.wf-hc-mean.wf-hc-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-hc-pv:has(.wf-hc-note) .wf-hc-vd { flex: none; }
 /* "Too few 3.6★" — the UNRATED card's verdict row (unrated-verdict-plan.md U2, review F2). The mean
    is the honest half of the card here: the region has ratings, the sample gate withheld a verdict
    from them, and the word and the figure say so together.
@@ -11653,6 +11665,11 @@ button.wf-mchip:hover {
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
+  color: var(--color-plex-text-secondary);
+}
+.wf-wsh-vnote {
+  font-size: 10px;
+  white-space: nowrap;
   color: var(--color-plex-text-secondary);
 }
 .wf-wsh-bdg {

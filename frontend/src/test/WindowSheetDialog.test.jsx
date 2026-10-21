@@ -344,6 +344,25 @@ const alphaOf = (rgba) => parseFloat(/rgba\([^)]*,\s*([\d.]+)\s*\)/.exec(rgba)[1
  * These are the deleted card's own assertions, re-pointed — the plan's task 7 asks for exactly that
  * ("salvage assertions that still describe popup behaviour into the new suites").
  */
+describe('WindowSheetDialog — a blanked stand-down says the weather called it (verdict-honesty H4)', () => {
+  const POOR = { verdict: 'STAND_DOWN', verdictLabel: 'Poor' };
+
+  it('prints `too unsettled` beside the "Poor" badge and voices it in the live message', () => {
+    renderDialog({ card: card({ ...POOR, verdictBlanked: true }) });
+
+    expect(screen.getByTestId('window-sheet-verdict')).toHaveTextContent(/^Poor$/);
+    expect(screen.getByTestId('window-sheet-verdict-note')).toHaveTextContent(/^too unsettled$/);
+    expect(screen.getByTestId('window-sheet-live')).toHaveTextContent('Poor, too unsettled to forecast');
+  });
+
+  it('prints neither for a stood-down card whose region still has slots', () => {
+    renderDialog({ card: card({ ...POOR, verdictBlanked: false }) });
+
+    expect(screen.queryByTestId('window-sheet-verdict-note')).toBeNull();
+    expect(screen.getByTestId('window-sheet-live')).not.toHaveTextContent('too unsettled');
+  });
+});
+
 describe('WindowSheetDialog — the verdict badge', () => {
   const badge = () => screen.getByTestId('window-sheet-verdict');
 
