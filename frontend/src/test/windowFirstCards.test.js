@@ -1298,6 +1298,17 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
       expect(card.verdictBlanked).toBe(true);
     });
 
+    it('at home scope a RATED top region speaks for the window, whatever blanked sibling it has', () => {
+      // `topRegion` names the rated region (it has a mean), whose word is the window's; the blanked
+      // stand-down beside it is not the word's region and must not qualify it.
+      const [card] = build(windowOf([
+        { regionName: 'A-blank', displayVerdict: 'STAND_DOWN', slots: [] },
+        { regionName: 'Z-rated', displayVerdict: 'STAND_DOWN', slots: [slot], meanRating: 2.4 },
+      ]));
+      expect(card.verdict).toBe('STAND_DOWN');
+      expect(card.verdictBlanked).toBe(false);
+    });
+
     it('under an origin the SCOPED region decides, not the roster', () => {
       const away = (originName) => buildWindowCards(
         events([TODAY, 'SUNSET']),

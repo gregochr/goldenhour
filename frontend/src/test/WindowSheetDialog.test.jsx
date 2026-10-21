@@ -347,11 +347,11 @@ const alphaOf = (rgba) => parseFloat(/rgba\([^)]*,\s*([\d.]+)\s*\)/.exec(rgba)[1
 describe('WindowSheetDialog — a blanked stand-down says the weather called it (verdict-honesty H4)', () => {
   const POOR = { verdict: 'STAND_DOWN', verdictLabel: 'Poor' };
 
-  it('prints `too unsettled` beside the "Poor" badge and voices it in the live message', () => {
+  it('prints `unsettled` beside the "Poor" badge and voices it in the live message', () => {
     renderDialog({ card: card({ ...POOR, verdictBlanked: true }) });
 
     expect(screen.getByTestId('window-sheet-verdict')).toHaveTextContent(/^Poor$/);
-    expect(screen.getByTestId('window-sheet-verdict-note')).toHaveTextContent(/^too unsettled$/);
+    expect(screen.getByTestId('window-sheet-verdict-note')).toHaveTextContent(/^unsettled$/);
     expect(screen.getByTestId('window-sheet-live')).toHaveTextContent('Poor, too unsettled to forecast');
   });
 

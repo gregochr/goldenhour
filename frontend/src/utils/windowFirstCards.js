@@ -526,11 +526,11 @@ function verdictMeanOf(scoped, top) {
 
 /**
  * What a card says beside a STAND_DOWN word over a blanked region (plan-card-verdict-honesty-plan.md
- * H4). The visible form is short enough for the mean's own slot (it is the honesty filter's
- * "Too unsettled to forecast", abridged); the spoken form is the filter's label in full, so the card
+ * H4). The visible form is short enough for the mean's own slot ("unsettled", about 54px at
+ * 10px, the honesty filter's "Too unsettled to forecast" abridged); the spoken form is the filter's label in full, so the card
  * and the popup's region rail speak one vocabulary.
  */
-export const BLANKED_STAND_DOWN_VISIBLE = 'too unsettled';
+export const BLANKED_STAND_DOWN_VISIBLE = 'unsettled';
 export const BLANKED_STAND_DOWN_SPOKEN = 'too unsettled to forecast';
 
 /**
@@ -826,7 +826,7 @@ export function buildWindowCards(
       // away arm tests the SCOPED region, which is the one whose word `verdict` above wears.
       verdictMean: verdictMeanOf(scopedRegion, scopedRegion ? null : topRegion(es)),
       // True when the word is a STAND_DOWN over a region the honesty filter blanked (empty `slots`):
-      // the card prints `too unsettled` beside "Poor" in the mean's own slot (H4). Read from the
+      // the card prints `unsettled` beside "Poor" in the mean's own slot (H4). Read from the
       // same region `verdictMean` reads, so the qualifier and the word cannot describe two regions.
       verdictBlanked: verdictBlankedOf(verdict, scopedRegion, es),
       // The same region `topMeanRating` names, carrying how far it has moved since the previous

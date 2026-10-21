@@ -3949,10 +3949,11 @@ describe('WindowFirstHeatStrip — a blanked stand-down says the weather called 
   const POOR = { verdict: 'STAND_DOWN', verdictLabel: 'Poor', verdictMean: null };
   const note = () => screen.queryByTestId('wf-heat-blanked');
 
-  it('prints `too unsettled` beside "Poor", in the mean\'s own cell, and voices it in the name', async () => {
+  it('prints `unsettled` beside "Poor", in the mean\'s own cell, and voices it in the name', async () => {
     await renderStrip({ cards: [stripCard({ ...POOR, verdictBlanked: true })] });
 
-    expect(note()).toHaveTextContent(/^too unsettled$/);
+    expect(note()).toHaveTextContent(/^unsettled$/);
+    expect(note()).toHaveAttribute('title', 'too unsettled to forecast');
     const verdict = screen.getByTestId('wf-heat-verdict');
     expect(verdict).toHaveTextContent(/^Poor$/);
     expect(note().parentElement).toBe(verdict.parentElement);

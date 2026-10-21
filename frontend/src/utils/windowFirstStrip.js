@@ -117,7 +117,7 @@ export function buildHeatStripCards(
       // (review F1) — a triage-fallback word has no mean behind it, and the face, the spoken
       // sentence and the H2 "beyond the tier" line all read THIS, never `topMeanRating`.
       verdictMean: card?.verdictMean ?? null,
-      // A STAND_DOWN word over a blanked region (H4): the face prints `too unsettled` where the mean
+      // A STAND_DOWN word over a blanked region (H4): the face prints `unsettled` where the mean
       // would sit. Folded from the card, never re-derived.
       verdictBlanked: !away && card?.verdictBlanked === true,
       // The forecast's own pick, served on the window projection — never a client-side "which of
