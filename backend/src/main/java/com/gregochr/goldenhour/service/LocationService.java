@@ -163,6 +163,7 @@ public class LocationService {
                 .gridLat(request.gridLat())
                 .gridLng(request.gridLng())
                 .overlooksWater(request.overlooksWater() != null && request.overlooksWater())
+                .mistProne(request.mistProne() != null && request.mistProne())
                 .coastalTidal(request.coastalTidal() != null && request.coastalTidal())
                 .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
@@ -263,6 +264,14 @@ public class LocationService {
 
         if (request.regionId() != null) {
             location.setRegion(resolveRegion(request.regionId()));
+        }
+
+        if (request.mistProne() != null) {
+            if (request.mistProne() != location.isMistProne()) {
+                LOG.info("Location '{}' mist_prone {} → {}", location.getName(),
+                        location.isMistProne(), request.mistProne());
+            }
+            location.setMistProne(request.mistProne());
         }
 
         boolean coordinatesMoved = Double.compare(previousLat, location.getLat()) != 0

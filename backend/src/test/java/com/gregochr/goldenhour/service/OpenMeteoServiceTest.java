@@ -1310,6 +1310,84 @@ class OpenMeteoServiceTest {
         assertThat(trend.slots().get(0).hoursRelativeToEvent()).isEqualTo(0);
     }
 
+    @Test
+    @DisplayName("extractMistTrend() carries observer total cloud and 10 m wind on each slot")
+    void extractMistTrend_carriesTotalCloudAndWind() {
+        OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+        h.setTime(List.of("2026-10-17T05:00", "2026-10-17T06:00", "2026-10-17T07:00"));
+        h.setVisibility(List.of(39000.0, 37000.0, 37000.0));
+        h.setDewPoint2m(List.of(1.6, 2.0, 2.0));
+        h.setTemperature2m(List.of(4.4, 4.1, 4.0));
+        h.setCloudCover(List.of(0, 47, 60));
+        h.setWindSpeed10m(List.of(2.2, 2.4, 2.3));
+
+        MistTrend trend = OpenMeteoResponseParser.extractMistTrend(h, 1);
+
+        assertThat(trend.slots()).hasSize(3);
+        assertThat(trend.slots().get(0).hoursRelativeToEvent()).isEqualTo(-1);
+        assertThat(trend.slots().get(0).cloudCoverPercent()).isEqualTo(0);
+        assertThat(trend.slots().get(0).windSpeedMs()).isEqualTo(2.2);
+        assertThat(trend.slots().get(1).cloudCoverPercent()).isEqualTo(47);
+        assertThat(trend.slots().get(1).windSpeedMs()).isEqualTo(2.4);
+        assertThat(trend.slots().get(2).cloudCoverPercent()).isEqualTo(60);
+    }
+
+    @Test
+    @DisplayName("extractMistTrend() with no total-cloud or wind series still builds the trend, with null fields")
+    void extractMistTrend_missingSeries_isNullNotAnError() {
+        OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+        h.setTime(List.of("2026-10-17T06:00", "2026-10-17T07:00"));
+        h.setVisibility(List.of(37000.0, 37000.0));
+        h.setDewPoint2m(List.of(2.0, 2.0));
+        h.setTemperature2m(List.of(4.1, 4.0));
+
+        MistTrend trend = OpenMeteoResponseParser.extractMistTrend(h, 0);
+
+        assertThat(trend.slots()).hasSize(2);
+        assertThat(trend.slots()).allSatisfy(slot -> {
+            assertThat(slot.cloudCoverPercent()).isNull();
+            assertThat(slot.windSpeedMs()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("extractMistTrend() tolerates cloud and wind series shorter than the visibility array")
+    void extractMistTrend_shortSeries_isNull() {
+        OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+        h.setTime(List.of("2026-10-17T06:00", "2026-10-17T07:00"));
+        h.setVisibility(List.of(37000.0, 37000.0));
+        h.setDewPoint2m(List.of(2.0, 2.0));
+        h.setTemperature2m(List.of(4.1, 4.0));
+        h.setCloudCover(List.of(47));
+        h.setWindSpeed10m(List.of(2.4));
+
+        MistTrend trend = OpenMeteoResponseParser.extractMistTrend(h, 0);
+
+        assertThat(trend.slots().get(0).cloudCoverPercent()).isEqualTo(47);
+        assertThat(trend.slots().get(1).cloudCoverPercent()).isNull();
+        assertThat(trend.slots().get(1).windSpeedMs()).isNull();
+    }
+
+    @Test
+    @DisplayName("the four-argument MistSlot constructor leaves total cloud and wind absent")
+    void mistSlot_fourArgumentConstructor_hasNoCloudOrWind() {
+        MistTrend.MistSlot slot = new MistTrend.MistSlot(0, 4200, 2.2, 3.8);
+
+        assertThat(slot.cloudCoverPercent()).isNull();
+        assertThat(slot.windSpeedMs()).isNull();
+    }
+
+    @Test
+    @DisplayName("Hourly deserialises Open-Meteo's cloud_cover series")
+    void hourly_deserialisesTotalCloudCover() throws Exception {
+        String json = "{\"hourly\":{\"time\":[\"2026-10-17T06:00\"],\"cloud_cover\":[47]}}";
+
+        OpenMeteoForecastResponse response = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readValue(json, OpenMeteoForecastResponse.class);
+
+        assertThat(response.getHourly().getCloudCover()).containsExactly(47);
+    }
+
     private OpenMeteoForecastResponse buildCloudOnlyResponse(
             List<String> time,
             List<Integer> cloudLow, List<Integer> cloudMid, List<Integer> cloudHigh) {

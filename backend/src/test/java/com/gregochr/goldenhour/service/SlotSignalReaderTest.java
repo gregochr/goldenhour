@@ -215,6 +215,61 @@ class SlotSignalReaderTest {
     }
 
     @Test
+    @DisplayName("V185: the reader maps mistScore and mistScored off the entity, carried together")
+    void readings_mapsMistScoreAndFlag() {
+        LocationEntity loc = location(20L);
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
+        a.setLocation(loc);
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setMistScore(6.5);
+        a.setMistScored(true);
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(a));
+
+        SlotSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.readings().mistScore()).isEqualTo(6.5);
+        assertThat(s.readings().mistScored()).isTrue();
+    }
+
+    @Test
+    @DisplayName("V185: a fresh authoritative null (mistScored true, no score) and a pre-column row "
+            + "(mistScored false) stay distinguishable through the reader")
+    void readings_freshNullAndPreColumnRowAreDistinct() {
+        LocationEntity fresh = location(21L);
+        SlotAtmosphereEntity freshRow = new SlotAtmosphereEntity();
+        freshRow.setLocation(fresh);
+        freshRow.setEvaluationDate(FROM);
+        freshRow.setEventType(SUNSET);
+        freshRow.setMistScored(true);
+        LocationEntity old = location(22L);
+        SlotAtmosphereEntity oldRow = readings(old, "1.00");
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(freshRow, oldRow));
+
+        List<SlotSignals> result = reader().read(FROM, TO);
+
+        SlotSignals freshSignals = result.stream()
+                .filter(x -> x.location().getId() == 21L).findFirst().orElseThrow();
+        SlotSignals oldSignals = result.stream()
+                .filter(x -> x.location().getId() == 22L).findFirst().orElseThrow();
+        assertThat(freshSignals.readings().mistScore()).isNull();
+        assertThat(freshSignals.readings().mistScored()).isTrue();
+        assertThat(oldSignals.readings().mistScore()).isNull();
+        assertThat(oldSignals.readings().mistScored()).isFalse();
+    }
+
+    @Test
+    @DisplayName("EMPTY readings carries no mist reading and is not scored")
+    void emptyReadings_mistIsAbsent() {
+        assertThat(SlotSignals.Readings.EMPTY.mistScore()).isNull();
+        assertThat(SlotSignals.Readings.EMPTY.mistScored()).isFalse();
+    }
+
+    @Test
     @DisplayName("EMPTY readings has a null inversionScore")
     void emptyReadings_inversionScoreIsNull() {
         assertThat(SlotSignals.Readings.EMPTY.inversionScore()).isNull();

@@ -53,6 +53,7 @@ public class LocationDtoMapper {
                 entity.isCoastalTidal(),
                 entity.getElevationMetres(),
                 entity.isOverlooksWater(),
+                entity.isMistProne(),
                 entity.getGridLat(),
                 entity.getGridLng(),
                 entity.getBluebellExposure(),

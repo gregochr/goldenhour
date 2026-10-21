@@ -173,6 +173,8 @@ class ForecastCommandExecutorReadingsSeamTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithBluebellConditions(any(), any(), any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
+                .thenAnswer(inv -> inv.getArgument(0));
 
         // The candidate's weather, served from the (empty) prefetch cache — ForecastService
         // calls getAtmosphericDataFromCache whenever the executor hands it a non-null map,

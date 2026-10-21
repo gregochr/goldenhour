@@ -197,7 +197,8 @@ public class SlotSignalReader {
                             readings.getHumidity(), readings.getSurgeTotalMetres(),
                             readings.getSurgeWindSpeedMs(), readings.getSurgeWindDirectionDegrees(),
                             readings.getTemperatureCelsius(), readings.getInversionScore(),
-                            readings.isInversionScored());
+                            readings.isInversionScored(),
+                            readings.getMistScore(), readings.isMistScored());
             return new SlotSignals(location, date, eventType, scores, r);
         }
     }

@@ -176,6 +176,17 @@ public record SlotSignals(
      *                                  {@link SlotSignals#effectiveInversionScore()}'s own
      *                                  javadoc for the full history (round 4, a Codex P1 against
      *                                  round 3's own unify-onto-one-rule fix)
+     * @param mistScore                 valley mist likelihood score (0–10,
+     *                                  {@code ValleyMistCalculator}), or null when the site is not
+     *                                  {@code mist_prone} or the calculator could not score it.
+     *                                  V185 (valley-mist-plan M1a). Always pair with
+     *                                  {@link #mistScored()}; there is no Claude echo and so no
+     *                                  {@code effectiveMistScore()} yet (M2 adds both)
+     * @param mistScored                true when this row's writer ran the valley-mist check THIS
+     *                                  cycle, whatever the score — false only for a row written
+     *                                  before V185. The V158 {@link #inversionScored()} rule
+     *                                  verbatim: a fresh {@code true} row's null score is an
+     *                                  authoritative answer
      */
     public record Readings(
             BigDecimal aerosolOpticalDepth,
@@ -190,10 +201,43 @@ public record SlotSignals(
             Double surgeWindDirectionDegrees,
             Double temperatureCelsius,
             Double inversionScore,
-            boolean inversionScored) {
+            boolean inversionScored,
+            Double mistScore,
+            boolean mistScored) {
+
+        /**
+         * Backward-compatible constructor for readings that carry no valley-mist columns (every
+         * reading-shaped fixture written before V185): both read as absent ({@code mistScored}
+         * false), the pre-column state.
+         *
+         * @param aerosolOpticalDepth       aerosol optical depth, or null
+         * @param dust                      surface dust µg/m³, or null
+         * @param pm25                      PM2.5 µg/m³, or null
+         * @param surgeRiskLevel            storm surge risk classification name, or null
+         * @param snowDepthMetres           lying snow depth in metres, or null
+         * @param freezingLevelMetres       0 °C isotherm altitude in metres, or null
+         * @param humidity                  relative humidity percent, or null
+         * @param surgeTotalMetres          total storm surge in metres, or null
+         * @param surgeWindSpeedMs          surge-time 10 m wind speed in m/s, or null
+         * @param surgeWindDirectionDegrees surge-time wind direction, or null
+         * @param temperatureCelsius        2 m air temperature in °C, or null
+         * @param inversionScore            cloud inversion score, or null
+         * @param inversionScored           whether the inversion check ran for this row
+         */
+        public Readings(BigDecimal aerosolOpticalDepth, BigDecimal dust, BigDecimal pm25,
+                String surgeRiskLevel, Double snowDepthMetres, Double freezingLevelMetres,
+                Integer humidity, Double surgeTotalMetres, Double surgeWindSpeedMs,
+                Double surgeWindDirectionDegrees, Double temperatureCelsius,
+                Double inversionScore, boolean inversionScored) {
+            this(aerosolOpticalDepth, dust, pm25, surgeRiskLevel, snowDepthMetres,
+                    freezingLevelMetres, humidity, surgeTotalMetres, surgeWindSpeedMs,
+                    surgeWindDirectionDegrees, temperatureCelsius, inversionScore,
+                    inversionScored, null, false);
+        }
 
         /** The all-absent readings, used for a key that has only scores. */
         public static final Readings EMPTY = new Readings(
-                null, null, null, null, null, null, null, null, null, null, null, null, false);
+                null, null, null, null, null, null, null, null, null, null, null, null, false,
+                null, false);
     }
 }

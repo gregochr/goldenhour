@@ -286,6 +286,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [enriching, setEnriching] = useState(false);
   const [addOverlooksWater, setAddOverlooksWater] = useState(false);
   const [addCoastalTidal, setAddCoastalTidal] = useState(false);
+  const [addMistProne, setAddMistProne] = useState(false);
 
   // Confirm modal state
   const [confirmData, setConfirmData] = useState(null);
@@ -364,6 +365,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setEnriching(false);
     setAddOverlooksWater(false);
     setAddCoastalTidal(false);
+    setAddMistProne(false);
     setError('');
   }
 
@@ -377,6 +379,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
       locationTypes: typesOrDefault(loc.locationType),
       tideTypes: Array.isArray(loc.tideType) ? [...loc.tideType] : [],
       regionId: loc.region?.id ? String(loc.region.id) : '',
+      mistProne: loc.mistProne === true,
     });
     setEditError('');
   }
@@ -448,6 +451,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         locationTypes: editValues.locationTypes,
         tideTypes: editIsCoastal ? editValues.tideTypes : [],
         regionId: editValues.regionId ? Number(editValues.regionId) : null,
+        mistProne: editValues.mistProne === true,
       });
       await refreshLocations();
       handleEditCancel();
@@ -538,6 +542,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         gridLng: enrichmentData?.gridLng ?? null,
         overlooksWater: addOverlooksWater,
         coastalTidal: addCoastalTidal,
+        mistProne: addMistProne,
       });
     }
   }
@@ -561,6 +566,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         gridLng: confirmData.gridLng,
         overlooksWater: confirmData.overlooksWater,
         coastalTidal: confirmData.coastalTidal,
+        mistProne: confirmData.mistProne === true,
       });
       await refreshLocations();
       handleCancel();
@@ -792,6 +798,16 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                     <option key={r.id} value={r.id}>{r.name}</option>
                                   ))}
                                 </select>
+                                <label className="mt-1 flex items-start gap-1 text-xs text-plex-text-secondary cursor-pointer">
+                                  <input
+                                    className="shrink-0 mt-0.5"
+                                    type="checkbox"
+                                    checked={editValues.mistProne === true}
+                                    onChange={(e) => handleEditChange('mistProne', e.target.checked)}
+                                    data-testid="inline-edit-mist-prone"
+                                  />
+                                  Mist forms here: valley floor, riverside, lake shore
+                                </label>
                               </td>
                               <td className="py-2" data-testid="inline-edit-solar">
                                 <SolarToggleChips
@@ -847,6 +863,15 @@ export default function LocationManagementView({ onLocationsChanged }) {
                             <>
                               <td className="py-2 text-plex-text truncate" title={loc.name}>
                                 {loc.name}
+                                {loc.mistProne === true && (
+                                  <span
+                                    className="ml-1.5 text-xs px-1.5 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary"
+                                    title="Mist forms here: valley floor, riverside, lake shore"
+                                    data-testid={`mist-prone-badge-${loc.id}`}
+                                  >
+                                    Mist
+                                  </span>
+                                )}
                                 {loc.consecutiveFailures > 0 && !loc.disabledReason && (
                                   <span className="inline-flex items-center gap-0.5 ml-1.5">
                                     <span className="text-xs px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400">
@@ -1099,7 +1124,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
               {!enriching && enrichmentData && (
                 <div className="border border-plex-border rounded px-3 py-2" data-testid="manual-toggles-panel">
                   <p className="text-xs font-medium text-plex-text-secondary mb-1.5">Manual</p>
-                  <div className="flex gap-6">
+                  <div className="flex flex-wrap gap-x-6 gap-y-1.5">
                     <label className="flex items-center gap-1.5 text-xs text-plex-text cursor-pointer">
                       <input
                         type="checkbox"
@@ -1117,6 +1142,15 @@ export default function LocationManagementView({ onLocationsChanged }) {
                         data-testid="coastal-tidal-checkbox"
                       />
                       Coastal tidal
+                    </label>
+                    <label className="flex items-center gap-1.5 text-xs text-plex-text cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={addMistProne}
+                        onChange={(e) => setAddMistProne(e.target.checked)}
+                        data-testid="mist-prone-checkbox"
+                      />
+                      Mist forms here: valley floor, riverside, lake shore
                     </label>
                   </div>
                 </div>
@@ -1325,6 +1359,12 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Coastal tidal</span>
                 <span className="text-plex-text">{confirmData.coastalTidal ? 'Yes' : 'No'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">Mist forms here</span>
+                <span className="text-plex-text" data-testid="confirm-mist-prone">
+                  {confirmData.mistProne ? 'Yes' : 'No'}
+                </span>
               </div>
             </div>
 

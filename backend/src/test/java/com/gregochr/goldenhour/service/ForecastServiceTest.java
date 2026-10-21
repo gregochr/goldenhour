@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.exception.EvaluationFailedException;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.exception.RunStoppedException;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
@@ -159,6 +160,8 @@ class ForecastServiceTest {
         lenient().when(augmentor.augmentWithInversionScore(any(), any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithBluebellConditions(any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
         // Tide alignment passes by default (non-SEASCAPE locations in most tests)
         lenient().when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
@@ -659,6 +662,58 @@ class ForecastServiceTest {
         assertThat(result.triaged()).isTrue();
         verify(slotAtmosphereWriter, times(1))
                 .write(DURHAM_LOCATION, date, TargetType.SUNRISE, data);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() scores valley mist for a mist_prone site BEFORE the readings "
+            + "write, so a weather-triaged slot still records the score (V185)")
+    void fetchWeatherAndTriage_mistProneSite_scoreReachesTheWriterEvenWhenTriaged() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        LocationEntity mistProne = LocationEntity.builder()
+                .id(3L).name("Brathay").lat(DURHAM_LAT).lon(DURHAM_LON).mistProne(true).build();
+        AtmosphericData data = buildAtmosphericData(sunrise, TargetType.SUNRISE);
+        AtmosphericData scored = data.withValleyMist(6.5, MistPotential.LIKELY);
+        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(12L).build();
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(augmentor.augmentWithValleyMist(any(), eq(true))).thenReturn(scored);
+        when(augmentor.augmentWithBluebellConditions(eq(scored), any(), any(), any())).thenReturn(scored);
+        when(weatherTriageEvaluator.evaluate(any()))
+                .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
+        when(repository.save(any())).thenReturn(savedEntity);
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                mistProne, date, TargetType.SUNRISE, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        assertThat(result.triaged()).isTrue();
+        verify(augmentor).augmentWithValleyMist(any(), eq(true));
+        verify(slotAtmosphereWriter, times(1))
+                .write(mistProne, date, TargetType.SUNRISE, scored);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() hands the gate false for a site that is not mist_prone")
+    void fetchWeatherAndTriage_unflaggedSite_gateIsFalse() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+
+        forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        verify(augmentor).augmentWithValleyMist(any(), eq(false));
     }
 
     @Test

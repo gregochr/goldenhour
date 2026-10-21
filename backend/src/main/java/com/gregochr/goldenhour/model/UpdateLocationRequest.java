@@ -25,6 +25,8 @@ import java.util.Set;
  *                         evaluation lanes can route)
  * @param tideTypes        tide preferences (null = don't change; only retained when SEASCAPE)
  * @param regionId         optional region ID (null to clear, absent to leave unchanged)
+ * @param mistProne        whether mist forms around this location; the only way to set the flag
+ *                         on an EXISTING location (null = don't change)
  */
 public record UpdateLocationRequest(
         String name,
@@ -33,8 +35,27 @@ public record UpdateLocationRequest(
         Set<SolarEventType> solarEventTypes,
         Set<LocationType> locationTypes,
         Set<TideType> tideTypes,
-        Long regionId
+        Long regionId,
+        Boolean mistProne
 ) {
+    /**
+     * Constructor for callers that predate the valley-mist flag: {@code mistProne} reads as
+     * "don't change".
+     *
+     * @param name            optional new name
+     * @param lat             optional new latitude
+     * @param lon             optional new longitude
+     * @param solarEventTypes which solar events to evaluate (null = don't change)
+     * @param locationTypes   photography types (null = don't change)
+     * @param tideTypes       tide preferences (null = don't change)
+     * @param regionId        optional region ID
+     */
+    public UpdateLocationRequest(String name, Double lat, Double lon,
+            Set<SolarEventType> solarEventTypes, Set<LocationType> locationTypes,
+            Set<TideType> tideTypes, Long regionId) {
+        this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, null);
+    }
+
     /**
      * Compact canonical constructor — defensive copy of mutable sets.
      *

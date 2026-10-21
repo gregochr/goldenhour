@@ -194,7 +194,9 @@ public final class OpenMeteoResponseParser {
                             offset,
                             vis.get(idx).intValue(),
                             dewVal,
-                            tempVal));
+                            tempVal,
+                            integerAt(h.getCloudCover(), idx),
+                            getDoubleValue(h.getWindSpeed10m(), idx)));
                 }
             }
         }

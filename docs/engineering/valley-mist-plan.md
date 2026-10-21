@@ -1,6 +1,9 @@
 # Valley mist — the morning PhotoCast cannot see (2026-10-17)
 
-**Status:** M0 measured and the six decisions taken (2026-10-21, §5). M1 is next; nothing is built yet.
+**Status:** M0 measured and the six decisions taken (2026-10-21, §5). **M1a built** (2026-10-21): the
+`mist_prone` flag, `ValleyMistCalculator`, and the `slot_atmosphere` reading (§3 M1, first four
+bullets and the writer). M1b (the hot topic, Coming up condition, daily log and wording fixes), M2
+and M3 are not built.
 **Prompted by:** a River Brathay sunrise on 17 Oct 2026 — thick radiation mist on the river under a clear
 sky, low sun through it — that the pipeline would have stood down before Claude saw it, and that no surface
 would have named the night before. The owner's words: "Shame we missed this."
@@ -165,11 +168,16 @@ the result is in the findings below and it killed M4.
 
 ### M1 — The reading and the topic ("what is happening"; no Claude cost, no star change)
 
-- **`locations.mist_prone BOOLEAN NOT NULL DEFAULT FALSE`** (migration; `updatable = false`, written by a
-  column-scoped `LocationRepository.updateMistProne`, the `overlooksWater` pattern; admin UI checkbox beside
-  it in `LocationManagementView`, worded "Mist forms here: valley floor, riverside, lake shore"). ⚠️ Not a
-  `LocationType`: a type routes a subject lane and inverts polarity (WOODLAND); this is geography on a sky
-  site that keeps its sky.
+- **`locations.mist_prone BOOLEAN NOT NULL DEFAULT FALSE`** (V185; a plain `@Column(nullable = false)`
+  written by the admin's whole-entity `LocationService.add`/`update`, the `overlooksWater` pattern; admin
+  UI checkbox beside it in `LocationManagementView`, worded "Mist forms here: valley floor, riverside,
+  lake shore"). ⚠️ Not a `LocationType`: a type routes a subject lane and inverts polarity (WOODLAND);
+  this is geography on a sky site that keeps its sky. *(As built, 2026-10-21: the first draft of this
+  bullet said `updatable = false` plus a column-scoped `updateMistProne`. That is the pattern for columns
+  a detached or scheduled writer rewrites (failure counters, grid cell, Bortle); `mist_prone` has no such
+  writer, so a scoped updater would have been dead code. And `overlooksWater` is set only at ADD time, so
+  the flag also gets `UpdateLocationRequest.mistProne` and an inline-edit checkbox: the owner's first
+  ticks are on EXISTING locations.)*
 - **`ValleyMistCalculator`** (pure, `service/`, 0–10, the inversion calculator's sibling). ⚠️ **It scores
   the radiative SET-UP, because M0 showed the 2 km model does not saturate a river corridor** (the
   Brathay row: gap 2–3 °C all night, yet mist in the photograph). Terms, each a prior stated as cheap-
@@ -184,19 +192,26 @@ the result is in the findings below and it killed M4.
   the gap is a term, never a gate; a **cooling term** from the temperature trajectory across the night-
   side slots (falling toward the dew point, the 17 Oct shape, scores; flat or rising does not); a
   **wet-ground term** from `precedingPrecipitationMm` (rain then clearing is the classic set-up); and a
-  **confirmation** term, not a gate, when the model's own event-hour visibility is already under 5 km
-  (the Ingleton shape — the subclass the model does saturate). Season enters only through night length
+  **confirmation** term, not a gate, when the model's own event-hour visibility is already in the haze
+  band, under 10 km (full weight under 5 km; the Ingleton shape, 8,840 m — the subclass the model does
+  saturate. *As built: the first draft said "under 5 km" yet named Ingleton as a confirmation, which
+  8,840 m is not.*). Season enters only through night length
   implicitly (the slots), never as a calendar rule. Bands via a `MistPotential` (NONE / POSSIBLE /
-  LIKELY / FOGBOUND) — FOGBOUND when visibility < 300 m with no improving trend, the white-frame case the
-  woodland evaluator already names (`MIST_TOO_THICK_M`). Requires `MistTrend.MistSlot` to carry observer
-  total cloud and wind, both already in the hourly array (`extractMistTrend` grows two fields; the
-  prompt's existing rendering is unchanged). The M0 fixtures are the first unit tests: the Brathay row
+  LIKELY / FOGBOUND) — FOGBOUND when visibility < 300 m with no improving trend (no LATER slot back above
+  300 m), the white-frame case. *As built: its own constant, not the woodland evaluator's
+  `MIST_TOO_THICK_M`, which is 100 m and answers "can the trees still resolve"; a 200 m morning must
+  read FOGBOUND.* Requires `MistTrend.MistSlot` to carry observer
+  total cloud and wind (`extractMistTrend` grows two fields; the prompt's existing rendering is
+  unchanged). *As built: wind was in the hourly array but TOTAL cloud was not (only the three layer
+  series), so `cloud_cover` joined `OpenMeteoClient.FORECAST_PARAMS`: one more variable on the existing
+  request, no extra call. The layer maximum is not a substitute, it understates the total.* The M0 fixtures are the first unit tests: the Brathay row
   (LIKELY at a flagged site, NONE unflagged), Ingleton (LIKELY, confirmation on), Buttermere (gap 0.5,
   wind 0.1, 37% low cloud — LIKELY), and a windy or overcast night (NONE).
 - **Gate:** `ForecastDataAugmentor.augmentWithValleyMist(data, mistProne)` runs for `mist_prone` sites only,
   in `fetchWeatherAndTriage` beside `augmentWithInversionScore`, BEFORE the readings write and triage.
-- **`slot_atmosphere.mist_score DOUBLE NULL` + `mist_scored BOOLEAN NOT NULL DEFAULT FALSE`** — the V158
-  pair exactly, for the same reason (a fresh null is an answer; a pre-column row is not). `SlotSignals
+- **`slot_atmosphere.mist_score DOUBLE NULL` + `mist_scored BOOLEAN NOT NULL DEFAULT FALSE`** (V185,
+  with `mist_prone`) — the V158 pair exactly, `mist_scored` true on EVERY write of the current writer,
+  unflagged sites included, for the same reason (a fresh null is an answer; a pre-column row is not). `SlotSignals
   .Readings` carries both. No Claude echo exists yet, so no `effective…` fallback is needed in M1; M2 adds
   the echo and the `effectiveMistScore()` twin of `effectiveInversionScore()`.
 - **`MistHotTopicStrategy`** (`"MIST"`, priority 2, SUNRISE and SUNSET rows — unlike the inversion, mist
