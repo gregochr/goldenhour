@@ -61,7 +61,11 @@ Checkstyle and SpotBugs gate those in CI.
    removing it or "consolidating" it in a review — the dual-engine
    consolidation is a tracked architecture item, not a cleanup. Note also: no
    store keeps per-run rating history; `cached_evaluation` and `forecast_score`
-   are latest-wins by design.
+   are latest-wins by design. Likewise `cloud_verification`'s
+   `deleteIncompleteVerifications` names only the observations the sampling
+   REQUIRES: the recorded-only columns (the V175 far-point mid/high/dark-side
+   readings, V187's `observer_temp_c`/`observer_dew_point_c`) must never join
+   it, or the first run after the deploy re-walks the whole history.
 
 4. **Hot topics are recomputed live on every serve.** Build-time enrichment
    must ride an in-memory `AtomicReference` carrier (`NlcClarityService`,

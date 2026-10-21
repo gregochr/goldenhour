@@ -16,6 +16,36 @@ export function rowKey(locationId, date, eventType) {
 }
 
 /**
+ * A `mine` entry. The `seen` tag is carried only when there is one, so an untagged rating is exactly
+ * the `{rating, updatedAt}` it has always been.
+ *
+ * @param {?number} rating
+ * @param {?string} updatedAt
+ * @param {?string} seen
+ * @returns {{rating: ?number, updatedAt: ?string, seen?: string}}
+ */
+function entry(rating, updatedAt, seen) {
+  return seen ? { rating, updatedAt, seen } : { rating, updatedAt };
+}
+
+/**
+ * The tag the server will hold after a write, so the optimistic value matches what comes back:
+ * a tag sent (or an explicit null) is taken as it stands; with none sent the earlier tag is KEPT, unless
+ * it cannot stand beside the new rating (`NOT_SEEN` goes with a null rating only, a sighting with a star
+ * only), in which case it goes. The same rule as `OutcomeRatingService`.
+ *
+ * @param {?string} previous the tag held before
+ * @param {?number} rating the rating being written
+ * @param {string|null|undefined} requested the tag sent: undefined = not sent
+ * @returns {?string}
+ */
+export function settledSeen(previous, rating, requested) {
+  if (requested !== undefined) return requested;
+  if (!previous) return null;
+  return (previous === 'NOT_SEEN') === (rating == null) ? previous : null;
+}
+
+/**
  * The reader's own outcome ratings for the Map tab's past windows (`docs/engineering/outcome-rating-
  * plan.md` §2 #5, "The data").
  *
@@ -48,6 +78,13 @@ export function rowKey(locationId, date, eventType) {
  * screenshot of the forecast as it stood, and a rating recorded later would contradict the picture
  * (plan §5 #6).
  *
+ * <h2>The seen tag</h2>
+ * <p>An optional "what did you see" tag (valley-mist-plan M3) rides each record as {@code seen}. {@link
+ * rateTag} saves it by PUTting the SAME rating again with the tag, and it has its OWN in-flight and
+ * failed sets ({@code tagSaving}, {@code tagSaveError}) so a tag save never flips the block out of its
+ * "You rated" layout the way a star save does. A failed tag save rolls the record back to what it was
+ * before the tag — the star was never in question — and the failure shows beside the chips.
+ *
  * @param {object} args
  * @param {?string} args.role `'ADMIN' | 'PRO_USER' | 'LITE_USER'`
  * @param {boolean} [args.rewound] whether an admin rewind is in force
@@ -55,15 +92,18 @@ export function rowKey(locationId, date, eventType) {
  * @param {?string} args.to last event date to read
  * @param {*} [args.refreshKey] any value whose change means "the forecasts refreshed"
  * @returns {{
- *   mine: Map<string, {rating: ?number, updatedAt: ?string}>,
+ *   mine: Map<string, {rating: ?number, updatedAt: ?string, seen?: string}>,
  *   saving: Set<string>,
  *   saveError: Set<string>,
+ *   tagSaving: Set<string>,
+ *   tagSaveError: Set<string>,
  *   loaded: boolean,
  *   readFailed: boolean,
  *   covers: function(string): boolean,
  *   wasRead: function(string): boolean,
  *   canRate: boolean,
- *   rate: function(number, string, string, ?number): Promise<boolean>,
+ *   rate: function(number, string, string, ?number, (string|null)=): Promise<boolean>,
+ *   rateTag: function(number, string, string, ?string): Promise<boolean>,
  *   clearSaveError: function(string): void
  * }}
  */
@@ -78,6 +118,8 @@ export function useOutcomeRatings({
   const [mine, setMine] = useState(() => new Map());
   const [saving, setSaving] = useState(() => new Set());
   const [failed, setFailed] = useState(() => new Set());
+  const [tagSaving, setTagSaving] = useState(() => new Set());
+  const [tagFailed, setTagFailed] = useState(() => new Set());
   // The range a read has landed for. A date outside it has NOT been read: its absent keys mean
   // "not asked yet", never "unrated".
   const [loadedRange, setLoadedRange] = useState(null);
@@ -151,7 +193,7 @@ export function useOutcomeRatings({
       for (const row of Array.isArray(rows) ? rows : []) {
         fresh.set(
           rowKey(row.locationId, row.eventDate, row.eventType),
-          { rating: row.rating ?? null, updatedAt: row.updatedAt ?? null },
+          entry(row.rating ?? null, row.updatedAt ?? null, row.seen),
         );
       }
       // A key written since this read began keeps what the writes decided.
@@ -174,39 +216,57 @@ export function useOutcomeRatings({
     return undefined;
   }, [rewound, readFrom, readTo, readRefresh, commitMine]);
 
-  const rate = useCallback(async (locationId, eventDate, eventType, value) => {
+  /**
+   * The one write path. {@code kind} picks which in-flight and failed sets the write reports on: a
+   * star save is {@code 'rating'} (the block shows its saving layout), a tag save {@code 'tag'} (the
+   * block stays where it is). {@code seen} is the tag to send: undefined leaves it out of the PUT.
+   */
+  const write = useCallback(async (kind, locationId, eventDate, eventType, value, seen) => {
     if (!canRateRef.current || rewoundRef.current) return false;
     const key = rowKey(locationId, eventDate, eventType);
+    const setBusy = kind === 'tag' ? setTagSaving : setSaving;
+    const setFail = kind === 'tag' ? setTagFailed : setFailed;
     writeSeqRef.current += 1;
     const seq = writeSeqRef.current;
     latestWriteRef.current.set(key, seq);
     if (!restoreToRef.current.has(key)) restoreToRef.current.set(key, mineRef.current.get(key) ?? null);
     touch(key);
-    flag(setSaving, key, true);
+    flag(setBusy, key, true);
+    const before = mineRef.current.get(key);
     const optimistic = new Map(mineRef.current);
-    optimistic.set(key, {
-      rating: value,
-      updatedAt: mineRef.current.get(key)?.updatedAt ?? null,
-    });
+    optimistic.set(key, entry(
+      value,
+      before?.updatedAt ?? null,
+      settledSeen(before?.seen ?? null, value, seen),
+    ));
     commitMine(optimistic);
 
     const overtaken = () => !aliveRef.current || latestWriteRef.current.get(key) !== seq;
     try {
       const dto = await putRating({
-        locationId, eventDate, eventType, rating: value,
+        locationId, eventDate, eventType, rating: value, seen,
       });
       if (overtaken()) return false;
       touch(key);
       restoreToRef.current.delete(key);
       latestWriteRef.current.delete(key);
       const stored = new Map(mineRef.current);
-      stored.set(key, {
-        rating: dto && 'rating' in dto ? (dto.rating ?? null) : value,
-        updatedAt: dto?.updatedAt ?? null,
-      });
+      stored.set(key, entry(
+        dto && 'rating' in dto ? (dto.rating ?? null) : value,
+        dto?.updatedAt ?? null,
+        // The server's word on the tag; a response that carries none (an older server, a test double)
+        // falls back to what this write meant.
+        dto && 'rating' in dto ? dto.seen : settledSeen(before?.seen ?? null, value, seen),
+      ));
       commitMine(stored);
+      // The newest write for the slot has settled, so NOTHING is in flight for it: clear both busy flags.
+      // A write that was overtaken returns without clearing its own, so clearing only this kind's would
+      // leave a tag save overtaken by a star stuck "saving" for good.
       flag(setSaving, key, false);
-      flag(setFailed, key, false);
+      flag(setTagSaving, key, false);
+      flag(setFail, key, false);
+      // A save that lands clears the other kind's stale failure too: the record is current again.
+      flag(kind === 'tag' ? setFailed : setTagFailed, key, false);
       return true;
     } catch {
       if (overtaken()) return false;
@@ -218,10 +278,36 @@ export function useOutcomeRatings({
       if (previous) rolledBack.set(key, previous); else rolledBack.delete(key);
       commitMine(rolledBack);
       flag(setSaving, key, false);
-      flag(setFailed, key, true);
+      flag(setTagSaving, key, false);
+      flag(setFail, key, true);
       return false;
     }
   }, [commitMine, flag, touch]);
+
+  /**
+   * Saves a star (or "didn't see it" with null) — and, for "didn't see it", the NOT_SEEN tag that goes
+   * with it, so the record says so in its own words. {@code seen} left undefined keeps the earlier tag
+   * (the server drops one the new rating contradicts).
+   */
+  const rate = useCallback((locationId, eventDate, eventType, value, seen) => write(
+    'rating',
+    locationId,
+    eventDate,
+    eventType,
+    value,
+    seen === undefined && value == null ? 'NOT_SEEN' : seen,
+  ), [write]);
+
+  /**
+   * Saves the "what did you see" tag: the SAME rating again, with {@code tag} (a name, or null to
+   * clear). Refuses — resolving false, asking nothing — for a slot that holds no star: a tag needs
+   * one, and "didn't see it" carries NOT_SEEN on its own.
+   */
+  const rateTag = useCallback(async (locationId, eventDate, eventType, tag) => {
+    const held = mineRef.current.get(rowKey(locationId, eventDate, eventType));
+    if (held?.rating == null) return false;
+    return write('tag', locationId, eventDate, eventType, held.rating, tag ?? null);
+  }, [write]);
 
   /**
    * Whether the reader's ratings for an event date have been read. Not the same as {@code loaded}: an
@@ -249,18 +335,25 @@ export function useOutcomeRatings({
     return date >= loadedRange.from && date <= loadedRange.to;
   }, [rewound, loadedRange]);
 
-  const clearSaveError = useCallback((key) => flag(setFailed, key, false), [flag]);
+  const clearSaveError = useCallback((key) => {
+    flag(setFailed, key, false);
+    flag(setTagFailed, key, false);
+  }, [flag]);
 
   return useMemo(() => ({
     mine: rewound ? emptyMine : mine,
     saving,
     saveError: failed,
+    tagSaving,
+    tagSaveError: tagFailed,
     loaded: !rewound && loadedRange != null,
     readFailed: !rewound && readFailed,
     covers,
     wasRead,
     canRate,
     rate,
+    rateTag,
     clearSaveError,
-  }), [rewound, emptyMine, mine, saving, failed, loadedRange, readFailed, covers, wasRead, canRate, rate, clearSaveError]);
+  }), [rewound, emptyMine, mine, saving, failed, tagSaving, tagFailed, loadedRange, readFailed, covers, wasRead,
+    canRate, rate, rateTag, clearSaveError]);
 }

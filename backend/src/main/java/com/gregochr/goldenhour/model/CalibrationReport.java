@@ -1,7 +1,10 @@
 package com.gregochr.goldenhour.model;
 
 import java.time.LocalDate;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Forecast accuracy measured against recorded outcomes over a date window.
@@ -31,6 +34,17 @@ import java.util.List;
  * @param bucketsByPromptHash metrics per system-prompt fingerprint
  *                        ({@code forecast_evaluation.prompt_hash}); rows with none recorded read
  *                        {@code UNKNOWN}
+ * @param mistProne       metrics over the pairs whose forecast carried Claude's LIKELY valley-mist
+ *                        band (valley-mist-plan M3), or {@code null} when the window holds none.
+ *                        <b>Its {@code missedOpportunities} is the number the whole valley-mist plan
+ *                        exists to drive to zero</b>: the forecast said stay home (2 stars or fewer)
+ *                        on a morning the reader rated 4 or 5. Pairs are the same pairs as
+ *                        {@code overall}, so a mist-prone pair is counted in both
+ * @param mistProneSeenCounts what those pairs' readers said they saw: {@code seen} tag name to count,
+ *                        with {@code UNTAGGED} for a rating given with no tag (and for every {@code
+ *                        actual_outcome} pair); the counts sum to {@code mistProne.sampleCount()}.
+ *                        Empty when {@code mistProne} is {@code null}. {@code NOT_SEEN} never
+ *                        appears: a "didn't see it" rating is not a pair
  */
 public record CalibrationReport(
         LocalDate from,
@@ -41,7 +55,30 @@ public record CalibrationReport(
         List<CalibrationBucket> byDaysAhead,
         List<CalibrationBucket> byModel,
         List<CalibrationBucket> bucketsByBuild,
-        List<CalibrationBucket> bucketsByPromptHash) {
+        List<CalibrationBucket> bucketsByPromptHash,
+        CalibrationBucket mistProne,
+        Map<String, Integer> mistProneSeenCounts) {
+
+    /**
+     * Builds a report with no mist-prone bucket - the shape every report had before valley mist.
+     *
+     * @param from            start of the window
+     * @param to              end of the window
+     * @param outcomesInRange recorded outcomes in the window
+     * @param scoredPairs     pairs scored
+     * @param overall         overall metrics
+     * @param byDaysAhead     per-horizon metrics
+     * @param byModel         per-model metrics
+     * @param bucketsByBuild  per-release metrics
+     * @param bucketsByPromptHash per-prompt metrics
+     */
+    public CalibrationReport(LocalDate from, LocalDate to, int outcomesInRange, int scoredPairs,
+            CalibrationBucket overall, List<CalibrationBucket> byDaysAhead,
+            List<CalibrationBucket> byModel, List<CalibrationBucket> bucketsByBuild,
+            List<CalibrationBucket> bucketsByPromptHash) {
+        this(from, to, outcomesInRange, scoredPairs, overall, byDaysAhead, byModel, bucketsByBuild,
+                bucketsByPromptHash, null, Map.of());
+    }
 
     /**
      * Compact constructor — defensive copies to satisfy SpotBugs EI_EXPOSE_REP.
@@ -55,11 +92,16 @@ public record CalibrationReport(
      * @param byModel         per-model metrics
      * @param bucketsByBuild  per-release metrics
      * @param bucketsByPromptHash per-prompt metrics
+     * @param mistProne       the mist-prone bucket, or null
+     * @param mistProneSeenCounts the mist-prone pairs' tags
      */
     public CalibrationReport {
         byDaysAhead = byDaysAhead == null ? List.of() : List.copyOf(byDaysAhead);
         byModel = byModel == null ? List.of() : List.copyOf(byModel);
         bucketsByBuild = bucketsByBuild == null ? List.of() : List.copyOf(bucketsByBuild);
         bucketsByPromptHash = bucketsByPromptHash == null ? List.of() : List.copyOf(bucketsByPromptHash);
+        // Order is part of the report (enum order, then UNTAGGED): Map.copyOf would randomise it per JVM.
+        mistProneSeenCounts = mistProneSeenCounts == null ? Map.of()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(mistProneSeenCounts));
     }
 }

@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.SeenTag;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CalibrationBucket;
 import com.gregochr.goldenhour.model.CalibrationPair;
@@ -118,6 +119,145 @@ class ForecastCalibrationServiceTest {
 
         assertThat(report.byDaysAhead()).extracting(CalibrationBucket::key)
                 .containsExactly("T+0", "T+2", "T+10");
+    }
+
+    // ── the mist-prone bucket (valley-mist-plan M3) ────────────────────────────────
+
+    /** A reader's-rating pair at a given forecast star, actual star, mist band and seen tag. */
+    private CalibrationPair mistPair(long userId, int predicted, int actual, String mist, SeenTag seen) {
+        return new CalibrationPair("Brathay", DATE, TargetType.SUNRISE, 0,
+                LocalDateTime.of(2026, 5, 9, 18, 0), EvaluationModel.HAIKU, predicted, null, null,
+                actual, userId, null, null, mist, seen);
+    }
+
+    @Test
+    @DisplayName("report() builds a mist-prone bucket from LIKELY pairs only, with its own missed "
+            + "opportunities - the number the valley-mist plan exists to drive to zero")
+    void report_mistProneBucketHoldsLikelyPairsOnly() {
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of());
+        when(forecastEvaluationRepository.findCalibrationPairsFromRatings(FROM, TO)).thenReturn(List.of(
+                // told to stay home (2) on a morning the reader rated 5, and tagged mist: THE miss
+                mistPair(1, 2, 5, "LIKELY", SeenTag.MIST),
+                // a LIKELY forecast that was right
+                mistPair(2, 4, 4, "LIKELY", SeenTag.MIST),
+                // a LIKELY forecast that sent someone for a dud
+                mistPair(3, 5, 1, "LIKELY", SeenTag.FLAT),
+                // the same miss shape, but the forecast carried no LIKELY band: not in the bucket
+                mistPair(4, 2, 5, "POSSIBLE", SeenTag.MIST),
+                mistPair(5, 2, 5, "NONE", SeenTag.COLOUR),
+                mistPair(6, 2, 5, null, null)));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        CalibrationReport report = service.report(FROM, TO);
+
+        assertThat(report.scoredPairs()).isEqualTo(6);
+        assertThat(report.overall().missedOpportunities()).isEqualTo(4);
+        CalibrationBucket mist = report.mistProne();
+        assertThat(mist).isNotNull();
+        assertThat(mist.key()).isEqualTo("MIST_LIKELY");
+        assertThat(mist.sampleCount()).isEqualTo(3);
+        assertThat(mist.missedOpportunities()).isEqualTo(1);
+        assertThat(mist.wastedTrips()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("report() leaves FOGBOUND out of the mist-prone bucket: a white frame is not LIKELY mist")
+    void report_fogboundIsNotMistProne() {
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of());
+        when(forecastEvaluationRepository.findCalibrationPairsFromRatings(FROM, TO))
+                .thenReturn(List.of(mistPair(1, 2, 5, "FOGBOUND", SeenTag.MIST)));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        assertThat(service.report(FROM, TO).mistProne()).isNull();
+    }
+
+    @Test
+    @DisplayName("report() builds the bucket from the DEDUPED pairs: when the newer run of a reader's "
+            + "forecast is not LIKELY, the older LIKELY run does not count")
+    void report_mistProneUsesTheNewestRunOnly() {
+        CalibrationPair older = new CalibrationPair("Brathay", DATE, TargetType.SUNRISE, 0,
+                LocalDateTime.of(2026, 5, 9, 6, 0), EvaluationModel.HAIKU, 2, null, null, 5, 1L, null,
+                null, "LIKELY", SeenTag.MIST);
+        CalibrationPair newer = new CalibrationPair("Brathay", DATE, TargetType.SUNRISE, 0,
+                LocalDateTime.of(2026, 5, 9, 18, 0), EvaluationModel.HAIKU, 4, null, null, 5, 1L, null,
+                null, "POSSIBLE", SeenTag.MIST);
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of());
+        when(forecastEvaluationRepository.findCalibrationPairsFromRatings(FROM, TO))
+                .thenReturn(List.of(older, newer));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        CalibrationReport report = service.report(FROM, TO);
+
+        assertThat(report.scoredPairs()).isEqualTo(1);
+        assertThat(report.mistProne()).isNull();
+    }
+
+    @Test
+    @DisplayName("report() keeps the seen tally in enum order, UNTAGGED last")
+    void report_seenCountsKeepTheirOrder() {
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of());
+        when(forecastEvaluationRepository.findCalibrationPairsFromRatings(FROM, TO)).thenReturn(List.of(
+                mistPair(1, 3, 3, "LIKELY", null),
+                mistPair(2, 3, 3, "LIKELY", SeenTag.FLAT),
+                mistPair(3, 3, 3, "LIKELY", SeenTag.COLOUR),
+                mistPair(4, 3, 3, "LIKELY", SeenTag.MIST)));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        assertThat(service.report(FROM, TO).mistProneSeenCounts().keySet())
+                .containsExactly("COLOUR", "MIST", "FLAT", "UNTAGGED");
+    }
+
+    @Test
+    @DisplayName("report() tallies what readers saw across the mist-prone pairs, UNTAGGED included, "
+            + "summing to the bucket's sample")
+    void report_mistProneSeenCounts() {
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of());
+        when(forecastEvaluationRepository.findCalibrationPairsFromRatings(FROM, TO)).thenReturn(List.of(
+                mistPair(1, 2, 5, "LIKELY", SeenTag.MIST),
+                mistPair(2, 4, 4, "LIKELY", SeenTag.MIST),
+                mistPair(3, 3, 3, "LIKELY", SeenTag.INVERSION),
+                mistPair(4, 3, 3, "LIKELY", null),
+                // outside the bucket: must not be counted
+                mistPair(5, 3, 3, "POSSIBLE", SeenTag.COLOUR)));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        CalibrationReport report = service.report(FROM, TO);
+
+        assertThat(report.mistProneSeenCounts()).containsExactlyInAnyOrderEntriesOf(
+                java.util.Map.of("MIST", 2, "INVERSION", 1, "UNTAGGED", 1));
+        assertThat(report.mistProneSeenCounts().values().stream().mapToInt(Integer::intValue).sum())
+                .isEqualTo(report.mistProne().sampleCount());
+    }
+
+    @Test
+    @DisplayName("report() has no mist-prone bucket, and an empty tally, when no pair carried LIKELY")
+    void report_noMistProne_isNull() {
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO))
+                .thenReturn(List.of(pair(0, LocalDateTime.of(2026, 5, 10, 1, 0), 3, 3)));
+        when(forecastEvaluationRepository.findCalibrationPairsFromRatings(FROM, TO))
+                .thenReturn(List.of(mistPair(1, 2, 5, "POSSIBLE", SeenTag.MIST)));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        CalibrationReport report = service.report(FROM, TO);
+
+        assertThat(report.mistProne()).isNull();
+        assertThat(report.mistProneSeenCounts()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("report() counts an actual_outcome pair in the mist-prone bucket as UNTAGGED - it has no tag")
+    void report_actualOutcomePairIsUntagged() {
+        CalibrationPair outcome = new CalibrationPair("Brathay", DATE, TargetType.SUNRISE, 0,
+                LocalDateTime.of(2026, 5, 9, 18, 0), EvaluationModel.HAIKU, 2, null, null, 5, null,
+                null, true, 7L, null, null, "LIKELY");
+        assertThat(outcome.seen()).isNull();
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of(outcome));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        CalibrationReport report = service.report(FROM, TO);
+
+        assertThat(report.mistProne().missedOpportunities()).isEqualTo(1);
+        assertThat(report.mistProneSeenCounts()).containsExactlyEntriesOf(java.util.Map.of("UNTAGGED", 1));
     }
 
     @Test

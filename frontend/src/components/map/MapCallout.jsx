@@ -23,7 +23,8 @@ import { appNow, getRewindTo } from '../../utils/rewind.js';
 import { isEventTimePast } from '../../utils/briefingDisplay.js';
 import { rowKey } from '../../hooks/useOutcomeRatings.js';
 import { useSlotRatings } from '../../hooks/useSlotRatings.js';
-import OutcomeRatingBlock, { ratingView } from './OutcomeRatingBlock.jsx';
+import OutcomeRatingBlock, { ratingView, showsSeenChips } from './OutcomeRatingBlock.jsx';
+import { seenLabel } from './outcomeRatingCopy.js';
 import { nextAlignedRow } from '../../utils/mapTideFit.js';
 import TideFitBlock from './TideFitBlock.jsx';
 import EclipseSpotLine from './EclipseSpotLine.jsx';
@@ -466,12 +467,17 @@ export default function MapCallout({
   const myRating = showRating ? (ratings.mine.get(ratingKey) ?? null) : null;
   const ratingSaving = showRating && ratings.saving.has(ratingKey);
   const ratingFailed = showRating && ratings.saveError.has(ratingKey);
+  const tagSaving = showRating && Boolean(ratings.tagSaving?.has(ratingKey));
+  const tagFailed = showRating && Boolean(ratings.tagSaveError?.has(ratingKey));
   // The layout the block is in, for the repaint below: unrated/saving/changing/failed grids and the
-  // done row differ in height, and a failed save adds a line.
+  // done row differ in height, a failed save adds a line, and the "what did you see" chip row (which
+  // wraps to two lines on a phone) comes and goes with the layout.
+  const ratingState = {
+    userRole, mine: myRating, changing, saving: ratingSaving, saveError: ratingFailed,
+  };
   const ratingLayout = showRating
-    ? `${ratingView({
-      userRole, mine: myRating, changing, saving: ratingSaving, saveError: ratingFailed,
-    })}${ratingFailed ? '!' : ''}`
+    ? `${ratingView(ratingState)}${ratingFailed ? '!' : ''}${tagFailed ? '~' : ''}`
+      + `${showsSeenChips(ratingState) ? '+' : ''}`
     : null;
 
   // The Admin's "All ratings" list (O5a, plan §2 #7). Its rows and `loading` are HOISTED here, above the
@@ -488,7 +494,7 @@ export default function MapCallout({
   });
   // One string naming everything about the box that changes the card's height.
   const adminLayout = isAdmin && showRating
-    ? `${adminOpen ? 'o' : 'c'}${slotRatings.loading ? 'l' : ''}${slotRatings.failed ? 'f' : ''}:${slotRatings.rows?.length ?? '-'}`
+    ? `${adminOpen ? 'o' : 'c'}${slotRatings.loading ? 'l' : ''}${slotRatings.failed ? 'f' : ''}:${slotRatings.rows?.length ?? '-'}:${(slotRatings.rows ?? []).filter((r) => seenLabel(r.seen)).length}`
     : null;
 
   // Repaint on anything that is not a map event but can change the anchor point or the card's own
@@ -1105,6 +1111,13 @@ export default function MapCallout({
             userRole={userRole}
             saving={ratingSaving}
             saveError={ratingFailed}
+            tagSaving={tagSaving}
+            tagSaveError={tagFailed}
+            onTag={async (tag) => {
+              const ok = await ratings.rateTag(location.id, event.date, event.eventType, tag);
+              if (ok && isAdmin) slotRatings.refetch(ratingKey);
+              return ok;
+            }}
             changing={changing}
             onChangingChange={setChanging}
             onRate={async (value) => {

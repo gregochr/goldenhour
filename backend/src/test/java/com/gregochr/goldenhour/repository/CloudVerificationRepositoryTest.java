@@ -168,6 +168,27 @@ class CloudVerificationRepositoryTest {
     }
 
     @Test
+    @DisplayName("V187: deleteIncompleteVerifications keeps a row with no observer temperature or dew "
+            + "point - the saturation proxy is recorded, never required, so no history is re-walked")
+    void deleteIncompleteVerifications_keepsRowWithoutTheSaturationProxy() {
+        ForecastEvaluationEntity bare = evaluationRepository.save(evaluation(DATE, 30, true));
+        ForecastEvaluationEntity withProxy = evaluationRepository.save(evaluation(DATE.minusDays(1), 40, true));
+        CloudVerificationEntity noProxy = verification(bare.getId(), 80, 55, 40);
+        assertThat(noProxy.getObserverTempC()).isNull();
+        assertThat(noProxy.getObserverDewPointC()).isNull();
+        repository.save(noProxy);
+        CloudVerificationEntity proxy = verification(withProxy.getId(), 80, 55, 40);
+        proxy.setObserverTempC(7.4);
+        proxy.setObserverDewPointC(6.9);
+        repository.save(proxy);
+
+        assertThat(repository.deleteIncompleteVerifications()).isZero();
+        assertThat(repository.findUnverified(DATE.plusDays(1), Limit.of(10))).isEmpty();
+        assertThat(repository.findAll()).extracting(CloudVerificationEntity::getObserverTempC)
+                .containsExactlyInAnyOrder(null, 7.4);
+    }
+
+    @Test
     @DisplayName("findVerifiedPairs projects both cloud claims and both veto triggers")
     void findVerifiedPairs_projectsClaimsAndTriggers() {
         ForecastEvaluationEntity evaluation = evaluationRepository.save(evaluation(DATE, 30, true));

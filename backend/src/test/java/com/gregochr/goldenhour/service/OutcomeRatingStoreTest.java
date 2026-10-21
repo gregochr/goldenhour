@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.entity.OutcomeRatingEntity;
+import com.gregochr.goldenhour.entity.SeenTag;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.OutcomeRatingRepository;
 import com.gregochr.goldenhour.service.OutcomeRatingStore.RatedRun;
@@ -107,6 +108,42 @@ class OutcomeRatingStoreTest {
     }
 
     @Test
+    @DisplayName("V187: a first rating stores its seen tag; a rating without one stores NULL")
+    void firstRating_storesTheSeenTag() {
+        store().upsert(USER, LOCATION, DAY, TargetType.SUNRISE, 4, SeenTag.MIST, EVENT, RUN, T1);
+        store().upsert(USER, LOCATION, DAY, TargetType.SUNSET, 3, EVENT, RUN, T1);
+
+        assertThat(repository.findAll()).extracting(OutcomeRatingEntity::getEventType,
+                OutcomeRatingEntity::getSeen).containsExactlyInAnyOrder(
+                org.assertj.core.api.Assertions.tuple(TargetType.SUNRISE, SeenTag.MIST),
+                org.assertj.core.api.Assertions.tuple(TargetType.SUNSET, null));
+    }
+
+    @Test
+    @DisplayName("V187: a re-rate writes the tag it is given - replacing one, or clearing it with null")
+    void reRate_writesTheGivenTag() {
+        store().upsert(USER, LOCATION, DAY, TargetType.SUNRISE, 4, SeenTag.MIST, EVENT, RUN, T1);
+
+        store().upsert(USER, LOCATION, DAY, TargetType.SUNRISE, 4, SeenTag.INVERSION, EVENT, RUN, T2);
+        assertThat(repository.findAll().getFirst().getSeen()).isEqualTo(SeenTag.INVERSION);
+
+        store().upsert(USER, LOCATION, DAY, TargetType.SUNRISE, 4, null, EVENT, RUN, T2);
+        assertThat(repository.findAll().getFirst().getSeen()).isNull();
+        assertThat(repository.count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("V187: 'didn't see it' stores NOT_SEEN with no star")
+    void notSeen_storesNotSeen() {
+        store().upsert(USER, LOCATION, DAY, TargetType.SUNRISE, null, SeenTag.NOT_SEEN, EVENT,
+                RatedRun.NONE, T1);
+
+        OutcomeRatingEntity row = repository.findAll().getFirst();
+        assertThat(row.getRating()).isNull();
+        assertThat(row.getSeen()).isEqualTo(SeenTag.NOT_SEEN);
+    }
+
+    @Test
     @DisplayName("a second rating replaces the first in place: one row, every changeable column new, "
             + "created_at kept")
     void secondRating_replacesInPlace() {
@@ -175,13 +212,13 @@ class OutcomeRatingStoreTest {
                 .thenReturn(false);
         DataIntegrityViolationException fk = new DataIntegrityViolationException("foreign key");
         when(mocked.insertRow(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any())).thenThrow(fk);
+                any(), any(), any(), any())).thenThrow(fk);
 
         assertThatThrownBy(() -> new OutcomeRatingStore(mocked, new AppBuild(BUILD))
                 .upsert(USER, LOCATION, DAY, TargetType.SUNRISE, 3, EVENT, RUN, T1))
                 .isSameAs(fk);
         verify(mocked, never()).updateRow(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any(), any());
+                any(), any(), any(), any(), any());
     }
 
     @Test
@@ -191,15 +228,15 @@ class OutcomeRatingStoreTest {
         when(mocked.existsByUserIdAndLocationIdAndEventDateAndEventType(anyLong(), anyLong(), any(), any()))
                 .thenReturn(false, true);
         when(mocked.insertRow(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any())).thenThrow(new DataIntegrityViolationException("uq_outcome_rating_slot"));
+                any(), any(), any(), any())).thenThrow(new DataIntegrityViolationException("uq_outcome_rating_slot"));
         when(mocked.updateRow(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any())).thenReturn(1);
+                any(), any(), any(), any())).thenReturn(1);
 
         new OutcomeRatingStore(mocked, new AppBuild(BUILD))
                 .upsert(USER, LOCATION, DAY, TargetType.SUNRISE, 3, EVENT, RUN, T1);
 
         verify(mocked, times(1)).updateRow(USER, LOCATION, DAY, TargetType.SUNRISE, 3, EVENT, 7L, RUN_AT,
-                99L, 4, BUILD, T1);
+                99L, 4, BUILD, T1, null);
     }
 
     @Test
@@ -209,7 +246,7 @@ class OutcomeRatingStoreTest {
         when(mocked.existsByUserIdAndLocationIdAndEventDateAndEventType(anyLong(), anyLong(), any(), any()))
                 .thenReturn(true);
         when(mocked.updateRow(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any())).thenReturn(0);
+                any(), any(), any(), any())).thenReturn(0);
 
         assertThatThrownBy(() -> new OutcomeRatingStore(mocked, new AppBuild(BUILD))
                 .upsert(USER, LOCATION, DAY, TargetType.SUNRISE, 3, EVENT, RUN, T1))

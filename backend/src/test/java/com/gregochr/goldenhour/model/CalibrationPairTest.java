@@ -61,4 +61,35 @@ class CalibrationPairTest {
                 RUN.plusHours(12), EvaluationModel.HAIKU, 5, null, null, 4, 11L, null, null);
         assertThat(laterRun.slotHorizonKey()).isEqualTo(rating(11L).slotHorizonKey());
     }
+
+    @Test
+    @DisplayName("V187: mistLikely is true for the LIKELY band only - not POSSIBLE, NONE, FOGBOUND or null")
+    void mistLikely_isTheLikelyBandOnly() {
+        for (String band : new String[] {"POSSIBLE", "NONE", "FOGBOUND", "likely", null}) {
+            assertThat(withMist(band).mistLikely()).as("band %s", band).isFalse();
+        }
+        assertThat(withMist("LIKELY").mistLikely()).isTrue();
+    }
+
+    @Test
+    @DisplayName("V187: the two projection shapes carry the band, and only the rating one a tag")
+    void projectionConstructors_carryBandAndTag() {
+        CalibrationPair fromRating = new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1, RUN,
+                EvaluationModel.HAIKU, 3, 50, 60, 4, 11L, null, null, "LIKELY",
+                com.gregochr.goldenhour.entity.SeenTag.MIST);
+        CalibrationPair fromOutcome = new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1, RUN,
+                EvaluationModel.HAIKU, 3, 50, 60, 4, 70, 80, true, 9L, null, null, "LIKELY");
+
+        assertThat(fromRating.mistPotential()).isEqualTo("LIKELY");
+        assertThat(fromRating.seen()).isEqualTo(com.gregochr.goldenhour.entity.SeenTag.MIST);
+        assertThat(fromRating.outcomeKey()).isEqualTo("rating:11");
+        assertThat(fromOutcome.mistPotential()).isEqualTo("LIKELY");
+        assertThat(fromOutcome.seen()).isNull();
+        assertThat(fromOutcome.outcomeKey()).isEqualTo("outcome:9");
+    }
+
+    private CalibrationPair withMist(String band) {
+        return new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1, RUN, EvaluationModel.HAIKU,
+                3, null, null, 4, 11L, null, null, band, null);
+    }
 }

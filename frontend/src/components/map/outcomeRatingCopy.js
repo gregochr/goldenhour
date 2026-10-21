@@ -94,6 +94,34 @@ export function spokenRating(n) {
   return `${n} out of 5`;
 }
 
+// ── The "what did you see" chips: strings this series introduced (valley-mist-plan M3) ───────────
+
+/**
+ * Plan-introduced: the optional tag row under the stars. Not in the design bundle (the chips are the
+ * valley-mist plan's, owner decision Q4), so these are the plan's words, kept neutral like the
+ * spec's: the tag says what the morning was, never whether the forecast was right.
+ */
+export const SEEN_GROUP_LABEL = 'What did you see?';
+/** The chips, in order. `NOT_SEEN` is deliberately absent: "Didn't see it" is its own button. */
+export const SEEN_TAGS = [
+  { tag: 'COLOUR', label: 'Colour' },
+  { tag: 'MIST', label: 'Mist' },
+  { tag: 'INVERSION', label: 'Inversion' },
+  { tag: 'FLAT', label: 'Flat' },
+];
+export const TAG_SAVE_FAILED = 'Tag not saved. Tap it again.';
+
+/**
+ * A tag's display word, or null for an absent tag and for `NOT_SEEN` (the admin list already says
+ * "Not seen" in the rating's place, and the reader's own row says "You marked this not seen").
+ *
+ * @param {?string} tag
+ * @returns {?string}
+ */
+export function seenLabel(tag) {
+  return SEEN_TAGS.find((t) => t.tag === tag)?.label ?? null;
+}
+
 // ── The admin list: the spec's strings (README §3, the Admin row) ───────────────────────────────
 
 export const ADMIN_EMPTY = 'No ratings yet.';

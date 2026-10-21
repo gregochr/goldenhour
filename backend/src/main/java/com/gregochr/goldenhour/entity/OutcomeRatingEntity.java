@@ -89,6 +89,14 @@ public class OutcomeRatingEntity {
     @Column(name = "forecast_rating", updatable = false)
     private Integer forecastRating;
 
+    /**
+     * What the reader says they saw (V187), or {@code null} when they said nothing - every row written
+     * before the column existed, and any rating made without a tag. Independent of the star.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "seen", length = 10, updatable = false)
+    private SeenTag seen;
+
     /** The release ({@code APP_VERSION}, V182) running when the rating was last written, or null. */
     @Column(name = "app_build", length = 40, updatable = false)
     private String appBuild;

@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.model;
 
+import com.gregochr.goldenhour.entity.SeenTag;
+
 import java.time.Instant;
 
 /**
@@ -13,6 +15,7 @@ import java.time.Instant;
  * @param eventTime     the solar event instant stored with the rating
  * @param forecastRunAt the served forecast's submission instant stored with the rating, or null
  * @param pipelineRunId the cycle stored with the rating, or null
+ * @param seen          what the reader says they saw, or null
  */
 public record SlotRatingRow(
         Long userId,
@@ -21,6 +24,7 @@ public record SlotRatingRow(
         Instant updatedAt,
         Instant eventTime,
         Instant forecastRunAt,
-        Long pipelineRunId
+        Long pipelineRunId,
+        SeenTag seen
 ) {
 }

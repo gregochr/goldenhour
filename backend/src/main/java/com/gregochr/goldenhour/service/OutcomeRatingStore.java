@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.config.AppBuild;
+import com.gregochr.goldenhour.entity.SeenTag;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.OutcomeRatingRepository;
 import org.slf4j.Logger;
@@ -67,7 +68,7 @@ public class OutcomeRatingStore {
     }
 
     /**
-     * Records a rating, replacing the user's earlier one for the slot.
+     * Records a rating with no tag, replacing the user's earlier one for the slot (and its tag).
      *
      * @param userId     the rating user
      * @param locationId the location
@@ -77,17 +78,40 @@ public class OutcomeRatingStore {
      * @param eventTime  the solar event instant for this location
      * @param run        the forecast the rating is recorded against ({@link RatedRun#NONE} for none)
      * @param now        stamped as {@code updated_at} (and {@code created_at} on a first rating)
+     * @see #upsert(long, long, LocalDate, TargetType, Integer, SeenTag, Instant, RatedRun, Instant)
+     */
+    public void upsert(long userId, long locationId, LocalDate date, TargetType type, Integer rating,
+            Instant eventTime, RatedRun run, Instant now) {
+        upsert(userId, locationId, date, type, rating, null, eventTime, run, now);
+    }
+
+    /**
+     * Records a rating, replacing the user's earlier one for the slot.
+     *
+     * <p>{@code seen} is written as given - null clears the stored tag. Whether an earlier tag is kept
+     * is the caller's decision ({@code OutcomeRatingService}), made against the row it already read.
+     *
+     * @param userId     the rating user
+     * @param locationId the location
+     * @param date       the event date
+     * @param type       SUNRISE or SUNSET
+     * @param rating     1–5, or null for "didn't see it"
+     * @param seen       what the reader says they saw, or null for no tag
+     * @param eventTime  the solar event instant for this location
+     * @param run        the forecast the rating is recorded against ({@link RatedRun#NONE} for none)
+     * @param now        stamped as {@code updated_at} (and {@code created_at} on a first rating)
      * @throws DataIntegrityViolationException when an insert fails and the row still does not exist
      *         (the user or location is gone: a foreign-key violation, not a lost race)
      * @throws IllegalStateException when the row vanished between the check and the update
      */
     public void upsert(long userId, long locationId, LocalDate date, TargetType type, Integer rating,
-            Instant eventTime, RatedRun run, Instant now) {
+            SeenTag seen, Instant eventTime, RatedRun run, Instant now) {
         if (!repository.existsByUserIdAndLocationIdAndEventDateAndEventType(userId, locationId, date, type)) {
             try {
                 repository.insertRow(userId, locationId, date, type.name(), rating, eventTime,
                         run.pipelineRunId(), run.forecastRunAt(), run.forecastEvaluationId(),
-                        run.forecastRating(), appBuild.value(), now);
+                        run.forecastRating(), appBuild.value(), now,
+                        seen == null ? null : seen.name());
                 return;
             } catch (DataIntegrityViolationException e) {
                 if (!repository.existsByUserIdAndLocationIdAndEventDateAndEventType(
@@ -100,7 +124,7 @@ public class OutcomeRatingStore {
         }
         int updated = repository.updateRow(userId, locationId, date, type, rating, eventTime,
                 run.pipelineRunId(), run.forecastRunAt(), run.forecastEvaluationId(),
-                run.forecastRating(), appBuild.value(), now);
+                run.forecastRating(), appBuild.value(), now, seen);
         if (updated != 1) {
             throw new IllegalStateException("Could not store user " + userId + "'s rating of location "
                     + locationId + " " + date + " " + type);

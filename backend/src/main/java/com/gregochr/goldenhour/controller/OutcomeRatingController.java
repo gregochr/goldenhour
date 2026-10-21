@@ -81,7 +81,10 @@ public class OutcomeRatingController {
      * PRO_USER and ADMIN only: a LITE account is refused server-side. PUT because the call is
      * idempotent and replaces.
      *
-     * @param request the slot and rating; an absent or null {@code rating} means "didn't see it"
+     * @param request the slot and rating; an absent or null {@code rating} means "didn't see it". The
+     *                optional {@code seen} tag: absent keeps the earlier tag, an explicit null clears
+     *                it, a tag sets it (400 for {@code NOT_SEEN} beside a star, or a sighting beside
+     *                "didn't see it")
      * @param auth    the current authentication
      * @return the stored rating
      */
@@ -89,7 +92,7 @@ public class OutcomeRatingController {
     @PreAuthorize("hasAnyRole('ADMIN', 'PRO_USER')")
     public OutcomeRatingDto putRating(@RequestBody OutcomeRatingRequest request, Authentication auth) {
         return service.rate(auth.getName(), request.locationId(), request.eventDate(),
-                request.eventType(), request.rating());
+                request.eventType(), request.rating(), request.seen());
     }
 
     /**

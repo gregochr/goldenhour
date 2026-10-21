@@ -268,6 +268,82 @@ class CloudVerificationServiceTest {
     }
 
     @Test
+    @DisplayName("V187: backfill records the observer's temperature and dew point at the event hour, "
+            + "from the OBSERVER point and not the cone or far point")
+    void backfill_recordsObserverSaturationProxy() {
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        OpenMeteoForecastResponse observer = archive();
+        // Sunset 21:37 -> event slot 21:00 (index 1). The neighbouring hours differ so an off-by-one
+        // read cannot pass; the cone and far archives carry their own values so a read from the wrong
+        // point cannot either.
+        observer.getHourly().setTemperature2m(List.of(9.0, 7.4, 6.0));
+        observer.getHourly().setDewPoint2m(List.of(5.0, 6.9, 5.5));
+        OpenMeteoForecastResponse cone = archive(60);
+        cone.getHourly().setTemperature2m(List.of(1.0, 1.1, 1.2));
+        cone.getHourly().setDewPoint2m(List.of(0.0, 0.1, 0.2));
+        OpenMeteoForecastResponse far = farArchive(20);
+        far.getHourly().setTemperature2m(List.of(2.0, 2.1, 2.2));
+        far.getHourly().setDewPoint2m(List.of(0.5, 0.6, 0.7));
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(cone, cone, cone, observer, far));
+
+        service.backfill(10);
+
+        CloudVerificationEntity row = savedRow();
+        assertThat(row.getObserverTempC()).isEqualTo(7.4);
+        assertThat(row.getObserverDewPointC()).isEqualTo(6.9);
+    }
+
+    @Test
+    @DisplayName("V187: an observer archive without temperature or dew point records null for both and "
+            + "still writes the row - recorded, never required")
+    void backfill_missingSaturationProxy_recordsNullAndKeepsTheRow() {
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), archive(20)));
+
+        assertThat(service.backfill(10).rowsWritten()).isEqualTo(1);
+
+        CloudVerificationEntity row = savedRow();
+        assertThat(row.getObserverTempC()).isNull();
+        assertThat(row.getObserverDewPointC()).isNull();
+        assertThat(row.getObserverMidCloud()).isEqualTo(55);
+    }
+
+    @Test
+    @DisplayName("V187: a series shorter than the event hour records null rather than throwing")
+    void backfill_shortSaturationSeries_recordsNull() {
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        OpenMeteoForecastResponse observer = archive();
+        observer.getHourly().setTemperature2m(List.of(9.0));
+        observer.getHourly().setDewPoint2m(List.of());
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(archive(60), archive(85), archive(95), observer, archive(20)));
+
+        service.backfill(10);
+
+        assertThat(savedRow().getObserverTempC()).isNull();
+        assertThat(savedRow().getObserverDewPointC()).isNull();
+    }
+
+    @Test
+    @DisplayName("V187: the archive request carries temperature_2m and dew_point_2m beside the three "
+            + "cloud layers, and never a pressure-level variable")
+    void backfill_requestsTheSaturationVariables() {
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(archive(), archive(), archive(), archive(), archive()));
+
+        service.backfill(10);
+
+        ArgumentCaptor<String> hourly = ArgumentCaptor.forClass(String.class);
+        verify(archiveClient).fetchArchiveBatch(any(), any(), hourly.capture());
+        assertThat(hourly.getValue().split(","))
+                .containsExactlyInAnyOrder("cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
+                        "temperature_2m", "dew_point_2m");
+    }
+
+    @Test
     @DisplayName("backfill batches one request per date, five points per candidate, in order")
     void backfill_batchesByDateWithConeObserverThenFar() {
         VerificationCandidate first = candidate();

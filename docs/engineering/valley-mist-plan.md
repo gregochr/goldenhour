@@ -5,7 +5,9 @@
 bullets and the writer). **M1b built** (2026-10-21): the hot topic, Coming up condition, `MIST_CALC`
 daily log and the two wording fixes (§3 M1, last five bullets). **M2 built** (2026-10-21): the triage
 exemption, the prompt block, Claude's echo (V186) and `effectiveMistPotential()` (§3 M2, with the
-amendments marked *as built*). M3 is not built.
+amendments marked *as built*). **M3 built** (2026-10-21): the `seen` tag, the ERA5 saturation proxy and
+the mist-prone calibration bucket (V187, §3 M3, with the amendments marked *as built*). What is left is the
+rarity census, which waits on a year of `MIST_CALC`, and the saturation report.
 **Prompted by:** a River Brathay sunrise on 17 Oct 2026 — thick radiation mist on the river under a clear
 sky, low sun through it — that the pipeline would have stood down before Claude saw it, and that no surface
 would have named the night before. The owner's words: "Shame we missed this."
@@ -291,6 +293,22 @@ says why, and `skyRating` keeps its meaning (Claude's rating before the tide ave
 Claude's judgement, as the inversion already is).
 
 ### M3 — Close the loop (verification; recorded, then reported)
+
+**As built (2026-10-21, V187).** Departures from the bullets below, each deliberate:
+
+- **`seen` is three-state on the wire.** Absent keeps the earlier tag, an explicit `"seen": null` clears
+  it, a name sets it (`SeenChoice` and a deserialiser that overrides `getAbsentValue`). A kept tag the new
+  rating contradicts (`NOT_SEEN` beside a new star, a sighting beside "didn't see it") is dropped. Two
+  400s: `NOT_SEEN` with a star, a sighting with "didn't see it". V187 also CHECKs the pairing.
+- **"Didn't see it" sends `NOT_SEEN`**, so the record says so in its own words; there is no NOT_SEEN chip.
+- **A tag save has its own in-flight and failed sets** in `useOutcomeRatings`, so the block stays in its
+  "You rated" layout while a tag saves; a failed one rolls back the tag alone.
+- **The Lite lock shows the chips dimmed** rather than hiding them, so a Lite reader sees what Pro offers.
+- **The saturation proxy needed no new Open-Meteo call**: the archive request already goes out for the
+  observer point, and two more hourly variables stay inside one weight unit.
+- **The mist-prone bucket selects `mist_potential == LIKELY` only** (the Claude echo on the forecast
+  row), is a subset of `overall`, and is `null` when the window holds none; `mistProneSeenCounts` sits
+  beside it with an `UNTAGGED` key. No admin screen renders the calibration report, so there is no UI row.
 
 - **The outcome rating learns what was seen** (owner decision Q4): an optional `seen` tag on
   `PUT /api/outcome/ratings` — `COLOUR | MIST | INVERSION | FLAT | NOT_SEEN` — one chip row under the stars

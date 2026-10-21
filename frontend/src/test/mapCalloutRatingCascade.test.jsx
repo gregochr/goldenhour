@@ -218,7 +218,7 @@ describe('the rating block — saving, selected and locked', () => {
 describe('the rating block — high contrast and ink', () => {
   it('marks the selected choice under forced-colors with a system colour and a heavier border', () => {
     const forced = css().slice(css().indexOf('@media (forced-colors: active) {\n  .wf-rate-star[data-selected]'));
-    expect(forced).toMatch(/\.wf-rate-star\[data-selected\],\s*\.wf-rate-ns\[data-selected\]\s*\{[^}]*border-color:\s*Highlight/);
+    expect(forced).toMatch(/\.wf-rate-star\[data-selected\],\s*\.wf-rate-ns\[data-selected\],\s*\.wf-seen-chip\[aria-pressed='true'\]\s*\{[^}]*border-color:\s*Highlight/);
     expect(forced).toMatch(/border-width:\s*3px/);
   });
 
@@ -298,5 +298,42 @@ describe('the rating block — focus', () => {
       expect(declared(selector, 'outline')).toBe('2px solid var(--color-plex-gold)');
       expect(declared(selector, 'outline-offset')).toBe('-2px');
     }
+  });
+});
+
+describe('the "what did you see" chips (valley-mist-plan M3)', () => {
+  it('wraps: four chips do not fit one line at the phone card\'s 238px, so the row must flow, not overflow', () => {
+    // jsdom lays nothing out, so the 320px no-overflow property is pinned as its CAUSE: a wrapping flex
+    // row whose chips may grow to fill a line but never force it wider than the card.
+    expect(declared('.wf-seen', 'display')).toBe('flex');
+    expect(declared('.wf-seen', 'flex-wrap')).toBe('wrap');
+    expect(declared('.wf-seen-chip', 'flex')).toBe('1 1 auto');
+    expect(declared('.wf-seen', 'white-space')).toBeNull();
+  });
+
+  it('keeps a tap target taller than the WCAG 2.2 minimum of 24px', () => {
+    expect(declared('.wf-seen-chip', 'min-height')).toBe('36px');
+  });
+
+  it('marks the pressed chip with the star control\'s selected treatment, from aria-pressed alone', () => {
+    expect(declared(".wf-seen-chip[aria-pressed='true']", 'border-color')).toBe('var(--color-star)');
+    expect(declared(".wf-seen-chip[aria-pressed='true']", 'background')).toBe('var(--color-star-selected-bg)');
+  });
+
+  it('dims a saving row to .55 and a locked one to .45, and never locks with pointer-events: none', () => {
+    expect(declared('.wf-seen.is-saving', 'opacity')).toBe('0.55');
+    expect(declared('.wf-seen.is-locked', 'opacity')).toBe('0.45');
+    for (const selector of ['.wf-seen', '.wf-seen.is-locked', '.wf-seen-chip']) {
+      for (const body of bodies(selector)) {
+        expect(body).not.toMatch(/pointer-events\s*:\s*none/);
+        expect(body).not.toMatch(/cursor\s*:\s*not-allowed/);
+      }
+    }
+  });
+
+  it('gives a chip the block\'s inset focus ring', () => {
+    const rings = bodies('.wf-seen-chip:focus-visible');
+    expect(rings.length).toBeGreaterThan(0);
+    expect(rings[0]).toMatch(/outline-offset:\s*-2px/);
   });
 });

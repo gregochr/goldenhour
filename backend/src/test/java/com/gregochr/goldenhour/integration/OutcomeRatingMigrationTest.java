@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.integration;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
+import com.gregochr.goldenhour.entity.SeenTag;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
@@ -28,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Proves V177 and V178 against a real Postgres (Flyway runs every migration in
+ * Proves V177, V178 and V187 against a real Postgres (Flyway runs every migration in
  * {@link IntegrationTestBase}): the {@code outcome_rating} columns, types and nullability; the unique
  * slot key and both CHECK constraints; the user cascade, the location foreign key and the
  * {@code forecast_evaluation_id} SET NULL; the nullable {@code forecast_evaluation.scored_at}; and the
@@ -105,13 +106,13 @@ class OutcomeRatingMigrationTest extends IntegrationTestBase {
         assertThat(columns).extracting(c -> c.get("column_name")).containsExactly("app_build",
                 "created_at", "event_date", "event_time", "event_type", "forecast_evaluation_id",
                 "forecast_rating", "forecast_run_at", "id", "location_id", "pipeline_run_id", "rating",
-                "updated_at", "user_id");
+                "seen", "updated_at", "user_id");
         for (String notNull : List.of("user_id", "location_id", "event_date", "event_type", "event_time",
                 "created_at", "updated_at")) {
             assertThat(column(columns, notNull)).as(notNull).containsEntry("is_nullable", "NO");
         }
         for (String nullable : List.of("rating", "pipeline_run_id", "forecast_run_at",
-                "forecast_evaluation_id", "forecast_rating", "app_build")) {
+                "forecast_evaluation_id", "forecast_rating", "app_build", "seen")) {
             assertThat(column(columns, nullable)).as(nullable).containsEntry("is_nullable", "YES");
         }
         assertThat(column(columns, "event_time")).containsEntry("data_type", "timestamp with time zone");
@@ -136,22 +137,96 @@ class OutcomeRatingMigrationTest extends IntegrationTestBase {
     }
 
     @Test
+    @DisplayName("V187: seen is a nullable varchar(10), NULL on a rating written without one, and the REAL "
+            + "store writes, replaces and clears it on Postgres")
+    void seenColumn_roundTripsThroughTheStore() {
+        List<Map<String, Object>> columns = jdbc.queryForList(
+                "SELECT data_type, is_nullable, character_maximum_length FROM information_schema.columns "
+                        + "WHERE table_name = 'outcome_rating' AND column_name = 'seen'");
+        assertThat(columns).hasSize(1);
+        assertThat(columns.getFirst()).containsEntry("data_type", "character varying")
+                .containsEntry("is_nullable", "YES").containsEntry("character_maximum_length", 10);
+
+        long user = newUser("seen-user");
+        long location = newLocation("V187 Tarn");
+        store.upsert(user, location, DAY, TargetType.SUNRISE, 4, EVENT, RatedRun.NONE, NOW);
+        assertThat(seenOf(user, location)).as("a rating with no tag").isNull();
+
+        store.upsert(user, location, DAY, TargetType.SUNRISE, 4, SeenTag.MIST, EVENT, RatedRun.NONE, NOW);
+        assertThat(seenOf(user, location)).isEqualTo("MIST");
+
+        store.upsert(user, location, DAY, TargetType.SUNRISE, null, SeenTag.NOT_SEEN, EVENT,
+                RatedRun.NONE, NOW);
+        assertThat(seenOf(user, location)).isEqualTo("NOT_SEEN");
+
+        store.upsert(user, location, DAY, TargetType.SUNRISE, 3, null, EVENT, RatedRun.NONE, NOW);
+        assertThat(seenOf(user, location)).as("cleared").isNull();
+    }
+
+    private String seenOf(long user, long location) {
+        return jdbc.queryForObject("SELECT seen FROM outcome_rating WHERE user_id = ? AND location_id = ?",
+                String.class, user, location);
+    }
+
+    @Test
+    @DisplayName("V187: the CHECKs refuse an unknown tag, NOT_SEEN beside a star, and a sighting beside "
+            + "'didn't see it' - and allow every legal pairing")
+    void seenChecks() {
+        long user = newUser("seen-check");
+        long location = newLocation("V187 Check Tarn");
+
+        ratings.insertRow(user, location, DAY, "SUNRISE", 4, EVENT, null, null, null, null, null, NOW,
+                "COLOUR");
+        ratings.insertRow(user, location, DAY.minusDays(1), "SUNRISE", 2, EVENT, null, null, null, null,
+                null, NOW, "FLAT");
+        ratings.insertRow(user, location, DAY.minusDays(2), "SUNRISE", null, EVENT, null, null, null, null,
+                null, NOW, "NOT_SEEN");
+        ratings.insertRow(user, location, DAY.minusDays(3), "SUNRISE", null, EVENT, null, null, null, null,
+                null, NOW, null);
+
+        assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "SUNSET", 3, EVENT, null, null, null,
+                null, null, NOW, "FOG")).isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_outcome_rating_seen");
+        assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "SUNSET", 3, EVENT, null, null, null,
+                null, null, NOW, "NOT_SEEN")).isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_outcome_rating_seen_pairs_rating");
+        assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "SUNSET", null, EVENT, null, null,
+                null, null, null, NOW, "MIST")).isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_outcome_rating_seen_pairs_rating");
+    }
+
+    @Test
+    @DisplayName("V187: cloud_verification gains observer_temp_c and observer_dew_point_c as nullable "
+            + "double precision, with no backfill and no NOT NULL")
+    void cloudVerificationSaturationProxyColumns() {
+        List<Map<String, Object>> columns = jdbc.queryForList(
+                "SELECT column_name, data_type, is_nullable FROM information_schema.columns "
+                        + "WHERE table_name = 'cloud_verification' "
+                        + "AND column_name IN ('observer_temp_c', 'observer_dew_point_c') ORDER BY column_name");
+
+        assertThat(columns).hasSize(2);
+        for (Map<String, Object> c : columns) {
+            assertThat(c).containsEntry("data_type", "double precision").containsEntry("is_nullable", "YES");
+        }
+    }
+
+    @Test
     @DisplayName("(user, location, date, type) is unique; another user, location, date or type is not")
     void uniquePerSlot() {
         long user = newUser("rating-unique");
         long other = newUser("rating-unique-other");
         long location = newLocation("V177 Unique Hill");
         ratings.insertRow(user, location, DAY, "SUNRISE", 4, EVENT,
-                null, null, null, null, null, NOW);
+                null, null, null, null, null, NOW, null);
 
         assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "SUNRISE", 2, EVENT,
-                null, null, null, null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
+                null, null, null, null, null, NOW, null)).isInstanceOf(DataIntegrityViolationException.class);
         ratings.insertRow(other, location, DAY, "SUNRISE", 2, EVENT,
-                null, null, null, null, null, NOW);
+                null, null, null, null, null, NOW, null);
         ratings.insertRow(user, location, DAY, "SUNSET", 2, EVENT,
-                null, null, null, null, null, NOW);
+                null, null, null, null, null, NOW, null);
         ratings.insertRow(user, location, DAY.minusDays(1), "SUNRISE", 2, EVENT,
-                null, null, null, null, null, NOW);
+                null, null, null, null, null, NOW, null);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM outcome_rating", Integer.class)).isEqualTo(4);
     }
 
@@ -162,18 +237,18 @@ class OutcomeRatingMigrationTest extends IntegrationTestBase {
         long location = newLocation("V177 Check Hill");
 
         assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "SUNRISE", 0, EVENT,
-                null, null, null, null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
+                null, null, null, null, null, NOW, null)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "SUNRISE", 6, EVENT,
-                null, null, null, null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
+                null, null, null, null, null, NOW, null)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "HOURLY", 3, EVENT,
-                null, null, null, null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
+                null, null, null, null, null, NOW, null)).isInstanceOf(DataIntegrityViolationException.class);
 
         ratings.insertRow(user, location, DAY, "SUNRISE", null, EVENT,
-                null, null, null, null, null, NOW);
+                null, null, null, null, null, NOW, null);
         ratings.insertRow(user, location, DAY, "SUNSET", 1, EVENT,
-                null, null, null, null, null, NOW);
+                null, null, null, null, null, NOW, null);
         ratings.insertRow(user, location, DAY.minusDays(1), "SUNRISE", 5, EVENT,
-                null, null, null, null, null, NOW);
+                null, null, null, null, null, NOW, null);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM outcome_rating WHERE rating IS NULL", Integer.class))
                 .isEqualTo(1);
     }
@@ -185,9 +260,9 @@ class OutcomeRatingMigrationTest extends IntegrationTestBase {
         long location = newLocation("V177 FK Hill");
 
         assertThatThrownBy(() -> ratings.insertRow(987_654_321L, location, DAY, "SUNRISE", 3, EVENT,
-                null, null, null, null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
+                null, null, null, null, null, NOW, null)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> ratings.insertRow(user, 987_654_321L, DAY, "SUNRISE", 3, EVENT,
-                null, null, null, null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
+                null, null, null, null, null, NOW, null)).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
