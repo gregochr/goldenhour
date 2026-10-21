@@ -123,11 +123,14 @@ the result is in the findings below and it killed M4.
 | Stood down `LOW_VISIBILITY` | 1,266 | 221 |
 | Haze-band (5–10 km) mist signature the prompt actually saw | 32 | 5 |
 
-- **M0 §1 — the refused population is real.** In the top 60 sites alone, 145 of the refused sunrise
-  mornings carried the photographable signature (observer low cloud < 30%, wind ≤ 3 m/s, gap < 2 °C);
-  mean gap 0.1–0.3 °C, mean visibility ~3 km. Extrapolated over all 1,266, roughly 250 mornings in 180
-  days — against the 32 the prompt's own MIST guidance ever reached. The guidance is unreachable by
-  about eight to one. Walltown Crags led (6 of 11), then White Moss Common, Norber Erratics and Dent
+- **M0 §1 — the refused population is real, and 145 is its FLOOR.** Query 1 lists the top 60
+  site/event groups sorted by the photographable count itself, so its 145 signature mornings (observer
+  low cloud < 30%, wind ≤ 3 m/s, gap < 2 °C; mean gap 0.1–0.3 °C, mean visibility ~3 km) are an enriched
+  slice and cannot be extrapolated over all 1,266 — a Codex review of #1268 caught the first draft doing
+  exactly that. What the slice does prove is a lower bound: at least 145 refused sunrise mornings carried
+  the signature, against the 32 the prompt's own MIST guidance ever reached — at least four and a half to
+  one. The whole-population figure is query 1b (added after that review), to be run before M1's bands
+  are set; the ratio can only grow. Walltown Crags led (6 of 11), then White Moss Common, Norber Erratics and Dent
   Head (4 each); the Brathay at Elterwater had 3 of 13. Every one of the 60 rows was SUNRISE.
 - **M0 §2 — the signature is a sunrise phenomenon here**: 1,266 sunrise stand-downs to 221 sunset.
 - **M0 §3 — the shortlist cannot be derived.** `elevation_m` is stored for 18 of the 125 candidates
@@ -145,13 +148,14 @@ the result is in the findings below and it killed M4.
 
 **What M0 decides:**
 
-1. **M1 and M2 are justified** by the ~250 refused mornings and the eight-to-one ratio.
+1. **M1 and M2 are justified** by the floor alone: at least 145 refused signature mornings against 32
+   seen, at least four and a half to one. Query 1b gives the true count.
 2. **M4 is deleted** (§3 below): production already runs the 2 km model.
 3. **The calculator scores the radiative set-up, not the model's saturation.** The 17 Oct row — clear
    night, calm, RH rising through the 80s, temperature falling toward a dew point it never reaches in
    the cell — is what a LIKELY looks like at a flagged riverside site. A gap < 2 gate would have missed
    it; the gap is a term, not a gate. The M0 "photographable" signature (gap < 2) is the subclass the
-   model DID saturate, a floor on the population, not its size.
+   model DID saturate — itself a floor on the set-up population, not its size.
 4. **M2's site sentence is load-bearing.** Ingleton shows Claude rates the full signature 2 when it is
    handed the numbers without the site fact and without being told the mist is the shot.
 5. **The shortlist is Q5's, by hand.** Walltown Crags, Sycamore Gap and the other Wall sites head the
