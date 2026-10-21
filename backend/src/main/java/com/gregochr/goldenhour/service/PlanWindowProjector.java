@@ -33,8 +33,8 @@ import java.util.Set;
  * <p><b>This must run last, and that is the whole design.</b> It is applied as the outermost step
  * of {@code BriefingService.getCachedBriefingForApi}, after {@code BriefingHonestyFilter}. Anywhere
  * upstream and the projection describes regions the served payload no longer contains: the honesty
- * filter blanks a zero-coverage region (STAND_DOWN, or AWAITING where nothing was attempted or the
- * run failed) with an empty slot list and a null gloss
+ * filter blanks a zero-coverage region (STAND_DOWN for a real weather stand-down, AWAITING for
+ * anything else: nothing attempted, a failed run or a record that cannot say) with an empty slot list and a null gloss
  * headline, so a window projected before it would name a Best Bet, a verdict and a rating for a
  * region the same response simultaneously reports as unevaluable. That failure renders perfectly
  * and is visible only by opening the drill-down, which is why the ordering is pinned by a test
@@ -106,8 +106,8 @@ public final class PlanWindowProjector {
                     // display string — so renaming a region flipped the window's verdict.
                     .thenComparing((RankedRegion r) -> r.region().slots().isEmpty())
                     // Between two blanked regions the honesty filter can word one STAND_DOWN
-                    // (weather really stood it down, or the record cannot say) and another
-                    // AWAITING (not scored, a travel day, a run that did not finish). A region
+                    // (weather really stood it down) and another AWAITING (not scored, a travel
+                    // day, a run that did not finish, or a record that cannot say). A region
                     // with a real stand-down speaks for the window over one with no forecast at
                     // all, so the verdict never depends on which name sorts first.
                     .thenComparing((RankedRegion r) -> r.region().slots().isEmpty()

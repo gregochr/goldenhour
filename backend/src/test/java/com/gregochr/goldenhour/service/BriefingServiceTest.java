@@ -3419,7 +3419,7 @@ class BriefingServiceTest {
                     findRegion(briefingService.getCachedBriefingForApi(), "North East");
 
             assertThat(served.slots()).isEmpty();
-            assertThat(served.summary()).isEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
+            assertThat(served.summary()).isEqualTo(BriefingHonestyFilter.UNKNOWN_SUMMARY);
         }
 
         @Test
