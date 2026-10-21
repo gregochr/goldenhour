@@ -249,6 +249,8 @@ gated on `!overlayMode`, exactly as P12's phone chrome was. The Plan-tab overlay
 `MarkerPopupContent`, the medallions and `ForecastTypeSelector`; convergence remains `map-tab-v2-plan.md`
 **O-6**, an owner decision this increment does not take.
 
+> **Dated note, 2026-10-21 — the Plan-tab overlay was retired 2026-10-20/21 by overlay convergence (`overlay-convergence-plan.md`, C1–C5, #1246 #1248 #1252 #1258 #1262); O-6 is DECIDED.** The `!overlayMode` gates this plan cites (the landing card, `ZoomControlPositioner`) went with it; those mounts are now simply the tab's. §4 #21(a) is unaffected: `selectEvRow` still resets the floor on a change of event type.
+
 ---
 
 ## §3 Phases
