@@ -610,6 +610,24 @@ describe('MapCallout — the Admin\'s "All ratings" list (O5a)', () => {
     expect(fetchAllRatingsForSlot).toHaveBeenCalledTimes(1);
   });
 
+  it('renders a reader\'s seen tag in the list, THROUGH the hook and the callout (server row to screen)', async () => {
+    fetchAllRatingsForSlot.mockResolvedValue({
+      eventTime: `${YESTERDAY}T20:10:00Z`,
+      forecastRunAt: `${YESTERDAY}T18:10:00Z`,
+      ratings: [
+        { username: 'zoe', rating: 5, updatedAt: `${YESTERDAY}T21:30:00Z`, mine: false, seen: 'MIST' },
+        { username: 'mhart', rating: 4, updatedAt: `${YESTERDAY}T21:00:00Z`, mine: false },
+      ],
+    });
+    await mount({ userRole: 'ADMIN' });
+    await expand();
+
+    const tags = screen.getAllByTestId('outcome-admin-seen');
+    expect(tags).toHaveLength(1);
+    expect(tags[0]).toHaveTextContent('Mist');
+    expect(tags[0].closest('[data-testid="outcome-admin-row"]')).toHaveTextContent('zoe');
+  });
+
   it.each([
     ['PRO_USER'],
     ['LITE_USER'],
