@@ -239,7 +239,7 @@ import java.util.List;
  * @param coverageReason               why the honesty filter blanked this region, for a reader that
  *                                     must tell a real weather stand-down ({@link
  *                                     CoverageReason#STOOD_DOWN}) from the "no record" the filter
- *                                     words the same way ({@link CoverageReason#UNKNOWN}). Set ONLY by
+ *                                     words AWAITING ({@link CoverageReason#UNKNOWN}). Set ONLY by
  *                                     {@code BriefingHonestyFilter}'s zero-coverage rewrite on the
  *                                     serve path, so it is never persisted into {@code
  *                                     daily_briefing_cache}; {@code null} on every region the filter

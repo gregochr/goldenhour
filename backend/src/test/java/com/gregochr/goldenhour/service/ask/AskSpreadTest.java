@@ -101,7 +101,7 @@ class AskSpreadTest {
 
     @Test
     @DisplayName("a slotless region is 'not scored' for every reason but STOOD_DOWN: awaiting, away, UNKNOWN "
-            + "(which the filter words as a stand-down too) and no reason at all")
+            + "(which the filter words AWAITING too) and no reason at all")
     void slotlessRegionIsStoodDownOnlyForAWeatherReason() {
         AskSnapshot.Spread spread = spreadOf(
                 AskFixtures.blankedRegion("A", CoverageReason.STOOD_DOWN),

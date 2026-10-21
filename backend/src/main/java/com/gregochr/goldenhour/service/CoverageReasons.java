@@ -28,7 +28,9 @@ import java.util.Map;
  * </ol>
  * A slot with no entry in the lookup (none recorded, a tie, an unparseable category, a renamed
  * location, a failed lookup) is evidence for nothing, so from T+0 to T+3 it leaves the region
- * {@code UNKNOWN}; at T+4 or later the horizon alone decides.
+ * {@code UNKNOWN}; at T+4 or later the horizon alone decides. {@code UNKNOWN} is worded AWAITING
+ * ("Not scored") by {@link BriefingHonestyFilter}: a record that cannot say why is never read as
+ * poor weather.
  */
 final class CoverageReasons {
 

@@ -108,7 +108,7 @@ class ServedBriefingAssemblerTest {
 
         BriefingEventSummary es = served.days().get(0).eventSummaries().get(0);
         assertThat(es.regions().get(0).slots()).as("the filter emptied the region").isEmpty();
-        assertThat(es.regions().get(0).displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        assertThat(es.regions().get(0).displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
         assertThat(es.window()).isNotNull();
         assertThat(es.window().tideFacts()).containsExactly(
                 LocationTideFact.from(bamburgh), LocationTideFact.from(whitby),
@@ -318,13 +318,52 @@ class ServedBriefingAssemblerTest {
     }
 
     @Test
-    @DisplayName("no record at T+2 keeps today's STAND_DOWN 'Too unsettled to forecast'")
-    void noRecordKeepsTodaysWording() {
+    @DisplayName("no record at T+2 reads AWAITING 'Not scored', never a weather stand-down")
+    void noRecordReadsNotScored() {
         DailyBriefingResponse served = serveOneRegion(T_PLUS_2);
 
         BriefingEventSummary es = served.days().get(0).eventSummaries().get(0);
-        assertThat(es.regions().get(0).displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
-        assertThat(es.regions().get(0).verdictLabel()).isEqualTo("Too unsettled to forecast");
+        assertThat(es.regions().get(0).displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(es.regions().get(0).verdictLabel()).isEqualTo("Not scored");
+        assertThat(es.window().verdict()).isEqualTo(DisplayVerdict.AWAITING);
+    }
+
+    /**
+     * Two blanked regions in one window. The UNKNOWN one sorts first by name, so a window verdict
+     * that follows the stand-down is the ranking at work, not the alphabet.
+     */
+    private BriefingEventSummary serveTwoBlankedRegions(LocalDate date) {
+        return assembler.assembleForPlan(new DailyBriefingResponse(
+                LocalDateTime.of(2026, 10, 8, 6, 0), "headline",
+                List.of(day(date, summary(TargetType.SUNRISE, List.of(
+                        region("Aaa Dales", 0, inland(3L, "Richmond"), inland(4L, "Askrigg")),
+                        region("Zzz North East", 0, inland(1L, "Durham"), inland(2L, "Hawes"))),
+                        List.of()))),
+                List.of(), null, null, false, false, 0, null, List.of(), List.of()), 0.5)
+                .days().get(0).eventSummaries().get(0);
+    }
+
+    @Test
+    @DisplayName("a window whose blanked regions are all UNKNOWN reads AWAITING")
+    void windowOfOnlyUnknownRegionsReadsAwaiting() {
+        BriefingEventSummary es = serveTwoBlankedRegions(T_PLUS_2);
+
+        assertThat(es.regions()).extracting(BriefingRegion::displayVerdict)
+                .containsOnly(DisplayVerdict.AWAITING);
+        assertThat(es.window().verdict()).isEqualTo(DisplayVerdict.AWAITING);
+    }
+
+    @Test
+    @DisplayName("a window with one STOOD_DOWN region among UNKNOWN ones still reads STAND_DOWN")
+    void oneStoodDownRegionSpeaksForTheWindow() {
+        serveDispositions(T_PLUS_2, TargetType.SUNRISE, DispositionCategory.SKIPPED_TRIAGED,
+                "Durham", "Hawes");
+
+        BriefingEventSummary es = serveTwoBlankedRegions(T_PLUS_2);
+
+        assertThat(es.regions()).extracting(BriefingRegion::coverageReason).containsExactly(
+                com.gregochr.goldenhour.model.CoverageReason.UNKNOWN,
+                com.gregochr.goldenhour.model.CoverageReason.STOOD_DOWN);
         assertThat(es.window().verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
     }
 

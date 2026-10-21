@@ -132,11 +132,11 @@ final class AskFixtures {
     }
 
     /**
-     * A region the honesty filter blanked, as the serve path hands it to Ask: no slots, a stand-down or
-     * awaiting word, and the filter's reason.
+     * A region the honesty filter blanked, as the serve path hands it to Ask: no slots, a stand-down word
+     * for a real stand-down only (every other reason, UNKNOWN included, is awaiting), and the filter's reason.
      */
     static BriefingRegion blankedRegion(String name, CoverageReason reason) {
-        boolean weather = reason == CoverageReason.STOOD_DOWN || reason == CoverageReason.UNKNOWN;
+        boolean weather = reason == CoverageReason.STOOD_DOWN;
         return new BriefingRegion(name, Verdict.STANDDOWN, "summary", List.of(), List.of(), null, null,
                 null, null, null, "detail", weather ? DisplayVerdict.STAND_DOWN : DisplayVerdict.AWAITING, 0,
                 "label", false, null, null, null, null, null, null, reason);
