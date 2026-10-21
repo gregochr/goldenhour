@@ -1140,7 +1140,8 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 - **D-8** Admin drawer toggles ride into the filters popover as an admin-only row; the popup's
   admin "Run Forecast" does **not** move to the callout (Ops + the overlay cover it) — revisit as
   O-7 if the owner misses it. *(2026-10-21: the overlay is retired (C5), so no map route reaches a
-  single-location run; until O-7 the only UI that starts one is the admin `PromptTestView`'s preview.)*
+  single-location run, and no other UI does either until O-7: the admin `PromptTestView` preview mounts
+  `MarkerPopupContent` with a forecast, and its Run Forecast button is drawn only with none.)*
 - **D-9** Azimuth lines: overlay keeps them (overlay retired 2026-10-21, C5); the tab's pins mode drops them initially (they were
   marker-layer furniture; the design's chip/pin vocabulary has no host). Restore later on the
   selection ring if wanted — O-5.
@@ -1189,7 +1190,7 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   is the never-cached per-user endpoint, which is the exit for CLAUDE.md's licensed client classes
   (including the Map tab's own, added at map-landing L7). Two plans, two O-4s, unrelated.
 - **O-5** Azimuth lines on the redesigned tab.
-- **O-6** ✅ **DECIDED and DONE 2026-10-21: the overlay is RETIRED, not converged onto the callout** (`overlay-convergence-plan.md`, C1–C5, #1246 #1248 #1252 #1258 #1262; C6 the docs). Every producer below now takes the structured door to the Map tab; `MarkerPopupContent`'s long-term home is the admin `PromptTestView` alone, so `HourlyComfortTable`'s hidden-header mode and the `popup-hourly-table` id were KEPT, not deleted as the note below says. The history below is as written. Overlay convergence onto the callout (and `MarkerPopupContent`'s long-term home). ⚠️ What in `HourlyComfortTable` exists only for the frozen popup: the default hidden-header mode (`headersVisible` false, the `.wf-hourly-head-off` rule and its `sr-only` header text), and the popup's `label`/`popup-hourly-table` test id; when the overlay converges, delete that mode. One
+- **O-6** ✅ **DECIDED and DONE 2026-10-21: the overlay is RETIRED, not converged onto the callout** (`overlay-convergence-plan.md`, C1–C5, #1246 #1248 #1252 #1258 #1262; C6 the docs). Every producer below now takes the structured door to the Map tab; `MarkerPopupContent`'s long-term home is the admin `PromptTestView` alone. `HourlyComfortTable`'s hidden-header mode and the `popup-hourly-table` id were KEPT, not deleted as the note below says: the popup is their only consumer and never reaches them (`PromptTestView` passes `hourlyData={[]}`), so a follow-up may delete the mode. The history below is as written. Overlay convergence onto the callout (and `MarkerPopupContent`'s long-term home). ⚠️ What in `HourlyComfortTable` exists only for the frozen popup: the default hidden-header mode (`headersVisible` false, the `.wf-hourly-head-off` rule and its `sr-only` header text), and the popup's `label`/`popup-hourly-table` test id; when the overlay converges, delete that mode. One
   producer has already moved off the overlay: the location sheet's `Show on map` footer button now
   opens the Map tab directly (`plan-to-map-doors-plan.md` doors D3, #764), landing on the sheet's
   own window with the location's callout up. Every other producer (`WindowPickDialog`'s two
