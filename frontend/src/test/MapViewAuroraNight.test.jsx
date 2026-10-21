@@ -21,7 +21,7 @@
  * replacement, `components/map/WindowControl.jsx`, has no such pure switch: every dropdown row
  * NAMES a date, so picking one is a combined kind+date choice by design (map-tab-v2-plan.md §3
  * P6's EV-ownership paragraph) — exercising that coupling is `WindowControl.test.jsx`'s job, not
- * this one's. `handoffEventType` — a real, pre-existing `MapView` prop that already sets
+ * this one's. `autoEventType` — a real, pre-existing `MapView` prop that already sets
  * `eventType` with no date implication (Plan-tab event-type handoffs use it the same way) — is the
  * faithful stand-in: it isolates the kind axis exactly as the removed mock did.
  */
@@ -182,12 +182,12 @@ async function renderMap(overrides = {}) {
 
 /**
  * "Entering aurora mode" — a pure kind switch, exactly what the removed mocked selector's AURORA
- * button did. `handoffEventType` sets `eventType` with no date implication (see the file header),
+ * button did. `autoEventType` sets `eventType` with no date implication (see the file header),
  * which is what every test below needs isolated: the auto-jump latch and the viewline gate are
  * both about what happens to a date the reader did NOT just pick via the window control.
  */
 const enterAuroraMode = async (rendered) => {
-  await rendered.withProps({ handoffEventType: 'AURORA' });
+  await rendered.withProps({ autoEventType: 'AURORA' });
 };
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -310,7 +310,7 @@ describe('MapView aurora night date selection', () => {
     // The reader now picks a night with no results. This must be honoured, not undone. Simulates
     // the parent (App) moving `date` after a real selection elsewhere — the window control's own
     // date-forwarding contract is `WindowControl.test.jsx`'s concern, not this latch's.
-    await rendered.withProps({ date: THE_CALENDAR_DAY, handoffEventType: 'AURORA', locations: makeLocations() });
+    await rendered.withProps({ date: THE_CALENDAR_DAY, autoEventType: 'AURORA', locations: makeLocations() });
 
     expect(onSelectDate).not.toHaveBeenCalled();
   });
@@ -326,7 +326,7 @@ describe('MapView aurora night date selection', () => {
 
     // The reader picks an unscored day; the parent feeds it back down as the new `date`.
     await rendered.withProps({
-      date: '2026-08-12', handoffEventType: 'AURORA',
+      date: '2026-08-12', autoEventType: 'AURORA',
       locations: makeLocations([THE_NIGHT, THE_CALENDAR_DAY, '2026-08-12']),
     });
 
@@ -341,7 +341,7 @@ describe('MapView aurora night date selection', () => {
     await enterAuroraMode(rendered);
     await waitFor(() => expect(onSelectDate).toHaveBeenCalledTimes(1));
 
-    await rendered.withProps({ handoffEventType: 'SUNSET' });
+    await rendered.withProps({ autoEventType: 'SUNSET' });
     await enterAuroraMode(rendered);
 
     await waitFor(() => expect(onSelectDate).toHaveBeenCalledTimes(2));
@@ -371,7 +371,7 @@ describe('MapView aurora night date selection', () => {
     // with no dependence on THE_CALENDAR_DAY having a night in progress.
     const rendered = await renderMap({ date: THE_CALENDAR_DAY, onSelectDate: null });
     // The dark-sky toggle lives in `FiltersPopover` now (map-tab-v2-plan.md §3 P7), which mounts
-    // its rows only while open — `enterAuroraMode` below rerenders via `handoffEventType` rather
+    // its rows only while open — `enterAuroraMode` below rerenders via `autoEventType` rather
     // than through the window control, so it never touches (and so never closes) this popover.
     fireEvent.click(screen.getByTestId('wf-filters-chip'));
     expect(screen.getByTestId('dark-sky-filter-toggle')).toBeInTheDocument();
@@ -433,7 +433,7 @@ describe('MapView aurora night — bounding the multi-date preview fetch (PR #73
 
 /**
  * The EV-ownership rule's KEPT-LOCAL branch, driven through the REAL `components/map/
- * WindowControl.jsx` rather than the `handoffEventType` proxy every other test in this file uses
+ * WindowControl.jsx` rather than the `autoEventType` proxy every other test in this file uses
  * (adversarial review, BLOCKING #2 — this branch had ZERO coverage). `enterAuroraMode` above is
  * deliberately a pure kind switch precisely so the tests around it can isolate the auto-jump
  * latch's own behaviour from date movement; this describe block is the one place that instead
@@ -640,7 +640,7 @@ describe('MapView aurora night — a PAST night row inside the forecast domain (
 
     auroraStatusRef.current = { ...ACTIVE_STATUS, currentNightDate: TODAY_DATE };
     vi.setSystemTime(new Date(`${TODAY_DATE}T06:00:00Z`)); // 07:00 BST — past dawn
-    await rendered.withProps({ handoffEventType: 'AURORA', resizeNonce: 1 });
+    await rendered.withProps({ autoEventType: 'AURORA', resizeNonce: 1 });
 
     await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
     const row = screen.getAllByTestId('wf-win-row')

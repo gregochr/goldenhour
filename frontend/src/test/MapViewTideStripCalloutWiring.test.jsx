@@ -57,7 +57,7 @@ vi.mock('react-leaflet', () => ({
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div /> }));
 
 /** The selection probe — `MapViewSelectionOrdering.test.jsx`'s own pattern: a button that selects
- * the fixture spot, so `!overlayMode && selectedLoc && activeMapEvent` goes true and the real
+ * the fixture spot, so `selectedLoc && (activeMapEvent || hideDayCard)` goes true and the real
  * `MapCallout` mount (below, itself replaced with a probe) actually renders. */
 vi.mock('../components/map/MapLabels.jsx', () => ({
   default: (props) => (
@@ -239,7 +239,7 @@ describe('MapView — the rating block\'s inputs reach MapCallout (outcome-ratin
     expect(calloutRatingProps.at(-1).ratings).toBe(outcomeRatings);
   });
 
-  it('hands the callout NO ratings when the pane offers none (the overlay, a rewind)', async () => {
+  it('hands the callout NO ratings when the pane offers none (a rewind)', async () => {
     await renderMap();
     await selectTheSpot();
     expect(calloutRatingProps.at(-1).ratings).toBeNull();

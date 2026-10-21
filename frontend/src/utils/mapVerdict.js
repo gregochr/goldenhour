@@ -263,7 +263,7 @@ export function regionNamesOf(spots) {
  * <p><b>Extracted from `MapView` rather than left inline</b>, on the doors series' own correction:
  * D2 shipped a no-caller-yet code path, review charged that its logic was untestable through any
  * UI that did not exist, and the fix was to lift the logic into a pure module and leave a thin
- * wrapper behind. This is that shape — the guards (overlay, missing index, night rows), the
+ * wrapper behind. This is that shape — the guards (missing index, night rows), the
  * suppression of a null verdict and the {@code row.id} keying are all here, where a test can reach
  * them, and the component keeps one call.
  *
@@ -276,12 +276,11 @@ export function regionNamesOf(spots) {
  * @param {Array<{id: string, kind: string, date: string, eventType: string}>} args.events the EV list
  * @param {?Map<string, object>} args.index from {@link buildRegionVerdictIndex}
  * @param {Array<string>} args.regionsInScope region names currently in scope
- * @param {boolean} [args.overlayMode] true on the frozen Plan-tab overlay, which draws no verdict
  * @returns {Map<string, object>} row id to that window's verdict, omitting rows that have none
  */
-export function buildEvVerdicts({ events, index, regionsInScope, overlayMode = false }) {
+export function buildEvVerdicts({ events, index, regionsInScope }) {
   const out = new Map();
-  if (overlayMode || !index) return out;
+  if (!index) return out;
   for (const row of Array.isArray(events) ? events : []) {
     if (row?.kind !== SOLAR_KIND) continue;
     // ⚠️ **`served`, not just `kind`** — and `utils/mapEvents.js` states this rule three lines above

@@ -14,8 +14,8 @@ import { useFitToFrame } from '../../hooks/useFitToFrame.js';
  * docs/design/map-tab-v2/README.md "§4 Filters popover".
  *
  * <p>Replaces the tab's old slide-down drawer (the {@code advancedOpen}/`advanced-filters-panel`
- * pair still used, unchanged, by the Plan-tab overlay — see `MapView.jsx`'s `overlayMode` branch,
- * which this component never touches). A single chip (`Filters (N) ▾`) opens a 318px panel over
+ * pair, which only the Plan-tab overlay still used and which went with it in overlay convergence
+ * C5). A single chip (`Filters (N) ▾`) opens a 318px panel over
  * the map; the count excludes scope on purpose (§4: "N = count of active filters, scope not
  * counted") because switching "My area" ⇄ "Everywhere" reframes the camera rather than hiding
  * anything the reader asked to see.

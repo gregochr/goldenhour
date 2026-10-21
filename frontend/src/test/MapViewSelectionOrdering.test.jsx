@@ -7,9 +7,8 @@
  *   the nearest open layer — a popover, if one is open — and takes the callout only on a second.
  *   A background CLICK no longer orders anything, because it no longer closes panels at all; it
  *   deselects, and that is its whole job (`docs/design/map-landing/README.md` §5).
- * - The inbound `handoffLocationName` TAB-vs-OVERLAY branch: the tab selects the location without
- *   ever calling `marker.openPopup()` (there is no popup left to open); the overlay branch is
- *   byte-identical to before this phase.
+ * - The inbound location handoff: the tab selects the location (a map-sourced `planHandoff`); there
+ *   is no Leaflet popup to open any more (the overlay's went in overlay convergence C5).
  * - The four-day-sheet handoff: BOTH of the callout's routes reach `onOpenLocationSheet` with the
  *   `{id, name, regionName}` shape `WindowFirstShell.jsx`'s `sheetSpotOf` already normalises onto,
  *   differing only in the `inPlan` flag that says whether the tab moves with them.
@@ -34,7 +33,6 @@ vi.mock('leaflet', () => {
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
 
-let fakeMarker;
 /** Captured from whichever `useMapEvents({ click: ... })` call registers it — only
  * `MapBackgroundClickController` uses the `click` key on this tab (`BoundsTracker`'s `moveend`/
  * `zoomend` pair and `ZoomTracker`'s bare `zoomend` never collide with it). */
@@ -43,10 +41,7 @@ let capturedBackgroundClick = null;
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div>{children}</div>,
   TileLayer: () => null,
-  Marker: React.forwardRef(function MockMarker({ children }, ref) {
-    React.useImperativeHandle(ref, () => fakeMarker);
-    return <div>{children}</div>;
-  }),
+  Marker: ({ children }) => <div>{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: (handlers) => {
@@ -57,9 +52,6 @@ vi.mock('react-leaflet', () => ({
     eachLayer: () => {},
     getContainer: () => ({ clientHeight: 500 }),
     getZoom: () => 9,
-    // `HandoffPopupController`'s overlay branch registers a one-shot `moveend` listener as its
-    // "the fly animation settled" signal — never fired here, so that branch always falls through
-    // to its own `setTimeout(open, 700)` fallback, which is what the overlay test below advances.
     once: () => {},
     off: () => {},
     flyTo: () => {},
@@ -235,7 +227,6 @@ function clickBackground() {
 
 beforeEach(() => {
   localStorage.clear();
-  fakeMarker = { openPopup: vi.fn() };
   capturedBackgroundClick = null;
   astroAvailableDatesResponse = [];
   mapLabelsCalls.length = 0;
@@ -599,20 +590,14 @@ describe('MapView — both callout routes reach the shell handoff', () => {
   });
 });
 
-describe('MapView — inbound handoffLocationName, tab vs overlay (map-tab-v2-plan.md §3 P9)', () => {
-  it('on the TAB, selects the location but never calls marker.openPopup — there is no popup left', async () => {
+describe('MapView — an inbound location handoff (map-tab-v2-plan.md §3 P9)', () => {
+  it('selects the location and shows its callout', async () => {
     vi.useFakeTimers();
-    await renderMap({ handoffLocationName: 'Bamburgh-0', handoffNonce: 1 });
+    await renderMap({
+      planHandoff: { source: 'map', eventType: 'SUNSET', date: TODAY, locationName: 'Bamburgh-0', nonce: 1 },
+    });
     await act(async () => { vi.advanceTimersByTime(700); });
     expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Bamburgh-0');
-    expect(fakeMarker.openPopup).not.toHaveBeenCalled();
-  });
-
-  it('on the OVERLAY, still opens the marker\'s bound popup — byte-identical to before this phase', async () => {
-    vi.useFakeTimers();
-    await renderMap({ handoffLocationName: 'Bamburgh-0', handoffNonce: 1, overlayMode: true });
-    await act(async () => { vi.advanceTimersByTime(700); });
-    expect(fakeMarker.openPopup).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -652,7 +637,7 @@ describe('MapView — a deliberate selection outranks the pool\'s own filters (P
 
   it('an inbound handoff to a location the current filters exclude still opens the callout', async () => {
     // Rated 1★ — below `DEFAULT_MIN_STARS` (3), so this location never appears in
-    // `visibleLocations`/`labelSpots` under the map's own default filter. `handoffLocationName`
+    // `visibleLocations`/`labelSpots` under the map's own default filter. The handoff's `locationName`
     // already resolves against `locations` (the full roster) to set `selectedLocationName`
     // correctly; the regression was `selectedLoc` — the variable the callout actually reads —
     // still coming from the filtered pool, so the callout never appeared.
@@ -670,8 +655,7 @@ describe('MapView — a deliberate selection outranks the pool\'s own filters (P
     vi.useFakeTimers();
     await renderMap({
       locations: [makeLocation(), filteredOutLocation],
-      handoffLocationName: 'Low-rated',
-      handoffNonce: 1,
+      planHandoff: { source: 'map', eventType: 'SUNSET', date: TODAY, locationName: 'Low-rated', nonce: 1 },
     });
     await act(async () => { vi.advanceTimersByTime(700); });
 

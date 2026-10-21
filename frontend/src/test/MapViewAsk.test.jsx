@@ -676,12 +676,6 @@ describe('the camera is handed the picks and the choice', () => {
 
     expect(cameraCalls.at(-1).active).toBe(false);
   });
-
-  it('is not mounted on the frozen overlay', async () => {
-    await renderTab({ overlayMode: true, askPicks: TWO, askAnswerId: 5 });
-
-    expect(cameraCalls).toEqual([]);
-  });
 });
 
 describe('a NIGHT pick\'s window (docs/engineering/ask-night-plan.md §2.1, N3)', () => {

@@ -49,24 +49,23 @@ import { compile } from 'tailwindcss';
  * because the forced-colours outline lives entirely inside `outline-hidden`'s own definition and a
  * Tailwind upgrade has already changed one of these utilities under an unchanged name.
  *
- * <p>Excluded, per CLAUDE.md: the three dialog roots (`shared/Modal.jsx`, `MapOverlay.jsx`,
- * `BottomSheet.jsx`) whose `focus:outline-none` sits on a container `useDialogFocus` focuses
- * programmatically, where no indicator is wanted. ⚠️ These are not "the three `useDialogFocus`
- * consumers" — `useDialogFocus.js`'s own docblock names a fourth, `RegionsJump.jsx`, which carries
- * no `outline` utility at all (confirmed: `grep outline` on that file returns nothing), so it has
- * nothing to exempt and nothing this scan would flag. Adding one there later needs the same
- * exemption these three already have, not a new category.
+ * <p>Excluded, per CLAUDE.md: the two dialog roots (`shared/Modal.jsx`, `BottomSheet.jsx`) whose
+ * `focus:outline-none` sits on a container `useDialogFocus` focuses programmatically, where no
+ * indicator is wanted. (A third, `MapOverlay.jsx`, went with the Plan-tab overlay in overlay
+ * convergence C5.) ⚠️ These are not "the `useDialogFocus` consumers" — `useDialogFocus.js`'s own
+ * docblock names `RegionsJump.jsx` too, which carries no `outline` utility at all (confirmed: `grep
+ * outline` on that file returns nothing), so it has nothing to exempt and nothing this scan would
+ * flag. Adding one there later needs the same exemption these two already have, not a new category.
  */
 
 const pathOf = (rel) => fileURLToPath(new URL(rel, import.meta.url));
 const read = (rel) => readFileSync(pathOf(rel), 'utf8');
 
 // Relative to src/ — the containers useDialogFocus focuses programmatically; no indicator wanted.
-// The three that currently HAVE an outline utility to exempt — useDialogFocus's fourth consumer,
-// RegionsJump.jsx, has none, so it is not a fourth exemption, just not a call site at all (yet).
+// The two that currently HAVE an outline utility to exempt — useDialogFocus's other consumer,
+// RegionsJump.jsx, has none, so it is not a third exemption, just not a call site at all (yet).
 const EXEMPT_FILES = [
   'components/shared/Modal.jsx',
-  'components/MapOverlay.jsx',
   'components/BottomSheet.jsx',
 ];
 
@@ -357,14 +356,14 @@ describe('form-field focus outlines — their call sites', () => {
     expect(sites.length).toBeGreaterThanOrEqual(sameLine.length);
   });
 
-  it('leaves focus:outline-none only on the three dialog roots useDialogFocus focuses programmatically', () => {
+  it('leaves focus:outline-none only on the two dialog roots useDialogFocus focuses programmatically', () => {
     const usingOutlineNone = sites
       .filter(({ classes }) => classes.some((c) => /^focus(-visible)?:outline-none$/.test(c)))
       .map(({ file }) => file);
     expect(new Set(usingOutlineNone)).toEqual(new Set(EXEMPT_FILES));
   });
 
-  it('the three exempt dialog roots are still there and still use focus:outline-none', () => {
+  it('the two exempt dialog roots are still there and still use focus:outline-none', () => {
     // If one of these ever moves to outline-hidden (or is deleted), the exemption list above is
     // stale and this names exactly which of the two changed.
     for (const file of EXEMPT_FILES) {
@@ -397,12 +396,13 @@ describe('form-field focus outlines — their call sites', () => {
     // so the `focus:outline-hidden` that used to sit in each file's className now lives in ONE
     // place, `.field`'s @apply in index.css — pinned below, in the `.field` test, so the fix
     // follows every input that adopts the class instead of being repeated per file.
+    // ⚠️ `MapView.jsx` left the list at overlay convergence C5: its only `focus:outline-hidden` was the
+    // retired overlay drawer's drive-time select.
     // ⚠️ `UserSettingsModal` left the list for the same reason at R4c: its postcode input is the
     // modal's only text input, and it now takes `.field`.
     const expectedFiles = [
       'components/AuroraSimulateModal.jsx',
       'components/LocationManagementView.jsx',
-      'components/MapView.jsx',
       'components/OutcomeModal.jsx',
       'components/RegionManagementView.jsx',
       'components/UserManagementView.jsx',

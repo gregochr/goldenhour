@@ -497,14 +497,6 @@ describe('MapView — the crumb never mounts without a live, tab-mode door hando
     // And the map's own default floor (3★) is left untouched — proof the effect is a true no-op.
     expect(filtersPopoverCalls.at(-1).minStars).toBe(3);
   });
-
-  it('is absent on the overlay, even with a door handoff present', async () => {
-    await renderTab({
-      overlayMode: true,
-      planHandoff: { ...DOOR_BASE, nonce: 1 },
-    });
-    expect(screen.queryByTestId('wf-map-breadcrumb')).toBeNull();
-  });
 });
 
 describe('MapView — the crumb\'s clear button really resets the map (integration, not just the callback wiring)', () => {

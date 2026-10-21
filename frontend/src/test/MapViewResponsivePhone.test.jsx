@@ -158,11 +158,6 @@ describe('MapView (tab) — the `.wf-map-tab` scoping class (map-tab-v2-plan.md 
     const { container: phoneContainer } = await renderMap();
     expect(phoneContainer.querySelector('.wf-map-tab')).not.toBeNull();
   });
-
-  it('is ABSENT on the overlay mount — the plan\'s "overlay untouched" rule, made structural', async () => {
-    const { container } = await renderMap({ overlayMode: true, heat: null });
-    expect(container.querySelector('.wf-map-tab')).toBeNull();
-  });
 });
 
 describe('MapView (tab) — Legend hidden entirely on the phone (README "Responsive" table)', () => {
@@ -189,21 +184,6 @@ describe('MapView (tab) — the counts footer\'s second line carries a CSS hook 
     const second = await screen.findByTestId('wf-map-counts-second');
     expect(second).toHaveClass('wf-map-counts-second');
     unmount();
-  });
-});
-
-describe('MapView (tab) — overlay never carries a sheet-capable chip at all, on any viewport', () => {
-  it('overlayMode renders none of the tab-only chrome (window control, filters, regions, legend)', async () => {
-    mockIsMobile = true;
-    await renderMap({ overlayMode: true, heat: null });
-    expect(screen.queryByTestId('wf-win-control')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('wf-filters')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('wf-jump')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('wf-legend')).not.toBeInTheDocument();
-    // No `BottomSheet` can therefore ever be raised by the overlay's own mount, on any viewport —
-    // the structural half of the double-BottomSheet hazard re-check (map-tab-v2-plan.md §3 P12):
-    // the ONLY sheets the phone tab can raise come from components the overlay never mounts at all.
-    expect(screen.queryByTestId('bottom-sheet')).not.toBeInTheDocument();
   });
 });
 

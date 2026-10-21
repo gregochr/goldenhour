@@ -1,4 +1,3 @@
-// TODO(C5): the popup-derived thresholds and labels below die with MarkerPopupContent's last non-admin mount.
 /**
  * The forecast-detail facts the Plan-tab map overlay's popup showed and the location sheet did not
  * (overlay convergence C2, `docs/engineering/overlay-convergence-plan.md` §3 C2, owner decision D3).
@@ -9,9 +8,9 @@
  * licensed class (CLAUDE.md, *Backend-heavy*). Two thresholds are carried over UNCHANGED from
  * `MarkerPopupContent.jsx` because the popup applied them client-side before this module existed:
  * the dust test (`isDustEnhanced`) and the rising-tide window (`risingTideOf`). They are MOVED, not
- * invented — and they are a debt with a name, not a precedent: the exit for both is a served boolean
- * on the detail DTO, which would also let the popup go (it dies with the overlay in C5; the admin
- * `PromptTestView` keeps its own copy until then).
+ * invented, and since overlay convergence C5 this module is their ONE home - the popup (now mounted
+ * only by the admin `PromptTestView`) imports them from here. They are a debt with a name, not a
+ * precedent: the exit for both is a served boolean on the detail DTO.
  *
  * <p>Role gating mirrors the popup's, section by section: a LITE reader gets the plain "High
  * aerosols" wording, no inversion badge, and a greyed, locked bluebell badge; surge, sea state and
@@ -34,8 +33,8 @@ const BLUEBELL_MIN_SCORE = 2;
 /** Bluebell score from which the badge is emphasised. */
 const BLUEBELL_STRONG_SCORE = 4;
 
-/** User-facing label for each TriageReason enum value. A copy of the popup's table; deleted with the popup in C5. */
-const TRIAGE_REASON_LABELS = {
+/** User-facing label for each TriageReason enum value - the one table the sheet and the popup share. */
+export const TRIAGE_REASON_LABELS = {
   HIGH_CLOUD: 'heavy low cloud at the solar horizon',
   PRECIPITATION: 'active precipitation forecast at event time',
   LOW_VISIBILITY: 'visibility too low (fog or heavy haze)',

@@ -2,7 +2,7 @@ import { clamp } from './heatGeometry.js';
 import { leaveByParts } from './leaveBy.js';
 import { shortDow } from './locationSheet.js';
 import { formatDriveDuration } from './briefingDisplay.js';
-import { DARK_SKY_THRESHOLD } from './mapOverlay.js';
+import { DARK_SKY_THRESHOLD } from './darkSky.js';
 
 /**
  * The Map tab's selection callout — pure logic only (map-tab-v2-plan.md §3 P9,

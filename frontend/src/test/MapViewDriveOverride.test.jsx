@@ -139,28 +139,11 @@ vi.mock('../api/auroraApi.js', () => ({
   getAuroraForecastResults: vi.fn().mockResolvedValue([]),
   getAuroraForecastAvailableDates: vi.fn().mockResolvedValue([]),
 }));
-/** The HOME fetch — controllable per test so (b) can prove the override never falls back to it. */
-let driveTimesResponse = {};
-vi.mock('../api/settingsApi.js', () => ({ getDriveTimes: vi.fn(() => Promise.resolve(driveTimesResponse)) }));
 vi.mock('../api/astroApi.js', () => ({
   getAstroConditions: vi.fn().mockResolvedValue([]),
   getAstroAvailableDates: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockResolvedValue([]) }));
-vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
-/** The overlay's OWN selection surface (the tab uses `MapCallout` instead, gated on `!overlayMode`
- * — see the mock above). Renders `driveMinutes` into a testid'd node keyed by location name, so the
- * overlay negative test can read exactly the figure `driveMinutesFor` handed it, the same idiom
- * `probe-callout` uses for the tab. */
-vi.mock('../components/MarkerPopupContent.jsx', () => ({
-  default: (props) => (
-    <div data-testid={`popup-content-${props.location?.name ?? ''}`}>
-      <span data-testid={`popup-content-drive-${props.location?.name ?? ''}`}>
-        {JSON.stringify(props.driveMinutes)}
-      </span>
-    </div>
-  ),
-}));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
@@ -241,7 +224,6 @@ async function renderTab(props = {}) {
 beforeEach(() => {
   localStorage.clear();
   fakeMarker = { openPopup: vi.fn() };
-  driveTimesResponse = {};
   mapHeatLayerCalls.length = 0;
   mapLabelsCalls.length = 0;
   pinsLayerCalls.length = 0;
@@ -258,11 +240,11 @@ afterEach(() => {
 
 describe('MapView — driveMinutesFor under an away origin (heat.driveOverrideById)', () => {
   it('(a) returns the override entry\'s driveMinutes NUMBER, not the whole {driveMinutes, distanceMiles} object', async () => {
-    // The home fetch answers with a DIFFERENT number for the same id, so a pass here can only be
+    // The home reach map answers with a DIFFERENT number for the same id, so a pass here can only be
     // explained by the override branch — never a fallback that happened to agree.
-    driveTimesResponse = { [NEAR_ID]: 999 };
+    const reachById = new Map([[NEAR_ID, { driveMinutes: 999, distanceMiles: 300 }]]);
     const driveOverrideById = new Map([[NEAR_ID, { driveMinutes: 27, distanceMiles: 9 }]]);
-    await renderTab({ heat: heatProp(driveOverrideById) });
+    await renderTab({ reachById, heat: heatProp(driveOverrideById) });
 
     fireEvent.click(screen.getByTestId('probe-chip-Near'));
     expect(await screen.findByTestId('probe-callout')).toBeInTheDocument();
@@ -274,10 +256,10 @@ describe('MapView — driveMinutesFor under an away origin (heat.driveOverrideBy
   });
 
   it('(b) reads null for a location the override map carries no entry for — NEVER the home figure', async () => {
-    driveTimesResponse = { [FAR_HOME_ONLY_ID]: 55 };
+    const reachById = new Map([[FAR_HOME_ONLY_ID, { driveMinutes: 55, distanceMiles: 20 }]]);
     // The override map exists (an origin IS active) but has nothing for this location.
     const driveOverrideById = new Map([[NEAR_ID, { driveMinutes: 27, distanceMiles: 9 }]]);
-    await renderTab({ heat: heatProp(driveOverrideById) });
+    await renderTab({ reachById, heat: heatProp(driveOverrideById) });
 
     fireEvent.click(screen.getByTestId('probe-chip-Far-home-only'));
     expect(await screen.findByTestId('probe-callout')).toBeInTheDocument();
@@ -297,17 +279,17 @@ describe('MapView — the drive-time filter actually filters under an away origi
       [NEAR_ID, { driveMinutes: 20, distanceMiles: 5 }],
       [FAR_HOME_ONLY_ID, { driveMinutes: 100, distanceMiles: 40 }],
     ]);
-    await renderTab({ overlayMode: true, heat: heatProp(driveOverrideById) });
+    await renderTab({ heat: heatProp(driveOverrideById) });
 
     expect(screen.getAllByTestId('marker')).toHaveLength(2);
 
-    fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
-    fireEvent.change(screen.getByTestId('drive-time-filter-select'), { target: { value: '30' } });
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+    fireEvent.click(screen.getByTestId('drive-time-filter-45'));
 
-    // Only `Near` (20 min) survives a ≤30 min filter; `Far-home-only` (100 min) is dropped.
+    // Only `Near` (20 min) survives a ≤45 min filter; `Far-home-only` (100 min) is dropped.
     expect(screen.getAllByTestId('marker')).toHaveLength(1);
 
-    fireEvent.change(screen.getByTestId('drive-time-filter-select'), { target: { value: '0' } });
+    fireEvent.click(screen.getByTestId('drive-time-filter-0'));
     expect(screen.getAllByTestId('marker')).toHaveLength(2);
   });
 });
@@ -443,18 +425,5 @@ describe('MapView — home geography gates on `origin`, not on whether a postcod
     expect(button).toHaveAttribute('data-disabled', 'true');
     fireEvent.click(button);
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('MapView — the frozen Plan-tab overlay still reads userDriveTimes (negative test, D1)', () => {
-  it('renders a drive figure from userDriveTimes with no reachById prop at all', async () => {
-    driveTimesResponse = { [NEAR_ID]: 42 };
-    // No `reachById` prop — the overlay mount in `App.jsx` never passes one, deliberately (it is
-    // outside `WindowFirstBriefingProvider`). No `heat.driveOverrideById` either, so
-    // `driveMinutesFor` must fall through to the overlay's own `userDriveTimes` fetch, exactly as
-    // it did before D1 — the leak this phase closed was on the TAB, not the overlay.
-    await renderTab({ overlayMode: true, heat: heatProp(undefined) });
-
-    expect(screen.getByTestId('popup-content-drive-Near')).toHaveTextContent(/^42$/);
   });
 });

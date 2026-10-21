@@ -189,12 +189,12 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * somewhere real, with no layer left claiming modality, and stands down. An owner decision
  * (2026-09-16): the reader had left the dialog and acted in the masthead, so the popup route ends
  * on the origin control too. Moving the handoff to a passive effect would reverse it, and
- * `planOriginShell.test.jsx`'s popup test is what says so. ⚠️ <b>Not while `App`'s map overlay or
- * settings dialog is ALSO open</b> — the overlay opened over the popup, or the popup opened behind
- * settings, both routes CLAUDE.md lists as open. That layer still claims modality, so the restore
- * reads the origin control as stranded and returns the reader to the card, exactly as before this
- * handoff existed (measured in jsdom through the real `App`, and in Chromium, WebKit and Firefox on
- * a harness with the real `MapOverlay` and `Modal`).
+ * `planOriginShell.test.jsx`'s popup test is what says so. ⚠️ <b>Not while the settings dialog is ALSO
+ * open</b> — the popup opened behind settings is a route CLAUDE.md lists as open. That layer still
+ * claims modality, so the restore reads the origin control as stranded and returns the reader to the
+ * card, exactly as before this handoff existed (measured in jsdom through the real `App`, and in
+ * Chromium, WebKit and Firefox on a harness with a real `Modal`; the Plan-tab map overlay that was
+ * the other such layer was retired in overlay convergence C5).
  *
  * <p>⚠️ <b>It lands on a control the next key can press, and no gate on the input device is
  * safe.</b> Chromium and Firefox focus a button on a mouse click, so a pointer press on ⌂ hands

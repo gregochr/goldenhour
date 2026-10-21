@@ -922,8 +922,8 @@ describe('App — panes handed to WindowFirstShell', () => {
    * progress. ⚠️ A night runs dusk-to-dawn, so between UK midnight and dawn it is YESTERDAY's date
    * — the one "past" date `App` sets deliberately (`handleAuroraViewOnMap`, so the aurora viewline
    * lands on the night the banner is about). The never-past clamp refused it in its first cut and
-   * silently undid that fix; nothing in the suite noticed, because the overlay reads its own
-   * `mapOverlay.date` and only the full Map tab falls through to `effectiveDate`.
+   * silently undid that fix; nothing in the suite noticed, because only the full Map tab falls through to
+   * `effectiveDate`.
    *
    * <p>⚠️ <b>The whole block runs on a frozen clock.</b> `App` reads `ukDateStr()` fresh on every
    * render, so a fixture date computed once — as a module-load `YESTERDAY` used to be — goes stale

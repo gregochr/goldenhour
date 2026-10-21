@@ -66,8 +66,7 @@ export default function MapLandingCard({
     // `aria-labelledby`, not `aria-label`: a named `section` is a landmark, so an `aria-label`
     // repeating the visible title makes a screen reader announce it twice on entry. Pointing at the
     // title element gives the landmark the same name with no double-speak. The id is a constant and
-    // safe as one — the card is tab-only and `MapView` mounts it behind `!overlayMode`, so the two
-    // MapView instances can never both render it.
+    // safe as one — `MapView` has one mount, so two cards can never both render it.
     <section className="wf-land" data-testid="wf-land" aria-labelledby={TITLE_ID}>
       <div className="wf-land-head">
         <b className="wf-land-title" id={TITLE_ID} data-testid="wf-land-head">{header}</b>
@@ -83,7 +82,7 @@ export default function MapLandingCard({
           data-testid="wf-land-close"
           className="wf-land-x"
           // ⚠️ Not the bare "Dismiss" this shipped with: the colour-scale notice and the LITE
-          // viewline chip both mount in the same `!overlayMode` branch with their own "Dismiss",
+          // viewline chip both mount alongside it with their own "Dismiss",
           // and the cold-open case this card exists for is exactly when an unread notice is also on
           // screen. Three identically-named buttons in NVDA's Elements List name nothing.
           aria-label="Dismiss this card"

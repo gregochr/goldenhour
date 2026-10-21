@@ -600,8 +600,9 @@ describe('WindowFirstShell — the drill-down', () => {
     });
   });
 
-  it('closes the sheet before the map overlay opens, so two dialogs are never stacked', async () => {
-    // `MapOverlay` is itself `aria-modal`. Leaving the sheet mounted underneath puts two dialogs on
+  it('closes the sheet before the map door opens, so two dialogs are never stacked', async () => {
+    // The map overlay of the day was itself `aria-modal` (retired in overlay convergence C5), and any
+    // layer a door lands on is no place for a dialog left standing. Leaving the sheet mounted underneath puts two dialogs on
     // the page, gives Escape two listeners, and holds the reader's place in a list they have just
     // navigated away from.
     renderShell();
@@ -759,8 +760,8 @@ describe('WindowFirstShell — the drill-down', () => {
   });
 
   it('⚠️ takes the WINDOW POPUP down with it, not just this sheet', async () => {
-    // `MapOverlay` is itself an `aria-modal` dialog with its own unconditional document Escape
-    // listener, and the popup re-arms its own the moment nothing is stacked on it — so a
+    // The Plan-tab overlay this was written against was itself an `aria-modal` dialog with its own
+    // unconditional document Escape listener, and the popup re-arms its own the moment nothing is stacked on it — so a
     // sheet-only close leaves two dialogs on the page and makes one press take both. The sheet's
     // own comment has always stated that rule; until M4 it closed only the sheet. Its sibling in
     // `locationSheetShell.test.jsx` pins the same line for the four-day sheet's footer.

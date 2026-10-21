@@ -823,9 +823,9 @@ describe('WindowFirstShell — the strip it hosts', () => {
     // the thing the user asked to see.
     expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
     // ⚠️ AND THE POPUP, which this comment used to call "the tab change's job". It is not: this
-    // route never goes through `selectTab`, so nothing else clears `openWindowKey`. `MapOverlay` is
-    // itself an `aria-modal` dialog with an unconditional document Escape listener and it is NOT a
-    // `Modal`, so it takes no `stacked` opt-in — and the instant the pick dialog goes,
+    // route never goes through `selectTab`, so nothing else clears `openWindowKey`. the Plan-tab overlay
+    // this comment was written against (retired in overlay convergence C5) was itself an `aria-modal`
+    // dialog with an unconditional document Escape listener and NOT a `Modal`, so it took no `stacked` opt-in — and the instant the pick dialog goes,
     // `stackedOverPopup` goes false and the popup re-arms its own listener and re-takes
     // `aria-modal`. Two modals, the lower one fully tab-reachable under the overlay, one press
     // closing both. M4 fixed this on the two sheet routes and missed the third; an adversarial
@@ -912,9 +912,9 @@ describe('WindowFirstShell — the strip it hosts', () => {
   });
 
   it('lifts the batch scores to App, which is what the map handoff reads', () => {
-    // Nothing in the rail renders these. They feed `buildMapOverlay`'s narrative and MapView's
+    // Nothing in the rail renders these. They feed MapView's
     // visibility filter — and MapView treats a location with no rating as stood down and hides it,
-    // so without the lift a tile that says "Worth it" opens an overlay over an all-but-empty map.
+    // so without the lift a tile that says "Worth it" opens the Map tab on an all-but-empty map.
     const scores = new Map([['N&T|2026-08-04|SUNSET|Bamburgh', { rating: 4 }]]);
     const onEvaluationScoresChange = vi.fn();
     renderWithBriefing(briefingWith('2026-08-04T12:00:00', scores), { onEvaluationScoresChange });
@@ -1069,7 +1069,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     });
   });
 
-  it('lifts the seasonal features too, so the overlay map\'s Bluebell chip reflects the briefing', () => {
+  it('lifts the seasonal features too, so the Map tab\'s Bluebell chip reflects the briefing', () => {
     // The sibling lift nine lines up. Pinned here because the prop is optional and
     // optional-called, so deleting it from App would drop the chip with the whole suite still
     // green.

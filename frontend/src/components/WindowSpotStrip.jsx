@@ -189,10 +189,11 @@ export default function WindowSpotStrip({
   }, [open, date, targetType, scoreIndex]);
 
   /**
-   * Set while the map overlay is the thing that has focus, so the focus it hands BACK on close opens
-   * nothing.
+   * Set while a dialog that was opened from a spot card is the thing that has focus, so the focus it
+   * hands BACK on close opens nothing (the Plan-tab map overlay was the original case; the same
+   * restore applies to any dialog a card opens).
    *
-   * <p>`MapOverlay` runs `useDialogFocus`, which captures `document.activeElement` on open and calls
+   * <p>A dialog runs `useDialogFocus`, which captures `document.activeElement` on open and calls
    * `.focus()` on it on close. Clicking a spot card focuses that card (mousedown does, in every
    * browser but Safari), so closing the overlay re-focuses it — and `onFocus` cannot tell that from a
    * reader arriving by keyboard. Without this a 280px panel paints 180ms after the ✕, anchored to a
