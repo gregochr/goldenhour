@@ -1,6 +1,6 @@
 # P1: wasted trips, the canvas rule and far decks, measured on the history we already have
 
-**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13). Part A run for the Angel 2026-10-21 (§14): a forecastable far high lid behind the canvas, unread by the prompt. Meteosat agrees (2026-10-21). Part B re-run on the verified Sonnet 5.5 era 2026-10-21 (§15): keeping Sonnet 5.5 is evidence-backed.
+**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13). Part A run for the Angel 2026-10-21 (§14): a forecastable far high lid behind the canvas, unread by the prompt. Meteosat agrees (2026-10-21). Part B re-run on the verified Sonnet 5.5 era 2026-10-21 (§15): keeping Sonnet 5.5 is evidence-backed. Far-lid rule sized on the first week of capture (§16): the single far-point reading is not a detector; the Angel shape is n = 1.
 
 **Parent:** `far-cloud-lid-plan.md` §6 P1, which pre-registered hypotheses H1–H5. This plan builds P1
 and adds the analyses the reviews showed P1 cannot do without. Where it departs from a P1 rule, it
@@ -408,7 +408,7 @@ Everything lives under `scripts/far-cloud-p1/`, plus one test-only Java change. 
 4. Part E's protocol: which locations, and who records.
 5. Whether Part A should also run for the other training cases.
 6. **Open:** whether to buy a narrower R1 arm that fires only on the Angel shape (10 of 513 gos), at about $4 (§13). Not yet decided.
-7. **Open:** a far-lid rule (canvas present, far high ≥ 60%) — prompt change + replay on rebuilt prompts, cost unestimated (§14).
+7. **Open:** a far-lid rule: nothing overhead (mid and high < 20), horizon cirrus canvas (cone high ≥ 60), lid behind (far high ≥ 60) — prompt change + replay on rebuilt prompts, cost unestimated (§14). Revised in §16: the earlier "canvas + far high ≥ 60" form would have withdrawn 128 of a week's 276 gos and is refuted by the first two outcomes; the Angel shape is n = 1, so this waits on more Angel-shaped gos with owner ratings and is sized against the far mid/high dark-hour columns and pressure levels too.
 
 ## 10. Review record (2026-10-14)
 
@@ -628,3 +628,41 @@ Sonnet 5.5's gos stand on ERA5-blocked horizons less often than Haiku's.
 - the far-lid rule (§9 item 7) on the V175/V176 capture;
 - Part C sizing (§12 step 7);
 - Part E.
+
+## 16. The far-lid rule, sized on the first week of capture (2026-10-21)
+
+**Data.** The 2026-10-21 re-export (`p1_forecasts.csv`), latest run per slot, restricted to slots dated 2026-10-14 to 2026-10-24 that carry `far_solar_high_cloud` (the V175 capture): 3,029 slots, 2,155 rated, 276 gos (rating >= 4), all Sonnet 5.5. No network, no spend. Definitions used here:
+- **Canvas:** cone (113 km) mid or high >= 60%.
+- **Lid:** `far_solar_high_cloud` >= 60%.
+- **Angel shape:** overhead mid and high both < 20%, cone low < 20%, and cone high >= 60%.
+
+**Canvas plus lid is common and bunched.**
+- 187 of the 276 gos had a canvas. 128 of those 187 (68%) had a lid behind it.
+- 100 of the 128 fall on 2026-10-15 alone. The others: 14 Oct 9, 16 Oct 9, 18 Oct 2, 22 Oct 2, 24 Oct 6.
+- A cap on canvas plus lid would have withdrawn 128 of the week's 276 gos.
+
+**ERA5 cannot adjudicate the lid yet.**
+- The 578 verified slots with `cv_far_high_cloud` are from 14-15 October only, where ERA5 itself saw a lid on 553 of 578.
+- Forecast lid against ERA5 lid: agreed on 469, forecast missed 84, forecast over-called 15, both clear 10.
+- Agreement on days when everything had a lid says nothing about days when the lid is local.
+
+**The first two recorded outcomes refute canvas plus lid as a verdict.** The owner's first two entries in the `outcome_rating` table ("How was it?"), Angel of the North and Copt Hill, 2026-10-15 SUNSET, were forecast 3★ and observed 4★. Cone high was 100% and far high 100% in both the forecast and ERA5: a good sky under exactly that shape. The owner's photo shows a mid-level canopy overhead lit pink from beneath, with an orange horizon band. The owner also reports Penshaw Monument, same evening and run, forecast 4★, as right.
+
+**What differed between 13 and 15 October is overhead, not the far point.**
+- 13 Oct Angel: forecast overhead 0/0/0 and ERA5 observer low/mid/high 2/16/8. Nothing to light except the 113 km cirrus, with the lid behind it (§14). ERA5 far high 88% (dark hour 99%).
+- 15 Oct Angel: forecast overhead 99/100/100 and ERA5 observer 2/100/84. A full mid/high canopy that lit anyway, with a far high of 100%.
+
+**15 October's error was the opposite class: an over-forecast low deck.**
+- At the Angel the forecast said overhead low 99% and horizon low 32% (ERA5: 2% and 4%).
+- At Copt Hill, overhead low 100% and horizon low 43% (ERA5: 2% and 3%).
+- At Penshaw Monument, horizon low 0% (ERA5 3%) and the rating was 4★.
+- Same sky, three sites a few miles apart; the one with the right low-cloud figure got the right star. That is a missed opportunity, not a wasted trip, and outside this plan's rules.
+
+**The Angel's exact shape is a sample of one.** Of the 276 gos, 25 match the Angel shape in the forecast (all 15 October), 15 of those with a lid, and ERA5 says none of the 15 was truly clear overhead. None has an outcome. No rule may ship on n = 1.
+
+**Revised §9 item 7.**
+- The candidate rule is not "canvas + far high >= 60" but "nothing overhead (mid and high < 20), horizon cirrus canvas (cone high >= 60), lid behind (far high >= 60)": the shape in which the only canvas needs the sun to pass under the far deck.
+- It stays open and uncosted. It waits on more Angel-shaped gos with owner ratings.
+- It must be sized against the far mid/high dark-hour columns and the pressure levels as well as the single 226 km point. The Angel's own far 300 hPa figure that evening, from the Historical Forecast API, was only 11-27%, so the pressure levels may not see a cirrus lid the layer figures do.
+
+**Tooling note.** The 15 October transect (`case.py --date 2026-10-15`) was attempted and refused by Open-Meteo's daily limit; it resumes from cache on a later day. The free daily limit was reached after about 600 weighted calls, far below `openmeteo.py`'s 8,000 default, so plan one transect per day.
