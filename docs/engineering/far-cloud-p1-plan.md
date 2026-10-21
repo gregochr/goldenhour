@@ -1,6 +1,6 @@
 # P1: wasted trips, the canvas rule and far decks, measured on the history we already have
 
-**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13). Part A run for the Angel 2026-10-21 (§14): a forecastable far high lid behind the canvas, unread by the prompt.
+**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13). Part A run for the Angel 2026-10-21 (§14): a forecastable far high lid behind the canvas, unread by the prompt. Part B re-run on the verified Sonnet 5.5 era 2026-10-21 (§15): keeping Sonnet 5.5 is evidence-backed.
 
 **Parent:** `far-cloud-lid-plan.md` §6 P1, which pre-registered hypotheses H1–H5. This plan builds P1
 and adds the analyses the reviews showed P1 cannot do without. Where it departs from a P1 rule, it
@@ -396,7 +396,7 @@ Everything lives under `scripts/far-cloud-p1/`, plus one test-only Java change. 
 
 ## 9. Owner decisions
 
-1. **Interim protection, now.** — **Decided 2026-10-15: Batch Near-Term stays on Sonnet 5.5 until the question is resolved** (the Part B re-run after ERA5 verification reaches the Sonnet 5.5 era, §12 step 6, or Part E outcomes). D-2's second condition was met (§13) and the owner chose not to act on one case plus a disagreement whose truth is unknown.
+1. **Interim protection, now.** — **Decided 2026-10-15: Batch Near-Term stays on Sonnet 5.5 until the question is resolved** (the Part B re-run after ERA5 verification reaches the Sonnet 5.5 era, §12 step 6, or Part E outcomes). D-2's second condition was met (§13) and the owner chose not to act on one case plus a disagreement whose truth is unknown. §15 supports this.
    - Should Batch Near-Term go back to Sonnet 4.6 until Parts D and B report?
    - It is reversible on the Models screen.
    - The P0 evidence is one case: 4.6 gave 3★ 20/20 where 5.5 gave 4★ 20/20. — see §13 for the D-2 reading.
@@ -504,7 +504,7 @@ Written after the exports, Part B, the Part D set, the probe fix (#1166) and the
 5. **Part E starts now** (§2 Part E): 5–8 named locations, two with a westward high horizon like the Angel; every go recorded with `POST /api/outcome` whatever the sky did.
 
 **Two to three weeks**
-6. **ERA5 verification catching up with Sonnet 5.5.** At the 2026-10-14 export the latest verified `target_date` was 2026-10-04 and Sonnet 5.5's first run was 2026-10-06, so every Sonnet 5.5 go was premise-unknown and Part B judged Haiku's gos only. The hourly `cloud_verification_backfill` job walks forward in slices; check `GET /api/admin/cloud-verification/backfill/status` weekly, and when verification passes about 2026-10-14, re-export `p1_forecasts.csv` and re-run Part B (free, no network). That is the first Part B that can judge Sonnet 5.5 gos and the Angel row.
+6. **ERA5 verification catching up with Sonnet 5.5.** At the 2026-10-14 export the latest verified `target_date` was 2026-10-04 and Sonnet 5.5's first run was 2026-10-06, so every Sonnet 5.5 go was premise-unknown and Part B judged Haiku's gos only. The hourly `cloud_verification_backfill` job walks forward in slices; check `GET /api/admin/cloud-verification/backfill/status` weekly, and when verification passes about 2026-10-14, re-export `p1_forecasts.csv` and re-run Part B (free, no network). That is the first Part B that can judge Sonnet 5.5 gos and the Angel row. **Done 2026-10-21 (§15)**; re-run again when verification passes the end of October to widen the Sonnet 5.5 sample.
 7. **Part C in the background**, now the probe passes: `size.py` under the 60-call daily Open-Meteo weight, so weeks; drop it if steps 3 and 6 settle the question.
 8. **Part A** (§9 Q5): about a week of calls, only if step 3 leaves the Angel mechanism open. **Done 2026-10-21 for the Angel (§14)**; the other training cases (§9 Q5) are not run.
 
@@ -590,3 +590,42 @@ That is about $6.28 in total at batch prices, primer batches excluded. Every arm
 - A rule keyed instead on the **far high deck** is the shape this case points at: the canvas is present AND far high is ≥ 60% along the solar azimuth.
 - It cannot be replayed on stored prompts, because they carry no far high. Replaying it means rebuilding prompts from forecast rows, which is a prompt change, not a replay.
 - Recorded as §9 item 7, open.
+
+## 15. Part B re-run on the verified Sonnet 5.5 era (2026-10-21)
+
+**Trigger.** On 2026-10-21 production's `cloud_verification` had reached `target_date` 2026-10-15, with 12,093 verified rows dated 2026-10-06 or later (the first Sonnet 5.5 run was 2026-10-06). So `p1_forecasts.csv` was re-exported (106,118 rows, dates 2026-02-26 to 2026-10-24) and `premise.py` re-run (`~/goldenhour-p1/part_b2.md`). `replay_set.py compare` was re-run over the five Part D arms with the new `slots.csv`, so its premise-class tables now cover Sonnet 5.5 gos (`~/goldenhour-p1/part_d2.md`). No Anthropic spend. Neither report is committed.
+
+**Population.** 2,251 location-gos at T+0/T+1, 2,120 of them with a `cloud_verification` row (1,614 on 2026-10-14).
+
+**P-low** (ERA5 cone low >= 60%, the one premise that counts), among gos, by model:
+
+| Model | Event | Gos failing P-low |
+|---|---|---|
+| Haiku | sunrise | 79 of 904 (8.7%) |
+| Haiku | sunset | 39 of 714 (5.5%) |
+| Sonnet 5.5 | sunrise | 9 of 286 (3.1%) |
+| Sonnet 5.5 | sunset | 2 of 220 (0.9%) |
+
+Sonnet 5.5's gos stand on ERA5-blocked horizons less often than Haiku's.
+
+**The Angel sanity row** now reads: P-low passes, P-far passes, P-canvas passes. Part B's three premises cannot see the far high-cloud lid that §14 found. The Angel class is invisible to this test by construction, as §2 Part B warned.
+
+**Primary tests, same verdicts as before:**
+- R1 is inconclusive: 0 of 67 flagged gos failed P-low, fewer than 10 events.
+- R2 and R3 fail: the differences are +0.3 and 0.0 points, Holm p = 1.0.
+- R1's cost side: 59 of 67 Angel-shape gos (88.1%) had an ERA5 canvas, against the 25% ceiling. D-1 part 4 fails.
+
+**The Part D premise cross** (`part_d2.md`), which is the test §13 said could adjudicate the switch. Of Sonnet 5.5's 513 gos, 490 pass all three premises, 9 fail only the canvas premise, 1 fails only the far premise, and 13 are unknown.
+- Sonnet 4.6 withdrew 118 of the 490 all-pass gos (24.1%, its overall withdrawal rate), 7 of the 9 no-canvas gos, 0 of the 1 far-flagged go and 2 of the 13 unknown.
+- Its withdrawals are not concentrated on gos ERA5 contradicts. By ERA5 they read as missed opportunities, not avoided wasted trips, with the 9 no-canvas gos the one small class it catches.
+- R1 demoted 144 of 613 all-pass gos (23.5%) and 9 of 9 no-canvas gos. D-1 part 3 fails: there is no enrichment of P-low among demoted gos. R1 fails parts 2, 3 and 4 of D-1 and is rejected.
+
+**Reading.** The owner's 2026-10-15 decision to keep Batch Near-Term on Sonnet 5.5 (§9 item 1) is now supported by evidence rather than caution alone.
+
+**Caveat.** ERA5 is a reanalysis, not an observation, and these premises see only the horizon gap, the local canvas and the far LOW corridor. The far-lid class (§14) and any other unmodelled failure are outside them. So this does not say Sonnet 5.5's gos are right; it says only that Sonnet 4.6's withdrawals are not where ERA5 says the faults are. Part E outcomes remain the only test of wasted trips.
+
+**What this leaves as the live line of work:**
+- the far-lid rule (§9 item 7) on the V175/V176 capture;
+- Part C sizing (§12 step 7);
+- the Meteosat observation for the Angel (§2 Part A);
+- Part E.
