@@ -44,6 +44,29 @@ ORDER BY photographable DESC, triaged_mornings DESC
 LIMIT 60;
 
 \echo ''
+\echo '=== 1b. The signature over EVERY LOW_VISIBILITY morning (whole population, no LIMIT) ==='
+-- Query 1 is sorted by the photographable count and cut at 60 groups, so its total is an enriched slice
+-- and a FLOOR, never an estimate of the whole (a Codex review of #1268). This is the whole.
+WITH pre_event AS (
+    SELECT DISTINCT ON (fe.location_id, fe.target_date, fe.target_type)
+           fe.target_type, fe.triage_reason, fe.low_cloud, fe.wind_speed,
+           (fe.temperature_celsius - fe.dew_point_celsius) AS gap
+    FROM forecast_evaluation fe
+    WHERE fe.target_type IN ('SUNRISE', 'SUNSET')
+      AND fe.target_date >= current_date - INTERVAL '180 days'
+      AND fe.solar_event_time IS NOT NULL
+      AND fe.forecast_run_at < fe.solar_event_time
+    ORDER BY fe.location_id, fe.target_date, fe.target_type, fe.forecast_run_at DESC
+)
+SELECT target_type,
+       count(*)                                                                   AS triaged_low_vis,
+       count(*) FILTER (WHERE low_cloud < 30 AND wind_speed <= 3 AND gap < 2)      AS photographable,
+       count(*) FILTER (WHERE low_cloud < 30 AND wind_speed <= 3)                  AS clear_and_calm
+FROM pre_event
+WHERE triage_reason = 'LOW_VISIBILITY'
+GROUP BY target_type;
+
+\echo ''
 \echo '=== 2. The same signature on mornings that were NOT triaged (what the prompt already sees) ==='
 -- The baseline is the population that actually REACHED the sky prompt: triage_reason IS NULL. A row
 -- stood down for precipitation or horizon cloud never did, whatever its visibility, so it is not in

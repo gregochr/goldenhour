@@ -1,6 +1,6 @@
 # Valley mist — the morning PhotoCast cannot see (2026-10-17)
 
-**Status:** plan, awaiting the owner's decisions in §5. Nothing in it is built.
+**Status:** M0 measured and the six decisions taken (2026-10-21, §5). M1 is next; nothing is built yet.
 **Prompted by:** a River Brathay sunrise on 17 Oct 2026 — thick radiation mist on the river under a clear
 sky, low sun through it — that the pipeline would have stood down before Claude saw it, and that no surface
 would have named the night before. The owner's words: "Shame we missed this."
@@ -45,10 +45,15 @@ the phenomenon with no model, no reading, no topic and no star.
 
 Two further facts bound the design:
 
-- **Open-Meteo's `visibility` is a grid-cell figure** (best_match, ~9–11 km over the UK; the client sets no
-  `models=`). A 2 km river valley's fog is sub-grid. The model's own visibility is therefore evidence, not
-  the answer, exactly as the coned horizon reading was found to be for cloud approach — which is why the
-  inversion was given a calculator over predictors rather than a threshold on one field.
+- **Open-Meteo's `best_match` over the UK IS the Met Office 2 km model, and even at 2 km the river did
+  not saturate.** Measured 2026-10-21 (§3 M0): for the Brathay on 17 Oct, `best_match`, `ukmo_seamless`
+  and `ukmo_uk_deterministic_2km` return byte-identical hourly rows at a grid elevation of 54 m — the
+  valley floor — and those rows hold a 2–3 °C temp–dew gap all night, 81–87% humidity, 37 km visibility
+  and a clear sky until 06:00. ICON agrees. The mist that was photographed is sub-grid for every model
+  Open-Meteo offers: a river corridor a few hundred metres wide saturates where the cell's 2 m air does
+  not. The model's own visibility is therefore evidence of the SET-UP, never the answer — which is why
+  the inversion was given a calculator over predictors rather than a threshold on one field, and why
+  this calculator must score the radiative set-up rather than wait for the model to saturate.
 - **No gridded source verifies valley fog.** ERA5 has no visibility; `cloud_verification` cannot score it.
   The owner's own outcome ratings (`outcome_rating`, since 2026-10-15) are the only observation the
   project holds, and they record a star, not what was seen.
@@ -105,11 +110,58 @@ CLAUDE.md's review cadence. Migrations are proven by CI only (no local Docker); 
 4. 17 Oct 2026 SUNRISE itself, for every roster location: what did the model say? If any Lakes or Durham
    river site is on the roster, this is the one morning we can compare against a photograph.
 
-Also in M0, by hand (one request each, no code): fetch Open-Meteo `hourly=visibility,dew_point_2m,
-temperature_2m,wind_speed_10m,cloud_cover_low` for the Brathay (54.42, −3.02) for 17 Oct with
-`models=best_match` and `models=ukmo_seamless`, and record both in the plan. If UKV's 2 km visibility
-resolved the river where best_match did not, M4 is justified; if neither did, the calculator must carry the
-whole weight and the plan should say so.
+Also in M0, by hand (one request each, no code): the Open-Meteo side-by-side for the Brathay on 17 Oct
+across `best_match`, `ukmo_seamless`, `ukmo_uk_deterministic_2km` and `icon_seamless`. Done 2026-10-21;
+the result is in the findings below and it killed M4.
+
+**Results (run on the production host, 2026-10-21; one pre-event run per morning, 180 days):**
+
+| | Sunrise | Sunset |
+|---|---|---|
+| Mornings forecast | 17,101 | 14,724 |
+| Reached the sky prompt (`triage_reason IS NULL`) | 7,251 | 5,755 |
+| Stood down `LOW_VISIBILITY` | 1,266 | 221 |
+| Haze-band (5–10 km) mist signature the prompt actually saw | 32 | 5 |
+
+- **M0 §1 — the refused population is real, and 145 is its FLOOR.** Query 1 lists the top 60
+  site/event groups sorted by the photographable count itself, so its 145 signature mornings (observer
+  low cloud < 30%, wind ≤ 3 m/s, gap < 2 °C; mean gap 0.1–0.3 °C, mean visibility ~3 km) are an enriched
+  slice and cannot be extrapolated over all 1,266 — a Codex review of #1268 caught the first draft doing
+  exactly that. What the slice does prove is a lower bound: at least 145 refused sunrise mornings carried
+  the signature, against the 32 the prompt's own MIST guidance ever reached — at least four and a half to
+  one. The whole-population figure is query 1b (added after that review), to be run before M1's bands
+  are set; the ratio can only grow. Walltown Crags led (6 of 11), then White Moss Common, Norber Erratics and Dent
+  Head (4 each); the Brathay at Elterwater had 3 of 13. Every one of the 60 rows was SUNRISE.
+- **M0 §2 — the signature is a sunrise phenomenon here**: 1,266 sunrise stand-downs to 221 sunset.
+- **M0 §3 — the shortlist cannot be derived.** `elevation_m` is stored for 18 of the 125 candidates
+  (all Lakes lakeshores); the rest are null. Q1's manual tick is the only honest source.
+- **M0 §4 — 17 Oct was NOT a triage miss.** The Brathay reached Claude at 01:07 UTC (T+0): visibility
+  40,220 m, low cloud 47%, wind 1.6 m/s, humidity 81%, gap 3.0 °C — and was rated 2. Nearby: Buttermere
+  gap 0.5 / wind 0.1, Derwent Water S&W gap 1.1 / wind 0.4, Loughrigg Fell gap 1.3 / wind 0.4, Stockghyll
+  gap 1.3 / wind 0.3; all rated 2–3. **Ingleton Waterfalls** is the sharpest row: visibility 8,840 m, gap
+  0.1 °C, wind 1.3 m/s, low cloud 0 — the textbook signature, seen by the prompt — rated 2. So the 32
+  mornings the guidance reaches are not being lifted either.
+- **The model side-by-side (Brathay, 54.4287 −3.0350, 17 Oct, UTC):** `best_match` = `ukmo_seamless` =
+  `ukmo_uk_deterministic_2km`, identical to the row: 02:00–05:00 clear, wind 1.8–2.6, gap 2.8–3.0, RH
+  81–82, vis 37–41 km; 06:00 low cloud 47%, gap 2.1, RH 86, vis 37 km; 07:00 gap 2.0, RH 87. ICON: gap
+  2.0–2.2, RH 86–87 all night, vis 27 km. No model saturated the cell.
+
+**What M0 decides:**
+
+1. **M1 and M2 are justified** by the floor alone: at least 145 refused signature mornings against 32
+   seen, at least four and a half to one. Query 1b gives the true count.
+2. **M4 is deleted** (§3 below): production already runs the 2 km model.
+3. **The calculator scores the radiative set-up, not the model's saturation.** The 17 Oct row — clear
+   night, calm, RH rising through the 80s, temperature falling toward a dew point it never reaches in
+   the cell — is what a LIKELY looks like at a flagged riverside site. A gap < 2 gate would have missed
+   it; the gap is a term, not a gate. The M0 "photographable" signature (gap < 2) is the subclass the
+   model DID saturate — itself a floor on the set-up population, not its size.
+4. **M2's site sentence is load-bearing.** Ingleton shows Claude rates the full signature 2 when it is
+   handed the numbers without the site fact and without being told the mist is the shot.
+5. **The shortlist is Q5's, by hand.** Walltown Crags, Sycamore Gap and the other Wall sites head the
+   refused table, and the owner confirms they are mist sites (2026-10-21): the Whin Sill crags are a
+   ten-minute stroll from the road with negligible relief, and the mist sits around them, not below
+   them. They and the lakeshore and riverside rows beneath them are the first ticks.
 
 ### M1 — The reading and the topic ("what is happening"; no Claude cost, no star change)
 
@@ -118,21 +170,29 @@ whole weight and the plan should say so.
   it in `LocationManagementView`, worded "Mist forms here: valley floor, riverside, lake shore"). ⚠️ Not a
   `LocationType`: a type routes a subject lane and inverts polarity (WOODLAND); this is geography on a sky
   site that keeps its sky.
-- **`ValleyMistCalculator`** (pure, `service/`, 0–10, the inversion calculator's sibling). Terms, each a
-  prior stated as cheap-to-be-wrong-about until M3 verifies: moisture from the **minimum** temp–dew gap over
-  the night-side `MistTrend` slots (T−3h..event for sunrise; event..T+2h for sunset, where mist *forms*) —
-  reusing `InversionScoreCalculator.moistureScore`, extracted to a shared helper so "moisture is counted
-  once" has one home; wind from the night-side minimum 10 m wind (calm ≤ 2 m/s full marks, > 4 m/s zero);
-  a **sky gate**, the inverse of the inversion's cloud veto: radiative cooling needs a clear night, so
-  observer **total** cloud over the night-side slots above ~50% caps the score (the inversion needs 15–80%
-  low cloud to form a sea; here the fog *is* the low cloud and the sky above must be open); a wet-ground
-  term from `precedingPrecipitationMm` (rain then clearing is the classic set-up); and a **confirmation**
-  term, not a gate, when the model's own event-hour visibility is already under 5 km. Season enters only
-  through night length implicitly (the slots), never as a calendar rule. Bands via a `MistPotential`
-  (NONE / POSSIBLE / LIKELY / FOGBOUND) — FOGBOUND when visibility < 300 m with no improving trend, the
-  white-frame case the woodland evaluator already names (`MIST_TOO_THICK_M`). Requires
-  `MistTrend.MistSlot` to carry observer total cloud and wind, both already in the hourly array
-  (`extractMistTrend` grows two fields; the prompt's existing rendering is unchanged).
+- **`ValleyMistCalculator`** (pure, `service/`, 0–10, the inversion calculator's sibling). ⚠️ **It scores
+  the radiative SET-UP, because M0 showed the 2 km model does not saturate a river corridor** (the
+  Brathay row: gap 2–3 °C all night, yet mist in the photograph). Terms, each a prior stated as cheap-
+  to-be-wrong-about until M3 verifies, anchored so that the 17 Oct Brathay row reads LIKELY at a flagged
+  site: a **clear-night term** from observer TOTAL cloud over the night-side `MistTrend` slots (T−3h..event
+  for sunrise; event..T+2h for sunset, where mist *forms*) — radiative cooling needs an open sky, and this
+  is the inverse of the inversion's cloud veto, where the fog *is* the low cloud and a sea must exist to
+  stand over; a **calm term** from the night-side minimum 10 m wind (≤ 2 m/s full marks, > 4 m/s zero);
+  a **moisture term** from the night-side MINIMUM temp–dew gap, reusing `InversionScoreCalculator
+  .moistureScore` extracted to a shared helper so "moisture is counted once" has one home, but scaled so
+  that a 2–3 °C gap with RH above 80% still scores (the model's cell is drier than the river beside it) —
+  the gap is a term, never a gate; a **cooling term** from the temperature trajectory across the night-
+  side slots (falling toward the dew point, the 17 Oct shape, scores; flat or rising does not); a
+  **wet-ground term** from `precedingPrecipitationMm` (rain then clearing is the classic set-up); and a
+  **confirmation** term, not a gate, when the model's own event-hour visibility is already under 5 km
+  (the Ingleton shape — the subclass the model does saturate). Season enters only through night length
+  implicitly (the slots), never as a calendar rule. Bands via a `MistPotential` (NONE / POSSIBLE /
+  LIKELY / FOGBOUND) — FOGBOUND when visibility < 300 m with no improving trend, the white-frame case the
+  woodland evaluator already names (`MIST_TOO_THICK_M`). Requires `MistTrend.MistSlot` to carry observer
+  total cloud and wind, both already in the hourly array (`extractMistTrend` grows two fields; the
+  prompt's existing rendering is unchanged). The M0 fixtures are the first unit tests: the Brathay row
+  (LIKELY at a flagged site, NONE unflagged), Ingleton (LIKELY, confirmation on), Buttermere (gap 0.5,
+  wind 0.1, 37% low cloud — LIKELY), and a windy or overcast night (NONE).
 - **Gate:** `ForecastDataAugmentor.augmentWithValleyMist(data, mistProne)` runs for `mist_prone` sites only,
   in `fetchWeatherAndTriage` beside `augmentWithInversionScore`, BEFORE the readings write and triage.
 - **`slot_atmosphere.mist_score DOUBLE NULL` + `mist_scored BOOLEAN NOT NULL DEFAULT FALSE`** — the V158
@@ -165,10 +225,11 @@ grouping and freshness; the Coming up condition; the migration under Testcontain
   `AtmosphericData`, null for an unflagged site). Rule 3 is NOT CONSULTED when the potential is LIKELY
   (never FOGBOUND, never POSSIBLE): the slot proceeds to Gate 4 and the sky lane as a `MIST_CANDIDATE`
   (an INFO line and a disposition note; no new `DispositionCategory` — it is an `EVALUATED` slot). Rules 1
-  and 2 still apply (rain is rain; a blocked solar horizon 113 km away is still blocked). ⚠️ M0 must first
-  confirm how best_match represents valley fog at the observer: if it inflates `cloud_cover_low` to ~100%
-  at the site, the directional rule 1 is unaffected (it reads the solar horizon), but the observer
-  fallback would stand the slot down, and the exemption must then cover that fallback too.
+  and 2 still apply (rain is rain; a blocked solar horizon 113 km away is still blocked). ⚠️ M0 measured how the
+  2 km model represents a mist morning at the observer: the Brathay's 06:00 row carried 47% low cloud at
+  37 km visibility, not an inflated ~100%, so the observer fallback of rule 1 would not have stood it
+  down; the exemption covers rule 3 alone, and a `[BATCH DIAG]` line records any flagged slot rule 1 or
+  2 still refuses, so the question can be re-read from the logs if a site ever shows the other shape.
 - **The prompt.** A `VALLEY MIST CONDITIONS:` block in the user message for a mist-prone site (score,
   band, the minimum gap and the hour it falls, night-side wind, sky, the clearing trend already printed by
   `MistTrend`) and ONE site sentence: "This location is a valley-floor / riverside site where mist forms
@@ -210,14 +271,13 @@ Claude's judgement, as the inversion already is).
 - **Rarity census** for the Coming up condition once `MIST_CALC` holds a year — switching off the pinned
   config fallback is its own change, as the inversion's is.
 
-### M4 — The right model for the right question (only if M0 says so)
+### M4 — Deleted (2026-10-21)
 
-If M0's side-by-side showed UKV resolving the Brathay's fog where best_match did not: one extra Open-Meteo
-request per mist-prone site per prefetch with `models=ukmo_seamless`, visibility and dew point only, the
-`fetchPressureLevelCloudBatch` shape (shared rate limiter, no retry, no breaker, best-effort, null on
-failure), feeding the calculator's confirmation term and the prompt block as "UKV 2 km visibility". The
-rating-affecting best_match fetch is untouched. If M0 did not show it, M4 is deleted from this plan rather
-than left as an aspiration.
+M0's side-by-side showed `best_match` over the UK already IS the Met Office 2 km model (`ukmo_seamless`
+and `ukmo_uk_deterministic_2km` return byte-identical rows for the Brathay, grid elevation 54 m), and
+that even at 2 km the river corridor did not saturate. There is no finer model to fetch; the calculator
+carries the whole weight, which is why M1's terms score the set-up rather than the model's own fog.
+Recorded here rather than removed so the question is not re-asked.
 
 ---
 
@@ -239,13 +299,19 @@ than left as an aspiration.
 
 ## 5. Owner decisions
 
+**Decided 2026-10-21, all six as recommended** (owner, after reading the M0 results): Q1 a manual
+`mist_prone` boolean; Q2 mist inside the one star, one sky prompt; Q3 the triage exemption for flagged
+sites at LIKELY only; Q4 the `seen` tag on the outcome rating in M3; Q5 the tick list below as the first
+pass, the Wall sites included; Q6 "Valley mist" and "Fog forecast".
+M1 may start.
+
 | # | Question | Recommendation |
 |---|---|---|
-| Q1 | The site fact: a manual `mist_prone` boolean, an enum of settings (valley floor / riverside / lake shore), or derived relief? | Boolean now. The calculator does not need the setting's kind, and an enum nobody branches on is a future session's temptation. Derived hint in a later phase. |
+| Q1 | The site fact: a manual `mist_prone` boolean, an enum of settings (valley floor / riverside / lake shore), or derived relief? | Boolean now. M0 §3 settled it: `elevation_m` is null for 107 of the 125 candidates, so nothing can be derived from stored metadata today. Derived hint in a later phase. |
 | Q2 | Mist inside the sky star (one prompt) or a separate component with a combination rule? | Inside the star. "The star is the shot" and the inversion precedent; a second lane doubles cost and needs a merge rule with no evidence behind it. Revisit only if M3 shows Claude under-rates mist mornings it was shown. |
 | Q3 | Triage exemption scope: flagged sites at LIKELY only (recommended), or every site when the signature holds? | Flagged only. Cost is then owner-bounded, and a signature at an unflagged site has no geography to vouch for it. |
 | Q4 | The outcome rating's `seen` tag — a product change to the "How was it?" block. | Yes, in M3. It is the only verification valley mist can ever get here. |
-| Q5 | Roster: are there mist-prone sites to flag? (The Wear at Durham, the Tees and Derwent valleys, the Lakes if the roster reaches them.) | Owner's call; M0 §3 produces the shortlist from stored elevation. M1 ships whether or not any is ticked. |
+| Q5 | Roster: which sites to tick mist-prone? | Owner's call, by hand (M0 §3). First ticks suggested from the refused-mornings table: the Brathay, Rydal Water, Grasmere Shoreline, Loughrigg Tarn, Waterhead, Bowness Bay, both Derwent Water shores, Buttermere, Crummock, Little Langdale Tarn, Tarn Hows, Brothers Water, Ullswater South Shore, Clappersgate, Slater's Bridge; Ribblehead, Dent Head, Malham Tarn, Arncliffe, Burnsall, Kilnsey, Muker and Gunnerside; the Breamish Valley, the Wansbeck at Bothal, Lamley Viaduct; and the Hadrian's Wall sites that lead the refused table — Walltown Crags, Sycamore Gap, Highshield Crags, Steel Rigg & Winshield Crags, Caw Gap, Cawfields, Peel Craggs, Hotbank Crags, Cuddy's Crags, Housesteads — which the owner confirms are mist sites of negligible relief, not viewpoints above a valley. M1 ships whether or not any is ticked. |
 | Q6 | Wording: "Valley mist" for the topic and condition; "Fog forecast" for the honesty filter's stand-down. | As written; the design-bundle rule that a word must be true of the data. |
 
 ---
