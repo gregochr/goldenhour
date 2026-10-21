@@ -208,8 +208,8 @@ export function resolveDoor(trigger, ctx) {
 
 /**
  * Turns whatever `onShowOnMap` was called with into a normalised trigger object for
- * {@link resolveDoor}. Extracted from `App.jsx`'s `handleShowOnMap` (found untested by
- * adversarial review, P3b) so the branch ORDER — the part that actually matters — is a unit,
+ * {@link resolveDoor}. Extracted from `App.jsx`'s former `handleShowOnMap` (removed in overlay convergence C4;
+ * found untested by adversarial review, P3b) so the branch ORDER — the part that actually matters — is a unit,
  * not inline glue nobody can reach with a fixture.
  *
  * <h2>Order is the whole point</h2>

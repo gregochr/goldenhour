@@ -199,7 +199,6 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
     expect(ShellStub.lastProps.tabRequest).not.toEqual(requestBefore);
     // No overlay of any kind, and the Plan tab was handed no date.
     expect(screen.queryByRole('dialog', { name: 'Aurora tonight' })).toBeNull();
-    expect(screen.queryByTestId('map-overlay-close')).toBeNull();
     expect(MapPaneStub.lastProps.handoff).not.toHaveProperty('focusNames');
   });
 

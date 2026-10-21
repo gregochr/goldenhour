@@ -44,6 +44,26 @@ describe('resolveDoor', () => {
     expect(ov.handoff.locationName).toBe('Top');
   });
 
+  it('follows a BRIEFING rating over the forecast row\'s own: the top spot is the briefing\'s, not the forecast\'s', () => {
+    // Forecast rows say Rival is the better spot (4 against 2); the briefing (the rating the Plan
+    // tab serves) says Briefed is a 5. The door must land where the briefing points.
+    const locations = [
+      loc('Briefed', 'Tyne and Wear', 2),
+      loc('Rival', 'Tyne and Wear', 4),
+    ];
+    const scores = new Map([['Tyne and Wear|2026-07-04|SUNSET|Briefed', { rating: 5 }]]);
+    const ov = resolveDoor(
+      { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
+      ctx(locations, scores),
+    );
+    expect(ov.handoff.locationName).toBe('Briefed');
+    // Control: without the briefing entry the forecast row decides.
+    expect(resolveDoor(
+      { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
+      ctx(locations),
+    ).handoff.locationName).toBe('Rival');
+  });
+
   it('event trigger spanning >1 region → fits to pins with no spot opened', () => {
     const locations = [
       loc('A', 'Region One', 4, { lat: 54.1, lon: -1.1 }),
@@ -161,6 +181,15 @@ describe('resolveDoor', () => {
       expect(ov.handoff.darkSky).toBe(true);
       expect(ov.handoff.filterAction).toBeNull();
       expect(ov.focus.names).toEqual(['Kielder']);
+    });
+
+    it('dark-sky-spots includes Bortle 4 exactly and excludes 5 - the threshold is inclusive', () => {
+      const locations = [
+        loc('Four', 'Northumberland', 3, { bortleClass: 4 }),
+        loc('Five', 'Northumberland', 3, { bortleClass: 5 }),
+      ];
+      const ov = resolveDoor({ kind: 'coming-up', darkSky: true, date: DATE }, ctx(locations));
+      expect(ov.focus.names).toEqual(['Four']);
     });
 
     it('a plan chip (neither filter) shows every visible location, matching nothing by type or Bortle', () => {

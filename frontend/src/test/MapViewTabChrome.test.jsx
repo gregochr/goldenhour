@@ -109,24 +109,17 @@ function renderMap(overrides = {}) {
 const mapHeight = () => screen.getByTestId('map-container').style.height;
 
 describe('MapView Map tab chrome', () => {
-  // ⚠️ Rewritten for §3 P7, which removed the primary row itself and the old drawer/pill it
-  // held on the TAB — the two replaced here (`filter-summary`'s text and `advanced-filters-toggle`)
-  // no longer exist for the tab at all, and `map-container`'s height is no longer a pixel figure.
-  // Old pins: "keeps the Filters summary on the primary row..." (asserted `filter-summary` text and
-  // a fixed `500px` map height) and "still remembers the disclosure across mounts" (asserted
-  // `mapFiltersOpen` persistence through `advanced-filters-toggle`) — both below, replaced rather
-  // than deleted, so the tab's actual P7 behaviour has a pin of its own.
+  // ⚠️ Rewritten for §3 P7, which removed the primary row and the old drawer/pill from the TAB, and
+  // `map-container`'s height is no longer a pixel figure. (Absence assertions for the retired
+  // `map-context-bar`, `filter-summary` and `advanced-filters-toggle` ids were dropped in C5: no
+  // component can render them, so they could not fail.)
   it('has no primary row and no fixed map height — the window control and filters are chrome over the full-frame map', () => {
     renderMap({ forecastDates: [TODAY] });
 
-    expect(screen.queryByTestId('map-context-bar')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('forecast-type-selector')).not.toBeInTheDocument();
     // The window control and the filters chip are both mounted, but as absolutely-positioned
     // chrome INSIDE the map container (map-tab-v2-plan.md §3 P7), not a page-flow row above it.
     expect(screen.getByTestId('wf-win-pill')).toBeInTheDocument();
     expect(screen.getByTestId('wf-filters-chip')).toBeInTheDocument();
-    expect(screen.queryByTestId('filter-summary')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('advanced-filters-toggle')).not.toBeInTheDocument();
     // No pixel height any more — the container is `flex:1; min-height:0`, sized by the shell's
     // own viewport-height chain rather than by a component-local constant.
     expect(mapHeight()).toBe('');

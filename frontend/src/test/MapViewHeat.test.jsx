@@ -65,7 +65,7 @@ vi.mock('react-leaflet', () => ({
     getContainer: () => ({ clientHeight: 500 }),
     fitBounds,
     // `getZoom`/`flyTo`: `FlyToController`'s effect calls both once a fly target is set — reached
-    // for the first time in this file by the azimuth-line tests' `handoffLocationName` prop, which
+    // for the first time in this file by the azimuth-line tests' map-sourced `planHandoff`, which
     // sets one as a side effect of selecting a location. No-ops; this file has no assertion on
     // camera movement.
     getZoom: () => mockMapZoomAtMount,

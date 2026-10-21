@@ -759,9 +759,9 @@ describe('WindowSpotStrip', () => {
 
     describe('one panel at a time, and never over the map it opens', () => {
       it('takes the peek down before opening the map', () => {
-        // The overlay renders above the pane but the peek is portalled to the body, so it must be
-        // dismissed explicitly. `.wf-peek`'s z-index sits below the overlay's as a second line of
-        // defence, and neither is sufficient alone.
+        // The peek is portalled to the body, so it must be dismissed explicitly when the map door
+        // opens; `.wf-peek`'s z-index is only a second line of defence, and neither is sufficient
+        // alone.
         const onOpenSpot = vi.fn();
         renderStrip([spot()], peekable({ onOpenSpot }));
         fireEvent.mouseEnter(screen.getByTestId('window-spot'));
@@ -843,8 +843,8 @@ describe('WindowSpotStrip', () => {
         expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
       });
 
-      it('does not survive the map overlay handing focus back on close', () => {
-        // `MapOverlay` runs `useDialogFocus`, which re-focuses whatever was active when it opened —
+      it('does not survive a dialog handing focus back on close', () => {
+        // A dialog opened from a card (the retired map overlay was one) runs `useDialogFocus`, which re-focuses whatever was active when it opened —
         // the spot card the reader clicked. `onFocus` cannot tell that from a keyboard arrival, so
         // without the guard a panel paints 180ms after the ✕, anchored to a card the pointer is
         // nowhere near, with no pointer gesture able to close it.
@@ -962,7 +962,7 @@ describe('WindowSpotStrip', () => {
 
       it('is aria-hidden, and leaves the card the real route to everything it shows', () => {
         // `frontend-test-standards.md:156`. The destination is on the card; the content — both
-        // scores and the whole paragraph — is in the map overlay that card opens.
+        // scores and the whole paragraph — is on the Map tab that card opens.
         const onOpenSpot = vi.fn();
         renderStrip([spot()], peekable({ onOpenSpot }));
         fireEvent.mouseEnter(screen.getByTestId('window-spot'));

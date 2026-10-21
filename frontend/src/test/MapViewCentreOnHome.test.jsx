@@ -410,8 +410,7 @@ describe('centre on home — ⌂ resets scope to My area and refits (map-tab-v2-
  * (`Boolean(heat?.enabled) && !isAuroraMode` at the time), which was false for the whole time an aurora window is
  * active. `RegionsJump` and `⌂` are mounted regardless of aurora mode, so a jump or a `⌂` press
  * during one wrote state nothing was mounted to act on — a completed-looking press (the menu closed,
- * or Settings did not open) that silently moved nothing. Fixed by mounting the controller on
- * `!overlayMode` instead, matching `⌂`'s own gate exactly (`MapView.jsx`'s `HeatBoundsController`
+ * or Settings did not open) that silently moved nothing. Fixed by mounting the controller unconditionally, matching `⌂`'s own gate exactly (`MapView.jsx`'s `HeatBoundsController`
  * mount comment carries the full reasoning, including why every input it reads stays valid in aurora
  * mode: `heat.spots`/`heat.areaSpots`/`heat.areaBounds`/`heat.catalogueBounds` come from the
  * briefing-wide `heat` prop, which does not vary with the active event type).
@@ -452,7 +451,7 @@ describe('centre on home — the camera controller stays mounted through aurora 
     // WITHOUT firing (the "MapContainer already opened here" race it exists to avoid) — so a jump
     // made while the controller did not exist would have been silently adopted as "already applied"
     // the moment it reappeared, rather than replayed. With the controller mounted throughout
-    // (`!overlayMode`, never `heatOffered`, which excluded aurora when this was written), it never unmounts on an aurora↔solar switch, so there is
+    // (mounted unconditionally, never on `heatOffered`, which excluded aurora when this was written), it never unmounts on an aurora↔solar switch, so there is
     // no remount to lose the pending fit to — asserted here by proving the fit actually happens.
     //
     // The switch itself goes through a fresh `autoEventType` rather than `WindowControl` — this

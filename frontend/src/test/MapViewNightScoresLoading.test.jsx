@@ -325,6 +325,9 @@ const RETRYING = 'Couldn’t load — trying again';
 
 
 beforeEach(() => {
+  // The handoff nonce must not depend on which test ran before.
+  handoffSeq = 0;
+  lastHandoffEvent = null;
   localStorage.clear();
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(NOW));

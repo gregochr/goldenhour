@@ -28,8 +28,8 @@
  *
  * <p><b>Containment, not "is any modal open"</b>: a dialog the pane renders INLINE is its own
  * business. Today nothing inside the pane carries `aria-modal` at all — verified by grep, not by
- * citation: only `Modal`, `BottomSheet` (which omits it under `modal={false}`) and `MapOverlay` ever
- * emit it, and the pane renders none of them inline. ⚠️ An earlier wording cited "both drilldown
+ * citation: only `Modal` and `BottomSheet` (which omits it under `modal={false}`) emit it (a third,
+ * `MapOverlay`, did until overlay convergence C5), and the pane renders none of them inline. ⚠️ An earlier wording cited "both drilldown
  * panels' own docs" as saying so; they say no such thing, and a review lens caught it — it is
  * `map-tab-v2-plan.md` O-20 that records the choice. The distinction is defensive rather than
  * load-bearing today, kept because the day one of them gains the attribute is not the day to

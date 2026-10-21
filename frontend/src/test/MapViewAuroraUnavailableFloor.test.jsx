@@ -263,6 +263,60 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
       // Broken, `star >= null` pressed all five, so 3★+ read pressed.
       expectFloorPressed(within(panel).getByRole('group', { name: 'Minimum rating' }), 4);
     });
+
+    it('keeps 4★+ saved, so the next map opens on it', async () => {
+      const { unmount } = await openMap(tab());
+      expect(await screen.findByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
+
+      await endAlert();
+      expect(localStorage.getItem('mapFilterMinStars')).toBe(SAVED_FLOOR);
+
+      // The next visit: a fresh tab on THE_NIGHT's sunset, with no aurora handoff to leave.
+      unmount();
+      await openMap(tab({ autoEventType: 'SUNSET' }));
+
+      // Broken, the saved floor was cleared and this map opened on the 3★+ default (chip "Filters").
+      const panel = openFilters(screen.getByRole('button', { name: 'Filters (1)' }));
+      expectFloorPressed(within(panel).getByRole('group', { name: 'Minimum rating' }), 4);
+    });
+  });
+
+  describe('with the stand-down lens saved (admin)', () => {
+    // The same rule as the floor's, for the other filter a reader saves: the explicit kind changes
+    // turn it off and clear it, and this change, which no reader asked for, leaves it alone.
+    beforeEach(() => {
+      mockRole = 'ADMIN';
+      localStorage.setItem('mapFilterShowStandDown', '1');
+    });
+
+    it('keeps the stand-down lens on, and saved', async () => {
+      await openMap(tab());
+      expect(await screen.findByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
+
+      await endAlert();
+
+      expect(localStorage.getItem('mapFilterShowStandDown')).toBe('1');
+      const panel = openFilters(screen.getByTestId('wf-filters-chip'));
+      expect(within(panel).getByTestId('star-filter-standdown')).toHaveClass('on');
+    });
+  });
+
+  describe('with a drive-time filter chosen in aurora mode', () => {
+    it('keeps the drive-time filter', async () => {
+      // A filter the reader sets for this visit only, never saved: it stands like the saved ones.
+      await openMap(tab());
+      expect(await screen.findByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
+      fireEvent.click(screen.getByTestId('wf-filters-chip'));
+      fireEvent.click(screen.getByTestId('drive-time-filter-45'));
+      expect(screen.getByTestId('drive-time-filter-45')).toHaveAttribute('aria-pressed', 'true');
+
+      await endAlert();
+
+      // The popover was left open: aurora mode is over (the Sky row is back) and the filter stands.
+      expect(screen.getByRole('button', { name: /Dark sky only/ })).toBeInTheDocument();
+      // Broken, the filter was reset to Any.
+      expect(screen.getByTestId('drive-time-filter-45')).toHaveAttribute('aria-pressed', 'true');
+    });
   });
 
   describe('on no saved floor', () => {

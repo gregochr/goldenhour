@@ -165,10 +165,10 @@ function clearMapFilter(key) {
 /**
  * The heat field, behind a `lazy()` boundary — and the boundary is load-bearing, not tidiness.
  *
- * <p>`MapHeatLayer` statically imports the kernel, which statically imports `d3-geo`. `MapView` is
- * mounted twice (the Map pane, the Plan overlay) and only ONE of them passes `heat`; a static
- * import here would put the `geo` chunk on the network for the overlay, which never renders the
- * layer. Nothing is fetched until something renders the layer, and only the opted-in caller can.
+ * <p>`MapHeatLayer` statically imports the kernel, which statically imports `d3-geo`. `heat` is an
+ * opt-in prop (null by default), so a static import here would put the `geo` chunk on the network
+ * for a caller that never renders the layer. Nothing is fetched until something renders the layer,
+ * and only the opted-in caller can.
  */
 const MapHeatLayer = lazy(() => import('./MapHeatLayer.jsx'));
 
@@ -176,8 +176,8 @@ const MapHeatLayer = lazy(() => import('./MapHeatLayer.jsx'));
  * The label layer (map-tab-v2-plan.md §3 P8), behind the SAME kind of `lazy()` boundary as
  * {@code MapHeatLayer} above, for the identical reason: {@code utils/mapLabels.js} imports
  * {@code centroid} from {@code utils/heatField.js}, which statically imports {@code d3-geo}. A
- * static import here would put that chunk on the network for the Plan overlay too, which never
- * mounts this layer (`heat` is never handed to it).
+ * static import here would put that chunk on the network for a mount that never renders this layer
+ * (`heat` is an opt-in prop).
  */
 const MapLabels = lazy(() => import('./map/MapLabels.jsx'));
 
@@ -209,8 +209,8 @@ const PinsLayer = lazy(() => import('./map/PinsLayer.jsx'));
  * chunk carried a static `import` of a shared chunk (Rollup named it after one of the small
  * modules folded into it, not a stable identifier) holding {@code centroid}, the heat-field
  * canvas kernel and topojson's feature decoder — which itself statically imported the
- * `d3-geo`/`d3-array` bundle. Net effect: the Map tab AND the Plan-tab overlay (which mounts
- * `MapView` before a reader has chosen Heat or Pins, or opened the callout at all) were both
+ * `d3-geo`/`d3-array` bundle. Net effect: the Map tab (which mounts
+ * `MapView` before a reader has chosen Heat or Pins, or opened the callout at all) was
  * eagerly loading the full closure of `MapView` at 18 chunks / 842,323 bytes raw — including the
  * `geo` chunk and that merged chunk, ~32.3 KB raw / ~12.75 KB gzip between them — exactly the
  * weight the `lazy()` boundaries above exist to keep off that network path.
@@ -231,7 +231,7 @@ const PinsLayer = lazy(() => import('./map/PinsLayer.jsx'));
  * `utils/verdictWord.js`, `utils/scoreRamp.js`, `utils/locationSheet.js`,
  * `utils/locationTypes.js`, `utils/windowFirstSpots.js` (plus the sibling `TideWave.jsx` and the
  * `useIsMobile` hook) — none of which reach `heatField.js`, `d3-geo` or `topojson-client`, so
- * there genuinely is no weight to keep off the Plan overlay's network, and a `lazy()` boundary
+ * there genuinely is no weight to keep off the network, and a `lazy()` boundary
  * here would only add a Suspense flash the instant a reader selects a location.
  */
 
@@ -432,12 +432,11 @@ const NIGHT_RETRY_STEADY_MS = 10 * 60 * 1000;
  *
  * @param {() => Promise<Array>} request sends one request for the night
  * @param {(results: Array) => void} onAnswer called with a successful response, never after `stop`
- * @param {{retry?: boolean, onRetrying?: ?Function}} [options] `retry: false` asks exactly once,
- *        and listens for nothing; `onRetrying()` is called each time a failure arms a retry — so
- *        never after `stop`, and never with `retry: false`, where nothing is asked again
+ * @param {{onRetrying?: ?Function}} [options] `onRetrying()` is called each time a failure arms a
+ *        retry - so never after `stop`
  * @returns {() => void} stop
  */
-function askNightUntilAnswered(request, onAnswer, { retry = true, onRetrying = null } = {}) {
+function askNightUntilAnswered(request, onAnswer, { onRetrying = null } = {}) {
   let stopped = false;
   let timer = null;
   let failures = 0;
@@ -446,7 +445,7 @@ function askNightUntilAnswered(request, onAnswer, { retry = true, onRetrying = n
     request()
       .then((results) => { if (!stopped) onAnswer(results); })
       .catch(() => {
-        if (stopped || !retry) return;
+        if (stopped) return;
         timer = setTimeout(ask, NIGHT_RETRY_DELAYS_MS[failures] ?? NIGHT_RETRY_STEADY_MS);
         failures += 1;
         onRetrying?.();
@@ -457,19 +456,15 @@ function askNightUntilAnswered(request, onAnswer, { retry = true, onRetrying = n
     clearTimeout(timer);
     ask();
   };
-  if (retry) {
-    window.addEventListener('focus', askNowIfWaiting);
-    document.addEventListener('visibilitychange', askNowIfWaiting);
-  }
+  window.addEventListener('focus', askNowIfWaiting);
+  document.addEventListener('visibilitychange', askNowIfWaiting);
   ask();
   return () => {
     stopped = true;
     clearTimeout(timer);
     timer = null;
-    if (retry) {
-      window.removeEventListener('focus', askNowIfWaiting);
-      document.removeEventListener('visibilitychange', askNowIfWaiting);
-    }
+    window.removeEventListener('focus', askNowIfWaiting);
+    document.removeEventListener('visibilitychange', askNowIfWaiting);
   };
 }
 
@@ -562,8 +557,8 @@ function lineKmForZoom(zoom) {
  * zoom gesture fires a real `zoomend`. React-leaflet applies the construction-time `bounds` fit
  * BEFORE children render, and this component's `zoomend` listener attaches AFTER — so a map whose
  * initial fit lands somewhere else entirely never corrects the guess until the user zooms. This is
- * reachable on the Plan overlay in particular: its construction `bounds` can fit tight on one
- * focused location, easily landing past 11.8. And it is wrong regardless of reachability, since
+ * reachable whenever a construction `bounds` fits tight on a few locations, easily landing past
+ * 11.8. And it is wrong regardless of reachability, since
  * the seed is a guess where the truth (`map.getZoom()`) is one call away.
  *
  * <p>The reference-layer gate (map-tab-v2-plan.md §3 P3) was the first consumer for which this
@@ -750,7 +745,8 @@ MapBackgroundClickController.propTypes = {
  * the tiles keep the old geometry: grey bands at the bottom on a grow, and a centre that has
  * silently moved on a shrink. Polled across the transition rather than fired once at the end,
  * because a single call at `transitionend` leaves the map wrong for the whole transition the user
- * is watching. (It was written for the retired Plan-tab overlay's animated filter drawer.)
+ * is watching. (It was written for the retired Plan-tab overlay's animated filter drawer; the Map
+ * pane's `resizeNonce` is its one caller now.)
  *
  * <p><b>The Map pane needs it for a different reason.</b> Its panel is hidden with
  * `display: none` rather than unmounted, so a viewport change while the reader is on another tab
@@ -973,9 +969,7 @@ const ALERT_WORTHY_LEVELS = new Set(['MODERATE', 'STRONG']);
  * directly above the zoom box in that same corner stack, in its OWN control container rather than
  * as a third button in the zoom bar: this is not a zoom step, and putting it in that bar would make
  * it read as one. Leaflet's corner container handles the stacking and the gap, so nothing here
- * hardcodes an offset. This component is mounted tab-only already (see its call site) — the
- * Plan-tab overlay keeps Leaflet's own top-left corner untouched, so there is no position to
- * parameterise here.
+ * hardcodes an offset. There is no position to parameterise here.
  *
  * <h2>Reconciled with map-tab-v2-plan.md §3 P11's own line: "resets scope to My area and refits"</h2>
  *
@@ -1165,13 +1159,12 @@ CentreOnHomeControl.propTypes = {
  *   eclipse line, read through {@link lookupForWindow} exactly like `tideAlignmentIndex` above.
  *
  * `origin` (doors D1, plan-to-map-doors-plan.md §3) — `{id, name, baseName}` from
- * `WindowFirstBriefingContext`, or null at home; the pane passes the context's live value, the
- * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
+ * `WindowFirstBriefingContext`, or null at home; the pane passes the context's live value. Gates
+ * home geography - see
  * `homeGeo` below.
  *
- * <h2>Ask PhotoCast's six props (`docs/engineering/ask-photocast-plan.md` §2.7, F3) — Map tab only</h2>
- * The frozen overlay never passes any of them, and with none passed this component draws exactly what
- * it drew before they existed.
+ * <h2>Ask PhotoCast's six props (`docs/engineering/ask-photocast-plan.md` §2.7, F3)</h2>
+ * With none passed this component draws exactly what it drew before they existed.
  * <ul>
  *   <li>{@code askPicks} — the answer's picks as {@code {rank, locationId, name, date, eventType,
  *       shortWindow, rating, verdict, label}}, each already joined to the briefing (the card's own
@@ -1400,8 +1393,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * hidden filter bypass (plan §4 #3): it narrows the pins, labels, counts AND the heat field to
    * those spots, the breadcrumb says "showing N spots", and its `clear` removes it so the field is
    * whole again. It is an INTERSECTION with the reader's other filters, not an override of them
-   * (the overlay's `focus.names` override ignored every filter, which is the thing this replaces).
-   * Tab-only by construction: the overlay never carries a `planHandoff`.
+   * (the retired overlay's `focus.names` override ignored every filter, which is the thing this
+   * replaced).
    */
   const [focusLensNames, setFocusLensNames] = useState(null);
   /**
@@ -1439,11 +1432,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * around: plan §4.5 keeps the two tabs' questions separate — time there, space here.
    *
    * <p>`heat` is the default view in v2 (that is the feature). `heatView`'s other value is
-   * `'pins'` on the TAB (map-tab-v2-plan.md §3 P10, `PinsLayer.jsx` — "the honest comparison": one
-   * dot per location, no field) and stays the pre-P10 literal `'medallions'` in the OVERLAY's own
-   * dead render branch below, which never actually runs (`heatOffered` is always false there) and
-   * is kept byte-identical rather than renamed along with the tab (§2's shared-component blast-
-   * radius rule: treat any overlay diff as a review finding). `heatArea` frames and filters to the
+   * `'pins'` (map-tab-v2-plan.md §3 P10, `PinsLayer.jsx` — "the honest comparison": one
+   * dot per location, no field). `heatArea` frames and filters to the
    * planning area, which is the state a reader arrives in — you do not open on the whole of
    * Britain.
    */
@@ -1514,7 +1504,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const [ringsEnabled, setRingsEnabled] = useState(true);
   /**
-   * Which of the map tab's own overlay popovers is open — map-tab-v2-plan.md §3 P7's exclusivity
+   * Which of the map tab's own popovers is open — map-tab-v2-plan.md §3 P7's exclusivity
    * rule ("opening one popover closes the others"). `'window'`, `'filters'`, `'legend'` (P10) and
    * `'jump'` (P11, the Regions jump list) are the four today, all on this ONE switch rather than a
    * separate state variable each.
@@ -1710,9 +1700,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     winPillRef.current?.focus();
   });
   /**
-   * The TAB's own viewport, as the raw Leaflet `LatLngBounds` object — not the plain
-   * `[south, west, north, east]` array {@code mapBounds} above stores for the overlay's simple box
-   * test. `mapTideFit.stripModel` needs a real {@code pad}/{@code contains} pair (tide-window-plan.md
+   * The TAB's own viewport, as the raw Leaflet `LatLngBounds` object, not a plain
+   * `[south, west, north, east]` array. `mapTideFit.stripModel` needs a real {@code pad}/{@code contains} pair (tide-window-plan.md
    * §1 #8: "no `bounds.pad()` existed anywhere in this codebase before this increment"), which
    * Leaflet's own object already supplies — converting to and back from a plain array would only
    * lose that. No identity-dedupe here: `stripModel` is one deliberately un-split function (T3's own
@@ -1740,7 +1729,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * `getAuroraLocations()` — <b>no date parameter at all</b> — gated only on the live alert level:
    * it is the NOAA-triggered state for the night in progress. Read unconditionally, it answered for
    * whichever night was on screen: browse to a future night with no stored run, and the chips, the
-   * medallions, the "🏆 best location" card and the overlay's aurora popup all carried TONIGHT's
+   * medallions and the "🏆 best location" card all carried TONIGHT's
    * live stars and narrative as though they were that night's. The same class of defect as #803's
    * stale-window ratings — a rating answering for a window it does not belong to — through a source
    * with no date to check.
@@ -1755,22 +1744,21 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * night is "live".
    *
    * <p>⚠️ <b>On any other night a reader shows that night's STORED result, never nothing.</b> The
-   * first cut withheld the overlay popup's aurora score on a non-live night, and `MarkerPopupContent`
-   * reads a null aurora score as "Not suitable for aurora photography" — so a medallion wearing that
-   * night's stored 4★ opened a popup denying the night outright. Replacing tonight's data with a
-   * false negative is not a fix (Codex, #814). The popup now takes the same answer the medallion
-   * does: live on tonight, that night's own stored result otherwise.
+   * first cut withheld the aurora score on a non-live night, and the (since retired) overlay popup
+   * read a null score as "Not suitable for aurora photography" — a false negative for a night with
+   * a stored 4★ (Codex, #814). Every reader takes the same answer: live on tonight, that night's
+   * own stored result otherwise.
    *
    * <p>⚠️ <b>Tonight is untouched at every reader.</b> Where the night on screen IS the night in
    * progress, each reader keeps the precedence it had — the rating accessor stored-first, the
-   * medallions and popups live-only. That those differ on tonight is pre-existing and is a separate
+   * medallions live-only. That those differ on tonight is pre-existing and is a separate
    * question (which source is authoritative while both exist); this change only stops the live
    * cache answering for a night it was never about.
    */
   const liveAuroraOnScreen = nightDate === auroraNight;
   const viewlineEnabled = role !== 'LITE_USER' && auroraStatus != null
     && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
-  // Whether the overlay is ELIGIBLE to mount: role, alert level, event and night. It says nothing
+  // Whether the viewline overlay is ELIGIBLE to mount: role, alert level, event and night. It says nothing
   // about whether a line exists (the fetch may be pending, failed or answer inactive).
   const viewlineEligible = viewlineEnabled && eventType === 'AURORA' && liveAuroraOnScreen;
   const [viewlineUpsellDismissed, setViewlineUpsellDismissed] = useState(false);
@@ -1890,8 +1878,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // offers one line. It needs only whether to poll — the forecast endpoint reads NOAA's live forecast
   // per request, so the alert's trigger and Kp are no longer its input.
   const { viewline } = useAuroraViewline(viewlineEnabled);
-  // What the legend may say about the line: the overlay is eligible AND its own test says it
-  // will draw (`viewlineDrawable`, shared with the overlay so the two cannot drift).
+  // What the legend may say about the line: the viewline overlay is eligible AND its own test says
+  // it will draw (`viewlineDrawable`, shared with the overlay so the two cannot drift).
   const viewlineShown = viewlineEligible && viewlineDrawable(viewline);
   const [auroraScores, setAuroraScores] = useState({});
   // The last stored-aurora ANSWER that landed, tagged with the night it answers for —
@@ -1958,7 +1946,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   // Auto-reset to SUNSET when aurora mode becomes unavailable. A reader meets this when an alert
   // ends (the status turns `active: false`) while they are in aurora mode and this map's list of
-  // stored aurora nights is empty — on the Map tab and on the Plan-tab overlay alike. That includes a
+  // stored aurora nights is empty. That includes a
   // list that has not answered yet, so a map mounted into aurora mode after an alert has ended leaves
   // it at once, even when a stored night exists.
   useEffect(() => {
@@ -1972,12 +1960,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // copies, and the subject, drive-time and dark-sky filters stand; only the admin "unknown"
         // lens and the kept-local night reset. It used to set the floor to `null` and clear the saved
         // one. `null` meant "no floor" when that was written (a5a23f2e), but since 7618a02c the floor
-        // always holds a value, so every reader of it went wrong: an empty chip on the overlay's
-        // context bar, every star button pressed, a filter count and a Clear for a floor nobody
-        // chose, every rating let through — and a reload lost the floor the reader had saved.
-        // `selectEvRow` still resets and clears the floor on an explicit kind change, as
-        // `ForecastTypeSelector`'s `onChange` does on the overlay; map-landing-plan.md §4 #21(a)
-        // records the former as inherited, not chosen.
+        // always holds a value, so every reader of it went wrong: every star button pressed,
+        // a filter count for a floor nobody chose, every rating let through — and a reload lost the
+        // floor the reader had saved. `selectEvRow` still resets and clears the floor on an
+        // explicit kind change; map-landing-plan.md §4 #21(a) records the former as inherited, not
+        // chosen.
         setShowUnrated(false);
         // A kept-local night (adversarial review, BLOCKING) has no meaning once the mode that
         // produced it is gone — this leaves SUNSET, which never reads `nightDate`'s override at
@@ -2071,8 +2058,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // ⚠️ THE RULE: a door locks the window it NAMES; a door that names none hands the choice back to
       // auto-selection for its date. A solar door that names an event (the structured door the
       // contract was built for) sets it and locks it as the reader's own choice, so the auto effect
-      // cannot replace it a tick later. One that names NONE (a Coming up card never named a window,
-      // and neither did the overlay's) must not lock whatever stale window the persistent map was
+      // cannot replace it a tick later. One that names NONE (a Coming up card never named a window)
+      // must not lock whatever stale window the persistent map was
       // left on (a night row, or the other solar event): it clears any kept-local night, unlocks, and
       // applies the auto-selected event directly (flipping the flag alone would do nothing when it
       // was already false, since the auto effect re-runs only when a dependency changes).
@@ -2109,7 +2096,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         writeMapFilter('mapFilterMinStars', String(nextMinStars));
         setDriveTimeFilter(planHandoff.limitMinutes ?? 0);
         // `focusPoints` is the multi-pin door's camera: it fits those pins through the same
-        // `FitBoundsController` the overlay's `focus.points` used, so a scope reset (which refits
+        // `FitBoundsController` (the retired overlay's `focus.points` camera), so a scope reset (which refits
         // to the planning area) would race it for the camera. A standing region jump is dropped
         // without a refit; the reader's scope segment is otherwise left as it was.
         const fitsPoints = planHandoff.focusPoints?.length > 0;
@@ -2273,8 +2260,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // no cancellation every one of those requests could land whenever it liked:
   //   - AFTER THE ALERT ENDED. A poll saying the alert is over clears the scores below; a request
   //     the previous poll made, landing after that, wrote the ended alert's stars straight back into
-  //     every live reader (the rating's live fallback, the medallions, the overlay popup, the best-
-  //     location card), where they stood until the next poll or focus.
+  //     every live reader (the rating's live fallback, the medallions, the best-location card),
+  //     where they stood until the next poll or focus.
   //   - OUT OF ORDER. Two refreshes close together each make a request, and the older one landing
   //     last replaced the newer answer with its own.
   // Hence `cancelled`, which drops any response whose status has since been superseded. That the
@@ -2290,9 +2277,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // NOTIFY), so a clear keyed on it would blank the map and redraw the same list; the night can roll
   // while the backend still holds last night's, so one keyed on the night gains nothing; and one on
   // every re-poll would blank every reader for a round trip each five minutes. Any clear also turns
-  // a place kept on the map by tonight's stored result into a denial in the overlay's popup, which
-  // reads a missing live score as "Not suitable for aurora photography" — the false negative #814
-  // refused. The residual accepted: a device that missed the gap between two alerts, and whose
+  // a place kept on the map by tonight's stored result into a false "not suitable" (the false
+  // negative #814 refused, in the retired overlay popup). The residual accepted: a device that missed the gap between two alerts, and whose
   // first refetch after it then fails, shows the earlier alert's answer until the next poll or focus.
   useEffect(() => {
     if (!auroraStatus || !ALERT_WORTHY_LEVELS.has(auroraStatus.level)) {
@@ -2309,9 +2295,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       })
       .catch(() => {
         // Deliberately not a clear — see above — so there is nothing here for `cancelled` to guard.
-        // On an alert's first request nothing is held yet, and the overlay's popup reads that as
-        // "Not suitable for aurora photography": a false negative this effect cannot fix, since the
-        // popup has no "not known yet" state.
       });
     return () => { cancelled = true; };
   }, [auroraStatus]);
@@ -2330,8 +2313,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // row local because its date is not in `forecastDates` (map-tab-v2-plan.md §3 P6).
   //
   // ⚠️ Keyed to the night it was asked for, in both directions (Codex, #814). These results answer
-  // for ONE night, and since the live-state gate (`liveAuroraOnScreen`) the medallions and the
-  // overlay popup read them on every non-live night — so a result standing in for the wrong night
+  // for ONE night, and since the live-state gate (`liveAuroraOnScreen`) the medallions
+  // read them on every non-live night — so a result standing in for the wrong night
   // is the exact defect that gate exists to stop. Two ways it could:
   //   - A STALE WINDOW. Switch night A → B and, until B's request resolves, the results on hand are
   //     still A's. Hence the answer carries its night, and `storedAuroraResults` (derived below)
@@ -2431,8 +2414,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * so a place the preview does not rate reads "Loading…" until the night's own response lands,
    * never "Not scored yet" on the preview's word.
    *
-   * <p>Tab only in effect: the overlay never fetches a preview (see its effects), so there a night
-   * draws nothing until its answer lands, exactly as before.
    */
   const storedAuroraResults = useMemo(
     () => nightScoresFor(eventType === 'AURORA' ? nightDate : null, storedAuroraAnswer, auroraResultsByDate),
@@ -2640,10 +2621,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /**
    * The heat field's opt-in, and the one place it is decided.
    *
-   * <p>`heat` defaults to null and only `WindowFirstMapPane` passes it — the Plan overlay opens
-   * focused on one spot from a card that has already answered the question, so it never fetches
-   * the field or renders the toolbar. Deliberate, not an oversight: a field and toolbar over a
-   * modal would be a second plan.
+   * <p>`heat` defaults to null and only `WindowFirstMapPane` passes it. With none, there is no
+   * field and no toolbar.
    *
    * <p>Offered in every mode, AURORA included (aurora-heat-plan.md §3 A2). It was withheld there
    * until then, on the argument that aurora's marker quantity is latitude-led and a field over it
@@ -3155,8 +3134,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * load is under way, was untrue there. It claims that the asking has not stopped: a night's fetch
    * effect runs for as long as the night is on screen, and on the tab it asks again after every
    * failure, and at once when the reader comes back to the page. So from a failure on, a retry is
-   * always either waiting or in flight. The frozen overlay never asks again, and never writes the
-   * record.
+   * always either waiting or in flight.
    *
    * <p><b>It belongs to the visit.</b> Leaving the night takes the record back (its fetch effect's
    * cleanup), so a reader who comes back reads "Loading…" while the fresh request goes, until that
@@ -3483,8 +3461,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   /**
    * The Map tab's single chronological event list — map-tab-v2-plan.md §3 P6, replacing the
-   * date strip, the event pills and the in-map window select on the TAB only (the overlay keeps
-   * `eventSelector` above, inherited from the card that opened it).
+   * date strip, the event pills and the in-map window select.
    *
    * <p>Built fresh every render rather than `useMemo`'d: every input already recomputes on its
    * own cadence above (the briefing poll's `heat.windows`, the two multi-date fetches), so a memo
@@ -4189,7 +4166,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * marker and the rings are a home-ONLY feature, not a "postcode exists" one.
    * ⚠️ Deliberately NOT `heat?.hasHome` — that field answers a different question (the
    * roster/reach-matrix's own "is there a home for planning-area purposes" signal, which is what
-   * `FiltersPopover`'s scope segment and the overlay's area segment key on) and can diverge from
+   * `FiltersPopover`'s scope segment keys on) and can diverge from
    * whether a home COORDINATE itself has resolved — a toggle gated on the wrong one is exactly the
    * "control whose every press does nothing" the coherence rule elsewhere in this file already
    * bans, just for a different control.
@@ -4540,8 +4517,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * The Regions jump list (map-tab-v2-plan.md §3 P11, `docs/design/map-tab-v2/README.md` §2).
    *
    * <p><b>The drive map is EITHER the away region-base matrix OR the per-user home reach, never
-   * both</b> — `activeDriveMap` above, the SAME precedence `driveMinutesFor`'s non-overlay path
-   * applies for every other drive figure on this tab, reused rather than re-decided (D1 — this used
+   * both</b> — `activeDriveMap` above, the SAME precedence `driveMinutesFor` applies for every other drive figure on this tab, reused rather than re-decided (D1 — this used
    * to be a SECOND precedence expression here, §1 #1 leak 1): `driveOverride` is only ever set
    * while away, so a home reader's rows are never touched by it.
    *
@@ -5621,13 +5597,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       )}
 
       {/* Map.
-          In the overlay it is full-bleed and its height is the reclaimed space — no rounding or
-          ring, because it butts against the modal's own edges rather than sitting on a page. The
-          height transition shares the drawer's easing so the two move as one gesture.
-
-          On the TAB (map-tab-v2-plan.md §3 P7) it is `flex:1; min-height:0` instead of a pixel
-          height: the pane fills whatever the shell's viewport-height chain gives it, and every
-          overlay chip below (window control, filters, legend, counts) is absolutely positioned
+          It is `flex:1; min-height:0` rather than a pixel height (map-tab-v2-plan.md §3 P7): the
+          pane fills whatever the shell's viewport-height chain gives it, and every chrome chip
+          below (window control, filters, legend, counts) is absolutely positioned
           INSIDE this same `position:relative` box rather than occupying page-flow rows above it —
           which is what lets the map own the whole frame with no page scroll. */}
       <div
@@ -5651,8 +5623,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
              not a fallback itself, and it is written down because the first cut's comment claimed
              the opposite.
 
-             Gated on `heat.enabled` rather than on `heatOffered` (since aurora heat A2 the two agree
-             outside the overlay, but this is the construction-time read, so it names its own input): `MapContainer` reads `bounds` once at construction, so a tab that
+             Gated on `heat.enabled` rather than on `heatOffered` (since aurora heat A2 the two agree, but
+             this is the construction-time read, so it names its own input): `MapContainer` reads `bounds` once at construction, so a tab that
              happened to mount in aurora mode would have taken the heat framing and kept it for the
              session. */
           bounds={openingBounds || bounds}
@@ -6005,8 +5977,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               hourlyRows={activeMapEvent?.kind === 'solar'
                 ? (selectedLoc.forecastsByDate.get(activeMapEvent.date)?.hourly ?? null)
                 : null}
-              // The reader's own outcome ratings (outcome-rating-plan.md §2 #5) — null from the overlay,
-              // which mounts no hook, and while a rewind is in force. The block's mount condition
+              // The reader's own outcome ratings (outcome-rating-plan.md §2 #5) — null while a rewind is in
+              // force. The block's mount condition
               // lives in `MapCallout`: a past window, this place's own passed event time, a sky place.
               userRole={role}
               ratings={outcomeRatings}
@@ -6690,14 +6662,11 @@ MapView.propTypes = {
    * against the pane's own wrapper via `utils/mapForeignModal.js`'s `foreignModalOver`. Gates the
    * status region (`statusLine`), so a failure while the reader is elsewhere — including behind a
    * dialog they are looking at instead — is announced when they come back rather than to nobody.
-   * Default true for the one other mount, the frozen Plan-tab overlay, which renders no status
-   * region, so there is nothing there for it to gate.
    */
   paneVisible: PropTypes.bool,
   /**
-   * The heat field's opt-in. Default `null` — the Plan overlay passes nothing, deliberately: it
-   * opens focused on one spot from a card that has already answered the question, and a field and
-   * toolbar over a modal would be a second plan. `MapViewHeat.test.jsx` pins the overlay mount.
+   * The heat field's opt-in. Default `null`: with none there is no field and no toolbar
+   * (`MapViewHeat.test.jsx` pins the default-off).
    */
   heat: PropTypes.shape({
     enabled: PropTypes.bool,
@@ -6770,8 +6739,7 @@ MapView.propTypes = {
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   /**
    * `{id, name, baseName}` of the origin in force, or null at home (D1, plan-to-map-doors-plan.md
-   * §3). The pane passes the shared `WindowFirstBriefingContext`'s live value; the overlay never
-   * passes one — it is frozen and has no origin concept. Gates the HOME marker, the reach rings,
+   * §3). The pane passes the shared `WindowFirstBriefingContext`'s live value. Gates the HOME marker, the reach rings,
    * their labels and the legend's rings toggle onto home-only via the derived `homeGeo`; the ⌂
    * control stays present and reads raw `homeCoords` regardless (O-D5).
    */
@@ -6785,8 +6753,8 @@ MapView.propTypes = {
   /**
    * A memo-busting signal only — its value is never read. Pass the current `scoreRamp` mode (any
    * changed value forces this `React.memo`'d component to actually re-render) when this mount can
-   * outlive a live switch, as the Map pane's does; omit it for a mount that always starts fresh,
-   * such as the Plan-tab overlay. The colour itself always comes straight from `scoreRamp`'s own
+   * outlive a live switch, as the Map pane's does; omit it for a mount that always starts fresh.
+   * The colour itself always comes straight from `scoreRamp`'s own
    * live state (`rampHex`, `getMode()`), never from this prop.
    */
   mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
@@ -6810,8 +6778,7 @@ MapView.propTypes = {
   saveTideMode: PropTypes.func,
   /**
    * From `utils/locationSheet.buildScoreIndex` over `WindowFirstBriefingContext`'s `scoreRows` —
-   * the selection callout's reason prose and "every window" strip (map-tab-v2-plan.md §3 P9). Tab
-   * only; the overlay never selects a location through the callout.
+   * the selection callout's reason prose and "every window" strip (map-tab-v2-plan.md §3 P9).
    */
   scoreIndex: PropTypes.object,
   /**
@@ -6838,13 +6805,11 @@ MapView.propTypes = {
   /**
    * The window verdict's per-region source (map-landing-plan.md §3 L1) — `date|targetType|
    * regionName` to that region's served record, from `utils/mapVerdict.buildRegionVerdictIndex`.
-   * Tab-only: the frozen overlay never mounts the window control and is never handed one.
    */
   regionVerdictIndex: PropTypes.instanceOf(Map),
   /**
    * The forecast run this payload was built on — `briefing.generatedAt`, the key the landing card's
-   * once-per-run open is stamped with (map-landing-plan.md §3 L4 step 8). Null on the frozen
-   * Plan-tab overlay, which mounts no card, and null before the briefing arrives, where the card
+   * once-per-run open is stamped with (map-landing-plan.md §3 L4 step 8). Null before the briefing arrives, where the card
    * deliberately stays shut (see {@link landingSeenKeyFor}).
    */
   runId: PropTypes.string,
@@ -6875,8 +6840,7 @@ MapView.propTypes = {
   onOpenLocationSheet: PropTypes.func,
    /**
    * A STRUCTURED landing payload (D2, `plan-to-map-doors-plan.md` §3 D2 task 1) — forwarded by
-   * `WindowFirstMapPane` whenever `handoff` names a `source` (never on the overlay, which is never
-   * handed this prop at all). Applied by ONE nonce-keyed effect. Two sources ride it:
+   * `WindowFirstMapPane` whenever `handoff` names a `source`. Applied by ONE nonce-keyed effect. Two sources ride it:
    *
    * <ul>
    *   <li>`{source: 'plan', eventType, date, region, minRating, limitMinutes, locationName, nonce}`
@@ -6957,8 +6921,7 @@ MapView.propTypes = {
   panelShown: PropTypes.bool,
   /**
    * The reader's own outcome ratings (`hooks/useOutcomeRatings.js`'s return value) — handed to the
-   * callout's rating block (outcome-rating-plan.md §2 #5). Null when none are offered: the overlay,
-   * which mounts no hook, and a rewind. One memoised object from the pane, so the memo'd `MapView`
+   * callout's rating block (outcome-rating-plan.md §2 #5). Null when none are offered (a rewind). One memoised object from the pane, so the memo'd `MapView`
    * re-renders when a rating, a save or a read changes it and not otherwise.
    */
   outcomeRatings: PropTypes.shape({

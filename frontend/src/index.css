@@ -315,11 +315,10 @@
                               padding box, so the root's inset does not reach it
      · `BottomSheet`        · `position: fixed` to the bottom edge
      · `Modal`              · `position: fixed inset-0`
-     · `MapOverlay`         · a fifth `fixed; inset: 0` layer, styled INLINE in its own component,
-                              so no rule here can reach it — it resolves its 24px gutter against
-                              the insets with `max()` itself. Missed by the first cut of this audit,
-                              which is why the list now says how each element is reached, not just
-                              that it was found.
+          (A fifth, `MapOverlay` - `fixed; inset: 0`, styled INLINE, resolving its own 24px gutter against
+      the insets with `max()` - was on this list until overlay convergence C5 deleted it. It was
+      missed by the first cut of this audit, which is why the list says how each element is reached,
+      not just that it was found.)
 
    ⚠️ AND A DESCENDANT CAN CANCEL AN ANCESTOR'S INSET, which is the failure mode this block's
    "everything in normal flow is inset without knowing about it" premise does not survive on its
@@ -378,8 +377,7 @@
    was made, and it is why this is one named class rather than a value inlined twice: a later bundle
    that wants a different scrim changes it here and knows it is changing all of them. Warmer and
    denser than both defaults, which darkens the page behind a dialog and so raises the contrast of
-   anything drawn on top of it. `MapOverlay` keeps its own inline `rgba(8,6,5,.72)` with a blur —
-   the window-first value, on a separate surface. */
+   anything drawn on top of it. (The retired `MapOverlay` kept its own inline `rgba(8,6,5,.72)` with a blur.) */
 .app-scrim {
   background: rgba(8, 6, 5, 0.74);
 }
@@ -513,9 +511,8 @@
    prop on the two Esri TileLayers in MapView.jsx. Leaflet's GridLayer adds `options.className`
    straight onto each tile <img>, so these are literal per-tile filters, not app theme tokens —
    they stay OUT of the `@theme static` block above (a bare declaration here is fine; that block's
-   pruning rule only bites a `var()` reference with no consumer). Reach BOTH the Map tab and the
-   Plan overlay mount deliberately: pure tile dress, not a behavioural change, so it is exempt from
-   the overlay-freeze rule that `zoomSnap` (MapView.jsx) is not. */
+   pruning rule only bites a `var()` reference with no consumer). Pure tile dress, not a
+    behavioural change. */
 .wf-basemap-warm {
   filter: saturate(.5) sepia(.32) brightness(.9) contrast(1.08);
 }
@@ -962,7 +959,7 @@
      was rejected: it makes a context at the band's natural `z-auto` position, which is BELOW
      `.wf-lens` (20), so the health panel would paint under the very bar it drops across. 45 is the
      design's own number and still the right one — it must beat the pane and lose to `Modal`
-     (Tailwind `z-50`), `.wf-peek` (60) and `MapOverlay` (200). Against `.wf-lens` it is moot either
+     (Tailwind `z-50`) and `.wf-peek` (60). Against `.wf-lens` it is moot either
      way: the two cannot co-occupy a scroll position, because the bar reaches `top: 0` only once this
      band's wrapper is wholly above the viewport.
 
@@ -1395,10 +1392,9 @@
      at the 0.42 value: the window dropdown's `—` unscored marker and the callout strip cell's, both
      of which are meaningful words ("nothing is scored here"), not decoration.
 
-     ⚠️ Scoped to `.wf-body--map` — the Map TAB's own wrapper — and NOT to `MapView`. The Plan-tab
-     overlay mounts the same component and is a deliberately frozen pre-v2 surface (CLAUDE.md's Map
-     tab bullet); a variable override reaching it would be an unasked-for change to a surface this
-     project has decided not to touch.
+     ⚠️ Scoped to `.wf-body--map` — the Map TAB's own wrapper — and NOT to `MapView`: the override is
+     the tab's, and another host of the component (the Plan-tab overlay, retired in overlay
+     convergence C5, was one) would not want it.
 
      The increment names two exceptions to the same rule in the bundle (`.rg2`, `.ringlb` — bare
      text over tiles with text-shadows, which must not compete with the field). This arm has no
@@ -1581,7 +1577,7 @@
    lens 20 > tiles 15 > rails 14 > every z-auto stacking context inside the strip (a hovered
    card's transform, the always-on `.wf-hc-away` opacity context) > the pick legend, which is
    correctly UNDER a pinned layer since it is absolute and z-auto inside its own card. Dialogs
-   (z-50), `.wf-peek` (60) and `MapOverlay` (200) stay above all of it. ⚠️ 15/14 is a DELIBERATE
+   (z-50) and `.wf-peek` (60) stay above all of it. ⚠️ 15/14 is a DELIBERATE
    deviation from the design bundle's 22/20: the bundle's lens bar is z-30, this app's is z-20, so
    the bundle's own numbers would paint the tiles OVER the lens bar as they slide under it — only the
    ordering is normative, not the literals. */
@@ -3684,6 +3680,11 @@ button.wf-hc.also.on:hover {
 
    `--color-plex-panel` is opaque, which matters here and does not on the Plan bar: this control
    floats over map tiles, and a translucent ground would put a coastline through the words. */
+/* ⚠️ A transparent container must not swallow drags: wrapped chrome spans the union of its rows, so
+   on a 390px screen a plain div would eat every drag begun in the empty half of a short row - a
+   dead strip across a map whose whole job is panning. The containers are `pointer-events: none`
+   and their CONTROLS opt back in here. (This rationale lived on the deleted overlay-only
+   `.wf-map-toolbar` rule.) */
 .wf-map-toolbar-row,
 .wf-map-key {
   pointer-events: auto;
@@ -3699,7 +3700,7 @@ button.wf-hc.also.on:hover {
    The z-ladder the plan requires: heat 410 / selection ring 415 / labels 420 (design bundle) /
    CHROME 1100 / callout 1350 / tooltip 1400 / MENUS 1500 (a menu must beat every sibling chip, and
    both live `wf-win-menu`/`wf-filters-panel` already sit at 1500). Every chip here is 1100 for the
-   same reason `.wf-map-toolbar` already was.
+   same reason (the pointer-events rule at `.wf-map-toolbar-row` above).
 
    ⚠️ LABELS actually ships at 650, not the bundle's 420 (PR #733 review) — `MapLabels.jsx`'s own
    `LABEL_PANE_Z` carries the full reasoning. The bundle's prototype never renders a marker
@@ -3708,7 +3709,7 @@ button.wf-hc.also.on:hover {
    would sit, and hit-test, UNDER the very marker its chip names. (⚠️ The reason this used to give —
    that the app "fades them back to full opacity AND interactivity past the zoom handover" — no
    longer holds: `MapHeatLayer` hides those panes unconditionally. They are still restored on
-   unmount (and still mounted in the Plan overlay, which has no field), so 650 stands.) 650 clears the
+   unmount so 650 stands.) 650 clears the
    marker pane while staying below Leaflet's popup pane (700) and every chip in this file (1100+).
    That z-index is set in JS on the Leaflet pane itself, never in this stylesheet, so it has no CSS
    rule to slice here — see `mapChromeZLadderCascade.test.jsx`'s own note on why its cascade
@@ -3733,7 +3734,7 @@ button.wf-hc.also.on:hover {
 
      · a transparent ~600px × 36px div at `z-index: 1100` across the top of the map, swallowing
        every drag begun in it — verbatim the dead strip this bound exists to prevent, relocated.
-       `.wf-map-toolbar`'s own comment records the same failure and its cure;
+       the pointer-events rule at `.wf-map-toolbar-row` (above) records the same failure and its cure;
      · `[data-testid="wf-map-chrome-tl"]` is the FIRST label-placement obstacle in both
        `MapLabels.jsx` and `PinsLayer.jsx`, and map-tab-v2-plan.md §4 #31 licensed the last
        widening of it (187→334px) by measuring that no label moved. Stretching it to ~970px would
@@ -3755,7 +3756,7 @@ button.wf-hc.also.on:hover {
    ~16px of slack. ⚠️ That cluster's width is not fixed — `FiltersPopover` renders `Filters (N)` —
    so the slack is the whole margin of safety; see `.wf-map-chrome-tr` for the back-reference.
 
-   Tab-only. The frozen Plan-tab overlay mounts no window control. */
+   */
 .wf-map-tab .wf-map-chrome-tl {
   max-width: calc(100% - 308px);
 }
@@ -3771,9 +3772,7 @@ button.wf-hc.also.on:hover {
   max-width: calc(100% - 68px);
 }
 /* The heat/pins segment + ramp key, nested inside `.wf-map-chrome-tr` rather than positioning
-   itself — unlike the overlay's own untouched `.wf-map-toolbar` (still absolute, still top-left,
-   never actually reachable since the overlay is never handed `heat`), this cluster's parent
-   already owns the absolute placement. */
+   itself - this cluster's parent already owns the absolute placement. */
 .wf-map-toolbar-cluster {
   display: flex;
   flex-direction: column;
@@ -4183,8 +4182,7 @@ button.wf-hc.also.on:hover {
 
 /* ── Phone chrome re-arrangement (map-tab-v2-plan.md §3 P12, README "Responsive" table) ─────────
    Everything in this block is scoped to `.wf-map-tab` — the TAB's own root wrapper
-   (`MapView.jsx`), never present on the Plan-tab overlay's mount — so none of it can reach the
-   overlay, which the plan requires stay untouched at every viewport.
+   (`MapView.jsx`), so none of it can reach a host that does not carry that class.
 
    Window control: full-width across the top (the pill itself grows via `.wf-win-pill`'s own
    media query above; this box only needs to stop clearing Leaflet's top-left corner and span the
@@ -5375,7 +5373,7 @@ button.wf-hc.also.on:hover {
    is not. ⚠️ The design bundle puts `#land` at 1300 over a `.bar` at 1100 and has the identical
    defect — it is a prototype, and its number is not evidence.
 
-   Tab-only — `MapView` mounts it behind `!overlayMode`, so there is no overlay rule to write. */
+   */
 .wf-land {
   position: absolute;
   top: 60px;
@@ -6454,7 +6452,7 @@ button.wf-hc.also.on:hover {
    z-index 650 (Leaflet pane, set in JS — see `MapLabels.jsx`'s `LABEL_PANE_Z`), NOT the design
    bundle's 420 the P7 chrome comment above records: Leaflet's real marker pane sits at a built-in
    600 and this app keeps its markers mounted there (hidden by `MapHeatLayer` on the tab, restored
-   on unmount and in the Plan overlay, which mounts no field — they no longer fade back by zoom), so the label
+   on unmount - they no longer fade back by zoom), so the label
    layer has to clear that pane too, not merely the heat canvas beneath it (PR #733 review — the
    bundle's prototype never renders a marker under its own label layer at all).
    The home marker (`.wf-hm`/`.wf-hm-mk`/`.wf-hm-lb`) and ring labels (`.wf-ringlb`) REUSE the
@@ -6662,8 +6660,8 @@ button.wf-hc.also.on:hover {
 }
 
 /* ── The filters popover (map-tab-v2-plan.md §3 P7, README §4) ─────────────────────────────────
-   Replaces the Map tab's old slide-down drawer entirely — the Plan-tab overlay keeps that drawer
-   (`advanced-filters-panel` in `MapView.jsx`), byte-identical and untouched. `.wf-filters-chip`
+   Replaces the Map tab's old slide-down drawer entirely (the Plan-tab overlay kept it until overlay
+   convergence C5 deleted both). `.wf-filters-chip`
    takes the SAME visual language as `.wf-win-pill` (same panel background, same border) so the two
    read as one control family in the top-right cluster. */
 .wf-filters {
@@ -7709,8 +7707,8 @@ button.wf-hc.also.on:hover {
   -webkit-user-select: text;
 }
 
-/* The hourly comfort table (`components/HourlyComfortTable.jsx`) — one table for the Plan-tab
-   overlay's popup and the Map tab's four-day sheet. The popup's look is what it was when this was a
+/* The hourly comfort table (`components/HourlyComfortTable.jsx`) — one table for the admin Prompt
+   Test's popup (`MarkerPopupContent`) and the Map tab's four-day sheet. The popup's look is what it was when this was a
    run of `display: table` divs: 11px, the time column muted, 8px between columns, 3px under a row.
    `th`/`td` are reset to left-aligned normal weight because the UA gives a `th` bold centred text. */
 .wf-hourly {
@@ -8384,7 +8382,7 @@ button.wf-hc.also.on:hover {
    accessibility tree together, and covers icons Leaflet creates later, which a `tabindex` sweep
    would not. This class stays as defence in depth: `inert` blocks pointer events too, so the rule
    below is redundant wherever the attribute is honoured, but it is the older and more widely
-   supported half. See `MapHeatLayer.jsx`'s `applyMarkerFade` for why the overlay and aurora are
+   supported half. See `MapHeatLayer.jsx`'s `applyMarkerFade` for why aurora is
    unaffected. */
 .wf-markers-inert .leaflet-marker-icon,
 .wf-markers-inert .leaflet-marker-shadow,
@@ -8815,7 +8813,7 @@ button.wf-hc.also.on:hover {
      `.wf-spot:hover` lift, plus 2px of slack so the next change to either is not a silent regression.
      At 4px the ring sat exactly flush on the padding-box clip at rest and 2px OUTSIDE it while
      lifted — the whole top stroke and both top corners gone. Reachable by mouse alone, because
-     closing the map overlay restores focus to the card the pointer is still resting on, so hover
+     closing a dialog opened from a card restores focus to the card the pointer is still resting on, so hover
      and focus-visible are live at once.
      TOP ONLY — the card basis is a percentage of the WIDTH, so the horizontal 4px must stay 4px or
      `calc((100% - 24px)/3.5)` stops resolving against the spec's content box; and nothing ever
@@ -8902,8 +8900,8 @@ button.wf-hc.also.on:hover {
    otherwise re-base a fixed descendant onto the very button the panel hangs off.
 
    z-index 60 clears everything on the Plan screen: the sticky lens bar is 20, a hovered heatmap
-   cell 10, a focused spot card 3, the strip's edge fades 2. It sits BELOW `MapOverlay`'s 200 on
-   purpose.
+   cell 10, a focused spot card 3, the strip's edge fades 2. (The retired `MapOverlay` sat above it at
+   200, on purpose.)
 
    Width is mirrored by PEEK_WIDTH in `windowSpotPeek.js`; keep the two in step.
 
@@ -11252,7 +11250,7 @@ button.wf-cond-oc:focus-visible {
   font-style: normal;
   font-size: 10.5px;
 }
-/* Overlay convergence C2 — the forecast detail the overlay popup showed, below a window row's prose:
+/* Overlay convergence C2 — the forecast detail the retired overlay popup showed, below a window row's prose:
    conditions badges, wind and comfort rows, the generated-at footer. The sheet's own vocabulary
    (mono, 10.5px, `--color-plex-text-secondary` — `.wf-loc-light`'s measured ink), never the popup's
    inline pills. `.wf-loc-why` carries no bottom margin, so the block owns the gap above itself.
