@@ -29,6 +29,7 @@ const ROW = {
   evaluationModel: 'HAIKU',
   aerosolOpticalDepth: 0.5,
   inversionPotential: 'STRONG',
+  mistPotential: 'LIKELY',
   bluebellScore: 4,
   bluebellSummary: 'Carpets in the glen',
   seaState: 'Slight',
@@ -41,11 +42,13 @@ const ROW = {
 const norm = (el) => el.textContent.replace(/\s+/g, ' ').trim();
 
 const POPUP_ORDER = [
-  'dust-badge', 'inversion-badge', 'bluebell-badge', 'rising-tide-badge', 'sea-state-badge', 'surge-badge',
+  'dust-badge', 'inversion-badge', 'mist-badge', 'bluebell-badge', 'rising-tide-badge', 'sea-state-badge',
+  'surge-badge',
 ];
 const SHEET_ID = {
   'dust-badge': 'dust',
   'inversion-badge': 'inversion',
+  'mist-badge': 'mist',
   'bluebell-badge': 'bluebell',
   'rising-tide-badge': 'rising-tide',
   'sea-state-badge': 'sea-state',

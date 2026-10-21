@@ -7,7 +7,9 @@ import {
 } from '../utils/conversions.js';
 import { runForecast } from '../api/forecastApi.js';
 import useForecastDetail from '../hooks/useForecastDetail.js';
-import { TRIAGE_REASON_LABELS, isDustEnhanced, risingTideOf } from '../utils/forecastDetailFacts.js';
+import {
+  TRIAGE_REASON_LABELS, isDustEnhanced, mistBadgeOf, risingTideOf,
+} from '../utils/forecastDetailFacts.js';
 import createEventSource from '../utils/createEventSource.js';
 import {
   completedWithFailures, failedOutright, failureMessage, stoppedEarly,
@@ -374,6 +376,21 @@ export default function MarkerPopupContent({
                 {' '}{detail.inversionPotential === 'STRONG'
                   ? 'Strong cloud inversion — dramatic sea of clouds likely'
                   : 'Moderate cloud inversion — cloud blanket below viewpoint possible'}
+              </span>
+            </div>
+          )}
+          {role !== 'LITE_USER' && mistBadgeOf(detail) && (
+            <div style={{ marginBottom: '6px' }} data-testid="mist-badge">
+              <span style={{
+                ...POPUP_PILL,
+                background: detail.mistPotential === 'FOGBOUND'
+                  ? 'rgba(245, 158, 11, 0.1)' : 'rgba(111, 168, 176, 0.12)',
+                color: detail.mistPotential === 'FOGBOUND' ? '#fbbf24' : '#9fd0d8',
+                border: `1px solid ${detail.mistPotential === 'FOGBOUND'
+                  ? 'rgba(245, 158, 11, 0.45)' : 'rgba(111, 168, 176, 0.45)'}`,
+              }}>
+                <span aria-hidden="true">🌫️</span>
+                {' '}{mistBadgeOf(detail).text}
               </span>
             </div>
           )}

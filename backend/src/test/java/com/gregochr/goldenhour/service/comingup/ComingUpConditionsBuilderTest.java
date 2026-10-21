@@ -667,6 +667,58 @@ class ComingUpConditionsBuilderTest {
         assertThat(mist.rateLabel()).startsWith("2 likely days since ");
     }
 
+    /** A forecast_score MIST row, Claude's echo: the band on the summary. */
+    private static ForecastScoreEntity mistEcho(
+            LocationEntity location, LocalDate date, TargetType event, String band) {
+        ForecastScoreEntity row = new ForecastScoreEntity();
+        row.setForecastType(ForecastType.MIST);
+        row.setLocation(location);
+        row.setEvaluationDate(date);
+        row.setEventType(event);
+        row.setScore(8);
+        row.setSummary(band);
+        return row;
+    }
+
+    private void serveMistEchoes(List<ForecastScoreEntity> rows) {
+        when(forecastScoreRepository.findComponentsByType(eq(ForecastType.MIST.getId()), any(), any()))
+                .thenAnswer(invocation -> {
+                    LocalDate from = invocation.getArgument(1);
+                    LocalDate to = invocation.getArgument(2);
+                    return rows.stream()
+                            .filter(r -> !r.getEvaluationDate().isBefore(from)
+                                    && !r.getEvaluationDate().isAfter(to))
+                            .toList();
+                });
+    }
+
+    @Test
+    @DisplayName("an unscored (pre-V185) row with a LIKELY Claude echo IS an occurrence: the echo stands in")
+    void buildMist_unscoredRowWithLikelyEcho_isAnOccurrence() {
+        LocationEntity river = LocationEntity.builder().id(4L).name("River").lat(1.0).lon(1.0).build();
+        LocalDate day = TODAY.minusDays(3);
+        SlotAtmosphereEntity row = mistReading(river, day, TargetType.SUNRISE, null, null);
+        row.setMistScored(false);
+        serve(List.of(row));
+        serveMistEchoes(List.of(mistEcho(river, day, TargetType.SUNRISE, "LIKELY")));
+
+        ComingUpCondition mist = mist();
+
+        assertThat(mist.occurrences()).extracting(ComingUpConditionOccurrence::date).containsExactly(day);
+        assertThat(mist.occurrences().getFirst().valueLabel()).isEqualTo("likely");
+    }
+
+    @Test
+    @DisplayName("a scored row with no band beats a LIKELY echo: the calculator's null is an answer")
+    void buildMist_scoredNullBandBeatsLikelyEcho() {
+        LocationEntity river = LocationEntity.builder().id(4L).name("River").lat(1.0).lon(1.0).build();
+        LocalDate day = TODAY.minusDays(3);
+        serve(List.of(mistReading(river, day, TargetType.SUNRISE, null, null)));
+        serveMistEchoes(List.of(mistEcho(river, day, TargetType.SUNRISE, "LIKELY")));
+
+        assertThat(mist().occurrences()).isEmpty();
+    }
+
     @Test
     @DisplayName("an unscored (pre-V185) row carrying a stale LIKELY band is not an occurrence")
     void buildMist_unscoredRowIgnored() {

@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.service.DirectionalSamplingGeometry;
 import com.gregochr.goldenhour.service.InversionScoreCalculator;
+import com.gregochr.goldenhour.service.ValleyMistCalculator;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
@@ -349,6 +350,22 @@ public class PromptBuilder {
     private static final double INVERSION_SCORE_THRESHOLD = 7.0;
 
     /**
+     * The one site sentence a {@code mist_prone} site's message carries (valley-mist-plan M2). M0
+     * showed Claude rates the full mist signature 2 when handed the numbers without the site fact
+     * and without being told the mist is the shot.
+     */
+    public static final String VALLEY_MIST_SITE_SENTENCE =
+            "This location is a valley-floor / riverside site where mist forms around the camera; "
+            + "thin mist with a clear sky above at sunrise is the shot here, and may rate 4\u20135 "
+            + "with no horizon colour at all. Fog under 300 m with no clearing is a white frame: "
+            + "rate 2.";
+
+    /** The echo instruction, in the user message so the system prompt stays byte-identical. */
+    public static final String VALLEY_MIST_ECHO_INSTRUCTION =
+            "Include \"mist_potential\": one of NONE, POSSIBLE, LIKELY, FOGBOUND in your JSON "
+            + "\u2014 your own reading of the mist at this site.";
+
+    /**
      * Solar-horizon mid cloud (%) above which colour variety is limited — the prompt flags it so
      * Claude caps the rating at 4 rather than 5.
      */
@@ -598,9 +615,7 @@ public class PromptBuilder {
         if (mistTrend != null && !mistTrend.slots().isEmpty()) {
             sb.append(String.format("%nMIST/VISIBILITY TREND (T-3h to T+2h):"));
             for (MistTrend.MistSlot slot : mistTrend.slots()) {
-                String label = slot.hoursRelativeToEvent() == 0 ? "event"
-                        : (slot.hoursRelativeToEvent() < 0 ? "T" + slot.hoursRelativeToEvent() + "h"
-                        : "T+" + slot.hoursRelativeToEvent() + "h");
+                String label = slotLabel(slot.hoursRelativeToEvent());
                 double gap = slot.temperatureCelsius() - slot.dewPointCelsius();
                 String gapLabel = gap < 1.0 ? " [AT/NEAR DEW POINT]"
                         : gap < 2.0 ? " [NEAR DEW POINT]"
@@ -651,6 +666,13 @@ public class PromptBuilder {
             appendInversionReversal(sb, data);
         }
 
+        // Valley mist conditions - mist-prone sites only (data.mistPotential() is null for every
+        // other site, so their message is unchanged). The echo instruction lives HERE and not in
+        // the system prompt, so the shared batch cache prefix is untouched (valley-mist-plan M2).
+        if (data.mistPotential() != null) {
+            appendValleyMistConditions(sb, data);
+        }
+
         // Bluebell left the standard prompt in Pass 3 — it has its own prompt
         // (BluebellPromptBuilder) and visitor. The standard prompt scores the sky alone.
 
@@ -688,7 +710,8 @@ public class PromptBuilder {
      * evaluation JSON schema.
      *
      * <p>The property order is fixed: {@code rating, fiery_sky, golden_hour, summary, headline,
-     * basic_fiery_sky, basic_golden_hour, basic_summary, inversion_score, inversion_potential}.
+     * basic_fiery_sky, basic_golden_hour, basic_summary, inversion_score, inversion_potential,
+     * mist_potential}.
      * Structured outputs emit fields in the schema's property order, so the order decides whether
      * the model commits to a rating before or after writing its explanation. The maps are
      * insertion-ordered because the JDK's immutable maps iterate in an order that changes per
@@ -748,7 +771,14 @@ public class PromptBuilder {
                                                 "description", "0-10 inclusive.")),
                                         Map.entry("inversion_potential", PromptUtils.ordered(
                                                 "type", "string",
-                                                "enum", List.of("NONE", "MODERATE", "STRONG"))))))
+                                                "enum", List.of("NONE", "MODERATE", "STRONG"))),
+                                        Map.entry("mist_potential", PromptUtils.ordered(
+                                                "type", "string",
+                                                "enum", List.of("NONE", "POSSIBLE", "LIKELY",
+                                                        "FOGBOUND"),
+                                                "description",
+                                                "Only when the message carries a VALLEY MIST "
+                                                        + "CONDITIONS block; omit otherwise.")))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
                                 .putAdditionalProperty("additionalProperties",
@@ -829,6 +859,57 @@ public class PromptBuilder {
                 + "— positive means temperature RISES with height, which is the inversion "
                 + "itself. Weigh this over the score if the two disagree.",
                 reversal));
+    }
+
+    /** The trend label for a slot: {@code T-2h}, {@code event} or {@code T+1h}. */
+    private static String slotLabel(int hoursRelativeToEvent) {
+        if (hoursRelativeToEvent == 0) {
+            return "event";
+        }
+        return hoursRelativeToEvent < 0
+                ? "T" + hoursRelativeToEvent + "h"
+                : "T+" + hoursRelativeToEvent + "h";
+    }
+
+    /**
+     * Appends the {@code VALLEY MIST CONDITIONS:} block for a {@code mist_prone} site.
+     *
+     * <p>States what {@code ValleyMistCalculator} read (score, band, the tightest temp-dew gap and
+     * the hour it falls, the calmest wind, the sky) and refers to the existing
+     * {@code MIST/VISIBILITY TREND} block for the clearing trend rather than printing it twice. The
+     * numbers are facts handed over, never a question: the inversion precedent. The closing
+     * instruction asks for Claude's own {@code mist_potential} so the map badge can show Claude's
+     * reading; it is in the user message because the system prompt is the batch cache prefix every
+     * site shares.
+     *
+     * @param sb   the prompt under construction
+     * @param data the atmospheric data, with a non-null mist potential
+     */
+    private static void appendValleyMistConditions(StringBuilder sb, AtmosphericData data) {
+        // Truncated to one decimal, never rounded: a rounded integer printed 5.96 as "6/10" beside
+        // POSSIBLE and every vetoed 3.9 as "4/10" beside NONE, contradicting the band's own cut.
+        if (data.mistScore() == null) {
+            sb.append(String.format("%nVALLEY MIST CONDITIONS:%nBand: %s", data.mistPotential()));
+        } else {
+            sb.append(String.format("%nVALLEY MIST CONDITIONS:%nScore: %.1f/10 (%s)",
+                    Math.floor(data.mistScore() * 10.0) / 10.0, data.mistPotential()));
+        }
+        ValleyMistCalculator.NightFacts facts = ValleyMistCalculator.nightFacts(data);
+        if (facts != null) {
+            sb.append(String.format("%nTightest temp-dew gap overnight: %.1f\u00b0C at %s",
+                    facts.minGapCelsius(), slotLabel(facts.minGapHour())));
+            if (facts.minWindMs() != null) {
+                sb.append(String.format("%nCalmest wind overnight: %.1f m/s", facts.minWindMs()));
+            }
+            if (facts.meanCloudPercent() != null) {
+                sb.append(String.format("%nSky overnight: mean total cloud %.0f%%",
+                        facts.meanCloudPercent()));
+            }
+        }
+        sb.append(String.format(
+                "%nClearing: read the MIST/VISIBILITY TREND above for whether visibility is "
+                + "improving after the event.%n%s%n%s",
+                VALLEY_MIST_SITE_SENTENCE, VALLEY_MIST_ECHO_INSTRUCTION));
     }
 
     /**

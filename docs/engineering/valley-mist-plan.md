@@ -3,7 +3,9 @@
 **Status:** M0 measured and the six decisions taken (2026-10-21, §5). **M1a built** (2026-10-21): the
 `mist_prone` flag, `ValleyMistCalculator`, and the `slot_atmosphere` reading (§3 M1, first four
 bullets and the writer). **M1b built** (2026-10-21): the hot topic, Coming up condition, `MIST_CALC`
-daily log and the two wording fixes (§3 M1, last five bullets). M2 and M3 are not built.
+daily log and the two wording fixes (§3 M1, last five bullets). **M2 built** (2026-10-21): the triage
+exemption, the prompt block, Claude's echo (V186) and `effectiveMistPotential()` (§3 M2, with the
+amendments marked *as built*). M3 is not built.
 **Prompted by:** a River Brathay sunrise on 17 Oct 2026 — thick radiation mist on the river under a clear
 sky, low sun through it — that the pipeline would have stood down before Claude saw it, and that no surface
 would have named the night before. The owner's words: "Shame we missed this."
@@ -246,6 +248,11 @@ grouping and freshness; the Coming up condition; the migration under Testcontain
   37 km visibility, not an inflated ~100%, so the observer fallback of rule 1 would not have stood it
   down; the exemption covers rule 3 alone, and a `[BATCH DIAG]` line records any flagged slot rule 1 or
   2 still refuses, so the question can be re-read from the logs if a site ever shows the other shape.
+  *(As built: the INFO lines are `[MIST CANDIDATE] <site> <date> <event>: visibility N m, mist LIKELY — rule 3
+  not consulted` (logged only when rule 3 would have refused) and `[BATCH DIAG] MIST CANDIDATE … refused by
+  rule N`. No disposition note was added: `LatestDisposition.lowVisibility` matches on that column's free
+  text, and the INFO line carries the same information with no false-match risk. The briefing's
+  `BriefingVerdictEvaluator` visibility STANDDOWN is out of scope, as the bullet says.)*
 - **The prompt.** A `VALLEY MIST CONDITIONS:` block in the user message for a mist-prone site (score,
   band, the minimum gap and the hour it falls, night-side wind, sky, the clearing trend already printed by
   `MistTrend`) and ONE site sentence: "This location is a valley-floor / riverside site where mist forms
@@ -253,11 +260,23 @@ grouping and freshness; the Coming up condition; the migration under Testcontain
   horizon colour at all. Fog under 300 m with no clearing is a white frame: rate 2." The existing MIST
   guidance is otherwise untouched; the inversion precedent on stating facts, not asking for the number back,
   holds. System prompt unchanged where possible, so the batch cache prefix is unchanged for every site.
+  *(As built: the system prompt is byte-identical; the echo instruction ("Include `mist_potential`…") is the
+  last line of the user-message block. The structured-output schema gains an optional `mist_potential` enum,
+  last, because constrained decoding forbids undeclared fields; that changes the shared schema once and the
+  primer re-warms it. A flagged site whose calculator returned no band gets no block.)*
 - **Claude's echo.** `mist_potential` (enum name) on `forecast_evaluation`, nullable, written at
   `buildEntity`, served by `ForecastDtoMapper` as the popup/callout badge — the inversion badge's twin, on
   Claude's reading alone, so the badge and the topic may disagree by design (two surfaces, two questions).
+  *(As built, 2026-10-21, V186: the echo is also written by `ForecastResultHandler.scoreEvaluationRow` for the
+  batch path, upserted into `forecast_score` as a new `ForecastType.MIST` component (id 8, seeded in the same
+  migration) with the band on the row's `summary` and `MistPotential.echoScore()` (NONE 2, POSSIBLE 5, LIKELY 8,
+  FOGBOUND 10) as its integer score, and drawn as "Valley mist likely" / "Fogbound" in `MarkerPopupContent` and
+  the four-day sheet's `LocationSheetFacts`, PRO and ADMIN only. `MapCallout` draws no inversion badge, so the
+  sheet is the Map-side home. The echo is kept only for a flagged site.)*
 - **`SlotSignals.effectiveMistScore()`**: the calculator's reading when `mist_scored`, else Claude's
   echo mapped onto the band scale, the `effectiveInversionScore()` rule verbatim.
+  *(As built: it is `effectiveMistPotential()` and returns the BAND, not a score — the band is what the topic
+  and Coming up consume, and FOGBOUND is decided by visibility, so a score-mapped echo would lose it.)*
 - **Prompt regression.** New cases in `backend/src/test/resources/prompt-regression/` — the Brathay
   signature (mist LIKELY, clear above, calm: expect ≥ 4 and mist named in the summary), the same site
   FOGBOUND (expect ≤ 2), and a non-flagged site with the identical weather (expect the existing haze

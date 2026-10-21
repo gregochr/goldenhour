@@ -676,7 +676,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             result = result.withForced(true);
         }
         if (evalRowId != null) {
-            scoreEvaluationRow(evalRowId, eval, result, resolvedModel);
+            scoreEvaluationRow(evalRowId, location, eval, result, resolvedModel);
         }
         return result;
     }
@@ -704,12 +704,14 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * secondary durable-history write.
      *
      * @param evalRowId     primary key of the pending row
+     * @param location      the evaluated location; its {@code mist_prone} flag is the gate on
+     *                      Claude's valley mist reading (valley-mist-plan M2)
      * @param eval          the parsed Claude evaluation — source of the basic-tier and inversion
      *                      fields {@link BriefingEvaluationResult} does not carry
      * @param result        the validated result also being written to {@code cached_evaluation}
      * @param resolvedModel the model that produced the response
      */
-    private void scoreEvaluationRow(Long evalRowId, SunsetEvaluation eval,
+    private void scoreEvaluationRow(Long evalRowId, LocationEntity location, SunsetEvaluation eval,
             BriefingEvaluationResult result, EvaluationModel resolvedModel) {
         Optional<ForecastEvaluationEntity> row = forecastEvaluationRepository.findById(evalRowId);
         if (row.isEmpty()) {
@@ -732,6 +734,12 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     .score(eval.inversionScore())
                     .potential(eval.inversionPotential())
                     .build());
+        }
+        // Claude's valley mist reading, kept only for a mist-prone site (the only kind whose
+        // message asked for it); the PENDING row has no AtmosphericData to consult, so the
+        // location flag is the same gate ForecastScoreWriter applies (valley-mist-plan M2).
+        if (location != null && location.isMistProne()) {
+            entity.setMistPotential(eval.mistPotential());
         }
         if (resolvedModel != null) {
             entity.setEvaluationModel(resolvedModel);

@@ -235,6 +235,15 @@ public class ForecastEvaluationEntity {
     @Embedded
     private InversionDetails inversion;
 
+    /**
+     * Claude's own reading of valley mist at a {@code mist_prone} site (a {@code MistPotential}
+     * name), or null for every other site and every row before V186. A plain String like the
+     * inversion's {@code potential}, not {@code @Enumerated}. Drives the map badge alone: the
+     * hot topic reads the calculator, and this echo only stands in for it (valley-mist-plan M2).
+     */
+    @Column(name = "mist_potential", length = 10)
+    private String mistPotential;
+
     /** Triage stand-down details, or null if the row was scored by Claude. */
     @Embedded
     private TriageDetails triage;

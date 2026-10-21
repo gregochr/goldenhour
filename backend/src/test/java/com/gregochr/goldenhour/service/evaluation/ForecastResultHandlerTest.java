@@ -262,6 +262,47 @@ class ForecastResultHandlerTest {
         assertThat(saved.getInversion().getPotential()).isEqualTo("MODERATE");
     }
 
+    private ForecastEvaluationEntity scoreWithMist(boolean mistProne, String claudeBand) {
+        LocationEntity location = locationWithRegion(42L, "Brathay", "Lake District");
+        location.setMistProne(mistProne);
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, 790L);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE-r790",
+                "{\"rating\":4,\"fiery_sky\":20,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 20, 65, "X", null, null, null, null, null, null,
+                                claudeBand),
+                        false));
+        ForecastEvaluationEntity pendingRow = ForecastEvaluationEntity.builder()
+                .id(790L)
+                .forecastRunAt(LocalDateTime.of(2026, 4, 16, 3, 0))
+                .batchState(BatchState.PENDING)
+                .build();
+        when(forecastEvaluationRepository.findById(790L)).thenReturn(Optional.of(pendingRow));
+
+        handler.parseBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        ArgumentCaptor<ForecastEvaluationEntity> savedCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(forecastEvaluationRepository).save(savedCaptor.capture());
+        return savedCaptor.getValue();
+    }
+
+    @Test
+    @DisplayName("V186: a batch result for a mist_prone site lands Claude's mist_potential on the scored row")
+    void parseBatchResponse_withEvalRowId_mistProne_keepsMistPotential() {
+        assertThat(scoreWithMist(true, "LIKELY").getMistPotential()).isEqualTo("LIKELY");
+    }
+
+    @Test
+    @DisplayName("V186: a stray mist_potential for an unflagged site is not stored")
+    void parseBatchResponse_withEvalRowId_unflagged_dropsStrayMistPotential() {
+        assertThat(scoreWithMist(false, "LIKELY").getMistPotential()).isNull();
+    }
+
     @Test
     @DisplayName("V178: a row already stamped keeps its first availability instant when its result is "
             + "processed a second time")

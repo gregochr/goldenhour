@@ -91,6 +91,8 @@ import java.time.LocalDateTime;
  * @param headline                       Claude-authored short headline (4-9 words), nullable
  * @param significantWaveHeightMetres    significant wave height Hs in metres (nullable — coastal only)
  * @param seaState                       WMO sea-state band label, e.g. "very rough" (nullable — coastal only)
+ * @param mistPotential                  Claude's valley mist reading at a mist-prone site, a
+ *                                       {@code MistPotential} name (nullable; omitted from the wire when null)
  */
 public record ForecastEvaluationDto(
         Long id,
@@ -165,5 +167,6 @@ public record ForecastEvaluationDto(
         @JsonInclude(JsonInclude.Include.NON_NULL) String triageMessage,
         @JsonInclude(JsonInclude.Include.NON_NULL) String headline,
         @JsonInclude(JsonInclude.Include.NON_NULL) Double significantWaveHeightMetres,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String seaState) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String seaState,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String mistPotential) {
 }

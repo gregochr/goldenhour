@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,6 +22,9 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -53,6 +57,16 @@ class SlotSignalReaderTest {
     private ForecastScoreRepository forecastScoreRepository;
     @Mock
     private SlotAtmosphereRepository slotAtmosphereRepository;
+
+    /**
+     * The reader also asks for the MIST echo rows (V186); a test that does not care leaves them
+     * empty, and strict stubs would otherwise reject the unstubbed MIST call as an argument mismatch.
+     */
+    @BeforeEach
+    void noMistEchoByDefault() {
+        lenient().when(forecastScoreRepository.findComponentsByType(
+                eq(ForecastType.MIST.getId()), any(), any())).thenReturn(List.of());
+    }
 
     private SlotSignalReader reader() {
         return new SlotSignalReader(forecastScoreRepository, slotAtmosphereRepository);
@@ -281,6 +295,48 @@ class SlotSignalReaderTest {
         SlotSignals s = reader().read(FROM, TO).get(0);
 
         assertThat(s.readings().mistPotential()).isEqualTo(MistPotential.FOGBOUND);
+    }
+
+    @Test
+    @DisplayName("V186: a forecast_score MIST row's summary is read as Claude's mist band beside the readings")
+    void reader_foldsTheMistEchoOntoTheSlotKey() {
+        LocationEntity loc = location(24L);
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        when(forecastScoreRepository.findComponentsByType(ForecastType.MIST.getId(), FROM, TO))
+                .thenReturn(List.of(score(ForecastType.MIST, loc, 8, "LIKELY")));
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
+        a.setLocation(loc);
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setMistScore(3.0);
+        a.setMistScored(true);
+        a.setMistPotential("NONE");
+        stubReadings(List.of(a));
+
+        SlotSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.scores().mistBand()).isEqualTo("LIKELY");
+        assertThat(s.readings().mistPotential()).isEqualTo(MistPotential.NONE);
+        assertThat(s.effectiveMistPotential())
+                .as("the calculator's fresh band wins over the echo")
+                .isEqualTo(MistPotential.NONE);
+    }
+
+    @Test
+    @DisplayName("V186: a key with only a MIST echo (no reading) still produces a composite carrying it")
+    void reader_mistEchoAloneMakesAComposite() {
+        LocationEntity loc = location(25L);
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        when(forecastScoreRepository.findComponentsByType(ForecastType.MIST.getId(), FROM, TO))
+                .thenReturn(List.of(score(ForecastType.MIST, loc, 8, "LIKELY")));
+        stubReadings(List.of());
+
+        SlotSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.readings()).isSameAs(SlotSignals.Readings.EMPTY);
+        assertThat(s.effectiveMistPotential()).isEqualTo(MistPotential.LIKELY);
     }
 
     @Test

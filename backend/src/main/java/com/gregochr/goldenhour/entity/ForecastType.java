@@ -65,7 +65,17 @@ public enum ForecastType {
      * by design, because {@code LocationEntity.hasColourTypes()} excludes WOODLAND from the
      * sky-prompt gate. The combined rating is then simply the woodland rating.
      */
-    WOODLAND(7L, "Woodland Forecast", 5);
+    WOODLAND(7L, "Woodland Forecast", 5),
+
+    /**
+     * Valley mist, Claude's own reading of a {@code mist_prone} site (valley-mist-plan M2, V186):
+     * a standalone 0&ndash;10 stand-in, not a combiner peer. The band (NONE, POSSIBLE, LIKELY,
+     * FOGBOUND) rides the row's {@code summary}, as the inversion's does, and is what readers
+     * consume; the score is {@code MistPotential#echoScore()}. Read by
+     * {@code SlotSignals#effectiveMistPotential()} as the fallback for a slot whose calculator
+     * reading was never written.
+     */
+    MIST(8L, "Valley Mist Forecast", 10);
 
     private final long id;
     private final String displayName;

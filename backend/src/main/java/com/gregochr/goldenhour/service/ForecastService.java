@@ -879,6 +879,10 @@ public class ForecastService {
                         data.adjustedRangeMetres(), data.astronomicalRangeMetres()))
                 .inversion(InversionDetails.from(data.inversionScore() != null,
                         evaluation.inversionScore(), evaluation.inversionPotential()))
+                // Claude's valley mist reading, kept only for a site whose prompt carried the
+                // VALLEY MIST CONDITIONS block (data.mistPotential() non-null): the echo of a
+                // question that was asked (valley-mist-plan M2).
+                .mistPotential(data.mistPotential() != null ? evaluation.mistPotential() : null)
                 .build();
     }
 }

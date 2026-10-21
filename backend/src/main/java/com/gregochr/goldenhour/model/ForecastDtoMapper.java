@@ -557,6 +557,7 @@ public class ForecastDtoMapper {
                 triage.getMessage(),
                 entity.getHeadline(),
                 wave.waveHeightMetres(),
-                wave.seaState());
+                wave.seaState(),
+                entity.getMistPotential());
     }
 }
