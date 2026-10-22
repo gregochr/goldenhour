@@ -135,6 +135,6 @@ class SlotAtmosphereRetentionReadersTest {
 
         assertThat(inversion.occurrences()).extracting(ComingUpConditionOccurrence::date)
                 .containsExactlyInAnyOrder(oldestWindowDay, TODAY.minusDays(30), yesterday);
-        assertThat(inversion.rateLabel()).startsWith("3 strong mornings since ");
+        assertThat(inversion.rateLabel()).isEqualTo("3 strong mornings in the last 60 days");
     }
 }
