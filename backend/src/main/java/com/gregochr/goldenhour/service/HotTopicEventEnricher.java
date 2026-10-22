@@ -61,9 +61,13 @@ public class HotTopicEventEnricher {
 
     /**
      * Topic types whose detector stamps the event itself (it varies per topic, so no static policy
-     * can name it) and leaves the clock time to this class.
+     * can name it). MIST and STORM_SURGE leave the clock time to this class; the two eclipses stamp
+     * the time as well, so for them the {@code timeOnly} branch never fires. ⚠️ A non-day-scoped
+     * type in neither this set nor {@link #EVENT_BY_TYPE} is dropped from every Plan card
+     * ({@code PlanWindowProjector.keysFor}); {@code HotTopicWindowAnchorRosterTest} enforces it.
      */
-    private static final Set<String> EVENT_STAMPED_BY_DETECTOR = Set.of("MIST");
+    private static final Set<String> EVENT_STAMPED_BY_DETECTOR =
+            Set.of("MIST", "STORM_SURGE", "ECLIPSE", "LUNAR_ECLIPSE");
 
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
@@ -111,6 +115,26 @@ public class HotTopicEventEnricher {
         return topics.stream()
                 .map(topic -> enrichOne(topic, enabled, coastal, darkSky, bluebell))
                 .toList();
+    }
+
+    /**
+     * The fixed solar event the static policy gives a topic type.
+     *
+     * @param type the topic type
+     * @return the event name, or null when the type has no fixed anchor
+     */
+    static String fixedEventFor(String type) {
+        return EVENT_BY_TYPE.get(type);
+    }
+
+    /**
+     * Whether a topic type's detector stamps its own event.
+     *
+     * @param type the topic type
+     * @return true when the detector names the event
+     */
+    static boolean isStampedByDetector(String type) {
+        return EVENT_STAMPED_BY_DETECTOR.contains(type);
     }
 
     private HotTopic enrichOne(HotTopic topic, List<LocationEntity> enabled,

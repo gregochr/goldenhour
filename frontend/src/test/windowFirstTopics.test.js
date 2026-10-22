@@ -102,8 +102,9 @@ describe('topicWindowKeys — PlanWindowProjector.keysFor, replicated', () => {
 
   it('buckets a WINDOW-scoped topic with no solar anchor nowhere', () => {
     // `HotTopicEventEnricher` leaves `eventType` null for a topic with no anchor, and the projector
-    // skips it. Storm surge and clearance topics reach the briefing this way.
-    expect(topicWindowKeys(topic({ type: 'STORM_SURGE', eventType: null }))).toEqual([]);
+    // skips it. No live type reaches the briefing this way since storm surge began stamping its own
+    // event (#1300; `HotTopicWindowAnchorRosterTest` guards the roster), so the type is made up.
+    expect(topicWindowKeys(topic({ type: 'UNANCHORED_TEST_TYPE', eventType: null }))).toEqual([]);
     expect(topicWindowKeys(topic({ type: 'DUST', eventType: 'DAWN_CHORUS' }))).toEqual([]);
   });
 
@@ -437,7 +438,7 @@ describe('DAY_SCOPED_TOPIC_TYPES — the backend mirror', () => {
 
   it('matches PlanWindowProjector.isDayScoped exactly', () => {
     const src = readFileSync(PROJECTOR, 'utf8');
-    const body = src.match(/private static boolean isDayScoped\(String type\) \{([\s\S]*?)\n {4}\}/);
+    const body = src.match(/(?:private )?static boolean isDayScoped\(String type\) \{([\s\S]*?)\n {4}\}/);
     expect(body, 'isDayScoped not found — has it been renamed or moved?').not.toBeNull();
 
     const backend = [...body[1].matchAll(/"([A-Z_]+)"\.equals/g)].map((m) => m[1]);

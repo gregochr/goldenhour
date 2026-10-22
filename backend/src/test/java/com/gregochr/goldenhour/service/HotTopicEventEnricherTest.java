@@ -230,9 +230,19 @@ class HotTopicEventEnricherTest {
     }
 
     @Test
-    @DisplayName("a type with no solar anchor (STORM_SURGE) passes through unchanged")
-    void stormSurge_noEvent() {
+    @DisplayName("STORM_SURGE keeps the event its detector stamped and gains that event's clock time")
+    void stormSurge_detectorStampedEvent_gainsItsTime() {
+        HotTopic result = enrichOne(topic("STORM_SURGE", null).withEvent("SUNSET", null));
+
+        assertThat(result.eventType()).isEqualTo("SUNSET");
+        assertThat(result.eventTime()).isEqualTo("21:41");
+    }
+
+    @Test
+    @DisplayName("an unstamped STORM_SURGE has no fixed anchor and stays without an event")
+    void stormSurge_unstamped_staysNull() {
         HotTopic result = enrichOne(topic("STORM_SURGE", null));
+
         assertThat(result.eventType()).isNull();
         assertThat(result.eventTime()).isNull();
     }

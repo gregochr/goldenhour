@@ -685,7 +685,7 @@ public final class PlanWindowProjector {
      * @param type the served topic type
      * @return true when both of the date's windows should carry the badge
      */
-    private static boolean isDayScoped(String type) {
+    static boolean isDayScoped(String type) {
         return "KING_TIDE".equals(type) || "SPRING_TIDE".equals(type);
     }
 
