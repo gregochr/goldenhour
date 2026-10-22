@@ -405,7 +405,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
       })],
     });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Aurora, King tide',
+      name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Aurora, King tide',
     })).toBeInTheDocument();
   });
 
@@ -882,7 +882,7 @@ describe('WindowFirstHeatStrip — below the minimum-sample gate: text instead o
       expect(screen.getByTestId('wf-heat-spread'))
         .toHaveAttribute('title', '4 locations within reach — 1 rated · 3 not yet rated');
       const button = screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 4 locations within 45 min, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+        name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 4 locations within 45 min, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
       });
       expect(button).toBeInTheDocument();
       // ⚠️ The defect this exact fixture was found with: the accessible name must never contain the
@@ -1211,7 +1211,7 @@ describe('WindowFirstHeatStrip — the Spread row names its pool and prints its 
     it('speaks no band counts below the gate — only the pool clause moves, and "1/4" is still never voiced', async () => {
       await renderStrip({ cards: [ratedCard({ pool: pool(4, null, null, null) })] });
       expect(sentence()).toBe(
-        'Tonight Sunset, 21:11, Worth it, 4 locations within 45 min, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+        'Tonight Sunset, 21:11, Worth it, 1 place rated, 4 locations within 45 min, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
       );
       expect(sentence()).not.toMatch(/\bat \d stars?\b/);
     });
@@ -1315,7 +1315,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
         'Northumberland & Tyneside · 40 min · leave 20:11 · high water — the water it wants',
       );
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, high water, right here',
       })).toBeInTheDocument();
     });
@@ -1332,7 +1332,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
       expect(glyph).toHaveAttribute('data-wide', 'true');
       expect(glyph.querySelector('text')).toHaveTextContent('M');
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, mid tide, right here',
       })).toBeInTheDocument();
     });
@@ -1359,7 +1359,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
       expect(screen.getByTestId('wf-heat-best'))
         .toHaveAttribute('title', 'Northumberland & Tyneside · 40 min · leave 20:11');
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11',
       })).toBeInTheDocument();
     });
@@ -1548,7 +1548,7 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
         hotTopics: [LUNAR_ECLIPSE_TOPIC],
       });
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Lunar eclipse at 05:13',
+        name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Lunar eclipse at 05:13',
       })).toBeInTheDocument();
     });
   });
@@ -1732,7 +1732,7 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
         })],
       });
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, 9 on tide',
       })).toBeInTheDocument();
     });
@@ -4277,5 +4277,78 @@ describe('WindowFirstHeatStrip — "Too few rated" (unrated-verdict-plan.md U2)'
       expect(verdictTint('AWAITING')).toBeNull();
       expect(verdictTint('SPLENDID')).toBeNull();
     });
+  });
+});
+
+describe('WindowFirstHeatStrip — the verdict line count (thin-sample F3)', () => {
+  const count = () => screen.queryByTestId('wf-heat-thin');
+  const pool = (...ratings) => ratings.map((rating, index) => poolSpot({
+    key: String(index + 1), locationId: index + 1, locationName: `Spot ${index + 1}`, rating,
+  }));
+  const thinPool = () => pool(4, null, null, null, null, null, null, null, null, null, null);
+  const nameOf = () => document.getElementById(
+    screen.getByRole('button').getAttribute('aria-labelledby'),
+  ).textContent;
+
+  it('prints `· N rated` after the word and mean on a rated verdict over a thin pool', async () => {
+    await renderStrip({ cards: [ratedCard({ verdictMean: 4, pool: thinPool() })] });
+
+    expect(count()).toHaveTextContent('· 1 rated');
+    expect(count().parentElement).toBe(screen.getByTestId('wf-heat-verdict').parentElement);
+    expect(count()).toHaveClass('wf-hc-thin');
+    // The same figure the Spread row prints.
+    expect(screen.getByTestId('wf-heat-spread-note').textContent).toBe('1/11 rated');
+  });
+
+  it('voices the count in words straight after the mean, singular and plural', async () => {
+    await renderStrip({ cards: [ratedCard({ verdictMean: 4, pool: thinPool() })] });
+    expect(nameOf()).toMatch(/4\.0 star average, 1 place rated, /);
+
+    cleanup();
+    await renderStrip({
+      cards: [ratedCard({ verdictMean: 4, pool: pool(4, 4, 4, null, null, null, null, null, null, null) })],
+    });
+    expect(nameOf()).toMatch(/3 places rated/);
+  });
+
+  it('is absent once the spread draws bars (a well-rated card)', async () => {
+    await renderStrip({ cards: [ratedCard({ pool: pool(5, 5, 5, 5, 5, null, null) })] });
+    expect(count()).toBeNull();
+  });
+
+  it.each([
+    ['UNRATED', 'Too few rated'],
+    ['STAND_DOWN', 'Poor'],
+    ['AWAITING', 'Not scored'],
+  ])('is absent on a %s verdict', async (verdict, verdictLabel) => {
+    await renderStrip({ cards: [ratedCard({ verdict, verdictLabel, pool: thinPool() })] });
+    expect(count()).toBeNull();
+  });
+
+  it('is absent on an away cell and on an unscored window', async () => {
+    await renderStrip({
+      cards: [stripCard({ away: true, verdict: null, verdictLabel: 'Not forecast', pool: thinPool() })],
+    });
+    expect(count()).toBeNull();
+
+    cleanup();
+    await renderStrip({ cards: [ratedCard({ bestRating: null, pool: pool(null, null, null) })] });
+    expect(count()).toBeNull();
+  });
+
+  it('is absent with nothing rated in the pool', async () => {
+    await renderStrip({ cards: [ratedCard({ pool: pool(null, null, null, null, null, null) })] });
+    expect(count()).toBeNull();
+  });
+
+  it('⚠️ never wraps: the figure is nowrap, and only drawn where the card is wide enough', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
+    const rule = css.match(/\.wf-hc-thin \{[^}]*\}/)[0];
+    expect(rule).toContain('white-space: nowrap;');
+    expect(rule).toContain('display: none;');
+    expect(css).toMatch(/@container wf-card \(min-width: 190px\) \{\s*\.wf-hc-thin \{ display: inline; \}/);
+    const sep = css.match(/\.wf-hc-thin-sep \{[^}]*\}/)[0];
+    expect(sep).toContain('color: #857c70;');
+    expect(sep).toContain('font-weight: 400;');
   });
 });

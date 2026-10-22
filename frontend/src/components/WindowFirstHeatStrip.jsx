@@ -28,6 +28,7 @@ import {
   spreadBars, spreadCountLayout, spreadCountLayoutAcross, spreadQualifier, spreadRowState, spreadTitle, unratedBar,
   unratedPhrase,
 } from '../utils/windowFirstSpread.js';
+import { thinVerdictCount, thinVerdictSpoken } from '../utils/windowFirstThinSample.js';
 import { buildTopicIndex, chipClock, windowTopics } from '../utils/windowFirstTopics.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { leaveBy } from '../utils/leaveBy.js';
@@ -1242,9 +1243,18 @@ export default function WindowFirstHeatStrip({
     // H4: a STAND_DOWN word over a region the honesty filter blanked is the weather's call, not a
     // rating. The mean is null there (never both), so the qualifier takes the mean's own slot.
     const blankedNote = !card.away && card.verdictBlanked === true && !regionMean;
+    // thin-sample plan F3: `· N rated` on a rated verdict over a thin reach pool. Read off the SAME
+    // `facts.spread` the Spread row draws, so "6/83 rated" and "· 6 rated" are one figure.
+    const thinCount = thinVerdictCount({
+      verdict: card.verdict, away: card.away, notScored, spread: facts.spread,
+    });
     const accessibleName = [card.label, card.time, card.verdictLabel]
       .concat(blankedNote ? [BLANKED_STAND_DOWN_SPOKEN] : [])
       .concat(regionMean ? [`${regionMean} star average`] : [])
+      // ⚠️ Said beside the verdict although the pool clause below also says "6 of 83 rated": the
+      // visible `· 6 rated` must be in the name (SC 2.5.3), and the pool clause carries the
+      // denominator and the reach claim, which this one does not.
+      .concat(thinCount != null ? [thinVerdictSpoken(thinCount)] : [])
       .filter(Boolean)
       .concat(notScored ? ['not scored'] : [])
       .concat(card.away || !spokenPool ? [] : [spokenPool])
@@ -1397,6 +1407,12 @@ export default function WindowFirstHeatStrip({
                 `aria-hidden`; the same figure is voiced in the card's sentence above. */}
             {regionMean && (
               <span data-testid="wf-heat-mean" className="wf-hc-mean">{regionMean}★</span>
+            )}
+            {thinCount != null && (
+              <span data-testid="wf-heat-thin" className="wf-hc-thin">
+                <span className="wf-hc-thin-sep">{'· '}</span>
+                {`${thinCount} rated`}
+              </span>
             )}
             {blankedNote && (
               <span

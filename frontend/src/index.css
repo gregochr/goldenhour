@@ -2146,6 +2146,29 @@ button.wf-hc.on:hover {
   text-overflow: ellipsis;
 }
 .wf-hc-pv:has(.wf-hc-note) .wf-hc-vd { flex: none; }
+/* The thin-sample count beside the verdict (thin-sample plan F3): separator ink-3 400, count ink 500,
+   solid colours, no opacity. ONE LINE or NOT AT ALL. The value column is 70-175px (see `.wf-hc-mean`)
+   and "Worth it 4.0★ · 6 rated" needs about 112px beside the time, so the figure is drawn only where
+   the CARD is wide enough to hold the whole line (`@container wf-card`, below); narrower, it is hidden
+   and stays in the card's spoken sentence. A wrapped verdict row would push this card's Spread and
+   Best rows out of line with its neighbours'. */
+.wf-hc-thin {
+  display: none;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-plex-text);
+}
+.wf-hc-thin-sep {
+  font-weight: 400;
+  color: #857c70;
+}
+@container wf-card (min-width: 190px) {
+  .wf-hc-thin { display: inline; }
+}
 /* "Too few 3.6★" — the UNRATED card's verdict row (unrated-verdict-plan.md U2, review F2). The mean
    is the honest half of the card here: the region has ratings, the sample gate withheld a verdict
    from them, and the word and the figure say so together.

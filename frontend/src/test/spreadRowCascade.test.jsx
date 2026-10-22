@@ -347,7 +347,10 @@ describe('the stylesheet half jsdom cannot evaluate — pinned as text', () => {
   });
 
   it('declares the stacked threshold exactly once, at the plan\'s 205px', () => {
-    expect(css.match(/@container wf-card/g)).toHaveLength(1);
+    // Thin-sample F3 added a second query on the same container, a MIN-width one for the verdict
+    // line's count; the stacked threshold is the only max-width.
+    expect(css.match(/@container wf-card \(max-width/g)).toHaveLength(1);
+    expect(css.match(/@container wf-card/g)).toHaveLength(2);
   });
 
   it('draws the qualifier at the label\'s size, tighter tracking, never wrapped', () => {
