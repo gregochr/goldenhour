@@ -1,0 +1,246 @@
+# Ask: explaining a named place's rating — build plan
+
+Status: **plan**, 2026-10-22. One backend phase (L1), then an owner-run prompt check (L2). Built by a
+Sonnet subagent from this file alone; §6 is its brief.
+
+## §1 The defect
+
+A reader looked at the Map, saw **Alnmouth 4★** for Saturday sunrise, and asked Ask "Why is Alnmouth a 4 on
+Saturday morning?". Ask answered **"Not in the forecast — PhotoCast doesn't have: Alnmouth's rating for this
+window"**. A question just before it ("how is Hartlepool Headland this weekend?") was told Northumberland &
+Tyneside is "broadly game on, but no spot there rates 3 stars or better", while the Map showed five 4★
+places there.
+
+**Cause (read from the code, not confirmed against production).** Ask has exactly one tool that returns a
+solar place's rating: `rank_spots`. It draws only from `AskSnapshot.candidates(window, scope)`, which keeps
+only **pick-eligible** slots (`AskSnapshot.isPickEligible`):
+
+- the region must be `pickEligible()`, which since thin-sample B1 (#1282, released in v2.30.3) means a
+  *sufficient* sample only. A forced sample sets the region's verdict but takes no pick (thin-sample plan
+  §5 Q3);
+- the slot must not be a neighbour outlier (neighbour-guard G2, #1216);
+- rating ≥ 3, not canopy, has an id and a name.
+
+Saturday-sunrise Northumberland & Tyneside was hatched on the Map (thin sample). Every slot in it therefore
+fell out of `rank_spots`, while `list_windows` still reported the region's verdict. The model had no way to
+see Alnmouth's rating, so it told the truth about what its tools returned. The neighbour guard is not the
+cause here: Alnmouth sits among four other 4★ places, and a held-back place makes `rank_spots` add its "N
+places … not offered" note, which would have produced different wording.
+
+**The design gap.** Both rules answer *"should PhotoCast send you there?"*. Ask uses them to decide
+*"may PhotoCast talk about it at all?"*. A reader asking why a place the Map shows as 4★ is 4★ wants an
+explanation, not a recommendation, and the Map already shows the star.
+
+## §2 Owner decisions (2026-10-22)
+
+| # | Decision |
+|---|---|
+| D1 | A question about one named place's rating is an **explanation**, not a pick. Ask may state that place's served rating and reason even when the place is not pick-eligible. |
+| D2 | This **includes a neighbour outlier**. It reverses part of G2 for this one route: G2 said Ask gives no name or star of a held-back place. Now, when the reader names the place, Ask may give its star and must say it is rated well above the places beside it, so it is not a suggestion. `rank_spots`'s held-back note (count only, no name) is unchanged. |
+| D3 | Recommendations do not change: `rank_spots`, `isPickEligible`, the validator's pick rules, the BEST anchor, Ready answers, the Plan and Map picks. |
+| D4 | The `*` / `★` / `☆` characters are allowed in a typed question (shipped separately, `d24b4002`). |
+
+## §3 What must not change
+
+- `AskSnapshot.isPickEligible`, `candidates`, `isHeldBack`, `resolvePick` and `rank_spots`' results.
+- **A looked-up place is never a pick.** The new tool adds **nothing** to `AskEvidence.pairs`, so the
+  validator drops any pick the model tries to make from it (`evidence.offers` fails, and `resolvePick`
+  refuses a non-eligible slot anyway: two guards). If the model wants to recommend a place, it calls
+  `rank_spots` as today.
+- Ready answers: the Ready precompute's conversation does not get the tool (§4.3), so Ready prompt bytes
+  and Ready behaviour are unchanged.
+- The scope rule: a question scoped to regions only sees places in those regions.
+- The aurora gate (`canSeeAurora`): this tool is solar only.
+- No frontend change. An `answerable: true` answer with no picks and no events already renders as a summary
+  (window-context W1). Confirm this in L1 by reading the component (§4.6), and stop and report if it is
+  not so.
+- Never change assertions in `src/test/java/.../regression/` (CLAUDE.md).
+
+## §4 L1 — the `look_up_place` tool (backend)
+
+### 4.1 `AskTools.lookUpPlace(LookUpPlaceArgs)`
+
+```java
+public record LookUpPlaceArgs(String name, List<String> windowIds) { }
+```
+
+- `name` is required: blank or missing → `fail("look_up_place", "name is required.")`.
+- `windowIds` is optional. Null or empty means every solar window in the snapshot. An unknown id → the
+  same "Unknown window id … Call list_windows for the valid ids." error `rank_spots` gives.
+
+**Matching** (pure, static and package-private so it can be unit-tested):
+
+- Normalise both the query and each slot's `name()` to lower case (root locale), with apostrophes (`'`, `’`)
+  removed and every other non-letter/digit turned into a space, then split into words. Do **not** reuse
+  `AskQuestionSanitiser.normalise`: its filler-word list would drop "the" and "a" from place names. Write
+  a small private tokeniser beside the matcher.
+- A slot matches when its words contain the query's words as a **contiguous run**. "alnmouth" matches
+  "Alnmouth" and "St Cuthbert's Cross, Alnmouth". "cuthberts cross" matches the second. "mouth" matches
+  neither (whole words only).
+- Exact matches (the word lists are equal) come first, then the rest by name. Distinct locations are
+  capped at `MAX_PLACE_MATCHES = 4`, and each location carries every requested window it appears in. When
+  more locations match, `note` says "N more places match; use a longer name."
+
+**Scope.** Walk `window.regions()`, skipping regions `!scope.contains(region.name())`. If nothing in scope
+matches but something out of scope does, return no places and the note "That place is outside the
+regions this question is about." Never return the out-of-scope place's rating.
+
+**Result** (`@JsonInclude(NON_NULL)`, the `RankSpotsResult` pattern):
+
+```java
+public record LookUpPlaceResult(List<PlaceInfo> places, String note) { }
+public record PlaceInfo(long locationId, String name, String region, String windowId, String day,
+        String event, Integer rating, String verdict, String headline, String tideState,
+        Boolean tideAligned, String tideFitPhrase, String status, String statusReason) { }
+```
+
+`day` and `event` are formatted as `windowInfo` does (`dayWord`, the event name). Rating, verdict,
+headline and tide come straight off `AskSnapshot.Slot`, so they are the served figures.
+
+**`status`**, one per (place, window), tested in this order:
+
+| status | when | `statusReason` (fixed text, ours) |
+|---|---|---|
+| `UNRATED` | `rating == null` or not `RatingValidator.isInRange` | `"Not rated for this window."` plus the region's `coverageReason` phrase when it is non-null (reuse whatever wording `list_windows`' spread already uses for stood-down / not scored; do not invent new text) |
+| `CANOPY` | `slot.canopy()` | `"A woodland canopy rating: how good the light under the trees is, not the sky."` (check the canopy wording the Plan / Map already use and match it) |
+| `NEIGHBOUR_OUTLIER` | `slot.neighbourOutlier()` | `"Rated well above the places beside it, so PhotoCast is not suggesting it."` |
+| `THIN_SAMPLE` | `!region.pickEligible()` | `"Too few places in this region were rated to recommend one."` |
+| `BELOW_GAME_ON` | `rating < AskSnapshot.MIN_PICK_RATING` | null |
+| `PICK` | `AskSnapshot.isPickEligible(region, slot)` | null |
+
+Add a final `else` that throws `IllegalStateException`, so a future pick rule the table misses fails a
+test instead of silently returning `PICK`. Write a test that every slot classified `PICK` is
+`isPickEligible`, and every `isPickEligible` slot is classified `PICK`.
+
+**No match at all:** `places` empty, note `"No place by that name is in these windows."` The model then
+answers `answerable: false` as today, which is now true.
+
+Route the result through `finish("look_up_place", …, () -> { })`. The `accepted` runnable adds nothing to
+`pairs` (§3). This keeps `RESULT_CHAR_CAP` and the trace (`ToolCall`) as for every other tool, so
+`toolCalls` counts it and the validator's "answerable with no pick, no event and no tool call" discard
+does not fire for an explanation answer.
+
+### 4.2 Schema, arguments and dispatch
+
+- `AskToolSchemas.LOOK_UP_PLACE = "look_up_place"` and a `lookUpPlace()` schema: `name` (string,
+  required) and `windowIds` (string array). Description: *"Looks up one place by name and returns its
+  served rating, verdict, headline, tide fit and whether PhotoCast recommends it (status), for each window.
+  Use it when the reader asks about a specific place, e.g. why it is rated as it is. It never makes the place
+  a pick."*
+- `AskToolArguments.lookUpPlace(JsonNode)`, following the shape of `rankSpots` (`BadArguments` on a wrong
+  type).
+- `ClaudeAskEngine`'s dispatch switch gets the case, and its unknown-tool message lists the new name.
+
+### 4.3 Which conversations get it
+
+Typed questions only, fresh and follow-up. Not the Ready precompute. Today `tools(withUser, withThread)`
+receives `withUser == false` only for Ready; check that this is still true (grep for every
+`AskToolSchemas.tools(` caller; today the one caller is `ClaudeAskEngine`, passing `user.hasUser()`). Then add an explicit boolean `withPlaceLookup` rather than overloading
+`withUser`, and keep the existing two-argument overloads' behaviour. The tool list order is `list_windows,
+rank_spots, look_up_place, rank_night_spots, get_hot_topics, get_coming_up, submit_answer`. If any test
+pins the tool list or order, update it. If a Ready path turns out to pass `withUser == true`, stop and
+report it.
+
+### 4.4 Prompt (`AskPromptBuilder.RULES`)
+
+Add one bullet after the "good investigation" bullet:
+
+> - When the question is about one named place ("why is Alnmouth 4★", "how is Bamburgh on Saturday"), call
+> look_up_place with its name. Answer from what it returns: the rating, verdict, headline and tide fit. If its
+> status is not PICK, explain the rating and say in one clause why PhotoCast is not suggesting the place,
+> using its statusReason. Never give it as a pick. If the reader also wants somewhere to go, call rank_spots.
+> If look_up_place finds nothing, the place is not in the forecast: answer answerable false.
+
+Also change the "good investigation" bullet's "Questions this does not fit (one place, …) need none of it."
+to "… (one place: call look_up_place; one tide, one event, the night) …". Do not touch any other sentence.
+
+`THREAD_RULES`: a follow-up such as "why is it 4★" after an answer that named the place is covered by the
+same bullet. Add nothing.
+
+### 4.5 Caching and spend
+
+The typed cache stores only an answer carrying a pick or an event, so an explanation answer is never cached
+and every such question costs an engine call. That is accepted. Note it in the reference doc, and change
+nothing in the cache.
+
+### 4.6 Frontend check (read only)
+
+Find where the Ask answer renders an `answerable: true` answer with an empty `picks` and `events`. Confirm
+that it shows the summary and no "Not in the forecast" frame. Report what you found, and cite the file and
+line in §7. No frontend edits.
+
+### 4.7 Tests (read `docs/engineering/test-improvement-standards.md` first)
+
+`AskToolsTest`, or a new `AskToolsLookUpPlaceTest` if that file is already large:
+
+- the matcher: exact before partial; "alnmouth" finds both Alnmouth places; whole words only ("mouth"
+  finds nothing); apostrophes ("st cuthberts" = "St Cuthbert's"); case; the cap and its note;
+- each `status` row, including the order (an outlier in a thin region is `NEIGHBOUR_OUTLIER`; a canopy
+  slot with a null rating is `UNRATED`);
+- the `PICK` ⇔ `isPickEligible` agreement (§4.1);
+- scope: in-scope only; an out-of-scope-only match returns no places, the scope note, and no rating;
+- windowIds: the default is all windows; an unknown id is an error;
+- **evidence**: after a lookup, `evidence().pairs()` is empty.
+
+`AskAnswerValidatorTest`: an answerable answer whose only tool call was `look_up_place`, with no picks,
+survives. A pick naming the looked-up place is dropped, both for a thin-sample place and for a `PICK`
+place that `rank_spots` never returned.
+
+`AskToolSchemasTest` (or wherever schemas are pinned): the new schema; Ready's list does not contain it;
+typed lists do.
+
+`ClaudeAskEngineTest`: dispatch reaches `lookUpPlace`; bad arguments become a tool error, not an exception.
+
+`AskPromptBuilderTest`: the new bullet is present. Use a containment assertion, not a full-text pin, unless
+the existing test pins the full text.
+
+Mutation-check at least the status order and the evidence rule (break each, see a test fail, restore with
+`cp` from a backup and never `git checkout --`).
+
+### 4.8 Docs and changelog
+
+- `docs/engineering/reference/ask-photocast.md`: add the tool to wherever the tools are listed; note D1/D2
+  and that it adds no evidence pair; note the cache consequence (§4.5).
+- `docs/engineering/neighbour-guard-plan.md` G2: add one line saying D2 of this plan narrows the "no
+  name or star" rule for a named-place lookup.
+- `changelog.d/20261022-ask-place-lookup.md`, `### Added — …`.
+
+## §5 L2 — prompt check (owner-run, costs money)
+
+Add a **new** class `AskPlaceLookupRegressionTest` beside `AskWindowContextRegressionTest` (in
+`src/test/java/com/gregochr/goldenhour/service/ask/`), tagged `prompt-regression` like it and registered
+wherever it is (the pitest exclusion list). It should have three fixtures built the way that class builds
+its own:
+
+1. "Why is Alnmouth 4★ on Saturday morning?" with Alnmouth 4★ in a thin-sample region. Expect
+   answerable true, no picks, a summary that quotes 4 and does not say "not in the forecast".
+2. The same with Alnmouth a neighbour outlier. Expect answerable true, no picks, and wording about the
+   places beside it.
+3. "Why is Atlantis rated 5★?". Expect answerable false.
+
+Leave its assertions marked **pending owner approval**, and do not run it. The owner runs
+`./mvnw test -Pprompt-regression -Dtest=AskPlaceLookupRegressionTest`.
+
+## §6 Subagent brief (L1 + L2 test class, one PR)
+
+> Build `docs/engineering/ask-place-lookup-plan.md` §4 (L1) and §5's test class (not its run). Read the
+> plan in full first, then `docs/engineering/reference/ask-photocast.md` (grep it; don't read it whole) and
+> `docs/engineering/test-improvement-standards.md`. Work on a branch `feature/ask-place-lookup` from
+> main. Never `git checkout --`, `git restore` or `git stash`; commit as you go; **do not push**; never
+> edit existing assertions under `src/test/java/.../regression/`. There is no JDK 25 and no Docker on
+> this Mac. Run the backend gate as:
+>
+> `cd backend && export JAVA_HOME=/Users/chrisgregory/Library/Java/JavaVirtualMachines/openjdk-23.0.2/Contents/Home MAVEN_OPTS=--enable-preview && ./mvnw clean verify --batch-mode --no-transfer-progress -Djava.version=23 -Dmaven.compiler.enablePreview=true -Dtest='!**/integration/**,!EvaluationModelTest' -DfailIfNoSpecifiedTests=false > "$SCRATCH/v.log" 2>&1; echo "exit: $?"`
+>
+> Gate on the exit code, never on a grep. Also run `./mvnw checkstyle:check`. Do not start the backend
+> and do not trigger any forecast run or real Anthropic call. If the code contradicts the plan (a pinned
+> tool list, a Ready path with a user, a frontend that frames a no-pick answer as "not in the forecast"),
+> stop and report rather than guess. Report the commits, the gate's exit code and test counts, the
+> mutation checks you ran, and the §4.6 finding with file and line.
+
+After it reports, review the diff adversarially before the PR: does any path add a lookup to
+`pairs`? Is the status order right? Is Ready's tool list unchanged?
+
+## §7 As built
+
+(Filled in after L1.)
