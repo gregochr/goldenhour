@@ -875,6 +875,29 @@ class AskToolsTest {
     }
 
     @Test
+    @DisplayName("get_hot_topics: the folded topic names every region either half covered")
+    void getHotTopics_onePerKindAndDay_unionsRegions() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("STORM_SURGE", "Storm surge", "dawn tide", TODAY,
+                        List.of("Cornwall", "Coast")).withEvent("SUNRISE", null),
+                AskFixtures.topic("STORM_SURGE", "Storm surge", "evening tide", TODAY,
+                        List.of("Coast", "Northumberland")).withEvent("SUNSET", null),
+                AskFixtures.topic("MIST", "Valley mist", "dawn", TODAY, List.of("Dales"))
+                        .withEvent("SUNRISE", null),
+                AskFixtures.topic("MIST", "Valley mist", "dusk", TODAY, List.of())
+                        .withEvent("SUNSET", null))));
+
+        HotTopicsResult result = (HotTopicsResult) tools(snapshot).getHotTopics(null).payload();
+
+        assertThat(result.topics()).extracting(AskTools.TopicInfo::type, AskTools.TopicInfo::detail,
+                        AskTools.TopicInfo::regions)
+                .containsExactlyInAnyOrder(
+                        tuple("STORM_SURGE", "dawn tide", List.of("Cornwall", "Coast", "Northumberland")),
+                        // A region-less half is true of everywhere, so the fold is region-less too.
+                        tuple("MIST", "dawn", List.of()));
+    }
+
+    @Test
     @DisplayName("get_coming_up: a kind split by event stands in the timeline once per day")
     void getComingUp_onePerKindAndDay() {
         List<AskTools.ComingUpInfo> served = tools(splitSurgeSnapshot()).getComingUp(null).payload().entries();
