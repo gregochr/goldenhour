@@ -522,10 +522,11 @@ function AppInner() {
    * does and does not silently reset them, and `from` names the tab the press came from so the
    * breadcrumb's return goes back there (an extension of section 5 D2, not a reversal).
    *
-   * <p>⚠️ <b>On the Map tab itself the press is a window change and nothing more</b>: `inPlace`
-   * takes {@link openMapTabFromPlan}'s `source: 'map'` branch (no lens, scope or camera write, no
-   * tab request), which carries the night so `MapView` selects the aurora row and leaves any
-   * standing door lens and its breadcrumb alone. The shell's own dialogs (a Map-hosted four-day
+   * <p>⚠️ <b>On the Map tab itself the press changes the window and leaves the lens alone</b>:
+   * `inPlace` takes {@link openMapTabFromPlan}'s `source: 'map'` branch (no lens, floor, reach,
+   * scope or breadcrumb write, no tab request), which carries the night so `MapView` selects the
+   * aurora row and leaves any standing door lens and its breadcrumb alone. (A map-sourced door that
+   * names a place also selects it and flies to it; an aurora door names none.) The shell's own dialogs (a Map-hosted four-day
    * sheet) are closed first, through the closer the shell registered. Pressed on any other tab it
    * moves to the Map tab. Only offered when the Map tab is.
    *
@@ -640,7 +641,13 @@ function AppInner() {
     // (`utils/mapDoor.doorFromTrigger`); a plain door (no `kind`) passes through untouched.
     const door = doorOrTrigger?.kind
       ? doorFromTrigger(doorOrTrigger, {
-        locations: visibleLocations, briefingScores, todayStr, tomorrowStr,
+        locations: visibleLocations,
+        briefingScores,
+        todayStr,
+        tomorrowStr,
+        // The served briefing's neighbour-outlier marks. `App` sits OUTSIDE the briefing provider, so
+        // the shell (which reads it) rides them on the trigger; absent reads as none marked.
+        outlierKeys: doorOrTrigger.outlierKeys,
       })
       : doorOrTrigger;
     // A night door names a night, which `App.resolveMapDate` refuses as a solar date once past -

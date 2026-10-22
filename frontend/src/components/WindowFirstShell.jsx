@@ -29,7 +29,7 @@ import {
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { openMapDoor } from '../utils/mapDoors.js';
-import { normalizeMapTrigger } from '../utils/mapDoor.js';
+import { normalizeMapTrigger, outlierKeysOf } from '../utils/mapDoor.js';
 import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
@@ -1001,11 +1001,16 @@ export default function WindowFirstShell({
    * @param {?string} eventType     SUNRISE/SUNSET for the plain-date call shapes
    * @param {?string} locationName  a specific location, for the location call shape
    */
+  const outlierKeys = useMemo(() => outlierKeysOf(briefing), [briefing]);
   const showOnMap = useMemo(() => (onOpenMapTab
-    ? (dateOrHandoff, eventType, locationName = null) => openMapTab(
-      normalizeMapTrigger(dateOrHandoff, eventType, locationName),
-    )
-    : undefined), [onOpenMapTab, openMapTab]);
+    ? (dateOrHandoff, eventType, locationName = null) => openMapTab({
+      ...normalizeMapTrigger(dateOrHandoff, eventType, locationName),
+      // The served briefing's neighbour-outlier marks, for `resolveDoor` (App is outside the
+      // provider and the scores endpoint carries no flag). Rides the trigger to `App`, which moves
+      // it into the resolution context; `doorFromTrigger` never copies it into the door.
+      outlierKeys,
+    })
+    : undefined), [onOpenMapTab, openMapTab, outlierKeys]);
   /**
    * A tab asked for from OUTSIDE the bar — the breadcrumb's return, and the aurora banner's door to
    * Operations for a simulated alert.

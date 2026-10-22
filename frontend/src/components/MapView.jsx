@@ -2165,8 +2165,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /**
    * A lens's lifetime is its plan door's. The breadcrumb that names the lenses follows the last
    * `source: 'plan'` door (`planDoor`), so a `source: 'map'` handoff (the four-day sheet's footer, the
-   * aurora banner pressed on this tab) leaves both the strip and the lens standing - it is a window
-   * change only. What ends the lens is the handoff WITHDRAWN (the pane hands none, so `planHandoff`
+   * aurora banner pressed on this tab) leaves both the strip and the lens standing - it changes the window
+   * (and selects and flies to the place it names, if any) but never touches the lens, floor, reach,
+   * scope or breadcrumb. What ends the lens is the handoff WITHDRAWN (the pane hands none, so `planHandoff`
    * goes null): the strip is gone with it and so is the only way to lift the lens, and left standing
    * it would be the silent narrowing plan 4 #3 forbids.
    */

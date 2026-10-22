@@ -137,7 +137,7 @@ describe('WindowFirstShell — the Plan tab\'s map producers share one structure
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
       kind: 'event', date: '2026-08-09', eventType: 'SUNRISE',
-      inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60,
+      inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
     });
   });
 
@@ -148,7 +148,7 @@ describe('WindowFirstShell — the Plan tab\'s map producers share one structure
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
       kind: 'location', locationName: 'Bamburgh', date: '2026-08-09', eventType: 'SUNRISE',
-      inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60,
+      inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
     });
   });
 
@@ -159,7 +159,7 @@ describe('WindowFirstShell — the Plan tab\'s map producers share one structure
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
       kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run',
-      date: '2026-08-10', inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60,
+      date: '2026-08-10', inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
     });
   });
 
