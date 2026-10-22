@@ -47,7 +47,9 @@ public class AskPromptBuilder {
             tide fit. If its status is not PICK, explain the rating and say in one clause why \
             PhotoCast is not suggesting the place, using the reason given for its status. Never give \
             it as a pick. If the reader also wants somewhere to go, call rank_spots. If look_up_place \
-            finds nothing, the place is not in the forecast: answer answerable false.
+            returns no places, read its note and answer answerable false: when the note says the place \
+            is outside the regions this question is about, say exactly that, never that it is not in \
+            the forecast; otherwise the place is not in the forecast.
             """;
 
     /** The rules every conversation runs under. */

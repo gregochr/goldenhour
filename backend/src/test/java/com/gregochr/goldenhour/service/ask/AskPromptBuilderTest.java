@@ -110,8 +110,10 @@ class AskPromptBuilderTest {
                         + "not suggesting the place, using the reason given for its status. Never give it as a "
                         + "pick.")
                 .contains("If the reader also wants somewhere to go, call rank_spots.")
-                .contains("If look_up_place finds nothing, the place is not in the forecast: answer answerable "
-                        + "false.");
+                .contains("If look_up_place returns no places, read its note and answer answerable false: when "
+                        + "the note says the place is outside the regions this question is about, say exactly that, "
+                        + "never that it is not in the forecast; otherwise the place is not in the forecast.")
+                .contains(AskTools.PLACE_OUT_OF_SCOPE_NOTE.replace(".", "").replace("That place", "the place"));
         assertThat(typed.indexOf("When the question is about one named place"))
                 .isGreaterThan(typed.indexOf("A good investigation usually runs"));
         assertThat(ready).startsWith(AskPromptBuilder.RULES).doesNotContain("look_up_place");
