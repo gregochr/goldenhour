@@ -611,4 +611,7 @@ have a non-empty tide type:
 Not structures: Whitby Town (62) and Whitby Abbey (76), which have no tide type. Eyemouth is absent.
 The decoy in B1's migration test should be `Whitby Abbey`, a real near-miss name.
 
+Tide check (production, 2026-10-22): all seven have stored future high waters, 178–180 each,
+running to 23 Jan 2027. B1 needs no tide fix.
+
 Label-obstacle re-measure (F1): _(paste here)_
