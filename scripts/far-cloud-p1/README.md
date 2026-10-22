@@ -390,7 +390,24 @@ python3 canvas.py p1_forecasts.csv --out out/ --ratings outcome_ratings.csv
 
 Tests: `python3 -m unittest tests.test_canvas` from this directory.
 
-## 8. Send back to Claude
+## 8. Over-forecast low deck (no network, no spend)
+
+Measures the error class of 15 October: the forecast puts a low-cloud deck where ERA5 reads clear (a "phantom deck"),
+and its mirror, over the whole `cloud_verification` history. It prints the forecast-against-ERA5 contingency for
+observer and cone low cloud, the phantom-deck rate with Wilson intervals by model, event, month, days_ahead, region
+and coastal/inland, signed error and MAE, what the rating or triage did on phantom-deck slots, whether an ERA5
+mid/high canopy overhead co-occurred, and the 20 largest phantom decks. Definitions are at the top of `out/lowdeck.md`
+and in plan section 18. Measurement only: it recommends nothing. ERA5 is a reanalysis, not an observation. About 30
+seconds on the full export.
+
+```
+python3 lowdeck.py p1_forecasts.csv --out out/
+```
+
+Writes `out/lowdeck.md` and `out/lowdeck_phantom.csv` (every T+0/T+1 slot that is a phantom deck on either variable,
+with its ERA5 values and outcome). Tests: `python3 -m unittest tests.test_lowdeck` from this directory.
+
+## 9. Send back to Claude
 
 `out/part_b.md`, `out/part_d.md`, `out/case_2026-10-13.md` (plus what you saw on Meteosat), `out/pilot.md`,
-`out/part_c.md`, `out/canvas.md`, and `p1_summary.csv`. Not the prompt or forecast CSVs, and never the API key.
+`out/part_c.md`, `out/canvas.md`, `out/lowdeck.md`, and `p1_summary.csv`. Not the prompt or forecast CSVs, and never the API key.
