@@ -327,6 +327,34 @@ describe('WindowFirstMapPane — the heat prop', () => {
     expect(MapStub.lastProps.regionVerdictIndex).toBeInstanceOf(Map);
   });
 
+  describe('window states (thin-sample F4) wait for the scores', () => {
+    const STATE_SPOTS = SPOTS.map((s) => ({ ...s, skySubject: true, states: ['unrated', 'rated'] }));
+    const EVENTS = [
+      { date: TODAY, targetType: 'SUNSET' },
+      { date: '2026-08-14', targetType: 'SUNRISE' },
+    ];
+    const withScores = (scoresLoaded) => context({
+      heatSpots: STATE_SPOTS, upcomingEvents: EVENTS, scoresLoaded,
+    });
+
+    it('offers a served window no states while the scores are pending, so nothing reads "unrated"', () => {
+      renderPane(withScores(false));
+      expect(MapStub.lastProps.heat.windowStates.has(`${TODAY}:SUNSET`)).toBe(false);
+    });
+
+    it('offers none after a failed fetch either — scoresLoaded is success-only', () => {
+      // A rejected fetch leaves `scoresLoaded` false, which is the same context value as pending.
+      renderPane(withScores(false));
+      expect(MapStub.lastProps.heat.windowStates.size).toBe(0);
+    });
+
+    it('offers them once the scores have loaded', () => {
+      renderPane(withScores(true));
+      const entry = MapStub.lastProps.heat.windowStates.get(`${TODAY}:SUNSET`);
+      expect(entry.unrated.map((p) => p.name)).toEqual(['Bamburgh', 'Wastwater', 'Kelso']);
+    });
+  });
+
   it('keeps ONE prop identity across a re-render, because MapView is memoised', () => {
     // A fresh object literal per render defeats `React.memo` and rebuilds every marker on every
     // provider tick — and the provider re-renders on every health SSE beat.

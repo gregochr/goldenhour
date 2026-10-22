@@ -45,6 +45,9 @@ const FRAME_PAD_DEG = 0.12;
  * keeps the identity of everything built from it — `MapView` is `React.memo`, and a fresh empty
  * `Map` per call would rebuild the `heat` prop on every re-render of a pane that has nothing to add.
  */
+/** Stable empty window states: scores not (yet) loaded, so no served window has anything to say. */
+const NO_WINDOW_STATES = new Map();
+
 const NO_PAST_HEAT = Object.freeze({ windows: [], pointSets: new Map(), windowStates: new Map() });
 
 /** Stable empty list: no older days fetched. The `loadedPastDays` prop's default, so an absent prop keeps one identity. */
@@ -601,9 +604,13 @@ export default function WindowFirstMapPane({
   );
 
   // Place states per served window (thin-sample plan F4), beside the briefing's own point sets.
+  // ⚠️ Withheld until the scores have SUCCESSFULLY loaded (`scoresLoaded`): `scoreRows` is empty while
+  // `/evaluate/scores` is pending and stays empty if it fails, so every sky place would read
+  // "unrated" and the hatch (and the pill's rated count) would claim a forecast nobody has looked at.
+  // A past window is built from the forecast rows alone and is unaffected.
   const servedWindowStates = useMemo(
-    () => buildHeatWindowStates(heatSpots, upcomingEvents),
-    [heatSpots, upcomingEvents],
+    () => (scoresLoaded ? buildHeatWindowStates(heatSpots, upcomingEvents) : NO_WINDOW_STATES),
+    [scoresLoaded, heatSpots, upcomingEvents],
   );
 
   /**
