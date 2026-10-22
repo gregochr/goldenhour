@@ -262,8 +262,8 @@ public final class BestBetRanker {
 
     /**
      * Drops picks naming a region the verdict-minimum-sample rule does not trust — insufficient
-     * rating coverage and no force-evaluation exemption ({@link
-     * com.gregochr.goldenhour.model.BriefingRegion#verdictEligible()}). {@link
+     * rating coverage; a force-evaluation exemption no longer helps, 2026-10-22 ({@link
+     * com.gregochr.goldenhour.model.BriefingRegion#pickEligible()}, a sufficient sample only). {@link
      * #dropUnevaluatedPicks} already refuses a pick with <em>zero</em> Claude coverage; this closes
      * the gap a Codex review found in round 10 (P1-B) one rating short of zero — a region that
      * cleared {@code ratedCount() &gt; 0} but never reached the sample size (or examined-coverage
@@ -290,7 +290,7 @@ public final class BestBetRanker {
      *
      * @param picks    validated, colour-evidenced picks in ranked order
      * @param coverage per-{@code event|region} Claude coverage from the rollup, including each
-     *                 region's {@link CandidateCoverage#verdictEligible()} at build time
+     *                 region's {@link CandidateCoverage#pickEligible()} at build time
      * @return the picks whose region is verdict-eligible (renumbered), or empty when rank 1 was
      *         ineligible or nothing survived
      */
@@ -298,23 +298,23 @@ public final class BestBetRanker {
             Map<String, CandidateCoverage> coverage) {
         List<BestBet> kept = new ArrayList<>();
         for (BestBet p : picks) {
-            if (isColourExempt(p) || isVerdictEligible(p, coverage)) {
+            if (isColourExempt(p) || isPickEligible(p, coverage)) {
                 kept.add(p);
             } else {
                 LOG.info("Best-bet: dropped ineligible pick region='{}' event='{}' — sample too "
-                        + "thin for a trusted verdict and no force-evaluation exemption",
+                        + "thin to be a pick",
                         p.region(), p.event());
             }
         }
         return afterRemoval(picks, kept);
     }
 
-    private static boolean isVerdictEligible(BestBet pick, Map<String, CandidateCoverage> coverage) {
+    private static boolean isPickEligible(BestBet pick, Map<String, CandidateCoverage> coverage) {
         if (pick.event() == null || pick.region() == null) {
             return false;
         }
         CandidateCoverage c = coverage.get(coverageKey(pick.event(), pick.region()));
-        return c != null && c.verdictEligible();
+        return c != null && c.pickEligible();
     }
 
     private static int ratedCount(BestBet pick, Map<String, CandidateCoverage> coverage) {

@@ -206,10 +206,12 @@ import java.util.List;
  *                                     {@code ForceEvalHeadlineSelector} and
  *                                     {@code BriefingEvaluationResult#forced}. A region with
  *                                     this {@code true} is exempt from the {@link #sampleSufficient}
- *                                     gate outright: its verdict, pick eligibility and ranking follow
- *                                     the rated average exactly as they did before the minimum-sample
- *                                     rule existed, and its confidence takes no extra floor from that
- *                                     rule. Owner decision, 2026-09-29: force-evaluation exists to
+ *                                     gate outright: its verdict and ranking order follow the rated
+ *                                     average exactly as they did before the minimum-sample rule
+ *                                     existed (but, since 2026-10-22, it is NOT pick-eligible: a
+ *                                     pick needs a sufficient sample, see
+ *                                     {@link #pickEligible()}), and its confidence takes no extra
+ *                                     floor from that rule. Owner decision, 2026-09-29: force-evaluation exists to
  *                                     crown a far-out day with real Claude evidence, and a
  *                                     minimum-sample rule with no exemption would have left it
  *                                     spending calls for stars alone, since a handful of forced
@@ -572,6 +574,22 @@ public record BriefingRegion(
      */
     public boolean verdictEligible() {
         return Boolean.TRUE.equals(sampleSufficient) || Boolean.TRUE.equals(forcedSample);
+    }
+
+    /**
+     * Whether this region may be named a pick: BEST BET or ALSO GOOD on the Plan tab, an entry in
+     * {@code DailyBriefingResponse.bestBets} or {@code pipeline_run_pick}, or an Ask pick. Owner
+     * decision, 2026-10-22: a pick is a recommendation to drive somewhere, and a handful of
+     * force-evaluated ratings in a large region is too thin a basis for one, so unlike {@link
+     * #verdictEligible()} this does NOT count the {@link #forcedSample} exemption — a sufficient
+     * sample only. The exemption still sets the verdict word, stars and ordering.
+     *
+     * <p>{@code null} (a payload cached before the rule existed) reads as not eligible.
+     *
+     * @return true only when the region's rated sample cleared {@code VerdictSampleGate}
+     */
+    public boolean pickEligible() {
+        return Boolean.TRUE.equals(sampleSufficient);
     }
 
     /**

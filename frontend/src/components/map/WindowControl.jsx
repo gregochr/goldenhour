@@ -54,7 +54,7 @@ export default function WindowControl({
   verdicts = null, scopeIsArea = true, landingLabel = '', onReopenLanding = null,
   onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
-  emptyOlderDayLabel = null, ratedCounts = null,
+  emptyOlderDayLabel = null, ratedCounts = null, thinCounts = null,
 }) {
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -410,7 +410,13 @@ export default function WindowControl({
                 says "past" in words. */}
             {active.past
               ? <span className="wf-win-past" data-testid="wf-win-past">Past</span>
-              : <VerdictCell verdict={activeVerdict} scopeIsArea={scopeIsArea} />}
+              : (
+                <VerdictCell
+                  verdict={activeVerdict}
+                  scopeIsArea={scopeIsArea}
+                  ratedCount={thinCounts?.get(active.id) ?? null}
+                />
+              )}
           </>
         ) : (
           // The map is on a date/event this list has no row for — an ordinary state (the map's
@@ -671,6 +677,11 @@ WindowControl.propTypes = {
    * overlay would get if it ever mounted this control (it does not).
    */
   verdicts: PropTypes.instanceOf(Map),
+  /**
+   * Row id to the thin-sample `· N rated` count (`utils/mapThinSample.buildThinCounts`). Optional:
+   * absent or a missing row draws nothing, which is every window but a thinly-rated one.
+   */
+  thinCounts: PropTypes.instanceOf(Map),
   /** Whether the scope segment reads "My area" — decides only the all-in-scope wording. */
   scopeIsArea: PropTypes.bool,
   /**
@@ -781,7 +792,7 @@ Medallion.propTypes = { kind: PropTypes.oneOf(['best', 'also']) };
  * empty, and nothing is borrowed from the solar vocabulary or synthesised from the night's stars),
  * an unscored window, and a date beyond the briefing.
  */
-function VerdictCell({ verdict, scopeIsArea }) {
+function VerdictCell({ verdict, scopeIsArea, ratedCount = null }) {
   if (!verdict) return null;
   const region = verdictRegionLabel(verdict, { scopeIsArea });
   return (
@@ -790,7 +801,21 @@ function VerdictCell({ verdict, scopeIsArea }) {
           640–700px (measured), so the pill swaps to the short form at 811px and below on one media
           query (`.wf-vw-short` / `.wf-vw-full` in index.css) and the full word stays in the
           accessible name (unrated-verdict-plan.md U2, review F3). From 812px the full word is drawn. */}
-      <b className="wf-win-verdict-word" data-testid="wf-win-verdict-word"><VerdictWord tier={verdict.tier} mode="swap" /></b>
+      <span className="wf-win-verdict-line">
+        <b className="wf-win-verdict-word" data-testid="wf-win-verdict-word"><VerdictWord tier={verdict.tier} mode="swap" /></b>
+        {/* thin-sample plan F4: rated sky places in the SCOPE pool, only on a thin sample
+            (`utils/mapThinSample.js`). Drawn aria-hidden and spoken in words beside it, so the name
+            reads "Worth it, 6 places rated" whatever the width hides. */}
+        {ratedCount != null && (
+          <>
+            <span aria-hidden="true" className="wf-win-verdict-count" data-testid="wf-win-verdict-count">
+              <span className="wf-win-verdict-count-sep">&middot;</span>
+              {`${ratedCount} rated`}
+            </span>
+            <span className="sr-only">{`, ${ratedCount} ${ratedCount === 1 ? 'place' : 'places'} rated`}</span>
+          </>
+        )}
+      </span>
       {/* Defensive, like the pill's own separators: `.wf-win-verdict` is `display: inline-flex`, so
           the word and the region are flex items and browsers space them themselves (measured
           2026-09-11 by Playwright's accessible-name algorithm over Chromium's, WebKit's and
@@ -813,6 +838,7 @@ VerdictCell.propTypes = {
     allInScope: PropTypes.bool,
   }),
   scopeIsArea: PropTypes.bool,
+  ratedCount: PropTypes.number,
 };
 
 /**

@@ -90,6 +90,7 @@ export function handoverPhase(t) {
 export default function MapLegendPanel({
   open, onOpenChange, handoverFraction, ringsEnabled, onToggleRings,
   hasHome = false, reachMeasured = false, variant = 'solar', viewlineShown = false,
+  groundKey = true,
 }) {
   const aurora = variant === 'aurora';
   const rootRef = useRef(null);
@@ -173,6 +174,22 @@ export default function MapLegendPanel({
             )}
           </div>
 
+          {/* thin-sample plan F4: the two ground states beside the ramp's "rated" — the hatch is drawn
+              around places nobody has rated for this window, plain ground where there are no places.
+              Solar windows only; an aurora night draws no hatch, so its key has none. */}
+          {!aurora && groundKey && (
+            <div data-testid="wf-legend-ground" className="wf-legend-ground">
+              <span className="wf-legend-ground-item">
+                <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-hatch" />
+                not rated yet
+              </span>
+              <span className="wf-legend-ground-item">
+                <i aria-hidden="true" className="wf-legend-swatch" />
+                no places
+              </span>
+            </div>
+          )}
+
           <div data-testid="wf-legend-hand" className="wf-legend-hand">
             <span className="wf-legend-hand-bar">
               <i style={{ width: `${barWidthPct}%` }} />
@@ -224,4 +241,6 @@ MapLegendPanel.propTypes = {
   reachMeasured: PropTypes.bool,
   variant: PropTypes.oneOf(['solar', 'aurora']),
   viewlineShown: PropTypes.bool,
+  /** Whether the hatch is drawn for this window (solar, and rated); the ground key is withheld otherwise. */
+  groundKey: PropTypes.bool,
 };

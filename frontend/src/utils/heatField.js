@@ -709,7 +709,8 @@ export function unknownMask(unrated, rated, w, h, opts) {
  * @param {Array<{x: number, y: number, rid: *}>} unrated unrated places, in CSS px
  * @param {Array<{x: number, y: number, rid: *}>} rated rated places, in CSS px
  * @param {object} [opts] what {@link paint} takes for its clip, plus {@code radius}, {@code grid},
- *        {@code blur}, {@code conf}, {@code focus} and the hatch dials
+ *        {@code blur}, {@code conf}, {@code focus}, the hatch dials and {@code opacity} (a factor
+ *        on the final draw; absent is 1)
  * @returns {boolean} whether anything was drawn
  */
 export function paintUnknown(ctx, w, h, unrated, rated, opts) {
@@ -754,7 +755,9 @@ export function paintUnknown(ctx, w, h, unrated, rated, opts) {
   if (soft) applySoftMask(tc, w, h, sx, opts);
   ctx.save();
   if (!soft) applyHardClip(ctx, opts);
-  ctx.globalAlpha = 1;
+  // The hatch is part of the field, so it takes the field's own opacity (the Map tab's zoom handover
+  // and Ask's dim); absent, full strength, which is what the Plan hosts have always drawn.
+  ctx.globalAlpha = opts.opacity == null ? 1 : clamp(opts.opacity, 0, 1);
   ctx.filter = 'none';
   ctx.globalCompositeOperation = 'source-over';
   ctx.drawImage(t, 0, 0, w, h);

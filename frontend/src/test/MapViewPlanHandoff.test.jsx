@@ -676,6 +676,24 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
     expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 2 spots');
   });
 
+  it('narrows the "not rated yet" hatch by the same lens as the colour (thin-sample F4)', async () => {
+    const unrated = SUNSET_POINTS.map((p) => ({ ...p, r: [0] }));
+    const heat = {
+      ...HEAT_WITH_POINTS,
+      windowStates: new Map([[`${TODAY}:SUNSET`, { unrated, states: new Map() }]]),
+    };
+    const { rerender } = await renderTab({ heat, planHandoff: null });
+    expect(heatLayerCalls.at(-1).unrated.map((p) => p.name).sort())
+      .toEqual(['Excluded Unselected', 'Far', 'Filtered Out', 'Near']);
+
+    await rerenderWith(rerender, {
+      heat,
+      planHandoff: { ...DOOR_BASE, focusNames: ['Near', 'Far'], nonce: 1 },
+    });
+
+    expect(heatLayerCalls.at(-1).unrated.map((p) => p.name).sort()).toEqual(['Far', 'Near']);
+  });
+
   it('clear restores the field whole: the points handed to the kernel are the count they were before', async () => {
     const { rerender } = await renderTab({ heat: HEAT_WITH_POINTS, planHandoff: null });
     const before = heatLayerCalls.at(-1).points.length;

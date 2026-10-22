@@ -4076,3 +4076,170 @@ describe('MapView heat — a past window', () => {
     expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
   });
 });
+
+describe('MapView heat — the thin-sample hatch and the pill count (thin-sample plan F4)', () => {
+  const SKY_SPOTS = SPOTS.map((s) => ({ ...s, skySubject: true }));
+  const SKY_AREA = [SKY_SPOTS[0], SKY_SPOTS[1], SKY_SPOTS[2], SKY_SPOTS[4], SKY_SPOTS[5]];
+  const unratedPoint = (spot) => ({
+    id: spot.id, name: spot.name, lat: spot.lat, lng: spot.lng, rid: spot.rid, r: [0],
+  });
+  const keyOf = (spot) => `#${spot.id}`;
+
+  /** Tonight's window states: the named spot ids rated, the rest unrated, none stood down. */
+  function statesFor(ratedIds) {
+    const states = new Map(SKY_SPOTS.map((s) => [keyOf(s), ratedIds.includes(s.id) ? 'rated' : 'unrated']));
+    const unrated = SKY_SPOTS.filter((s) => !ratedIds.includes(s.id)).map(unratedPoint);
+    return new Map([[`${TODAY}:SUNSET`, { unrated, states }]]);
+  }
+
+  const DAY = (displayVerdict) => [{
+    date: TODAY,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [
+        { regionName: 'North East', meanRating: 4, displayVerdict, slots: [{ canopy: false }] },
+      ],
+    }],
+  }];
+
+  const props = (ratedIds, verdict = 'WORTH_IT') => ({
+    heat: heatProp({
+      spots: SKY_SPOTS, areaSpots: SKY_AREA, windowStates: statesFor(ratedIds),
+    }),
+    regionVerdictIndex: buildRegionVerdictIndex(DAY(verdict)),
+  });
+
+  it('hands the layer the places no one has rated yet, on a solar window', async () => {
+    await renderMap(props([1, 2]));
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated.map((p) => p.name))
+      .toEqual(['Wastwater', 'Kelso', 'Alnmouth', 'Coquet']);
+  });
+
+  it('hands it none when the window has no rating at all — the existing unscored predicate', async () => {
+    const base = props([1, 2]);
+    await renderMap({ ...base, heat: { ...base.heat, windows: WINDOWS_TONIGHT_UNRATED } });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated).toEqual([]);
+  });
+
+  it('hands it none on an astro night', async () => {
+    await renderMap({ ...props([1, 2]), autoEventType: 'ASTRO' });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated).toEqual([]);
+  });
+
+  it('narrows the hatch by the dark-sky filter as it narrows the colour', async () => {
+    // Bortle <= 4 keeps Bamburgh (4) and Wastwater (2); of those only Wastwater is unrated. Without
+    // the join the hatch would claim Kelso and Alnmouth, which the colour layer has excluded.
+    await renderMap(props([1, 2]));
+    openFilters();
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated.map((p) => p.name)).toEqual(['Wastwater']);
+  });
+
+  it('prints the scope pool\'s rated count on a thin sample, spoken in words', async () => {
+    await renderMap(props([1, 2]));
+    const count = screen.getByTestId('wf-win-verdict-count');
+    expect(count).toHaveTextContent('2 rated');
+    expect(count).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('wf-win-verdict')).toHaveTextContent(', 2 places rated');
+  });
+
+  it('prints no count once the scope pool clears the spread\'s two floors', async () => {
+    // Five of five sky places in the area rated: rated >= 5 and >= half.
+    await renderMap(props([1, 2, 3, 5, 6]));
+    expect(screen.queryByTestId('wf-win-verdict-count')).toBeNull();
+  });
+
+  it('prints no count beside a "Too few rated" verdict, which already says so', async () => {
+    await renderMap(props([1, 2], 'UNRATED'));
+    expect(screen.getByTestId('wf-win-verdict')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-win-verdict-count')).toBeNull();
+  });
+
+  it('prints no "0 rated" beside a verdict resting on places the scope does not hold', async () => {
+    await renderMap(props([4]));
+    expect(screen.queryByTestId('wf-win-verdict-count')).toBeNull();
+  });
+
+  it('hands it none on an aurora night, and draws no ground key there', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TODAY };
+    getAuroraLocations.mockResolvedValue([{ location: { name: SPOTS[0].name }, stars: 4 }]);
+    await renderMap({ ...props([1, 2]), autoEventType: 'AURORA' });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated).toEqual([]);
+    openLegend();
+    expect(screen.queryByTestId('wf-legend-ground')).toBeNull();
+  });
+
+  it('draws the ground key on a rated solar window and withholds it on an astro night', async () => {
+    const { unmount } = await renderMap(props([1, 2]));
+    openLegend();
+    expect(screen.getByTestId('wf-legend-ground')).toBeInTheDocument();
+    unmount();
+    await renderMap({ ...props([1, 2]), autoEventType: 'ASTRO' });
+    openLegend();
+    expect(screen.queryByTestId('wf-legend-ground')).toBeNull();
+  });
+
+  it('prints the count on a SUNRISE row too', async () => {
+    const sunrise = [{
+      date: TODAY,
+      eventSummaries: [{
+        targetType: 'SUNRISE',
+        regions: [{
+          regionName: 'North East', meanRating: 4, displayVerdict: 'MAYBE', slots: [{ canopy: false }],
+        }],
+      }],
+    }];
+    const base = props([1, 2]);
+    const states = statesFor([1, 2]).get(`${TODAY}:SUNSET`);
+    await renderMap({
+      ...base,
+      heat: { ...base.heat, windowStates: new Map([[`${TODAY}:SUNRISE`, states]]) },
+      regionVerdictIndex: buildRegionVerdictIndex(sunrise),
+      autoEventType: 'SUNRISE',
+    });
+    expect(screen.getByTestId('wf-win-verdict-count')).toHaveTextContent('2 rated');
+  });
+});
+
+describe('MapView heat — a past window\'s hatch comes from the pane\'s window states (thin-sample F4)', () => {
+  const YESTERDAY = '2026-01-14';
+  it('hands the layer the past entry\'s unrated places, not the served windows\'', async () => {
+    const locations = SPOTS.map((s) => ({
+      id: s.id,
+      name: `${s.name}-${markerNonce}`,
+      lat: s.lat,
+      lon: s.lng,
+      regionName: s.rid,
+      bortleClass: s.bortleClass,
+      locationType: ['LANDSCAPE'],
+      forecastsByDate: new Map([[YESTERDAY, { sunset: { rating: 4, solarEventTime: `${YESTERDAY}T16:10:00` } }]]),
+    }));
+    const unrated = [{
+      id: 3, name: 'Wastwater', lat: 54.44, lng: -3.3, rid: 'The Lakes', r: [0],
+    }];
+    await renderMap({
+      heat: heatProp({
+        windows: [...WINDOWS, {
+          key: `${YESTERDAY}:SUNSET`, date: YESTERDAY, targetType: 'SUNSET', past: true, bestRating: 4, confidence: null, conf: 0.82,
+        }],
+        pointsByKey: new Map([...POINTS_BY_KEY, [`${YESTERDAY}:SUNSET`, [pointOf(SPOTS[0], 4)]]]),
+        windowStates: new Map([
+          [`${TODAY}:SUNSET`, { unrated: [{ ...unrated[0], name: 'Served' }], states: new Map() }],
+          [`${YESTERDAY}:SUNSET`, { unrated, states: new Map() }],
+        ]),
+      }),
+      locations,
+      pastSolarWindows: buildPastSolarWindows(locations, TODAY),
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY, TODAY, TOMORROW],
+      autoEventType: 'SUNSET',
+    });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated.map((p) => p.name)).toEqual(['Wastwater']);
+  });
+});
