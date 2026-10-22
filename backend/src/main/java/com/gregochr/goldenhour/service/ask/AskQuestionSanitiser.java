@@ -61,9 +61,13 @@ public final class AskQuestionSanitiser {
 
     /**
      * The punctuation a typed question may contain (plan §2.5 step 2), besides letters, digits and
-     * spaces: {@code ? ! ' ’ , . - : / & ( )}. The apostrophe's typographic twin is U+2019.
+     * spaces: {@code ? ! ' ’ , . - : / & ( ) * ★ ☆}. The apostrophe's typographic twin is U+2019. The
+     * stars are there because PhotoCast rates in stars and readers ask about them ("why is Alnmouth
+     * 4* on Saturday?"): {@code *} is how a keyboard types one, and ★ (U+2605) and ☆ (U+2606) are what
+     * the app itself shows and a reader pastes back. They are text symbols, not emoji, and the
+     * {@linkplain #normalise normalised} form treats them as a word break like any other punctuation.
      */
-    static final String ALLOWED_PUNCTUATION = "?!'’,.-:/&()";
+    static final String ALLOWED_PUNCTUATION = "?!'’,.-:/&()*★☆";
 
     /** The typographic apostrophe, which the normalised form treats as the plain one. */
     private static final char RIGHT_SINGLE_QUOTE = '’';
@@ -130,7 +134,7 @@ public final class AskQuestionSanitiser {
      * collapses whitespace, caps at {@value #MAX_LENGTH} code points, and <em>refuses</em> — never
      * strips — any control or format character (zero-width space and joiner, bidi overrides, the
      * byte-order mark) and anything but letters (accented included), digits, spaces and
-     * {@code ? ! ' ’ , . - : / & ( )}. Emoji, symbols and combining marks are therefore refused. The
+     * {@code ? ! ' ’ , . - : / & ( ) * ★ ☆}. Emoji, other symbols and combining marks are therefore refused. The
      * text is composed to NFC first, so an accent typed as two code points is the same visible
      * letter as one typed as one. The result carries the {@linkplain #normalise normalised} form.
      *
@@ -346,7 +350,7 @@ public final class AskQuestionSanitiser {
             }
             if (strict && (invisible || !allowed(cp))) {
                 return new Result(null, "Questions can only use letters, numbers and ordinary "
-                        + "punctuation (? ! ' , . - : / & and brackets).");
+                        + "punctuation (? ! ' , . - : / & * ★ and brackets).");
             }
             if (pendingSpace) {
                 cleaned.append(' ');

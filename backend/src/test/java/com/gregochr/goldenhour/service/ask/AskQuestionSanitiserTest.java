@@ -118,7 +118,8 @@ class AskQuestionSanitiserTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"Where's the best spot? (Tonight!)", "Whitby & Saltburn: sunrise/sunset, 5-6 stars.",
-        "What’s on at Café Rouge's", "Zürich naïve façade", "Ångström fjörd", "Best spot 2 days from now"})
+        "What’s on at Café Rouge's", "Zürich naïve façade", "Ångström fjörd", "Best spot 2 days from now",
+        "Tell me why Alnmouth is 4* on Saturday morning", "Why is Alnmouth 4★?", "Anything 5☆ tonight?"})
     @DisplayName("letters (accented too), digits, spaces and the allow-listed punctuation pass untouched")
     void typedAllowList(String question) {
         assertThat(typedClean(question)).isEqualTo(question);
@@ -130,7 +131,7 @@ class AskQuestionSanitiserTest {
         "best spot 😀", "best spot #1", "best spot @home", "best spot <b>", "best spot; drop",
         "best \"spot\"", "best_spot", "best spot +1", "best spot = 5", "best spot – ok", "x ́",
         "best spot [now]", "best spot {now}", "best spot %", "best spot \\ now", "best spot |", "best spot ~",
-        "best spot £", "best spot \uD800"})
+        "best spot £", "best spot \uD800", "best spot ⭐"})
     @DisplayName("zero-width, bidi, control, emoji, symbol and combining characters are refused, never stripped")
     void typedRefuses(String question) {
         AskQuestionSanitiser.Result result = typed("Is " + question);
@@ -139,6 +140,14 @@ class AskQuestionSanitiserTest {
         assertThat(result.sanitised()).isNull();
         assertThat(result.normalised()).isNull();
         assertThat(result.error()).contains("letters, numbers and ordinary punctuation");
+    }
+
+    @Test
+    @DisplayName("a star is a word break in the normalised form, so 4*, 4★ and 4 share a cache key")
+    void typedStarsNormaliseAsPunctuation() {
+        assertThat(typed("Why is Alnmouth 4* on Saturday?").normalised()).isEqualTo("why is alnmouth 4 on saturday");
+        assertThat(typed("Why is Alnmouth 4★ on Saturday?").normalised())
+                .isEqualTo(typed("Why is Alnmouth 4* on Saturday?").normalised());
     }
 
     @Test
