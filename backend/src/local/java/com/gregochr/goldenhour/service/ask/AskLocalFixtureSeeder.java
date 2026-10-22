@@ -494,7 +494,7 @@ public class AskLocalFixtureSeeder {
      * region simply has no ratings).
      */
     private static String regionState(AskSnapshot.Region region) {
-        if (region.verdictEligible()) {
+        if (region.pickEligible()) {
             long eligible = region.slots().stream()
                     .filter(slot -> AskSnapshot.isPickEligible(region, slot)).count();
             return eligible + " eligible";

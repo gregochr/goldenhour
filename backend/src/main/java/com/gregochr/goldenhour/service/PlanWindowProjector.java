@@ -61,7 +61,7 @@ import java.util.Set;
  *       {@code UNRATED}, a STANDDOWN {@code STAND_DOWN} (2026-10-13,
  *       {@code docs/engineering/unrated-verdict-plan.md} U1). A window whose only regions are
  *       UNRATED therefore reads UNRATED, and none of them can be a BEST BET / ALSO GOOD pick,
- *       which need {@link BriefingRegion#verdictEligible()}.
+ *       which need {@link BriefingRegion#pickEligible()}.
  *       <b>Decided 2026-08-17</b>, replacing the best-rating rule this class shipped with: one 4★
  *       location anywhere in the roster promoted a whole window's badge while every cell beneath it
  *       read Poor, and nothing on screen said the row and the grid were answering different
@@ -80,7 +80,7 @@ import java.util.Set;
 public final class PlanWindowProjector {
 
     /**
-     * Ranks a region above another: verdict-eligible first (see {@link BriefingRegion
+     * Ranks a region above another: verdict-eligible first (a VERDICT question, see {@link BriefingRegion
      * #verdictEligible}), then better average, then wider scored coverage, then name.
      *
      * <p><b>The eligibility term is the verdict-minimum-sample rule's ranking half</b>
@@ -538,9 +538,11 @@ public final class PlanWindowProjector {
 
     /**
      * This window's candidate for the forecast-wide pick — its top region's narrative — or null when
-     * that region has no usable gloss headline, or is not {@link BriefingRegion#verdictEligible}
-     * (the verdict-minimum-sample rule: a region whose rated sample is too small to trust, and which
-     * carries no force-evaluation exemption, may not be crowned BEST BET or ALSO GOOD).
+     * that region has no usable gloss headline, or is not {@link BriefingRegion#pickEligible}
+     * (the verdict-minimum-sample rule: a region whose rated sample is too small to trust may not be
+     * crowned BEST BET or ALSO GOOD, and since 2026-10-22 a force-evaluation exemption does not
+     * change that — it sets the verdict and the ordering, never a pick). A window whose top region
+     * is not pick-eligible therefore carries no candidate and {@code selectPicks} skips it.
      *
      * <p>A candidate is not a recommendation. Most windows have one and publish nothing.
      */
@@ -580,7 +582,7 @@ public final class PlanWindowProjector {
 
     private static BriefingWindow.Pick candidate(RankedRegion ranked, boolean canopyCounts) {
         if (ranked == null || !usable(ranked.region().glossHeadline())
-                || !ranked.region().verdictEligible()) {
+                || !ranked.region().pickEligible()) {
             return null;
         }
         BriefingRegion region = ranked.region();

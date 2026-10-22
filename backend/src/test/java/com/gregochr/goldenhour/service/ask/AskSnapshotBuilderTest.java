@@ -263,6 +263,7 @@ class AskSnapshotBuilderTest {
                 .regions().getFirst();
 
         assertThat(joined.verdictEligible()).isTrue();
+        assertThat(joined.pickEligible()).isTrue();
         assertThat(joined.slots()).hasSize(3);
         AskSnapshot.Slot whitby = joined.slots().getFirst();
         assertThat(whitby.locationId()).isEqualTo(7L);

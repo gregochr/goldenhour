@@ -137,7 +137,12 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * @param displayVerdict  the region's served verdict
      * @param meanRating      the region's served mean rating, or null
      * @param verdictEligible whether the Plan tab would let this region carry a verdict
-     *                        ({@code BriefingRegion.verdictEligible()})
+     *                        ({@code BriefingRegion.verdictEligible()}); a VERDICT question, read by
+     *                        {@link Spread#of}
+     * @param pickEligible    whether the region may be offered as a pick, the same claim as BEST BET
+     *                        ({@code BriefingRegion.pickEligible()}): a sufficient sample only, a
+     *                        forced-evaluation exemption does not count (2026-10-22); read by
+     *                        {@code meetsPickRules} alone
      * @param slots           the region's slots
      * @param coverageReason  why the honesty filter blanked the region (the served
      *                        {@code BriefingRegion.coverageReason}), or null when it did not or the
@@ -145,7 +150,8 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      *                        real weather stand-down
      */
     public record Region(String name, DisplayVerdict displayVerdict, Double meanRating,
-            boolean verdictEligible, List<Slot> slots, CoverageReason coverageReason) {
+            boolean verdictEligible, boolean pickEligible, List<Slot> slots,
+            CoverageReason coverageReason) {
 
         /** Canonical constructor: takes an immutable copy of {@code slots}. */
         public Region {
@@ -158,12 +164,13 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
          * @param name            the region name
          * @param displayVerdict  the region's served verdict
          * @param meanRating      the region's served mean rating, or null
-         * @param verdictEligible whether the Plan tab would let this region carry a verdict
+         * @param eligible        whether the region is both verdict- and pick-eligible (the two agree
+         *                        for every region but a forced-evaluation one)
          * @param slots           the region's slots
          */
         public Region(String name, DisplayVerdict displayVerdict, Double meanRating,
-                boolean verdictEligible, List<Slot> slots) {
-            this(name, displayVerdict, meanRating, verdictEligible, slots, null);
+                boolean eligible, List<Slot> slots) {
+            this(name, displayVerdict, meanRating, eligible, eligible, slots, null);
         }
     }
 
@@ -478,7 +485,10 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
                     if (slot.canopy()) {
                         continue;
                     }
-                    if (isHeldBack(region, slot)) {
+                    if (slot.neighbourOutlier() && slotMeetsPickRules(slot)) {
+                        // The spread is a VERDICT question: the region is verdict-eligible here
+                        // (checked above), so the mark alone holds the slot back, as before the
+                        // pick/verdict split of 2026-10-22.
                         heldBack++;
                     } else if (RatingValidator.isInRange(slot.rating())) {
                         bands[slot.rating() - 1]++;
@@ -903,14 +913,18 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
     }
 
     private static boolean meetsPickRules(Region region, Slot slot) {
+        return slotMeetsPickRules(slot) && region.pickEligible();
+    }
+
+    /** The slot-level half of the pick rules, independent of which region sample test applies. */
+    private static boolean slotMeetsPickRules(Slot slot) {
         return slot.locationId() != null
                 && slot.name() != null && !slot.name().isBlank()
                 && !slot.canopy()
                 // On Claude's 1-5 scale (the Plan path's own bound), then at the floor: a malformed
                 // 491 is refused by the Plan ranking and must not sort to the top here.
                 && RatingValidator.isInRange(slot.rating())
-                && slot.rating() >= MIN_PICK_RATING
-                && region.verdictEligible();
+                && slot.rating() >= MIN_PICK_RATING;
     }
 
     /**
