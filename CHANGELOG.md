@@ -5,6 +5,66 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.30.4] - 2026-10-22
+
+### Fixed — storm surge reaches its Plan card again
+
+Storm surge has been dropped from every Plan card since 29 Aug 2026: #404 made the Plan projector drop any
+topic with no solar event, and #692 removed the Hot topics strip that still showed it. The surge detector
+never named an event, so on 22 Oct a HIGH surge risk at about 15 coastal places for Saturday's sunset showed
+nowhere. `StormSurgeHotTopicStrategy` now emits one topic per (date, event), stamped with its own event like
+valley mist, and `HotTopicEventEnricher` completes the clock time. A topic's figures are sampled at the next
+high water after its event, so the badge means a surge on the tide following that event.
+
+A new roster test, `HotTopicWindowAnchorRosterTest`, fails if any hot-topic type with a live strategy has no
+window to land on. `CLEARANCE` is the one rostered type with no strategy at all and is named as the exception.
+
+Ask lists a kind of topic once per day: `get_hot_topics` and `get_coming_up` keep the first of a valley mist
+or storm surge pair split by event, so a run of such days can no longer fill the five result slots and hide
+everything else (`AskSnapshot.onePerKindAndDay`, after the scope filter and before the limit).
+
+### Docs — CLAUDE.md cut from 481 KB to ~16 KB
+
+CLAUDE.md is loaded into every Claude Code session and subagent, and at about 120k tokens it had become the
+largest fixed cost of every turn. Its detail moved verbatim into fifteen topic files under
+`docs/engineering/reference/` (pipeline, Plan tab, Map tab, Ask, aurora, tides, conditions, platform,
+architecture decisions, rating stores, API endpoints, roles, migrations, configuration, dev and testing).
+CLAUDE.md keeps the overview, an index of those files, the cross-cutting invariants, dev commands, the
+no-Docker rule, code standards and git conventions, plus a rule to stop it growing back.
+
+The test standards gained three rules that had only lived in session memory: a fixed `Clock` or date
+literal must never depend on the day the suite runs (both documents), keyboard tests fire keys at
+`document.activeElement` after a transition that replaces the pressed control (frontend), and
+mutation checks never restore with `git checkout --` (both documents, plus one line in CLAUDE.md).
+
+### Docs — CLAUDE.md states the code-change workflow
+
+CLAUDE.md now opens with the owner's workflow for every code change: Opus or Fable plans and
+adversarially reviews, a Sonnet subagent writes all code, then commit, push, open a PR, wait for CI and
+Codex, fix findings, and squash-merge once CI is green and Codex has given 👍, repeating per phase.
+The git convention "never push to remote" is replaced by "push only feature branches, as part of that
+workflow"; tags, releases and prompt-regression assertions remain the owner's.
+
+### Added — Ask explains a named place's rating
+
+Asking "Why is Alnmouth a 4 on Saturday morning?" used to be answered "Not in the forecast", because Ask's only
+tool for a place's rating, `rank_spots`, returns places PhotoCast would recommend, and a 4★ place in a
+thin-sample region (hatched on the Map) or one the neighbour guard holds back is not one. A new typed-question
+tool, `look_up_place`, returns one named place's served rating, verdict, headline and tide fit at each window,
+with a status saying whether PhotoCast recommends it and why not. The answer explains the rating and never
+offers the place as a pick: a lookup adds nothing the validator accepts as evidence, so recommendations,
+`rank_spots`, the Ready answers and the Plan and Map picks are unchanged. A neighbour outlier the reader names
+is now given its star, with a note that it is rated well above the places beside it. Explanation answers are
+not cached.
+
+### Fixed — Ask PhotoCast accepts star ratings in a question
+
+A typed question such as "Why is Alnmouth 4* on Saturday morning?" was refused with "Questions can only use
+letters, numbers and ordinary punctuation", although every rating PhotoCast shows is in stars. The question
+allow-list in `AskQuestionSanitiser` now also takes `*`, `★` and `☆`; the cache-key form treats them as a word
+break after a digit, so "4*", "4★" and "4" share a key, and reads a run of stars on its own as the rating it
+draws ("★★★★☆" is "4star"), so two glyph ratings never share a cached answer. The ⭐ emoji stays refused, like every other emoji.
+
 ## [v2.30.3] - 2026-10-22
 
 ### Fixed — a region door on the Map tab never opens a neighbour outlier's callout
