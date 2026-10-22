@@ -27,8 +27,9 @@ The handoff was written against the prototype. Against the code, these hold:
    `MarineClient` Javadoc and say so in V188's header instead.
 2. **Whitby already has a piers location.** `Whitby Piers` exists (V60, id 75). Use it; the "Whitby
    Abbey vs a new location" question goes away.
-3. **Eyemouth is not in the database.** It's only in a design mock. B1 seeds **seven** structures
-   that exist (the handoff's five, plus Seaham North Pier & Lighthouse and Souter Lighthouse; Q4).
+3. **Eyemouth is not in the database.** It's only in a design mock. B1 seeds **six** structures
+   that exist (the handoff's five, plus Seaham North Pier & Lighthouse; Q4). Souter Lighthouse
+   stands a little inland, so it is not a structure.
    Eyemouth waits until the owner adds it in the admin UI.
 4. **Real names differ from the mock, and four of them are unproven.** `Roker Pier & Lighthouse`
    is inserted by V138. `Amble` (id 21), `St. Mary's Lighthouse` (28), `Saltburn-by-the-Sea` (55)
@@ -119,7 +120,7 @@ FROM locations l
 LEFT JOIN location_tide_type t ON t.location_id = l.id
 LEFT JOIN location_solar_event_type s ON s.location_id = l.id
 WHERE l.id IN (21, 28, 55, 75) OR l.name ILIKE ANY (ARRAY['%roker%','%mary%','%amble%',
-      '%saltburn%','%whitby%','%eyemouth%','%souter%','%seaham%pier%'])
+      '%saltburn%','%whitby%','%eyemouth%','%seaham%pier%'])
 GROUP BY l.id, l.name, l.enabled ORDER BY l.id;
 ```
 
@@ -135,10 +136,10 @@ coastal locations. A structure without one silently gets nothing, so fix it in V
 - Seed by **name** (never by id, the V60 mistake), using the Step 0 names and the handoff's faces:
   `Roker Pier & Lighthouse` PIER 45 "Roker Pier" · `St. Mary's Lighthouse` LIGHTHOUSE 90 "St Mary's"
   · `Amble` PIER 45 "Amble piers" · `Saltburn-by-the-Sea` PIER 0 "Saltburn Pier" · `Whitby Piers`
-  PIER 0 "Whitby piers" · `Seaham North Pier & Lighthouse` PIER 90 "Seaham Pier" · `Souter
-  Lighthouse` LIGHTHOUSE 90 "Souter" (owner, 2026-10-22). Use the exact names Step 0 returns.
+  PIER 0 "Whitby piers" · `Seaham North Pier & Lighthouse` PIER 90 "Seaham Pier" (owner,
+  2026-10-22). Use the exact names Step 0 returns.
 - End with a post-flight `DO $$ … $$` count of seeded rows, in the V138:161-175 shape, using
-  `RAISE WARNING` (not `EXCEPTION`, which would block a production restart) when the count isn't 7.
+  `RAISE WARNING` (not `EXCEPTION`, which would block a production restart) when the count isn't 6.
 - New table `marine_high_water`. Exact SQL ↔ Java types are binding, because production runs
   `ddl-auto: validate` and a mismatch fails startup only in CI or production:
 
@@ -168,7 +169,7 @@ before deletes, so the re-insert of an unchanged `hw_time` would hit the UNIQUE 
 
 Local profiles don't run Flyway, so local H2 never gets the seeds. Add a `src/local` seeder
 (`@Profile("local & !prod")`, the `AskLocalFixtureSeeder` precedent) that sets the structure columns
-on whichever of the seven names exist locally, and inserts a handful of `marine_high_water` rows for
+on whichever of the six names exist locally, and inserts a handful of `marine_high_water` rows for
 today+1 (one aligned with sunset, Hs 4 m from 30°, 11 s) so F1/F2 can be seen in a browser.
 
 **Fetch:** `MarineClient.HOURLY_PARAMS` += `wave_period,swell_wave_period`, and
@@ -215,10 +216,10 @@ HW rows, stale rows deleted, sunrise/sunset rows unchanged, fetch failure isolat
 A Flyway migration test in the `NorthernBluebellWoodsMigrationTest` shape:
 
 - Migrate to V187. V138 has already inserted Roker and Seaham North Pier & Lighthouse, and
-  `locations.name` is UNIQUE, so insert only the **other five** names, plus a decoy with a similar name (e.g. `Whitby Abbey`). Copy V138's
+  `locations.name` is UNIQUE, so insert only the **other four** names, plus a decoy with a similar name (e.g. `Whitby Abbey`). Copy V138's
   INSERT column list for the NOT NULL columns.
 - Migrate to V188.
-- Assert exactly those seven are seeded with the right faces and labels, and that the decoy isn't.
+- Assert exactly those six are seeded with the right faces and labels, and that the decoy isn't.
 - Assert the `marine_high_water` UNIQUE key and FK.
 
 **Coverage (JaCoCo 80% per class):** the new entity, properties and response accessors count. Cover
@@ -564,7 +565,7 @@ tested.
 | Q1 | Thin-sample Q1 said stand-downs stay plain ground. Does this handoff overrule it? | **Yes, hatch them.** F3 is unblocked; F3 amends the thin-sample docs |
 | Q2 | Cause words | `cloud / rain / murk / weather`; tide stand-downs not hatched; a mixed region reads `weather` |
 | Q3 | Faces column or the shore normal? | New `structure_faces_deg` |
-| Q4 | Which structures? | The five that exist **plus Seaham North Pier & Lighthouse (PIER, 90°, "Seaham Pier") and Souter Lighthouse (LIGHTHOUSE, 90°, "Souter")**. Eyemouth later |
+| Q4 | Which structures? | The five that exist **plus Seaham North Pier & Lighthouse (PIER, 90°, "Seaham Pier")**. Souter Lighthouse dropped: it stands a little inland (owner, later the same day). Eyemouth later |
 | Q5 | "Stood down" on the pill when the whole scope is stood? | Leave it, no word |
 | Q6 | Two qualifying high waters in a day | Lead window only; `otherWindows` is served but unused |
 | Q7 | Big seas on Plan and Coming up as a hot topic? | Map only |
