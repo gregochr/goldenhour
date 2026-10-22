@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="design_doc_mode" content="canvas">
+<title>PhotoCast — thin sample on the heat field</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--line:#3A2C23;--ink:#F2E7D3;--ink-2:#ADA394;--ink-3:#857C70;--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--coral:#E8593F;--dawn:#8FA8C4;--sans:'IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',monospace}
+body{font-family:var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.ab{position:absolute;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:20px 22px 22px}
+.abh{position:absolute;width:1180px;font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#3b332c}
+.abh small{display:block;font-size:11px;font-weight:400;letter-spacing:0;text-transform:none;color:#6d645b;margin-top:3px}
+/* strip */
+.dhrow,.hcards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.dh{display:flex;align-items:center;gap:8px;font-family:var(--mono);line-height:1}
+.dh .cal{display:grid;justify-items:center;gap:2px;padding:4px 8px 5px;border:1px solid var(--line);border-radius:5px;background:rgba(0,0,0,.24)}
+.dh .cd{font-size:9px;font-weight:600;letter-spacing:.12em;color:var(--ink-3)}
+.dh .cn{font-size:16px;font-weight:600;color:var(--ink-2)}
+.dh .cr{flex:1;height:1px;background:var(--line)}
+.dh.tdy .cal{border-color:#6b5a33}.dh.tdy .cn{color:var(--home)}
+.rail{display:flex;align-items:center;gap:9px;padding:12px 2px 10px;font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;line-height:1}
+.rail .rln{flex:1;height:1px}
+.rail.am{color:var(--dawn)}.rail.am .rln{background:#3d4148}
+.rail.pm{color:var(--coral)}.rail.pm .rln{background:#5a2d22}
+.hc{border:1px solid var(--border);border-radius:9px;background:var(--panel);padding:7px 7px 9px;display:flex;flex-direction:column;gap:7px;position:relative}
+.hc.vg{background:linear-gradient(rgba(138,174,114,.12),rgba(138,174,114,.12)),var(--panel)}
+.hc.vm{background:linear-gradient(rgba(224,165,66,.1),rgba(224,165,66,.1)),var(--panel)}
+.hc.vp{background:linear-gradient(rgba(200,69,47,.09),rgba(200,69,47,.09)),var(--panel)}
+.hc.also{border-color:rgba(138,174,114,.5)}
+.hc.best{border-color:#8AAE72;box-shadow:inset 0 0 0 1px rgba(138,174,114,.45)}
+.lg{position:absolute;top:-9px;right:16px;padding:0 7px;background:#1f1d16;font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;line-height:16px}
+.lg.wb{color:#B6D49F}.lg.wa{color:#8CA87A;font-weight:600}
+.ar{align-self:flex-start;font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;line-height:1;padding:3px 6px;border-radius:4px}
+.ar.am{color:var(--dawn);background:#252a2f;box-shadow:inset 0 0 0 1px #3c4450}
+.ar.pm{color:#EE8064;background:#36201a;box-shadow:inset 0 0 0 1px #5c2f24}
+.tmap{position:relative;line-height:0}
+.tmap canvas{display:block;border-radius:5px;background:#13100e}
+.tlab{position:absolute;inset:0;pointer-events:none}
+.rg2{position:absolute;transform:translate(-50%,-50%);font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.09em;color:#B9AFA0;text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 8px rgba(0,0,0,.8);white-space:nowrap;line-height:1.2;text-transform:uppercase}
+.rg2.hot{color:#F9F1E2}
+.hm{position:absolute;transform:translate(-50%,-6px);display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1}
+.hm .mk{width:10px;height:10px;border-radius:50%;border:1.6px solid var(--home);background:rgba(20,15,11,.6);box-shadow:0 0 0 2.5px rgba(20,15,11,.5)}
+.hm .lb{font-family:var(--mono);font-size:7.5px;font-weight:600;letter-spacing:.14em;color:#EBD9A8;text-shadow:0 1px 3px rgba(0,0,0,.95)}
+.pls{display:flex;flex-direction:column;gap:6px;padding:0 1px}
+.pr{display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:22px}
+.tt{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink-2)}
+.vw{font-family:var(--mono);font-size:12.5px;font-weight:700;white-space:nowrap}
+.vw.vg{color:#A8C795}.vw.vm{color:#EFC377}.vw.vp{color:#E58C7A}.vw.vn{color:var(--ink)}
+.vw .sc{font-weight:400;color:var(--ink-2)}
+.vw .n{font-weight:500;color:var(--ink)}
+.vw .sep{font-weight:400;color:var(--ink-3)}
+.k2{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);line-height:1.25}
+.k2.on{color:var(--ink-2)}
+.hist{display:flex;align-items:flex-end;gap:4px;padding:3px 6px 2px;background:rgba(0,0,0,.28);border-radius:4px}
+.hist .hb{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;width:20px;height:30px}
+.hist i{width:8px;border-radius:1px;min-height:1px;display:block}
+.hist em{font-style:normal;font-family:var(--mono);font-size:9.5px;font-weight:600;line-height:1;color:var(--ink-2)}
+.hist .z i{background:var(--ink-3)!important;height:1px!important}
+.hist .z em{color:var(--ink-3)}
+.thin{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.rt{font-family:var(--mono);font-size:12px;font-weight:600;padding:2px 7px;border-radius:4px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)}
+.st1{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink);text-align:right}
+.st1.none{color:var(--ink-2);font-weight:400}
+/* legend */
+.foot{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--ink-2);margin-top:14px}
+.foot .sp{margin-left:auto}
+.foot .ki{display:inline-flex;align-items:center;gap:7px}
+.legbar{width:64px;height:7px;border-radius:999px;flex:none}
+.sw{width:26px;height:13px;border-radius:2px;flex:none;background-color:#241d18;box-shadow:inset 0 0 0 1px rgba(242,231,211,.3)}
+.sw.hatch{background-image:repeating-linear-gradient(-45deg,rgba(242,231,211,.32) 0 .8px,transparent .8px 5px)}
+.sw.haze{background:linear-gradient(90deg,#dd6b2a,#9a8a7c);opacity:1}
+.foot .dim{color:var(--ink-3)}
+.legrow{display:flex;flex-direction:column;gap:6px}
+.legtag{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+/* map tab */
+.mapf{position:relative;border:1px solid var(--border);border-radius:9px;overflow:hidden;line-height:0}
+.mapf canvas{display:block}
+.mbar{position:absolute;left:10px;top:10px;display:flex;gap:8px;align-items:center;line-height:1.2;font-family:var(--mono);font-size:11px;color:var(--ink);background:rgba(20,15,12,.88);border:1px solid var(--border-light);border-radius:7px;padding:6px 9px}
+.mbar .vw{font-size:11.5px}
+.mkey{position:absolute;right:10px;bottom:10px;display:flex;gap:12px;align-items:center;line-height:1.2;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);background:rgba(20,15,12,.88);border:1px solid var(--border-light);border-radius:7px;padding:6px 9px}
+.mkey .ki{display:inline-flex;align-items:center;gap:6px}
+.mtag{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:0 0 7px}
+.mgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}
+.mlab{position:absolute;inset:0;pointer-events:none;line-height:1.2}
+.mlab .rg2{font-size:10px}
+/* notes */
+.nt{display:flex;flex-direction:column;gap:14px}
+.nt h2{font-size:17px;font-weight:700;letter-spacing:-.01em}
+.nt ol{display:flex;flex-direction:column;gap:12px;padding-left:20px}
+.nt li{font-size:13px;line-height:1.55;color:var(--ink-2);text-wrap:pretty}
+.nt li b{color:var(--ink);font-weight:600}
+.nt code{font-family:var(--mono);font-size:12px;color:#EBD9A8}
+.nt .q{border-top:1px solid var(--border);padding-top:12px;font-size:12.5px;line-height:1.55;color:var(--ink-2)}
+.nt .q b{color:var(--ink)}
+.phrow{display:flex;gap:22px;align-items:flex-start}
+.phcol{width:300px;display:flex;flex-direction:column;gap:8px}
+</style>
+</head>
+<body>
+
+<div class="abh" style="left:0;top:0">Plan strip · before<small>Today. The field draws rated places only; the hatch appears only when a window has no ratings at all.</small></div>
+<div class="ab" id="stripB" style="left:0;top:52px;width:1180px" data-screen-label="Strip before"></div>
+
+<div class="abh" style="left:1260px;top:0">Plan strip · after<small>Every unrated place hatches its own ground. Colour wins where a rated place is near.</small></div>
+<div class="ab" id="stripA" style="left:1260px;top:52px;width:1180px" data-screen-label="Strip after"></div>
+
+<div class="abh" style="left:0;top:1330px">Sat 24 sunrise · phone card, ~300px<small>Before · after, picture only · after, picture and count</small></div>
+<div class="ab" style="left:0;top:1382px;width:1004px" data-screen-label="Phone card"><div class="phrow" id="phone"></div></div>
+
+<div class="abh" style="left:1260px;top:1330px">Legend line<small>Under the strip. Before, then after.</small></div>
+<div class="ab" style="left:1260px;top:1382px;width:1180px" data-screen-label="Legend"><div class="legrow" id="legend"></div></div>
+
+<div class="abh" style="left:0;top:2050px">Map tab · Sat 24 sunrise<small>Same kernel at map scale (radius 7.2 km). The plate stands in for the dark basemap.</small></div>
+<div class="ab" style="left:0;top:2102px;width:1180px" data-screen-label="Map tab"><div class="mgrid" id="maps"></div></div>
+
+<div class="ab nt" style="left:1260px;top:2102px;width:700px" data-screen-label="Decisions">
+<h2>The six decisions</h2>
+<ol>
+<li><b>Treatment: hatch around each unrated place.</b> The existing hatch (45°, 7px, 0.6px, bone at .18) is drawn wherever an unrated place's kernel reaches and no rated place's does. The plate now has three states: colour where places were rated, hatch where places exist but were not rated, plain plate where there are no places. A rated place is never dimmed or recoloured.</li>
+<li><b>Population: every place in the field.</b> The hatch counts the whole catalogue the field draws, not the 2h30 reach pool. The legend says so.</li>
+<li><b>Where they meet: colour wins.</b> The hatch is drawn under the field, on the plate, and fades out as rated coverage rises (gone at about one rated place's own peak). Its edge uses the field's own kernel and blur, so it feathers at the same rate as the colour at 300px and at map scale. Line spacing stays fixed in CSS px, so it is the same mark on a card and on the map.</li>
+<li><b>Legend: two swatches.</b> <code>unshaded — not scored</code> becomes a hatched swatch reading <code>not rated yet</code> beside a plain swatch reading <code>no places</code>, after the ramp and haze entries. The right-hand note names the population.</li>
+<li><b>Verdict line: count only when thin.</b> <code>Worth it 4.0★ · 6 rated</code> appears only when the spread row's own gate fails (fewer than 5 rated, or under half the reach pool), so the two lines never disagree. The number is the reach-pool count the verdict was made from. It fits a 300px card on one line.</li>
+<li><b>Map tab: same treatment.</b> Zoomed out, Sat sunrise reads as one warm patch in a hatched region. Zoomed in, the kernel keeps its 7.2 km radius and the hatch keeps its 7px spacing, so the six rated places stay a warm patch with hatched ground around it. Hollow markers show which places are unrated. Where places are sparse, the hatch would break into separate discs with plain ground between them.</li>
+</ol>
+<div class="q"><b>Not changed:</b> ramp, bloom, haze, stars, verdict words, and the whole-plate hatch for a window with no ratings.</div>
+<div class="q"><b>Picks (option 1, owner decision 2026-10-22):</b> the after artboards assume a forced sample still sets its verdict but can no longer take a pick. Sat 24 sunrise keeps <code>Worth it 4.0★</code> and loses BEST BET; Today 22 sunrise is shown taking it. That is an assumption — the real ranking decides. Brief: <code>design_handoff_pick_eligibility/README.md</code>.</div>
+</div>
+
+<script src="heat-field.js"></script>
+<script>
+(function(){
+const HF=window.HeatField;
+const FIT={type:'MultiPoint',coordinates:[[-3.55,53.95],[-0.55,53.95],[-0.55,55.72],[-3.55,55.72]]};
+const ZOOM={type:'MultiPoint',coordinates:[[-2.25,54.80],[-1.25,54.80],[-1.25,55.36],[-2.25,55.36]]};
+const HOME=[-1.574,54.858];
+const CONF=[0.95,0.95,0.82,0.82,0.72,0.72];
+const REG=[{id:'ntw',n:'Northumberland & Tyneside',at:[-1.86,55.24]},{id:'lakes',n:'The Lake District',at:[-3.05,54.52]},{id:'nymc',n:'North York Moors & Coast',at:[-1.02,54.43]},{id:'dales',n:'The Yorkshire Dales',at:[-2.02,54.22]}];
+const HATCH={gap:7,line:0.6,ink:'rgba(242,231,211,.18)'};
+let s=11;const rnd=()=>(s=(s*16807)%2147483647)/2147483647;
+const gauss=()=>{let u=0,v=0;while(!u)u=rnd();while(!v)v=rnd();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)};
+const clamp=HF.clamp;
+let SPOTS=[];
+function build(){
+ const land=HF.LAND;
+ const C=[['ntw',70,-1.82,55.2,.28,.24],['dur',34,-1.85,54.72,.3,.12],['lakes',44,-3.08,54.48,.17,.13],['nymc',50,-0.95,54.42,.3,.12],['dales',45,-2.05,54.22,.2,.12]];
+ for(const[rid,n,lng,lat,sx,sy]of C){let k=0,g=0;
+  while(k<n&&g<4000){g++;const p=[lng+gauss()*sx,lat+gauss()*sy];
+   if(!d3.geoContains(land,p))continue;SPOTS.push({lng:p[0],lat:p[1],rid,r:[]});k++}}
+ const six=[[-1.589,54.914,4.3],[-1.451,55.072,4.1],[-1.418,55.017,4.2],[-1.364,54.970,3.9],[-1.480,54.879,4.0],[-1.473,55.084,3.8]];
+ six.forEach(([lng,lat,sc])=>SPOTS.push({lng,lat,rid:'ntw',six:sc,r:[]}));
+ for(const p of SPOTS){
+  const n1=gauss()*.3,n2=gauss()*.28;
+  let a=p.rid==='lakes'?3.25:p.rid==='nymc'?3.35:p.rid==='dales'?4.05:3.85;
+  if(p.lng>-0.85)a=2.3;if(p.lng<-3.2)a=2.9;
+  p.r[0]=rnd()<0.93?clamp(a+n1,1,5):null;
+  let b=p.rid==='lakes'?2.6:p.rid==='dales'?2.4:2.25;if(p.lng>-0.9&&p.lat<54.35)b=3.4;
+  p.r[1]=(p.lat>55.42||rnd()<0.1)?null:clamp(b+n2,1,5);
+  p.r[2]=null;p.r[3]=null;p.r[5]=null;
+  p.r[4]=p.six?p.six:null;
+ }
+}
+const ramp=HF.ramp,rgb=HF.rgb;
+function pxPerKm(proj,ll){const a=proj(ll),b=proj([ll[0],ll[1]+1]);return Math.abs(b[1]-a[1])/111.2}
+
+/* the hatch, ruled across the whole surface and clipped by the caller */
+function ruleHatch(ctx,w,h){
+ ctx.beginPath();for(let x=-h;x<w;x+=HATCH.gap){ctx.moveTo(x,h);ctx.lineTo(x+h,0)}
+ ctx.strokeStyle=HATCH.ink;ctx.lineWidth=HATCH.line;ctx.stroke();
+}
+/* PROPOSED: hatch the ground an unrated place's kernel reaches and a rated place's does not.
+   Same radius as the field; fades out as rated coverage approaches one rated place's own peak. */
+function unknownHatch(ctx,w,h,pts,R,blur,clip){
+ const gp=4,cols=Math.ceil(w/gp)+1,rows=Math.ceil(h/gp)+1,R2=R*R;
+ const off=document.createElement('canvas');off.width=cols;off.height=rows;
+ const oc=off.getContext('2d'),img=oc.createImageData(cols,rows);
+ for(let j=0;j<rows;j++)for(let i=0;i<cols;i++){
+  const px=i*gp,py=j*gp;let sr=0,su=0;
+  for(const p of pts){const dx=px-p.x,dy=py-p.y,d2=dx*dx+dy*dy;if(d2>R2*6)continue;
+   const wt=Math.exp(-d2/R2);if(p.sc==null)su+=wt;else sr+=wt}
+  const cu=1-Math.exp(-su/1.15),cr=1-Math.exp(-sr/1.15);
+  const a=clamp(cu/0.45,0,1)*clamp(1-cr/0.45,0,1);
+  const k=(j*cols+i)*4;img.data[k]=img.data[k+1]=img.data[k+2]=255;img.data[k+3]=Math.round(a*255);
+ }
+ oc.putImageData(img,0,0);
+ const W=ctx.canvas.width,H=ctx.canvas.height,sx=W/w;
+ const t=document.createElement('canvas');t.width=W;t.height=H;const tc=t.getContext('2d');
+ tc.setTransform(sx,0,0,sx,0,0);ruleHatch(tc,w,h);
+ const mk=document.createElement('canvas');mk.width=W;mk.height=H;const mc=mk.getContext('2d');
+ mc.setTransform(sx,0,0,sx,0,0);mc.imageSmoothingEnabled=true;mc.filter=`blur(${blur}px)`;
+ mc.drawImage(off,0,0,cols,rows,0,0,cols*gp,rows*gp);
+ tc.setTransform(1,0,0,1,0,0);tc.globalCompositeOperation='destination-in';tc.drawImage(mk,0,0);
+ ctx.save();ctx.beginPath();clip();ctx.clip();ctx.drawImage(t,0,0,w,h);ctx.restore();
+}
+
+/* drawGeo, with the proposed layer slotted in on the plate, under the field */
+function draw(cv,w,h,win,o){
+ const ctx=HF.fit(cv,w,h),proj=HF.proj(w,h,o.fit),path=d3.geoPath(proj,ctx);
+ ctx.fillStyle='#13100e';ctx.fillRect(0,0,w,h);
+ ctx.beginPath();path(HF.LAND);ctx.fillStyle='#241d18';ctx.fill();
+ const all=SPOTS.map(sp=>{const p=proj([sp.lng,sp.lat]);return{x:p[0],y:p[1],sc:sp.r[win],rid:sp.rid}});
+ const rated=all.filter(p=>p.sc!=null),none=!rated.length;
+ const R=o.radius(proj);
+ if(o.after&&!none)unknownHatch(ctx,w,h,all,R,o.blur+(1-CONF[win])*2.6,()=>path(HF.LAND));
+ const fo={grid:o.grid,radius:R,blur:o.blur,conf:CONF[win],bloom:1,bloomFrom:3,bloomA:o.bloomA,bloomBlur:o.bloomBlur};
+ if(o.soft){const lp=new Path2D(d3.geoPath(proj)(HF.LAND));HF.paint(ctx,w,h,rated,Object.assign(fo,{clipPath:lp,clipSoft:4}))}
+ else HF.paint(ctx,w,h,rated,Object.assign(fo,{alpha:206,clip:()=>path(HF.LAND)}));
+ if(none){ctx.save();ctx.beginPath();path(HF.LAND);ctx.clip();ruleHatch(ctx,w,h);ctx.restore()}
+ ctx.beginPath();path(HF.LAND);ctx.strokeStyle='rgba(242,231,211,.30)';ctx.lineWidth=o.line;ctx.stroke();
+ if(o.markers){for(const p of all){if(p.x<0||p.y<0||p.x>w||p.y>h)continue;
+  if(p.sc!=null){ctx.fillStyle='#F2E7D3';ctx.fillRect(p.x-2.5,p.y-2.5,5,5);ctx.strokeStyle='rgba(0,0,0,.85)';ctx.lineWidth=1;ctx.strokeRect(p.x-2.5,p.y-2.5,5,5)}
+  else{ctx.beginPath();ctx.arc(p.x,p.y,2.2,0,7);ctx.strokeStyle='rgba(242,231,211,.5)';ctx.lineWidth=1;ctx.stroke()}}}
+ return proj;
+}
+const THUMB={grid:4,blur:2.4,line:0.5,bloomA:155,bloomBlur:0.9,radius:()=>0};
+
+/* ── cards ── */
+const W=[
+ {k:0,day:0,ar:'am',t:'07:41',v:'vg',vw:'Worth it',sc:'3.7★',pick:'also',pickA:'best',hist:[0,34,71,108,0],pill:4,best:'Blackhall Rocks',hot:'dales',spk:'Spread<br>(within 2h30)'},
+ {k:2,day:1,ar:'am',t:'07:42',v:'vp',vw:'Poor',hist:[0,0,0,0,0],spk:'Spread'},
+ {k:4,day:2,ar:'am',t:'07:50',v:'vg',vw:'Worth it',sc:'4.0★',pick:'best',thin:[6,83],pill:4,best:'Angel of the North',hot:'ntw',spk:'Spread<br>(within 2h30)'},
+ {k:1,day:0,ar:'pm',t:'17:48',v:'vm',vw:'Maybe',sc:'2.7★',hist:[1,107,69,3,0],pill:4,best:'Saltburn-by-the-Sea',hot:'lakes',spk:'Spread<br>(within 2h30)'},
+ {k:3,day:1,ar:'pm',t:'17:46',v:'vp',vw:'Poor',hist:[0,0,0,0,0],spk:'Spread'},
+ {k:5,day:2,ar:'pm',t:'17:44',v:'vn',vw:'Not scored',hist:[0,0,0,0,0],spk:'Spread'}];
+const gateFails=c=>c.thin&&(c.thin[0]<5||c.thin[0]<c.thin[1]/2);
+function hist(h){const m=Math.max(1,...h);
+ return `<span class="hist">${h.map((n,i)=>`<span class="hb${n?'':' z'}"><i style="height:${n?Math.max(2,Math.round(n/m*16)):1}px;background:${rgb(ramp(i+1))}"></i><em>${n}</em></span>`).join('')}</span>`}
+function card(c,mode){
+ const cnt=mode==='count'&&gateFails(c)?`<span class="sep"> · </span><span class="n">${c.thin[0]} rated</span>`:'';
+ const pc=c.pill?ramp(c.pill):null;
+ const pk=mode==='before'?c.pick:c.pickA;
+ return `<div class="hc ${c.v!=='vn'?c.v:''} ${pk||''}">${pk==='best'?'<span class="lg wb">Best bet</span>':pk==='also'?'<span class="lg wa">Also good</span>':''}
+<span class="ar ${c.ar}">${c.ar==='am'?'Sunrise':'Sunset'}</span>
+<div class="tmap"><canvas data-w="${c.k}" data-mode="${mode==='before'?'b':'a'}"></canvas><div class="tlab" data-hot="${c.hot||''}"></div></div>
+<div class="pls"><div class="pr"><span class="tt">${c.t}</span><span class="vw ${c.v}">${c.vw}${c.sc?` <span class="sc">${c.sc}</span>`:''}${cnt}</span></div>
+<div class="pr"><span class="k2">${c.spk}</span>${c.thin?`<span class="thin">${c.thin[0]}/${c.thin[1]} rated</span>`:hist(c.hist)}</div>
+<div class="pr">${pc?`<span class="rt" style="background:${rgb(pc)};color:${HF.ink(pc)}">${c.pill}★</span>`:'<span class="k2">Best</span>'}<span class="st1${c.best?'':' none'}">${c.best||'nothing to show'}</span></div></div></div>`}
+const rampCss='linear-gradient(90deg,'+[1,2,2.8,3.2,3.9,4.3,5].map(v=>rgb(ramp(v))).join(',')+')';
+function legend(after){
+ return after
+ ?`<div class="foot"><span class="ki"><span class="legbar" style="background:${rampCss}"></span>poor → worth it</span><span>later days look hazier — lower confidence</span><span class="ki"><span class="sw hatch"></span>not rated yet</span><span class="ki"><span class="sw"></span>no places</span><span class="sp">Colour and hatch cover every place in the forecast — the cards allow for your drive</span></div>`
+ :`<div class="foot"><span class="ki"><span class="legbar" style="background:${rampCss}"></span>poor → worth it</span><span>later days look hazier — lower confidence</span><span class="dim">unshaded — not scored</span><span class="sp">Colour shows the whole forecast — the cards allow for your drive</span></div>`}
+function strip(el,mode){
+ const days=[['Today',22,1],['Fri',23],['Sat',24]];
+ el.innerHTML=`<div class="dhrow">${days.map(d=>`<div class="dh${d[2]?' tdy':''}"><span class="cal"><span class="cd">${d[0].toUpperCase()}</span><span class="cn">${d[1]}</span></span><span class="cr"></span></div>`).join('')}</div>
+<div class="rail am">Sunrise<span class="rln"></span></div><div class="hcards">${W.slice(0,3).map(c=>card(c,mode)).join('')}</div>
+<div class="rail pm">Sunset<span class="rln"></span></div><div class="hcards">${W.slice(3).map(c=>card(c,mode)).join('')}</div>
+${legend(mode!=='before')}`}
+
+function labels(el,proj,hot,big){
+ el.innerHTML=REG.map(r=>{const p=proj(r.at);return `<span class="rg2${r.id===hot?' hot':''}" style="left:${p[0]}px;top:${p[1]}px">${r.n}</span>`}).join('')+
+ (()=>{const p=proj(HOME);return `<span class="hm" style="left:${p[0]}px;top:${p[1]}px"><span class="mk"></span><span class="lb">HOME</span></span>`})()}
+
+function paintCards(){
+ document.querySelectorAll('.tmap canvas').forEach(cv=>{
+  const w=Math.floor(cv.closest('.hc').clientWidth-14),h=Math.round(w*HF.aspect(FIT));
+  const win=+cv.dataset.w;
+  const proj=draw(cv,w,h,win,Object.assign({},THUMB,{fit:FIT,after:cv.dataset.mode==='a',radius:()=>Math.max(10,w*0.155)}));
+  const lab=cv.nextElementSibling;labels(lab,proj,lab.dataset.hot);
+ });
+}
+
+function maps(){
+ const el=document.getElementById('maps'),w=566,h=400,c=W[2];
+ const fr=[['Before · zoomed out',FIT,0],['After · zoomed out',FIT,1],['Before · zoomed in on Northumberland & Tyneside',ZOOM,0],['After · zoomed in on Northumberland & Tyneside',ZOOM,1]];
+ el.innerHTML=fr.map((f,i)=>`<div><div class="mtag">${f[0]}</div><div class="mapf" style="width:${w}px;height:${h}px"><canvas id="mc${i}"></canvas><div class="mlab" id="ml${i}"></div>
+<div class="mbar"><span>SAT 24 · SUNRISE 07:50</span><span class="vw vg">Worth it <span class="sc">4.0★</span>${f[2]?'<span class="sep"> · </span><span class="n">6 rated</span>':''}</span></div>
+${f[2]?`<div class="mkey"><span class="ki"><span class="legbar" style="background:${rampCss};width:44px"></span>rated</span><span class="ki"><span class="sw hatch"></span>not rated yet</span><span class="ki"><span class="sw"></span>no places</span></div>`:''}</div></div>`).join('');
+ fr.forEach((f,i)=>{
+  const cv=document.getElementById('mc'+i);
+  const proj=draw(cv,w,h,4,{fit:f[1],after:!!f[2],grid:4,blur:3,line:0.8,bloomA:190,bloomBlur:2.4,soft:1,markers:1,
+   radius:pr=>clamp(7.2*pxPerKm(pr,HOME),30,400)});
+  labels(document.getElementById('ml'+i),proj,'ntw');
+ });
+}
+
+HF.load().then(()=>{
+ build();
+ strip(document.getElementById('stripB'),'before');
+ strip(document.getElementById('stripA'),'count');
+ const ph=document.getElementById('phone');
+ ph.innerHTML=[['Before','before'],['After · picture only','pic'],['After · picture and count','count']].map(x=>`<div class="phcol"><div class="legtag">${x[0]}</div>${card(W[2],x[1])}</div>`).join('');
+ document.getElementById('legend').innerHTML=`<div class="legtag">Before</div>${legend(false)}<div class="legtag" style="margin-top:18px">After</div>${legend(true)}`;
+ paintCards();maps();
+});
+})();
+</script>
+</body>
+</html>
