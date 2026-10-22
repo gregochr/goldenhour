@@ -243,4 +243,52 @@ After it reports, review the diff adversarially before the PR: does any path add
 
 ## §7 As built
 
-(Filled in after L1.)
+Built 2026-10-22 on `feature/ask-place-lookup` (Sonnet subagent), L1 plus the §5 test class; not pushed.
+
+**Built.** `AskTools.lookUpPlace` with `LookUpPlaceArgs` / `LookUpPlaceResult` / `PlaceInfo`, the package-private
+`PlaceStatus` enum, `classify` (the §4.1 order, ending in an `isPickEligible` agreement check that throws),
+`placeWords` / `containsRun` (the matcher); `AskToolSchemas.LOOK_UP_PLACE` and `tools(withUser, withThread,
+withPlaceLookup)`; `AskToolArguments.lookUpPlace`; the `ClaudeAskEngine` dispatch case and unknown-tool message;
+the prompt wording (§4.4); tests (`AskToolsLookUpPlaceTest`, plus additions to `AskAnswerValidatorTest`,
+`AskToolSchemasTest`, `AskToolArgumentsTest`, `AskPromptBuilderTest`, `ClaudeAskEngineTest`,
+`ClaudeAskEngineWireTest`, `AskReadyClaudeEngineTest`); `AskPlaceLookupRegressionTest` (registered in the pom's
+PIT exclusion list, assertions pending owner approval, never run); the reference doc, the G2 note and the
+changelog entry.
+
+**Deviations.**
+
+1. **The prompt change is applied to typed prompts only, not to `RULES`.** The plan says to edit `RULES`
+   (§4.4) and also that Ready prompt bytes are unchanged (§3, §4.3). `RULES` is shared by Ready, so editing it
+   would change Ready's prompt and tell it to call a tool it is not given. `RULES` is untouched;
+   `AskPromptBuilder.systemPrompt` replaces `PLACE_FIT_BEFORE` with `PLACE_FIT_AFTER` (the reworded sentence and
+   the new bullet, the plan's text) when `hasUser`. `hasUser` is exactly `!ready` (`ClaudeAskEngine.run`:
+   `ready = !user.hasUser()`), the same split that gives the tool list its `withPlaceLookup`.
+2. **`withPlaceLookup` is `!ready`**, not a new `hasUser`-style flag threaded from callers: `ClaudeAskEngine` is
+   the only caller of `AskToolSchemas.tools(` and a Ready conversation is exactly one with no user (§4.3 holds).
+3. **The `UNRATED` reason** adds a clause only from the region's own `coverageReason` ("Its region was stood down
+   for the weather." for `STOOD_DOWN`, "Its region was not scored." for any other reason): the spread has counts,
+   not phrases, so these are the spread's own two words ("stood down", "not scored"). A region with slots rarely
+   carries a reason, so this fires seldom.
+4. **The `CANOPY` reason** is the plan's sentence verbatim; no matching canopy phrase exists in the Plan or Map
+   client to copy (grep of `frontend/src`).
+5. A slot with a null location id or null name is skipped by the matcher (it cannot be identified, and was never
+   pick-eligible), so `PlaceInfo.locationId` can be a primitive `long`.
+6. Existing tests that pinned the typed request's tool count (6 → 7) were updated:
+   `ClaudeAskEngineTest.requestShape` and `ClaudeAskEngineWireTest.toolConversationOverTheWire`
+   (`submit_answer` is now index 6). Ready's list is pinned unchanged in `AskReadyClaudeEngineTest`.
+
+**§4.6 frontend finding (read only, no edit).** A no-pick, no-event `answerable: true` answer renders as a summary
+with no "Not in the forecast" frame. `frontend/src/utils/askConversation.js:375` (`normaliseAnswer`) makes an answer
+a `cant` only when `body.kind === 'cant'` or `body.answerable === false`; an answerable body stays
+`phase: 'answer'` (`askConversation.js:247`); `frontend/src/components/ask/AskConversation.jsx:200` renders
+`AskAnswer` for it and only `phase === 'cant'` (`:201`) renders `AskCantAnswer` (the "Not in the forecast" label,
+`AskCantAnswer.jsx:15`); `frontend/src/components/ask/AskAnswer.jsx:39` draws the summary unconditionally and
+guards the events (`:41`) and picks (`:48`) lists on being non-empty. The phone peek (`MapPeekAsk.jsx:317`) shows
+"Not in the forecast" only for phase `cant`, otherwise the summary. Nothing contradicts the plan.
+
+**Mutation checks** (each backed up with `cp`, restored with `cp`, the tree confirmed clean after):
+status order (THIN_SAMPLE tested before NEIGHBOUR_OUTLIER) fails `outlierBeatsThinSample`; recording the lookup's
+places as evidence pairs fails four tests (`lookupIsNeverEvidence`, `rankSpotsUnchangedByLookup`,
+`AskAnswerValidatorTest.lookUpPlace_pickOnAPickEligiblePlaceRankSpotsNeverReturnedIsDropped`,
+`ClaudeAskEngineTest.pickFromALookupIsDropped`); giving Ready the tool (`withPlaceLookup` always true) fails
+`AskReadyClaudeEngineTest`.
