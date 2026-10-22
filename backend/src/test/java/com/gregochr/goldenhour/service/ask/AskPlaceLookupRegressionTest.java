@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.BriefingRegion;
-import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
