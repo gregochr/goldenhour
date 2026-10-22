@@ -1,0 +1,5 @@
+### Fixed — a region door on the Map tab never opens a neighbour outlier's callout
+
+A "Show {region} on map" door (and the Regional planner's single-region map button) chose the region's top spot from the batch scores endpoint, which carries no `neighbourOutlier` flag, so it could open the very spot every Plan surface refuses to name. The shell now hands the door the served briefing's outlier marks and `resolveDoor` applies the Plan tab's own rule: a marked spot is skipped, and if the next rated spot is below 3 stars (or none is rated) the door lands on the region alone with no callout. Also corrected two stale comments that said a map-sourced door is "a window change only".
+
+Two accepted behaviours: an outlier tied with the best unmarked spot counts as skipped, so a tie below 3 stars names no spot (the safe side). And an `inPlace` press of a region door on the Map tab now selects nothing when the region's top spot is an outlier; no Map-tab producer of a region trigger was found, so this is believed unreachable today.

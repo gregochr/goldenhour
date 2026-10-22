@@ -72,8 +72,8 @@ vi.mock('../utils/heatField.js', async (importOriginal) => {
 
 const TODAY = '2026-08-08';
 
-const ctx = () => ({
-  briefing: { generatedAt: `${TODAY}T12:00:00`, hotTopics: [], days: [] },
+const ctx = (briefing = { generatedAt: `${TODAY}T12:00:00`, hotTopics: [], days: [] }) => ({
+  briefing,
   loading: false,
   heatStripCards: [],
   heatSpots: [],
@@ -107,8 +107,8 @@ const ctx = () => ({
   },
 });
 
-async function renderShell(props = {}) {
-  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+async function renderShell(props = {}, briefing = undefined) {
+  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx(briefing));
   const onOpenMapTab = vi.fn();
   await act(async () => {
     render(
@@ -137,7 +137,7 @@ describe('WindowFirstShell — the Plan tab\'s map producers share one structure
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
       kind: 'event', date: '2026-08-09', eventType: 'SUNRISE',
-      inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60,
+      inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
     });
   });
 
@@ -148,7 +148,7 @@ describe('WindowFirstShell — the Plan tab\'s map producers share one structure
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
       kind: 'location', locationName: 'Bamburgh', date: '2026-08-09', eventType: 'SUNRISE',
-      inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60,
+      inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
     });
   });
 
@@ -159,7 +159,7 @@ describe('WindowFirstShell — the Plan tab\'s map producers share one structure
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
       kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run',
-      date: '2026-08-10', inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60,
+      date: '2026-08-10', inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
     });
   });
 
@@ -189,5 +189,28 @@ describe('WindowFirstShell — the Plan tab\'s map producers share one structure
     await renderShell({ onOpenMapTab: undefined });
 
     expect(screen.getByTestId('stub-doors')).toHaveAttribute('data-has-door', 'no');
+  });
+});
+
+describe('WindowFirstShell — the served briefing\'s neighbour-outlier marks ride the trigger', () => {
+  it('builds the Set from the flagged slot, in the key shape resolveDoor reads', async () => {
+    const briefing = {
+      generatedAt: `${TODAY}T12:00:00`,
+      hotTopics: [],
+      days: [{
+        date: '2026-08-09',
+        eventSummaries: [{
+          targetType: 'SUNRISE',
+          regions: [{ slots: [
+            { locationName: 'Bamburgh', neighbourOutlier: true },
+            { locationName: 'Seahouses' },
+          ] }],
+        }],
+      }],
+    };
+    const { onOpenMapTab } = await renderShell({}, briefing);
+    await act(async () => { fireEvent.click(screen.getByTestId('door-pin')); });
+    const sent = onOpenMapTab.mock.calls[0][0];
+    expect([...sent.outlierKeys]).toEqual(['Bamburgh|2026-08-09|SUNRISE']);
   });
 });

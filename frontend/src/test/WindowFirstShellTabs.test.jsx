@@ -1378,6 +1378,7 @@ describe('WindowFirstShell — the REAL Coming up card and day chip reach onOpen
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
       kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run',
       date: '2026-08-12', inPlace: false, from: 'coming-up', minRating: null, limitMinutes: 45,
+      outlierKeys: expect.any(Set),
     });
   });
 
