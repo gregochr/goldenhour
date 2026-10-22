@@ -66,6 +66,37 @@ function coord(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/** A score row's weather stand-down: a non-blank {@code triageReason}, served as a string or an object. */
+function hasTriageReason(row) {
+  const reason = row.triageReason;
+  if (reason == null) return false;
+  return typeof reason === 'string' ? reason.trim() !== '' : true;
+}
+
+/**
+ * What a window knows about one place — the layer's four states, beside its score.
+ *
+ * <ul>
+ *   <li>{@code rated} — the score row carries a valid rating;</li>
+ *   <li>{@code stood} — a row exists, no rating, and a {@code triageReason}: the pipeline looked
+ *   and stood it down, which is an answer, not a gap;</li>
+ *   <li>{@code unrated} — a sky place with neither a rating nor a triage reason, a row with
+ *   neither included and no row at all included: nobody has looked;</li>
+ *   <li>{@code na} — not a sky subject (a wood, a wildlife hide): never rated by design, so never
+ *   "not rated yet".</li>
+ * </ul>
+ *
+ * @param {boolean} skySubject whether a sky verdict applies to the place at all
+ * @param {?{rating: ?number, stood: boolean}} entry the window's score row, or null for none
+ * @returns {'rated'|'stood'|'unrated'|'na'} the state
+ */
+function windowState(skySubject, entry) {
+  if (!skySubject) return 'na';
+  if (entry && entry.rating != null) return 'rated';
+  if (entry && entry.stood) return 'stood';
+  return 'unrated';
+}
+
 /**
  * First-inserted wins on a repeated key — the same collision rule
  * {@code buildBriefingScoreIndex} applies. (Its input, the provider's name-keyed map, is built
@@ -103,11 +134,13 @@ function putFirst(index, key, value) {
  *   locationType: ?string[], bortleClass: ?number}>} locations the enabled roster, as
  *   {@code useForecasts} shapes it
  * @param {Array<{locationId: *, locationName: string, date: string, targetType: string,
- *   rating: ?number}>} scoreRows raw {@code LocationEvaluationView} rows, id included
+ *   rating: ?number, triageReason: ?*}>} scoreRows raw {@code LocationEvaluationView} rows, id
+ *   included; {@code triageReason} is what tells a stood-down place from an unrated one
  * @param {Array<{date: string, targetType: string}>} renderedEvents the windows, in render order
  * @returns {Array<{id: *, name: string, lat: number, lng: number, regionName: string, rid: string,
- *   skySubject: boolean, bortleClass: ?number, scores: Array<?number>}>} one spot per joinable
- *   location
+ *   skySubject: boolean, bortleClass: ?number, scores: Array<?number>,
+ *   states: Array<'rated'|'stood'|'unrated'|'na'>}>} one spot per joinable location, with each
+ *   window's state beside its score
  */
 export function buildHeatSpots(locations, scoreRows, renderedEvents) {
   const events = Array.isArray(renderedEvents) ? renderedEvents : [];
@@ -124,9 +157,11 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
     if (!row || !row.date || !row.targetType) continue;
     const tail = windowKey(row.date, row.targetType);
     if (!wanted.has(tail)) continue;
-    const rating = validRating(row.rating);
-    if (row.locationId != null) putFirst(byId, `${row.locationId}|${tail}`, rating);
-    if (row.locationName) putFirst(byName, `${row.locationName}|${tail}`, rating);
+    // The rating plus whether the row is a weather stand-down (a triage reason) — one entry, so
+    // the score and its state are read off the SAME row and cannot come from different indexes.
+    const entry = { rating: validRating(row.rating), stood: hasTriageReason(row) };
+    if (row.locationId != null) putFirst(byId, `${row.locationId}|${tail}`, entry);
+    if (row.locationName) putFirst(byName, `${row.locationName}|${tail}`, entry);
   }
 
   const spots = [];
@@ -138,7 +173,7 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
     const lng = coord(location.lon);
     if (lat === null || lng === null) continue;
     const skySubject = isSkyPromptCandidate(location.locationType);
-    const scores = events.map(({ date, targetType }) => {
+    const found = events.map(({ date, targetType }) => {
       if (!skySubject) return null;
       const tail = windowKey(date, targetType);
       // `has`, not a truthiness check on the value: a row that exists and carries no usable
@@ -151,6 +186,8 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
       if (nameKey !== null && byName.has(nameKey)) return byName.get(nameKey);
       return null;
     });
+    const scores = found.map((entry) => (entry ? entry.rating : null));
+    const states = found.map((entry) => windowState(skySubject, entry));
     spots.push({
       id: location.id ?? null,
       name: location.name ?? '',
@@ -165,6 +202,8 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
       skySubject,
       bortleClass: location.bortleClass ?? null,
       scores,
+      // Beside each score, what the window knows about the place — see windowState.
+      states,
     });
   }
   return spots;
@@ -196,6 +235,33 @@ export function heatPointsFor(spots, windowIndex) {
       lng: spot.lng,
       rid: spot.rid,
       r: [score],
+    });
+  }
+  return points;
+}
+
+/**
+ * The kernel-ready points for one window's UNRATED places — the ground the "not rated yet" hatch
+ * is drawn around. The same shape as {@link heatPointsFor} (a one-element {@code r}, never read by
+ * the mask), for a spot whose state in that window is exactly {@code unrated}: a stood-down place
+ * was looked at, a wood or hide takes no part, a rated place is the field's.
+ *
+ * @param {Array<object>} spots spots from {@link buildHeatSpots}
+ * @param {number} windowIndex which of the rendered windows to build points for
+ * @returns {Array<{id: *, name: string, lat: number, lng: number, rid: string, r: number[]}>}
+ *   the unrated places, for {@code drawGeo}/{@code drawTiles}' {@code unrated} option
+ */
+export function unratedPointsFor(spots, windowIndex) {
+  const points = [];
+  for (const spot of Array.isArray(spots) ? spots : []) {
+    if (spot?.states?.[windowIndex] !== 'unrated') continue;
+    points.push({
+      id: spot.id,
+      name: spot.name,
+      lat: spot.lat,
+      lng: spot.lng,
+      rid: spot.rid,
+      r: [0],
     });
   }
   return points;
@@ -267,6 +333,8 @@ export function forecastScoreRows(locations, windows) {
         date,
         targetType,
         rating: row.rating ?? null,
+        // Only when there is one, so a row that never carried a reason is shaped as it always was.
+        ...(row.triageReason ? { triageReason: row.triageReason } : {}),
       });
     }
   }

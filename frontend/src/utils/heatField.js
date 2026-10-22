@@ -67,6 +67,74 @@ export function land() {
 export { rgb };
 
 /**
+ * Buckets points by the kernel's cutoff distance, after culling to the frame plus the kernel's
+ * reach — the spatial index {@link field} and {@link unknownMask} share, so the two can never
+ * disagree about which points a cell can see.
+ *
+ * <p>The cull: the sum cuts off at d2 > 6R2, i.e. ~2.45R, so a location that cannot touch a
+ * single cell must not cost one iteration per cell. The buckets are the cutoff distance wide, so
+ * each cell sums only its 3x3 neighbourhood instead of the whole catalogue. This is what turns
+ * O(cells x locations) into O(cells x local density) — without it 200 locations already stalled
+ * a pan, and 1000 would be hopeless. The geometry depends only on {@code w}, {@code h},
+ * {@code R} and {@code gp}, so two calls with the same four share one lattice.
+ *
+ * @param {Array<{x: number, y: number}>} pts points in CSS px of the target surface
+ * @param {number} w surface width in CSS px
+ * @param {number} h surface height in CSS px
+ * @param {number} R kernel radius in CSS px
+ * @param {number} gp grid pitch in CSS px
+ * @returns {{keep: Array<object>, B: number, bx0: number, by0: number, bw: number, bh: number,
+ *           buckets: Array<?Array<object>>}} the kept points and their buckets
+ */
+function bucketPoints(pts, w, h, R, gp) {
+  const CUT = 2.45 * R;
+  const m = CUT + gp;
+  const keep = [];
+  for (const p of pts) {
+    if (p.x < -m || p.x > w + m || p.y < -m || p.y > h + m) continue;
+    keep.push(p);
+  }
+  const B = Math.max(CUT, 1);
+  const bx0 = -m;
+  const by0 = -m;
+  const bw = Math.ceil((w + 2 * m) / B) + 1;
+  const bh = Math.ceil((h + 2 * m) / B) + 1;
+  const buckets = new Array(bw * bh);
+  for (const p of keep) {
+    const bi = Math.floor((p.x - bx0) / B);
+    const bj = Math.floor((p.y - by0) / B);
+    if (bi < 0 || bj < 0 || bi >= bw || bj >= bh) continue;
+    const k = bj * bw + bi;
+    (buckets[k] || (buckets[k] = [])).push(p);
+  }
+  return { keep, B, bx0, by0, bw, bh, buckets };
+}
+
+/**
+ * Hands {@code visit} every non-empty bucket in the 3x3 neighbourhood of the cell at
+ * ({@code px}, {@code py}) — the bucket walk, shared by every sum over {@link bucketPoints}.
+ *
+ * @param {object} grid from {@link bucketPoints}
+ * @param {number} px cell x in CSS px
+ * @param {number} py cell y in CSS px
+ * @param {function(Array<object>): void} visit called once per non-empty neighbouring bucket
+ */
+function forNeighbours(grid, px, py, visit) {
+  const { B, bx0, by0, bw, bh, buckets } = grid;
+  const bi = Math.floor((px - bx0) / B);
+  const bj = Math.floor((py - by0) / B);
+  for (let dj = -1; dj <= 1; dj += 1) {
+    for (let di = -1; di <= 1; di += 1) {
+      const bjj = bj + dj;
+      const bii = bi + di;
+      if (bii < 0 || bjj < 0 || bii >= bw || bjj >= bh) continue;
+      const list = buckets[bjj * bw + bii];
+      if (list) visit(list);
+    }
+  }
+}
+
+/**
  * The kernel: accumulate every point's score into a blended field.
  *
  * <p>`conf` 0–1 is forecast confidence: lower desaturates and thins, so a day-4 guess cannot look
@@ -101,32 +169,9 @@ export function field(pts, w, h, opts) {
   const R = opts.radius || Math.max(14, w * 0.085);
   const R2 = R * R;
   const gp = opts.grid || 4;
-  /* cull to the frame plus the kernel's reach (the sum cuts off at d2 > 6R2, i.e. ~2.45R).
-     A location that cannot touch a single cell must not cost one iteration per cell. */
-  const CUT = 2.45 * R;
-  const m = CUT + gp;
-  const keep = [];
-  for (const p of pts) {
-    if (p.x < -m || p.x > w + m || p.y < -m || p.y > h + m) continue;
-    keep.push(p);
-  }
+  const grid = bucketPoints(pts, w, h, R, gp);
+  const { keep } = grid;
   if (!keep.length) return null;
-  /* bucket by the cutoff distance so each cell sums only its 3x3 neighbourhood instead of the
-     whole catalogue. This is what turns O(cells x locations) into O(cells x local density) —
-     without it 200 locations already stalled a pan, and 1000 would be hopeless. */
-  const B = Math.max(CUT, 1);
-  const bx0 = -m;
-  const by0 = -m;
-  const bw = Math.ceil((w + 2 * m) / B) + 1;
-  const bh = Math.ceil((h + 2 * m) / B) + 1;
-  const buckets = new Array(bw * bh);
-  for (const p of keep) {
-    const bi = Math.floor((p.x - bx0) / B);
-    const bj = Math.floor((p.y - by0) / B);
-    if (bi < 0 || bj < 0 || bi >= bw || bj >= bh) continue;
-    const k = bj * bw + bi;
-    (buckets[k] || (buckets[k] = [])).push(p);
-  }
   const cols = Math.ceil(w / gp) + 1;
   const rows = Math.ceil(h / gp) + 1;
   const off = document.createElement('canvas');
@@ -141,33 +186,31 @@ export function field(pts, w, h, opts) {
   const ramp = opts.ramp || rampRgb;
   const bc = opts.bloomRGB || [255, 138, 66];
   const aMax = (opts.alpha == null ? 206 : opts.alpha) * (1 - 0.34 * unc);
+  let sw = 0;
+  let sws = 0;
+  let px = 0;
+  let py = 0;
+  // One closure for the whole walk, not one per cell: it reads the cell under the cursor off
+  // `px`/`py` and adds to `sw`/`sws`.
+  const accumulate = (list) => {
+    for (const p of list) {
+      const dx = px - p.x;
+      const dy = py - p.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > R2 * 6) continue;
+      let wt = Math.exp(-d2 / R2);
+      if (opts.focus && p.rid !== opts.focus) wt *= 1e-4;
+      sw += wt;
+      sws += wt * p.sc;
+    }
+  };
   for (let j = 0; j < rows; j += 1) {
     for (let i = 0; i < cols; i += 1) {
-      const px = i * gp;
-      const py = j * gp;
-      let sw = 0;
-      let sws = 0;
-      const bi = Math.floor((px - bx0) / B);
-      const bj = Math.floor((py - by0) / B);
-      for (let dj = -1; dj <= 1; dj += 1) {
-        for (let di = -1; di <= 1; di += 1) {
-          const bjj = bj + dj;
-          const bii = bi + di;
-          if (bii < 0 || bjj < 0 || bii >= bw || bjj >= bh) continue;
-          const list = buckets[bjj * bw + bii];
-          if (!list) continue;
-          for (const p of list) {
-            const dx = px - p.x;
-            const dy = py - p.y;
-            const d2 = dx * dx + dy * dy;
-            if (d2 > R2 * 6) continue;
-            let wt = Math.exp(-d2 / R2);
-            if (opts.focus && p.rid !== opts.focus) wt *= 1e-4;
-            sw += wt;
-            sws += wt * p.sc;
-          }
-        }
-      }
+      px = i * gp;
+      py = j * gp;
+      sw = 0;
+      sws = 0;
+      forNeighbours(grid, px, py, accumulate);
       const k = (j * cols + i) * 4;
       if (sw < 0.02) {
         img.data[k + 3] = 0;
@@ -259,6 +302,71 @@ function blitField(ctx, f, opts) {
 }
 
 /**
+ * Masks the temp surface {@code tc} with a BLURRED fill of {@code opts.clipPath}, so the land
+ * boundary feathers at the same rate the layer under it does. {@link paint}'s soft route, shared
+ * with {@link paintUnknown}.
+ *
+ * <p>The mask is composed on its OWN surface and applied in a single destination-in — see
+ * {@link paint}'s doc comment for why fill-then-stroke straight onto the field cannot do this job.
+ *
+ * @param {CanvasRenderingContext2D} tc the temp surface, already drawn into at scale {@code sx}
+ * @param {number} w surface width in CSS px
+ * @param {number} h surface height in CSS px
+ * @param {number} sx backing-store px per CSS px
+ * @param {{clipPath: *, clipSoft: number, clipGrow?: number, clipDx?: number,
+ *          clipDy?: number}} opts the soft route's dials
+ */
+function applySoftMask(tc, w, h, sx, opts) {
+  const mk = document.createElement('canvas');
+  mk.width = tc.canvas.width;
+  mk.height = tc.canvas.height;
+  const mc = mk.getContext('2d');
+  mc.setTransform(sx, 0, 0, sx, 0, 0);
+  mc.filter = `blur(${opts.clipSoft}px)`;
+  mc.translate(opts.clipDx || 0, opts.clipDy || 0);
+  mc.fillStyle = '#fff';
+  mc.strokeStyle = '#fff';
+  // clipGrow DILATES the mask by stroking the same path — a uniform band that follows the
+  // coastline, absorbing a coarse coastline's survey error without inventing a shape. Unioning
+  // discs at each location did the same job but drew visible circles offshore, because the
+  // error is geographic and the disc would have to grow with zoom.
+  if (opts.clipGrow > 0) {
+    mc.lineWidth = opts.clipGrow * 2;
+    mc.lineJoin = 'round';
+    mc.lineCap = 'round';
+    mc.stroke(opts.clipPath);
+  }
+  mc.fill(opts.clipPath);
+  tc.globalCompositeOperation = 'destination-in';
+  tc.globalAlpha = 1;
+  tc.filter = 'none';
+  tc.setTransform(1, 0, 0, 1, 0, 0);
+  tc.drawImage(mk, 0, 0);
+}
+
+/**
+ * Clips {@code ctx} to the caller's land by {@link paint}'s hard routes ({@code clipPath} slid by
+ * {@code clipDx}/{@code clipDy}, else the {@code clip} callback), shared with
+ * {@link paintUnknown}. The caller owns the surrounding save/restore.
+ *
+ * @param {CanvasRenderingContext2D} ctx target context
+ * @param {{clipPath?: *, clipDx?: number, clipDy?: number, clip?: Function}} opts the clip dials
+ */
+function applyHardClip(ctx, opts) {
+  if (opts.clipPath) {
+    const dx = opts.clipDx || 0;
+    const dy = opts.clipDy || 0;
+    ctx.translate(dx, dy);
+    ctx.clip(opts.clipPath);
+    ctx.translate(-dx, -dy);
+  } else if (opts.clip) {
+    ctx.beginPath();
+    opts.clip(ctx);
+    ctx.clip();
+  }
+}
+
+/**
  * Paints a field into any 2d context, blurred and composited.
  *
  * <p>Three clip routes, in order of precedence:
@@ -304,33 +412,7 @@ export function paint(ctx, w, h, pts, opts) {
     const sx = t.width / w;
     tc.setTransform(sx, 0, 0, sx, 0, 0);
     blitField(tc, f, opts);
-    // The mask is composed on its OWN surface and applied in a single destination-in — see this
-    // function's doc comment for why fill-then-stroke straight onto the field cannot do this job.
-    const mk = document.createElement('canvas');
-    mk.width = t.width;
-    mk.height = t.height;
-    const mc = mk.getContext('2d');
-    mc.setTransform(sx, 0, 0, sx, 0, 0);
-    mc.filter = `blur(${opts.clipSoft}px)`;
-    mc.translate(opts.clipDx || 0, opts.clipDy || 0);
-    mc.fillStyle = '#fff';
-    mc.strokeStyle = '#fff';
-    // clipGrow DILATES the mask by stroking the same path — a uniform band that follows the
-    // coastline, absorbing a coarse coastline's survey error without inventing a shape. Unioning
-    // discs at each location did the same job but drew visible circles offshore, because the
-    // error is geographic and the disc would have to grow with zoom.
-    if (opts.clipGrow > 0) {
-      mc.lineWidth = opts.clipGrow * 2;
-      mc.lineJoin = 'round';
-      mc.lineCap = 'round';
-      mc.stroke(opts.clipPath);
-    }
-    mc.fill(opts.clipPath);
-    tc.globalCompositeOperation = 'destination-in';
-    tc.globalAlpha = 1;
-    tc.filter = 'none';
-    tc.setTransform(1, 0, 0, 1, 0, 0);
-    tc.drawImage(mk, 0, 0);
+    applySoftMask(tc, w, h, sx, opts);
     ctx.save();
     ctx.globalAlpha = 1;
     ctx.filter = 'none';
@@ -340,17 +422,7 @@ export function paint(ctx, w, h, pts, opts) {
     return f;
   }
   ctx.save();
-  if (opts.clipPath) {
-    const dx = opts.clipDx || 0;
-    const dy = opts.clipDy || 0;
-    ctx.translate(dx, dy);
-    ctx.clip(opts.clipPath);
-    ctx.translate(-dx, -dy);
-  } else if (opts.clip) {
-    ctx.beginPath();
-    opts.clip(ctx);
-    ctx.clip();
-  }
+  applyHardClip(ctx, opts);
   blitField(ctx, f, opts);
   ctx.restore();
   return f;
@@ -521,6 +593,21 @@ function hatchPlate(ctx, w, h, clip, opts) {
   ctx.beginPath();
   clip();
   ctx.clip();
+  ruleHatch(ctx, w, h, opts);
+  ctx.restore();
+}
+
+/**
+ * Rules the 45° hatch across the whole {@code w}×{@code h} surface, unclipped — the mark itself,
+ * shared by {@link hatchPlate} (clipped to the plate) and {@link paintUnknown} (masked to the
+ * ground around unrated places).
+ *
+ * @param {CanvasRenderingContext2D} ctx target context, drawing in CSS px
+ * @param {number} w surface width in CSS px
+ * @param {number} h surface height in CSS px
+ * @param {{hatchGap?: number, hatchInk?: string, hatchLine?: number}} opts the hatch's dials
+ */
+function ruleHatch(ctx, w, h, opts) {
   // Floored at 1: a zero or negative gap does not draw a denser hatch, it hangs the render
   // thread. The option exists for the tests, and a shared kernel should not carry a loop a
   // caller can freeze the tab with.
@@ -535,7 +622,169 @@ function hatchPlate(ctx, w, h, clip, opts) {
   ctx.strokeStyle = opts.hatchInk || HATCH_INK;
   ctx.lineWidth = opts.hatchLine || HATCH_LINE;
   ctx.stroke();
+}
+
+/** One isolated place's own peak coverage is 0.58; the mask's threshold sits a margin below it. */
+const UNKNOWN_THRESHOLD = 0.45;
+
+/**
+ * The unknown-ground mask: how strongly each grid cell should carry the "not rated yet" hatch.
+ *
+ * <p>Per cell, over the places within the kernel's cutoff ({@code d² <= 6R²}), with the same
+ * gaussian weight the field uses: {@code su} sums the UNRATED places, {@code sr} the RATED ones;
+ * each is run through the field's own coverage clamp ({@code 1 - exp(-s / 1.15)}) to
+ * {@code cu}/{@code cr}; then {@code a = clamp(cu / 0.45, 0, 1) * clamp(1 - cr / 0.45, 0, 1)}.
+ * 0.45 is about one isolated place's own peak coverage (0.58) less a margin, so a lone unrated
+ * place gets a solid disc, and a rated place suppresses the hatch where it stands — colour wins
+ * at an overlap. Empty ground is 0: no places, no claim.
+ *
+ * <p>Shares {@link bucketPoints}/{@link forNeighbours} with {@link field}, so the two walk one
+ * lattice. {@code opts.focus} multiplies every other region's weight by 1e-4, exactly as the
+ * field's colour fades them, so a focused region's hatch fades with its colour.
+ *
+ * @param {Array<{x: number, y: number, rid: *}>} unrated unrated places in CSS px of the surface
+ * @param {Array<{x: number, y: number, rid: *}>} rated rated places in CSS px of the surface
+ * @param {number} w surface width in CSS px
+ * @param {number} h surface height in CSS px
+ * @param {{radius?: number, grid?: number, focus?: *}} [opts] the field's radius, grid and focus
+ * @returns {{cols: number, rows: number, gp: number, alpha: Float32Array}|null} per-cell mask in
+ *          [0, 1], or null when no unrated place can reach the frame
+ */
+export function unknownMask(unrated, rated, w, h, opts) {
+  opts = opts || {};
+  const R = opts.radius || Math.max(14, w * 0.085);
+  const R2 = R * R;
+  const gp = opts.grid || 4;
+  const ug = bucketPoints(unrated, w, h, R, gp);
+  if (!ug.keep.length) return null;
+  const rg = bucketPoints(rated, w, h, R, gp);
+  const cols = Math.ceil(w / gp) + 1;
+  const rows = Math.ceil(h / gp) + 1;
+  const alpha = new Float32Array(cols * rows);
+  let px = 0;
+  let py = 0;
+  let sum = 0;
+  const accumulate = (list) => {
+    for (const p of list) {
+      const dx = px - p.x;
+      const dy = py - p.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > R2 * 6) continue;
+      let wt = Math.exp(-d2 / R2);
+      if (opts.focus && p.rid !== opts.focus) wt *= 1e-4;
+      sum += wt;
+    }
+  };
+  for (let j = 0; j < rows; j += 1) {
+    for (let i = 0; i < cols; i += 1) {
+      px = i * gp;
+      py = j * gp;
+      sum = 0;
+      forNeighbours(ug, px, py, accumulate);
+      const su = sum;
+      sum = 0;
+      forNeighbours(rg, px, py, accumulate);
+      const sr = sum;
+      const cu = 1 - Math.exp(-su / 1.15);
+      const cr = 1 - Math.exp(-sr / 1.15);
+      alpha[j * cols + i] = clamp(cu / UNKNOWN_THRESHOLD, 0, 1)
+        * clamp(1 - cr / UNKNOWN_THRESHOLD, 0, 1);
+    }
+  }
+  return { cols, rows, gp, alpha };
+}
+
+/**
+ * Paints the "not rated yet" hatch around unrated places, UNDER the field and ABOVE the plate.
+ *
+ * <p>The hatch is ruled over the whole surface on a temp canvas, multiplied by the
+ * {@link unknownMask} (upscaled with the field's OWN blur, {@code blur + (1 - conf) * 2.6}, so the
+ * edge feathers at the colour's rate) in one {@code destination-in}, then drawn through the same
+ * land clip the field takes: the soft route when {@code clipPath} + {@code clipSoft} are set, else
+ * the hard ones. It honours {@code opts.focus} through the mask.
+ *
+ * @param {CanvasRenderingContext2D} ctx target context, drawing in CSS px
+ * @param {number} w surface width in CSS px
+ * @param {number} h surface height in CSS px
+ * @param {Array<{x: number, y: number, rid: *}>} unrated unrated places, in CSS px
+ * @param {Array<{x: number, y: number, rid: *}>} rated rated places, in CSS px
+ * @param {object} [opts] what {@link paint} takes for its clip, plus {@code radius}, {@code grid},
+ *        {@code blur}, {@code conf}, {@code focus} and the hatch dials
+ * @returns {boolean} whether anything was drawn
+ */
+export function paintUnknown(ctx, w, h, unrated, rated, opts) {
+  opts = opts || {};
+  const m = unknownMask(unrated, rated, w, h, opts);
+  if (!m) return false;
+  const off = document.createElement('canvas');
+  off.width = m.cols;
+  off.height = m.rows;
+  const octx = off.getContext('2d');
+  const data = octx.createImageData(m.cols, m.rows);
+  for (let k = 0; k < m.alpha.length; k += 1) {
+    const o = k * 4;
+    data.data[o] = 255;
+    data.data[o + 1] = 255;
+    data.data[o + 2] = 255;
+    data.data[o + 3] = Math.round(m.alpha[k] * 255);
+  }
+  octx.putImageData(data, 0, 0);
+  const unc = 1 - (opts.conf == null ? 1 : clamp(opts.conf, 0, 1));
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  const sx = W / w;
+  const t = document.createElement('canvas');
+  t.width = W;
+  t.height = H;
+  const tc = t.getContext('2d');
+  tc.setTransform(sx, 0, 0, sx, 0, 0);
+  ruleHatch(tc, w, h, opts);
+  const mk = document.createElement('canvas');
+  mk.width = W;
+  mk.height = H;
+  const mc = mk.getContext('2d');
+  mc.setTransform(sx, 0, 0, sx, 0, 0);
+  mc.imageSmoothingEnabled = true;
+  mc.filter = `blur(${(opts.blur || 3) + unc * 2.6}px)`;
+  mc.drawImage(off, 0, 0, m.cols, m.rows, 0, 0, m.cols * m.gp, m.rows * m.gp);
+  tc.setTransform(1, 0, 0, 1, 0, 0);
+  tc.globalCompositeOperation = 'destination-in';
+  tc.drawImage(mk, 0, 0);
+  const soft = Boolean(opts.clipPath && opts.clipSoft);
+  if (soft) applySoftMask(tc, w, h, sx, opts);
+  ctx.save();
+  if (!soft) applyHardClip(ctx, opts);
+  ctx.globalAlpha = 1;
+  ctx.filter = 'none';
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(t, 0, 0, w, h);
   ctx.restore();
+  return true;
+}
+
+/**
+ * Points ready for the unknown layer from caller spots — projected, with only what the mask reads.
+ *
+ * @param {Array<object>} spots spots with {@code lat}, {@code lng}, {@code rid}
+ * @param {function(object): number[]} project maps a spot to {@code [x, y]}
+ * @returns {Array<{x: number, y: number, rid: *}>} mask points
+ */
+function maskPoints(spots, project) {
+  return (Array.isArray(spots) ? spots : []).map((s) => {
+    const p = project(s);
+    return { x: p[0], y: p[1], rid: s.rid };
+  });
+}
+
+/**
+ * The rated points' mask projection — only a place with a finite score takes part, because a
+ * null-scored point is not a rating however it got into the point set.
+ *
+ * @param {Array<{x: number, y: number, sc: *, rid: *}>} pts the field's projected points
+ * @returns {Array<{x: number, y: number, rid: *}>} the rated ones
+ */
+function ratedMaskPoints(pts) {
+  return pts.filter((p) => typeof p.sc === 'number' && Number.isFinite(p.sc));
 }
 
 /**
@@ -547,8 +796,11 @@ function hatchPlate(ctx, w, h, clip, opts) {
  * @param {number} h CSS px
  * @param {Array<{lat: number, lng: number, r: number[], rid: *}>} spots the catalogue
  * @param {number} win index into each spot's `r` scores
- * @param {object} [opts] `fit`, `sea`, `plate`, `stroke`, `line`, `focus`, `hatch` + everything
- *        {@link field} takes. `hatch` rules {@link hatchPlate}'s no-data texture over the plate;
+ * @param {object} [opts] `fit`, `sea`, `plate`, `stroke`, `line`, `focus`, `hatch`, `unrated` +
+ *        everything {@link field} takes. `unrated` is the "not rated yet" places
+ *        ({@code unratedPointsFor}'s shape): the ground around them is hatched, under the field and
+ *        over the plate, so colour wins where a rated place is near — absent, nothing is drawn.
+ *        `hatch` rules {@link hatchPlate}'s no-data texture over the plate;
  *        it is the CALLER's claim that this window carries no scores, never inferred from an
  *        empty field — {@link field} also returns null when every point is culled outside the
  *        frame, which is a framing answer rather than an absence of data.
@@ -579,7 +831,18 @@ export function drawGeo(cv, w, h, spots, win, opts) {
     const p = projection([s.lng, s.lat]);
     return { x: p[0], y: p[1], sc: s.r[win], rid: s.rid };
   });
-  paint(ctx, w, h, pts, { ...opts, alpha: opts.focus ? 238 : 206, clip: () => path(LAND) });
+  const clip = () => path(LAND);
+  // Above the plate, under the field: colour wins where a rated place is near. Absent by default,
+  // so every existing host's output is exactly what it was.
+  if (opts.unrated && opts.unrated.length) {
+    paintUnknown(
+      ctx, w, h,
+      maskPoints(opts.unrated, (s) => projection([s.lng, s.lat])),
+      ratedMaskPoints(pts),
+      { ...opts, clip },
+    );
+  }
+  paint(ctx, w, h, pts, { ...opts, alpha: opts.focus ? 238 : 206, clip });
   // After the field and before the coastline: the mark belongs to the plate, so it sits under the
   // edge that defines the plate. Ordinary callers never set it, so every existing host's paint
   // order is unchanged.
@@ -600,9 +863,11 @@ export function drawGeo(cv, w, h, spots, win, opts) {
  * @param {object} map a Leaflet map
  * @param {Array<{lat: number, lng: number, r: number[], rid: *}>} spots the catalogue
  * @param {number} win index into each spot's `r` scores
- * @param {{score?: (spot: object) => number}} [opts] `score` lets a host score a location by
- *        something other than a solar window index — the Map tab's night events (astro, aurora)
- *        are derived, not present in `r[]` — plus everything {@link field} and {@link paint} take
+ * @param {{score?: (spot: object) => number, unrated?: Array<object>}} [opts] `score` lets a host
+ *        score a location by something other than a solar window index — the Map tab's night
+ *        events (astro, aurora) are derived, not present in `r[]` — and `unrated` hatches the
+ *        ground around those places under the field (see {@link drawGeo}; the soft land clip applies),
+ *        plus everything {@link field} and {@link paint} take
  * @returns {object|null} the painted field, or null when the map is too small
  */
 export function drawTiles(cv, map, spots, win, opts) {
@@ -618,6 +883,17 @@ export function drawTiles(cv, map, spots, win, opts) {
     const p = map.latLngToContainerPoint([s.lat, s.lng]);
     return { x: p.x, y: p.y, sc: score(s), rid: s.rid };
   });
+  if (opts.unrated && opts.unrated.length) {
+    paintUnknown(
+      ctx, w, h,
+      maskPoints(opts.unrated, (s) => {
+        const p = map.latLngToContainerPoint([s.lat, s.lng]);
+        return [p.x, p.y];
+      }),
+      ratedMaskPoints(pts),
+      opts,
+    );
+  }
   return paint(ctx, w, h, pts, opts);
 }
 
