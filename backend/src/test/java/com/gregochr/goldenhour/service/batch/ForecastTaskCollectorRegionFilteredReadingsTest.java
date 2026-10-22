@@ -167,7 +167,8 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
                 solarService, openMeteoService, augmentor, legacyEvaluationService,
                 engineEvaluationService, forecastEvaluationRepository, notificationDispatcher,
                 eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                slotAtmosphereWriter, org.mockito.Mockito.mock(RunProgressTracker.class), CLOCK);
+                slotAtmosphereWriter, org.mockito.Mockito.mock(RunProgressTracker.class), CLOCK,
+                new com.gregochr.goldenhour.config.AppBuild("v2.28.0"));
 
         collector = new ForecastTaskCollector(
                 locationService, briefingService, briefingEvaluationService,
@@ -202,6 +203,8 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         lenient().when(augmentor.augmentWithInversionScore(any(), any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithBluebellConditions(any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
                 .thenReturn(Optional.empty());

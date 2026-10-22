@@ -576,35 +576,6 @@ describe('a window the EV list has no row for', () => {
     expect(screen.queryByTestId('wf-map-no-forecast')).not.toBeInTheDocument();
   });
 
-  it('leaves the frozen Plan-tab overlay alone — it builds no EV list to be judged against', async () => {
-    // The overlay is `overlayMode ? [] : buildMapEvents(...)`: it has no EV list, no window
-    // control and no pill, and inherits its window from the Plan card that opened it. There is
-    // nothing there for a rating to contradict, so gating it would blank the whole frozen surface.
-    //
-    // ⚠️ `forecastDates` is passed HERE and `App` does not pass it to the overlay today — that is
-    // deliberate. Without it the predicate sees an empty domain and fails open, so this test would
-    // pass with the `overlayMode` exemption deleted and prove nothing (mutation-checked: it did).
-    // The overlay's protection must rest on WHAT IT IS, not on which props it currently happens to
-    // be handed — a later change adding `forecastDates` here for some unrelated reason must not
-    // silently blank it.
-    await renderMap({
-      locations: makeLocations(YESTERDAY),
-      date: YESTERDAY,
-      forecastDates: [TODAY],
-      overlayMode: true,
-    });
-
-    expect(screen.queryByTestId('wf-map-counts-footer')).not.toBeInTheDocument();
-    expect(markerCount()).toBe(2);
-    // ...and no empty-state line either. ⚠️ This assertion is STRUCTURAL rather than load-bearing,
-    // and mutation testing is what established that: rendering the line in the overlay arm too
-    // changes nothing observable, because that arm's whole chrome block is `heatOffered`-gated and
-    // the overlay is deliberately handed no `heat` at all. Kept as documentation of the intent —
-    // the overlay inherits its window from the card that opened it and has no "which window" state
-    // to be empty about — and as a tripwire if the overlay is ever given a field.
-    expect(screen.queryByTestId('wf-map-no-forecast')).not.toBeInTheDocument();
-  });
-
   it('reports no STAND-DOWN either — a triage verdict is a claim about a window too', async () => {
     // The same defect one field over: `resolveStandDown` reads the same two per-window indexes,
     // so without its own gate a grey "stood down" pin outlived the stars beside it, still

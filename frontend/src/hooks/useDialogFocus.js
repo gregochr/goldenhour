@@ -89,8 +89,8 @@ const focusLanded = (el) => {
  * on {@code <body>}, which a pointer press on a button does in macOS Safari). It sits behind the
  * same "the reader has not chosen somewhere else" guard as the ordinary restore, so it can never
  * take a reader from a place they chose. A caller that does not pass one gets exactly what it got
- * before: four render sites share this hook ({@code Modal}, {@code BottomSheet}, {@code MapOverlay},
- * {@code RegionsJump}), and only the settings dialog's nudge route has a successor to name.
+ * before: three render sites share this hook ({@code Modal}, {@code BottomSheet},
+ * {@code RegionsJump}; {@code MapOverlay} was a fourth until overlay convergence C5), and only the settings dialog's nudge route has a successor to name.
  *
  * @param {boolean} active whether the dialog is currently open
  * @param {object}  [options]

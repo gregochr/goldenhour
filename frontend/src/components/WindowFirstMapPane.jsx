@@ -22,13 +22,36 @@ import { buildRegionBestIndex } from '../utils/regionsJump.js';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import { buildWindowTideIndex } from '../utils/mapTideFit.js';
+import { buildPastSolarWindows, pastWindowBest } from '../utils/mapEvents.js';
+import {
+  buildHeatPointSets, buildHeatSpots, buildHeatWindowStates, forecastScoreRows,
+} from '../utils/heatSpots.js';
+import { windowKey } from '../utils/windowKeys.js';
 import { formatTime } from '../utils/briefingDisplay.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { useRewind } from '../hooks/useRewind.js';
+import { useOutcomeRatings } from '../hooks/useOutcomeRatings.js';
+import { ratedCountByWindow } from '../utils/outcomeRatingJoin.js';
+import { emptyOlderDay, olderDayState } from '../utils/mapOlderDay.js';
 
 /**
  * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
  * one the opening `fitBounds` and the area toggle both use so the two cannot drift apart.
  */
 const FRAME_PAD_DEG = 0.12;
+
+/**
+ * The past-window heat when there is none (O3c). One shared value, so a pane with no past window
+ * keeps the identity of everything built from it — `MapView` is `React.memo`, and a fresh empty
+ * `Map` per call would rebuild the `heat` prop on every re-render of a pane that has nothing to add.
+ */
+/** Stable empty window states: scores not (yet) loaded, so no served window has anything to say. */
+const NO_WINDOW_STATES = new Map();
+
+const NO_PAST_HEAT = Object.freeze({ windows: [], pointSets: new Map(), windowStates: new Map() });
+
+/** Stable empty list: no older days fetched. The `loadedPastDays` prop's default, so an absent prop keeps one identity. */
+const NO_LOADED_DAYS = Object.freeze([]);
 
 /**
  * Subscribes to everything that can change whether this page is the one in front of the reader:
@@ -121,31 +144,25 @@ function subscribeForeignModalDom(onChange) {
  * <h2>A hidden pane must not act on a handoff nobody sent it</h2>
  *
  * <p>⚠️ The sharpest thing here, found by review and reproduced at 390px. Because the shell keeps
- * this pane mounted, its {@code MapView} is alive for the rest of the session after one visit — and
- * handing it App's overlay handoff, which <em>every</em> plan-card tap sets, meant a map that is not
- * on screen still answered. On a phone {@code MapView} answers a location handoff with a
- * {@code BottomSheet}, and that is {@code createPortal(…, document.body)} at
- * {@code z-index: 10000}, so {@code display: none} on the panel cannot suppress it: tapping
- * "Open on map" on the <b>Plan</b> tab raised two stacked sheets and locked body scroll.
- *
- * <p>So {@code handoff} here is not App's overlay handoff. It is set only when the reader explicitly
- * asks to be taken to this tab — the overlay's hatch — and every other handoff belongs to the
- * overlay. The general rule, worth carrying to the next slotted pane: <b>a pane that is never
- * unmounted must not be wired to state that changes while it is hidden</b>, unless acting on it
- * while hidden is genuinely what you want.
+ * this pane mounted, its {@code MapView} is alive for the rest of the session after one visit - so
+ * a handoff that changes while the pane is hidden would be answered by a map that is not on screen.
+ * On a phone {@code MapView} used to answer a location handoff with a {@code BottomSheet}, a
+ * {@code createPortal(…, document.body)} at {@code z-index: 10000} that {@code display: none} on the
+ * panel cannot suppress. Hence {@code handoff} here is set only when the reader explicitly asks to
+ * be taken to this tab (a door), never by state that changes while the tab is hidden. The general
+ * rule, worth carrying to the next slotted pane: <b>a pane that is never unmounted must not be wired
+ * to state that changes while it is hidden</b>, unless acting on it while hidden is genuinely what
+ * you want.
  *
  * @param {object}   props
  * @param {Array}    props.locations       the enabled locations the map draws
  * @param {string[]} props.dates           every date with a sunrise or sunset forecast (`colourForecastDates` — NOT hourly-only dates)
  * @param {string}   props.selectedDate    the date the map is showing
  * @param {Function} props.onSelectDate    hands a new date back to {@code App}
- * @param {object}   [props.handoff]       a handoff the reader ASKED to land on, from the overlay's
- *                                         hatch — never App's overlay handoff, which every plan-card
- *                                         tap sets and which this pane must not act on while it is
- *                                         hidden
+ * @param {object}   [props.handoff]       a handoff the reader ASKED to land on (a door), which this
+ *                                         pane must not act on while it is hidden
  * @param {string}   [props.autoEventType] the auto-selected event type
  * @param {Map}      [props.briefingScores]
- * @param {Function} [props.onForecastRun]
  * @param {Array}    [props.seasonalFeatures]
  * @param {object}   [props.homeCoords]    the home; null with no postcode, `undefined` while not
  *                                         known — no default, see its PropTypes note
@@ -177,9 +194,11 @@ function subscribeForeignModalDom(onChange) {
 export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
   briefingScores = new Map(),
-  onForecastRun = null, seasonalFeatures = [], homeCoords,
+  seasonalFeatures = [], homeCoords,
   mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null,
   onOpenSettings = null, onOpenLocationSheet = null, onReturnToPlan = null,
+  onLoadOlderDay = null, olderDayLoading = null, loadedPastDays = NO_LOADED_DAYS,
+  emptyPastDays = NO_LOADED_DAYS,
 }) {
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
@@ -277,7 +296,7 @@ export default function WindowFirstMapPane({
    */
   useEffect(() => { import('./LocationFourDaySheet.jsx').catch(() => {}); }, []);
   const {
-    heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
+    heatSpots, heatPointSets, heatStripCards, upcomingEvents, reachById, homePlace, todayStr,
     origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions,
   } = useWindowFirstBriefing();
 
@@ -290,7 +309,7 @@ export default function WindowFirstMapPane({
   // exactly what it did before.
   const ask = useAsk();
   const {
-    pickCards, selectedPick, selectionNonce, answer: askAnswer, selectPick: selectAskPick,
+    pickCards, selectedPick, selectionNonce, selectionCallout, answer: askAnswer, selectPick: selectAskPick,
     registerMapContext, availability: askAvailability, phase: askPhase,
   } = ask;
   /**
@@ -325,11 +344,20 @@ export default function WindowFirstMapPane({
   const chosenCard = pickCards.find((card) => card.rank === selectedPick) ?? null;
   const chosenDate = chosenCard?.date ?? null;
   const chosenType = chosenCard?.targetType ?? null;
+  const chosenLocationId = chosenCard?.locationId ?? null;
+  // `callout` and `locationId` ride the nonce (docs/engineering/phone-pick-callout-plan.md §3 P1): the
+  // intent belongs to the choice that made it, so a card choice (callout false) can never inherit a chip's.
   const askWindow = useMemo(
     () => (chosenDate && chosenType && selectionNonce > 0
-      ? { date: chosenDate, eventType: chosenType, nonce: selectionNonce }
+      ? {
+        date: chosenDate,
+        eventType: chosenType,
+        nonce: selectionNonce,
+        callout: selectionCallout === true,
+        locationId: chosenLocationId,
+      }
       : null),
-    [chosenDate, chosenType, selectionNonce],
+    [chosenDate, chosenType, selectionNonce, selectionCallout, chosenLocationId],
   );
   /** The camera fits once per answer that has picks on the map. */
   const askAnswerId = pickCards.length > 0 ? (askAnswer?.id ?? null) : null;
@@ -346,24 +374,19 @@ export default function WindowFirstMapPane({
   // dock must not go on quoting a scope that no longer exists.
   useEffect(() => () => registerMapContext(null), [registerMapContext]);
   /**
-   * A STRUCTURED handoff, distinguished from the overlay hatch's on the SAME `handoff` channel
-   * (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 2) — all of them arrive as `App.jsx`'s
-   * `mapTabHandoff`, but a structured payload names its `source` and the hatch's never has that
-   * field at all, so they are told apart by that one field rather than by a second channel.
-   * Forwarded to `MapView` as ONE `planHandoff` prop; the hatch's own five `handoff*` props below
-   * are withheld whenever a structured handoff is the one in flight, so the OLD per-field effects
-   * (`handoffRegion`'s `FitBoundsController` fit, in particular) can never double-apply a door's
-   * own region alongside the new nonce-keyed effect's `jumpToRegion`/`resetToMyArea`.
+   * A STRUCTURED handoff (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 2) - it arrives as
+   * `App.jsx`'s `mapTabHandoff` and names its `source`. Forwarded to `MapView` as ONE `planHandoff`
+   * prop. (Until overlay convergence C5 the same channel also carried the overlay hatch's source-less
+   * payload on five per-field `handoff*` props; both are gone, so a payload with no `source` is
+   * simply not a handoff and is dropped.)
    *
    * <p>⚠️ <b>TWO sources ride it, and the prop's name only covers one of them.</b> `'plan'` is a
    * door (the reader is arriving from the Plan tab, carrying its lens); `'map'` is the four-day
    * sheet's own footer pressed while that sheet is already OVER the map, which moves the window and
    * the selection and nothing else. `MapView` branches on `source` for the lens/scope/camera block
-   * and for the landing strip. They share this channel rather than getting one each because the
-   * effect behind it is the only one that treats the handed-over event as an EXPLICIT selection
-   * (`setUserHasOverriddenEvent(true)`); the hatch's own event arm sets that flag FALSE, and a
-   * map-sourced payload sent down it had its window silently replaced by `autoEventType` a tick
-   * later (Codex review, P1 against the first cut of this route).
+   * and for the landing strip. They share this channel because the effect behind it treats the handed-over event as an
+   * EXPLICIT selection (`setUserHasOverriddenEvent(true)`), so `autoEventType` cannot replace the
+   * window a tick later.
    */
   const isStructuredHandoff = handoff?.source === 'plan' || handoff?.source === 'map';
   const planHandoff = isStructuredHandoff ? handoff : null;
@@ -440,9 +463,154 @@ export default function WindowFirstMapPane({
     () => buildEclipseIndex(briefing?.days), [briefing?.days],
   );
 
+  /**
+   * The Map tab's PAST windows (outcome-rating-plan.md §2 #2): every (date, targetType) the
+   * locations hold at least one forecast row for with {@code date <= today}, each with the earliest
+   * {@code solarEventTime} among its rows — the instant that decides whether the window has
+   * elapsed. Built here, from {@code forecastsByDate}, and never from the briefing: the briefing
+   * withdraws a window once it is over, which is exactly when this list starts to matter. The
+   * window control's rows, the pane's rating reads and the forwarding rule are all derived from it
+   * in {@code MapView}; a filter/min over served rows, the already-licensed class (CLAUDE.md
+   * Backend-heavy), reading no rating.
+   */
+  const pastSolarWindows = useMemo(
+    () => buildPastSolarWindows(locations, todayStr), [locations, todayStr],
+  );
+
+  /**
+   * The heat field for the PAST windows (outcome-rating-plan.md §2 #3, O3c) — built HERE, in the
+   * pane, and never in the briefing context. {@code WindowFirstBriefingContext} joins its heat spots
+   * over the SAME {@code upcomingEvents} that build the Plan's cards, rows and region series, so
+   * extending that list would put past windows into the Plan matrix, which the spec forbids.
+   *
+   * <p>Three things come out: a past-only spot catalogue (the roster joined over the past windows
+   * alone), its keyed point sets, and one {@code heat.windows} entry per window. ⚠️ The score rows
+   * are drawn from {@code forecastsByDate} ONLY ({@link forecastScoreRows}), never from
+   * {@code scoreRows}: the scores endpoint serves the latest result for a slot, which for a passed
+   * slot may postdate the event, while the forecast rows for a passed slot are served as of it (once
+   * the as-of-event resolver, plan §2 #4, lands) — the chips and the callout already read them alone
+   * on a past window, and the field must agree.
+   *
+   * <p>A window the briefing still SERVES (a strip card with the same key) is left to the briefing's
+   * own entry and point set: a served and a past entry for one key would let the field read the
+   * wrong ratings. Every entry carries {@code past: true}, which {@code buildMapEvents},
+   * {@code solarRowPredicate} and {@code MapView}'s {@code activeWindowPast} all read as "NOT served"
+   * — without it each past window would turn into an unlabelled served row. The entries are built for
+   * every unserved window with rows, today's not-yet-elapsed one included (that is a D-13 filler
+   * until it elapses): the elapsed test needs the app clock, which a data-keyed memo cannot follow,
+   * so {@code MapView}'s {@code heatWindow} withholds a {@code past} entry unless its own per-render
+   * {@code activeWindowPast} agrees. So {@code heat.windows.filter((w) => w.past)} does NOT mean
+   * "windows that are over": for today it can name one that has not yet elapsed. A reader that needs
+   * that must ask {@code isPastSolarWindow} (or the EV row's {@code past}), never this list. These
+   * entries also carry only the fields the field and the colour key read (no label, time, badges,
+   * tide or {@code confidenceTier}); the past EV row ({@code mapEvents.pastSolarRow}) carries the rest.
+   *
+   * <p>The kernel's haze reads the inferred confidence cap ({@code medium}): a past window carries no
+   * served confidence (plan §4 #5). {@code bestRating} is {@link pastWindowBest}, a client max over
+   * the PAINTED points — the new named member of the licensed Map-tab class.
+   */
+  const pastHeat = useMemo(() => {
+    const served = new Set(heatStripCards.map((card) => card.key));
+    const events = pastSolarWindows
+      .filter((w) => !served.has(windowKey(w.date, w.targetType)))
+      .map(({ date, targetType }) => ({ date, targetType }));
+    if (events.length === 0) return NO_PAST_HEAT;
+    const spots = buildHeatSpots(locations, forecastScoreRows(locations, events), events);
+    return {
+      windows: events.map(({ date, targetType }, index) => {
+        const confidenceTier = resolveConfidence({ confidence: null }, daysOut(date, todayStr));
+        return {
+          key: windowKey(date, targetType),
+          date,
+          targetType,
+          past: true,
+          bestRating: pastWindowBest(spots, index),
+          confidence: null,
+          conf: confidenceScalar(confidenceTier),
+        };
+      }),
+      pointSets: buildHeatPointSets(spots, events),
+      windowStates: buildHeatWindowStates(spots, events),
+    };
+  }, [heatStripCards, pastSolarWindows, locations, todayStr]);
+
+  /**
+   * The reader's own outcome ratings for the past windows (outcome-rating-plan.md §2 #5) — read for
+   * the oldest past date this pane knows of through today, re-read when an older day lands (that
+   * date moves) and when the forecasts refresh ({@code locations} is rebuilt by every refresh), and
+   * handed to {@code MapView} as one object for the callout's rating block. A per-user join of the
+   * reader's own records onto windows and spots, never a derivation over the shared briefing; held
+   * in state alone, so a logout cannot carry them to the next account. Offered to nobody while a
+   * rewind is in force (§5 #6): a rewind is a screenshot of the forecast as it stood.
+   */
+  const { role } = useAuth();
+  const rewound = useRewind() != null;
+  const ratingsFrom = useMemo(() => {
+    const past = (Array.isArray(dates) ? dates : []).filter((d) => d && d < todayStr).sort();
+    return past[0] ?? todayStr ?? null;
+  }, [dates, todayStr]);
+  const outcomeRatings = useOutcomeRatings({
+    role, rewound, from: ratingsFrom, to: todayStr ?? null, refreshKey: locations,
+  });
+
+  /**
+   * How many locations the reader has rated for each PAST window — the window control's and the peek
+   * sheet's {@code {n} rated} (outcome-rating-plan.md §2 #6, O4b), "didn't see it" included. A
+   * per-user join of the reader's own records onto the past windows this pane found, one of the two
+   * new named members of CLAUDE.md's Backend-heavy per-user-join class
+   * ({@code utils/outcomeRatingJoin.js}); never a derivation over the shared briefing. A window the
+   * reader's ratings are not known for (older day still being read, a failed read, a rewind) is
+   * ABSENT from the map, so the menus print nothing rather than a false {@code Not rated}. Today's two
+   * windows are counted too: the elapsed one is a past row whether or not a forecast row carried it.
+   */
+  const ratedCounts = useMemo(() => {
+    if (rewound || !todayStr) return null;
+    return ratedCountByWindow({
+      ratings: outcomeRatings,
+      windows: [
+        ...pastSolarWindows,
+        { date: todayStr, targetType: 'SUNRISE' },
+        { date: todayStr, targetType: 'SUNSET' },
+      ],
+      locations,
+    });
+  }, [rewound, todayStr, outcomeRatings, pastSolarWindows, locations]);
+
+  /**
+   * Whether the window control may offer one more stored past day, and which (outcome-rating-plan.md
+   * §2 #2, O3b): the day before the oldest date held — the forecast list's {@code dates} unioned with
+   * the older days already fetched, an empty one included — never older than T-4, and never while an
+   * admin rewind is in force (the Rewind view turns the clock back, and a rewound GET would be
+   * answered for the rewound clock; plan §5 #6). Absent a loader there is nothing to offer. A
+   * lookup over dates the pane already holds, the already-licensed filter/map class (CLAUDE.md
+   * Backend-heavy): it reads no rating and no server rule beyond the {@code MAX_PAST_DAYS} mirror.
+   */
+  const { canLoadOlder, nextOlderDate } = useMemo(() => {
+    const state = olderDayState({
+      dates, loadedPastDays, todayStr, rewound,
+    });
+    return onLoadOlderDay ? state : { canLoadOlder: false, nextOlderDate: null };
+  }, [dates, loadedPastDays, todayStr, rewound, onLoadOlderDay]);
+  // The most recently loaded older day, when it came back with no rows: the menus say so in the Load
+  // row's place (outcome-rating-plan.md §4 #15, amended 2026-10-17). Null with no loader.
+  const emptyOlderDayDate = useMemo(
+    () => (onLoadOlderDay ? emptyOlderDay({ loadedPastDays, emptyPastDays }) : null),
+    [loadedPastDays, emptyPastDays, onLoadOlderDay],
+  );
+
   // The briefing's served tide for every window it carries (rendered or not), with its event time.
   const tideByWindow = useMemo(
     () => buildWindowTideIndex(briefing?.days, formatTime), [briefing?.days],
+  );
+
+  // Place states per served window (thin-sample plan F4), beside the briefing's own point sets.
+  // ⚠️ Withheld until the scores have SUCCESSFULLY loaded (`scoresLoaded`): `scoreRows` is empty while
+  // `/evaluate/scores` is pending and stays empty if it fails, so every sky place would read
+  // "unrated" and the hatch (and the pill's rated count) would claim a forecast nobody has looked at.
+  // A past window is built from the forecast rows alone and is unaffected.
+  const servedWindowStates = useMemo(
+    () => (scoresLoaded ? buildHeatWindowStates(heatSpots, upcomingEvents) : NO_WINDOW_STATES),
+    [scoresLoaded, heatSpots, upcomingEvents],
   );
 
   /**
@@ -480,14 +648,26 @@ export default function WindowFirstMapPane({
       hasHome,
       spots: heatSpots,
       areaSpots: framed,
-      pointsByKey: heatPointSets,
+      // The briefing's own point sets, plus the PAST windows' (`pastHeat`, built above and never in
+      // the context). With no past window the provider's Map is handed through untouched, so its
+      // identity is the provider's and a test can pin that the pane added nothing.
+      // Each window's place states and unrated points (thin-sample plan F4): the "not rated yet" hatch
+      // and the pill's rated count read them. Same keys as `pointsByKey`, same two sources.
+      windowStates: pastHeat.windowStates.size === 0
+        ? servedWindowStates : new Map([...servedWindowStates, ...pastHeat.windowStates]),
+      pointsByKey: pastHeat.pointSets.size === 0
+        ? heatPointSets : new Map([...heatPointSets, ...pastHeat.pointSets]),
       // The briefing's served tide for EVERY window it carries, rendered or not — lent to the
       // Map tab's D-13 filler rows (`mapEvents.solarRow`), which would otherwise lose the strip.
       tideByWindow,
       // Every rendered window, away days included, so the selector's six are the strip's six — one
       // shape of the week. An away window simply has no points and paints nothing, which is the
       // same answer the Plan tab's thumbnail gives it.
-      windows: heatStripCards.map((card) => {
+      //
+      // Then the PAST windows, each flagged `past: true` (`pastHeat`'s doc says why that flag is
+      // load-bearing): appended after the served six, never interleaved, so `windows[0..5]` stay
+      // the strip's own.
+      windows: [...heatStripCards.map((card) => {
         // One resolution, two readers: the kernel's haze (`conf`, a scalar) and the window
         // control's EV rows (`confidenceTier`, the tier string `utils/mapEvents.js` carries
         // straight through via `resolveConfidence`'s own fail-soft precedence — see that
@@ -568,7 +748,7 @@ export default function WindowFirstMapPane({
           // Agreement with the Plan tab is proven by test at whole-catalogue scope
           // (map-landing-plan.md check 8), not by shipping the same value twice.
         };
-      }),
+      }), ...pastHeat.windows],
       areaBounds: framed.length > 0 ? latLngBounds(framed, FRAME_PAD_DEG) : null,
       catalogueBounds: heatSpots.length > 0 ? latLngBounds(heatSpots, FRAME_PAD_DEG) : null,
       // ⚠️ Only while away. `MapView` fetches the per-user drive times itself and the standalone
@@ -590,8 +770,8 @@ export default function WindowFirstMapPane({
        */
       beyondRegionNames: origin ? [] : beyondRegions(heatSpots, reachById),
     };
-  }, [heatSpots, heatPointSets, heatStripCards, tideByWindow, reachById, homePlace, todayStr,
-    origin, effectiveReachById]);
+  }, [heatSpots, heatPointSets, servedWindowStates, heatStripCards, pastHeat, tideByWindow, reachById, homePlace,
+    todayStr, origin, effectiveReachById]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -638,32 +818,27 @@ export default function WindowFirstMapPane({
         // mapEvents.js` uses this both to add unscored solar rows beyond the briefing horizon and
         // to decide whether a picked EV row's date may be forwarded via `onSelectDate` at all.
         forecastDates={dates}
+        // The past windows the forecast list holds rows for (outcome-rating-plan.md §2 #2) — what
+        // lets the window control step back onto a window the briefing has already withdrawn.
+        pastSolarWindows={pastSolarWindows}
+        // The older-day fetch (outcome-rating-plan.md §2 #2, O3b): the next day to ask for, and the
+        // loader `App` owns (`useForecasts.loadOlderDay`).
+        canLoadOlder={canLoadOlder}
+        olderDayDate={nextOlderDate}
+        emptyOlderDayDate={emptyOlderDayDate}
+        olderDayLoading={olderDayLoading}
+        onLoadOlderDay={onLoadOlderDay}
         autoEventType={autoEventType}
-        // Withheld outright for a structured handoff (`isStructuredHandoff`) — see this component's
-        // own `planHandoff` doc note just above: a structured payload's region/location/event ride
-        // the ONE `planHandoff` prop below and must never ALSO reach these older per-field effects,
-        // which apply a region via `FitBoundsController` rather than the door's own `jumpToRegion`/
-        // `resetToMyArea` scope-flip semantics — and whose event arm sets `userHasOverriddenEvent`
-        // to FALSE, which is what made a map-sourced payload lose its window to `autoEventType`.
-        handoffEventType={isStructuredHandoff ? null : (handoff?.eventType ?? null)}
-        handoffFilterAction={isStructuredHandoff ? null : (handoff?.filterAction ?? null)}
-        handoffDarkSky={isStructuredHandoff ? null : (handoff?.darkSky ?? null)}
-        handoffLocationName={isStructuredHandoff ? null : (handoff?.locationName ?? null)}
-        handoffRegion={isStructuredHandoff ? null : (handoff?.region ?? null)}
-        handoffNonce={isStructuredHandoff ? null : (handoff?.nonce ?? null)}
-        // A structured handoff — the ONE prop a `source`-bearing handoff reaches `MapView` through;
-        // null whenever `handoff` is the overlay hatch's own (or there is no handoff at all).
+        // A structured handoff - the ONE prop a handoff reaches `MapView` through (overlay
+        // convergence C5 deleted the legacy per-field `handoff*` props with the overlay's hatch).
         planHandoff={planHandoff}
         briefingScores={briefingScores}
-        onForecastRun={onForecastRun}
         seasonalFeatures={seasonalFeatures}
         homeCoords={homeCoords}
         // The origin in force (D1, plan-to-map-doors-plan.md §3) — the context's live value, so
         // this mount can never disagree with the Plan cards about where the reader is planning
         // from. Gates the tab's home geography (HOME marker, reach rings, ring labels, the legend's
-        // rings toggle) onto home-only inside `MapView`; the overlay mount in `App.jsx` never
-        // passes this prop at all (it is frozen and has no origin concept, so it keeps drawing
-        // whatever `homeCoords` it is handed — which is nothing, today).
+        // rings toggle) onto home-only inside `MapView`.
         origin={origin}
         mapColourScale={mapColourScale}
         colourScaleDefaulted={colourScaleDefaulted}
@@ -704,6 +879,8 @@ export default function WindowFirstMapPane({
         askOffered={askOffered}
         askPhase={askPhase}
         panelShown={panelShown}
+        outcomeRatings={rewound ? null : outcomeRatings}
+        ratedCounts={ratedCounts}
       />
     </div>
   );
@@ -715,8 +892,7 @@ WindowFirstMapPane.propTypes = {
   selectedDate: PropTypes.string,
   onSelectDate: PropTypes.func.isRequired,
   handoff: PropTypes.shape({
-    // 'plan' for a door handoff (D2); absent/undefined for the overlay hatch's own — see
-    // `isStructuredHandoff`'s own doc note above for how the two are told apart on one channel.
+    // 'plan' for a door handoff (D2), 'map' for the sheet footer pressed over the map.
     source: PropTypes.string,
     eventType: PropTypes.string,
     filterAction: PropTypes.string,
@@ -726,11 +902,16 @@ WindowFirstMapPane.propTypes = {
     minRating: PropTypes.number,
     limitMinutes: PropTypes.number,
     date: PropTypes.string,
+    // Overlay convergence C1 - the structured door's extra fields; see `MapView`'s `planHandoff`.
+    night: PropTypes.shape({ kind: PropTypes.oneOf(['aurora', 'astro']), date: PropTypes.string }),
+    focusNames: PropTypes.arrayOf(PropTypes.string),
+    focusPoints: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
+    title: PropTypes.string,
+    caption: PropTypes.string,
     nonce: PropTypes.number,
   }),
   autoEventType: PropTypes.string,
   briefingScores: PropTypes.instanceOf(Map),
-  onForecastRun: PropTypes.func,
   seasonalFeatures: PropTypes.array,
   /**
    * The home: an object, `null` when no postcode is saved, or `undefined` while that is not known
@@ -752,4 +933,12 @@ WindowFirstMapPane.propTypes = {
   onOpenSettings: PropTypes.func,
   onOpenLocationSheet: PropTypes.func,
   onReturnToPlan: PropTypes.func,
+  /** {@code (date) => void}: fetches one older stored day (`useForecasts.loadOlderDay`). Null offers none. */
+  onLoadOlderDay: PropTypes.func,
+  /** The older day being fetched now, YYYY-MM-DD, or null. */
+  olderDayLoading: PropTypes.string,
+  /** The older days already fetched, empty ones included — they still count toward the T-4 floor. */
+  loadedPastDays: PropTypes.arrayOf(PropTypes.string),
+  /** The subset of {@code loadedPastDays} that came back with no rows (`useForecasts.emptyPastDays`). */
+  emptyPastDays: PropTypes.arrayOf(PropTypes.string),
 };

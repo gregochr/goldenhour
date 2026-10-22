@@ -904,6 +904,8 @@ exit-code-not-grep rule) are documented in CLAUDE.md and are not restated here.
 Nine decisions that changed behaviour rather than wording. P8's height figures sit at the end,
 beside P6's and P7's.
 
+> **Amended 2026-10-20 (overlay convergence C2):** "no role crosses the boundary" means no `role` and no `isAdmin`. Derived booleans such as `reachLocked` and `isPro` (from the provider) are allowed — a decision already made, never the role itself.
+
 - **The labels are the spec; the thresholds are 45 / 90 / 150. And the label is now DERIVED from
   the threshold rather than written beside it.** The mock contradicts itself —
   `LIM={any:9999,'30':30,'60':60,'120':120}` at `:457` against

@@ -639,6 +639,33 @@ class ForecastDtoMapperTest {
     }
 
 
+    @Test
+    @DisplayName("toDto() serves Claude's mist_potential as mistPotential, null when the row has none (V186)")
+    void toDto_mapsMistPotential() {
+        ForecastEvaluationEntity entity = buildFullEntity();
+        entity.setMistPotential("LIKELY");
+
+        assertThat(mapper.toDto(entity, false).mistPotential()).isEqualTo("LIKELY");
+
+        entity.setMistPotential(null);
+
+        assertThat(mapper.toDto(entity, false).mistPotential()).isNull();
+    }
+
+    @Test
+    @DisplayName("mistPotential is omitted from the wire when null (NON_NULL), present when set")
+    void mistPotential_wireShape() throws Exception {
+        tools.jackson.databind.json.JsonMapper json = tools.jackson.databind.json.JsonMapper.builder().build();
+        ForecastEvaluationEntity entity = buildFullEntity();
+
+        assertThat(json.writeValueAsString(mapper.toDto(entity, false))).doesNotContain("mistPotential");
+
+        entity.setMistPotential("FOGBOUND");
+
+        assertThat(json.writeValueAsString(mapper.toDto(entity, false)))
+                .contains("\"mistPotential\":\"FOGBOUND\"");
+    }
+
     private ForecastEvaluationEntity buildFullEntity() {
         return ForecastEvaluationEntity.builder()
                 .id(1L)

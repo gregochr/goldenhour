@@ -87,6 +87,20 @@ public class ComingUpAssembler {
     private static final String MARK_PEAK = "peak";
     private static final String MARK_FULL_MOON = "full moon";
     private static final String SEPARATOR = " · ";
+
+    /**
+     * The separator inside an event-water row: the dot is bound to the word before it by a
+     * non-breaking space, so a wrapped row can never begin with a bare {@code ·}.
+     */
+    private static final String EVENT_SEPARATOR = "\u00a0· ";
+
+    /** Within this many minutes a high water reads "at sunrise/sunset" (TideWording's rounding). */
+    private static final long EVENT_COINCIDENT_MINUTES = 5;
+
+    private static final long MINUTES_PER_HOUR = 60;
+
+    /** The sparkline's marked extremum: the card names high water only, so it is always HW. */
+    private static final String PHASE_HW = "HW";
     private static final String COUNTED_AS_ONE = " Counted as one event, not two.";
     private static final String JOIN_STEM = "Same cause, two effects. The moon is closest to Earth, which both "
             + "enlarges it and stretches the tide.";
@@ -242,6 +256,8 @@ public class ComingUpAssembler {
         String scoreNote;
         ComingUpAction action;
         double rarityBits;
+        /** False when the rarity figure is a configured estimate, so no sentence may state it. */
+        boolean rarityIsStatable = true;
         double magnitudeBits;
         double bits;
         ComingUpTide tide;
@@ -411,22 +427,24 @@ public class ComingUpAssembler {
                     // "range - avg" stays honest on the card (not the raw difference, rounded apart).
                     double shownRange = metresToOneDp(peak.rangeMetres());
                     s.tide = new ComingUpTide(shownRange,
-                            metresToOneDp(shownRange - avgRange.doubleValue()), phaseOf(event));
+                            metresToOneDp(shownRange - avgRange.doubleValue()), PHASE_HW);
                 }
             }
         }
         s.bits = s.rarityBits + s.magnitudeBits;
-        s.facts = tideFacts(event, false);
+        s.facts = tideFacts(event);
 
         LocalDate actionDate = peakDateOf(event);
         s.action = new ComingUpAction(
                 "Show coastal spots for " + DATE_LABEL.format(actionDate) + " →",
                 "coastal-spots", actionDate);
         // range → metric, and read by tideFacts() whenever present, so dropping it is safe exactly
-        // when it was present at all. alignment/location → read by tideFacts() unconditionally too.
-        // peakDate/figuresFrom → action.date, computed unconditionally above. noAlignment/
-        // partialCoverage drive facts text, not a value duplicate, so they stay. highWater/
-        // alignmentDate are read nowhere yet and stay as passthrough.
+        // when it was present at all. location and the eight sunrise/sunset high-water keys +
+        // eventWaterPartial → read by tideFacts() unconditionally too, so they are stripped from the
+        // served meta (the old alignment/alignmentDate/noAlignment keys are no longer written at
+        // all). peakDate/figuresFrom → action.date, computed unconditionally above. partialCoverage
+        // drives facts text, not a value duplicate, so it stays. highWater is read nowhere yet and
+        // stays as passthrough.
         //
         // rangeAnomaly is DIFFERENT: it is never read from meta at all — tide.delta is computed
         // independently from a fresh DB query (peak.rangeMetres() - avgRange), and that query can
@@ -435,7 +453,9 @@ public class ComingUpAssembler {
         // only copy of that fact whenever s.tide ends up null. Drop it only when tide was actually
         // built — the one case where a typed field genuinely supersedes it.
         List<String> droppedKeys = new ArrayList<>(
-                List.of("range", "alignment", "location", "peakDate", "figuresFrom"));
+                List.of("range", "location", "peakDate", "figuresFrom", "sunriseHw", "sunriseHwGap",
+                        "sunriseHwDate", "sunriseHwAligned", "sunsetHw", "sunsetHwGap", "sunsetHwDate",
+                        "sunsetHwAligned", "eventWaterPartial"));
         if (s.tide != null) {
             droppedKeys.add("rangeAnomaly");
         }
@@ -528,6 +548,7 @@ public class ComingUpAssembler {
     }
 
     private void enrichSupermoon(AlmanacEvent event, Staged s) {
+        s.rarityIsStatable = false;
         s.family = "sun-moon";
         s.rarityBits = SurpriseScore.rarity(scoringProperties.getRarity().getSupermoonMeanGapDays());
         s.magnitudeBits = SurpriseScore.DEFAULT_MAGNITUDE_BITS;
@@ -586,6 +607,7 @@ public class ComingUpAssembler {
     }
 
     private void enrichEclipse(AlmanacEvent event, Staged s) {
+        s.rarityIsStatable = false;
         s.family = "eclipse";
         s.rarityBits = SurpriseScore.rarity(scoringProperties.getRarity().getEclipseMeanGapDays());
         s.magnitudeBits = SurpriseScore.DEFAULT_MAGNITUDE_BITS;
@@ -603,6 +625,7 @@ public class ComingUpAssembler {
     }
 
     private void enrichLunarEclipse(AlmanacEvent event, Staged s) {
+        s.rarityIsStatable = false;
         s.family = "eclipse";
         s.rarityBits = SurpriseScore.rarity(scoringProperties.getRarity().getLunarEclipseMeanGapDays());
         s.magnitudeBits = SurpriseScore.DEFAULT_MAGNITUDE_BITS;
@@ -651,11 +674,11 @@ public class ComingUpAssembler {
     // ── Fact-row builders ───────────────────────────────────────────────────
 
     /**
-     * A tide run's fact rows, built from the event's own meta. When {@code merged} (the run hosts a
-     * merged entry) the alignment value gains {@code on the <ordinal>} from {@code alignmentDate},
-     * because on a merged card two topics' days share the row and a bare clock is ambiguous.
+     * A tide run's fact rows, built from the event's own meta: the range, the high water at sunrise
+     * and at sunset (each always dated, merged card or not), the partial-coverage note and the
+     * region scope.
      */
-    private static List<ComingUpFact> tideFacts(AlmanacEvent event, boolean merged) {
+    private static List<ComingUpFact> tideFacts(AlmanacEvent event) {
         Map<String, String> meta = event.meta();
         List<ComingUpFact> facts = new ArrayList<>();
 
@@ -668,24 +691,85 @@ public class ComingUpAssembler {
             }
             facts.add(new ComingUpFact(segs));
         }
-        if (meta.get("alignment") != null) {
-            LocalDate alignedOn = merged ? parseDate(meta.get("alignmentDate")) : null;
-            String alignment = alignedOn == null
-                    ? meta.get("alignment")
-                    : meta.get("alignment") + " on the " + ordinal(alignedOn.getDayOfMonth());
-            facts.add(new ComingUpFact(List.of(
-                    new ComingUpFact.Segment("tide ", "base"),
-                    new ComingUpFact.Segment(alignment, "accent"))));
-        } else if ("true".equals(meta.get("noAlignment"))) {
-            facts.add(new ComingUpFact(List.of(new ComingUpFact.Segment(
-                    "no water lands in the light on this run", "base"))));
-        }
+        facts.addAll(eventWaterFacts(event));
         if ("true".equals(meta.get("partialCoverage"))) {
             facts.add(new ComingUpFact(List.of(new ComingUpFact.Segment(
                     "figures cover only part of this run", "base"))));
         }
         regionScopeFact(event).ifPresent(facts::add);
         return facts;
+    }
+
+    /**
+     * The sunrise and sunset high-water rows of a tide run, in that order, each present only when the
+     * run has a measured high water for the event. Used by the tide-hosted card and, from the tide
+     * topic's own event, by a supermoon-hosted merged card.
+     */
+    private static List<ComingUpFact> eventWaterFacts(AlmanacEvent tideEvent) {
+        Map<String, String> meta = tideEvent.meta();
+        boolean partial = "true".equals(meta.get("eventWaterPartial"));
+        List<ComingUpFact> rows = new ArrayList<>();
+        eventWaterFact("sunrise", "sunriseHw", partial, meta).ifPresent(rows::add);
+        eventWaterFact("sunset", "sunsetHw", partial, meta).ifPresent(rows::add);
+        return rows;
+    }
+
+    /**
+     * One event row: {@code sunrise · HW 07:40, 10m before · Wed 28} when the high water is inside the
+     * alignment window, else {@code sunrise · no high water within an hour · nearest
+     * HW 05:30, 2h20 before · Wed 28}. Empty when the run has no measured high water for the event. On a run
+     * only partly measured the miss is qualified {@code on the days measured}. Figures carry
+     * non-breaking spaces so a phone wraps only around the separators.
+     */
+    private static Optional<ComingUpFact> eventWaterFact(String word, String key, boolean partial,
+            Map<String, String> meta) {
+        String clock = meta.get(key);
+        Long gap = parseLong(meta.get(key + "Gap"));
+        LocalDate date = parseDate(meta.get(key + "Date"));
+        if (clock == null || gap == null || date == null) {
+            return Optional.empty();
+        }
+        String water = nb("HW " + clock);
+        String offset = nb(eventOffset(gap, word));
+        String day = nb(DAY_LABEL.format(date));
+        List<ComingUpFact.Segment> segs = new ArrayList<>();
+        if ("true".equals(meta.get(key + "Aligned"))) {
+            segs.add(new ComingUpFact.Segment(word + EVENT_SEPARATOR, "base"));
+            segs.add(new ComingUpFact.Segment(water + ", " + offset, "accent"));
+            segs.add(new ComingUpFact.Segment(EVENT_SEPARATOR + day, "base"));
+        } else {
+            segs.add(new ComingUpFact.Segment(word + EVENT_SEPARATOR + "no high water within an hour"
+                    + (partial ? " on the days measured" : "") + EVENT_SEPARATOR + "nearest "
+                    + water + ", " + nb(eventOffset(gap, null)) + EVENT_SEPARATOR + day, "base"));
+        }
+        return Optional.of(new ComingUpFact(segs));
+    }
+
+    /**
+     * {@code 10m before}, {@code 2h20 after}, or {@code at sunrise} within five minutes; with a null
+     * {@code word} (the miss form, whose label already names the event) the "at" form never arises.
+     */
+    private static String eventOffset(long gapMinutes, String word) {
+        long magnitude = Math.abs(gapMinutes);
+        if (word != null && magnitude <= EVENT_COINCIDENT_MINUTES) {
+            return "at " + word;
+        }
+        String duration = magnitude < MINUTES_PER_HOUR
+                ? magnitude + "m"
+                : String.format(Locale.UK, "%dh%02d", magnitude / MINUTES_PER_HOUR,
+                        magnitude % MINUTES_PER_HOUR);
+        return duration + (gapMinutes >= 0 ? " after" : " before");
+    }
+
+    private static Long parseLong(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static List<ComingUpFact> meteorFacts(AlmanacEvent event) {
@@ -905,13 +989,16 @@ public class ComingUpAssembler {
         host.dayRanges = tide.dayRanges;
         host.rangeAverageMetres = tide.rangeAverageMetres;
 
-        // Facts by construction, never by text surgery: the run's alignment gains its day, and a
+        // Facts by construction, never by text surgery: both event rows carry their own date, and a
         // hosting supermoon drops the "peaks" fact (the join note and its mark say it better).
         if (host == tide) {
-            host.facts = tideFacts(host.event, true);
+            host.facts = tideFacts(host.event);
         } else {
             host.facts = new ArrayList<>();
             regionScopeFact(host.event).ifPresent(host.facts::add);
+            // The run's high-water rows still ride the merged card, read from the TIDE topic's own
+            // event (never the host's); the range-style and "peaks" facts stay dropped.
+            host.facts.addAll(eventWaterFacts(tide.event));
         }
         return host;
     }
@@ -974,8 +1061,8 @@ public class ComingUpAssembler {
             } else if (topic.metric != null) {
                 label.append(SEPARATOR).append(nb(topic.metric));
             }
-            String clock = alignmentClock(meta);
-            if (clock != null && truePeak.equals(parseDate(meta.get("alignmentDate")))) {
+            String clock = peakDayAlignedClock(meta, truePeak);
+            if (clock != null) {
                 label.append(SEPARATOR).append(nb(clock));
             }
             return label.toString();
@@ -1006,14 +1093,19 @@ public class ComingUpAssembler {
         return segment.replace(' ', ' ');
     }
 
-    /** {@code HW 15:48} — the leading two tokens of the run's alignment phrase, or null. */
-    private static String alignmentClock(Map<String, String> meta) {
-        String alignment = meta.get("alignment");
-        if (alignment == null) {
-            return null;
+    /**
+     * {@code HW 15:48} — the high water of an ALIGNED event row dated on the run's true peak (sunset
+     * first, then sunrise), or null. The same pick the card's rows state, so one card never gives two
+     * answers.
+     */
+    private static String peakDayAlignedClock(Map<String, String> meta, LocalDate truePeak) {
+        for (String key : List.of("sunsetHw", "sunriseHw")) {
+            if ("true".equals(meta.get(key + "Aligned")) && meta.get(key) != null
+                    && truePeak.equals(parseDate(meta.get(key + "Date")))) {
+                return "HW " + meta.get(key);
+            }
         }
-        String[] tokens = alignment.split("\\s+");
-        return tokens.length >= 2 ? tokens[0] + " " + tokens[1] : null;
+        return null;
     }
 
     private String moonriseClause(Staged supermoon, LocationEntity representative) {
@@ -1195,8 +1287,12 @@ public class ComingUpAssembler {
                 continue;
             }
             if (s.rarityBits >= s.magnitudeBits) {
-                s.scoreNote = "It comes round about once " + SurpriseScore.gapWord(s.rarityBits)
-                        + ", which is rare enough to flag on its own.";
+                // A configured estimate (eclipses, supermoon) scores the badge but is never stated
+                // to a reader as a frequency; only ephemeris-derived gaps are.
+                s.scoreNote = s.rarityIsStatable
+                        ? "It comes round about once " + SurpriseScore.gapWord(s.rarityBits)
+                                + ", which is rare enough to flag on its own."
+                        : "It is rare enough to flag on its own.";
             } else if (s.metric != null && s.magnitudeMedianLabel != null) {
                 s.scoreNote = "An unusually big one — " + s.metric + " against the usual "
                         + s.magnitudeMedianLabel + ".";
@@ -1238,14 +1334,6 @@ public class ComingUpAssembler {
             dates.add(date);
         }
         return dates;
-    }
-
-    /** {@code "HW"} or {@code "LW"} for the water the entry's own alignment fact names, defaulting
-     * to {@code "HW"} when no water aligned — a display choice only, never a claim about which
-     * water is bigger. */
-    private static String phaseOf(AlmanacEvent event) {
-        String alignment = event.meta().get("alignment");
-        return alignment != null && alignment.startsWith("LW") ? "LW" : "HW";
     }
 
     /** The date a meta value names, or null when absent or unparseable — never a fallback date. */

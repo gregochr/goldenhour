@@ -267,7 +267,7 @@ public class BriefingSlotBuilder {
                 tideResult.tideState(), tideResult.tideAligned(),
                 tideResult.heightAboveP95(), tideResult.heightAboveSpringThreshold(),
                 tideResult.lunarTideType(), tidesNotAligned);
-        List<String> flags = verdictEvaluator.buildFlags(weatherMetrics, tideContext);
+        List<String> flags = verdictEvaluator.buildFlags(weatherMetrics, tideContext, loc.isMistProne());
 
         String standdownReason = verdict == Verdict.STANDDOWN
                 ? verdictEvaluator.deriveStanddownReason(weatherMetrics, tidesNotAligned,

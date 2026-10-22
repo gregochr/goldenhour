@@ -33,8 +33,8 @@ import java.util.Set;
  * <p><b>This must run last, and that is the whole design.</b> It is applied as the outermost step
  * of {@code BriefingService.getCachedBriefingForApi}, after {@code BriefingHonestyFilter}. Anywhere
  * upstream and the projection describes regions the served payload no longer contains: the honesty
- * filter blanks a zero-coverage region (STAND_DOWN, or AWAITING where nothing was attempted or the
- * run failed) with an empty slot list and a null gloss
+ * filter blanks a zero-coverage region (STAND_DOWN for a real weather stand-down, AWAITING for
+ * anything else: nothing attempted, a failed run or a record that cannot say) with an empty slot list and a null gloss
  * headline, so a window projected before it would name a Best Bet, a verdict and a rating for a
  * region the same response simultaneously reports as unevaluable. That failure renders perfectly
  * and is visible only by opening the drill-down, which is why the ordering is pinned by a test
@@ -61,7 +61,7 @@ import java.util.Set;
  *       {@code UNRATED}, a STANDDOWN {@code STAND_DOWN} (2026-10-13,
  *       {@code docs/engineering/unrated-verdict-plan.md} U1). A window whose only regions are
  *       UNRATED therefore reads UNRATED, and none of them can be a BEST BET / ALSO GOOD pick,
- *       which need {@link BriefingRegion#verdictEligible()}.
+ *       which need {@link BriefingRegion#pickEligible()}.
  *       <b>Decided 2026-08-17</b>, replacing the best-rating rule this class shipped with: one 4★
  *       location anywhere in the roster promoted a whole window's badge while every cell beneath it
  *       read Poor, and nothing on screen said the row and the grid were answering different
@@ -80,7 +80,7 @@ import java.util.Set;
 public final class PlanWindowProjector {
 
     /**
-     * Ranks a region above another: verdict-eligible first (see {@link BriefingRegion
+     * Ranks a region above another: verdict-eligible first (a VERDICT question, see {@link BriefingRegion
      * #verdictEligible}), then better average, then wider scored coverage, then name.
      *
      * <p><b>The eligibility term is the verdict-minimum-sample rule's ranking half</b>
@@ -106,8 +106,8 @@ public final class PlanWindowProjector {
                     // display string — so renaming a region flipped the window's verdict.
                     .thenComparing((RankedRegion r) -> r.region().slots().isEmpty())
                     // Between two blanked regions the honesty filter can word one STAND_DOWN
-                    // (weather really stood it down, or the record cannot say) and another
-                    // AWAITING (not scored, a travel day, a run that did not finish). A region
+                    // (weather really stood it down) and another AWAITING (not scored, a travel
+                    // day, a run that did not finish, or a record that cannot say). A region
                     // with a real stand-down speaks for the window over one with no forecast at
                     // all, so the verdict never depends on which name sorts first.
                     .thenComparing((RankedRegion r) -> r.region().slots().isEmpty()
@@ -418,6 +418,24 @@ public final class PlanWindowProjector {
     }
 
     /**
+     * The window's {@link #bestRating} with the neighbour outliers left out: the same population (every
+     * non-canopy regioned slot's usable rating, any region, any rating; the all-canopy fallback) minus
+     * the slots the neighbour guard marked. Ask reports it so that its window list never advertises a
+     * rating its own picks cannot reach. Equal to the served figure when no slot is marked, or when a
+     * marked slot was not the best.
+     *
+     * @param summary the event summary, whose slots may carry the neighbour mark
+     * @return the highest usable rating among unmarked slots, or null
+     */
+    public static Integer bestRatingWithoutOutliers(BriefingEventSummary summary) {
+        boolean canopyCounts = canopyCounts(summary);
+        return maxRating(regionSlots(summary).stream()
+                .filter(s -> canopyCounts || !s.canopy())
+                .filter(s -> !Boolean.TRUE.equals(s.neighbourOutlier()))
+                .toList());
+    }
+
+    /**
      * Whether canopy slots count for this window — true only when the window has no sky slot at
      * all.
      *
@@ -520,9 +538,11 @@ public final class PlanWindowProjector {
 
     /**
      * This window's candidate for the forecast-wide pick — its top region's narrative — or null when
-     * that region has no usable gloss headline, or is not {@link BriefingRegion#verdictEligible}
-     * (the verdict-minimum-sample rule: a region whose rated sample is too small to trust, and which
-     * carries no force-evaluation exemption, may not be crowned BEST BET or ALSO GOOD).
+     * that region has no usable gloss headline, or is not {@link BriefingRegion#pickEligible}
+     * (the verdict-minimum-sample rule: a region whose rated sample is too small to trust may not be
+     * crowned BEST BET or ALSO GOOD, and since 2026-10-22 a force-evaluation exemption does not
+     * change that — it sets the verdict and the ordering, never a pick). A window whose top region
+     * is not pick-eligible therefore carries no candidate and {@code selectPicks} skips it.
      *
      * <p>A candidate is not a recommendation. Most windows have one and publish nothing.
      */
@@ -562,7 +582,7 @@ public final class PlanWindowProjector {
 
     private static BriefingWindow.Pick candidate(RankedRegion ranked, boolean canopyCounts) {
         if (ranked == null || !usable(ranked.region().glossHeadline())
-                || !ranked.region().verdictEligible()) {
+                || !ranked.region().pickEligible()) {
             return null;
         }
         BriefingRegion region = ranked.region();
@@ -592,18 +612,35 @@ public final class PlanWindowProjector {
     }
 
     /**
-     * The region's highest-rated slot, read from the same population the header star was taken
-     * from — returned whole so the Pick's id and name come from one value rather than two lookups.
+     * The region's highest-rated slot that is not a neighbour outlier, read from the same population
+     * the header star was taken from — returned whole so the Pick's id and name come from one value
+     * rather than two lookups.
      *
      * <p>An all-canopy region inside a mixed window resolves to nothing rather than to its wood:
      * the header refused that slot, and a card whose star and destination disagree sends someone
      * to a place chosen by the opposite measure of a good morning.
+     *
+     * <p><b>A neighbour outlier is never named</b> (docs/engineering/neighbour-guard-plan.md §3): a
+     * slot the serve-time guard marked as rated far above the places beside it is skipped, and the
+     * next slot is named instead. If one was skipped, that next slot must itself be rated at least
+     * {@link NeighbourOutlierGuard#NAMED_FLOOR} (a fixed 3, not the guard's configurable floor, so
+     * the client's twin constant can match it), or the result is null and the Pick names the region
+     * only. A region with no outlier is unchanged, so with the guard off this is exactly the
+     * highest-rated slot.
      */
     private static BriefingSlot topSlot(BriefingRegion region, boolean canopyCounts) {
-        return region.slots().stream()
+        boolean skipped = false;
+        for (BriefingSlot slot : region.slots().stream()
                 .filter(s -> (canopyCounts || !s.canopy()) && usableRating(s))
-                .min(BY_SLOT_RATING)
-                .orElse(null);
+                .sorted(BY_SLOT_RATING)
+                .toList()) {
+            if (Boolean.TRUE.equals(slot.neighbourOutlier())) {
+                skipped = true;
+                continue;
+            }
+            return skipped && slot.claudeRating() < NeighbourOutlierGuard.NAMED_FLOOR ? null : slot;
+        }
+        return null;
     }
 
     /**

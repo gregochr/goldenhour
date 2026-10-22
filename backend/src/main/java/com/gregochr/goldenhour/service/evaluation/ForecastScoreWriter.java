@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.service.evaluation.visitor.ComponentScore;
@@ -164,6 +165,28 @@ public class ForecastScoreWriter {
         if (eval.inversionScore() != null) {
             upsert(ForecastType.INVERSION, eval.inversionScore(), eval.inversionPotential(),
                     location, date, eventType, pipelineRunId, now);
+        }
+        // Valley mist (V186, valley-mist-plan M2): Claude's own band for a mist-prone site, the
+        // inversion component's twin. The band rides the summary (what readers consume); the
+        // score column is MistPotential#echoScore, its integer stand-in. Written only when the
+        // evaluation carried a recognised band AND the location is flagged, so an unflagged site
+        // can never grow a MIST row from a stray answer.
+        MistPotential mist = recognisedMist(eval.mistPotential());
+        if (mist != null && location.isMistProne()) {
+            upsert(ForecastType.MIST, mist.echoScore(), mist.name(),
+                    location, date, eventType, pipelineRunId, now);
+        }
+    }
+
+    /** The band for a stored name, or null for null and anything that is not a band. */
+    private static MistPotential recognisedMist(String name) {
+        if (name == null) {
+            return null;
+        }
+        try {
+            return MistPotential.valueOf(name);
+        } catch (IllegalArgumentException e) {
+            return null;
         }
     }
 

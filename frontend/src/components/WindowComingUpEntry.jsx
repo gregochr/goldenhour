@@ -4,6 +4,28 @@ import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
 import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
 import { rangeBarHeight, BIG_RANGE_PERCENTILE } from '../utils/comingUpFeed.js';
 
+const TIDE_RUN_TYPES = ['spring-tide', 'king-tide'];
+
+/**
+ * True for a tide-run card: hosted by the run itself, or by a supermoon that absorbed it (the merged
+ * card still carries the run's high-water rows, and its coincidence lines name the run's type).
+ */
+function isTideRunEntry(entry) {
+  return TIDE_RUN_TYPES.includes(entry.type)
+    || (entry.coincidence ?? []).some((line) => TIDE_RUN_TYPES.includes(line.type));
+}
+
+/**
+ * Whether the join space belongs between two segments of one fact. Every card type keeps the space
+ * between all segments (it is what an accessible name is built from). A TIDE-RUN row is running
+ * text, where a segment that ends with, or whose successor begins with, whitespace or an NBSP
+ * (`sunrise . `, ` . Wed 28`) already supplies its own, so the join would double it.
+ */
+function needsJoinSpace(previous, segment, tideRun) {
+  if (!previous) return false;
+  return !(tideRun && (/\s$/.test(previous.text) || /^\s/.test(segment.text)));
+}
+
 /**
  * The per-day door row of a short multi-day map-door entry (see the class doc). Lead word and
  * caption are plain text beside a group of chip buttons named by the lead word; the caption exists
@@ -44,7 +66,7 @@ function DayChips({ entry, onShowOnMap }) {
     kind: 'coming-up',
     filterAction: coastal ? 'SEASCAPE' : null,
     darkSky,
-    // Names the day picked, so the overlay's title says which day's map it is.
+    // Names the day picked, so the crumb's headline says which day's map it is.
     label: `${entry.title} · ${chip.dateLabel}`,
     date: chip.date,
   });
@@ -387,12 +409,15 @@ DayChips.propTypes = {
  * @param {object}   props
  * @param {object}   props.entry       a view from {@code buildEntryView}
  * @param {function} props.onGoToPlan  switches to the Plan tab and moves focus there, given a date
- * @param {function} props.onShowOnMap opens the map overlay for a `kind:'coming-up'` handoff object
+ * @param {function} props.onShowOnMap opens the Map tab (the structured door) for a `kind:'coming-up'` handoff object
  *                                     (D8) — the `coastal-spots`/`dark-sky-spots` destinations
  */
 export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) {
   const { rail } = entry;
   const glyph = entryGlyph(entry);
+  // A tide-run card (hosted by the run, or by a supermoon that absorbed it) carries the sunrise and
+  // sunset high-water rows: those facts take a line each and read as running text.
+  const isTideRun = isTideRunEntry(entry);
   const cardClassName = [
     'wf-cu-card',
     entry.isFeature ? 'wf-cu-card-feat' : null,
@@ -522,7 +547,10 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
 
       {(entry.tide || entry.facts.length > 0) && (
         <>
-          <div className="wf-facts" data-testid="coming-up-facts">
+          <div
+            className={isTideRun ? 'wf-facts wf-facts-rows' : 'wf-facts'}
+            data-testid="coming-up-facts"
+          >
             {entry.tide && (
               <>
                 <ComingUpTideSparkline tide={entry.tide} />
@@ -533,9 +561,9 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
               i > 0 ? ' ' : null,
               // Index-keyed: the list is server-ordered and fixed per render, so position is the
               // stable identity — the same reasoning WindowComingUpRow used before it.
-              <span key={`${entry.id}:fact:${i}`} data-testid="coming-up-fact">
+              <span key={`${entry.id}:fact:${i}`} className="wf-cu-fact" data-testid="coming-up-fact">
                 {fact.segments.flatMap((segment, j) => [
-                  j > 0 ? ' ' : null,
+                  needsJoinSpace(fact.segments[j - 1], segment, isTideRun) ? ' ' : null,
                   <span key={`${j}:${segment.text}`} data-tone={segment.tone}>{segment.text}</span>,
                 ])}
               </span>,

@@ -232,44 +232,56 @@ class NoaaSwpcClientTest {
     // Solar wind parsing
     // -------------------------------------------------------------------------
 
+    private static String magRow(String time, String source, boolean active, String bz) {
+        return "{\"time_tag\":\"" + time + "\",\"active\":" + active + ",\"source\":\"" + source
+                + "\",\"bt\":4.4,\"bz_gsm\":" + bz + "}";
+    }
+
+    private static String windRow(String time, String source, boolean active, String speed, String density) {
+        return "{\"time_tag\":\"" + time + "\",\"active\":" + active + ",\"source\":\"" + source
+                + "\",\"proton_speed\":" + speed + ",\"proton_density\":" + density + "}";
+    }
+
     @Test
-    @DisplayName("parseSolarWind merges mag and plasma data by timestamp")
+    @DisplayName("parseSolarWind merges active mag and wind rows by minute, ignoring the inactive spacecraft")
     void parseSolarWind_mergesMagAndPlasma() throws Exception {
-        String magJson = """
-                [
-                  ["time_tag","bx_gsm","by_gsm","bz_gsm","lon_gsm","lat_gsm","bt"],
-                  ["2025-08-01 12:00:00.000","0.82","0.66","-5.21","38.82","4.88","5.26"],
-                  ["2025-08-01 12:01:00.000","1.00","1.00","-3.00","40.00","5.00","4.00"]
-                ]
-                """;
-        String plasmaJson = """
-                [
-                  ["time_tag","density","speed","temperature"],
-                  ["2025-08-01 12:00:00.000","5.2","450.0","50000"],
-                  ["2025-08-01 12:01:00.000","4.8","420.0","48000"]
-                ]
-                """;
+        String magJson = "[" + magRow("2026-10-19T12:01:01", "IMAP", false, "9.9") + ","
+                + magRow("2026-10-19T12:01:00", "SOLAR1", true, "-3.0") + ","
+                + magRow("2026-10-19T12:00:00", "SOLAR1", true, "-5.21") + "]";
+        // Wind seconds differ from mag seconds: the merge key is the minute.
+        String plasmaJson = "[" + windRow("2026-10-19T12:01:03", "IMAP", false, "999.0", "99.0") + ","
+                + windRow("2026-10-19T12:01:30", "SOLAR1", true, "420.0", "4.8") + ","
+                + windRow("2026-10-19T12:00:30", "SOLAR1", true, "450.0", "5.2") + "]";
 
         List<SolarWindReading> readings = client.parseSolarWind(magJson, plasmaJson);
 
         assertThat(readings).hasSize(2);
-        // Check Bz values (sorted oldest first)
-        assertThat(readings).anyMatch(r -> r.bzNanoTesla() == -5.21 && r.speedKmPerSec() == 450.0);
-        assertThat(readings).anyMatch(r -> r.bzNanoTesla() == -3.0 && r.speedKmPerSec() == 420.0);
+        assertThat(readings.get(0).bzNanoTesla()).isEqualTo(-5.21);
+        assertThat(readings.get(0).speedKmPerSec()).isEqualTo(450.0);
+        assertThat(readings.get(0).densityPerCm3()).isEqualTo(5.2);
+        assertThat(readings.get(1).bzNanoTesla()).isEqualTo(-3.0);
+        assertThat(readings.get(1).speedKmPerSec()).isEqualTo(420.0);
+        assertThat(readings.get(1).densityPerCm3()).isEqualTo(4.8);
     }
 
     @Test
-    @DisplayName("parseSolarWind skips NaN Bz values")
-    void parseSolarWind_skipsNaN() throws Exception {
-        String magJson = """
-                [
-                  ["time_tag","bx_gsm","by_gsm","bz_gsm","lon_gsm","lat_gsm","bt"],
-                  ["2025-08-01 12:00:00.000","0.82","0.66","nan","38.82","4.88","5.26"]
-                ]
-                """;
-        String plasmaJson = "[[\"time_tag\",\"density\",\"speed\",\"temperature\"]]";
+    @DisplayName("parseSolarWind falls back to every row when no row is flagged active")
+    void parseSolarWind_noActiveRows_usesAllRows() throws Exception {
+        String magJson = "[" + magRow("2026-10-19T12:00:00", "IMAP", false, "-4.0") + "]";
+        String plasmaJson = "[" + windRow("2026-10-19T12:00:00", "IMAP", false, "400.0", "5.0") + "]";
 
         List<SolarWindReading> readings = client.parseSolarWind(magJson, plasmaJson);
+
+        assertThat(readings).hasSize(1);
+        assertThat(readings.get(0).bzNanoTesla()).isEqualTo(-4.0);
+    }
+
+    @Test
+    @DisplayName("parseSolarWind skips null Bz values")
+    void parseSolarWind_skipsNaN() throws Exception {
+        String magJson = "[" + magRow("2026-10-19T12:00:00", "SOLAR1", true, "null") + "]";
+
+        List<SolarWindReading> readings = client.parseSolarWind(magJson, "[]");
 
         assertThat(readings).isEmpty();
     }
@@ -277,18 +289,19 @@ class NoaaSwpcClientTest {
     @Test
     @DisplayName("parseSolarWind limits to most recent 60 readings")
     void parseSolarWind_limitsTo60Readings() throws Exception {
-        StringBuilder magSb = new StringBuilder("[[\"time_tag\",\"bx\",\"by\",\"bz\",\"lon\",\"lat\",\"bt\"]");
+        StringBuilder magSb = new StringBuilder("[");
         for (int i = 0; i < 100; i++) {
-            String row = String.format(
-                    ",[\"%04d-01-01 00:%02d:00.000\",\"0\",\"0\",\"-1.0\",\"0\",\"0\",\"1\"]", 2025, i % 60);
-            magSb.append(row);
+            if (i > 0) {
+                magSb.append(',');
+            }
+            magSb.append(magRow(String.format("2026-10-19T%02d:%02d:00", i / 60, i % 60), "SOLAR1", true, "-1.0"));
         }
         magSb.append("]");
 
-        List<SolarWindReading> readings = client.parseSolarWind(magSb.toString(),
-                "[[\"time_tag\",\"density\",\"speed\",\"temperature\"]]");
+        List<SolarWindReading> readings = client.parseSolarWind(magSb.toString(), "[]");
 
-        assertThat(readings.size()).isLessThanOrEqualTo(60);
+        assertThat(readings).hasSize(60);
+        assertThat(readings.get(59).timestamp().toString()).isEqualTo("2026-10-19T01:39Z");
     }
 
     // -------------------------------------------------------------------------
@@ -442,10 +455,8 @@ class NoaaSwpcClientTest {
         String forecastJson = "[[\"time_tag\",\"Kp\",\"observed\",\"noaa_scale\"],"
                 + "[\"2025-08-01 00:00:00\",\"2.0\",\"observed\",\"None\"]]";
         String ovationJson = "{\"Forecast Time\":\"2025-08-01T12:00:00Z\",\"coordinates\":[[0,55,10]]}";
-        String magJson = "[[\"time_tag\",\"bx\",\"by\",\"bz\",\"lon\",\"lat\",\"bt\"],"
-                + "[\"2025-08-01 00:00:00.000\",\"0\",\"0\",\"-2.0\",\"0\",\"0\",\"2\"]]";
-        String plasmaJson = "[[\"time_tag\",\"density\",\"speed\",\"temperature\"],"
-                + "[\"2025-08-01 00:00:00.000\",\"5.0\",\"400.0\",\"50000\"]]";
+        String magJson = "[" + magRow("2025-08-01T00:00:00", "SOLAR1", true, "-2.0") + "]";
+        String plasmaJson = "[" + windRow("2025-08-01T00:00:00", "SOLAR1", true, "400.0", "5.0") + "]";
         String alertsJson = "[]";
 
         RestClientMocks.stubGetSequence(

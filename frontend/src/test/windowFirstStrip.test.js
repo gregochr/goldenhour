@@ -136,6 +136,14 @@ describe('buildHeatStripCards — one thumbnail per rendered window', () => {
     expect(build(events, [])[0].verdictMean).toBeNull();
   });
 
+  it('folds verdictBlanked from the card, false when absent (verdict-honesty H4)', () => {
+    const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+    expect(build(events, [card({ verdictBlanked: true })])[0].verdictBlanked).toBe(true);
+    expect(build(events, [card()])[0].verdictBlanked).toBe(false);
+    expect(build(events, [])[0].verdictBlanked).toBe(false);
+  });
+
   it('carries the active tier\'s minutes through to the thumbnail, null when none (verdict-honesty H2)', () => {
     // The strip never sees `buildWindowCards`' output directly, so a field the face reads must be
     // folded here or the component tests (which hand cards straight in) would pass over a drop.

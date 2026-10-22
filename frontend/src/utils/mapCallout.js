@@ -2,7 +2,7 @@ import { clamp } from './heatGeometry.js';
 import { leaveByParts } from './leaveBy.js';
 import { shortDow } from './locationSheet.js';
 import { formatDriveDuration } from './briefingDisplay.js';
-import { DARK_SKY_THRESHOLD } from './mapOverlay.js';
+import { DARK_SKY_THRESHOLD } from './darkSky.js';
 
 /**
  * The Map tab's selection callout — pure logic only (map-tab-v2-plan.md §3 P9,
@@ -174,13 +174,16 @@ export function calloutLeaveBy(eventTimeIso, driveMinutes) {
  *        null for an away origin so this never prints a distance measured from the wrong place
  * @param {?string} [args.eventTimeIso] the window's event instant, for the leave-by fact
  * @param {?number} [args.bortleClass] the location's Bortle class, or null when unknown
+ * @param {boolean} [args.past] whether the window has gone (outcome-rating-plan.md §2 #2) — Drive
+ *        and Leave by are about a trip still to make, so a past window hides both (the design: "Past
+ *        windows hide Drive / Leave by"); Dark sky is a fact of the place and stays
  * @returns {Array<{key: string, label: string, value: string}>} the facts to render, in order
  */
 export function calloutFacts({
-  driveMinutes, distanceMiles = null, eventTimeIso = null, bortleClass = null,
+  driveMinutes, distanceMiles = null, eventTimeIso = null, bortleClass = null, past = false,
 }) {
   const facts = [];
-  if (Number.isFinite(driveMinutes)) {
+  if (!past && Number.isFinite(driveMinutes)) {
     facts.push({
       key: 'drive',
       label: 'Drive',

@@ -8,9 +8,12 @@ import { useMap } from 'react-leaflet';
 import { pxPerKmAtHome, RING_MIN_PX, RING_TIERS } from '../../utils/reachRings.js';
 import { seedObstacles } from '../../utils/labelPlacement.js';
 import {
-  chipCandidates, homeLabelItems, placeLabelPass, regionLabelItems, ringLabelItems, verdictWord,
+  chipBoxWithinBadgedBox, chipCandidates, hasRatedBadge, homeLabelItems, placeLabelPass,
+  regionLabelItems, ringLabelItems, verdictWord, withBadgeOverhang,
   REGION_TINY_FRAME_WIDTH,
 } from '../../utils/mapLabels.js';
+import { badgeAccessibleClause } from '../../utils/outcomeRatingJoin.js';
+import RatedBadge from './RatedBadge.jsx';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import { rampHex as defaultRampHex } from '../../utils/scoreRamp.js';
 import { tideAccessibleClause, tideTierHeading } from '../../utils/mapTideFit.js';
@@ -258,8 +261,11 @@ const TOOLTIP_WIDTH_FALLBACK = 240;
  *   wires this to the SAME path a marker click already takes (today: `setSelectedLocationName` +
  *   the Leaflet popup; P9 replaces the far end with the callout, not this call site)
  * @param {?Function} [props.onSelectAskPick] called with a pick's RANK when its chip is pressed (Ask
- *   PhotoCast, F3) — a pick chip chooses the answer's card, never the location. A spot is a pick by
- *   carrying {@code askPick}; without this prop a pick chip falls back to {@code onSelect}
+ *   PhotoCast, F3) — a pick chip chooses the answer's card, never the location itself. (On a phone the
+ *   caller's handler also asks for the pick's callout to open once the window has followed:
+ *   `MapView.handleSelectAskPick`, docs/engineering/phone-pick-callout-plan.md; this layer only reports
+ *   the press.) A spot is a pick by carrying {@code askPick}; without this prop a pick chip falls back
+ *   to {@code onSelect}
  * @param {string}   [props.eventLabel] the active EV row's label+time, for the hover tooltip's
  *   "event" line (e.g. "Sunset · Tonight 19:58")
  * @param {number}   [props.bottomInset] the height in px of a surface standing over the frame's bottom
@@ -487,7 +493,12 @@ export default function MapLabels({
       const node = chipRefs.current.get(spot.name);
       const w = node?.offsetWidth ?? 0;
       const h = node?.offsetHeight ?? 0;
-      return w > 0 && h > 0 ? { key: `chip:${spot.name}`, x, y, w, h } : null;
+      if (!(w > 0 && h > 0)) return null;
+      const item = { key: `chip:${spot.name}`, x, y, w, h };
+      // The rated badge hangs 9px right and 7px up outside the chip's own box, which `offsetWidth`
+      // does not count (outcome-rating-plan.md §1 #4): reserve the overhang too, so a neighbour
+      // cannot be placed under it. The chip itself is drawn back at its own place below.
+      return hasRatedBadge(spot) ? withBadgeOverhang(item) : item;
     };
     for (const chip of frame.chips) {
       const item = chip.spot.askPick ? measuredChip(chip) : null;
@@ -552,6 +563,15 @@ export default function MapLabels({
       if (dot) {
         placed.set(`chip:${spot.name}`, dot);
         compact.add(spot.name);
+      }
+    }
+    // A badged chip was placed as its badge-inclusive box (above); the chip is DRAWN inside it. Done
+    // last, so every later pass above saw the whole reserved box and only the style reads this one.
+    for (const { spot } of frame.chips) {
+      const key = `chip:${spot.name}`;
+      const box = placed.get(key);
+      if (box && hasRatedBadge(spot)) {
+        placed.set(key, { ...chipBoxWithinBadgedBox(box) });
       }
     }
     // A setState in an effect, and it is the case the rule's own escape hatch is for — the same
@@ -743,7 +763,12 @@ export default function MapLabels({
               style={styleFor(key)}
               aria-label={pick.label}
               aria-current={pick.selected ? 'true' : undefined}
-              onClick={() => {
+              onClick={(pressEvent) => {
+                // ⚠️ Focuses itself first: macOS and iOS Safari do not focus a tapped <button>, and on
+                // the phone a pick press no longer expands the Ask section (whose `park()` used to
+                // rescue focus), so without this focus is on <body> and the pane's Escape rule never
+                // fires. The `MapCallout` pattern. `preventScroll`: the map frame must not jump.
+                pressEvent.currentTarget.focus({ preventScroll: true });
                 if (onSelectAskPick) onSelectAskPick(rankOnPress(pick));
                 else onSelect?.(spot.name);
               }}
@@ -778,7 +803,7 @@ export default function MapLabels({
         const ariaLabel = [
           hasRating ? `${spot.name}, ${spot.rating} star` : spot.name,
           tideAccessibleClause(tideTier, spot.tideShortfall, spot.tideState),
-        ].filter(Boolean).join(', ');
+        ].filter(Boolean).join(', ') + (hasRatedBadge(spot) ? badgeAccessibleClause(spot.myRating) : '');
         return (
           <button
             key={spot.name}
@@ -824,6 +849,7 @@ export default function MapLabels({
               />
             )}
             {hasRating && <em className="wf-maplab-chip-r">{spot.rating}★</em>}
+            {hasRatedBadge(spot) && <RatedBadge value={spot.myRating} />}
           </button>
         );
       })}
@@ -931,6 +957,10 @@ MapLabels.propTypes = {
     /** Whether the light was assessed for this window (a sky or combined rating exists) — decides
      * the miss heading's wording; see {@code tideTierHeading}. */
     tideAssessed: PropTypes.bool,
+    /** The reader's own outcome rating for this spot in the PAST window on screen (outcome-rating-plan
+     * .md §2 #6): {@code 1..5}, or {@code 'NOT_SEEN'}. Null/absent on a served window and for a spot
+     * the reader has not rated — the badge is drawn only when this is set. */
+    myRating: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
     /** Ask PhotoCast's pick (F3) — the answer's own facts for the pick's window, which the chip
      * draws instead of the window on screen's. Absent for every ordinary spot. */
     askPick: PropTypes.shape({

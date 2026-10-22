@@ -15,6 +15,7 @@ import {
   tierById,
   writeStoredTierId,
 } from '../utils/reachLens.js';
+import { formatDriveDurationCompact } from '../utils/briefingDisplay.js';
 
 /** 2026-08-04 is a Tuesday; 2026-08-08 a Saturday; 2026-08-09 a Sunday; 2026-08-07 a Friday. */
 const TUESDAY = '2026-08-04';
@@ -36,6 +37,14 @@ describe('reachLens — the tiers', () => {
       [150, '2h 30min'],
       [null, 'Any'],
     ]);
+  });
+
+  it('derives every tier\'s shortLabel from its own threshold, and gives Any none', () => {
+    // Iterated, never a hand table: a retuned tier must carry its own compact form with it.
+    for (const tier of REACH_TIERS) {
+      expect(tier.shortLabel).toBe(formatDriveDurationCompact(tier.limitMinutes));
+    }
+    expect(REACH_TIERS.map((t) => t.shortLabel)).toEqual(['45m', '1h30', '2h30', null]);
   });
 
   it('gives the widest tier no threshold at all, rather than a very large one', () => {

@@ -123,8 +123,8 @@ aurora:
     kp-url: https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json
     kp-forecast-url: https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json
     ovation-url: https://services.swpc.noaa.gov/json/ovation_aurora_latest.json
-    solar-wind-url: https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json
-    solar-wind-plasma-url: https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json
+    solar-wind-url: https://services.swpc.noaa.gov/json/rtsw/rtsw_mag_1m.json
+    solar-wind-plasma-url: https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json
     alerts-url: https://services.swpc.noaa.gov/products/alerts.json
   triggers:
     kp-threshold: 5.0
@@ -191,7 +191,7 @@ coming-up:
                                                # the interrupt band, log2(290)+1 would not — lowering
                                                # this is a re-census decision, see the class javadoc
     recurrent:                                # standing-conditions strip topics (plan §7 P4) —
-                            # dust and inversion, whose magnitude stays config-interim forever
+                            # dust, inversion and valley mist, whose magnitude stays config-interim forever
                             # (never a real distribution — D4)
       evidentiary-bar-arrivals: 5              # minimum arrivals in the trailing window before a
                                                # topic's rate is trusted over the config fallback
@@ -205,11 +205,17 @@ coming-up:
                                                # forecast_score is survivor-biased (plan D4)
         magnitude-threshold-score: 9.0          # the STRONG band's own floor (0–10 scale)
         magnitude-above-bits: 5.0               # magnitude once the threshold is cleared
+      mist:                                     # valley mist (valley-mist-plan M1b)
+        fallback-mean-gap-days: 6.0            # first guess; rarity stays pinned here until the
+                                               # MIST_CALC topic_daily_log series matures
+        magnitude-threshold-score: 8.0          # a standout, inside the LIKELY band (6 and above)
+        magnitude-above-bits: 5.0               # magnitude once the threshold is cleared
     cadence:                                    # standing-condition strip words (plan §7/§11.16) —
                             # authored here, not derived, until P7's topic_daily_log matures
       coastal-tides: "deterministic"
       dust: "recurrent"
       inversion: "persistent"
+      mist: "recurrent"                         # used only once two likely days are on record; "new" before
     peak-light-window-minutes: 90               # the peak gate's own bound (plan D4/D5) — not read
                             # arithmetically yet (v1 proxy is SUNRISE/SUNSET typing); routed
                             # through config rather than hardcoded, ready for P7
@@ -256,6 +262,23 @@ photocast:
   #                                 # 400 INVALID (the POST /api/ask body cap follows it: 8 KiB + 10 KiB each)
   #     log:
   #       retention-days: 90        # ask_log rows kept, 1-3650
+  # Neighbour guard (docs/engineering/neighbour-guard-plan.md §4). A sky rating far above SEVERAL nearby
+  # places that see the same sky is far more likely model noise than a real local difference, so the
+  # guard marks such a slot and no surface NAMES it as the single best place (the Plan window pick,
+  # the best-reachable line, Ask); it keeps its star. ON BY DEFAULT since G4 (2026-10-17): production
+  # needs no config. Every key is optional; each default is shown. Uncomment to change one. A value
+  # outside its stated range fails startup.
+  #   neighbour-guard:
+  #     enabled: true               # rollback is `enabled: false` + a restart: nothing is flagged and no
+  #                                 # coordinates are read
+  #     radius-km: 5.0              # how near counts as "the same sky", 1-20
+  #     min-neighbours: 2           # similar-height nearby places rated `margin` or more below the slot
+  #                                 # that are needed to flag it, 1-5. Any nearby place, at any height,
+  #                                 # rated less than `margin` below it (or higher) clears the slot
+  #     margin: 2                   # stars below the slot that count as disagreement, 2-4
+  #     min-rating: 3               # lowest sky rating that can be flagged, 3-5 (a floor below 3 is
+  #                                 # unreachable at margin 2); raise it to guard only 4-star claims
+  #     max-elevation-gap-m: 150    # two places closer in height than this are "at a similar height", 0-1000
   tide-run:
     preferred-anchor: "St. Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
                             # chart is drawn for. Blank restores pure biggest-range selection.
@@ -326,6 +349,11 @@ photocast:
                              # in minutes, but afternoon (peak load) batches were observed taking
                              # up to ~3h (slowest of 49 cycles: 181 min). 3h30 clears that while
                              # staying under the shortest gap between two cycles (6.4 h).
+    evening-safety-timeout: PT2H  # the same budget for the evening sunrise refresh cycle only
+                                  # (evening_sunrise_refresh, seeded PAUSED). Range PT30M..PT3H30M;
+                                  # a value outside it fails startup. After about two hours the
+                                  # bedtime decision has passed, and later results still go live
+                                  # through the late-batch briefing rebuild.
   freshness:
     settled-hours: 36              # blocking highs — once-daily refresh rhythm
     transitional-hours: 12         # half synoptic cycle — catches frontal transitions

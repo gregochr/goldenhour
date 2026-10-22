@@ -91,10 +91,10 @@ class CalibrationBucketTest {
     void of_fierySkyError_ignoresPairsMissingEitherScore() {
         var withScores = new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1,
                 LocalDateTime.of(2026, 5, 9, 1, 0), EvaluationModel.HAIKU,
-                4, 80, 70, 4, 60, 50, true);
+                4, 80, 70, 4, 60, 50, true, 1L, null, null);
         var missingActual = new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1,
                 LocalDateTime.of(2026, 5, 9, 1, 0), EvaluationModel.HAIKU,
-                4, 80, 70, 4, null, null, true);
+                4, 80, 70, 4, null, null, true, 1L, null, null);
 
         var bucket = CalibrationBucket.of("ALL", List.of(withScores, missingActual));
 
@@ -118,6 +118,6 @@ class CalibrationBucketTest {
     private CalibrationPair pair(int predicted, int actual) {
         return new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1,
                 LocalDateTime.of(2026, 5, 9, 1, 0), EvaluationModel.HAIKU,
-                predicted, null, null, actual, null, null, true);
+                predicted, null, null, actual, null, null, true, 1L, null, null);
     }
 }

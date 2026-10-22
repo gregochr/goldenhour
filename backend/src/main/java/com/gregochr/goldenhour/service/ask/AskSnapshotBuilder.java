@@ -368,8 +368,21 @@ public class AskSnapshotBuilder {
         List<AskSnapshot.Region> regions = summary.regions().stream()
                 .map(region -> toRegion(region, facts)).toList();
         return new AskSnapshot.Window(AskWindowId.format(date, summary.targetType()), date,
-                summary.targetType(), window.eventTime(), window.verdict(), window.bestRating(),
+                summary.targetType(), window.eventTime(), window.verdict(), bestRatingOf(summary, window),
                 window.pick(), regions);
+    }
+
+    /**
+     * The window's best rating as Ask reports it: the served figure, except that a neighbour outlier is
+     * left out of the very population the Plan projector takes it over, so {@code list_windows} never
+     * says "up to 4★" beside a list whose best pick is 3★. Not derived from pick eligibility, which
+     * would also drop verdict-ineligible regions and sub-floor slots. A window with no outlier keeps
+     * the served figure untouched.
+     */
+    private static Integer bestRatingOf(BriefingEventSummary summary, BriefingWindow window) {
+        boolean anyOutlier = summary.regions().stream().flatMap(r -> r.slots().stream())
+                .anyMatch(s -> Boolean.TRUE.equals(s.neighbourOutlier()));
+        return anyOutlier ? PlanWindowProjector.bestRatingWithoutOutliers(summary) : window.bestRating();
     }
 
     /** Key prefix for a fact joined by location id. */
@@ -404,8 +417,9 @@ public class AskSnapshotBuilder {
 
     private static AskSnapshot.Region toRegion(BriefingRegion region, Map<String, LocationTideFact> facts) {
         return new AskSnapshot.Region(region.regionName(), region.displayVerdict(),
-                region.meanRating(), region.verdictEligible(),
-                region.slots().stream().map(slot -> toSlot(slot, facts)).toList());
+                region.meanRating(), region.verdictEligible(), region.pickEligible(),
+                region.slots().stream().map(slot -> toSlot(slot, facts)).toList(),
+                region.coverageReason());
     }
 
     /**
@@ -425,7 +439,8 @@ public class AskSnapshotBuilder {
                 slot.displayVerdict(), slot.claudeHeadline(), slot.canopy(),
                 fact == null ? null : fact.tideState(),
                 fact != null && fact.tideAligned(),
-                fact == null ? null : fact.tideFitPhrase());
+                fact == null ? null : fact.tideFitPhrase(),
+                Boolean.TRUE.equals(slot.neighbourOutlier()));
     }
 
     /** A rendered event's identity: its date and target type. */

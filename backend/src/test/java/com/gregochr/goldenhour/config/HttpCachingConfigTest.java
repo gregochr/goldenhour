@@ -91,6 +91,9 @@ class HttpCachingConfigTest {
     @ValueSource(strings = {
         "/api/outcome",
         "/api/outcome/all",
+        // Outcome rating: the caller's own ratings, and (admin) every user's for one window.
+        "/api/outcome/ratings",
+        "/api/outcome/ratings/all",
         "/api/travel-days",
         "/api/user/settings",
         "/api/user/settings/drive-times",
@@ -113,6 +116,11 @@ class HttpCachingConfigTest {
         // Ask PhotoCast's allowance (B4): the caller's own count today. A GET, so unlike the entries
         // above it is the one that WOULD be filtered if the whitelist ever matched by prefix.
         "/api/user/settings/ask",
+        // The one-time sign-in postcode prompt (login-registration plan §2 #3, R4a): the dismissal
+        // write and the reverse lookup. Both POST/PUT today, pinned so a future GET under either
+        // path cannot be missed — the reverse body is derived from the caller's own location.
+        "/api/user/settings/postcode-prompt-dismissed",
+        "/api/user/settings/home/reverse",
     })
     @DisplayName("Personal-data reads are never ETag-filtered")
     void personalDataPathsAreNeverFiltered(String path) {

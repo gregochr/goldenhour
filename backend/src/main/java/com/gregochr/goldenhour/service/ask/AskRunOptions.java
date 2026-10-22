@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.BestAnchor;
+import com.gregochr.goldenhour.service.ask.AskAnswerValidator.ReadyBasis;
 
 /**
  * What a caller may add to one engine run beyond the question.
@@ -18,12 +19,27 @@ import com.gregochr.goldenhour.service.ask.AskAnswerValidator.BestAnchor;
  * @param thread        the session's earlier exchanges, already validated and reconciled with the live
  *                      forecast ({@code docs/engineering/ask-thread-plan.md} §2.3); null reads as none.
  *                      Forbidden for a Ready conversation, which is computed with no thread
+ * @param readyBasis    the Ready question and offer this conversation answers, or null for a typed
+ *                      question (and for a Ready conversation built without one): the windows the
+ *                      question covers, which the prompt names, the no-pick admission is judged over and
+ *                      the answer carries the spreads of
  */
-public record AskRunOptions(BestAnchor anchor, Long readyJobRunId, AskThread thread) {
+public record AskRunOptions(BestAnchor anchor, Long readyJobRunId, AskThread thread, ReadyBasis readyBasis) {
 
     /** Canonical constructor: a null thread reads as none. */
     public AskRunOptions {
         thread = thread == null ? AskThread.EMPTY : thread;
+    }
+
+    /**
+     * Options with no Ready basis.
+     *
+     * @param anchor        the Ready {@code BEST_*} rule, or null
+     * @param readyJobRunId the {@code ASK_READY} job run, or null
+     * @param thread        the validated thread, or null for none
+     */
+    public AskRunOptions(BestAnchor anchor, Long readyJobRunId, AskThread thread) {
+        this(anchor, readyJobRunId, thread, null);
     }
 
     /**
@@ -89,5 +105,20 @@ public record AskRunOptions(BestAnchor anchor, Long readyJobRunId, AskThread thr
      */
     public static AskRunOptions ready(long readyJobRunId, BestAnchor anchor) {
         return new AskRunOptions(anchor, readyJobRunId);
+    }
+
+    /**
+     * A Ready precompute conversation that knows which question it answers: the anchor is the
+     * question's own, and the basis carries the offer so the prompt, the validator and the freshness
+     * check judge the same covered windows.
+     *
+     * @param readyJobRunId the {@code ASK_READY} run to bill
+     * @param question      the Ready question
+     * @param offer         what it is asked under
+     * @return the options
+     */
+    public static AskRunOptions ready(long readyJobRunId, ReadyQuestion question, ReadyQuestion.Offer offer) {
+        return new AskRunOptions(question.anchor(offer), readyJobRunId, AskThread.EMPTY,
+                new ReadyBasis(question, offer));
     }
 }

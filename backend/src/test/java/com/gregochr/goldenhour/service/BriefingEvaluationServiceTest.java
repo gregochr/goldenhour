@@ -309,6 +309,26 @@ class BriefingEvaluationServiceTest {
         assertThat(evaluatedAt.get()).isAfterOrEqualTo(before);
     }
 
+    @Test
+    @DisplayName("getCachedEntryUpdatedAt reads the durable row's last write, keyed region|date|type")
+    void getCachedEntryUpdatedAt_readsTheDurableRow() {
+        Instant written = Instant.parse("2026-04-07T05:50:00Z");
+        CachedEvaluationEntity row = new CachedEvaluationEntity();
+        row.setUpdatedAt(written);
+        when(cachedEvaluationRepository.findByCacheKey("North East|2026-04-07|SUNRISE"))
+                .thenReturn(Optional.of(row));
+
+        assertThat(service.getCachedEntryUpdatedAt("North East", LocalDate.of(2026, 4, 7), TargetType.SUNRISE))
+                .contains(written);
+    }
+
+    @Test
+    @DisplayName("getCachedEntryUpdatedAt is empty when there is no durable row (including a failed persist)")
+    void getCachedEntryUpdatedAt_emptyWithNoRow() {
+        assertThat(service.getCachedEntryUpdatedAt("North East", LocalDate.of(2026, 4, 7), TargetType.SUNSET))
+                .isEmpty();
+    }
+
     // ── writeFromBatch — replace semantics ─────────────────────────────────────
 
     @Test

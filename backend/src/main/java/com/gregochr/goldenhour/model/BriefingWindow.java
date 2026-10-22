@@ -146,10 +146,17 @@ public record BriefingWindow(
      * grid cell prints as its star — or the window would contradict the drill-down beneath it. It
      * was canopy-inclusive until the canopy fix, along with the verdict it has to match; a rated
      * wood moved both. {@code locationName} is canopy-<em>exclusive</em> for a different reason:
-     * it must match the slot the header star came from, or the card would send someone to a place
-     * chosen by the opposite measure of a good morning. The two rules now coincide for a mixed
+     * it must match the slot the header star came from (the region's best; the destination
+     * skips a neighbour outlier, see below), or the card would send someone to a place chosen by
+     * the opposite measure of a good morning. The two rules now coincide for a mixed
      * region and still differ for an all-canopy one, where the average falls back to the woods and
      * the destination is one of them.
+     *
+     * <p><b>The destination is never a neighbour outlier</b> (docs/engineering/neighbour-guard-plan.md
+     * §3). It is the highest-rated slot not marked {@link BriefingSlot#neighbourOutlier}; when the
+     * guard skipped one, the next must be rated at least the fixed named floor of 3, else there is no
+     * destination. So a null {@code locationName} now also happens on an ordinary window with rated
+     * slots, and every consumer already treats it as "name the region only".
      *
      * <p><b>The id travels with the name, from the same slot.</b> The client joins per-user reach
      * data by {@code locationId} — that contract carries no name at all — so publishing only a
@@ -165,7 +172,8 @@ public record BriefingWindow(
      * @param detail        the gloss body, nullable independently of the headline
      * @param averageRating the average this region was ranked and floored on, published so the
      *                      selection is auditable from the payload rather than only from the logs
-     * @param locationName  the region's highest-rated location, or null when none is rated
+     * @param locationName  the region's highest-rated location that is not a neighbour outlier, or
+     *                      null when none is rated or the guard left none rated at least 3
      * @param locationId    that location's id, or null on a slot cached before slots carried one
      */
     public record Pick(

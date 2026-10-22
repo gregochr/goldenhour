@@ -1803,8 +1803,9 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("the same region with a force-evaluation exemption IS allowed")
-        void forcedSampleRegionIsAllowed() {
+        @DisplayName("the same region with a force-evaluation exemption is NOT a pick: "
+                + "the exemption sets a verdict, never a best bet (2026-10-22)")
+        void forcedSampleRegionIsDropped() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
@@ -1818,8 +1819,8 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET, List.of(forced), List.of())));
 
             BestBetResult result = advisor.advise(List.of(day), 42L, Map.of());
-            assertThat(result.picks()).hasSize(1);
-            assertThat(result.picks().get(0).region()).isEqualTo("Northumberland");
+            assertThat(result.picks()).isEmpty();
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
         }
 
         @Test

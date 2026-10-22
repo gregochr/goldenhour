@@ -11,10 +11,10 @@ import useDialogFocus from '../hooks/useDialogFocus.js';
  * rule that is about the PAGE rather than the dialog (what happens to focus when the reader has
  * moved it elsewhere) had nowhere to be asserted.
  *
- * <p>⚠️ **Four call sites, not fourteen** — and the first cut of this file, its changelog entry and
+ * <p>⚠️ **Three call sites now (four, until `MapOverlay` went in overlay convergence C5), not fourteen** — and the first cut of this file, its changelog entry and
  * its commit message all said fourteen. That was `grep -rl`, which counts files CONTAINING the
  * string: doc comments and cross-references, not mounts. The real callers are `Modal`,
- * `BottomSheet`, `MapOverlay` and `RegionsJump` — everything else reaches the hook THROUGH `Modal`
+ * `BottomSheet` and `RegionsJump` — everything else reaches the hook THROUGH `Modal`
  * or `BottomSheet`, which is a wider blast radius than four but not a longer list of call sites.
  *
  * <h2>What is deliberately NOT covered here</h2>

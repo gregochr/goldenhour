@@ -313,6 +313,38 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     expect(within(sheet).queryByText(/Not scored/)).toBeNull();
   });
 
+  describe('the sheet\'s forecast-detail gating (overlay convergence C2)', () => {
+    // A roster record whose sunset row already carries its detail (`lowCloud` defined), so no fetch
+    // is involved: the only thing that can differ between the two cases is the `isPro` boolean the
+    // shell reads off the provider and hands to the sheet.
+    const BAMBURGH_RECORD = {
+      id: 2, name: 'Bamburgh Beach', lat: 55.61, lon: -1.71, locationType: ['SEASCAPE'],
+      forecastsByDate: new Map([['2026-08-14', {
+        sunrise: null,
+        sunset: {
+          id: 77, lowCloud: 5, aerosolOpticalDepth: 0.6, targetDate: '2026-08-14', targetType: 'SUNSET',
+          solarEventTime: '2026-08-14T19:38:00',
+        },
+        hourly: [],
+      }]]),
+    };
+
+    it('hands the sheet isPro = true: the PRO dust wording', async () => {
+      renderShell({ isPro: true }, { locations: [BAMBURGH_RECORD] });
+      await openSheetFor('Bamburgh');
+      expect(await screen.findByTestId('location-sheet-fact-dust'))
+        .toHaveTextContent('Elevated dust (e.g. Saharan dust)');
+    });
+
+    it('hands the sheet isPro = false: the LITE dust wording', async () => {
+      renderShell({ isPro: false }, { locations: [BAMBURGH_RECORD] });
+      await openSheetFor('Bamburgh');
+      const dust = await screen.findByTestId('location-sheet-fact-dust');
+      expect(dust).toHaveTextContent('High aerosols');
+      expect(dust).not.toHaveTextContent('Saharan');
+    });
+  });
+
   it('⚠️ opens a spot card\'s sheet OVER the popup, and does not touch the map', async () => {
     // D-3's reversal, at the seam where it was made. P8 left this click on the map because the card
     // was then a page-level surface; M2 moved the cards into a dialog, which is the fact D-3 says
@@ -503,7 +535,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     // `WindowFirstShellLocationSheetHandoff.test.jsx`.
     expect(view.props.onOpenMapTab).toHaveBeenCalledWith({
       date: '2026-08-14', targetType: 'SUNSET', locationName: 'Bamburgh Beach', region: null,
-      minRating: null, limitMinutes: 45, inPlace: false,
+      minRating: null, limitMinutes: 45, inPlace: false, from: 'plan',
     });
     // Never the retired route — a re-pointing must not also ring the old bell, or the overlay would
     // open silently behind the Map tab.
@@ -689,7 +721,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       fireEvent.click(screen.getByTestId('location-sheet-map'));
       expect(view.props.onOpenMapTab).toHaveBeenCalledWith({
         date: '2026-08-14', targetType: 'SUNSET', locationName: 'Derwentwater', region: null,
-        minRating: null, limitMinutes: 45, inPlace: false,
+        minRating: null, limitMinutes: 45, inPlace: false, from: 'plan',
       });
       expect(view.props.onShowOnMap).not.toHaveBeenCalled();
       expect(screen.queryByTestId('location-sheet')).toBeNull();

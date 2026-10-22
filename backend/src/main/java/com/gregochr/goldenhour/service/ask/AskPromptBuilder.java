@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -40,11 +41,34 @@ public class AskPromptBuilder {
             do not write the answer as plain text.
             - summary: one or two plain sentences that answer the question directly, in plain \
             British English with no hype and no exclamation marks. No web addresses.
-            - For where or when questions give 2 or 3 picks at different spots, best first. Every \
-            pick must be a locationId and windowId that rank_spots returned or, for a night \
-            question, that rank_night_spots returned. For other questions picks may be empty. Each \
-            "why" is under 22 words and cites the sky, the tide or the rating.
+            - For where or when questions give up to 3 picks at different spots, best first. Fewer is \
+            fine and none is fine when nothing is worth going for; never fill the list with marginal \
+            places. Every pick must be a locationId and windowId that rank_spots returned or, for a \
+            night question, that rank_night_spots returned. For other questions picks may be empty. \
+            Each "why" is under 22 words and cites the sky, the tide or the rating.
             - If the tools show nothing worth going for, say so plainly: answerable true, no picks.
+            - How to judge a window. Readers rate like this: 1★ and 2★ are stay home; 3★ is \
+            marginal; 4★ is game on; 5★ is go. list_windows gives each window's spread: how many \
+            rated places sit at each star, how many are game on (4★ or better), the regions that \
+            hold a game-on place (the pockets), and how many regions were stood down whole or not \
+            scored. Read the spread before the best rating. A window whose rated places are nearly \
+            all 3★ or below, with a handful at 4★, is a stay-home window with a few exceptions, not \
+            a good window: say so plainly, quoting the figures as returned ("of 180 rated places, 2 \
+            are 4★"), and name the exceptions as exceptions, with their region. A window that is \
+            broadly game on is one to get excited about: say so and give picks. A window whose \
+            regions were all stood down is poor everywhere: say so. A window whose regions are \
+            mostly not scored or thin is mostly unlooked-at: say that, never that it is poor. Never \
+            call a window good because its best rating is 4★ or 5★ when its spread says otherwise. \
+            Picks are the places worth going to, best first, up to three at different spots: on a \
+            stay-home window only the game-on exceptions (one is fine, none is fine), each named as \
+            an exception.
+            - A good investigation usually runs: list_windows; if none of the windows the question \
+            is about holds a game-on place, say so and stop; if one of them is broadly game on, \
+            rank_spots there; if they have pockets, even a couple of exceptions on a stay-home \
+            window, rank_spots in those regions and windows, and for a coastal pocket read \
+            tideState and tideAligned and check get_hot_topics for a spring or king tide; then \
+            pick, naming an exception as one. Questions this does not fit (one place, one tide, one \
+            event, the night) need none of it.
             - Add events only from get_hot_topics or get_coming_up results that bear on the \
             question, with the type exactly as returned. If a result carries a safetyNote for an \
             event you mention, say that warning in the summary.
@@ -61,7 +85,9 @@ public class AskPromptBuilder {
             the clearSky and Bortle facts the tool returned, and the pick is at the window id of the \
             figure it cites: astroWindowId for the sky, auroraWindowId for the northern lights.
             - For a general "best" question lead with the window list_windows marks bestBet, when \
-            it is in scope. If your answer leads elsewhere, the summary says why.
+            it is in scope: its pick comes first, named as the forecast's pick even when that window \
+            is a stay-home one, and any game-on exceptions on other windows follow as exceptions. If \
+            your answer leads elsewhere, the summary says why.
             - Say the tide "suits" a spot only when tideAligned is true. tideState is the water at \
             the event; tideAligned is whether it is the water that spot wants.
             - Never give advice about access, parking, walking, crowds, opening times or safety, \
@@ -77,7 +103,10 @@ public class AskPromptBuilder {
     /** Added when the conversation has no user behind it (Ready answers). */
     static final String USER_LESS = """
             This answer is shared with every reader, so never mention home, distance or drive \
-            times.
+            times. When you quote the spread, say which area it counts, as the result's over says \
+            ("across every region" or "in Northumberland"), never "within reach". Never call a 3★ \
+            place worth the trip; a 3★ pick is only ever the forecast's own BEST BET or ALSO GOOD, \
+            named as the forecast's pick.
             """;
 
     /** Added when the conversation has a user. */
@@ -88,15 +117,20 @@ public class AskPromptBuilder {
             'Closer' in a follow-up: pass a maxDriveMinutes smaller than the earlier \
             picks' drive, or nearHome true if it was not used. When nearHome was used, say in the \
             summary that the places are within N miles of home, with N the radius the result returned, and \
-            never say within reach. Quote a drive time for a spot only when a tool returned it.
+            never say within reach. Quote a drive time for a spot only when a tool returned it. A 3★ \
+            place is worth considering only close to the reader's home; say so when you offer one. \
+            When you quote the spread, say which area it counts, as the result's over says. The \
+            spread counts the whole area, not the places within the reader's drive; a drive filter \
+            is rank_spots' alone.
             """;
 
     /**
      * Added, last, when the question follows earlier ones (plan {@code ask-thread-plan.md} §2.3). The
      * first two sentences are the plan's rule word for word; the emoji line is there because the
      * summary of this answer may be sent back as the next question's earlier answer, which refuses
-     * an emoji; the last sentence tells the model what the "no longer in the forecast" lines of the
-     * user message mean.
+     * an emoji; the last two sentences tell the model what the "no longer in the forecast" and "held
+     * back" lines of the user message mean (a held-back place is one the neighbour guard withholds: its
+     * rating has not fallen, so the model may say only that it is not being suggested).
      */
     static final String THREAD_RULES = """
             Earlier picks are real candidates: you may rank, compare, or exclude them. Resolve \
@@ -107,9 +141,14 @@ public class AskPromptBuilder {
             both"), leave those places out of your new picks, at every window. Each earlier pick \
             lists its locationId and windowId: use those exact ids when you pick it again. When asked \
             to rank earlier options, submit them as the picks, best first, as many as three.
+            A follow-up about the windows themselves ("so is it a stay-home weekend?", "how does \
+            Sunday look?") calls list_windows again.
             Never use emoji or symbols other than ★ in the summary.
             An earlier place the message lists as no longer in the forecast, or outside the area, \
-            cannot be a pick: say so in the summary when it bears on the question.
+            cannot be a pick: say so in the summary when it bears on the question. An earlier \
+            place the message lists as held back is not offered: if it bears on the question, say only \
+            that a held-back place is not being suggested because its rating is out of line with the \
+            places beside it; never call it low, poor or unreliable, and do not quote its star.
             """;
 
     /**
@@ -166,6 +205,28 @@ public class AskPromptBuilder {
      */
     public String systemPrompt(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
             AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread) {
+        return systemPrompt(today, scope, contextWindow, contextNight, tonight, hasUser, hasThread, List.of());
+    }
+
+    /**
+     * Builds the system prompt of a Ready conversation, which also names the windows its question covers.
+     * With none it is byte for byte the prompt of the overload above.
+     *
+     * @param today         today on the UK civil calendar
+     * @param scope         the regions asked about; {@link AskScope#ALL} means every region
+     * @param contextWindow the solar window the reader is looking at, or null
+     * @param contextNight  the night the reader is looking at, or null
+     * @param tonight       the date of the night in progress, or null
+     * @param hasUser       whether a user is behind the conversation
+     * @param hasThread     whether the question follows earlier exchanges
+     * @param coveredWindowIds the windows a Ready question is ABOUT (its offer's temporal set, never the
+     *                      candidate-bearing subset: an all-blue Saturday is still part of "this
+     *                      weekend"); empty for a typed question
+     * @return the prompt
+     */
+    public String systemPrompt(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
+            AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread,
+            List<String> coveredWindowIds) {
         StringBuilder sb = new StringBuilder(RULES).append('\n');
         sb.append(hasUser ? WITH_USER : USER_LESS).append('\n');
         sb.append("Today is ").append(LONG_DATE.format(today)).append(" in the UK.\n");
@@ -174,6 +235,10 @@ public class AskPromptBuilder {
         } else {
             sb.append("The question is about these regions only: ")
                     .append(String.join(", ", scope.names())).append(".\n");
+        }
+        if (coveredWindowIds != null && !coveredWindowIds.isEmpty()) {
+            sb.append("The question is about these windows: ")
+                    .append(String.join(", ", coveredWindowIds)).append(".\n");
         }
         if (contextWindow != null) {
             sb.append("The reader is looking at ")

@@ -28,11 +28,33 @@ public record MistTrend(List<MistSlot> slots) {
      * @param visibilityMetres     horizontal viewing distance in metres
      * @param dewPointCelsius      dew point at 2 m above ground in °C
      * @param temperatureCelsius   air temperature at 2 m above ground in °C
+     * @param cloudCoverPercent    observer TOTAL cloud cover (all layers) in %, or null when the
+     *                             series was absent; read by {@code ValleyMistCalculator} only —
+     *                             the prompt's rendering of this trend does not print it
+     * @param windSpeedMs          10 m wind speed in m/s, or null when the series was absent; read
+     *                             by {@code ValleyMistCalculator} only
      */
     public record MistSlot(
             int hoursRelativeToEvent,
             int visibilityMetres,
             double dewPointCelsius,
-            double temperatureCelsius) {
+            double temperatureCelsius,
+            Integer cloudCoverPercent,
+            Double windSpeedMs) {
+
+        /**
+         * Backward-compatible constructor for a slot that carries neither total cloud nor wind
+         * (the shape before valley-mist-plan M1a): both read as absent.
+         *
+         * @param hoursRelativeToEvent negative = before event, 0 = event hour, positive = after
+         * @param visibilityMetres     horizontal viewing distance in metres
+         * @param dewPointCelsius      dew point at 2 m above ground in °C
+         * @param temperatureCelsius   air temperature at 2 m above ground in °C
+         */
+        public MistSlot(int hoursRelativeToEvent, int visibilityMetres, double dewPointCelsius,
+                double temperatureCelsius) {
+            this(hoursRelativeToEvent, visibilityMetres, dewPointCelsius, temperatureCelsius,
+                    null, null);
+        }
     }
 }

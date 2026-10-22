@@ -5,6 +5,7 @@ import {
 import {
   act, render, screen, fireEvent, waitFor,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import UserSettingsModal from '../components/UserSettingsModal.jsx';
 import { createColourSaveQueue, saveColourInTurn } from '../utils/colourSaveQueue.js';
 
@@ -14,10 +15,15 @@ vi.mock('../api/settingsApi', () => ({
   saveHome: vi.fn(),
   refreshDriveTimes: vi.fn(),
   saveMapColourPreferences: vi.fn(),
+  reverseLookupPostcode: vi.fn(),
 }));
 
+vi.mock('../api/accountApi', () => ({ deleteAccount: vi.fn() }));
+
+import { deleteAccount } from '../api/accountApi';
 import {
   getSettings, lookupPostcode, saveHome, refreshDriveTimes, saveMapColourPreferences,
+  reverseLookupPostcode,
 } from '../api/settingsApi';
 
 const PRO_SETTINGS = {
@@ -339,8 +345,17 @@ describe('UserSettingsModal', () => {
     getSettings.mockResolvedValue(LITE_SETTINGS);
     renderModal();
     await waitFor(() => expect(screen.getByText(
-      'Your postcode sets your light times. Upgrade to Pro for personalised drive times.',
+      'Your postcode sets your light times. Pro accounts also get drive times from home.',
     )).toBeInTheDocument());
+  });
+
+  it('says nothing about upgrading anywhere — the App Store forbids a pointer at a web purchase', async () => {
+    // Task 14: the sentence names what Pro accounts get and links nowhere. The old wording is gone.
+    getSettings.mockResolvedValue(LITE_SETTINGS);
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-modal')).toHaveTextContent('Pro accounts also get'));
+    expect(screen.getByTestId('settings-modal')).not.toHaveTextContent(/upgrade/i);
+    expect(screen.getByTestId('settings-modal').querySelector('a')).toBeNull();
   });
 
   it('does not grey the home location block for LITE user', async () => {
@@ -1670,5 +1685,797 @@ describe('UserSettingsModal — where focus goes when a step removes what the re
 
       expect(screen.getByTestId('settings-colour-error')).toBeInTheDocument();
     });
+  });
+});
+
+describe('UserSettingsModal — the postcode field: the shared style, the mobile attributes, "Use my location"', () => {
+  const NO_HOME = { ...PRO_SETTINGS, homePostcode: null, homePlaceName: null };
+  const DURHAM = {
+    postcode: 'DH1 3SS', placeName: 'Durham, County Durham', latitude: 54.776, longitude: -1.575,
+  };
+  const NEWCASTLE = {
+    postcode: 'NE1 7RU', placeName: 'Newcastle', latitude: 54.97, longitude: -1.61,
+  };
+  const DENIED = 'Location access is off. Enter your postcode instead.';
+  const FAILED = "Couldn't get your location. Enter your postcode instead.";
+  const NOT_UK = "We couldn't find a UK postcode for your location.";
+
+  const hold = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    promise.catch(() => {});
+    return { promise, resolve, reject };
+  };
+  const land = async (fn) => { await act(async () => { fn(); }); };
+  /** The press a keyboard reader makes: focus first, then activate. */
+  const press = (el) => { el.focus(); fireEvent.click(el); };
+
+  /** A browser that answers with a fix. */
+  const fix = (latitude, longitude) => vi.fn((ok) => ok({ coords: { latitude, longitude } }));
+  /** A browser that fails with a GeolocationPositionError-shaped object (jsdom has no such class). */
+  const failWith = (code) => vi.fn((_ok, fail) => fail({ code }));
+  const installGeolocation = (getCurrentPosition) => {
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { getCurrentPosition } });
+  };
+
+  const open = async (settings = NO_HOME, props = {}) => {
+    getSettings.mockResolvedValue(settings);
+    renderModal(props);
+    return screen.findByTestId('settings-postcode-input');
+  };
+
+  beforeEach(() => {
+    [getSettings, lookupPostcode, saveHome, refreshDriveTimes, saveMapColourPreferences,
+      reverseLookupPostcode].forEach((fn) => fn.mockReset());
+  });
+
+  afterEach(() => {
+    delete navigator.geolocation;
+  });
+
+  describe('the input', () => {
+    it('is the shared .field style with only the layout utilities beside it, nothing that outranks the class', async () => {
+      const input = await open();
+      const classes = input.className.split(/\s+/).filter(Boolean);
+
+      expect(classes).toContain('field');
+      // `text-sm` would beat `text-base sm:text-sm` and put the iOS focus-zoom back.
+      expect(classes).not.toContain('text-sm');
+      expect(classes).not.toContain('bg-plex-surface-light');
+      expect(classes).not.toContain('rounded');
+      classes.forEach((c) => expect(['field', 'field-error', 'flex-1', 'min-w-0']).toContain(c));
+      expect(classes).not.toContain('field-error');
+    });
+
+    it('carries the mobile-browser attributes, verbatim', async () => {
+      const input = await open();
+
+      expect(input).toHaveAttribute('autocomplete', 'postal-code');
+      expect(input).toHaveAttribute('autocapitalize', 'characters');
+      expect(input).toHaveAttribute('autocorrect', 'off');
+      expect(input).toHaveAttribute('spellcheck', 'false');
+      expect(input).toHaveAttribute('inputmode', 'text');
+      expect(input).toHaveAttribute('enterkeyhint', 'search');
+    });
+
+    it('wears field-error, aria-invalid and the error token after a failed lookup, and sheds all three on the next', async () => {
+      const input = await open();
+      lookupPostcode.mockRejectedValueOnce(new Error('bad'));
+      fireEvent.change(input, { target: { value: 'XX1' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+
+      const error = await screen.findByTestId('settings-lookup-error');
+      expect(error).toHaveTextContent('Invalid postcode');
+      expect(error).toHaveClass('text-plex-error');
+      expect(error).toHaveAttribute('role', 'alert');
+      expect(input.className.split(/\s+/)).toContain('field-error');
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      expect(input).toHaveAttribute('aria-describedby', error.id);
+
+      lookupPostcode.mockResolvedValueOnce(NEWCASTLE);
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+
+      await screen.findByTestId('settings-lookup-result');
+      expect(screen.queryByTestId('settings-lookup-error')).toBeNull();
+      expect(input.className.split(/\s+/)).not.toContain('field-error');
+      expect(input).not.toHaveAttribute('aria-invalid');
+      expect(input).not.toHaveAttribute('aria-describedby');
+    });
+
+    it('still runs the lookup on Enter', async () => {
+      const input = await open();
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      await screen.findByTestId('settings-lookup-result');
+      expect(lookupPostcode).toHaveBeenCalledWith('NE1 7RU');
+    });
+  });
+
+  describe('the status tokens', () => {
+    it('draws the saved-home dot and the lookup result dot in the ok token, not a raw green', async () => {
+      await open({ ...PRO_SETTINGS });
+      const dot = screen.getByTestId('settings-home-current').querySelector('span');
+      expect(dot).toHaveClass('bg-plex-ok');
+      expect(dot.className).not.toMatch(/green/);
+
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      fireEvent.change(screen.getByTestId('settings-postcode-input'), { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      const result = await screen.findByTestId('settings-lookup-result');
+      expect(result.querySelector('span')).toHaveClass('bg-plex-ok');
+    });
+
+    it('draws the drive-time refresh error in the error token', async () => {
+      getSettings.mockResolvedValue({ ...PRO_SETTINGS, driveTimesCalculatedAt: null });
+      refreshDriveTimes.mockRejectedValue(new Error('no'));
+      renderModal();
+      fireEvent.click(await screen.findByTestId('settings-refresh-drive-btn'));
+
+      const error = await screen.findByTestId('settings-refresh-error');
+      expect(error).toHaveClass('text-plex-error');
+      expect(error.className).not.toMatch(/red/);
+    });
+
+    it('draws the load failure in the error token', async () => {
+      getSettings.mockRejectedValue(new Error('fail'));
+      renderModal();
+      expect(await screen.findByText('Failed to load settings.')).toHaveClass('text-plex-error');
+    });
+  });
+
+  describe('"Use my location"', () => {
+    it('is not drawn where the browser has no geolocation', async () => {
+      await open();
+      expect(screen.queryByTestId('settings-use-location')).toBeNull();
+    });
+
+    it('is drawn for a LITE reader too, because the postcode and its light times are free', async () => {
+      installGeolocation(fix(54.776, -1.575));
+      await open({ ...PRO_SETTINGS, role: 'LITE_USER', homePostcode: null, homePlaceName: null });
+
+      const link = await screen.findByTestId('settings-use-location');
+      expect(link).toHaveTextContent('Use my location');
+      expect(link).not.toHaveAttribute('aria-disabled');
+      expect(link.tagName).toBe('BUTTON');
+      expect(link).toHaveAttribute('type', 'button');
+    });
+
+    it('lands the postcode there in the field and the confirmation row, saving nothing until Save', async () => {
+      installGeolocation(fix(54.776, -1.575));
+      reverseLookupPostcode.mockResolvedValue(DURHAM);
+      const input = await open();
+
+      press(await screen.findByTestId('settings-use-location'));
+
+      const result = await screen.findByTestId('settings-lookup-result');
+      expect(reverseLookupPostcode).toHaveBeenCalledTimes(1);
+      expect(reverseLookupPostcode).toHaveBeenCalledWith(54.776, -1.575);
+      expect(lookupPostcode).not.toHaveBeenCalled();
+      expect(input).toHaveValue('DH1 3SS');
+      expect(result).toHaveTextContent('Durham, County Durham');
+      expect(result).toHaveTextContent('54.7760, -1.5750');
+      expect(saveHome).not.toHaveBeenCalled();
+    });
+
+    it('saves what it found with the arguments a typed lookup would: the null radius when none was chosen', async () => {
+      installGeolocation(fix(54.776, -1.575));
+      reverseLookupPostcode.mockResolvedValue(DURHAM);
+      saveHome.mockResolvedValue({ ...NO_HOME, homePostcode: 'DH1 3SS', homePlaceName: null });
+      await open();
+
+      press(await screen.findByTestId('settings-use-location'));
+      fireEvent.click(await screen.findByTestId('settings-save-home-btn'));
+
+      await waitFor(() => expect(saveHome).toHaveBeenCalledWith('DH1 3SS', 54.776, -1.575, null));
+      // The save does not geocode; the place the lookup named is what the line shows.
+      await waitFor(() => expect(screen.getByTestId('settings-home-current'))
+        .toHaveTextContent('Durham, County Durham'));
+    });
+
+    it('⚠️ keeps the reader on the link while the request is out, says Locating…, and a second press starts nothing', async () => {
+      const request = hold();
+      installGeolocation(fix(54.776, -1.575));
+      reverseLookupPostcode.mockReturnValue(request.promise);
+      await open();
+      const link = await screen.findByTestId('settings-use-location');
+
+      press(link);
+
+      expect(link).toHaveTextContent('Locating…');
+      expect(link).toHaveAttribute('aria-disabled', 'true');
+      // `aria-disabled`, never `disabled`: a disabled control that held focus drops it to <body>.
+      expect(link).not.toBeDisabled();
+      expect(link).toHaveFocus();
+      fireEvent.click(link);
+      expect(reverseLookupPostcode).toHaveBeenCalledTimes(1);
+
+      await land(() => request.resolve(DURHAM));
+      expect(link).toHaveTextContent('Use my location');
+      expect(link).not.toHaveAttribute('aria-disabled');
+      expect(link).toHaveFocus();
+    });
+
+    it.each([
+      ['permission refused', () => failWith(1), null, DENIED],
+      ['position unavailable', () => failWith(2), null, FAILED],
+      ['a timeout', () => failWith(3), null, FAILED],
+      ['no UK postcode there', () => fix(10, 10), { response: { status: 400 } }, NOT_UK],
+      ['an unreachable lookup', () => fix(10, 10), { response: { status: 502 } }, FAILED],
+    ])('says so in the lookup error line when %s, and the reader keeps focus on the link', async (_n, browser, apiError, sentence) => {
+      installGeolocation(browser());
+      if (apiError) reverseLookupPostcode.mockRejectedValue(apiError);
+      const input = await open();
+      const link = await screen.findByTestId('settings-use-location');
+
+      press(link);
+
+      const error = await screen.findByTestId('settings-lookup-error');
+      expect(error).toHaveTextContent(sentence);
+      expect(error).toHaveClass('text-plex-error');
+      expect(input).toHaveAttribute('aria-describedby', error.id);
+      // The error is the LOCATION's, not a typed postcode's: the field is not marked invalid.
+      expect(input.className.split(/\s+/)).not.toContain('field-error');
+      expect(input).not.toHaveAttribute('aria-invalid');
+      expect(screen.queryByTestId('settings-lookup-result')).toBeNull();
+      expect(link).toHaveFocus();
+      expect(link).not.toHaveAttribute('aria-disabled');
+    });
+
+    it('a failed request leaves an earlier lookup result where it was', async () => {
+      installGeolocation(failWith(1));
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      const input = await open();
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByTestId('settings-lookup-result');
+
+      press(screen.getByTestId('settings-use-location'));
+      await screen.findByTestId('settings-lookup-error');
+
+      expect(screen.getByTestId('settings-lookup-result')).toHaveTextContent('Newcastle');
+      expect(input).toHaveValue('NE1 7RU');
+    });
+
+    it('a typed lookup clears the location error, and a location result replaces an earlier typed one', async () => {
+      installGeolocation(failWith(1));
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      const input = await open();
+      press(await screen.findByTestId('settings-use-location'));
+      await screen.findByText(DENIED);
+
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByTestId('settings-lookup-result');
+      expect(screen.queryByTestId('settings-lookup-error')).toBeNull();
+
+      installGeolocation(fix(54.776, -1.575));
+      reverseLookupPostcode.mockResolvedValue(DURHAM);
+      press(screen.getByTestId('settings-use-location'));
+      await waitFor(() => expect(screen.getByTestId('settings-lookup-result')).toHaveTextContent('Durham'));
+      expect(input).toHaveValue('DH1 3SS');
+    });
+
+    it('⚠️ a typed lookup made while a location request is out wins, and the late location result is dropped', async () => {
+      const request = hold();
+      installGeolocation(fix(54.776, -1.575));
+      reverseLookupPostcode.mockReturnValue(request.promise);
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      const input = await open();
+      press(await screen.findByTestId('settings-use-location'));
+
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByTestId('settings-lookup-result');
+      await land(() => request.resolve(DURHAM));
+
+      expect(screen.getByTestId('settings-lookup-result')).toHaveTextContent('Newcastle');
+      expect(input).toHaveValue('NE1 7RU');
+    });
+
+    it('is held while a typed lookup is out, so no second request races for the result slot', async () => {
+      const typed = hold();
+      installGeolocation(fix(54.776, -1.575));
+      lookupPostcode.mockReturnValue(typed.promise);
+      const input = await open();
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+
+      const link = screen.getByTestId('settings-use-location');
+      expect(link).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(link);
+      expect(reverseLookupPostcode).not.toHaveBeenCalled();
+
+      await land(() => typed.resolve(NEWCASTLE));
+    });
+
+    it('⚠️ a Save pressed while a location request is out wins: the late location result is dropped, and no Save row comes back under the saved home', async () => {
+      const request = hold();
+      const save = hold();
+      installGeolocation(fix(54.776, -1.575));
+      reverseLookupPostcode.mockReturnValue(request.promise);
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      saveHome.mockReturnValue(save.promise);
+      const input = await open();
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByTestId('settings-lookup-result');
+      press(screen.getByTestId('settings-use-location'));
+      press(screen.getByTestId('settings-save-home-btn'));
+      expect(saveHome).toHaveBeenCalledWith('NE1 7RU', 54.97, -1.61, null);
+
+      await land(() => request.resolve(DURHAM));
+      // Dropped on arrival, not merely cleared later by the save: the field keeps what is saving.
+      expect(input).toHaveValue('NE1 7RU');
+      expect(screen.getByTestId('settings-lookup-result')).toHaveTextContent('Newcastle');
+      await land(() => save.resolve({ ...NO_HOME, homePostcode: 'NE1 7RU' }));
+
+      expect(screen.queryByTestId('settings-lookup-result')).toBeNull();
+      expect(screen.queryByTestId('settings-save-home-btn')).toBeNull();
+      expect(screen.getByTestId('settings-home-current')).toHaveTextContent('Newcastle');
+      expect(screen.getByTestId('settings-home-current')).toHaveFocus();
+    });
+
+    it('a location request that lands AFTER the save finished is dropped too', async () => {
+      const request = hold();
+      installGeolocation(fix(54.776, -1.575));
+      reverseLookupPostcode.mockReturnValue(request.promise);
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      saveHome.mockResolvedValue({ ...NO_HOME, homePostcode: 'NE1 7RU' });
+      const input = await open();
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByTestId('settings-lookup-result');
+      press(screen.getByTestId('settings-use-location'));
+      press(screen.getByTestId('settings-save-home-btn'));
+      await waitFor(() => expect(screen.queryByTestId('settings-save-home-btn')).toBeNull());
+
+      await land(() => request.resolve(DURHAM));
+
+      expect(screen.queryByTestId('settings-lookup-result')).toBeNull();
+      expect(screen.getByTestId('settings-home-current')).toHaveTextContent('Newcastle');
+      expect(screen.getByTestId('settings-home-current')).toHaveFocus();
+    });
+
+    it('is held while a save is out, so a located result cannot replace the one being saved', async () => {
+      const save = hold();
+      installGeolocation(fix(54.776, -1.575));
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      saveHome.mockReturnValue(save.promise);
+      const input = await open();
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByTestId('settings-lookup-result');
+      press(screen.getByTestId('settings-save-home-btn'));
+
+      const link = screen.getByTestId('settings-use-location');
+      expect(link).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(link);
+      expect(reverseLookupPostcode).not.toHaveBeenCalled();
+
+      await land(() => save.resolve({ ...NO_HOME, homePostcode: 'NE1 7RU' }));
+    });
+
+    it('a location failure that lands after a newer typed lookup is not shown above that lookup\'s result', async () => {
+      const request = hold();
+      installGeolocation(vi.fn((_ok, fail) => { request.promise.then(() => fail({ code: 1 })); }));
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      const input = await open();
+      press(await screen.findByTestId('settings-use-location'));
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByTestId('settings-lookup-result');
+
+      await land(() => request.resolve());
+
+      expect(screen.queryByTestId('settings-lookup-error')).toBeNull();
+      expect(screen.getByTestId('settings-lookup-result')).toHaveTextContent('Newcastle');
+    });
+
+    it('a successful location result clears a typed "Invalid postcode" beside it, field-error included', async () => {
+      installGeolocation(fix(54.776, -1.575));
+      reverseLookupPostcode.mockResolvedValue(DURHAM);
+      lookupPostcode.mockRejectedValue(new Error('bad'));
+      const input = await open();
+      fireEvent.change(input, { target: { value: 'XX1' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByText('Invalid postcode');
+
+      press(screen.getByTestId('settings-use-location'));
+
+      await screen.findByTestId('settings-lookup-result');
+      expect(screen.queryByTestId('settings-lookup-error')).toBeNull();
+      expect(input.className.split(/\s+/)).not.toContain('field-error');
+      expect(input).not.toHaveAttribute('aria-invalid');
+    });
+
+    it('moves no focus landing: the explicit postcode landing still holds, and a save still lands on the home line', async () => {
+      installGeolocation(fix(54.776, -1.575));
+      reverseLookupPostcode.mockResolvedValue(DURHAM);
+      saveHome.mockResolvedValue({
+        ...NO_HOME, homePostcode: 'DH1 3SS', homeLatitude: 54.776, homeLongitude: -1.575,
+      });
+      getSettings.mockResolvedValue(NO_HOME);
+      renderModal({ focusField: 'postcode' });
+      const input = await screen.findByRole('textbox', { name: 'Home location' });
+      await waitFor(() => expect(input).toHaveFocus());
+
+      press(screen.getByTestId('settings-use-location'));
+      const save = await screen.findByTestId('settings-save-home-btn');
+      press(save);
+
+      await waitFor(() => expect(screen.getByTestId('settings-home-current')).toHaveFocus());
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Danger zone — deleting the reader's own account (login-registration plan R5b, §2 #7)
+// ---------------------------------------------------------------------------
+
+describe('UserSettingsModal — danger zone', () => {
+  const SENTENCE = 'This deletes your account, your home postcode and drive times, your Ask history and your '
+    + 'ratings. It cannot be undone.';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getSettings.mockResolvedValue(PRO_SETTINGS);
+    // clearAllMocks keeps implementations: a stale rejection from the last test must not answer this one.
+    deleteAccount.mockReset();
+  });
+
+  /** An axios-shaped refusal: the status and the sentence the server put under `error`. */
+  const refusal = (status, error) => ({
+    response: { status, data: error === undefined ? '' : { error } },
+  });
+
+  async function openRegion(props = {}) {
+    const user = userEvent.setup();
+    const onSignOut = vi.fn();
+    const view = renderModal({ onSignOut, ...props });
+    await user.click(await screen.findByTestId('settings-delete-open'));
+    return { user, onSignOut, ...view };
+  }
+
+  const confirmButton = () => screen.getByTestId('settings-delete-confirm');
+  const passwordField = () => screen.getByTestId('settings-delete-password');
+
+  it.each([['PRO_USER', PRO_SETTINGS], ['LITE_USER', LITE_SETTINGS], ['ADMIN', ADMIN_SETTINGS]])(
+    'offers the section to a %s, collapsed: a heading and a btn-secondary opener, no region, no call',
+    async (_role, settings) => {
+      getSettings.mockResolvedValue(settings);
+      renderModal();
+      const opener = await screen.findByTestId('settings-delete-open');
+
+      expect(screen.getByRole('heading', { level: 3, name: 'Danger zone' })).toBeInTheDocument();
+      expect(opener).toHaveTextContent('Delete account');
+      expect(opener.className.split(/\s+/)).toContain('btn-secondary');
+      expect(opener).toHaveAttribute('type', 'button');
+      expect(screen.queryByTestId('settings-delete-region')).toBeNull();
+      expect(screen.queryByTestId('settings-delete-password')).toBeNull();
+      expect(deleteAccount).not.toHaveBeenCalled();
+    },
+  );
+
+  it('opens an inline group labelled by the heading, with the sentence, and moves focus to the password field', async () => {
+    await openRegion();
+
+    const region = screen.getByRole('group', { name: 'Danger zone' });
+    expect(region).toBe(screen.getByTestId('settings-delete-region'));
+    expect(region).toHaveTextContent(SENTENCE);
+    expect(region).toHaveAccessibleDescription(SENTENCE);
+
+    const field = passwordField();
+    expect(field).toHaveAttribute('type', 'password');
+    expect(field).toHaveAttribute('autocomplete', 'current-password');
+    expect(field).toHaveAccessibleName('Password');
+    expect(field).toHaveValue('');
+    expect(field).toHaveFocus();
+    // The opener leaves with the press: one button named "Delete account" on screen, the confirm.
+    expect(screen.queryByTestId('settings-delete-open')).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Delete account' })).toEqual([confirmButton()]);
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(deleteAccount).not.toHaveBeenCalled();
+  });
+
+  it('never puts a second modal on the page: the settings dialog is the only aria-modal, before and after opening', async () => {
+    const user = userEvent.setup();
+    renderModal();
+    await screen.findByTestId('settings-delete-open');
+    expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(1);
+
+    await user.click(screen.getByTestId('settings-delete-open'));
+
+    expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[role="dialog"], [role="alertdialog"]')).toHaveLength(1);
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toContainElement(
+      screen.getByTestId('settings-delete-region'),
+    );
+  });
+
+  it('keeps Delete disabled until a password is typed, and disabled again when it is cleared', async () => {
+    const { user } = await openRegion();
+
+    expect(confirmButton()).toBeDisabled();
+    await user.click(confirmButton());
+    expect(deleteAccount).not.toHaveBeenCalled();
+
+    await user.type(passwordField(), 'p');
+    expect(confirmButton()).toBeEnabled();
+    expect(confirmButton()).not.toHaveAttribute('aria-disabled');
+
+    await user.clear(passwordField());
+    expect(confirmButton()).toBeDisabled();
+    await user.type(passwordField(), '{enter}');
+    expect(deleteAccount).not.toHaveBeenCalled();
+  });
+
+  it('draws the destructive button with .btn-danger, never a raw red', async () => {
+    await openRegion();
+    const classes = confirmButton().className.split(/\s+/);
+
+    // `.btn-danger` owns the fill and the focus ring (index.css; buttonFocusRules.test.js pins
+    // the rule from the token), and no ring utility may sit beside a `.btn*` class.
+    expect(classes).toContain('btn-danger');
+    expect(classes.filter((c) => /(^|:)(ring|outline)(-|$)/.test(c))).toEqual([]);
+    expect(classes.filter((c) => /(?:red|rose)-\d{2,3}/.test(c))).toEqual([]);
+  });
+
+  it('sends exactly the typed password once, shows Deleting… and refuses a second press while it is out', async () => {
+    const out = deferred();
+    deleteAccount.mockReturnValue(out.promise);
+    const { user, onSignOut } = await openRegion();
+    await user.type(passwordField(), 'correct horse');
+
+    await user.click(confirmButton());
+
+    expect(deleteAccount).toHaveBeenCalledTimes(1);
+    expect(deleteAccount).toHaveBeenCalledWith('correct horse');
+    expect(confirmButton()).toHaveTextContent('Deleting…');
+    expect(confirmButton()).toHaveAttribute('aria-disabled', 'true');
+    // Not `disabled`: the reader pressed this button and keeps focus on it.
+    expect(confirmButton()).not.toBeDisabled();
+    expect(confirmButton()).toHaveFocus();
+
+    await user.click(confirmButton());
+    await user.type(passwordField(), '{enter}');
+    expect(deleteAccount).toHaveBeenCalledTimes(1);
+    expect(onSignOut).not.toHaveBeenCalled();
+    await land(() => out.resolve());
+  });
+
+  it('submits with Enter in the password field', async () => {
+    deleteAccount.mockResolvedValue(undefined);
+    const { user } = await openRegion();
+
+    await user.type(passwordField(), 'hunter2{enter}');
+
+    expect(deleteAccount).toHaveBeenCalledTimes(1);
+    expect(deleteAccount).toHaveBeenCalledWith('hunter2');
+  });
+
+  it('on a 204 signs out, once, and does not re-enable the button in the gap', async () => {
+    const out = deferred();
+    deleteAccount.mockReturnValue(out.promise);
+    const { user, onSignOut } = await openRegion();
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+    expect(onSignOut).not.toHaveBeenCalled();
+
+    await land(() => out.resolve(undefined));
+
+    expect(onSignOut).toHaveBeenCalledTimes(1);
+    expect(onSignOut).toHaveBeenCalledWith();
+    expect(screen.queryByTestId('settings-delete-error')).toBeNull();
+    expect(confirmButton()).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('on a 403 shows the server\'s sentence in an alert inside the region and keeps focus on the button', async () => {
+    deleteAccount.mockRejectedValue(refusal(403, 'Password is incorrect'));
+    const { user, onSignOut } = await openRegion();
+    await user.type(passwordField(), 'wrong');
+    await user.click(confirmButton());
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Password is incorrect');
+    expect(alert).toBe(screen.getByTestId('settings-delete-error'));
+    expect(screen.getByTestId('settings-delete-region')).toContainElement(alert);
+    expect(onSignOut).not.toHaveBeenCalled();
+    // The region stays as it was: the password is kept for a correction, the button is live again,
+    // and — the point of aria-disabled over disabled — focus never left it.
+    expect(passwordField()).toHaveValue('wrong');
+    expect(confirmButton()).toHaveTextContent('Delete account');
+    expect(confirmButton()).not.toHaveAttribute('aria-disabled');
+    expect(confirmButton()).toHaveFocus();
+    expect(passwordField()).toHaveAttribute('aria-invalid', 'true');
+    expect(passwordField()).toHaveAccessibleDescription('Password is incorrect');
+  });
+
+  it('prefers the server\'s own sentence over the plan\'s, and falls back to the plan\'s when the body has none', async () => {
+    deleteAccount.mockRejectedValueOnce(refusal(403, 'That is not your password'));
+    const { user } = await openRegion();
+    await user.type(passwordField(), 'x');
+    await user.click(confirmButton());
+    expect(await screen.findByRole('alert')).toHaveTextContent('That is not your password');
+
+    deleteAccount.mockRejectedValueOnce(refusal(403));
+    await user.click(confirmButton());
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/^Password is incorrect$/));
+  });
+
+  it.each([
+    [429, 'Too many attempts. Please wait a few minutes and try again.'],
+    [409, 'Admin accounts are deleted by another admin'],
+  ])('on a %i shows the server\'s sentence inside the region and keeps it open, without marking the password invalid', async (status, sentence) => {
+    deleteAccount.mockRejectedValue(refusal(status, sentence));
+    const { user, onSignOut } = await openRegion();
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(sentence);
+    expect(onSignOut).not.toHaveBeenCalled();
+    expect(screen.getByTestId('settings-delete-region')).toContainElement(screen.getByRole('alert'));
+    expect(passwordField()).not.toHaveAttribute('aria-invalid');
+    expect(confirmButton()).toHaveFocus();
+    expect(confirmButton()).not.toHaveAttribute('aria-disabled');
+  });
+
+  it.each([
+    [429, 'Too many attempts. Please wait a few minutes and try again.'],
+    [409, 'Admin accounts are deleted by another admin'],
+  ])('on a %i with no sentence in the body, says the plan\'s own', async (status, sentence) => {
+    deleteAccount.mockRejectedValue(refusal(status));
+    const { user } = await openRegion();
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(new RegExp(`^${sentence}$`));
+  });
+
+  it('drops a refusal the moment the password is edited, since it was about the one that was sent', async () => {
+    deleteAccount.mockRejectedValue(refusal(403, 'Password is incorrect'));
+    const { user } = await openRegion();
+    await user.type(passwordField(), 'bad');
+    await user.click(confirmButton());
+    await screen.findByRole('alert');
+
+    await user.type(passwordField(), 'x');
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(passwordField()).not.toHaveAttribute('aria-invalid');
+    expect(passwordField()).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('refuses the dialog\'s own × and backdrop while the request is out, and allows them again after a refusal', async () => {
+    const out = deferred();
+    deleteAccount.mockReturnValue(out.promise);
+    const { user, onClose } = await openRegion();
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await user.click(screen.getByTestId('settings-modal-backdrop'));
+    expect(onClose).not.toHaveBeenCalled();
+
+    await land(() => out.reject(refusal(403, 'Password is incorrect')));
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets the panel scroll on a short screen: capped to the frame, not clipped at both ends', async () => {
+    renderModal();
+    await screen.findByTestId('settings-delete-open');
+    const panel = screen.getByRole('dialog', { name: 'Settings' }).lastElementChild;
+    expect(panel.className.split(/\s+/)).toEqual(expect.arrayContaining(['max-h-full', 'overflow-y-auto']));
+  });
+
+  it('on a 401 (the credentials changed under this session) signs out and shows no error', async () => {
+    deleteAccount.mockRejectedValue(refusal(401, 'Your session has changed. Sign in again.'));
+    const { user, onSignOut } = await openRegion();
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+
+    await waitFor(() => expect(onSignOut).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('settings-delete-error')).toBeNull();
+  });
+
+  it.each([[500, 'Internal'], [400, 'Password is required'], [undefined, undefined]])(
+    'on anything else (%s) says one fixed sentence and never the server\'s text, and signs nobody out',
+    async (status, text) => {
+      deleteAccount.mockRejectedValue(
+        status === undefined ? new Error('Network Error') : refusal(status, text),
+      );
+      const { user, onSignOut } = await openRegion();
+      await user.type(passwordField(), 'pw');
+      await user.click(confirmButton());
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/^Couldn.t delete your account\. Try again\.$/);
+      expect(onSignOut).not.toHaveBeenCalled();
+      expect(confirmButton()).toHaveFocus();
+    },
+  );
+
+  it('clears the previous refusal while the next attempt is out', async () => {
+    deleteAccount.mockRejectedValueOnce(refusal(403, 'Password is incorrect'));
+    const { user } = await openRegion();
+    await user.type(passwordField(), 'bad');
+    await user.click(confirmButton());
+    await screen.findByRole('alert');
+
+    const second = deferred();
+    deleteAccount.mockReturnValueOnce(second.promise);
+    await user.click(confirmButton());
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(passwordField()).not.toHaveAttribute('aria-invalid');
+    expect(deleteAccount).toHaveBeenCalledTimes(2);
+    await land(() => second.resolve());
+  });
+
+  it('Cancel collapses the region, returns focus to the opener, drops the password and the error, and calls nothing', async () => {
+    deleteAccount.mockRejectedValue(refusal(403, 'Password is incorrect'));
+    const { user, onSignOut } = await openRegion();
+    await user.type(passwordField(), 'secret');
+    await user.click(confirmButton());
+    await screen.findByRole('alert');
+    deleteAccount.mockClear();
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByTestId('settings-delete-region')).toBeNull();
+    expect(screen.getByTestId('settings-delete-open')).toHaveFocus();
+    expect(deleteAccount).not.toHaveBeenCalled();
+    expect(onSignOut).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId('settings-delete-open'));
+    expect(passwordField()).toHaveValue('');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(passwordField()).not.toHaveAttribute('aria-invalid');
+  });
+
+  it('refuses Cancel while the request is out, so a delete that lands is not walked away from', async () => {
+    const out = deferred();
+    deleteAccount.mockReturnValue(out.promise);
+    const { user } = await openRegion();
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel).toHaveAttribute('aria-disabled', 'true');
+    await user.click(cancel);
+
+    expect(screen.getByTestId('settings-delete-region')).toBeInTheDocument();
+    await land(() => out.resolve());
+  });
+
+  it('has the eye toggle on the password field, labelled for the field', async () => {
+    const { user } = await openRegion();
+
+    await user.click(screen.getByRole('button', { name: 'Show password' }));
+    expect(passwordField()).toHaveAttribute('type', 'text');
+    expect(screen.getByRole('button', { name: 'Hide password' })).toBeInTheDocument();
+  });
+
+  it('is quiet about it when no onSignOut is given: a 204 shows no error and throws nothing', async () => {
+    deleteAccount.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      renderModal();
+      await user.click(await screen.findByTestId('settings-delete-open'));
+      await user.type(passwordField(), 'pw');
+      await user.click(confirmButton());
+      await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 0); }); });
+
+      expect(deleteAccount).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
   });
 });

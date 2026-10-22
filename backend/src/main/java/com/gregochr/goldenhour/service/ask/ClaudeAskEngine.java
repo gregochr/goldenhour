@@ -198,6 +198,13 @@ public class ClaudeAskEngine implements AskEngine {
 
     // -- the loop ---------------------------------------------------------------------------
 
+    /** The windows a Ready conversation's question covers, which its prompt names; none for a typed one. */
+    private static List<String> coveredWindows(AskConversation conversation) {
+        AskAnswerValidator.ReadyBasis basis = conversation.options().readyBasis();
+        // A night question's window is a night, which has no spread to read: it names no covered windows.
+        return basis == null || basis.question().nightBound() ? List.of() : basis.offer().coveredWindowIds();
+    }
+
     private AskRun converse(AskConversation conversation, AskQuestion question, AskSnapshot snapshot,
             AskUserContext user, long startRunId, boolean ready) {
         EvaluationModel model = properties.getModel();
@@ -211,7 +218,8 @@ public class ClaudeAskEngine implements AskEngine {
                 : snapshot.nights().night(question.windowId())
                         .filter(n -> n.kind() != AskWindowKind.AURORA || user.canSeeAurora()).orElse(null);
         String system = promptBuilder.systemPrompt(snapshot.today(), conversation.scope(), contextWindow,
-                contextNight, snapshot.nights().tonight(), user.hasUser(), !thread.isEmpty());
+                contextNight, snapshot.nights().tonight(), user.hasUser(), !thread.isEmpty(),
+                coveredWindows(conversation));
         // Built once: re-joining the thread reads the asker's drive times and, for a place that has left
         // the forecast, one query for names, neither of which should repeat each turn.
         String userMessage = promptBuilder.userMessage(question.sanitised(), thread);

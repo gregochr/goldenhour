@@ -49,6 +49,68 @@ describe('MapBreadcrumb — the ← Plan control', () => {
   });
 });
 
+describe('MapBreadcrumb — the return names the tab the door came from (C4, an extension of D2)', () => {
+  it.each([
+    ['coming-up', 'Coming up'],
+    ['operations', 'Operations'],
+    ['plan', 'Plan'],
+    [undefined, 'Plan'],
+    ['nowhere', 'Plan'],
+  ])('from %s reads "%s" and is pressed as the same single control', (from, label) => {
+    const { onBack } = renderCrumb({ carried: { from } });
+    const back = screen.getByRole('button', { name: label });
+    fireEvent.click(back);
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MapBreadcrumb — the arrival is announced once per door (C4)', () => {
+  const announce = () => screen.getByTestId('wf-map-breadcrumb-announce');
+
+  it('is a visually hidden status region, a sibling of the strip so the strip\'s own text is untouched', () => {
+    renderCrumb({ carried: { title: 'Aurora tonight', nonce: 1 }, activeRow: ACTIVE_ROW });
+    expect(announce()).toHaveAttribute('role', 'status');
+    expect(announce()).toHaveClass('sr-only');
+    expect(screen.getByTestId('wf-map-breadcrumb')).not.toContainElement(announce());
+  });
+
+  it('speaks the headline and the window', async () => {
+    renderCrumb({ carried: { title: 'Aurora tonight', caption: 'Active now', nonce: 1 }, activeRow: ACTIVE_ROW });
+    await screen.findByText('Aurora tonight · Active now. Tonight sunset');
+    expect(announce()).toHaveTextContent('Aurora tonight · Active now. Tonight sunset');
+  });
+
+  it('speaks just the window for a plain door that carries no headline', () => {
+    renderCrumb({ carried: { nonce: 1 }, activeRow: ACTIVE_ROW });
+    expect(announce()).toHaveTextContent(/^Tonight sunset$/);
+  });
+
+  it('does not speak again for a re-render of the same door; speaks again for the next door', () => {
+    const handlers = {
+      onBack: vi.fn(), onClearRating: vi.fn(), onClearReach: vi.fn(), onClearScope: vi.fn(), onClearOrigin: vi.fn(),
+    };
+    const crumb = (props) => (
+      <MapBreadcrumb minStars={3} driveTimeFilter={0} {...handlers} {...props} />
+    );
+    const { rerender } = render(crumb({ carried: { title: 'First', nonce: 1 }, activeRow: ACTIVE_ROW }));
+    const observer = new MutationObserver(() => {});
+    observer.observe(announce(), { childList: true, characterData: true, subtree: true });
+    expect(announce()).toHaveTextContent('First. Tonight sunset');
+
+    // A floor moved, a window stepped: every other commit leaves the region alone.
+    rerender(crumb({ carried: { title: 'First', nonce: 1 }, activeRow: { dayLabel: 'Tomorrow', eventType: 'SUNRISE' }, minStars: 4 }));
+    rerender(crumb({ carried: { title: 'First', nonce: 1 }, activeRow: { dayLabel: 'Tomorrow', eventType: 'SUNRISE' }, minStars: 4 }));
+    expect(observer.takeRecords()).toHaveLength(0);
+    expect(announce()).toHaveTextContent('First. Tonight sunset');
+
+    // The next door (a new nonce) is announced afresh, with the window in force at that moment.
+    rerender(crumb({ carried: { title: 'Second', nonce: 2 }, activeRow: { dayLabel: 'Tomorrow', eventType: 'SUNRISE' } }));
+    expect(announce()).toHaveTextContent('Second. Tomorrow sunrise');
+    expect(observer.takeRecords().length).toBeGreaterThan(0);
+    observer.disconnect();
+  });
+});
+
 describe('MapBreadcrumb — the window clause', () => {
   it('names the active row\'s day and kind word when one is showing', () => {
     renderCrumb({ activeRow: ACTIVE_ROW });
@@ -227,6 +289,68 @@ describe('MapBreadcrumb — clear', () => {
     const order = [onClearRating, onClearReach, onClearScope, onClearOrigin]
       .map((fn) => fn.mock.invocationCallOrder[0]);
     expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+});
+
+describe('MapBreadcrumb — the door\'s headline and temporary lenses (overlay convergence C1)', () => {
+  it('prints the door\'s title and caption as "title · caption", after ← Plan', () => {
+    renderCrumb({ carried: { title: 'Aurora tonight', caption: 'Today · 21:49' } });
+    expect(screen.getByTestId('wf-map-breadcrumb-title')).toHaveTextContent('Aurora tonight · Today · 21:49');
+    expect(screen.getByTestId('wf-map-breadcrumb').textContent).toMatch(/Plan \/ Aurora tonight/);
+  });
+
+  it('prints a title with no caption alone - no dangling separator', () => {
+    renderCrumb({ carried: { title: 'Aurora tonight' } });
+    expect(screen.getByTestId('wf-map-breadcrumb-title').textContent).toBe('Aurora tonight');
+  });
+
+  it('draws no headline at all for a plain door (no title, no caption) - the strip is unchanged', () => {
+    renderCrumb({ carried: { minRating: 4 }, minStars: 4 });
+    expect(screen.queryByTestId('wf-map-breadcrumb-title')).toBeNull();
+    expect(screen.getByTestId('wf-map-breadcrumb').textContent).toMatch(/^← ?Plan carrying 4★\+ clear$/);
+  });
+
+  it('names every active lens in the carrying group, after the carried clauses', () => {
+    renderCrumb({
+      carried: { minRating: 4 },
+      minStars: 4,
+      lensClauses: ['showing 6 spots', 'coastal spots'],
+    });
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent(
+      'carrying 4★+ · showing 6 spots · coastal spots clear',
+    );
+  });
+
+  it('a lens alone is enough to show the carrying group - and its clear', () => {
+    renderCrumb({ lensClauses: ['showing 1 spot'] });
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('carrying showing 1 spot clear');
+    expect(screen.getByRole('button', { name: 'clear' })).toBeInTheDocument();
+  });
+
+  it('with no lens clause the group is absent, exactly as before', () => {
+    renderCrumb({ lensClauses: [] });
+    expect(screen.queryByTestId('wf-map-breadcrumb-carrying')).toBeNull();
+  });
+
+  it('clear removes the lens AFTER the four resets - the origin and the lens go together', () => {
+    const order = [];
+    renderCrumb({
+      origin: ORIGIN,
+      lensClauses: ['showing 2 spots'],
+      onClearRating: () => order.push('rating'),
+      onClearReach: () => order.push('reach'),
+      onClearScope: () => order.push('scope'),
+      onClearOrigin: () => order.push('origin'),
+      onClearLens: () => order.push('lens'),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    expect(order).toEqual(['rating', 'reach', 'scope', 'origin', 'lens']);
+  });
+
+  it('clear still works with no onClearLens wired (an older caller)', () => {
+    const { onClearOrigin } = renderCrumb({ origin: ORIGIN });
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    expect(onClearOrigin).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -354,6 +354,7 @@ public class EvaluationViewService {
             boolean withCycles) {
         Map<String, Set<String>> dispositionsByKey = new HashMap<>();
         Map<String, Set<Long>> jobRunsByKey = new HashMap<>();
+        Map<String, Boolean> lowVisibilityByKey = new HashMap<>();
         try {
             for (Object[] row : forecastRunDispositionRepository
                     .findLatestNonCachedDispositions(start, end)) {
@@ -361,6 +362,11 @@ public class EvaluationViewService {
                 dispositionsByKey.computeIfAbsent(key, k -> new HashSet<>()).add((String) row[3]);
                 Long jobRunId = row.length > 5 ? (Long) row[5] : null;
                 jobRunsByKey.computeIfAbsent(key, k -> new HashSet<>()).add(jobRunId);
+                // Free-text reason of the same row; a tie between rows only counts as low
+                // visibility when every one of them says so (the safe, under-claiming direction).
+                String detail = row.length > 6 ? (String) row[6] : null;
+                lowVisibilityByKey.merge(key, WeatherTriageEvaluator.isLowVisibilityReason(detail),
+                        Boolean::logicalAnd);
             }
         } catch (RuntimeException e) {
             LOG.warn("[EXAMINED] Could not load batch dispositions for {}..{} - every slot in "
@@ -392,7 +398,9 @@ public class EvaluationViewService {
             boolean ended = submitted(category)
                     && !jobRunsByKey.get(key).contains(null)
                     && endedJobRuns.containsAll(jobRunsByKey.get(key));
-            latestBySlot.put(key, new LatestDisposition(category, ended));
+            boolean lowVisibility = category == DispositionCategory.SKIPPED_TRIAGED
+                    && Boolean.TRUE.equals(lowVisibilityByKey.get(key));
+            latestBySlot.put(key, new LatestDisposition(category, ended, lowVisibility));
         });
         return new ServeTriage(triagedByKey(triagedKeys, start, end, types), latestBySlot);
     }
@@ -448,8 +456,25 @@ public class EvaluationViewService {
      * @param cycleEnded for {@code EVALUATED}/{@code FORCE_EVALUATED} only: whether the cycle that
      *                   submitted it has finished, so a result still in flight can be told from one
      *                   that will never come; false for every other category
+     * @param lowVisibility for {@code SKIPPED_TRIAGED} only: whether the stand-down was weather
+     *                   triage's visibility rule (under 5 km), read off the disposition's own
+     *                   reason text in the same query; the honesty filter words a blanked region
+     *                   whose stand-downs are mostly this "Fog forecast"; false for every other
+     *                   category
      */
-    public record LatestDisposition(DispositionCategory category, boolean cycleEnded) {
+    public record LatestDisposition(DispositionCategory category, boolean cycleEnded,
+            boolean lowVisibility) {
+
+        /**
+         * A disposition that carries no visibility reason (every category but a visibility
+         * stand-down).
+         *
+         * @param category   what the pipeline last did with the slot
+         * @param cycleEnded whether the submitting cycle has finished
+         */
+        public LatestDisposition(DispositionCategory category, boolean cycleEnded) {
+            this(category, cycleEnded, false);
+        }
     }
 
     /**
@@ -1406,6 +1431,14 @@ public class EvaluationViewService {
      * persists it on the sole write path), so dropping it would discard prose that exists rather
      * than represent an absence. Whichever store wins the gate supplies all three fields together.
      *
+     * <p>The row's {@code sky_rating} (V164) rides along too, so a row-served slot carries the
+     * sky component exactly as a cache-served one does and the tide-fit block can say
+     * "&middot; sky N&#9733;" where it applies. It is written together with {@code rating}
+     * from the same result ({@code ForecastResultHandler.scoreEvaluationRow}), so it is never from
+     * another run; a rated row with no {@code sky_rating} (pre-V164, the synchronous engine)
+     * carries null, as before. {@code evaluatedAt} stays null, and the triage branch carries no
+     * sky rating.
+     *
      * @param locationName the location this row is about
      * @param row          the row, or null
      * @return the result, or null when the row says nothing usable
@@ -1418,7 +1451,7 @@ public class EvaluationViewService {
         if (row.getRating() != null) {
             return new BriefingEvaluationResult(locationName, row.getRating(),
                     row.getFierySkyPotential(), row.getGoldenHourPotential(), row.getSummary(),
-                    null, null, row.getHeadline());
+                    null, null, row.getHeadline(), null, row.getSkyRating());
         }
         return new BriefingEvaluationResult(locationName, null, null, null, null,
                 row.getTriage().getReason(), row.getTriage().getMessage());

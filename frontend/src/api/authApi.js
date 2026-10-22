@@ -104,15 +104,15 @@ export async function verifyEmail(token) {
  * Sets the password for a newly verified user and auto-logs them in.
  *
  * The verification token identifies the account: the backend resolves the user from it, so a
- * guessed user id cannot be used to overwrite someone else's password.
+ * guessed user id cannot be used to overwrite someone else's password. The single-use emailed
+ * token is the proof of a real person, so no Turnstile token is sent.
  *
  * @param {string} token - The verification token from the email link (same one passed to verifyEmail).
  * @param {string} password - The chosen password.
- * @param {string} turnstileToken - Cloudflare Turnstile verification token.
  * @returns {Promise<{accessToken: string, refreshToken: string, role: string, expiresAt: string}>}
  */
-export async function setPasswordForNewUser(token, password, turnstileToken) {
-  const response = await apiClient.post(`${BASE_URL}/set-password`, { token, password, turnstileToken });
+export async function setPasswordForNewUser(token, password) {
+  const response = await apiClient.post(`${BASE_URL}/set-password`, { token, password });
   return response.data;
 }
 
@@ -124,5 +124,34 @@ export async function setPasswordForNewUser(token, password, turnstileToken) {
  */
 export async function submitWaitlist(email) {
   const response = await apiClient.post('/api/waitlist', { email });
+  return response.data;
+}
+
+/**
+ * Asks for a password-reset link. The server answers 200 with the same sentence for every valid
+ * address, known or not, so the caller must not read anything into a success; a refused or
+ * invalid request is a 400 with its own {@code error}.
+ *
+ * @param {string} email - The address the account was registered with.
+ * @param {string} turnstileToken - Cloudflare Turnstile token; empty when the widget could not load
+ *     (the server then applies its bounded fallback).
+ * @returns {Promise<{message: string}>}
+ */
+export async function requestPasswordReset(email, turnstileToken) {
+  const response = await apiClient.post(`${BASE_URL}/forgot-password`, { email, turnstileToken });
+  return response.data;
+}
+
+/**
+ * Sets a new password with the token from an emailed reset link and signs the reader in. The
+ * single-use emailed token is the proof of a real person, so no Turnstile token is sent. A bad,
+ * used or expired token is a 400 whose {@code error} is one of three fixed sentences.
+ *
+ * @param {string} token - The token from the reset link's query string.
+ * @param {string} password - The chosen password.
+ * @returns {Promise<{accessToken: string, refreshToken: string, role: string, username: string}>}
+ */
+export async function resetPassword(token, password) {
+  const response = await apiClient.post(`${BASE_URL}/reset-password`, { token, password });
   return response.data;
 }

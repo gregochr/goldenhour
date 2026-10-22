@@ -98,6 +98,29 @@ public class NorthwardTransectSampler {
      */
     public Map<LocationEntity, int[]> sample(List<LocationEntity> locations, List<String> hourKeys,
             LayerCombiner combiner) {
+        return sampleInternal(locations, hourKeys, combiner, false);
+    }
+
+    /**
+     * Like {@link #sample} but honest about failure: a transect point whose forecast could not be
+     * fetched (after one bounded retry of the failed points) is <em>unknown</em>, not overcast. It
+     * is left out of the location's average, and a location with no measured point at all is
+     * <strong>absent from the result</strong> — the caller must treat absence as "not assessed".
+     * A measured point missing a requested hour still reads as the overcast default.
+     *
+     * @param locations locations to sample north of
+     * @param hourKeys  UTC hour keys in {@code yyyy-MM-dd'T'HH:mm} form
+     * @param combiner  how to reduce the low/mid/high layers to one value
+     * @return map from location to hourly combined cloud; locations that could not be sampled are
+     *         not keys
+     */
+    public Map<LocationEntity, int[]> sampleMeasured(List<LocationEntity> locations,
+            List<String> hourKeys, LayerCombiner combiner) {
+        return sampleInternal(locations, hourKeys, combiner, true);
+    }
+
+    private Map<LocationEntity, int[]> sampleInternal(List<LocationEntity> locations,
+            List<String> hourKeys, LayerCombiner combiner, boolean failureIsUnknown) {
         Map<LocationEntity, int[]> result = new HashMap<>();
         if (locations.isEmpty() || hourKeys.isEmpty()) {
             return result;
@@ -113,16 +136,20 @@ public class NorthwardTransectSampler {
             }
         }
 
-        Map<String, int[]> gridKeyToCloud = fetchGridCloud(gridKeyToCoord, hourKeys, combiner);
+        Map<String, int[]> gridKeyToCloud = fetchGridCloud(gridKeyToCoord, hourKeys, combiner,
+                failureIsUnknown);
 
         for (LocationEntity loc : locations) {
-            result.put(loc, averageTransect(loc, hourKeys.size(), gridKeyToCloud));
+            int[] avg = averageTransect(loc, hourKeys.size(), gridKeyToCloud, failureIsUnknown);
+            if (avg != null) {
+                result.put(loc, avg);
+            }
         }
         return result;
     }
 
     private Map<String, int[]> fetchGridCloud(Map<String, double[]> gridKeyToCoord,
-            List<String> hourKeys, LayerCombiner combiner) {
+            List<String> hourKeys, LayerCombiner combiner, boolean failureIsUnknown) {
         List<String> gridKeys = new ArrayList<>(gridKeyToCoord.keySet());
         List<double[]> coords = new ArrayList<>();
         for (String key : gridKeys) {
@@ -131,24 +158,72 @@ public class NorthwardTransectSampler {
 
         Map<String, int[]> gridKeyToCloud = new HashMap<>();
         try {
-            List<OpenMeteoForecastResponse> responses = openMeteoClient.fetchCloudOnlyBatch(coords);
+            List<OpenMeteoForecastResponse> responses =
+                    new ArrayList<>(openMeteoClient.fetchCloudOnlyBatch(coords));
+            while (responses.size() < coords.size()) {
+                responses.add(null);
+            }
+            if (failureIsUnknown) {
+                retryFailedPoints(coords, responses);
+            }
             int nullCount = 0;
             for (int i = 0; i < gridKeys.size(); i++) {
-                OpenMeteoForecastResponse r = i < responses.size() ? responses.get(i) : null;
+                OpenMeteoForecastResponse r = responses.get(i);
                 if (r == null) {
                     nullCount++;
+                    if (failureIsUnknown) {
+                        continue;
+                    }
                 }
                 gridKeyToCloud.put(gridKeys.get(i), extractAt(r, hourKeys, combiner));
             }
-            LOG.info("Northward transect fetch: {} grid points, {} failed (using defaults)",
-                    coords.size(), nullCount);
+            LOG.info("Northward transect fetch: {} grid points, {} failed ({})",
+                    coords.size(), nullCount, failureIsUnknown ? "left unknown" : "using defaults");
         } catch (Exception e) {
-            LOG.warn("Northward transect fetch failed, using defaults: {}", e.getMessage());
-            for (String key : gridKeys) {
-                gridKeyToCloud.put(key, defaults(hourKeys.size()));
+            LOG.warn("Northward transect fetch failed, {}: {}",
+                    failureIsUnknown ? "left unknown" : "using defaults", e.getMessage());
+            if (!failureIsUnknown) {
+                for (String key : gridKeys) {
+                    gridKeyToCloud.put(key, defaults(hourKeys.size()));
+                }
             }
         }
         return gridKeyToCloud;
+    }
+
+    /**
+     * Re-requests, once, only the points whose first fetch came back null, and fills them in place.
+     * A retry failure is swallowed: those points simply stay unknown.
+     */
+    private void retryFailedPoints(List<double[]> coords, List<OpenMeteoForecastResponse> responses) {
+        List<Integer> failed = new ArrayList<>();
+        for (int i = 0; i < coords.size(); i++) {
+            if (responses.get(i) == null) {
+                failed.add(i);
+            }
+        }
+        if (failed.isEmpty()) {
+            return;
+        }
+        List<double[]> retryCoords = new ArrayList<>(failed.size());
+        for (int idx : failed) {
+            retryCoords.add(coords.get(idx));
+        }
+        try {
+            List<OpenMeteoForecastResponse> retried = openMeteoClient.fetchCloudOnlyBatch(retryCoords);
+            int recovered = 0;
+            for (int j = 0; j < failed.size() && j < retried.size(); j++) {
+                if (retried.get(j) != null) {
+                    responses.set(failed.get(j), retried.get(j));
+                    recovered++;
+                }
+            }
+            LOG.info("Northward transect retry: {} of {} failed grid points recovered",
+                    recovered, failed.size());
+        } catch (Exception e) {
+            LOG.warn("Northward transect retry of {} failed grid points failed: {}",
+                    failed.size(), e.getMessage());
+        }
     }
 
     /**
@@ -181,10 +256,11 @@ public class NorthwardTransectSampler {
 
     /**
      * Averages the combined cloud across the (up to three) transect points for a location, per
-     * hour. Points with no data are skipped; a location with no data at all defaults to overcast.
+     * hour. Points with no data are skipped; a location with no data at all defaults to overcast
+     * (or null when failure is unknown).
      */
     private int[] averageTransect(LocationEntity loc, int hours,
-            Map<String, int[]> gridKeyToCloud) {
+            Map<String, int[]> gridKeyToCloud, boolean failureIsUnknown) {
         int[] sum = new int[hours];
         int count = 0;
         for (double offsetM : TRANSECT_OFFSETS_M) {
@@ -199,7 +275,7 @@ public class NorthwardTransectSampler {
             }
         }
         if (count == 0) {
-            return defaults(hours);
+            return failureIsUnknown ? null : defaults(hours);
         }
         int[] avg = new int[hours];
         for (int i = 0; i < hours; i++) {

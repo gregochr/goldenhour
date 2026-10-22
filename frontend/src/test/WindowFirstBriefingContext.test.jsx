@@ -3,7 +3,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  render, screen, act, fireEvent, waitFor,
+  cleanup, render, screen, act, fireEvent, waitFor,
 } from '@testing-library/react';
 import { WindowFirstBriefingProvider, useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import WindowFirstLensBar from '../components/WindowFirstLensBar.jsx';
@@ -164,7 +164,7 @@ const heatPointIdentities = [];
 function Consumer() {
   const {
     briefing, loading, heatStripCards, windowCards, evaluationScores, reachLens: lens, ratingLens,
-    homePlace, heatSpots, heatPointSets,
+    homePlace, heatSpots, heatPointSets, heatUnratedSets,
     origin, setOrigin, regions, effectiveReachById,
   } = useWindowFirstBriefing();
   // Identity, not content: plan §5.4 requires the join to be memoised on its real inputs, and a
@@ -228,6 +228,11 @@ function Consumer() {
       <span data-testid="heat-regions">{heatSpots.map((s) => s.regionName).join('|') || 'none'}</span>
       <span data-testid="heat-points">
         {[...heatPointSets.entries()]
+          .map(([key, set]) => `${key}=${set.map((p) => p.name).join(',') || '-'}`)
+          .join(' ') || 'none'}
+      </span>
+      <span data-testid="heat-unrated">
+        {[...heatUnratedSets.entries()]
           .map(([key, set]) => `${key}=${set.map((p) => p.name).join(',') || '-'}`)
           .join(' ') || 'none'}
       </span>
@@ -1221,6 +1226,55 @@ describe('WindowFirstBriefingProvider', () => {
       await waitFor(() => expect(screen.getByTestId('heat-points').textContent).toBe(expected));
       // The fixture really does have more than one window, or none of the above discriminates.
       expect(payload.renderedEvents.length).toBeGreaterThan(1);
+    });
+
+    it('publishes NO unrated sets while the scores are pending, and none after a failed fetch', async () => {
+      // Codex P1 on #1284: with `scoreRows` empty every sky place reads unrated, which would hatch
+      // the whole map under a briefing that already rates the window.
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getAllEvaluationScores.mockReturnValue(new Promise(() => {}));
+      renderProviderWithLocations(ROSTER);
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
+      expect(screen.getByTestId('heat-unrated').textContent).toBe('none');
+
+      cleanup();
+      getAllEvaluationScores.mockRejectedValue(new Error('502'));
+      renderProviderWithLocations(ROSTER);
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
+      await act(async () => {});
+      expect(getAllEvaluationScores).toHaveBeenCalled();
+      expect(screen.getByTestId('heat-unrated').textContent).toBe('none');
+    });
+
+    it('hatches nothing when the scores response is SUCCESSFUL but EMPTY under a rated briefing', async () => {
+      // Codex P1 on f40067bf: `scoresLoaded` is true, `scoreRows` is empty, the cached briefing still
+      // carries a bestRating — every sky place would read unrated. No evidence, no hatch.
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getAllEvaluationScores.mockResolvedValue([]);
+      renderProviderWithLocations(ROSTER);
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
+      await act(async () => {});
+      expect(getAllEvaluationScores).toHaveBeenCalled();
+      expect(screen.getByTestId('heat-unrated').textContent).toBe(`${TODAY}:SUNSET=-`);
+    });
+
+    it('publishes heatUnratedSets: one entry per window, holding the places that window did not rate', async () => {
+      // Thin-sample F2. Bamburgh is rated in the SECOND window only, so it is unrated in the first
+      // and absent from the second's set; Alnmouth is unrated in both. A typo in the context key
+      // would leave the Consumer with `undefined.entries()`.
+      const payload = multiDayPayload(TODAY, 2);
+      const scored = payload.renderedEvents[1];
+      getDailyBriefing.mockResolvedValue(payload);
+      getAllEvaluationScores.mockResolvedValue([{
+        ...scoreRow(7, 'Bamburgh', 4), date: scored.date, targetType: scored.targetType,
+      }]);
+      renderProviderWithLocations(ROSTER);
+
+      const expected = payload.renderedEvents
+        // The first window has no rated or stood spot, so no evidence: it hatches nothing.
+        .map((e) => `${e.date}:${e.targetType}=${e === scored ? 'Alnmouth' : '-'}`)
+        .join(' ');
+      await waitFor(() => expect(screen.getByTestId('heat-unrated').textContent).toBe(expected));
     });
 
     it('does not rebuild the catalogue when an unrelated provider state changes', async () => {

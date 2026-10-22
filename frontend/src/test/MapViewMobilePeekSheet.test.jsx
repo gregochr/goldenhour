@@ -11,7 +11,9 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import {
+  act, render, screen, fireEvent, within,
+} from '@testing-library/react';
 
 vi.mock('leaflet', () => {
   const icon = () => ({});
@@ -85,7 +87,7 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 // A thin observable stub, not `() => null` — D-7's reverse-order clause ("a peek press clears the
 // selection first") needs some visible proof the callout stood down, and `location` is exactly
-// the prop that gates it (`!overlayMode && selectedLoc && activeMapEvent`, `MapView.jsx`).
+// the prop that gates it (`selectedLoc && (activeMapEvent || hideDayCard)`, `MapView.jsx`).
 vi.mock('../components/map/MapCallout.jsx', () => ({
   default: ({ location }) => (location ? <div data-testid="mock-callout">{location.name}</div> : null),
 }));
@@ -149,6 +151,11 @@ function mapElement(props = {}) {
     />
   );
 }
+
+/** A map-sourced handoff selecting the fixture spot - the structured way a location arrives. */
+const SELECT_SPOT = {
+  source: 'map', eventType: 'SUNSET', date: TODAY, locationName: SPOT.name, nonce: 1,
+};
 
 async function renderMap(props = {}) {
   let result;
@@ -255,6 +262,23 @@ describe('MapView (tab) — the Windows section (map-mobile-sheet-plan.md §3 M2
     expect(screen.getByTestId('wf-map-peek-body')).toBeInTheDocument();
   });
 
+  it('a PAST row wears the pane\'s rated count (outcome-rating-plan.md §2 #6, O4b) — and keeps Past when unknown', async () => {
+    mockIsMobile = true;
+    const YESTERDAY = '2026-01-14';
+    await renderMap({
+      forecastDates: [YESTERDAY, TODAY],
+      pastSolarWindows: [
+        { date: YESTERDAY, targetType: 'SUNSET', earliestEventTime: `${YESTERDAY}T16:10:00` },
+        { date: YESTERDAY, targetType: 'SUNRISE', earliestEventTime: `${YESTERDAY}T08:26:00` },
+      ],
+      ratedCounts: new Map([[`solar:${YESTERDAY}:SUNSET`, 2]]),
+    });
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const row = (id) => screen.getAllByTestId('wf-map-peek-win-row').find((r) => r.getAttribute('data-ev-id') === id);
+    expect(within(row(`solar:${YESTERDAY}:SUNSET`)).getByTestId('wf-win-rated')).toHaveTextContent('2 rated');
+    expect(within(row(`solar:${YESTERDAY}:SUNRISE`)).getByTestId('wf-map-peek-wr-past')).toBeInTheDocument();
+  });
+
   it('the drilldown row opens the window panel and collapses the sheet by exclusivity', async () => {
     mockIsMobile = true;
     await renderMap();
@@ -334,7 +358,7 @@ describe('MapView (tab) — map-touch collapse (map-mobile-sheet-plan.md §3 M2 
     const result = await renderMap();
     // Install a selection the same way a chip/pin/handoff would — the callout mock renders once
     // `selectedLocationName` resolves to a real location.
-    await rerenderMap(result, { handoffLocationName: SPOT.name, handoffNonce: 1 });
+    await rerenderMap(result, { planHandoff: SELECT_SPOT });
     expect(screen.getByTestId('mock-callout')).toHaveTextContent(SPOT.name);
 
     // A peek press (the Layers button, so this does not depend on the Windows section's own
@@ -350,11 +374,11 @@ describe('MapView (tab) — map-touch collapse (map-mobile-sheet-plan.md §3 M2 
     const result = await renderMap();
     fireEvent.click(screen.getByTestId('wf-win-pill'));
     expect(screen.getByTestId('wf-map-peek-body')).toBeInTheDocument();
-    // A location handoff (`handoffLocationName`/`handoffNonce`) is one of the several writers of
+    // A location handoff (a map-sourced `planHandoff`) is one of the several writers of
     // `selectedLocationName` the plan names — chips and pins stop click propagation before the
     // map-touch listener ever sees them, so this effect is what catches THEM too, not merely this
     // one prop-driven route.
-    await rerenderMap(result, { handoffLocationName: SPOT.name, handoffNonce: 1 });
+    await rerenderMap(result, { planHandoff: SELECT_SPOT });
     expect(screen.queryByTestId('wf-map-peek-body')).not.toBeInTheDocument();
   });
 
@@ -395,7 +419,7 @@ describe('MapView (tab, phone) — a forecast of wildlife hides alone still give
     const result = await renderMap({ locations: [HIDE], heat: noEvents(), forecastDates: [] });
     expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
     await rerenderMap(result, {
-      locations: [HIDE], heat: noEvents(), forecastDates: [], handoffLocationName: SPOT.name, handoffNonce: 1,
+      locations: [HIDE], heat: noEvents(), forecastDates: [], planHandoff: SELECT_SPOT,
     });
     expect(screen.getByTestId('mock-callout')).toHaveTextContent(SPOT.name);
     expect(screen.getByTestId('wf-map-peek')).toBeInTheDocument();
@@ -405,7 +429,7 @@ describe('MapView (tab, phone) — a forecast of wildlife hides alone still give
     mockIsMobile = true;
     const result = await renderMap({ heat: noEvents(), forecastDates: [] });
     await rerenderMap(result, {
-      heat: noEvents(), forecastDates: [], handoffLocationName: SPOT.name, handoffNonce: 1,
+      heat: noEvents(), forecastDates: [], planHandoff: SELECT_SPOT,
     });
     expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
   });

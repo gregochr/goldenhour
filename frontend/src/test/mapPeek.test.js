@@ -86,6 +86,41 @@ describe('otherWindow', () => {
     // No verdicts map at all.
     expect(otherWindow(events, 0, null)).toEqual(row('b'));
   });
+
+  describe('a PAST row is never named (outcome-rating-plan.md §2 #2)', () => {
+    const pastRow = (id) => ({ id, kind: 'solar', past: true });
+
+    it('skips a past row in the forward scan — it has no verdict, so it would otherwise lead', () => {
+      // Without the skip, 'p' (no verdict entry → "not STAND_DOWN") is returned first.
+      const events = [row('a'), pastRow('p'), row('c')];
+      expect(otherWindow(events, 0, new Map())).toEqual(row('c'));
+    });
+
+    it('skips past rows in the wrap too: the rows before the active one are where history sits', () => {
+      const events = [pastRow('p1'), pastRow('p2'), row('a'), row('b')];
+      const verdicts = new Map([['b', { tier: 'STAND_DOWN' }]]);
+      // Active 'a' (2): forward 'b' is STAND_DOWN; the wrap meets p1/p2 (past, skipped) and ends
+      // in the all-stand-down fallback, which must ALSO skip past rows → 'b'.
+      expect(otherWindow(events, 2, verdicts)).toEqual(row('b'));
+    });
+
+    it('the all-stand-down fallback skips past rows', () => {
+      const events = [row('a'), pastRow('p'), row('c')];
+      const verdicts = new Map([['c', { tier: 'STAND_DOWN' }]]);
+      // Every OTHER live row is STAND_DOWN → fallback = the next row that has not gone, 'c'
+      // (not 'p', the literal next row).
+      expect(otherWindow(events, 0, verdicts)).toEqual(row('c'));
+    });
+
+    it('returns null when every other row is past', () => {
+      expect(otherWindow([row('a'), pastRow('p1'), pastRow('p2')], 0, new Map())).toBeNull();
+    });
+
+    it('control: a list with no past rows behaves exactly as before', () => {
+      const events = [row('a'), row('b')];
+      expect(otherWindow(events, 0, new Map())).toEqual(row('b'));
+    });
+  });
 });
 
 describe('isNightRow', () => {

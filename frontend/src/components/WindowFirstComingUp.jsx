@@ -77,7 +77,7 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * @param {function} props.onRetry  re-runs the fetch after a failure
  * @param {function} props.onGoToPlan switches to the Plan tab and moves focus there; takes an
  *                                    optional date — a `plan`-action card passes its own date
- * @param {function} props.onShowOnMap opens the map overlay for a `coastal-spots`/`dark-sky-spots`
+ * @param {function} props.onShowOnMap opens the Map tab (the structured door) for a `coastal-spots`/`dark-sky-spots`
  *                                     card action (D8, plan §6b) — forwarded to every entry
  * @param {(string|null)} [props.comingUpLastSeenDate] the reader's stored `comingUpLastSeenDate`
  *                                     (D3), or null/undefined before it is known — drives NEW flags,

@@ -113,12 +113,13 @@ class HotTopicSimulationServiceTest {
     void getAllTypes_returnsEverySimulatableType() {
         List<HotTopicSimulationService.SimulatableType> types = service.getAllTypes();
 
-        assertThat(types).hasSize(17);
+        assertThat(types).hasSize(18);
         assertThat(types).extracting(HotTopicSimulationService.SimulatableType::type)
                 .containsExactlyInAnyOrder(
                         "ECLIPSE", "LUNAR_ECLIPSE", "BLUEBELL", "KING_TIDE", "SPRING_TIDE",
-                        "STORM_SURGE", "AURORA", "DUST", "INVERSION", "SUPERMOON", "SNOW_FRESH",
-                        "SNOW_MIST", "SNOW_TOPS", "NLC", "METEOR", "EQUINOX", "CLEARANCE");
+                        "STORM_SURGE", "AURORA", "DUST", "INVERSION", "MIST", "SUPERMOON",
+                        "SNOW_FRESH", "SNOW_MIST", "SNOW_TOPS", "NLC", "METEOR", "EQUINOX",
+                        "CLEARANCE");
     }
 
     @Test
@@ -294,14 +295,14 @@ class HotTopicSimulationServiceTest {
     }
 
     @Test
-    @DisplayName("all 17 simulated topic types have non-blank descriptions")
+    @DisplayName("all 18 simulated topic types have non-blank descriptions")
     void getSimulatedTopics_allTypes_allHaveNonBlankDescriptions() {
         service.setEnabled(true);
         service.getAllTypes().forEach(t -> service.setTypeActive(t.type(), true));
 
         List<HotTopic> topics = service.getSimulatedTopics(TODAY, TODAY.plusDays(3));
 
-        assertThat(topics).hasSize(17);
+        assertThat(topics).hasSize(18);
         assertThat(topics).extracting(HotTopic::description)
                 .as("every simulated topic must have a non-blank description")
                 .allSatisfy(desc -> assertThat(desc).isNotNull().isNotBlank());

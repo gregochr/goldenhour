@@ -124,6 +124,9 @@ class LocationFailureServiceTest {
     /** Claimed runs and their trigger times; the fake's stand-in for {@code failures_settled_at}. */
     private final Map<Long, Instant> settledRuns = new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** Cycle type of every run {@link #run} has built, by id; a claim made with no run built is NIGHTLY. */
+    private final Map<Long, CycleType> knownTypes = new java.util.concurrent.ConcurrentHashMap<>();
+
     /** Trigger time of every run {@link #run} has built, by id. */
     private final Map<Long, Instant> knownTriggers = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -168,7 +171,11 @@ class LocationFailureServiceTest {
                             == null ? 1 : 0;
                 }
                 case "findNewestSettledTriggerTime" -> {
-                    return settledRuns.values().stream().max(Instant::compareTo).orElse(null);
+                    java.util.Collection<?> types = invocation.getArgument(0);
+                    return settledRuns.entrySet().stream()
+                            .filter(e -> types.contains(
+                                    knownTypes.getOrDefault(e.getKey(), CycleType.NIGHTLY)))
+                            .map(Map.Entry::getValue).max(Instant::compareTo).orElse(null);
                 }
                 default -> {
                     return Mockito.RETURNS_DEFAULTS.answer(invocation);
@@ -203,6 +210,7 @@ class LocationFailureServiceTest {
         PipelineRunEntity run = new PipelineRunEntity(type, trigger);
         run.setId(id);
         knownTriggers.put(id, trigger);
+        knownTypes.put(id, type);
         return run;
     }
 
@@ -1344,6 +1352,111 @@ class LocationFailureServiceTest {
 
         verifyNoInteractions(locationRepository);
         verifyNoInteractions(adminAlertService);
+    }
+
+    // ---- a cycle that gives no failure evidence (the evening) ----
+
+    private void stubFullSettleOfPlaceTen() {
+        when(locationRepository.findAllById(List.of(10L)))
+                .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
+        when(locationRepository.autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(1);
+    }
+
+    @Test
+    @DisplayName("an EVENING settle claims the run and applies nothing: no resolution, no count, no "
+            + "reset, no alert, and the INFO line says why")
+    void evening_isClaimedWithNothingApplied() {
+        failureThatWouldDisable();
+
+        service.settleCycle(run(RUN_ID, CycleType.EVENING));
+
+        verify(resolver, never()).resolve(RUN_ID);
+        verifyNoInteractions(locationRepository);
+        verifyNoInteractions(adminAlertService);
+        assertThat(storedCounts.get(10L)).isEqualTo(2);
+        assertThat(settledRuns).containsKey(RUN_ID);
+        assertThat(messages(Level.INFO)).containsExactly(
+                "Pipeline run 300 (triggered 2026-10-02T01:00:00Z): cycle type EVENING gives no "
+                        + "failure evidence, claimed with nothing applied");
+    }
+
+    @Test
+    @DisplayName("an EVENING settle is never deferred: with a forecast batch still polling it is "
+            + "still claimed, and the batches are not even asked about")
+    void evening_isNotDeferredByAPollingBatch() {
+        service.settleCycle(run(RUN_ID, CycleType.EVENING));
+
+        assertThat(settledRuns).containsKey(RUN_ID);
+        verifyNoInteractions(forecastBatchRepository);
+        verifyNoInteractions(resolver);
+    }
+
+    @Test
+    @DisplayName("an EVENING run already claimed is refused quietly, not claimed twice")
+    void evening_alreadyClaimed_isRefused() {
+        settledRuns.put(RUN_ID, TRIGGER);
+
+        service.settleCycle(run(RUN_ID, CycleType.EVENING));
+
+        assertThat(messages(Level.INFO)).containsExactly(
+                "Pipeline run 300: location failures already settled, not counting again");
+        verifyNoInteractions(locationRepository);
+    }
+
+    @Test
+    @DisplayName("an older EVENING still RUNNING does not block a newer NIGHTLY tail: it settles FULL "
+            + "and counts")
+    void olderEveningStillRunning_doesNotBlockANightlyTail() {
+        runningUnsettled(run(RUN_ID - 1, CycleType.EVENING, TRIGGER.minusSeconds(3600)));
+        stubFullSettleOfPlaceTen();
+
+        settle(failureThatWouldDisable());
+
+        verify(locationRepository).recordFailure(10L, NOW_UTC);
+        assertThat(messages(Level.INFO)).contains(FULL_MODE_LOG);
+    }
+
+    @Test
+    @DisplayName("an older unsettled EVENING (not RUNNING) is claimed by the sweep, never left "
+            + "unresolved, so the NIGHTLY tail after it settles FULL")
+    void olderUnsettledEvening_doesNotBlockANightlyTail() {
+        PipelineRunEntity evening = run(RUN_ID - 1, CycleType.EVENING, TRIGGER.minusSeconds(3600));
+        evening.setStatus(PipelineRunStatus.FAILED);
+        unsettled(evening);
+        stubFullSettleOfPlaceTen();
+
+        settle(failureThatWouldDisable());
+
+        assertThat(settledRuns).containsKey(RUN_ID - 1);
+        verify(locationRepository).recordFailure(10L, NOW_UTC);
+        assertThat(messages(Level.INFO)).contains(FULL_MODE_LOG);
+    }
+
+    @Test
+    @DisplayName("an EVENING settled after an INTRADAY's trigger does not move the newest-settled "
+            + "trigger: that INTRADAY's later tail is still settled FULL")
+    void eveningSettledFirst_doesNotMakeAnOlderIntradayResetsOnly() {
+        service.settleCycle(run(RUN_ID + 1, CycleType.EVENING, TRIGGER.plusSeconds(6 * 3600)));
+        logAppender.list.clear();
+        stubFullSettleOfPlaceTen();
+
+        settle(failureThatWouldDisable(), CycleType.INTRADAY);
+
+        verify(locationRepository).recordFailure(10L, NOW_UTC);
+        assertThat(messages(Level.INFO)).contains(FULL_MODE_LOG);
+    }
+
+    @Test
+    @DisplayName("control: a NIGHTLY settled after the INTRADAY's trigger does make that INTRADAY's "
+            + "tail RESETS_ONLY, so the EVENING test above passes for the type, not the timing")
+    void nightlySettledFirst_makesAnOlderIntradayResetsOnly() {
+        settledRuns.put(RUN_ID + 1, TRIGGER.plusSeconds(6 * 3600));
+        knownTypes.put(RUN_ID + 1, CycleType.NIGHTLY);
+
+        settle(failureThatWouldDisable(), CycleType.INTRADAY);
+
+        verify(locationRepository, never()).recordFailure(10L, NOW_UTC);
+        assertThat(storedCounts.get(10L)).isEqualTo(2);
     }
 
     @Test

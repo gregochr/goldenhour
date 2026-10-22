@@ -258,6 +258,36 @@ describe('PICK_SELECTED', () => {
     expect(next).toMatchObject({ selectedPick: null, selectionNonce: 5 });
   });
 
+  // The callout intent rides the choice, atomic with its nonce (phone-pick-callout-plan.md §3 P1).
+  it('records whether THIS choice asked for the pick\'s callout, and a card choice (none asked) resets it', () => {
+    const chip = reduce(anAnswer(), {
+      type: ACTION.PICK_SELECTED, rank: 2, nonce: 5, callout: true,
+    });
+    expect(chip).toMatchObject({ selectedPick: 2, selectionNonce: 5, selectionCallout: true });
+
+    const card = reduce(chip, { type: ACTION.PICK_SELECTED, rank: 2, nonce: 6 });
+    expect(card).toMatchObject({ selectionNonce: 6, selectionCallout: false });
+  });
+
+  it('asks for no callout unless the action says exactly true', () => {
+    expect(INITIAL_CONVERSATION.selectionCallout).toBe(false);
+    const next = reduce(anAnswer(), {
+      type: ACTION.PICK_SELECTED, rank: 2, nonce: 5, callout: 'yes',
+    });
+
+    expect(next.selectionCallout).toBe(false);
+  });
+
+  it('opening a pick\'s plan is a choice that asks for no callout, whatever chip came before', () => {
+    const chip = reduce(anAnswer(), {
+      type: ACTION.PICK_SELECTED, rank: 2, nonce: 5, callout: true,
+    });
+
+    const planning = reduce(chip, { type: ACTION.PLAN_OPENED, rank: 2, nonce: 6 });
+
+    expect(planning).toMatchObject({ selectionNonce: 6, selectionCallout: false });
+  });
+
   it('leaves the plan view for the answer — put back, not delivered', () => {
     const planning = reduce(anAnswer(), { type: ACTION.PLAN_OPENED, rank: 1, nonce: 1 });
 
@@ -736,6 +766,64 @@ describe('exchangeOf', () => {
     });
 
     expect(x.picks).toEqual([{ locationId: 130, windowId: '2026-10-05_astro' }]);
+  });
+});
+
+describe('normaliseAnswer — the carried windows (ask-window-context plan §2.4, W2)', () => {
+  const WINDOWS = [{
+    windowId: '2026-10-17_sunset',
+    spread: {
+      over: 'every region', rated: 180, bands: [20, 60, 98, 2, 0], gameOn: 2, gameOnPct: 1, go: 0,
+      below4: 178, stars1to2: 80, regions: { counted: 6 }, pockets: [],
+    },
+  }];
+
+  it('keeps a typed answer’s windows exactly as served — the line reads the record', () => {
+    const answer = normaliseAnswer(answerBody({ windows: WINDOWS }), { id: 1 });
+
+    expect(answer.windows).toEqual(WINDOWS);
+    expect(answer.windows[0].spread).toBe(WINDOWS[0].spread);
+  });
+
+  it('keeps a Ready answer’s windows too', () => {
+    const body = { ...answerBody(), windows: WINDOWS };
+    delete body.allowanceLeft;
+
+    expect(normaliseAnswer(body, { id: 2, ready: true, runLabel: '06:02' }).windows).toEqual(WINDOWS);
+  });
+
+  it('holds an empty list when the field is absent (every answer stored before W1) or not a list', () => {
+    expect(normaliseAnswer(answerBody(), { id: 1 }).windows).toEqual([]);
+    expect(normaliseAnswer(answerBody({ windows: null }), { id: 1 }).windows).toEqual([]);
+    expect(normaliseAnswer(answerBody({ windows: 'x' }), { id: 1 }).windows).toEqual([]);
+  });
+
+  it('drops an entry without a window id and a spread object, and keeps the rest', () => {
+    const answer = normaliseAnswer(answerBody({
+      windows: [null, 4, { windowId: 7, spread: {} }, { windowId: 'w', spread: null }, { windowId: 'w' }, WINDOWS[0]],
+    }), { id: 1 });
+
+    expect(answer.windows).toEqual(WINDOWS);
+  });
+
+  it('⚠️ never puts them on the thread: an exchange is ids and words, a window spread is a card fact', () => {
+    const answer = normaliseAnswer(answerBody({ windows: WINDOWS }), { id: 1 });
+    const exchange = exchangeOf('Q', answer);
+
+    expect(exchange).not.toHaveProperty('windows');
+    // And even an exchange that somehow carried one is not sent with it.
+    const [sent] = threadForWire([{ ...exchange, windows: WINDOWS }]);
+    expect(sent).not.toHaveProperty('windows');
+    expect(Object.keys(sent).sort()).toEqual(['events', 'generatedAt', 'picks', 'question', 'ready', 'summary']);
+  });
+
+  it('keeps them on the conversation’s answer when the thread is appended', () => {
+    const conv = reduce(send(INITIAL_CONVERSATION), {
+      type: ACTION.ANSWERED, answer: normaliseAnswer(answerBody({ windows: WINDOWS }), { id: 1 }),
+    });
+
+    expect(conv.answer.windows).toEqual(WINDOWS);
+    expect(conv.thread[0]).not.toHaveProperty('windows');
   });
 });
 

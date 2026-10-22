@@ -86,10 +86,17 @@ afterEach(() => {
 });
 
 describe('the phone bar (below 640px)', () => {
-  it('is drawn on Plan with the Plan prompt', async () => {
-    renderAskShell({ width: 390 });
-    expect(await barReady()).toHaveAccessibleName('Ask about this weekend…');
+  it('is drawn on Plan, saying the next few days when no weekend window is on the matrix', async () => {
+    renderAskShell({ width: 390, ctx: { upcomingEvents: [{ date: '2026-10-22' }] } });
+    expect(await barReady()).toHaveAccessibleName('Ask about the next few days…');
     expect(bar()).toBeEnabled();
+  });
+
+  it('says this weekend on Plan when the matrix holds a Saturday window', async () => {
+    renderAskShell({
+      width: 390, ctx: { upcomingEvents: [{ date: '2026-10-23' }, { date: '2026-10-24' }] },
+    });
+    expect(await barReady()).toHaveAccessibleName('Ask about this weekend…');
   });
 
   it('is drawn on Coming up with that tab\'s prompt', async () => {
@@ -149,6 +156,25 @@ describe('the phone bar (below 640px)', () => {
 });
 
 describe('the tablet field (640 to 1023px)', () => {
+  it('reads the weekday prompt, the weekend prompt, and the Map follows Plan', async () => {
+    const { unmount } = renderAskShell({
+      width: 800, ctx: { upcomingEvents: [{ date: '2026-10-22' }] }, props: { mapPane: MAP_PANE },
+    });
+    expect(await fieldReady()).toHaveAccessibleName('Ask about the next few days…');
+    fireEvent.click(tab('Map'));
+    expect(field()).toHaveAccessibleName('Ask about the next few days…');
+    unmount();
+    renderAskShell({ width: 800, ctx: { upcomingEvents: [{ date: '2026-10-24' }] } });
+    expect(await fieldReady()).toHaveAccessibleName('Ask about this weekend…');
+  });
+
+  it('reads the rare-events prompt on Coming up', async () => {
+    renderAskShell({ width: 800 });
+    await fieldReady();
+    fireEvent.click(tab('Coming up'));
+    expect(field()).toHaveAccessibleName('Ask about rare events…');
+  });
+
   it.each(['Plan', 'Coming up', 'Map'])('is drawn on %s', async (name) => {
     renderAskShell({ width: 800, props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
     await fieldReady();

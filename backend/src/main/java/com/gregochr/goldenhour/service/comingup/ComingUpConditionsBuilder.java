@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.DustHotTopicStrategy;
 import com.gregochr.goldenhour.service.InversionHotTopicStrategy;
+import com.gregochr.goldenhour.service.MistHotTopicStrategy;
 import com.gregochr.goldenhour.service.PlanHorizon;
 import com.gregochr.goldenhour.service.SlotSignalReader;
 import com.gregochr.goldenhour.service.TideRunBuilder;
@@ -40,10 +41,11 @@ import java.util.Optional;
  *
  * <p>Three rows at first ship, always present even with an empty occurrence list (D11/§11.20):
  * <b>Coastal tides</b> (one row for both spring and king runs), <b>Saharan dust</b> and
- * <b>Valley inversions</b>. Aurora, NLC and snow are excluded — no rate history exists for them yet
- * (plan §1.4).
+ * <b>Valley inversions</b>; <b>Valley mist</b> joined as a fourth with valley-mist-plan M1b (the
+ * twin of the inversion row, read off the stored BAND rather than a score cut). Aurora, NLC and
+ * snow are excluded — no rate history exists for them yet (plan §1.4).
  *
- * <h2>Magnitude is config-interim for dust and inversion, forever, at first ship</h2>
+ * <h2>Magnitude is config-interim for dust, inversion and mist, forever, at first ship</h2>
  *
  * <p>Plan D4: "Magnitude is interim: a config-defined bucketed mapping from the topic's intensity
  * scale to bits — never labelled {@code median} or {@code p90}." Dust is scored on its own AOD
@@ -106,6 +108,12 @@ public class ComingUpConditionsBuilder {
 
     private static final List<TargetType> EVENT_TARGET_TYPES = List.of(TargetType.SUNRISE, TargetType.SUNSET);
 
+    /** Likely days the trailing window must hold before valley mist may be called by its configured cadence. */
+    static final int MIST_RECURRENT_MIN_DAYS = 2;
+
+    /** Cadence word for a condition with too short a record to be called recurrent. */
+    private static final String CADENCE_NEW = "new";
+
     static final String STATUS_PROMOTED = "promoted";
     static final String STATUS_INSIDE_PLAN = "insidePlan";
     static final String STATUS_HELD_BACK = "heldBack";
@@ -157,14 +165,15 @@ public class ComingUpConditionsBuilder {
      *                   coastal-tides condition needs runs wholly inside Plan's window too
      * @param entries    the already-assembled chronology entries, for the promoted/insidePlan/
      *                   heldBack derivation (D11)
-     * @return the three conditions, always present even with an empty occurrence list
+     * @return the four conditions, always present even with an empty occurrence list
      */
     public List<ComingUpCondition> build(LocalDate builtFor, List<AlmanacEvent> allEvents,
             List<ComingUpEntry> entries) {
-        List<ComingUpCondition> conditions = new ArrayList<>(3);
+        List<ComingUpCondition> conditions = new ArrayList<>(4);
         conditions.add(buildCoastalTides(builtFor, allEvents, entries));
         conditions.add(buildDust(builtFor));
         conditions.add(buildInversion(builtFor));
+        conditions.add(buildMist(builtFor));
         return conditions;
     }
 
@@ -482,12 +491,12 @@ public class ComingUpConditionsBuilder {
         String rateLabel;
         ComingUpScoringProperties.Dust dustConfig = scoringProperties.getRecurrent().getDust();
         int arrivals = bursts.size();
-        int evidentiaryBar = scoringProperties.getRecurrent().getEvidentiaryBarArrivals();
-        if (arrivals >= evidentiaryBar) {
+        boolean dustRateMeasured = arrivals >= scoringProperties.getRecurrent().getEvidentiaryBarArrivals();
+        if (dustRateMeasured) {
             double meanGapDays = (double) windowDays / arrivals;
             rarityBits = SurpriseScore.rarity(meanGapDays);
-            rateLabel = arrivals + (arrivals == 1 ? " plume" : " plumes") + " since "
-                    + DATE_LABEL.format(bursts.getFirst().start()) + " · about " + describeGap(meanGapDays);
+            rateLabel = arrivals + (arrivals == 1 ? " plume" : " plumes") + " in the last "
+                    + windowDays + " days" + lately(windowDays, arrivals);
         } else {
             rarityBits = SurpriseScore.rarity(dustConfig.getFallbackMeanGapDays());
             if (trailingReadFailed) {
@@ -495,8 +504,8 @@ public class ComingUpConditionsBuilder {
             } else {
                 rateLabel = arrivals == 0
                         ? "none in the last " + windowDays + " days"
-                        : arrivals + (arrivals == 1 ? " plume" : " plumes") + " since "
-                                + DATE_LABEL.format(bursts.getFirst().start());
+                        : arrivals + (arrivals == 1 ? " plume" : " plumes") + " in the last "
+                                + windowDays + " days" + lately(windowDays, arrivals);
             }
         }
 
@@ -530,8 +539,8 @@ public class ComingUpConditionsBuilder {
                     "AOD " + fmt2(aod), null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = frequencyPhrase(rarityBits, "most days")
-                + " · counts as a plume above a haze reading of "
+        // The observed recent rate lives on the rateLabel; the quant line states no frequency.
+        String quantLabel = "counts as a plume above a haze reading of "
                 + fmt2(BigDecimal.valueOf(dustConfig.getMagnitudeThresholdAod())) + " (early threshold)";
         return new ComingUpCondition("DUST", "Saharan dust", scoringProperties.getCadence().getDust(), true,
                 rateLabel, quantLabel, peak, occurrences);
@@ -613,8 +622,8 @@ public class ComingUpConditionsBuilder {
         List<LocalDate> dates = maxScoreByDate.keySet().stream().sorted().toList();
         String rateLabel = dates.isEmpty()
                 ? "none in the last " + windowDays + " days"
-                : dates.size() + (dates.size() == 1 ? " strong morning" : " strong mornings") + " since "
-                        + DATE_LABEL.format(dates.getFirst());
+                : dates.size() + (dates.size() == 1 ? " strong morning" : " strong mornings") + " in the last "
+                        + windowDays + " days" + lately(windowDays, dates.size());
 
         List<ComingUpConditionOccurrence> occurrences = new ArrayList<>();
         for (LocalDate date : dates) {
@@ -646,7 +655,8 @@ public class ComingUpConditionsBuilder {
                     valueLabel, null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = frequencyPhrase(rarityBits, "most mornings") + " · counts as strong above "
+        // The observed recent rate lives on the rateLabel; the quant line states no frequency.
+        String quantLabel = "counts as strong above "
                 + fmt0(inversionConfig.getMagnitudeThresholdScore()) + "/10 (early threshold)";
         return new ComingUpCondition("VALLEY_INVERSIONS", "Valley inversions",
                 scoringProperties.getCadence().getInversion(), true, rateLabel, quantLabel, peak, occurrences);
@@ -666,6 +676,111 @@ public class ComingUpConditionsBuilder {
     }
 
     private static double inversionMagnitude(double score, ComingUpScoringProperties.Inversion config) {
+        return score >= config.getMagnitudeThresholdScore()
+                ? config.getMagnitudeAboveBits() : SurpriseScore.DEFAULT_MAGNITUDE_BITS;
+    }
+
+    // ── Valley mist (valley-mist-plan M1b) ───────────────────────────────
+    //
+    // The twin of buildInversion, with three differences that follow from the subject. (1) The
+    // gate is the stored BAND (MistPotential.LIKELY, via MistHotTopicStrategy.isLikely), never a
+    // score cut: FOGBOUND is decided by event visibility, not the score, and the band is the
+    // calculator's own answer. (2) SUNRISE and SUNSET rows both count — mist forming at dusk over a
+    // river is a real evening shot — so a day counts when any of its readings is LIKELY. (3) There
+    // is the same effective band the hot topic reads (SlotSignals.effectiveMistPotential, M2): the
+    // calculator's band where it ran (a deliberate null included), Claude's forecast_score MIST
+    // echo only for a row written before V185.
+    //
+    // The RARITY term is pinned to the config fallback by the same rule as the inversion's, until
+    // enough of the unbiased MIST_CALC log TopicDailyLogJob writes from M1b exists. A later change
+    // must read MIST_CALC alone. The historical occurrences below are display only.
+
+    private ComingUpCondition buildMist(LocalDate builtFor) {
+        int windowDays = scoringProperties.getRecurrent().getTrailingWindowDays();
+        LocalDate yesterday = builtFor.minusDays(1);
+        LocalDate windowStart = yesterday.minusDays(windowDays - 1L);
+        ComingUpScoringProperties.Mist mistConfig = scoringProperties.getRecurrent().getMist();
+
+        double rarityBits = SurpriseScore.rarity(mistConfig.getFallbackMeanGapDays());
+
+        // A LIKELY row may carry no score (the band is read, the score is a display figure), so the
+        // per-date maximum is tracked as a nullable.
+        Map<LocalDate, Double> maxScoreByDate = new LinkedHashMap<>();
+        try {
+            for (SlotSignals signal : slotSignalReader.read(windowStart, yesterday)) {
+                if (!isMistEvent(signal.eventType()) || !MistHotTopicStrategy.isLikely(signal)) {
+                    continue;
+                }
+                Double score = signal.readings().mistScore();
+                maxScoreByDate.merge(signal.date(), score == null ? Double.NEGATIVE_INFINITY : score,
+                        Math::max);
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("Valley mist trailing-window read failed — the condition will show no historical "
+                    + "occurrences rather than the whole feed failing: {}", e.toString());
+        }
+
+        List<LocalDate> dates = maxScoreByDate.keySet().stream().sorted().toList();
+        String rateLabel = dates.isEmpty()
+                ? "none in the last " + windowDays + " days"
+                : dates.size() + (dates.size() == 1 ? " likely day" : " likely days") + " in the last "
+                        + windowDays + " days" + lately(windowDays, dates.size());
+
+        List<ComingUpConditionOccurrence> occurrences = new ArrayList<>();
+        for (LocalDate date : dates) {
+            double score = maxScoreByDate.get(date);
+            occurrences.add(new ComingUpConditionOccurrence(date, DATE_LABEL.format(date),
+                    mistValueLabel(score), null,
+                    round1(rarityBits + mistMagnitude(score, mistConfig)), null, STATUS_HELD_BACK, null));
+        }
+
+        ComingUpConditionPeak peak = null;
+        SlotSignals forwardPeak = null;
+        try {
+            forwardPeak = slotSignalReader.read(builtFor, PlanHorizon.lastPlanDate(builtFor)).stream()
+                    .filter(s -> passesPeakGate(s.eventType()))
+                    .filter(s -> isMistEvent(s.eventType()) && MistHotTopicStrategy.isLikely(s))
+                    .max(Comparator.comparingDouble(ComingUpConditionsBuilder::mistScoreOrFloor))
+                    .orElse(null);
+        } catch (RuntimeException e) {
+            LOG.warn("Valley mist forward-peak read failed — the peak cell will say so rather than the "
+                    + "whole feed failing: {}", e.toString());
+        }
+        if (forwardPeak != null) {
+            double score = mistScoreOrFloor(forwardPeak);
+            double bits = rarityBits + mistMagnitude(score, mistConfig);
+            String valueLabel = mistValueLabel(score);
+            peak = new ComingUpConditionPeak(DATE_LABEL.format(forwardPeak.date()), valueLabel, round1(bits));
+            occurrences.add(new ComingUpConditionOccurrence(forwardPeak.date(), DATE_LABEL.format(forwardPeak.date()),
+                    valueLabel, null, round1(bits), null, STATUS_INSIDE_PLAN, null));
+        }
+
+        // The observed recent rate lives on the rateLabel; a feature with fewer than two likely days
+        // on record is "new", not whatever the config would call it later.
+        String quantLabel = "counts as a standout above "
+                + fmt0(mistConfig.getMagnitudeThresholdScore()) + "/10 (early threshold)";
+        String cadence = dates.size() >= MIST_RECURRENT_MIN_DAYS
+                ? scoringProperties.getCadence().getMist() : CADENCE_NEW;
+        return new ComingUpCondition("VALLEY_MIST", "Valley mist",
+                cadence, true, rateLabel, quantLabel, peak, occurrences);
+    }
+
+    private static boolean isMistEvent(TargetType eventType) {
+        return eventType == TargetType.SUNRISE || eventType == TargetType.SUNSET;
+    }
+
+    /** The row's score, or negative infinity for a LIKELY band that carries none (sorts last). */
+    private static double mistScoreOrFloor(SlotSignals signal) {
+        Double score = signal.readings().mistScore();
+        return score == null ? Double.NEGATIVE_INFINITY : score;
+    }
+
+    /** "N/10" for a scored occurrence, the band word for a LIKELY row with no score. */
+    private static String mistValueLabel(double score) {
+        return Double.isInfinite(score) ? "likely" : reportedScore(score) + "/10";
+    }
+
+    private static double mistMagnitude(double score, ComingUpScoringProperties.Mist config) {
         return score >= config.getMagnitudeThresholdScore()
                 ? config.getMagnitudeAboveBits() : SurpriseScore.DEFAULT_MAGNITUDE_BITS;
     }
@@ -785,12 +900,26 @@ public class ComingUpConditionsBuilder {
         }
     }
 
-    private static String describeGap(double meanGapDays) {
+    /** The history label's observed-rate clause: empty below two occurrences, else the window's own rate. */
+    private static String lately(int windowDays, int count) {
+        return count < 2 ? "" : " · lately about " + describeGap((double) windowDays / count);
+    }
+
+    static String describeGap(double meanGapDays) {
         if (meanGapDays <= 1.5) {
             return "daily";
         }
+        if (meanGapDays <= 2.5) {
+            return "every other day";
+        }
+        if (meanGapDays <= 4.5) {
+            return "twice a week";
+        }
         if (meanGapDays <= 9.0) {
             return "one a week";
+        }
+        if (meanGapDays <= 20.0) {
+            return "one a fortnight";
         }
         if (meanGapDays <= 45.0) {
             return "one a month";

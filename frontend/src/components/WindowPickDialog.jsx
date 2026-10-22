@@ -164,6 +164,7 @@ export default function WindowPickDialog({
         )}
       </div>
 
+      {(onShowRegion || (onShowLocation && pick.locationName)) && (
       <div
         className="flex items-center gap-3 flex-wrap"
         style={{
@@ -172,10 +173,13 @@ export default function WindowPickDialog({
           background: 'rgba(0,0,0,0.2)',
         }}
       >
+        {/* Each action is drawn only for a handler it was GIVEN (overlay convergence C4): the shell
+            withholds both when it has no Map door, and a button that calls nothing is banned. */}
+        {onShowRegion && (
         <button
           type="button"
           data-testid="window-pick-dialog-region"
-          onClick={() => onShowRegion?.()}
+          onClick={() => onShowRegion()}
           className="window-pick-action font-mono"
           style={{ fontSize: '10.5px', fontWeight: 600 }}
         >
@@ -183,13 +187,16 @@ export default function WindowPickDialog({
           {`Show ${pick.regionName} on map`}
           <span aria-hidden="true"> →</span>
         </button>
-        {/* Omitted, not disabled, when the region has nothing rated: `locationName` is null exactly
-            then, and a greyed control for a place that does not exist explains nothing. */}
-        {pick.locationName && (
+        )}
+        {/* Omitted, not disabled, when the region has no place to name: `locationName` is null when
+            nothing is rated, and also when the neighbour guard skipped an outlier and the next slot
+            is rated below 3 (docs/engineering/neighbour-guard-plan.md). A greyed control for a place
+            that does not exist explains nothing. */}
+        {pick.locationName && onShowLocation && (
           <button
             type="button"
             data-testid="window-pick-dialog-location-action"
-            onClick={() => onShowLocation?.()}
+            onClick={() => onShowLocation()}
             className="window-pick-action font-mono ml-auto"
             style={{ fontSize: '10.5px', fontWeight: 600 }}
           >
@@ -199,6 +206,7 @@ export default function WindowPickDialog({
           </button>
         )}
       </div>
+      )}
       </div>
     </Modal>
   );

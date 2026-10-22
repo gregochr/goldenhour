@@ -2,9 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   SPREAD_BAR_EMPTY_PX, SPREAD_BAR_MAX_PX, SPREAD_BAR_MIN_PX, SPREAD_MIN_RATED_COUNT, SPREAD_STARS,
   SPREAD_UNRATED_BAR_MIN_PX,
-  buildSpread, hasSpreadSample, poolPhrase, poolWithinReach, spreadBars, spreadRowState,
-  spreadTitle, unratedBar, unratedPhrase,
+  buildSpread, formatSpreadCount, hasSpreadSample, poolPhrase, poolWithinReach, spokenPoolPhrase,
+  spreadBandsSpoken, spreadBars, spreadColumnWidthPx, spreadCountLayout,
+  spreadCountLayoutAcross,
+  spreadQualifier, spreadRowState, spreadTitle, unratedBar, unratedPhrase,
 } from '../utils/windowFirstSpread.js';
+import { REACH_TIERS } from '../utils/reachLens.js';
 
 /**
  * The spread histogram — what the bars count, and what the tooltip may claim about them.
@@ -392,5 +395,259 @@ describe('poolPhrase and unratedPhrase — one spelling for two surfaces', () =>
   it('says nothing when every spot in reach is rated', () => {
     expect(unratedPhrase(buildSpread([spot(5)]))).toBe('');
     expect(unratedPhrase(buildSpread([]))).toBe('');
+  });
+});
+
+describe('formatSpreadCount — the printed count', () => {
+  it.each([
+    [0, '0'],
+    [7, '7'],
+    [999, '999'],
+    [1000, '1k'],
+    [1049, '1k'],
+    [1200, '1.2k'],
+    [1050, '1.1k'],
+    [1150, '1.2k'],
+    [1950, '2k'],
+    [1250, '1.3k'],
+    [9949, '9.9k'],
+    [9950, '10k'],
+    [12345, '12k'],
+  ])('%s prints as %s', (count, printed) => {
+    expect(formatSpreadCount(count)).toBe(printed);
+  });
+
+  it('rounds a fractional count down to a whole place rather than printing 2.5', () => {
+    expect(formatSpreadCount(2.5)).toBe('2');
+  });
+
+  it('prints a count nothing can be said about as 0 rather than NaN', () => {
+    expect(formatSpreadCount(undefined)).toBe('0');
+    expect(formatSpreadCount(Number.NaN)).toBe('0');
+    expect(formatSpreadCount(-3)).toBe('0');
+  });
+
+  it('never prints more than four characters for a pool up to 99k places', () => {
+    for (const count of [1, 99, 999, 1000, 9949, 9950, 54321, 99499]) {
+      expect(formatSpreadCount(count).length).toBeLessThanOrEqual(4);
+    }
+  });
+});
+
+describe('spreadColumnWidthPx — one width for the card, clamped', () => {
+  it.each([
+    [0, 9],
+    [1, 9],
+    [2, 10.4],
+    [3, 15.6],
+    [4, 17],
+    [6, 17],
+  ])('%s characters → %spx', (chars, widthPx) => {
+    expect(spreadColumnWidthPx(chars)).toBe(widthPx);
+  });
+
+  it('treats a non-number as the floor rather than writing NaN into a custom property', () => {
+    expect(spreadColumnWidthPx(Number.NaN)).toBe(9);
+    expect(spreadColumnWidthPx(undefined)).toBe(9);
+  });
+});
+
+describe('spreadCountLayout — the longest printed count decides the whole card', () => {
+  /** A pool shaped to put exact counts in the bands and the remainder. */
+  function layoutOf(counts, unrated) {
+    const pool = [];
+    counts.forEach((count, i) => {
+      for (let n = 0; n < count; n += 1) pool.push(spot(i + 1));
+    });
+    for (let n = 0; n < unrated; n += 1) pool.push(spot(null));
+    const spread = buildSpread(pool);
+    return spreadCountLayout(spreadBars(spread), unratedBar(spread));
+  }
+
+  it('sizes a single-digit card at the floor, at the normal type', () => {
+    expect(layoutOf([1, 2, 3, 4, 5], 0)).toEqual({ chars: 1, widthPx: 9, small: false });
+  });
+
+  it('sizes a three-character card without shrinking the type', () => {
+    expect(layoutOf([1, 2, 999, 4, 5], 0)).toEqual({ chars: 3, widthPx: 15.6, small: false });
+  });
+
+  it('flips to the smaller type at exactly four characters, and clamps the width', () => {
+    expect(layoutOf([1, 2, 1200, 4, 5], 0)).toEqual({ chars: 4, widthPx: 17, small: true });
+    expect(layoutOf([1, 2, 999, 4, 5], 0).small).toBe(false);
+  });
+
+  it('counts the hatched remainder: 1,200 unrated beside single-digit bands is four characters', () => {
+    // Left out of `chars`, this would size the columns for the bands (9px) and clip "1.2k".
+    expect(layoutOf([1, 2, 3, 4, 5], 1200)).toEqual({ chars: 4, widthPx: 17, small: true });
+  });
+
+  it('sizes by the PRINTED width, not the raw digit count', () => {
+    // 1000 is four digits but prints "1k": two characters, the normal type.
+    expect(layoutOf([1, 2, 1000, 4, 5], 0)).toEqual({ chars: 2, widthPx: 10.4, small: false });
+    expect(layoutOf([1, 2, 12345, 4, 5], 0).chars).toBe(3);
+  });
+
+  it('ignores a remainder that is not drawn', () => {
+    const spread = buildSpread(Array.from({ length: 1200 }, () => spot(null)));
+    expect(spreadCountLayout(spreadBars(spread), null).chars).toBe(1);
+  });
+
+  it('answers a floor-width layout for no bars at all', () => {
+    expect(spreadCountLayout([], null)).toEqual({ chars: 0, widthPx: 9, small: false });
+    expect(spreadCountLayout(undefined, undefined)).toEqual({ chars: 0, widthPx: 9, small: false });
+  });
+});
+
+describe('spreadQualifier — the pool the bars were counted over', () => {
+  it.each([
+    [45, 'within 45m', 'within 45 min'],
+    [90, 'within 1h30', 'within 1h 30min'],
+    [150, 'within 2h30', 'within 2h 30min'],
+  ])('a %s-minute tier with every drive measured reads %s, spoken %s', (limit, text, spoken) => {
+    expect(spreadQualifier({ reachLimitMinutes: limit, withinReach: true })).toEqual({ text, spoken });
+  });
+
+  it('reads "any drive" under Any, in text and in speech, whatever the drives are', () => {
+    const any = { text: 'any drive', spoken: 'any drive' };
+    expect(spreadQualifier({ reachLimitMinutes: null, withinReach: false })).toEqual(any);
+    expect(spreadQualifier({ reachLimitMinutes: null, withinReach: true })).toEqual(any);
+  });
+
+  it('is silent under a finite tier when any drive in the pool is unmeasured', () => {
+    // An unknown drive passes every tier, so the pool was not wholly gated at 45 minutes.
+    expect(spreadQualifier({ reachLimitMinutes: 45, withinReach: false })).toBeNull();
+    expect(spreadQualifier({ reachLimitMinutes: 150, withinReach: false })).toBeNull();
+  });
+
+  it('is silent for a threshold that matches no tier rather than inventing a figure', () => {
+    expect(spreadQualifier({ reachLimitMinutes: 60, withinReach: true })).toBeNull();
+  });
+
+  it('is silent for a matching tier that carries no words, rather than printing "within undefined"', () => {
+    const noShort = [{ id: '45', limitMinutes: 45, label: '45 min', shortLabel: null }];
+    const noLabel = [{ id: '45', limitMinutes: 45, label: null, shortLabel: '45m' }];
+    expect(spreadQualifier({ reachLimitMinutes: 45, withinReach: true }, noShort)).toBeNull();
+    expect(spreadQualifier({ reachLimitMinutes: 45, withinReach: true }, noLabel)).toBeNull();
+  });
+
+  it('treats an unresolved (undefined) threshold as silence, never as Any', () => {
+    expect(spreadQualifier({ reachLimitMinutes: undefined, withinReach: false })).toBeNull();
+    expect(spreadQualifier({ reachLimitMinutes: undefined, withinReach: true })).toBeNull();
+  });
+
+  it('speaks the tier lower-cased even when the lens bar\'s label is capitalised', () => {
+    const capital = [{
+      id: '720', limitMinutes: 720, label: 'Half Day', shortLabel: '12h',
+    }];
+    expect(spreadQualifier({ reachLimitMinutes: 720, withinReach: true }, capital))
+      .toEqual({ text: 'within 12h', spoken: 'within half day' });
+  });
+
+  it('builds the text from each tier\'s shortLabel and the speech from its label, not a table', () => {
+    // A copy of the tiers with a retuned threshold: both forms must follow it.
+    const retuned = [{
+      id: '75', limitMinutes: 75, label: '1h 15min', shortLabel: '1h15',
+    }];
+    expect(spreadQualifier({ reachLimitMinutes: 75, withinReach: true }, retuned))
+      .toEqual({ text: 'within 1h15', spoken: 'within 1h 15min' });
+  });
+
+  it('answers a pair for every finite tier the lens offers', () => {
+    for (const tier of REACH_TIERS.filter((t) => t.limitMinutes != null)) {
+      expect(spreadQualifier({ reachLimitMinutes: tier.limitMinutes, withinReach: true }))
+        .toEqual({ text: `within ${tier.shortLabel}`, spoken: `within ${tier.label.toLowerCase()}` });
+    }
+  });
+});
+
+describe('spokenPoolPhrase — the sentence names the pool the label names', () => {
+  const within45 = { text: 'within 45m', spoken: 'within 45 min' };
+  const anyDrive = { text: 'any drive', spoken: 'any drive' };
+
+  it('puts the tier after the count, and a comma before "any drive"', () => {
+    expect(spokenPoolPhrase(7, within45)).toBe('7 locations within 45 min');
+    expect(spokenPoolPhrase(7, anyDrive)).toBe('7 locations, any drive');
+  });
+
+  it('joins every real tier\'s qualifier with a space, and Any with a comma', () => {
+    // End to end through spreadQualifier: the separator keys on the qualifier's own wording.
+    for (const tier of REACH_TIERS.filter((t) => t.limitMinutes != null)) {
+      const qualifier = spreadQualifier({ reachLimitMinutes: tier.limitMinutes, withinReach: true });
+      expect(spokenPoolPhrase(7, qualifier)).toBe(`7 locations within ${tier.label.toLowerCase()}`);
+    }
+    expect(spokenPoolPhrase(7, spreadQualifier({ reachLimitMinutes: null, withinReach: false })))
+      .toBe('7 locations, any drive');
+  });
+
+  it('singularises one', () => {
+    expect(spokenPoolPhrase(1, within45)).toBe('1 location within 45 min');
+    expect(spokenPoolPhrase(1, anyDrive)).toBe('1 location, any drive');
+  });
+
+  it('says "no locations" for an empty pool only when there is a qualifier to voice', () => {
+    expect(spokenPoolPhrase(0, within45)).toBe('no locations within 45 min');
+    expect(spokenPoolPhrase(0, anyDrive)).toBe('no locations, any drive');
+    expect(spokenPoolPhrase(0, null)).toBeNull();
+  });
+
+  it('with no qualifier is exactly the bare clause the sentence has always carried', () => {
+    for (const total of [1, 2, 7, 253]) {
+      expect(spokenPoolPhrase(total, null)).toBe(poolPhrase(total, false));
+    }
+  });
+});
+
+describe('spreadBandsSpoken — the visible counts, in words', () => {
+  it('names only the non-zero bands, highest first, in words rather than glyphs', () => {
+    const spread = buildSpread([spot(5), spot(5), spot(3), spot(3), spot(3), spot(null)]);
+    expect(spreadBandsSpoken(spread)).toBe('2 at 5 stars, 3 at 3 stars');
+  });
+
+  it('singularises "1 star"', () => {
+    expect(spreadBandsSpoken(buildSpread([spot(1), spot(1), spot(2)]))).toBe('1 at 2 stars, 2 at 1 star');
+  });
+
+  it('is the empty string for a spread with nothing rated', () => {
+    expect(spreadBandsSpoken(buildSpread([spot(null), spot(null)]))).toBe('');
+    expect(spreadBandsSpoken(buildSpread([]))).toBe('');
+    expect(spreadBandsSpoken(undefined)).toBe('');
+  });
+
+  it('uses the same five bands the tooltip does, filtered and reworded', () => {
+    // Both read one buildSpread: parse the tooltip's "N at S★" clauses back out, drop the zeros,
+    // reword, and require the spoken clause to be exactly that.
+    const spread = buildSpread([
+      spot(5), spot(4), spot(4), spot(2), spot(2), spot(2), spot(1), spot(null),
+    ]);
+    const fromTooltip = [...spreadTitle(spread, true).matchAll(/(\d+) at (\d)★/g)]
+      .filter(([, count]) => Number(count) > 0)
+      .map(([, count, star]) => `${count} at ${star} star${star === '1' ? '' : 's'}`)
+      .join(', ');
+    expect(fromTooltip).not.toBe('');
+    expect(spreadBandsSpoken(spread)).toBe(fromTooltip);
+  });
+});
+
+describe('spreadCountLayoutAcross — neighbours in a row share one column width', () => {
+  const layout = (chars) => ({ chars, widthPx: spreadColumnWidthPx(chars), small: chars > 3 });
+
+  it('answers the one-character floor for no cards at all', () => {
+    expect(spreadCountLayoutAcross([])).toEqual({ chars: 1, widthPx: 9, small: false });
+    expect(spreadCountLayoutAcross(undefined)).toEqual({ chars: 1, widthPx: 9, small: false });
+  });
+
+  it('takes the widest card: 91 beside 125 is 15.6px for both', () => {
+    expect(spreadCountLayoutAcross([layout(2), layout(3)])).toEqual({ chars: 3, widthPx: 15.6, small: false });
+  });
+
+  it('flips every card to the smaller type when one card has a 1.2k count', () => {
+    expect(spreadCountLayoutAcross([layout(1), layout(4), layout(2)]))
+      .toEqual({ chars: 4, widthPx: 17, small: true });
+  });
+
+  it('lets cards that draw no bars (null) contribute nothing', () => {
+    expect(spreadCountLayoutAcross([null, layout(2), undefined])).toEqual({ chars: 2, widthPx: 10.4, small: false });
+    expect(spreadCountLayoutAcross([null, null])).toEqual({ chars: 1, widthPx: 9, small: false });
   });
 });

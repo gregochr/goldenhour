@@ -71,6 +71,7 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 .coastalTidal(true)
                 .elevationMetres(30)
                 .overlooksWater(true)
+                .mistProne(true)
                 .gridLat(55.61)
                 .gridLng(-1.71)
                 .bluebellExposure(BluebellExposure.WOODLAND)
@@ -94,7 +95,7 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"disabledReason\":\"test reason\",\"bortleClass\":4,"
                 + "\"skyBrightnessSqm\":21.1,\"shoreNormalBearingDegrees\":90.0,"
                 + "\"effectiveFetchMetres\":5000.0,\"avgShelfDepthMetres\":12.0,"
-                + "\"coastalTidal\":true,\"elevationMetres\":30,\"overlooksWater\":true,"
+                + "\"coastalTidal\":true,\"elevationMetres\":30,\"overlooksWater\":true,\"mistProne\":true,"
                 + "\"gridLat\":55.61,\"gridLng\":-1.71,\"bluebellExposure\":\"WOODLAND\","
                 + "\"woodlandOnly\":false},"
                 + "{\"id\":2,\"name\":\"Minimal Spot\",\"lat\":1.0,\"lon\":2.0,"
@@ -104,7 +105,7 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"bortleClass\":null,\"skyBrightnessSqm\":null,"
                 + "\"shoreNormalBearingDegrees\":null,\"effectiveFetchMetres\":null,"
                 + "\"avgShelfDepthMetres\":null,\"coastalTidal\":false,\"elevationMetres\":null,"
-                + "\"overlooksWater\":false,\"gridLat\":null,\"gridLng\":null,"
+                + "\"overlooksWater\":false,\"mistProne\":false,\"gridLat\":null,\"gridLng\":null,"
                 + "\"bluebellExposure\":null,\"woodlandOnly\":false}"
                 + "]";
 

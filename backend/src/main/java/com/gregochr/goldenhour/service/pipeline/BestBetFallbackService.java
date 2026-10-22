@@ -160,8 +160,8 @@ public class BestBetFallbackService {
     }
 
     /**
-     * Whether a stored pick's region has since become verdict-ineligible in the CURRENT briefing
-     * — the {@link BriefingRegion#verdictEligible()} test the live advisor path already applies at
+     * Whether a stored pick's region has since become pick-ineligible in the CURRENT briefing
+     * — the {@link BriefingRegion#pickEligible()} test the live advisor path already applies at
      * crowning time (round 10, P1-B; see {@code BestBetRanker#dropIneligiblePicks}).
      *
      * <p>A stay-home pick ({@code region == null}) or an aurora pick (no {@link TargetType} the
@@ -175,7 +175,7 @@ public class BestBetFallbackService {
      *
      * @param row         the stored pick row being considered for the fallback
      * @param currentDays the current briefing's days to check the region against
-     * @return true only when the region is FOUND in the current briefing and is NOT verdict-eligible
+     * @return true only when the region is FOUND in the current briefing and is NOT pick-eligible
      */
     private boolean isNowIneligible(PipelineRunPickEntity row, List<BriefingDay> currentDays) {
         String region = row.getRegion();
@@ -194,7 +194,7 @@ public class BestBetFallbackService {
                 }
                 for (BriefingRegion candidate : summary.regions()) {
                     if (region.equals(candidate.regionName())) {
-                        return !candidate.verdictEligible();
+                        return !candidate.pickEligible();
                     }
                 }
             }

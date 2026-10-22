@@ -48,8 +48,8 @@ import static org.mockito.Mockito.when;
 @SuppressWarnings({"unchecked", "rawtypes"})
 class DynamicSchedulerSolarTest {
 
-    private static final String NIGHTLY = SolarForecastJobs.NIGHTLY_JOB;
-    private static final String INTRADAY = SolarForecastJobs.INTRADAY_JOB;
+    private static final String NIGHTLY = ForecastCycleJobs.NIGHTLY_JOB;
+    private static final String INTRADAY = ForecastCycleJobs.INTRADAY_JOB;
     private static final String CRON = "0 0 1 * * *";
     private static final Instant NOW = Instant.parse("2026-10-13T10:00:00Z");
     private static final java.time.Clock CLOCK = java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC);
@@ -263,6 +263,20 @@ class DynamicSchedulerSolarTest {
 
         verify(repository, never()).updateScheduleType(anyLong(), any(), any(), any(), any());
         verifyNoInteractions(taskScheduler);
+    }
+
+    @Test
+    @DisplayName("the evening refresh may not become SOLAR_OFFSET: it is a plain CRON job")
+    void switch_eveningToSolar_isRefused() {
+        String evening = ForecastCycleJobs.EVENING_JOB;
+        when(repository.findByJobKey(evening)).thenReturn(Optional.of(cronRow(10, evening)));
+
+        assertThatThrownBy(() -> service.switchScheduleType(evening, ScheduleType.SOLAR_OFFSET,
+                SolarEvent.SUNRISE, 255))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(evening);
+
+        verify(repository, never()).updateScheduleType(anyLong(), any(), any(), any(), any());
     }
 
     @Test

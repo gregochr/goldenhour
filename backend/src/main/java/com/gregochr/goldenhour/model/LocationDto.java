@@ -37,6 +37,8 @@ import java.util.Set;
  * @param coastalTidal               whether this location has meaningful tidal surge exposure
  * @param elevationMetres            elevation above sea level in metres, or {@code null}
  * @param overlooksWater             whether this location overlooks water from elevation
+ * @param mistProne                  whether mist forms around this location (valley floor,
+ *                                   riverside, lake shore); an admin-entered fact
  * @param gridLat                    snapped Open-Meteo grid latitude, or {@code null}
  * @param gridLng                    snapped Open-Meteo grid longitude, or {@code null}
  * @param bluebellExposure           bluebell exposure type, or {@code null}
@@ -64,6 +66,7 @@ public record LocationDto(
         boolean coastalTidal,
         Integer elevationMetres,
         boolean overlooksWater,
+        boolean mistProne,
         Double gridLat,
         Double gridLng,
         BluebellExposure bluebellExposure,

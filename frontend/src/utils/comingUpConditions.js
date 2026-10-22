@@ -12,7 +12,8 @@
 /**
  * Maps a condition's machine type to the {@code --color-topic-*} family token its swatch and accent
  * use (plan D6). Unlike a chronology entry, a condition has no served {@code family} field — there
- * are only ever three rows at first ship, so the mapping is a fixed table rather than a served key.
+ * are only ever a handful of rows (three at first ship, four with valley mist), so the mapping is a
+ * fixed table rather than a served key.
  *
  * @type {Record<string, string>}
  */
@@ -20,6 +21,8 @@ export const CONDITION_FAMILY = {
   COASTAL_TIDES: 'coastal',
   DUST: 'dust',
   VALLEY_INVERSIONS: 'air',
+  // Mist and the inversion are one family of low-air conditions (valley-mist-plan M1b).
+  VALLEY_MIST: 'air',
 };
 
 /**

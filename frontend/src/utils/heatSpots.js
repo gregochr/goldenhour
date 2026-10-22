@@ -66,6 +66,37 @@ function coord(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/** A score row's weather stand-down: a non-blank {@code triageReason}, served as a string or an object. */
+function hasTriageReason(row) {
+  const reason = row.triageReason;
+  if (reason == null) return false;
+  return typeof reason === 'string' ? reason.trim() !== '' : true;
+}
+
+/**
+ * What a window knows about one place — the layer's four states, beside its score.
+ *
+ * <ul>
+ *   <li>{@code rated} — the score row carries a valid rating;</li>
+ *   <li>{@code stood} — a row exists, no rating, and a {@code triageReason}: the pipeline looked
+ *   and stood it down, which is an answer, not a gap;</li>
+ *   <li>{@code unrated} — a sky place with neither a rating nor a triage reason, a row with
+ *   neither included and no row at all included: nobody has looked;</li>
+ *   <li>{@code na} — not a sky subject (a wood, a wildlife hide): never rated by design, so never
+ *   "not rated yet".</li>
+ * </ul>
+ *
+ * @param {boolean} skySubject whether a sky verdict applies to the place at all
+ * @param {?{rating: ?number, stood: boolean}} entry the window's score row, or null for none
+ * @returns {'rated'|'stood'|'unrated'|'na'} the state
+ */
+function windowState(skySubject, entry) {
+  if (!skySubject) return 'na';
+  if (entry && entry.rating != null) return 'rated';
+  if (entry && entry.stood) return 'stood';
+  return 'unrated';
+}
+
 /**
  * First-inserted wins on a repeated key — the same collision rule
  * {@code buildBriefingScoreIndex} applies. (Its input, the provider's name-keyed map, is built
@@ -103,11 +134,13 @@ function putFirst(index, key, value) {
  *   locationType: ?string[], bortleClass: ?number}>} locations the enabled roster, as
  *   {@code useForecasts} shapes it
  * @param {Array<{locationId: *, locationName: string, date: string, targetType: string,
- *   rating: ?number}>} scoreRows raw {@code LocationEvaluationView} rows, id included
+ *   rating: ?number, triageReason: ?*}>} scoreRows raw {@code LocationEvaluationView} rows, id
+ *   included; {@code triageReason} is what tells a stood-down place from an unrated one
  * @param {Array<{date: string, targetType: string}>} renderedEvents the windows, in render order
  * @returns {Array<{id: *, name: string, lat: number, lng: number, regionName: string, rid: string,
- *   skySubject: boolean, bortleClass: ?number, scores: Array<?number>}>} one spot per joinable
- *   location
+ *   skySubject: boolean, bortleClass: ?number, scores: Array<?number>,
+ *   states: Array<'rated'|'stood'|'unrated'|'na'>}>} one spot per joinable location, with each
+ *   window's state beside its score
  */
 export function buildHeatSpots(locations, scoreRows, renderedEvents) {
   const events = Array.isArray(renderedEvents) ? renderedEvents : [];
@@ -124,9 +157,11 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
     if (!row || !row.date || !row.targetType) continue;
     const tail = windowKey(row.date, row.targetType);
     if (!wanted.has(tail)) continue;
-    const rating = validRating(row.rating);
-    if (row.locationId != null) putFirst(byId, `${row.locationId}|${tail}`, rating);
-    if (row.locationName) putFirst(byName, `${row.locationName}|${tail}`, rating);
+    // The rating plus whether the row is a weather stand-down (a triage reason) — one entry, so
+    // the score and its state are read off the SAME row and cannot come from different indexes.
+    const entry = { rating: validRating(row.rating), stood: hasTriageReason(row) };
+    if (row.locationId != null) putFirst(byId, `${row.locationId}|${tail}`, entry);
+    if (row.locationName) putFirst(byName, `${row.locationName}|${tail}`, entry);
   }
 
   const spots = [];
@@ -138,7 +173,7 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
     const lng = coord(location.lon);
     if (lat === null || lng === null) continue;
     const skySubject = isSkyPromptCandidate(location.locationType);
-    const scores = events.map(({ date, targetType }) => {
+    const found = events.map(({ date, targetType }) => {
       if (!skySubject) return null;
       const tail = windowKey(date, targetType);
       // `has`, not a truthiness check on the value: a row that exists and carries no usable
@@ -151,6 +186,8 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
       if (nameKey !== null && byName.has(nameKey)) return byName.get(nameKey);
       return null;
     });
+    const scores = found.map((entry) => (entry ? entry.rating : null));
+    const states = found.map((entry) => windowState(skySubject, entry));
     spots.push({
       id: location.id ?? null,
       name: location.name ?? '',
@@ -165,6 +202,8 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
       skySubject,
       bortleClass: location.bortleClass ?? null,
       scores,
+      // Beside each score, what the window knows about the place — see windowState.
+      states,
     });
   }
   return spots;
@@ -202,6 +241,45 @@ export function heatPointsFor(spots, windowIndex) {
 }
 
 /**
+ * The kernel-ready points for one window's UNRATED places — the ground the "not rated yet" hatch
+ * is drawn around. The same shape as {@link heatPointsFor} (a one-element {@code r}, never read by
+ * the mask), for a spot whose state in that window is exactly {@code unrated}: a stood-down place
+ * was looked at, a wood or hide takes no part, a rated place is the field's.
+ *
+ * <p>⚠️ <b>A window for which NO spot is {@code rated} or {@code stood} yields nothing.</b> Without a
+ * single piece of evidence for the window (an empty or failed scores response under a briefing that
+ * still rates it) every sky place reads unrated, and the hatch would cover the whole map beneath a
+ * card claiming a rating. We cannot say which places are unrated when we hold no evidence either
+ * way. Every producer of unrated points goes through here, so the Plan and Map hosts agree.
+ *
+ * @param {Array<object>} spots spots from {@link buildHeatSpots}
+ * @param {number} windowIndex which of the rendered windows to build points for
+ * @returns {Array<{id: *, name: string, lat: number, lng: number, rid: string, r: number[]}>}
+ *   the unrated places, for {@code drawGeo}/{@code drawTiles}' {@code unrated} option
+ */
+export function unratedPointsFor(spots, windowIndex) {
+  const points = [];
+  const list = Array.isArray(spots) ? spots : [];
+  const hasEvidence = list.some((spot) => {
+    const state = spot?.states?.[windowIndex];
+    return state === 'rated' || state === 'stood';
+  });
+  if (!hasEvidence) return points;
+  for (const spot of list) {
+    if (spot?.states?.[windowIndex] !== 'unrated') continue;
+    points.push({
+      id: spot.id,
+      name: spot.name,
+      lat: spot.lat,
+      lng: spot.lng,
+      rid: spot.rid,
+      r: [0],
+    });
+  }
+  return points;
+}
+
+/**
  * The point arrays for every rendered window, keyed {@code date:targetType}.
  *
  * <p><b>Keyed, not positional, and that is a correctness choice rather than a convenience.</b>
@@ -229,4 +307,107 @@ export function buildHeatPointSets(spots, renderedEvents) {
     sets.set(windowKey(event.date, event.targetType), heatPointsFor(spots, index));
   });
   return sets;
+}
+
+/**
+ * The unrated places for every rendered window, keyed {@code date:targetType} — the twin of
+ * {@link buildHeatPointSets} for the "not rated yet" hatch, built over the same windows by the
+ * same index so a window's hatch and its field can never come from different rows.
+ *
+ * @param {Array<object>} spots spots from {@link buildHeatSpots}
+ * @param {Array<{date: string, targetType: string}>} renderedEvents the windows, in render order
+ * @returns {Map<string, Array<object>>} window key → its unrated points
+ */
+export function buildUnratedPointSets(spots, renderedEvents) {
+  const sets = new Map();
+  const events = Array.isArray(renderedEvents) ? renderedEvents : [];
+  events.forEach((event, index) => {
+    if (!event || !event.date || !event.targetType) return;
+    sets.set(windowKey(event.date, event.targetType), unratedPointsFor(spots, index));
+  });
+  return sets;
+}
+
+/**
+ * The key a spot is joined on across the Map tab's own lists: the id when there is one, the name
+ * otherwise, with a sigil so an id 5 and a name "5" never meet.
+ *
+ * @param {{id: *, name: ?string}} spot a spot or a point
+ * @returns {string} the join key
+ */
+export function heatSpotKey(spot) {
+  return spot.id != null ? `#${spot.id}` : `@${spot.name}`;
+}
+
+/**
+ * What each window knows about every place, keyed {@code date:targetType}: the unrated points the
+ * "not rated yet" hatch is drawn around, and each place's state by {@link heatSpotKey}. Built beside
+ * {@link buildHeatPointSets} (same keys, same events) for the Map tab (thin-sample plan F4): the
+ * hatch reads {@code unrated}, the pill's rated count reads {@code states} over the reader's scope
+ * pool. A filter/map over the states {@link buildHeatSpots} already set; nothing is rated here.
+ *
+ * @param {Array<object>} spots spots from {@link buildHeatSpots}
+ * @param {Array<{date: string, targetType: string}>} renderedEvents the windows, in render order
+ * @returns {Map<string, {unrated: Array<object>, states: Map<string, string>}>} window key to entry
+ */
+export function buildHeatWindowStates(spots, renderedEvents) {
+  const out = new Map();
+  const events = Array.isArray(renderedEvents) ? renderedEvents : [];
+  events.forEach((event, index) => {
+    if (!event || !event.date || !event.targetType) return;
+    const states = new Map();
+    for (const spot of Array.isArray(spots) ? spots : []) {
+      const state = spot?.states?.[index];
+      if (state) states.set(heatSpotKey(spot), state);
+    }
+    out.set(windowKey(event.date, event.targetType), {
+      unrated: unratedPointsFor(spots, index),
+      states,
+    });
+  });
+  return out;
+}
+
+/**
+ * Score rows for a set of windows, drawn from the locations' own forecast rows
+ * ({@code forecastsByDate}) and from nothing else — the shape {@link buildHeatSpots} takes, built
+ * for the Map tab's PAST windows (outcome-rating-plan.md §2 #3, O3c).
+ *
+ * <p>The scores endpoint's rows are the LATEST result for a slot, which for a passed slot may be one
+ * that landed after the event; the forecast rows for a passed slot are served as of it (once the
+ * as-of-event resolver, outcome-rating-plan.md §2 #4, lands on the forecast path). The Map's chips
+ * and callout already read the forecast row alone on a past window, so the field must read the same
+ * row or the two would disagree on one place's star. A location with no row for a window
+ * contributes none; a row with no rating contributes one with a null rating (an answer — "looked,
+ * not scored" — as {@link buildHeatSpots} reads it).
+ *
+ * <p>A map/filter over served rows: the already-licensed class, no rating derived.
+ *
+ * @param {Array<{id: *, name: string, forecastsByDate: ?Map<string, object>}>} locations
+ * @param {Array<{date: string, targetType: string}>} windows
+ * @returns {Array<{locationId: *, locationName: string, date: string, targetType: string,
+ *   rating: ?number}>}
+ */
+export function forecastScoreRows(locations, windows) {
+  const rows = [];
+  const wanted = Array.isArray(windows) ? windows : [];
+  for (const loc of Array.isArray(locations) ? locations : []) {
+    const days = loc?.forecastsByDate;
+    if (!(days instanceof Map)) continue;
+    for (const { date, targetType } of wanted) {
+      const slot = targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
+      const row = days.get(date)?.[slot];
+      if (!row) continue;
+      rows.push({
+        locationId: loc.id ?? null,
+        locationName: loc.name ?? '',
+        date,
+        targetType,
+        rating: row.rating ?? null,
+        // Only when there is one, so a row that never carried a reason is shaped as it always was.
+        ...(row.triageReason ? { triageReason: row.triageReason } : {}),
+      });
+    }
+  }
+  return rows;
 }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, cleanup, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup, within, waitFor } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { getAlmanac } from '../api/almanacApi.js';
@@ -110,7 +110,7 @@ const renderShell = (overrides = {}, extraProps = {}) => {
   const useBriefing = vi.spyOn(briefingContext, 'useWindowFirstBriefing');
   useBriefing.mockReturnValue(ctx(overrides));
   const props = {
-    onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
+    onOpenSettings: vi.fn(), onSignOut: vi.fn(), onOpenMapTab: vi.fn(), locations: [],
     ...extraProps,
   };
   const view = render(<WindowFirstShell {...props} />);
@@ -939,6 +939,87 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
     });
 
+    describe('Operations, and the control a return carries (overlay convergence C4)', () => {
+      const OPS = <p data-testid="ops-pane">operations pane</p>;
+
+      it('honours a request for the Operations tab when it was handed the pane, and focuses its button', async () => {
+        const { setRequest } = renderWithRequest({ operationsPane: OPS });
+        act(() => setRequest({ id: 'operations', nonce: 1 }));
+        expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
+        expect(screen.getByTestId('ops-pane')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByRole('tab', { name: 'Operations' })).toHaveFocus());
+      });
+
+      it('ignores a request for Operations when the shell was handed no pane (a non-admin)', () => {
+        const { setRequest } = renderWithRequest();
+        act(() => setRequest({ id: 'operations', nonce: 1 }));
+        expect(screen.queryByRole('tab', { name: 'Operations' })).toBeNull();
+        expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      });
+
+      it('lands a second request after the reader navigated away, because the nonce moved', () => {
+        const { setRequest } = renderWithRequest({ operationsPane: OPS });
+        act(() => setRequest({ id: 'operations', nonce: 1 }));
+        fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+        expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+        act(() => setRequest({ id: 'operations', nonce: 2 }));
+        expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
+      });
+
+      it('arriving on the Map tab by a request puts focus on its tab button, not <body>', async () => {
+        const { setRequest } = renderWithRequest();
+        act(() => setRequest({ id: 'map', nonce: 1 }));
+        await waitFor(() => expect(screen.getByRole('tab', { name: 'Map' })).toHaveFocus());
+      });
+
+      it('a return carrying a control that is still mounted focuses THAT control (a Coming up card)', async () => {
+        getAlmanac.mockResolvedValue({
+          ...FEED,
+          entries: [{
+            id: 'spring-tide:2026-08-12:2026-12-31', type: 'spring-tide', startDate: '2026-08-12',
+            endDate: '2026-12-31', kind: 'ALMANAC', family: 'coastal', title: 'Spring tide run',
+            kindTag: 'Almanac', facts: [],
+            action: { label: 'Show coastal spots for 12 Aug →', kind: 'coastal-spots', date: '2026-08-12' },
+          }],
+        });
+        // A card that is a real BUTTON (its date is among the forecast dates), so it can take focus.
+        const { setRequest } = renderWithRequest({ forecastDates: ['2026-08-12'], onOpenMapTab: vi.fn() });
+        await openComingUp();
+        const opener = screen.getByRole('button', { name: /Spring tide run/ });
+        act(() => setRequest({ id: 'map', nonce: 1 }));
+        await waitFor(() => expect(screen.getByRole('tab', { name: 'Map' })).toHaveFocus());
+
+        act(() => setRequest({ id: 'coming-up', nonce: 2, opener }));
+
+        expect(screen.getByRole('tab', { name: 'Coming up' })).toHaveAttribute('aria-selected', 'true');
+        await waitFor(() => expect(opener).toHaveFocus());
+      });
+
+      it('...and falls back to the tab\'s own button when the control is gone (a Plan dialog\'s button)', async () => {
+        const { setRequest } = renderWithRequest();
+        const gone = document.createElement('button');
+        document.body.appendChild(gone);
+        gone.remove();
+        act(() => setRequest({ id: 'map', nonce: 1 }));
+        act(() => setRequest({ id: 'plan', nonce: 2, opener: gone }));
+
+        expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+        await waitFor(() => expect(screen.getByRole('tab', { name: 'Plan' })).toHaveFocus());
+      });
+
+      it('...and when the control is mounted but cannot take focus, the tab\'s button does', async () => {
+        const { setRequest } = renderWithRequest();
+        const hidden = document.createElement('button');
+        hidden.disabled = true;
+        document.body.appendChild(hidden);
+        act(() => setRequest({ id: 'map', nonce: 1 }));
+        act(() => setRequest({ id: 'plan', nonce: 2, opener: hidden }));
+
+        await waitFor(() => expect(screen.getByRole('tab', { name: 'Plan' })).toHaveFocus());
+        hidden.remove();
+      });
+    });
+
     it('ignores a request for a pane it was handed nothing for — and does not jump later', () => {
       // ⚠️ The assertion that bites is the SECOND one. Without the guard, `selectTab('map')` still
       // sets `activeTab`; `effectiveTab` masks it while no Map tab exists, so a test that only
@@ -970,6 +1051,71 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       act(() => setRequest({ id: 'nowhere', nonce: 1 }));
       expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
       expect(screen.queryByTestId('map-pane')).toBeNull();
+    });
+
+    describe('a Map tab withdrawn while it is the tab in force (overlay convergence C3)', () => {
+      // The aurora-only tab stands on a live alert; when the alert clears `App` hands over a null pane.
+      const mapWithControl = <button type="button" data-testid="map-control">map control</button>;
+      const base = {
+        onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
+      };
+
+      const openMapWithFocus = () => {
+        vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
+        act(() => view.rerender(
+          <WindowFirstShell {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
+        ));
+        act(() => screen.getByTestId('map-control').focus());
+        expect(document.activeElement).toBe(screen.getByTestId('map-control'));
+        return view;
+      };
+
+      it('selects Plan explicitly and moves focus to the Plan tab button, which then drives the bar', () => {
+        const view = openMapWithFocus();
+        act(() => view.rerender(
+          <WindowFirstShell {...base} mapPane={null} tabRequest={{ id: 'map', nonce: 1 }} />,
+        ));
+        expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
+        expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+        // Focus did not drop to <body>: it is on the bar's roving entry point.
+        expect(document.activeElement).toBe(tab('Plan'));
+        // And the key goes to the element focus is on (the bar still answers a keyboard).
+        act(() => { fireEvent.keyDown(document.activeElement, { key: 'ArrowRight' }); });
+        expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+      });
+
+      it('does not snap the reader back when the next alert offers the Map tab again', () => {
+        const view = openMapWithFocus();
+        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
+        expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+        act(() => view.rerender(<WindowFirstShell {...base} mapPane={mapWithControl} />));
+        expect(tab('Map')).toHaveAttribute('aria-selected', 'false');
+        expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+      });
+
+      it('leaves focus alone when it was not lost (a reader elsewhere keeps their place)', () => {
+        vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+        const outside = document.createElement('button');
+        document.body.appendChild(outside);
+        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
+        act(() => view.rerender(
+          <WindowFirstShell {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
+        ));
+        act(() => outside.focus());
+        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
+        expect(document.activeElement).toBe(outside);
+        outside.remove();
+      });
+
+      it('does nothing for a Plan reader when a Map pane that was never in force goes away', () => {
+        vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
+        const before = document.activeElement;
+        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
+        expect(document.activeElement).toBe(before);
+        expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+      });
     });
 
     it('does not replay a request that was already in flight when it mounted', () => {
@@ -1194,5 +1340,59 @@ describe('WindowFirstShell — the forecast dates reach the Coming up cards (pla
     renderShell();
     await openComingUp();
     expect(screen.getByRole('button', { name: /Show coastal spots/ })).toBeInTheDocument();
+  });
+
+  it('⚠️ withholds every door when the shell has NO map door, even while the dates are not known yet', async () => {
+    // Not known yet is no claim about the DATES, but with nothing to open the control must not be
+    // drawn (a control that opens nothing is banned): the shell hands the pane "known empty".
+    getAlmanac.mockResolvedValue(MAP_FEED);
+    renderShell({}, { onOpenMapTab: undefined });
+    await openComingUp();
+    expect(screen.queryByRole('button', { name: /Show coastal spots|Spring tide run/ })).toBeNull();
+    expect(screen.getByTestId('coming-up-card').tagName).toBe('DIV');
+  });
+});
+
+describe('WindowFirstShell — the REAL Coming up card and day chip reach onOpenMapTab (C4)', () => {
+  const CARD_ENTRY = {
+    id: 'spring-tide:2026-08-12:2026-12-31', type: 'spring-tide', startDate: '2026-08-12',
+    endDate: '2026-12-31', kind: 'ALMANAC', family: 'coastal', title: 'Spring tide run',
+    kindTag: 'Almanac', facts: [],
+    action: { label: 'Show coastal spots for 12 Aug →', kind: 'coastal-spots', date: '2026-08-12' },
+  };
+  const CHIP_ENTRY = {
+    id: 'meteor:2026-08-12:2026-08-12', type: 'meteor', startDate: '2026-08-12',
+    endDate: '2026-08-12', kind: 'ALMANAC', family: 'night-sky', title: 'Perseids',
+    kindTag: 'Almanac', facts: [],
+    action: { label: 'Show dark-sky spots for 12 Aug →', kind: 'dark-sky-spots', date: '2026-08-12' },
+  };
+  const DATES = ['2026-08-08', '2026-08-12'];
+
+  it('the card sends the coming-up trigger with its subject filter, the Plan lens and from: coming-up', async () => {
+    getAlmanac.mockResolvedValue({ ...FEED, entries: [CARD_ENTRY] });
+    const { onOpenMapTab } = renderShell({}, { forecastDates: DATES });
+    await openComingUp();
+
+    fireEvent.click(screen.getByRole('button', { name: /Show coastal spots/ }));
+
+    expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
+      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run',
+      date: '2026-08-12', inPlace: false, from: 'coming-up', minRating: null, limitMinutes: 45,
+    });
+  });
+
+  it('a real day chip sends the dark-sky trigger, headed by the card and the day', async () => {
+    getAlmanac.mockResolvedValue({ ...FEED, entries: [CHIP_ENTRY] });
+    const { onOpenMapTab } = renderShell({}, { forecastDates: DATES });
+    await openComingUp();
+
+    fireEvent.click(screen.getAllByTestId('coming-up-day-chip')[0]);
+
+    expect(onOpenMapTab).toHaveBeenCalledTimes(1);
+    expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'coming-up', darkSky: true, filterAction: null, date: '2026-08-12', from: 'coming-up',
+      inPlace: false,
+    }));
+    expect(onOpenMapTab.mock.calls[0][0].label).toMatch(/^Perseids · /);
   });
 });

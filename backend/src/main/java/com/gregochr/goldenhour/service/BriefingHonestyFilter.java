@@ -50,9 +50,11 @@ import java.util.Set;
  * triage stood the region down. The API path therefore folds the pipeline's own latest disposition
  * per slot and the horizon into a {@link CoverageReason} ({@link CoverageReasons}) and words the
  * blank accordingly: a travel day, a window never attempted at this range and a run that did not
- * finish read {@code AWAITING} ("Not forecast", "Not scored at this range", "Forecast unavailable");
- * a real stand-down, and anything the record cannot settle, keep {@code STAND_DOWN} and the old
- * wording.
+ * finish read {@code AWAITING} ("Not forecast", "Not scored at this range", "Forecast unavailable"),
+ * and so does anything the record cannot settle ({@code UNKNOWN}: "Not scored"). Only a real
+ * weather stand-down keeps {@code STAND_DOWN} and "Too unsettled to forecast" (or "Fog forecast"
+ * when most of the triage stand-downs were its visibility rule): a region whose record is
+ * incomplete is never worded as poor weather.
  *
  * <p>A region in which no slot could carry a rating (an all-canopy region: woods are kept out of
  * the sky batch) is passed through unchanged, not rewritten.
@@ -90,8 +92,27 @@ import java.util.Set;
  */
 final class BriefingHonestyFilter {
 
-    /** Pill label that replaces the default {@code STAND_DOWN} label when the override fires. */
+    /**
+     * Pill label that replaces the default {@code STAND_DOWN} label when weather triage really
+     * stood the region down ({@link CoverageReason#STOOD_DOWN}).
+     */
     static final String VERDICT_LABEL = "Too unsettled to forecast";
+
+    /**
+     * Pill label for a weather stand-down whose slots were mostly stood down for visibility
+     * (valley-mist-plan M1b, owner decision Q6): fog is forecast, not "unsettled" weather.
+     */
+    static final String FOG_VERDICT_LABEL = "Fog forecast";
+
+    /** Single-line summary for a visibility stand-down. */
+    static final String FOG_SUMMARY =
+            "No per-location forecast — fog or very low visibility forecast";
+
+    /** Long-form gloss for a visibility stand-down. */
+    static final String FOG_GLOSS_DETAIL =
+            "Visibility across most of this region is forecast to be too low to evaluate "
+            + "confidently, so no per-location forecast was produced. The picture may change "
+            + "closer to the date.";
 
     /** Single-line summary that replaces "Clear at N of M locations" when the override fires. */
     static final String REPLACEMENT_SUMMARY =
@@ -137,6 +158,18 @@ final class BriefingHonestyFilter {
             "The forecast run for this window didn't complete, so there is no per-location "
             + "forecast. It may be tried again at the next run.";
 
+    /** Label for a window whose record cannot say why it has no forecast. */
+    static final String UNKNOWN_LABEL = "Not scored";
+
+    /** Summary for a window whose record cannot say why it has no forecast. */
+    static final String UNKNOWN_SUMMARY = "No per-location forecast — the record does not say why";
+
+    /** Gloss detail for a window whose record cannot say why it has no forecast. */
+    static final String UNKNOWN_GLOSS_DETAIL =
+            "No per-location forecast was produced for this region at this window, and the "
+            + "pipeline's own record of the cycle does not say why. Nothing here is a judgement "
+            + "about the weather.";
+
     private BriefingHonestyFilter() {
     }
 
@@ -178,7 +211,7 @@ final class BriefingHonestyFilter {
      * {@link #fullRewrite} picks the wording and verdict from it. Every reason still empties the
      * slots, so the region stays in {@code blanked} and a Best Bet on it is still withdrawn. The
      * overloads without a lookup bypass the fold: every region reads {@code UNKNOWN}, which is
-     * today's wording exactly.
+     * worded {@code AWAITING} ("Not scored"), never as a weather stand-down.
      *
      * @param response         the API-bound briefing response (may be {@code null})
      * @param minCoverageRatio coverage fraction below which a region is flagged lightly evaluated
@@ -346,7 +379,10 @@ final class BriefingHonestyFilter {
                     : CoverageReasons.of(scoreableSlots, date, targetType,
                             ForecastHorizon.daysAhead(date, reasons.clock()),
                             reasons.latestBySlot());
-            return fullRewrite(r, reason);
+            boolean fog = reason == CoverageReason.STOOD_DOWN && reasons != null
+                    && CoverageReasons.fogMajority(scoreableSlots, date, targetType,
+                            reasons.latestBySlot());
+            return fullRewrite(r, reason, fog);
         }
         if (r.scoredLocationCount() < minCoverageRatio * scoreable) {
             return r.withLightlyEvaluated();
@@ -354,17 +390,26 @@ final class BriefingHonestyFilter {
         return r;
     }
 
-    /**
-     * Blanks a zero-coverage region, wording it by {@code reason}. Every reason empties the slots and
-     * nulls exactly the fields it always did; only the verdict, label, summary and gloss detail
-     * differ. {@code STOOD_DOWN} and {@code UNKNOWN} keep "too unsettled" and {@code STAND_DOWN},
-     * which is only true of weather triage; the others are neutral ({@code AWAITING}).
-     */
     /** The verdict and three strings one coverage reason writes onto a blanked region. */
     private record Wording(DisplayVerdict verdict, String label, String summary, String detail) {
     }
 
-    private static BriefingRegion fullRewrite(BriefingRegion r, CoverageReason reason) {
+    /**
+     * Blanks a zero-coverage region, wording it by {@code reason}. Every reason empties the slots and
+     * nulls exactly the fields it always did; only the verdict, label, summary and gloss detail
+     * differ. Only {@code STOOD_DOWN} keeps "too unsettled" and {@code STAND_DOWN}, which is true only
+     * of weather triage (worded "Fog forecast" instead when {@code fog}: a majority of the
+     * stand-downs were weather triage's visibility rule); every other reason, {@code UNKNOWN} (the
+     * record cannot say) included, is neutral ({@code AWAITING}) and makes no claim about the
+     * weather.
+     *
+     * @param r      the zero-coverage region
+     * @param reason why it has no forecast
+     * @param fog    whether a {@code STOOD_DOWN} region's stand-downs were mostly visibility
+     * @return the blanked region
+     */
+    private static BriefingRegion fullRewrite(BriefingRegion r, CoverageReason reason,
+            boolean fog) {
         Wording w = switch (reason) {
             case AWAY -> new Wording(DisplayVerdict.AWAITING, AWAY_LABEL, AWAY_SUMMARY,
                     AWAY_GLOSS_DETAIL);
@@ -372,8 +417,13 @@ final class BriefingHonestyFilter {
                     NOT_ATTEMPTED_SUMMARY, NOT_ATTEMPTED_GLOSS_DETAIL);
             case FAILED -> new Wording(DisplayVerdict.AWAITING, FAILED_LABEL, FAILED_SUMMARY,
                     FAILED_GLOSS_DETAIL);
-            case STOOD_DOWN, UNKNOWN -> new Wording(DisplayVerdict.STAND_DOWN, VERDICT_LABEL,
-                    REPLACEMENT_SUMMARY, REPLACEMENT_GLOSS_DETAIL);
+            case UNKNOWN -> new Wording(DisplayVerdict.AWAITING, UNKNOWN_LABEL, UNKNOWN_SUMMARY,
+                    UNKNOWN_GLOSS_DETAIL);
+            case STOOD_DOWN -> fog
+                    ? new Wording(DisplayVerdict.STAND_DOWN, FOG_VERDICT_LABEL, FOG_SUMMARY,
+                            FOG_GLOSS_DETAIL)
+                    : new Wording(DisplayVerdict.STAND_DOWN, VERDICT_LABEL,
+                            REPLACEMENT_SUMMARY, REPLACEMENT_GLOSS_DETAIL);
         };
         DisplayVerdict verdict = w.verdict();
         String label = w.label();
@@ -394,6 +444,13 @@ final class BriefingHonestyFilter {
                 verdict,
                 0,
                 label,
-                false);
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                reason);
     }
 }

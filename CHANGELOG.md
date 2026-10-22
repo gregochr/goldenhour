@@ -5,6 +5,1360 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.30.2] - 2026-10-22
+
+### Added — the Map tab shows where nobody has rated yet (thin-sample F4)
+
+The heat field now hatches the ground around every sky place that has no rating and no weather
+stand-down for the window on screen, under the colour, so a thinly-rated window reads as a small warm
+patch inside a large hatched area instead of looking as confident as a well-rated one. It applies to
+sunrise and sunset windows, past ones included, and never to Pins mode, an astro or aurora night, a wood, a
+wildlife hide, a stood-down place, or a window with no rating at all (which keeps its existing
+"not scored yet" key). Like the Plan tab's, a served window's hatch waits for the scores to load (a past window's comes from its own forecast rows and does not) and is skipped when the window has no rated or stood-down place at all. The hatch follows the colour's own narrowing (the dark-sky filter and a door's
+named spot set), so a filter never makes it claim a place as unrated.
+
+The Legend panel gains `not rated yet` and `no places` swatches on solar windows (the aurora key is
+unchanged), and the window pill gains `· N rated` beside a rated verdict word when the rated sky places
+in the reader's scope fail the Plan spread's own two floors. The count is its own population (scope,
+not the Plan card's reach pool), is spoken in words in the pill's accessible name, and hides with the
+region line on a phone (a known limit: the count is still in the pill's accessible name, and the Layers
+section's ground key states the hatch). The hatch fades with the field at the zoom handover and under
+Ask's dim. Stars, verdict words and every rated place's colour are unchanged. Seen in a
+throwaway canvas harness only, not the signed-in app.
+
+### Added — the Plan card's verdict line counts how many places were rated (thin-sample F3)
+
+A card whose verdict rests on a thin sample now reads `Worth it 4.0★ · 6 rated`, the same figure as
+the `6/83 rated` in its Spread row (the card's reach pool). It shows only for a rated verdict
+(`Worth it`, `Maybe`) when the Spread row's own minimum-sample gate fails and at least one place is
+rated; never beside `Too few rated`, `Poor`, `Not scored`, an away cell or an unscored window. The
+card's spoken sentence already says it ("6 of 83 rated", from the Spread row's clause). The figure is drawn only where the card
+is at least 190px wide inside its padding, so the verdict row never wraps and pushes the Spread and
+Best rows out of line; on narrower cards (the narrowest phones) it is not drawn, a known limit: the hatch and the Spread
+row's own `N/M rated` directly below carry it.
+
+### Changed — Plan tab: places nobody rated are hatched, and the legend names the three grounds
+
+Second phase of the thin-sample field (`docs/engineering/thin-sample-plan.md`, F2). The Plan strip's
+thumbnails and the open row's field map now hatch the ground around every place the window has not
+rated, under the colour, so a window crowned on a handful of ratings reads as a small warm patch in a
+large hatched area instead of looking as confident as a well-rated one. The layer is skipped on an
+unscored window (its whole plate is already hatched, decided by the same `bestRating` predicate, never
+an empty point set) and on an away cell; a focused region fades its hatch with its colour (and the row map's focus now also lands on a region whose places are all unrated). Nothing is hatched until the scores have loaded successfully (the Plan tab has no past windows), and a window with no rated and no stood-down place at all gets no hatch (there is no evidence which places are unrated). The legend
+under the strip replaces `unshaded — not scored` with two standing swatches, `not rated yet` (hatch)
+and `no places` (plain plate), and its right-hand line now reads "Colour and hatch cover every place
+in the forecast — the cards allow for your drive". The old conditional note and its test ids are gone
+(an intended change; the tests that pinned the old wording were updated). The aurora thumbnail and the
+Map tab are untouched.
+
+### Added — heat field: a per-window state for every place, and an unknown-ground layer (no visible change yet)
+
+First phase of the thin-sample field (`docs/engineering/thin-sample-plan.md`, F1). `buildHeatSpots` now
+carries a `states` array beside each place's `scores`: `rated`, `stood` (a score row with no rating
+and a triage reason, so the place was looked at and stood down), `unrated` (a sky place with neither
+a rating nor a triage reason, including one with no row at all) and `na` (a wood or wildlife hide,
+which is never rated by design and is never hatched). `unratedPointsFor` returns the unrated places in
+`heatPointsFor`'s shape, and `forecastScoreRows` now passes a forecast row's `triageReason` through so
+a past window tells a stand-down from a gap.
+
+`heatField.js` gains the layer itself: `drawGeo` and `drawTiles` take an optional `unrated` point list
+and hatch the ground around those places, above the plate and under the field, so colour wins where a
+rated place is near. The mask is the spec's (a 4px grid over the field's own radius and bucket walk,
+which `field()` now shares rather than copies), feathered with the field's own blur and honouring the
+region focus. Nothing passes the option yet, so no host draws any differently.
+
+### Changed — a forced sample sets a verdict but can no longer take a pick
+
+A region whose ratings cleared the sample gate only through the force-evaluation exemption
+(`forcedSample`, a handful of far-out ratings in a large region) still keeps its verdict word,
+stars, confidence and ordering, but it can no longer wear BEST BET or ALSO GOOD, be named in the
+advisor's `bestBets` or `pipeline_run_pick`, be resurrected by the stale-pick fallback, or be offered
+as an Ask pick. `BriefingRegion.pickEligible()` (a sufficient sample alone) is the new shared pick
+test; `verdictEligible()` is unchanged. A window whose top region is not pick-eligible takes no pick,
+so the strip's two picks are a cap rather than a quota. Ask's spread bands still read verdict
+eligibility, so a forced-only region keeps counting there. No prompt change, no migration.
+
+### Added — far-cloud P1 sizes the weak-canvas forecast shape (scripts only)
+
+`scripts/far-cloud-p1/canvas.py` counts how often a go has clear overhead and cirrus only at the horizon
+(the Angel's 13 October shape) and its mirror, a mid/high canopy overhead rated 3 or lower, from the
+stored forecast export, with ERA5's view where a verification row exists. It makes no network calls and
+recommends nothing; `export_outcome_ratings.sql` and `--ratings` join owner ratings once exported. The
+headline counts are in `far-cloud-p1-plan.md` §17. No app, API or database change.
+
+### Docs — far-cloud P1: the far lid refuted, the weak-canvas rule (2026-10-22)
+
+- `far-cloud-p1-plan.md` §16 records the 15 October Meteosat frame: a continuous mid-level sheet over the Irish Sea and Newcastle, at least as thick as 13 October's, under the evening the owner rated 4★.
+- The far-lid hypothesis (H1/H2) is refuted as the Angel's mechanism: the lid was present on both rated evenings, and what separated them was the local canvas.
+- §9 item 7 is rewritten as a weak-canvas rule (clear overhead, cirrus only at the horizon) with no far-point clause; the status line notes the refutation.
+
+### Docs — far-cloud P1: the 15 October transect (2026-10-22)
+
+- The Angel's 15 October sun line showed the same continuous 100% high-cloud deck beyond 250 km as 13 October, yet the sky was good (4★ at the Angel and Copt Hill) where 13 October was poor, so the far-lid hypothesis is recorded as not established as the mechanism.
+- The local canvas (a mid canopy overhead against horizon cirrus only) is now the best-supported difference; the next check is the owner's Meteosat frame for 15 October at 16:50 UTC.
+
+### Added — far-cloud P1 measures the over-forecast low deck (scripts only)
+
+`scripts/far-cloud-p1/lowdeck.py` counts how often the forecast puts a low-cloud deck where ERA5 reads
+clear (and the reverse), for observer and cone low cloud, across the whole verified history, with
+Wilson intervals by model, event, month, days ahead, region and coastal/inland. It also reports what
+the rating or triage did on those slots and whether an ERA5 mid/high canopy overhead co-occurred, and
+lists the 20 largest. It makes no network calls and recommends nothing; the headline figures are in
+`far-cloud-p1-plan.md` §18. No app, API or database change.
+
+## [v2.30.1] - 2026-10-22
+
+### Fixed — Coming up rows show the observed recent rate, not a guess
+
+The Coming up strip printed the configured first guess as if it were an observed rate ("about one a
+week" beside "2 plumes"), and a Valley mist row called itself RECURRENT before it had recorded a day.
+Dust, valley inversions and valley mist now state the rate the trailing window actually shows, on the
+history line once it holds two occurrences ("2 plumes in the last 60 days · lately about one a month",
+"18 strong mornings in the last 60 days · lately about twice a week"), and their threshold line states
+no frequency. The history lines say "in the last 60 days" instead of "since <date>", because the first
+occurrence's date is often just the window's own start, and the gap wording gained "every other day"
+and "twice a week". Valley mist reads `new` until two likely days are recorded. Scores, badges, rarity
+bits and the tide rows are unchanged.
+
+### Chore — far-cloud P1 output directories are ignored whatever their suffix
+
+`scripts/far-cloud-p1/.gitignore` ignores `out*/` rather than `out/` alone: the Part B re-run of 2026-10-21 wrote to `out2/`, which git saw as untracked and which stopped `release.sh` on its working-tree check. A third run (`out3/`) no longer trips it.
+
+### Fix — Coming up no longer states a guessed eclipse frequency
+
+The "It comes round about once …" sentence on a Coming up entry read back the configured mean gap, so solar eclipses said "every 4 years" and a lunar eclipse with no earlier catalogue entry said "every two to three years" — both configured estimates, not measured rates. Eclipse (solar and lunar) and supermoon entries now read "It is rare enough to flag on its own." Ephemeris-derived gaps (spring tide, meteors, turning points, NLC) keep the frequency sentence. The rarity figures, the badge bands and the annual census are unchanged.
+
+### Fixed — Ask entry no longer says "this weekend" on a weekday-only forecast
+
+The Ask entry on the Plan tab always read "Ask about this weekend…" on a phone, and the tablet and desktop field always read "Ask about the forecasts…". The phone bar and the field now share one prompt: "Ask about this weekend…" only when the matrix holds a Saturday or Sunday window that is not a travel day, otherwise "Ask about the next few days…", mirroring the Ready catalogue's weekend/soon split. The Map tab takes the Plan rule; Coming up keeps "Ask about rare events…". The typed-input placeholder is unchanged.
+
+## [v2.30.0] - 2026-10-21
+
+### Added — valley mist loop: what the reader saw, an ERA5 saturation proxy, a mist-prone calibration bucket
+
+The last build phase of `docs/engineering/valley-mist-plan.md` (M3, V187) closes the loop on a forecast
+that could not previously be checked. The "How was it?" block on a past window gains one optional row
+of chips under the stars, Colour, Mist, Inversion and Flat, saved with the same rating as a tag (`PUT
+/api/outcome/ratings` takes an optional `seen`: absent keeps the earlier tag, an explicit null clears
+it, and a tag that contradicts the new rating is dropped). A Lite reader sees the chips dimmed with the
+block's existing Pro line, and the Admin's "All ratings" list shows each reader's tag. The ERA5
+verification pass now also records the observer point's 2 m temperature and dew point at the event hour
+(`cloud_verification.observer_temp_c`, `observer_dew_point_c`), recorded but never required, so no row is
+re-walked and no report reads them yet. The calibration report gains a mist-prone bucket, the pairs whose
+forecast carried the LIKELY valley-mist band, with the count of what readers said they saw; its
+missed opportunities, a stay-home forecast on a morning rated 4 or 5, is the number the plan exists to
+drive to zero. Rating and tag writes to an existing row are column-scoped, so a tag tap and a star tap that overlap cannot undo each other (a tag that no longer fits a star changed elsewhere answers 409), and the Map serialises them per slot. The migration is proven by CI only.
+
+### Added — Valley mist: the sky prompt now judges a mist morning, instead of standing it down (M2)
+
+For a place an admin has marked "Mist forms here", a calm, clear, near-saturated morning that the
+valley-mist reading calls LIKELY is no longer stood down for low visibility before Claude sees it.
+Rain and a blocked solar horizon still stand it down; a POSSIBLE or fogbound reading, and every
+unmarked place, keep the 5 km rule exactly as before. Claude now reads a "valley mist conditions"
+block for those places (the tightest overnight gap and when it falls, the calmest wind, the sky) and
+is told, in one sentence, that thin mist under a clear sky is the shot there and a white frame is not.
+Its own reading comes back as `mist_potential`, is stored on the forecast, and shows as "Valley mist
+likely" or "Fogbound" on the map popup and the four-day sheet for Pro and Admin readers, the cloud
+inversion badge's twin. The general system prompt is untouched, so the batch cache prefix is shared
+as before. Where the valley-mist reading was never written for a slot, the hot topic and Coming up now
+fall back to Claude's own reading; where it was, the reading always wins.
+
+Cost: one extra Claude call per marked place per LIKELY sunrise or sunset that triage used to refuse. The M0
+measurement found at least 145 refused signature mornings in 180 days across the whole roster (a
+floor, from the top 60 places only), so a few calls a week on the near-term model once tens of places
+are marked; nothing is spent for an unmarked place. Migration V186 adds
+`forecast_evaluation.mist_potential` and the `MIST` score type. The valley-mist prompt regression
+cases are written but not run; their assertions await the owner.
+
+### Added — Valley mist: a Plan topic, a Coming up condition, and two honest words (M1b)
+
+PhotoCast now says when valley mist is likely, the evening before. For the places an admin has
+marked "Mist forms here", a clear, calm, near-saturated night puts a "Valley mist" topic on the
+Plan card for that sunrise (or sunset: mist forming at dusk over a river is a real evening shot),
+naming the regions and how many sites ("likely at 3 sites") with the cue "get there before the
+sun, it burns off within the hour". It is free and changes no star: it reads the reading M1a
+recorded, whatever the triage verdict, and fires on the LIKELY band only (not on a fogbound white
+frame, where the cue would be false, and not on POSSIBLE). Ask's "events" tool carries it with no
+change. Coming up gains a fourth standing condition, "Valley mist", beside "Valley inversions";
+its rarity stays on a config fallback, and the nightly topic log now records a `MIST_CALC` series
+(including measured nights with no mist) for the census that will replace it later.
+
+Two small wording fixes ride with it. A marked site whose air is saturated now reads "Mist likely"
+instead of "Mist risk" (the trigger is unchanged; every other site still says "Mist risk"). And a
+window blanked because weather triage stood most of a region down for low visibility now reads
+"Fog forecast" instead of "Too unsettled to forecast" (a tie or a minority keeps the old words);
+the reason comes from the same disposition read the Plan already makes, so no query is added. The
+Plan card's small "unsettled" note beside such a region is client text and does not yet follow.
+
+### Added — valley mist is read and recorded for flagged sites (M1a)
+
+PhotoCast now measures how likely photographable valley mist is at a place where mist forms around
+the camera: the riverside, valley floor or lake shore at dawn, the morning the River Brathay
+produced on 17 Oct 2026 that no surface could name. Nothing a reader sees changes yet: this is the
+reading half of the first phase (`docs/engineering/valley-mist-plan.md`), and the Valley mist hot
+topic, its Coming up condition and the daily log follow in M1b.
+
+An admin marks a place with the new "Mist forms here: valley floor, riverside, lake shore"
+checkbox (at add time, or on an existing place from its inline edit). For a marked place only,
+`ValleyMistCalculator` scores the radiative set-up from the night's hourly slots (a clear sky, calm
+air, a small temperature–dew point gap, the air cooling toward it, wet ground, and the model's own
+haze) rather than waiting for the 2 km model to saturate, which it did not on the Brathay morning.
+The 0–10 score and its band (NONE, POSSIBLE, LIKELY, FOGBOUND) are recorded in `slot_atmosphere`
+(`mist_score`, `mist_scored`, `mist_potential`, V185; the band is stored because a fogbound white frame can share a score with a LIKELY morning) for every marked place the pipeline fetches weather for,
+whatever the triage verdict, exactly as the inversion score is. No Claude call is added and no
+star changes. The moisture scale is now one shared helper that the cloud inversion calculator
+also uses, with its outputs unchanged. The hourly weather request gains the total `cloud_cover`
+variable (one more variable on the existing request, not an extra call). V185 is proven by CI
+only.
+
+### Docs — valley mist plan: M0 measured, M4 deleted, the calculator scores the set-up
+
+The production measurement for `docs/engineering/valley-mist-plan.md` is written into §3 M0: in 180
+days weather triage stood 1,266 sunrise slots down for low visibility, roughly 250 of them carrying the
+clear-calm-saturated signature, against 32 such mornings the sky prompt's own mist guidance ever
+reached. The 17 Oct Brathay morning was not a triage miss: the slot reached Claude with a 3.0 °C gap
+and 40 km visibility and was rated 2, and a side-by-side showed `best_match` over the UK is already the
+Met Office 2 km model, which did not saturate the river corridor either. M4 (a UKV side-fetch) is
+therefore deleted, and M1's `ValleyMistCalculator` is respecified to score the radiative set-up — a
+clear night, calm, a falling temperature and rising humidity at a flagged riverside site — with the
+temp–dew gap as a term rather than a gate, anchored on the measured rows as its first fixtures.
+
+### Fixed — a blanked region with no record no longer reads "Poor"
+
+The honesty filter words a region with no per-location forecast by why it has none, but a region
+whose record could not say why (no disposition for its slots, a tie, a renamed location, a failed
+lookup, a cycle still in flight) shared the weather stand-down wording, "Too unsettled to forecast".
+On the Plan tab that drew as "Poor" over an all-hatched field, which readers took for a rating, as
+a T+3 sunrise did on 2026-10-19. Such a region now reads "Not scored" (awaiting), with the summary
+"No per-location forecast — the record does not say why" and no claim about the weather. Only a
+region that weather triage really stood down keeps "Too unsettled to forecast", and a window with
+any such region still reads stand-down.
+
+### Changed — a stood-down window's "Poor" says it was the weather
+
+A Plan-tab card whose window was stood down by weather triage, and whose region the honesty filter
+had blanked, drew "Poor" over an all-hatched field with nothing beside it, which readers took for a
+rating. The card now prints `unsettled` beside the word, in the same quiet ink the region mean
+uses, and its spoken name reads "Poor, too unsettled to forecast"; the window popup's head says the
+same beside its badge. Only a blanked stand-down gets the note: a stood-down region that still has
+slots, and every rated, unrated or awaiting word, read as before.
+
+### Changed — docs: the Plan-tab map overlay is retired (overlay convergence, C6)
+
+CLAUDE.md and the four plans that described the Plan-tab map overlay as a live, frozen surface now record it as retired by overlay convergence C1–C5 (#1246 #1248 #1252 #1258 #1262), with dated notes rather than rewritten history, and CLAUDE.md gains the aurora-only Map tab (C3), the banner's door (C4) and the seven doors that now open the Map tab through one structured handoff. `docs/engineering/overlay-convergence-plan.md` is marked complete, its open owner questions are gathered into one list in §7, and its browser recipe describes the shipped behaviour. It also corrects the C5 entry: `HourlyComfortTable`'s kept hidden-header mode is dead in practice (the admin Prompt Test popup, its only consumer, passes no hourly rows), and the popup's Run Forecast button is unreachable, so no UI starts a single-location run until O-7. No code changed.
+
+### Docs — far-cloud P1: Part B re-run on the verified Sonnet 5.5 era (2026-10-21)
+
+- `far-cloud-p1-plan.md` gains §15: with ERA5 verification at 2026-10-15 and 12,093 verified rows from the Sonnet 5.5 era, Part B and the Part D premise cross were re-run over the new export (2,251 location-gos, 2,120 verified). Sonnet 5.5's gos fail the ERA5 horizon premise less often than Haiku's (3.1% and 0.9% against 8.7% and 5.5%), and the Angel row still passes all three premises, so Part B cannot see the far-lid class by construction.
+- Sonnet 4.6 withdrew 118 of 490 all-pass Sonnet 5.5 gos (24.1%) and 7 of the 9 no-canvas gos, so its withdrawals are not concentrated where ERA5 says the faults are; R1 still fails D-1 parts 2, 3 and 4. Keeping Batch Near-Term on Sonnet 5.5 (§9 item 1) is now evidence-backed, with the stated ERA5 caveat; Part E remains the only test of wasted trips.
+- §12 step 6, §9 item 1 and the Status line record the re-run; the live line of work is the far-lid rule (§9 item 7), Part C sizing, the Meteosat observation and Part E. No Anthropic spend.
+
+### Docs — far-cloud P1: Part A, the Angel's sun line (2026-10-21)
+
+- `far-cloud-p1-plan.md` gains §14, the result of Part A for the Angel of the North 2026-10-13 sunset: ERA5 and all four forecast models (day 0) show a continuous high-cloud deck (98–100%) from about 225 km along the sun line, exactly where the 1.3° ray reaches the 8 km high band, behind a 113 km cirrus canvas. The deck was forecastable on the day but unread: the prompt carried only far low cloud at 226 km. Model-level only; the owner's Meteosat look is still owed.
+- A first sizing hint, explicitly not a base rate: 577 exported rows carry `far_solar_high_cloud` (13–14 October only), 390 read ≥ 60% and 92 of those were rated go.
+- §9 gains item 7 (open): a far-lid rule keyed on a present canvas and far high ≥ 60%, which needs a prompt change and a replay on rebuilt prompts; §12 step 8 and the Status line record Part A as done for the Angel.
+
+### Docs — far-cloud P1: the Angel's Meteosat frame (2026-10-21)
+
+- `far-cloud-p1-plan.md` §14 records the owner's one Meteosat frame for 2026-10-13 at 16:50 UTC along 255° from Gateshead: clear coast, a streaky cirrus band at roughly 50–150 km, and a continuous grey-white sheet from about 200 km outward. It agrees with the ERA5 transect and the four models. One frame read by eye, not a measurement.
+- Part A's observation step is marked done in §2 and the Status line, and the Meteosat item is removed from §15's live-work list. No code, no Anthropic spend.
+
+### Docs — far-cloud P1: the far-lid rule sized on the first week of capture (2026-10-21)
+
+- `far-cloud-p1-plan.md` gains §16: over 3,029 slots (276 gos, all Sonnet 5.5) dated 14-24 October carrying `far_solar_high_cloud`, 187 gos had a canvas and 128 of those (68%) a far high lid behind it, 100 of them on 15 October alone, so a canvas-plus-lid cap would have withdrawn 128 of 276 gos. ERA5 cannot adjudicate the lid yet (its own far high was a lid on 553 of 578 verified slots, all 14-15 October).
+- The owner's first two recorded outcomes (Angel and Copt Hill, 15 October sunset, forecast 3★, observed 4★, cone and far high 100%) refute canvas-plus-lid as a verdict: the 13 and 15 October Angel differed overhead (0/0/0 against 99/100/100), not at the far point, and 15 October's error was an over-forecast low deck, a missed opportunity outside this plan's rules.
+- §9 item 7 is revised to "nothing overhead, horizon cirrus canvas, lid behind", still open and uncosted: the Angel shape is n = 1 (25 of 276 gos, none with an outcome), and it must be sized against the far mid/high dark-hour columns and pressure levels too. Open-Meteo's free daily limit (about 600 weighted calls) means one transect per day. No Anthropic spend.
+
+### Removed — the Plan-tab map overlay (overlay convergence, C5)
+
+Fifth phase of retiring the Plan tab's map overlay (`docs/engineering/overlay-convergence-plan.md`, O-6). Since C4 nothing could open it; this deletes it.
+
+- **Files deleted:** `components/MapOverlay.jsx`, `components/ForecastTypeSelector.jsx` (its `EVENT_TYPE_LABELS` had no reader outside the overlay) and `utils/mapOverlay.js`.
+- **`MapView` loses every `overlayMode` branch** (8,166 lines to 7,002): the context bar, the `advanced-filters-panel` drawer (EVENT / QUALITY / LOGISTICS), the Leaflet `Popup` and the phone `BottomSheet` that mounted `MarkerPopupContent`, the dead `'medallions'` toolbar copy, `HandoffPopupController`, `PopupResizer`, the drill-down emphasis (`emphasiseLocationName`, the `photocast-marker--focus` / `--muted` rules), the overlay's own `/drive-times` fetch (`driveMinutesFor` now reads `reachById` alone), the `retry: !overlayMode` forks, `zoomSnap`'s branch (it is `0`), the popup width CSS and the `focus` / `handoff*` props with their per-field effects. `WindowFirstMapPane` stops forwarding the legacy `handoff*` props and `onForecastRun`; a handoff with no `source` is no longer a handoff.
+- **`mapOverlay.js`'s pure resolution moved, not deleted.** `utils/mapDoor.js` now owns `resolveDoor` (which spot a door opens, which spot set it narrows to, what it is called), the door's headline and its structured payload read it; the overlay's narrative / caption / tone fields were rendering-only and are gone. `DARK_SKY_THRESHOLD` moved to `utils/darkSky.js`.
+- **One definition each of two C2 copies.** The location sheet's `useForecastDetail` and `TRIAGE_REASON_LABELS` / dust test / rising-tide window are now the ONLY definitions; `MarkerPopupContent` imports them. A failed detail fetch is no longer memoised as a null the popup then trusts (it retries on the next mount); the popup's inline-detail path, the only one the admin Prompt Test uses, is unchanged.
+- **Kept, because something else still reads it:** `MarkerPopupContent` (the admin Prompt Test view mounts it, with its 190 tests), `HourlyComfortTable`'s hidden-header mode and the `popup-hourly-table` id (that popup uses it), `markerUtils`, `makeMarkerIcon` (the tab's hidden medallions), `fetchTravelDayRanges` (the callout's travel-day notice), `LocationSheetFactsParity.test.jsx` (the popup still exists to disagree with the sheet), `.animate-popup-refresh` (`ManageView`).
+- **CSS removed:** `map-overlay-rise` / `.map-overlay-panel`, `.map-ctx-*`, the `.wf-map-toolbar` rule that only the overlay's dead toolbar used (the tab's `.wf-map-toolbar-cluster` is untouched).
+- **The Map tab's solar surfaces do not move:** a before/after render of the heat view, a location door and a region door (rendered markup and the props handed to the field) is byte-identical.
+
+Tests: the overlay-only cases are deleted (`MapOverlay`, `ForecastTypeSelector`, `MapViewMarkerEmphasis`, `MapViewBriefingScoreWiring`, `MapViewSunsetToggle`, `MapViewDarkSkyHandoff` - its twin cases already run through the structured door in `MapViewPlanHandoff` - and about forty "absent on the overlay" negatives and overlay-drawer cases elsewhere); every test that used `handoffEventType` / `handoffLocationName` as a convenient driver now drives the tab through `autoEventType` or a map-sourced `planHandoff`. `MapViewOverlayContext.test.jsx` became `MapViewTabChrome.test.jsx` (its two Map-tab cases). Four owner-decision pins that were routed through the overlay (when an alert ends, the saved rating floor and its saved copy, the stand-down lens and the drive-time filter are left alone) were ported to the Map tab's cases in `MapViewAuroraUnavailableFloor.test.jsx`; the mutation that clears them fails three of them. `resolveDoor` gained a briefing-rating case and a Bortle-4-exactly case. The Playwright spec `test/e2e/forecast.spec.js` now asserts the callout rather than a Leaflet popup; **it is not part of the local gate** (nothing here ran it).
+
+**Lost with the overlay (no Map-tab home):**
+- The aurora result's `detail` prose (Claude's explanation beyond the stars and alert level) and the astro night's cloud / visibility / moon / phase explanations. The sheet shows only solar windows and D3 kept the callout to the alert level word; whether either surface should grow them is still an open owner call (plan §3 C2 note, §7).
+- The popup's live tide indicator, its spring / king classification and its "Tide data fetched" footer (struck by D3: `window.tideFacts` is the one source of per-location tide).
+- ADMIN **Run forecast** from a map location (plan §4 #8, O-7: its own phase on the callout's actions row). Until it lands there is no map route to a hand-started single-location run.
+- The region "narrative band" (the region's gloss under a verdict-coloured head). The Map tab's region panel shows the served narrative (plan §5 Q2, probably no).
+- The SEASCAPE warning "No tide preferences set - check tide alignment before planning your shoot" (`tide-preferences-missing-badge`, shown to every role). It is really an admin data-hygiene signal; it needs a home on the callout's tide block or the admin Locations screen (owner call, plan §7).
+- The astro night's one-line `summary`, the "Not suitable for aurora photography" and astro no-data lines, the LITE hint ("Pro accounts get Fiery Sky & Golden Hour..."), and the Bortle WORD label (the callout shows `4 · dark`).
+- *Open the full Map tab →* and the overlay as the place a reader landed when the Map tab was withheld: the tab is now offered whenever a real aurora alert stands (C3), and otherwise the doors are withheld.
+
+Also: `askNightUntilAnswered` lost its `retry: false` option (its only caller was the overlay). `MarkerPopupContent`'s now-unpassed props (`onForecastRun`, tide fetch/classification, aurora and astro scores) are deliberately left in place: they hold the code the lost features above would be ported from.
+
+## [v2.29.2] - 2026-10-20
+
+### Changed — every "Show on map" opens the Map tab; the Plan-tab map overlay no longer opens (overlay convergence, C4)
+
+Fourth phase of retiring the Plan tab's map overlay (`docs/engineering/overlay-convergence-plan.md`, O-6). The seven producers that opened the "Aurora tonight" / "Sunrise tomorrow" modal now all take the ONE structured `source:'plan'` door the location sheet footer already used, and the overlay can no longer be opened:
+
+- **The Regional planner's drill-down pin** (an `event` trigger), **its location names** and **the spot sheet's rows** (`location`), and **the pick dialog's *Show {region} on map* / *Open {location} on map*** (`region` / `location`) go through the shell's `openMapTab`. It closes the pick dialog, spot sheet and window popup FIRST, merges the Plan's live rating floor and reach tier, and `App.openMapTabFromPlan` resolves the window, region, location, spot-set lens and headline. The pick dialog's two actions are drawn only when the shell has a Map door (they were left calling nothing when it had none), and still close the dialog and popup themselves.
+- **A region door keeps its region.** It lands on the region's top-rated spot as the overlay did, but now also frames the region: an away region switches scope to the whole catalogue instead of stranding one callout outside it, and the camera is the region's fit rather than a fly to the one place.
+- **Coming up's coastal and dark-sky cards and their day chips** send the `coming-up` trigger: the exact spot set becomes the breadcrumb's named, clearable lens with its subject filter, and the headline names the card and day. A spot the card NAMES is exempt from the unrated / stand-down withholding (it draws as an unscored pin, so a card beyond the rated horizon no longer opens on an empty map) but not from the reader's own filters (rating floor, reach, subject, dark sky); when nothing is left the crumb says why ("none of the 3 named spots is rated for this day", or "...passes your filters"), never "showing 0 spots". With no Map door at all the pane is handed no dates, so none of its cards is a button.
+- **The aurora banner** (shown on every tab) sends an `aurora` trigger for the night in progress; `handleAuroraViewOnMap` was kept and rewritten, not deleted. It reads the Plan's lens from the briefing context it already sits in. Its Map door is offered only when the Map tab has a night row to select (the C3 offer's own live-night test, or a rated run); a stale or inactive status with a forecast on screen shows no call to action instead of opening the map on a solar window.
+- **A map-sourced door is a window change and nothing more.** The banner pressed ON the Map tab (and the four-day sheet's footer) select the window without writing the lens, scope or camera, and no longer end a standing door lens or unmount its breadcrumb: the map holds the last Plan door separately from the latest handoff, so the floor, reach, scope and origin it named stay named. The shell's own dialogs (a Map-hosted four-day sheet) are closed first through a closer the shell registers with `App`. `MapView` now follows a night named by a map-sourced handoff.
+- **The breadcrumb's return names the tab the door came from** (an extension of the doors plan's D2, not a reversal): `← Plan`, `← Coming up` or `← Operations`. The return lands on that tab and focuses the control that was pressed if it is still mounted (a Coming up card), otherwise that tab's button. The arrival is announced once per door through a visually hidden status region next to the strip.
+- **A SIMULATED alert has no map** (C3 / aurora-banner-plan D9), so its banner is honest rather than dead: an admin's press opens the Operations tab and the call to action reads "Operations →" (never "Generate scores →"); for anyone else the banner is a statement with no tab stop, a default cursor and the plain word "Test alert". The old hash writes (`#map`, both no-ops since v1 retirement D1) are gone. The Operations press writes `#manage/metrics` (Job Runs, where the simulation lives) first, but `ManageView` reads the hash only when it mounts, so it lands there only when the Operations pane is first opened this session; with it already mounted the admin arrives on the sub-tab they left. LITE accounts still receive no aurora status, hence no banner and no door.
+
+`App` loses `handleShowOnMap`, `openFullMapTab`, the `mapOverlay` state, the settings-edge overlay close and the `MapOverlay` mount; `WindowFirstShell` loses its `onShowOnMap` prop. A door no longer writes any state the Plan tab reads. The v1-retirement §8 item 9 route (an overlay opened OVER a Plan dialog by the planner's 🗺 or the banner) is closed rather than guarded. `MapOverlay.jsx`, `utils/mapOverlay.js` and `MapView`'s `overlayMode` branches are untouched until C5.
+
+Known limits: the aurora `detail` prose and astro explanations the overlay's popup showed still have no home (plan §3 C2 note, an open owner call); whether Operations should grow an Aurora sub-tab for the banner to land on is an open owner question.
+
+### Changed — the Map tab opens on an aurora alert even before any sunrise or sunset is forecast (overlay convergence, C3)
+
+Third phase of retiring the Plan tab's map overlay (`docs/engineering/overlay-convergence-plan.md`, O-6, owner decision D4). Until now `App` withheld the whole Map tab whenever no sunrise or sunset forecast had arrived, so the aurora banner (shown on every tab) could reach a map only through the overlay. A PRO or ADMIN account with a **real MODERATE or STRONG alert** now gets the Map tab with no solar forecast at all: the window control holds the live aurora night alone, the tab opens on it in aurora mode, and the field, the viewline, the callout and the phone peek sheet work on it as on any aurora window. The landing card does not open (there is nothing solar to say).
+
+A real alert whose scoring run has stored nothing yet also gets a **live-night row** on a tab that does have a forecast: the window control's night rows come from stored results only (D-14), so a live field had no row to select it by. The row's best is the highest star among the live per-location scores — the same figure the field paints. A night that has a stored run keeps its stored row untouched, and on a real alert the stored-run preview now covers the night in progress even with no solar dates (otherwise its one row would read "—" beside a painted field).
+
+Unchanged by design: a LITE account (no aurora status, role checked again in the new predicate), a quiet or inactive alert, and an alert below MODERATE (per-location scores are fetched only from MODERATE up, so there would be nothing to draw) all still withhold the tab. **A simulated alert (admin test data) offers neither the tab nor the row**: a simulation has no scores and no stored run, `aurora-banner-plan.md` D9 ("a simulated alert asks for nothing") and the aurora-simulation isolation rule keep it off every user-facing surface, and a tab built on one would be an empty map dressed as a forecast; the banner still shows it with its test tube. The Plan→Map doors are not moved by this change (the banner's door follows in C4), and the overlay is untouched. With forecast data the tab receives the same props and renders the same solar rows as before.
+
+Also in this change: the tab is never offered on a status whose night has ended; when the alert clears while the Map tab is the tab in force, the shell now selects Plan explicitly and moves focus to the Plan tab button (so the next alert does not snap the reader back); the live row waits for the stored-dates list to answer; a hides-only forecast keeps its comfort card (the day-mode rule now tests "no solar event") and never enters aurora; a night-only window control has an accessible name (kind, night, time if known, best star), single-window steppers say "Only one window", and the phone Windows section has a heading. The live row is appended on a tab that does have a forecast too (a deliberate deviation: the same D-14 gap), after that date's sunset like a stored night's row; every solar row and its order is unchanged.
+
+Known limits: a live night that gains a stored run mid-session is not converted (the stored-dates list is read once per role). For the C6 docs sweep: the live row's `bestOfNight` runs over LIVE per-location scores (`getAuroraLocations`), a new population for that licensed Map-tab client-max derivation, to be added to CLAUDE.md's Backend-heavy member list.
+
+### Added — the location sheet and callout carry the forecast detail the overlay popup showed (overlay convergence, C2)
+
+Phase C2 of the Plan-tab map overlay's retirement (`docs/engineering/overlay-convergence-plan.md`,
+owner decision D3): the facts the overlay's marker popup showed and the Map tab's surfaces did not now
+live where a reader on the tab can reach them. Each open window row of the location sheet carries, under
+its prose, the conditions badges (dust, cloud inversion, bluebell, rising tide, sea state, storm surge),
+the wind and comfort rows and the "Forecast generated" footer, read from the same slim forecast row and
+lazily fetched detail row the popup used. The detail is fetched only for a row the reader opens, with a
+skeleton while it loads; a failed fetch costs the badges quietly and leaves the rest. Gating mirrors the
+popup's: a LITE reader gets the plain "High aerosols" wording, no inversion badge and a locked bluebell
+badge (CLAUDE.md's 0.45 greyed pattern is applied to the badge's edge and wash, not its text, because 0.45 on 10.5px text fails AA). The map callout gains the aurora alert level beside the stars on an aurora window and the
+travel-day notice on a solar one. A location with none of these facts draws exactly the sheet and
+callout it drew before.
+
+The score bars and the golden and blue hour line were already on the sheet. The live tide indicator is
+not ported (the sheet's tide block already reads the served `window.tideFacts`), the admin Run forecast
+button is the later O-7 phase, and the aurora `detail` text and astro explanations have no home yet: the
+sheet shows only solar windows, and giving it night rows is not part of this series. Nothing moves
+doors yet — the overlay is still what its seven triggers open until C4.
+
+### Fixed — the watchdog finds an evening run whose deadline falls after UK midnight
+
+The evening refresh fires at 20:00 UTC, so with a long budget its deadline or timeout failure can land after UK midnight, when the watchdog's today-only run query no longer returned it. The evening check now looks back to the earlier of the UK day start and now minus the evening budget minus an hour.
+
+### Added — evening sunrise refresh cycle (dormant)
+
+A third forecast cycle, `evening_sunrise_refresh`, re-evaluates tomorrow's sunrise alone at 20:00 UTC (every stability, bypassing the cache gate, its own `photocast.pipeline.evening-safety-timeout` wait budget of PT2H, bounds PT30M..PT3H30M). It is seeded PAUSED (V184), so nothing runs until it is resumed from the Scheduler screen. The cycle gives no failure evidence: its settle claims the run and applies no count or reset, and it never blocks or reorders the other cycles' failure settling.
+
+### Changed — scheduler solar panel describes the evening refresh's budget
+
+The sun-relative panel's safety-budget note no longer says two forecast cycles can never be running at once. It now states each cycle's budget (3 h 30 min for the overnight and afternoon cycles, 2 h for the evening sunrise refresh) and that their briefing builds run one after the other when the afternoon cycle is still finishing in late spring and summer. A test pins that the evening job gets no fixed/sun-relative switch.
+
+### Added — the forecast-cycle watchdog watches the evening sunrise refresh
+
+`SolarForecastJobs` is now `ForecastCycleJobs`, a registry of the three scheduled forecast cycles (nightly, intraday, evening) of which the first two are solar-capable. The watchdog walks all three. For the evening refresh, which serves no solar event, it alerts when the fire was missed, when the run was failed by the safety timeout, or when a forecast batch is still outstanding after the evening budget (`photocast.pipeline.evening-safety-timeout`); a run still building its briefing after its batches finished is not an alert. The two main cycles' checks are unchanged. The evening job stays paused until the owner resumes it.
+
+### Changed — the pipeline orchestrator reads a cycle's shape from the cycle type
+
+Groundwork for an evening refresh of tomorrow's sunrise; nothing observable changes. The orchestrator's
+`intraday` flag is replaced by properties of `CycleType` (`publishesStabilitySnapshot`,
+`recordsReclassifyPhase`, `failureEvidence`), the wait budget is chosen per cycle type (both still the
+configured safety timeout), and a candidate strategy can now say it bypasses the CACHED gate
+(`bypassesCacheGate`, false for every existing strategy).
+
+### Added — the Plan→Map door carries every overlay trigger (overlay convergence, C1)
+
+First phase of retiring the Plan tab's map overlay onto the Map tab (`docs/engineering/overlay-convergence-plan.md`, O-6). The structured `source: 'plan'` door now carries everything the overlay's seven triggers carry, so a later phase can move each producer onto it. No door moves in this change and nothing about the overlay itself changes: it still opens, looks and behaves as before.
+
+`normalizeMapTrigger` moved into a new `utils/mapDoor.js` (the overlay's `buildMapOverlay` stays in `utils/mapOverlay.js`), which also gains `doorHeadline` and `doorFromTrigger` so one normalised trigger becomes one door. `App.openMapTabFromPlan` accepts either a door or a normalised trigger. The handoff gains `night` (select a night's row — held until that row has loaded, and spent if the reader picks a window of their own first), `focusNames` (a named, temporary spot-set lens on the pins, labels, counts and the heat field), `focusPoints` (fit several pins), `filterAction` / `darkSky` (promoted from the legacy `handoff*` props, which are not extended), and `title` / `caption`. Every field is absent unless the door asked for it.
+
+`MapBreadcrumb` prints the door's `title · caption`, names each active lens ("showing 6 spots", "coastal spots", "dark-sky spots" — live claims, gone when the reader changes the filter), and its `clear` removes the temporary lenses together with the rating, reach, scope and origin resets, restoring the field whole. A later door undoes the previous door's filter lens, and `clear` the current one, handing back the reader's own subject and dark-sky filters as they were; a lens also ends with its door, so a map-sourced or overlay handoff never leaves a spot set standing with nothing to name it. One door-only change in behaviour: a door carrying `filterAction` or `darkSky` no longer opens the Filters popover (the breadcrumb names the lens instead).
+
+### Added — Ask PhotoCast reads each window's rating distribution, and says stay home when it is
+
+`list_windows` now serves, for every solar window, the spread of its ratings over the question's scope:
+how many rated places sit at each star, how many are 4★ or better ("game on"), the regions holding a
+game-on place with their means (at most four), and how many regions were stood down whole, not scored or
+too thin for the Plan tab to give a verdict. A wood and a place the neighbour guard withholds are out of
+the counts. The system prompt carries the owner's scale (1–2★ stay home, 3★ marginal, 4★ game on, 5★ go),
+tells the model to read the spread before the best rating and to call a window of almost all 3★ with a
+handful of 4★ a stay-home window with exceptions, and replaces "give 2 or 3 picks" with "up to three, never
+fill the list with marginal places". The result cap rises from 6,000 to 9,000 characters.
+
+A shared Ready answer for "Best spot this weekend?" (and the other solar pick questions) may now honestly
+say there is nothing worth going out for when no covered window holds a game-on place the question admits,
+and is withheld the moment one appears. A Ready answer carries the whole spread of every window its prose
+may have quoted and is withheld whole when any of those figures has moved, or a window it covered has
+passed or been added. `StubAskEngine` reads the same figures, so local runs show the shape.
+`BriefingRegion.coverageReason` (serve path only, never persisted) tells a real weather stand-down from
+the "no record" the honesty filter words the same way. No migration; the client line that draws the
+figures is a later change.
+
+### Added — the server's figures beside Ask PhotoCast's answer
+
+Under an Ask answer's summary, one quiet line per window the answer may have quoted now shows the
+served rating distribution the model was reading — `Sat sunset · 180 rated across every region ·
+2 at 4★+`, with `· N at 5★` when any place is, `none at 4★+` when none is, and the scope's region
+names in place of "every region" for a question about an area — so a count the model states can be
+checked against the server's own figure on the same screen. While any window is rated, a window
+nobody has rated draws no line; when none is, each window says "nothing rated" with what the server
+recorded for it (`4 regions stood down`, `2 not scored`), so a weekend the weather stood down never
+reads like one nobody looked at. An answer that carries no windows (every Ready answer stored before
+the spread was served, and every can't-answer) is drawn exactly as before. It is on every surface (the
+phone sheet, the tablet sheet, the dock and the phone Map peek), for every role, and is deliberately
+not the Plan card's reach-gated histogram. The figures are never echoed on a follow-up's thread. No
+backend change. Seen in a static harness of the built stylesheet only; not yet seen in the live app.
+
+### Added — Ask window-context prompt regression (owner-run, never run)
+
+`AskWindowContextRegressionTest` (tagged `prompt-regression`, skipped without an API key, excluded from
+`verify`) runs the real engine against three weekends built from JSON fixtures: the owner's stay-home
+weekend of 17–18 October 2026 (Saturday sunset 56 / 122 / 2 at 2 / 3 / 4★, and the other two windows),
+a broadly game-on weekend, and a mixed weekend with an all-blue Saturday. Each script is run ten times and
+must pass nine. Its assertions are pending the owner's approval and it has not been run. A synthetic-band
+fixture builder expands a band count into named filler places, and an ordinary unit test checks that the
+three fixtures say what their names claim, so a wrong fixture is found without spending anything.
+
+## [v2.29.1] - 2026-10-20
+
+### Changed — Coming up tide-run miss row names the event once
+
+The "no high water" row on tide-run cards no longer repeats the event word:
+`sunrise · no high water within an hour · nearest HW 05:30, 2h20 before · Wed 28`
+(and `… within an hour on the days measured · …` for a partly measured run). Same for sunset.
+
+### Docs — plan the Plan-tab map overlay's retirement onto the Map tab (O-6)
+
+`docs/engineering/overlay-convergence-plan.md` plans map-tab-v2's open decision O-6 as a
+retirement, not a re-skin: the "Aurora tonight" / "Sunrise tomorrow" overlay — the pre-v2 map kept
+behind `MapView`'s `overlayMode` gate (medallions, the Leaflet popup, its own EVENT/QUALITY/
+LOGISTICS drawer and `/drive-times` fetch) — is deleted and its seven producers open the real Map
+tab through the structured `source:'plan'` door, as the location sheet's *Show on map* already
+does. Six phases: C1 extends the door with everything the overlay's triggers carry (a night, a
+named clearable spot lens, a multi-pin fit, the coming-up filters, a breadcrumb title); C2 gives the
+location sheet and callout the popup's facts the tab lacks (badges, surge and sea state, the
+aurora and astro detail, score bars, the travel-day notice); C3 lets the Map tab open on an aurora
+alert before any solar forecast exists; C4 moves the doors and closes the overlay-over-a-Plan-
+dialog route; C5 deletes ~700 lines of `MapView.jsx`, `MapOverlay`, `utils/mapOverlay.js`,
+`ForecastTypeSelector` and ~50 overlay tests; C6 sweeps the docs. §5 lists six owner decisions,
+recommended but not yet taken. `overlay-convergence-prompts.md` carries one Sonnet kickoff prompt
+per phase.
+
+### Fixed — NOAA solar wind (Bz, speed, density) read from the live `rtsw` feeds
+
+NOAA withdrew `products/solar-wind/mag-1-day.json` and `plasma-1-day.json` (both now 404), so every
+aurora poll logged `NOAA solar wind fetch failed` and the Bz / speed / density readings were empty.
+The defaults now point at `json/rtsw/rtsw_mag_1m.json` and `json/rtsw/rtsw_wind_1m.json`, and the parser
+reads their shape (an array of objects, newest first, one row per spacecraft per minute): `bz_gsm`,
+`proton_speed` and `proton_density` from the spacecraft flagged `active`, merged by minute. If no row
+is flagged active every row is used. `application-prod.yml` and `application-example.yml` set the
+URLs explicitly, so both are updated; a hand-edited production file that still names the old
+`products/solar-wind/…` URLs overrides the new default and must be changed
+(`aurora.noaa.solar-wind-url` and `aurora.noaa.solar-wind-plasma-url`). The contract fixtures are now real
+samples of the new feeds.
+
+A failed fetch's WARN no longer carries the whole error body: NOAA and light-pollution client failures
+(the NLC scraper was fixed separately) log through `LogSanitizer`, which flattens the message to one line of at most 200
+characters.
+
+### Fix — NLC sighting scraper no longer hammers a 404 page out of season
+
+`NlcSightingClient` fetched `…/nlcnet/2026-october` every 10 minutes all year, logging the whole ~30 KB 404 HTML page each time (NLCNET only publishes May–August). It now skips the fetch outside the NLC season (`NlcClarityService.isNlcSeason`, the hot topic's own definition; one INFO line a day), stops retrying a URL that answered 404 until the next UK day, and truncates any other logged error message to 200 characters. A pinned, placeholder-free archive URL is unaffected by the season gate.
+
+### Added — Coming up tide-run cards name the high water at sunrise and at sunset
+
+Every tide-run card now shows two dated rows, sunrise first, in place of the single `tide …` alignment row:
+`sunrise · HW 07:40, 10m before · Wed 28` (or `no high water within an hour · nearest HW …`, qualified
+"on the days measured" for a partly measured run). The rows name HIGH water only: a low water at sunrise or sunset
+is no longer named on the card. The run's day is the true peak day when its water is aligned for that event,
+otherwise the closest day. The rows also ride a supermoon-hosted merged card. The old `alignment`/`alignmentDate`/
+`noAlignment` meta are no longer written, the merged-card ` on the <ordinal>` suffix is gone (both rows are always
+dated), the coincidence line's HW clock reads the new rows, and the sparkline's `tide.phase` is always `HW`. On a tide
+card each row takes its own line and wraps without leaving a bare `·` at a line start.
+
+### Fix — aurora triage no longer calls a failed cloud fetch "completely overcast"
+
+When Open-Meteo failed some batch chunks, `WeatherTriageService` filled the affected candidates with an all-overcast window and stood them down with a 1★ "Completely overcast" score, though no cloud had been read (2026-10-19: about 80 of 220 candidates). `NorthwardTransectSampler.sampleMeasured` now treats a failed point as unknown (after one bounded retry of just the failed points), and `TriageResult` gains an `unsampled` list. Unsampled places get no score or result row — "not assessed", neither viable nor rejected — and the log names how many. `sample()` (NLC) is unchanged.
+
+### Changed — Plan card Spread row: one histogram width across the strip
+
+The Spread row's count columns were sized per card, from that card's longest count, so two cards
+side by side with longest counts of 91 and 125 drew histograms of different widths. The width and
+the smaller count type are now decided once for the whole strip, from the longest count on any card
+that draws bars, so neighbouring cards line up. A card that prints text instead of bars (below the
+minimum-sample gate) or an away cell contributes nothing, so it cannot widen the others.
+
+### Docs — neighbour guard: the plan
+
+`docs/engineering/neighbour-guard-plan.md` plans a serve-time guard that stops a place from being
+named as the single best place (an Ask pick, the BEST BET destination, the Plan card's
+best-reachable line) when its sky rating sits at least 2 stars above every place within 5 km in the
+same window, and at least two of those places are at a similar height. The star itself stays on the
+map and in every mean. Two read-only measurements back the defaults: `guard-tuning.sql` over stored
+rows and `serve-guard.sql` over the served cache. At the defaults the rule flagged no place in 18
+served windows and none in Sonnet 5.5's 36 runs, while Haiku's FAR bucket raised 6 in 16 runs, the
+Caw Gap 4★ among them.
+Phases G1a–G4 follow; G1b ships switched off until the Ask and client phases land.
+
+### Docs — CLAUDE.md records how an admin aurora simulation ends
+
+The Aurora API notes listed `POST /api/aurora/admin/simulate` and `POST /api/aurora/admin/simulate/clear`
+without saying what either does to the state machine. The guess a reader would make — that Clear is
+`POST /reset` under another name — was true until the simulation-lifecycle fix and is not now, so the
+notes now say what the code does, read from `AuroraStateCache` and `AuroraOrchestrator` rather than
+from their javadoc:
+
+- A simulation ends on the next real reading that reaches `evaluate()` — a quiet one clears it, an
+  alert-worthy one replaces it with a new real alert — or on `simulate/clear`, whichever is first.
+- A night poll that would CLEAR holds instead while a block's NOAA reading is still due, and
+  `wouldClear` counts a simulated alert, so a simulation can outlive the next poll.
+- `simulate/clear` calls `endSimulation()`, which acts only while a simulation stands; with none
+  running it changes nothing and still answers 200, the status saying nothing was cleared. `POST /reset`
+  is the call that wipes the machine, a real alert included.
+
+No code changed.
+
+### Docs — a plan for giving Ask PhotoCast each window's rating distribution
+
+`docs/engineering/ask-window-context-plan.md` sets out, for the owner to judge, how `list_windows`
+would carry each window's spread (the count at each star, how many places are game on at 4★ or
+better, the regions holding one, and how many regions were stood down whole or not scored), so that
+Ask reads a window the way the owner reads the heat map and says plainly when a weekend is not worth
+going out for instead of presenting a thin 4★ tail as a recommendation. It gives the population
+(server-side, user-less, the combined rating, no fitted curve), the prompt's criteria and workflow
+hint, how a quoted figure stays honest, the 3★-at-a-distance options for the owner to decide, two
+real-API regression cases pending the owner's assertions, a read-only sub-region research recipe,
+and the delivery phases. `scripts/measurements/ask-window-context/measure.py` is the token-cost
+mock behind its figures. No prompt, tool or pipeline behaviour changed.
+
+## [v2.29.0] - 2026-10-17
+
+### Docs — valley mist plan: the morning PhotoCast cannot see
+
+`docs/engineering/valley-mist-plan.md` records why a riverside radiation-mist sunrise under a clear sky is
+stood down by weather triage's 5 km visibility rule before Claude ever sees it, and why no surface names
+it the night before: mist is modelled from above (the inversion calculator), from inside a wood (the canopy
+lane) and as a haze modifier in the sky prompt, never as a subject from beside it. The plan proposes a
+`mist_prone` location attribute, a `ValleyMistCalculator` recorded on `slot_atmosphere` with a `MIST` hot
+topic and Coming up condition (M1, no Claude cost), a triage routing exemption plus a prompt block and
+Claude echo for flagged sites (M2), a `seen` tag on the outcome rating and an ERA5 saturation proxy for
+verification (M3), and a UKV 2 km side-fetch only if the measurement phase justifies it (M4). The
+measurement SQL is `docs/engineering/valley-mist-phase0.sql`. Six owner decisions are listed; nothing is
+built.
+
+### Fixed — a row-served slot now carries its sky rating
+
+When a `forecast_evaluation` row won the precedence over the briefing cache,
+`EvaluationViewService.toEnrichmentResult` built the enrichment result without the row's
+`sky_rating` (V164), so that slot's `skyRating` was null although the column held it. The row's
+`sky_rating` is now passed through. A row-served slot shows the tide-fit block's "· sky N★" clause
+where it applies, exactly as a cache-served slot already did, and the briefing build persists that
+`skyRating` into `daily_briefing_cache`. A rated row with no `sky_rating` (written before V164, or by
+the synchronous engine) still serves null, and a triage row still carries none. No migration. This
+is phase G1a of `docs/engineering/neighbour-guard-plan.md`: the guard compares sky ratings, so a
+row-served slot must carry one.
+
+### Changed — phone Map: tapping an Ask pick opens its callout and leaves the answer minimised
+
+On a phone, tapping a numbered pick chip (or its pin) on the Map now opens that place's normal callout,
+for the pick's own window, and leaves the Ask answer on its one-line strip. Before, it expanded the answer
+to full height and opened no callout. An expanded answer is minimised by the tap (a callout and an expanded
+sheet never show together); tap the strip to get the cards back. An open Windows, Tide or Layers section
+closes the same way, while an open region drilldown stays, as it does under an ordinary chip. Choosing a
+pick from its card in the answer is unchanged, and so is everything on tablet and desktop.
+
+### Docs — phone Map: a pick opens its callout, and a Layers door — the plan
+
+`docs/engineering/phone-pick-callout-plan.md` plans two owner-requested phone changes on the Map tab.
+Tapping an Ask pick on the map opens that place's callout for the pick's own window and leaves the
+Ask answer minimised, instead of expanding it. The minimised answer line gains a LAYERS door that
+opens the sheet's Layers section (and so the filters) with the answer kept. Tablet and desktop are
+unchanged. The plan was reviewed adversarially before merge; §8 lists what that changed.
+
+### Changed — phone Map: a Layers door on the minimised Ask answer
+
+On a phone, with an Ask answer on its one-line strip, the strip now has a small `LAYERS ☰` button beside it.
+It opens the Layers section (Heat or Pins, Regions, Filters, Tide mode) with the answer kept; closing Layers
+puts you back on the strip. Before, an answer replaced the Other windows, Tide and Layers buttons, so the map
+filters were reachable only through the window pill. On phones under 400px wide (most iPhones) the strip drops
+the spot's time to give its name the room. Tablet and desktop are unchanged.
+
+### Fixed — Map: windows scored before the last release can be rated again
+
+Wednesday's and Thursday's sunrises and sunsets could not be rated, and stepping back with `‹` stopped at
+Friday. The release that added "How was it?" records when each forecast row became available, and treated every
+row scored before that release as unknown, so those passed windows had no forecast to show and no row to rate.
+One migration now gives those rows (the ones with a rating or a stand-down reason) the time they were
+submitted as that availability time. For a forecast that came back from the batch service after its sunrise or
+sunset, the submission time is earlier than the true one, so an older window can occasionally show a forecast
+slightly earlier than the one the reader actually saw. Only about a week of rows is affected, and they leave the
+rating window by mid-November. Rows scored after the release are untouched.
+
+### Fixed — Map: an earlier day with no stored forecast now says so
+
+Stepping back past the oldest window loads the day before it. When that day had no stored forecast, nothing
+happened: the menu showed no sign of it, and after three such days `‹` went grey with no explanation. The
+window list (and the phone sheet's Windows section) now shows a quiet line, "No stored forecast for Thu 15",
+where that day's Load row was, announces it to screen readers, and keeps it at the four-day limit so the
+disabled `‹` is explained. The Load row for the next older day still follows it.
+
+### Changed — the neighbour guard is on by default
+
+A sky rating that stands two or more stars above every place within 5 km, when at least two of those places are at a similar height, is no longer named as a destination. Ask no longer offers it as a pick, the BEST BET / ALSO GOOD window pick no longer names it, and the Plan card's best-reachable line and popup header skip it (naming the region only when nothing else is rated 3 or better). Its star is unchanged everywhere it appears: the map, the location sheet and the window's best figure still show it.
+
+Production uses the code default, so no host config change is needed. To roll back, set `photocast.neighbour-guard.enabled: false` and restart; nothing is then flagged and no location coordinates are read.
+
+### Changed — the Plan card no longer names a lone high sky rating as the best place within reach
+
+The neighbour guard's server flag (`neighbourOutlier` on a served slot) now reaches the Plan tab.
+A card's "Best" line, the popup header's "best N★ within reach" and the search box's figure skip a
+flagged place and name the next rated one; if that place is rated below 3 stars, or nothing else is
+rated, the line reads a muted "no clear pick" (its tooltip and its spoken form say no place is
+named because the top rating is well above the places around it, and say "within reach" only when
+a drive time was measured). The lunar-eclipse dawn-race caption skips a flagged place too, and the
+"nothing at N★+ this week" message keeps its best-rating figure but names no flagged place. The flagged place keeps its star everywhere a
+star is shown: the spread histogram, the pool counts, the ranked spot strip and the map. With the
+guard off on the server (the default until its final phase) nothing changes.
+
+### Added — the neighbour guard: a lone high sky rating is no longer named as the pick (off by default)
+
+A sky rating far above several places that see the same sky is far more likely model noise than a
+real local difference, and the harm is when the Plan tab names that one place as where to go (Caw
+Gap's lone 4★ over Cawfields 1★ and Steel Rigg 2★, 2.3 km away). `NeighbourOutlierGuard` now marks
+such a slot at serve time: a regioned sky slot whose `skyRating` is at least 3 and which no other
+sky slot in the same window within 5 km rates within one star of, while at least two nearby places
+at a similar height (or both without an elevation) sit two stars or more below it. A nearby place
+that agrees clears the slot at any height, so a fell top above an inversion is not outvoted by the
+valley. The mark rides the served slot as `neighbourOutlier: true`, never `false`, and is never
+written to `daily_briefing_cache`; the slot keeps its star on every surface.
+
+Its one effect in this release is `PlanWindowProjector.topSlot`: a marked slot is never the BEST
+BET / ALSO GOOD destination, and after one is skipped the next slot must be rated at least 3 or the
+pick names the region only. Coordinates come from `LocationPointProvider` (one projection query a
+minute at most); a failed read serves the briefing unmarked. `NeighbourGuardLog` writes one INFO
+line per first-flagged place and one summary per briefing. Everything is behind
+`photocast.neighbour-guard.enabled`, which defaults to **false** until Ask and the Plan card follow
+(documented with its bounds in `application-example.yml`); with it off nothing is marked and no
+coordinates are read.
+
+### Changed — Ask no longer offers a place the neighbour guard marked as an outlier
+
+When `photocast.neighbour-guard.enabled` is on, a slot marked `neighbourOutlier` (a rating far above
+every nearby place that sees the same sky) keeps its star but is no longer a pick in Ask:
+`AskSnapshot.isPickEligible` refuses it, so `rank_spots`, the answer validator, the thread re-join, the
+Ready and typed-cache freshness re-check (a stored answer naming it is withheld whole), the Ready anchors
+and the stub all leave it out. `list_windows` no longer reports it in a window's `bestRating` (the
+existing maximum with only the outliers left out, so a verdict-ineligible region's star, a sub-3★ best
+and an all-canopy window are unchanged).
+
+`rank_spots` now adds a note, only when the guard withheld places from the windows and regions it
+searched, saying how many ("1 place in these windows is rated well above the places beside it and is not
+offered.") and never which, so a question about a withheld place is not answered as if it were missing
+from the forecast. A follow-up whose earlier pick became an outlier is told it is "held back: rated well
+above the places beside it" rather than that its rating fell; the thread rules allow the answer to say
+only that such a place is not being suggested because its rating is out of line with the places beside
+it, and never to call it low, poor or unreliable or quote its star. A follow-up resting only on
+held-back places answers "PhotoCast doesn't have: a trustworthy rating for those places" (or "those
+places as suggestions" when the reasons are mixed). Nothing changes while the guard is off, which is its
+default.
+
+### Docs — the login and registration series is written up, and the privacy documents say what the code does
+
+New `docs/app-store-privacy.md` inventories every kind of personal data the server and web client hold (email, username,
+the optional home postcode and its coordinates, ratings, Ask questions, usage), which third parties receive what (postcodes.io,
+OpenRouteService, Cloudflare Turnstile, the mail provider, Esri, Anthropic), what in-app account deletion removes and what it
+keeps (the Ask question log survives unlinked for up to 90 days; server logs for 30), and the retention periods that exist in
+code. `landing/privacy.html` is brought into line — it named SendGrid, omitted OpenRouteService and said nothing about deleting
+an account — and `landing/faq.html` stops describing the postcode as a drive-time feature alone. The landing site is redeployed
+by hand (`landing/README.md`), so neither page is live until then. `CLAUDE.md` (Auth, endpoints, roles, nine settings columns,
+V179–V181, the integration-test count, the nginx check and the AASA path) and `docs/engineering/login-registration-plan.md`
+(the status table, the build phases' deliberate disagreements, the Codex review log and the owner questions answered by what
+shipped) are updated from the merged PRs.
+
+### Fixed — the postcode-unavailable handler no longer ignores its exception
+
+`GlobalExceptionHandler`'s 502 handler for `PostcodeLookupUnavailableException` took its exception and used nothing from it
+(CodeQL alert 233, "useless parameter"). It now logs the exception's fixed message at DEBUG through the class's logger; the
+response is unchanged — a 502 with the fixed "Postcode lookup is unavailable right now" sentence — and no upstream text reaches
+the log or the body.
+
+### Added — delete your account from Settings
+
+A "Danger zone" at the foot of the Settings dialog lets any signed-in account delete itself, as the App Store requires. "Delete account" opens a confirmation inside the dialog (not a second dialog): it says what goes — your account, your home postcode and drive times, your Ask history and your ratings — and that it cannot be undone, asks for your password and takes focus to it. The red Delete button is disabled until a password is typed and refuses a second press while the request is out; Cancel closes the region and returns focus to the button that opened it. A wrong password, an administrator account or too many attempts is answered in the server's words inside the region, which stays open; on success you are signed out and returned to the sign-in page. Calls `DELETE /api/user/account`.
+
+### Added — `DELETE /api/user/account`: a signed-in reader can delete their own account (backend only)
+
+`DELETE /api/user/account` with `{"password": "…"}` deletes the caller's own account, for every role. It answers
+400 `Password is required` for a missing or empty password, 403 `Password is incorrect` for a mismatch, 409
+`Admin accounts are deleted by another admin` for an administrator (the existing self-delete refusal, extended:
+it keeps the sole admin from locking the instance out — another admin deletes an admin), 429 once five attempts
+in fifteen minutes have been counted on `AuthAttemptLimiter` under `delete:<username>` (counted before the
+password is compared), 401 `Your session has changed. Sign in again.` when the account's credentials moved while
+the password was being checked, and 204 on success. The password is checked by BCrypt outside any transaction;
+`UserService.deleteOwnAccount` then locks the user row FIRST, reads the account as a scalar projection under the
+lock (never the entity the request's persistence context holds from before the hash — Open Session In View is
+on), refuses unless the stored hash is still the one that was verified, the credential version still equals the
+session's `cv` (or, for a token with none, is still 0) and the role is still not ADMIN, purges the account's
+drive times, and deletes by a compare-and-set whose row count must be one — zero rolls the purge back. A stolen
+session that finished its BCrypt just before the owner's password change committed therefore deletes nothing,
+and an administrator who promoted the account meanwhile wins. The account's email claim is released if no other
+account still uses the address, and the access token dies with the row (the JWT filter authenticates only live
+rows). No Settings control yet: that is the next phase.
+
+`AccountDeletionIntegrationTest` (CI-only, Postgres + Flyway) deletes a user holding a row in every table that
+references `app_user` and shows that a delete without the purge is refused by the foreign key, that with it the
+cascades fire, and that the `ask_log` row survives with a null user.
+
+### Fixed — an admin could not delete a user who had drive times; the "account removed" email went out before the delete committed
+
+`user_drive_time.user_id` (V67) has no `ON DELETE` rule, so on Postgres `DELETE /api/users/{id}` of any user who
+had calculated drive times violated the foreign key and failed (H2, which the tests run on, has no such key, so it
+never showed). Both deletion paths — the admin one and the new self-service one — now purge the account's drive
+times in the deleting transaction, after the user row is locked and before it is deleted, through one
+`purgeUserRows` step. The admin delete also locks the row first and reads the name and stored address from the
+locked row, releases the account's email claim, and no longer sends the confirmation email from inside the
+transaction: `UserService.deleteUser` returns the name and address and the controller sends the email after the
+transaction has committed, so a delete that fails at commit no longer mails "your account was removed".
+
+### Added — "Use my location" under the Settings postcode field
+
+The home postcode field in Settings gains the same "Use my location" link as registration and the sign-in prompt, for every role. It asks the browser for a position, then the server for the postcode there, and lands the answer in the field and the confirmation row exactly as a typed lookup does (nothing is saved until Save). A refused permission, a position the browser cannot give, a place with no UK postcode and an unreachable lookup each say so in the same line a typed "Invalid postcode" uses; a newer typed lookup wins over a location request still out. The link is hidden where the browser has no geolocation.
+
+### Changed — Settings postcode field: shared input style, mobile attributes, status tokens, Pro copy
+
+The Settings postcode input takes the shared `.field` style (16px text below 640px, so iOS Safari no longer zooms into it on focus) and the mobile attributes the sign-in screens have (postal-code autofill, upper-case keyboard, no autocorrect or spellcheck, a Search key). Its error, the drive-time and radius and colour errors and the "failed to load" line move from raw red to the error token, and the two saved-place dots from raw green to the ok token. The line shown to a Lite account now reads "Your postcode sets your light times. Pro accounts also get drive times from home." instead of pointing at an upgrade, which the App Store does not allow.
+
+### Added — home postcode asked at registration and once at sign-in, with "Use my location"
+
+Registration gains a "Where's home?" step between Set password and Welcome (look up a postcode or use the device's location, confirm the place, Save and continue or Skip for now), and an account with no postcode and no dismissal on record sees a one-time "Set your home postcode" prompt over the app (Save or Not now; it waits for any other open dialog and makes the app inert while it shows). Skipping either one records the dismissal on the server, so it is asked once across devices. The Welcome step now ends by mounting the app on the session already stored, with no page reload.
+
+### Fixed — an unknown postcode answered 500, and a looked-up postcode never carried its place name
+
+`POST /api/user/settings/home/lookup` answered **500** for a postcode postcodes.io does not know (the
+exception fell through to the catch-all). It now answers 400 for "no such postcode" and 502 with a fixed
+"Postcode lookup is unavailable right now" for a transport failure, a 5xx or a rate limit, never echoing
+the upstream's message; the client tells the two apart from the upstream status (only a 400 or 404 is
+"not found"). The Settings dialog still shows "Invalid postcode" for any failure, as before.
+
+postcodes.io's `admin_district` and `admin_ward` fields were never bound to the client's camelCase
+record, so every place name fell back to the bare postcode ("DH1 3LE" where "Durham, County Durham"
+was meant) in the Settings dialog and the masthead's place line; the fields are now annotated and a
+contract test builds the name from the real wire shape.
+
+### Added — the one-time sign-in postcode prompt's server side, and "Use my location"'s reverse lookup
+
+`GET /api/user/settings` now carries `postcodePromptDismissedAt` and a server-computed
+`postcodePromptDue` — true exactly when the account has no home postcode and has never dismissed the
+prompt — on every response the settings service builds (V181 `app_user.postcode_prompt_dismissed_at`,
+nullable, no backfill, so an existing account without a postcode is asked once). `PUT
+/api/user/settings/postcode-prompt-dismissed` (no body, any role, idempotent) records "Not now" with
+the server's clock through a column-scoped update and answers the settings with the flag false.
+`POST /api/user/settings/home/reverse` `{latitude, longitude}` finds the nearest UK postcode within
+postcodes.io's 2000 m maximum radius (its default of 100 m misses most rural homes): 400 for a missing,
+non-finite or out-of-range value and for a point with no postcode near it, 502 when postcodes.io is
+down, any role, never cached. No client uses either endpoint yet; the prompt and the button follow.
+
+### Docs — same-cell rating spread: measurement and guard options
+
+`scripts/measurements/same-cell-rating-spread/` measures how often the batch pipeline gives places
+that see the same sky stars two or more apart in the same run, by model and horizon, over
+production's `forecast_evaluation` (read-only SQL, run over ssh; results of 2026-10-16 in its
+`results.md`). Haiku 4.5 disagrees on 3–8% of inland same-cell groups and 6–11% of near-twin pairs;
+Sonnet 5.5 on about 0.3%. `docs/engineering/same-cell-rating-spread-plan.md` costs three responses
+(the FAR bucket on Sonnet 5.5 at about $0.36 a day more, a serve-time neighbour guard, one prompt per
+grid cell) and recommends the first. No prompt or pipeline behaviour changed.
+
+### Docs — login and registration enhancements: the port plan
+
+`docs/engineering/login-registration-plan.md` plans the owner's "PhotoCast Registration" design
+bundle (vendored verbatim at `docs/design/login-registration/`): a `HOME` postcode step in
+registration and a one-time sign-in prompt for accounts with no postcode, both with "Use my
+location"; the auth screens made to work on phones and to match the rest of the app; marketing
+consent opt-in; "Confirm email" and the second Turnstile removed; sign-in by username or email, a
+forgot-password flow and a backend fallback for a Turnstile that cannot load; in-app account
+deletion; and the native-app prep (`apple-app-site-association`, clean `/verify` and `/reset`
+links, a privacy inventory). §1 answers the bundle's five "check first" questions (no reset flow
+exists; deletion is admin-only and `user_drive_time` has no cascade; set-password verifies
+Turnstile; the login fallback has no backend at all; emails are unique but case-sensitive) and §3
+cuts the work into thirteen Sonnet phases; §5a records the plan-time review (four lenses, 60 charges) and what it changed. No code.
+
+### Changed — nginx: geolocation for the page itself, the Apple association file, and a syntax check in CI
+
+`nginx.conf` now sends `Permissions-Policy: geolocation=(self), …` on every response that sets it
+(it read `geolocation=()`, under which `navigator.geolocation` rejects in the document, so the
+registration and sign-in prompt's "Use my location" could never work), and serves
+`/.well-known/apple-app-site-association` as `application/json` from an exact-match location that
+repeats the security headers. The file itself (`frontend/public/.well-known/`) names the four
+`/verify` and `/reset` link shapes with the literal `TEAMID.BUNDLEID` placeholder until the owner
+has the Apple team and bundle ids. The frontend CI job gains an `nginx -t` step (pinned
+`nginx:1.27-alpine`, the compose-only upstream stubbed to `127.0.0.1:8082`), because until now
+nothing checked the file's syntax before a deploy recreated the container with it. Two Vitest files
+pin the AASA content and the nginx directives. An installed PWA picks the header up with its next
+`index.html` revision.
+
+### Added — a password change, reset, disable or deletion now ends the account's access tokens at their next request
+
+Access tokens used to authenticate from their own claims alone, so a deleted or disabled account's token kept
+working for up to 24 hours, a password reset signed other devices out only when their token expired, and a
+demoted admin's old token kept admin rights. Each account now has a credential version (`credentials_version`,
+with `credentials_changed_at` beside it; V180), a counter bumped by every credential change, and every access
+token carries the account's id (`uid`) and the version it was issued at (`cv`). The JWT filter loads the
+account once per request and authenticates a token only when the row exists and is enabled, the `uid` is the
+row's id and the `cv` equals the row's current version; the authority comes from the ROW's role, so a demotion
+takes effect at the next request. A token issued before this release (no `uid`/`cv`) is accepted by name for
+its remaining lifetime unless it predates the account's last credential change. Changing a password through
+`POST /api/auth/change-password` now answers with fresh tokens for the device that made the change (the same
+body as `/login` plus `message`), so that device stays signed in while every other session is signed out; a
+request from a session that was superseded while the new password was being hashed is refused with 401 "Your
+session has changed. Sign in again." and changes nothing. One transactional writer
+(`CredentialChangeWriter`) now applies every credential change — change-password, a redeemed reset link, an
+admin's temporary password, activation, an admin's disable — so the password, the version bump, the first-login
+flag, the enabled flag, the revocation of every refresh token and the deletion of the account's unused reset
+links commit together or not at all.
+
+### Fixed — the response to a replayed refresh token rolled back with the refusal; a rotation could deadlock a credential change
+
+When a revoked (or concurrently consumed) refresh token was presented, `refresh` revoked the user's whole token
+family and then threw its 401 from the same transaction, so Spring rolled the revocation back with the
+exception and the replacement token stayed usable. `refresh` is now a non-transactional orchestrator over a
+transactional rotation that returns an outcome; the family revocation runs in its own transaction after the
+rotation has ended and commits before the refusal is thrown. A refresh token that a credential change revoked is
+now told apart from a replayed one (its issue instant is older than the account's last credential change) and is
+refused without revoking the family: otherwise another device presenting its dead token after you changed your
+password would sign out the device you just changed it on. The rotation also takes the account row lock before
+the compare-and-set on the refresh row, the order every credential path uses; the reverse deadlocked against a
+concurrent password change. Token issuance re-reads the stored password hash, credential version and enabled
+flag under the same lock, so a login whose BCrypt check straddled a password change or a disable issues nothing
+instead of a token for the new credentials or a refresh row after the revocation.
+
+### Changed — admin disable, email edit, resend and create now void what they should; credential columns are written only by scoped updates
+
+An admin's disable now ends every session at once (version bump, refresh tokens revoked, unused reset links and
+every verification link deleted) and re-enabling revives none of it. An admin's email edit now locks the
+account row, claims the new address in the reservation table (a case variant of another account's address is
+a 409 "Email already registered"), releases the old reservation if no account still uses it, and deletes the
+account's unused reset links and verification links, so a link mailed to the old mailbox cannot be used after
+the move; for a pending registration the response says to resend verification. Both resend-verification routes
+(the reader's and the admin's) now go through one issuer (the admin's route answers 400 "Account is not awaiting
+email verification" for an account that is no longer pending, where it used to send a link to anyone) that locks the account row and mails the STORED
+address, so a resend that raced an email edit can no longer mail the old mailbox. The admin's temporary-password
+reset is mailed to the address read under the lock after the change. Admin user creation and email edit now
+refuse a non-ASCII address, as registration does (the reservation key is lower-cased in Java, the database's
+`LOWER()` may fold such characters differently). Registration's activation hashes the password before the one
+transaction that consumes the token and activates the account, re-checking under the row lock that the account
+is still pending, so two verification links cannot overwrite each other's password. The `password`, `enabled`,
+`passwordChangeRequired` and `role` columns, and the two new credential columns, are no longer written by a
+whole-entity `save()`: login's and the JWT filter's last-active stamps, the marketing opt-in, the admin role
+and enabled changes are now column-scoped updates, so a stale copy of the row can no longer write an old hash,
+flag or role back over a change that committed meanwhile.
+
+### Added — forgot-password and reset-password pages, sign-in by username or email
+
+The sign-in page now reads "Username or email", with a "Forgot password?" link on the password label's row.
+The link opens a "Reset your password" page: an email field, the Turnstile check (with the same
+"Security check unavailable" fallback as sign-in when the script cannot load) and, for every accepted
+request, the one sentence "If that email has an account, we've sent a reset link." The link in the email
+opens `/reset?token=` on a "Set a new password" page — signed in or not, so a link opened on the phone the
+account is already signed in on still works — which shows the password checklist, sends nothing until the
+reader submits, signs them in on success and leaves the address bar at `/`. A used, expired or unrecognised
+link shows the server's sentence and a "Request a new link" button. The reset token is held apart from the
+email-verification token, whose cleanup would otherwise remove the page before it could be submitted, and a
+verification link on any other path (`/verify?token=`, or the older `/?token=`) still opens registration.
+`AuthContext` gains `signInWithTokens`, `registrationPending` and `finishRegistration` (the flag is set by
+`completeRegistration`, cleared by sign-out and session expiry; nothing reads it yet), and `changePassword`
+now stores the fresh tokens when the response carries them. The password field's show/hide eye takes an
+`eyeLabel` so the reset page's two eyes are told apart ("Show new password" / "Show password confirmation").
+
+### Added — "forgot my password": an emailed one-hour reset link, redeemed for a new password
+
+`POST /api/auth/forgot-password` takes `{email, turnstileToken?}` through the same Turnstile gate and bounded
+fallback as sign-in, and answers the identical 200 "If that email has an account, we've sent a reset link."
+for every well-formed address — known, unknown, rate-limited or failing inside — because any difference
+would say the account exists. A known, active account (enabled, holding a password, exactly one match for
+the address) is issued a link under its row lock: its earlier unused links are deleted, a token is stored
+as a SHA-256 hash in the new `password_reset_token` table (V179) and expires in one hour, and the mail
+(`password-reset-link-email`, subject "Reset your PhotoCast password") goes to the account's STORED address,
+never the request's text. Each account gets three requests per 15 minutes; a fourth is dropped silently.
+`POST /api/auth/reset-password` takes `{token, password}`, runs the password complexity check, and then, in
+one transaction after the password has been hashed, locks the account, refuses a disabled or pending one,
+consumes the token by compare-and-set, sets the password, clears the first-login gate and revokes every
+active refresh token; the caller is signed in on the device that reset, with the same body as `/login`.
+An unknown, used or expired link is a 400 with its own sentence; three bounds (a global hourly ceiling, the
+client address, the token) answer 429 like set-password. Other devices' access tokens still run out at
+their 24 hours until token invalidation (R3c) lands. The older admin temporary-password reset is untouched.
+
+### Fixed — the verification-resend limit could never trip; emails differing only by case could both register
+
+`resendVerification` counted the user's recent tokens and then deleted every unverified one before inserting
+a new one, so the count was never above one and the "3 in 5 minutes" limit never fired. Resend now also
+takes three per pending account per 15 minutes from the in-memory attempt limiter (the database count stays
+as a second check), and finds the pending account with an indexed lookup instead of loading every user and
+comparing with Java `equalsIgnoreCase` — which folded `ı` to `I` and then mailed the TYPED address, so a
+confusable address could receive another person's verification link; the mail now goes to the stored
+address. Email uniqueness was case-sensitive (`Foo@x` and `foo@x` could both register through sign-up or admin create): a new
+`app_user_email_claim` reservation table (V179, backfilled from the existing addresses, one reservation for
+a legacy case-duplicate pair) is claimed in the same transaction as every new account, so the database
+refuses the second claimant (an admin's email EDIT does not claim yet — that joins in a later phase). A retried sign-up for an abandoned pending registration now locks the old row
+and deletes it only if it is still pending, so it can no longer erase an account that was activated in the
+meantime.
+
+### Changed — sign-in accepts an email address; the verification link is /verify; sign-ups refuse non-ASCII addresses
+
+`POST /api/auth/login` still takes the field as `username`, but an identifier containing `@` is now matched
+against both the account of that username and the active account whose email it is (exact match first, then
+an ASCII case-insensitive match that must find exactly one), the password is checked against the username
+account first and then the email account, and the first that verifies signs in. A comparison against a fixed
+dummy hash runs when nothing matches, so the response time does not say whether an address exists. An
+account on the Turnstile fallback spends its five-attempt budget whichever of its names was typed. The
+verification email now links to `/verify?token=` on the app origin (the bare `?token=` form keeps working in
+the app for links already sent). `POST /api/auth/register` refuses an email address with non-ASCII characters
+("Please use an email address without accented or non-Latin characters"): a confusable address is the one
+input the recovery flows cannot make safe by comparison alone; existing accounts that registered one keep
+signing in and recovering by typing it exactly as registered, and admin-created accounts are unchanged. Admin
+user creation refuses a username containing `@`. A lost race on a username or an email address now answers
+409 ("Username already taken" / "Email already registered") on register, admin create and admin email change
+instead of a 500.
+
+### Changed — the registration form: email first, no "Confirm email", marketing opt-in, one security check
+
+Create account now asks for Email first (hint "We'll send a link to confirm it.") and then Username
+(hint "3–30 letters, numbers, - or _"); the "Confirm email" field, its state and its mismatch error are
+gone, since the verification link already proves the address. The marketing-emails box is unticked by
+default, so consent is an active opt-in (UK PECR/GDPR) — the register request now sends
+`marketingEmailOptIn: "false"` unless the reader ticks it. While the terms box is unticked the disabled
+button says why, in 12px secondary ink under it: "Agree to the terms to continue". The Set password step
+no longer mounts a second Turnstile widget and `setPasswordForNewUser(token, password)` sends no
+`turnstileToken` — the single-use emailed token is the proof of a real person, and the backend stopped
+verifying one in R2a. If the Turnstile script cannot load, the register form unmounts the widget and says
+"Security check couldn't load. Try another browser, or turn off your ad-blocker for this page." with
+Create account still disabled: registration has no server-side fallback by design.
+
+### Fixed — the first-login password change no longer dead-ends when Turnstile cannot load
+
+`ChangePasswordPage` mounted a `TurnstileWidget` with no load-failure handler, so a browser that blocks
+the script left "Set new password" disabled for ever — and a user whose `passwordChangeRequired` flag is
+set cannot reach the app until they pass that screen. It now takes sign-in's pattern: on a load failure
+the widget unmounts, the page says "Security check unavailable — we'll verify your sign-in another way."
+and submit is enabled with an empty token, which the server's bounded fallback (R2a) accepts. A refused
+fallback answers 429 and the server's own sentence ("Too many attempts. Please wait a few minutes and try
+again.") appears in the form's error slot.
+
+### Added — a bounded fallback when Turnstile cannot load, on sign-in and change-password
+
+Sign-in and the first-login password change used to answer 400 "CAPTCHA verification failed" to a
+browser where the Turnstile script never loaded, although the sign-in page promised "we'll verify your
+sign-in another way" — nothing did. `TurnstileGate` now decides: a token that verifies proceeds as
+before; a token that fails is still a 400 and is never a fallback; a request with no token at all is
+admitted only inside three in-memory bounds (`AuthAttemptLimiter`, Caffeine, fixed windows from the first
+attempt), checked outermost first — an hourly ceiling per endpoint (sign-in 60, change-password 20), the
+client address (20 per 15 minutes, read as `CF-Connecting-IP`, else the first `X-Forwarded-For` hop, else
+the connection address) and the identifier (5 per 15 minutes) — plus the account's own five attempts per
+15 minutes once the username resolves to a user. Any bound reached answers 429 "Too many attempts. Please
+wait a few minutes and try again." Registration deliberately has no fallback: it cannot tell a blocked
+browser from a bot that omits the token, and each sign-up counts against the early-access cap. With no
+Turnstile secret configured (local development) nothing changes and no counter is touched. Counters
+live in memory, so a restart forgets them.
+
+### Fixed — an unauthenticated call is no longer the user "anonymousUser" on the password and marketing endpoints
+
+`/api/auth/**` is public and anonymous authentication is on, so an unauthenticated call to
+`POST /api/auth/change-password` or `PUT /api/auth/marketing-emails` arrived with a principal named
+`anonymousUser` and ran as a user of that name. Both now answer 401 for the anonymous principal, and
+`POST /api/auth/register` refuses the username `anonymousUser` (any case) with 409 "Username already
+exists", so registration can no longer create an account that answers to that name.
+
+### Changed — setting a first password takes no CAPTCHA; marketing email is opt-in on the server
+
+`POST /api/auth/set-password` no longer verifies a Turnstile token (the verification token it is
+called with is a 122-bit random value, so the CAPTCHA protected nothing, and it was the one step a
+blocked browser could not complete). A `turnstileToken` still sent by an older page is ignored. In its
+place the endpoint takes three bounds, outermost first, any one of which answers 429 with the same
+sentence as sign-in: 200 requests an hour across everyone, 20 per 15 minutes per client address, and 10
+per 15 minutes per token (keyed on the first 16 characters of its hash, never the token). Separately,
+`POST /api/auth/register` now reads an absent or unrecognised `marketingEmailOptIn` as "no": consent is
+only ever an explicit `"true"`, which matters because the iOS app will call this endpoint too.
+
+### Changed — sign-in, registration and first-login screens: phone-safe layout, one input style, status tokens
+
+The three full-page auth screens now share one wrapper, one heading, one password field and one
+checklist (`components/auth/`), and read as part of the app instead of beside it. Inputs are 16px
+below 640px (iOS Safari stopped zooming into them) through a single `.field` class that replaces
+the three hand-written class strings; the page uses the dynamic viewport height, sits at the top
+with 3rem of air on a phone so the keyboard does not cover the buttons, centres from 640px, and
+resolves its padding against the safe-area vars with `max()`. Card headings are Newsreader 22px
+`<h2>`s under the lockup's `<h1>`; errors and met rules use two new tokens, `--color-plex-error`
+(`#F07A62`) and `--color-plex-ok` (`#8AAE72`), declared in the `@theme static` block and measured
+at 6.25:1 and 6.83:1 on the card; an unmet password rule is a hollow ○ in secondary ink rather than
+a ✗ in muted ink; hints and text buttons use secondary ink for 4.5:1; the session-expired line and
+the Turnstile fallback line move out of amber into secondary ink, the former inside the card above
+the heading; and the Check your email, Verify, Waitlist and Success cards are left-aligned like
+the logo. No field, order, copy or test id changed, and the Settings dialog is untouched (it takes
+`.field` in a later phase).
+
+The Plan-tab overlay's two `Upgrade to Pro` anchors (`/upgrade` is not a route, and the App Store
+forbids a link to a web purchase) are now plain text — "Pro accounts get Fiery Sky & Golden Hour
+scores, storm surge analysis, and full AI analysis" — in the secondary ink the sentence needs.
+
+### Added — build and prompt provenance on forecasts and ratings, and per-build and per-prompt calibration
+
+The calibration gate could pin a drift in how readers' ratings compare with the forecast to a model, but not to a
+release or to a prompt edit: the model is recorded per forecast row, the app build was recorded nowhere on one, and nothing
+identified the prompt a row was sent with. V182 adds three nullable columns, with no backfill: `forecast_evaluation.app_build`,
+`forecast_evaluation.prompt_hash` and `outcome_rating.app_build`.
+
+`app_build` is the release the deploy workflow bakes in from the git tag (the same value `job_run.app_version` already records),
+stamped where a forecast row gets its rating or triage reason and where a reader's rating is written. `prompt_hash` is the
+SHA-256 of the sky system prompt a batch request carried, stamped when the batch is submitted. It is the system prompt and not
+the user message because the user message holds each slot's weather and would differ on every row.
+
+`GET /api/admin/calibration` gains `bucketsByBuild` and `bucketsByPromptHash` beside the existing per-horizon and per-model
+buckets. A forecast row from before V182 reads `UNKNOWN`. A reader's rating is bucketed by the build and prompt of the forecast
+it was shown.
+
+## [v2.28.0] - 2026-10-16
+
+### Docs — the outcome-rating series is written down, and a dead export goes
+
+`CLAUDE.md` now describes what the series built, replacing the sentences it made false. The overview no
+longer says outcome recording is API-only; the Roles table and its note say the Map's per-reader rating
+(`PUT /api/outcome/ratings`) is Pro and Admin while `POST /api/outcome` stays open to every role. The
+endpoints section gains `GET /api/forecast?date=` (T-4 to T-1, stored rows only), the rule that a passed
+slot is served as of its event through `AsOfEventResolver`, the three `/api/outcome/ratings` routes with
+their gates, the 24-day `MAX_RATING_AGE_DAYS` and the "not seen is `rating: null`" rule. The calibration
+gate paragraph describes its second source (readers' ratings joined on `forecast_evaluation_id`, the
+captured star as the prediction, the outcome's identity in the dedup key so counts are pairs, and
+`outcomesInRange` counting both tables), and the "starves the calibration gate" bullet is scoped to the
+old source. `outcome_rating` (V177) and `forecast_evaluation.scored_at` (V178) are in the migrations table
+and in "Where a rating lives". Two new Map-tab bullets cover past windows (the `selectedIsPast`
+provenance flag, the PAST pill, the EARLIER group and Load row, the older-day fetch, past windows read
+from the forecast rows alone) and the rating block (its mount conditions, the Admin list, the counts and
+the badge, and the pin badge that does not reserve space in the placer). The Backend-heavy bullet's
+per-user-join class grows from three members to five, the Map-tab client-max class from two to three, and
+a sentence names the series' filter/map helpers; the Role-gating section assesses the block (every role
+sees it, LITE's stars dim, the controls are `aria-disabled` rather than `disabled`); the Rewind paragraph
+lists what is hidden; the `IntegrationTestBase` count is corrected to fifteen.
+
+`v1-retirement-plan.md` §8 item 7 and `all-in/serve-surfaces.md` record that the outcome UI has a v2 home;
+`map-tab-v2-plan.md` §4 gains the past-windows entry; the outcome-rating plan is marked complete with
+every owner question closed, ten more deviations numbered (§4 #23–#32) and the measured figures in §7;
+the bundle's `VENDORING.md` gets its final count.
+
+Removed: `fetchAllOutcomes` in `forecastApi.js`, which nothing has called since the Map stopped fetching
+`GET /api/outcome/all`, and the nine test mocks that stubbed it. `OutcomeModal`, `recordOutcome` and
+`fetchOutcomes` stay. No behaviour changes.
+
+### Added — Map tab: an Admin's "All ratings" list under "How was it?" (O5a)
+
+An Admin who selects a place on a past window now sees a collapsed `All ratings` box under their own
+rating block. Opening it fetches that one window's ratings from every reader and lists them — the
+Admin's own row first, then the rest newest first: each reader's name, their stars (or `Not seen`) and
+when it was recorded (`HH:MM` for today, `Sun 19:30` for another day, on the UK clock). The header
+counts every row once it has loaded (`All ratings · 3`). A footer says which forecast run the ratings
+were recorded against and how long before the event it was made — `Rated against the run at Sat 17 Oct,
+16:05 · 2h before sunset`, in whole hours from an hour up and minutes (`40 min`) below it — or `No
+forecast run recorded before this sunset` when none was. An empty window says `No ratings yet.`, and a
+list that could not be fetched says `Couldn't load ratings.` in one quiet line and can be opened again to
+retry.
+
+The list is fetched on its first open, not with the reader's own ratings; it is fetched again once the
+Admin's own save lands (not for a save that finishes after they have moved to another place or window),
+and it closes and forgets its rows whenever the place or the window changes. It is never drawn, and the
+endpoint never asked, for a Pro or Lite reader. Frontend only: `OutcomeAdminList`, `useSlotRatings` and
+`fetchAllRatingsForSlot`; `MapCallout` now holds the list's rows and loading state (so the card
+re-measures when the box opens or its rows arrive). Three strings are the plan's, not the design's:
+the no-run footer, `Couldn't load ratings.` and `Loading …`.
+
+### Changed — The map's load no longer fetches every recorded outcome
+
+Loading the forecast data made three requests, one of which (`GET /api/outcome/all`, over the last
+seven days) fed nothing: the outcome screens it served were retired in February, and nothing reads
+`outcomes` on a location. It is gone, so the load is two requests (forecasts and locations), and a
+location no longer carries an empty `outcomes` list. The instant-paint cache no longer stores the
+field, and a payload cached by an earlier build, which still has one, loads as it did. The API
+bindings and `OutcomeModal` stay, unused, as before.
+
+### Added — Map tab: how many places you rated on each past window, and a badge on the ones you did
+
+A past window in the Map's window control now says `{n} rated` in star gold, or `Not rated`, where a
+verdict would be: n is the number of places the signed-in reader has rated for it, "didn't see it"
+included. The phone's Windows section shows the same words in place of `Past`. A window whose
+ratings have not been read yet (an older day that has only just landed) or whose read failed prints
+nothing in the dropdown, and keeps `Past` on the phone, rather than a false `Not rated`; under an
+admin rewind there are no counts at all.
+
+On a past window, every pin and every heat-view chip for a place you rated wears a small badge at its
+top-right corner: `4★`, or `–` where you marked it "didn't see it". The badge is hidden from
+assistive technology and its meaning is added to the pin's or chip's name (`, you rated 4 out of 5`
+or `, you marked this not seen`). The label placer now reserves the badge's overhang (7px above, 9px
+beside the chip), so a neighbouring name is moved clear of it rather than drawn under it. Nothing
+changes on a window the forecast served, and an Ask pick never wears a badge, since a pick belongs to
+its own window.
+
+### Added — Map tab: step back through the last few days from the window control
+
+The Map tab's window control now reaches the stored days before the two the forecast list carries.
+Pressing `‹` on the oldest window (or `←`, or the new Load row) fetches one more stored day, back to
+four days ago; the pill reads `Loading Tue 13…` while the request is out, with both steppers and
+the Load row disabled, and when the day lands the map moves to that day's sunset, so the next `‹`
+steps to its sunrise. A day that comes back empty moves nothing and says nothing, and still counts
+toward the four, so the control offers the day before it. At the oldest reachable window `‹` is
+disabled. Nothing older than four days is ever requested, and the fetch stands down under an admin
+rewind.
+
+The dropdown gains an EARLIER group above the day groups: an `EARLIER` header with `rate how it
+went` beside it, the Load row (`Load Tue 13`, `or press ‹ past the oldest window · fetches Tue 13`),
+then a sub-header per past day with its rows, sunrise first, each showing the time and `Not rated`.
+Today can appear in both groups (this morning's sunrise under EARLIER, tonight's sunset under
+`FRI 16 · today`) and is not merged. The phone's Windows section gets the same header, Load row and
+sub-headers, with `Past` where a verdict would be. When the menu opens it now scrolls itself just far
+enough to show the window you are on, which the new group would otherwise push below the fold.
+
+A fetched day is kept in memory only (never in the instant-paint cache) and survives a forecast
+refresh, which rebuilds the list payload: the day, and its date in the Map's forecast domain, stay.
+The count beside a past window (`{n} rated`) and the rating itself come in later steps.
+
+### Docs — Plan card Spread row: plan closed out, plan-matrix A28, CLAUDE.md
+
+Closes `docs/engineering/spread-row-plan.md`: status complete, the S1 and S2 commits recorded, the
+measured card widths corrected (the stacked histogram line is 112px at a 320px viewport, not 116),
+three more deliberate departures from the design bundle written into §4 (the half-up tenths in
+`formatSpreadCount`, silence for an undefined reach threshold, the 205px stacking threshold kept) and
+every owner question marked decided or closed. Adds `plan-matrix-plan.md` §4 A28 (the pool label,
+the visible counts, the stacked state and the wording of the spoken sentence, amending A27's bar
+dimensions), a sentence pair in CLAUDE.md's spread-histogram paragraph, and the final-count note in
+the vendored bundle's `VENDORING.md`. No code change.
+
+### Changed — Plan card Spread row: names its pool and prints its counts (S2)
+
+The Spread row on every Plan card now says which pool it counted over — a second label line, `(within
+45m)` / `(within 1h30)` / `(within 2h30)` / `(any drive)`, silent when the pool holds a place with no
+measured drive under a finite tier — and prints the count of each band (and of the hatched "not yet
+rated" bar) under its bar, in a column sized per card (`1.2k` for a thousand). The card's accessible
+sentence says the same: the tier in the lens bar's own words ("within 45 min", "any drive"), the
+non-zero band counts, and "no locations within 45 min" for an empty pool beside the Best row's own
+words. The hover tooltip is unchanged. Below the minimum-sample gate the row keeps its `N/M rated`
+text with the label line above it.
+
+Layout: the row is one wrapper spanning both grid columns, so the longer label cannot widen the
+rating pill's column; on a card narrower than 205px (every phone and tablet width, and a docked Ask
+panel) the label takes one line and the histogram its own right-aligned line below, by a container
+query on the card. Cross-card alignment holds: the label and the well reserve their heights whether or
+not a qualifier or bars are drawn. A zero count is quietened by weight, not ink (the muted ink is
+under AA on the well). Frontend only; no backend, API or migration change.
+
+### Changed — Plan card Spread row: count, width and qualifier helpers (S1, no visible change)
+
+First phase of `docs/engineering/spread-row-plan.md`. Adds the pure maths the Spread row's pool label
+and visible band counts will use, with no component or CSS change: `formatDriveDurationCompact`
+("45m", "1h30") beside `formatDriveDuration`, a derived `shortLabel` on every `REACH_TIERS` entry
+(`null` for Any), and in `windowFirstSpread.js` `formatSpreadCount`, `spreadColumnWidthPx`,
+`spreadCountLayout` (the hatched bar's count takes part in the column width), `spreadQualifier`
+(silent under a finite tier unless every drive in the pool is measured), `spokenPoolPhrase` and
+`spreadBandsSpoken`. All are filter/map/select over the existing A10/A27 pool, in the class the
+module header already licenses.
+
+### Docs — Plan card Spread row: the pool label and visible counts, port plan
+
+`docs/engineering/spread-row-plan.md` is the port plan for the owner's Spread-row design bundle
+(vendored verbatim at `docs/design/spread-row/`): a second label line naming the pool the
+histogram was counted over (`(within 45m)` / `(within 1h30)` / `(within 2h30)` / `(any drive)`,
+derived from the reach tier's own threshold, silent when no drive time was measured) and a count
+printed under every bar, the hatched unrated bar's included, with one clamped column width per
+card and a compact `1.2k` format. Three phases (S1 helpers, S2 the row, S3 docs); the dark well,
+the sixth hatched bar and the minimum-sample gate the prototype lacks are all kept, and the
+card's spoken sentence gains the non-zero band counts so the visible figures have an accessible
+equivalent. No code in this change.
+
+### Docs — Spread row: the stacked-state comment counts the geometries S2 measured
+
+The stylesheet's note on the Spread row's stacked state said the card grid stacks at "eight of
+its nine measured shell geometries"; S2's §7 fixture measured ten, and the plan, plan-matrix A28
+and CLAUDE.md all say eight of ten. One word in a comment; no rule changed.
+
+### Docs — "How was it?": the port plan for rating a past sunrise or sunset
+
+`docs/engineering/outcome-rating-plan.md` plans the Map tab's outcome rating: Pro and Admin readers
+record, with one tap in the location callout, how a sunrise or sunset that has passed actually
+looked (1–5★ or "Didn't see it"), per user, against the last forecast run before the event; the
+window control steps backwards through elapsed windows and the two served past days, then fetches
+one more stored day at a time back to T-4. Six phases (a new `outcome_rating` table and its three
+endpoints; a one-day `GET /api/forecast?date=` read; past windows in the window control; the rating
+block, counts and pin badge; the admin list and the calibration gate reading the new ratings; a docs
+sweep). The design bundle is vendored verbatim at `docs/design/outcome-rating/`. No code in this
+change.
+
+### Changed — the calibration gate also scores forecasts against readers' ratings
+
+`GET /api/admin/calibration` now reads two sources of "how did it actually look": the old
+`actual_outcome` records, as before, and the new per-user ratings of past sunrises and sunsets. Each
+rating is paired with the one forecast row it was recorded against — the forecast available by the
+event and not withdrawn at it — never with a forecast that landed after the event, and the predicted
+rating is the star the reader saw when they rated (for a place with a woodland or bluebell lane that
+is the combined star, not the sky lane's alone). A rating with no recoverable star, or an "I didn't
+see it", is not a pair. Several readers rating one slot give several pairs, because each is an
+observation; the gate's keep-the-newest-run rule now collapses only repeated runs of one forecast for
+one outcome, so two outcomes of a slot (two readers, or a rating beside an old `actual_outcome` row)
+no longer overwrite each other, and the report's counts are of pairs, not slots. The report's
+outcomes-in-range figure now also counts every rating row in the window, "didn't see it" included.
+No API shape changes. Also corrects the `UserRole` javadoc, which implied Lite may record outcomes
+generally: only the old `POST /api/outcome` is open to Lite; rating a past sunrise or sunset is Pro
+and Admin.
+
+### Added — Map tab: "How was it?" — rate a sunrise or sunset that has already happened (O4a)
+
+Select a place on a past window and the location callout now asks how the sky actually turned out:
+five stars and "Didn't see it", one tap. Pro and Admin readers save it (upsert, one record per
+person, place and window); a Lite reader sees the block locked — the stars dimmed, a Pro pill, and
+"Rating is part of Pro." on a tap. Once saved the block reads "You rated ★★★☆☆ 3★" (or "You marked
+this not seen") with a Change button, which brings the grid back with the current choice marked; a
+failed save puts the previous value back and says "Not saved. Tap a star again." until the next save
+lands. Nothing says whether the forecast was right, and the forecast star stays in the callout's
+verdict strip where it was.
+
+The block shows only for a place whose OWN sunrise or sunset has passed (the window turning past on
+the pill is decided on the earliest place, so along a coastline the callout can wait a few minutes
+behind it), never for a wildlife hide, never for a place with no forecast row for the window, and
+never while an admin rewind is in force. The callout's "Not scored yet" reads "Not scored" on a past
+window. The ratings come from a new `GET /api/outcome/ratings` read over the days the map holds and are
+kept in page state only — nothing is cached or stored in the browser.
+
+Frontend only: `OutcomeRatingBlock`, `useOutcomeRatings` (optimistic write, per-slot rollback, an
+overtaken response dropped whole, a re-read that cannot overwrite a save in flight), the
+`outcomeRatingApi` bindings and `outcomeRatingCopy`. The callout owns the block's `changing` state and
+names it in its repaint dependencies so the card re-anchors when the 44px grid becomes the 40px row.
+Counts in the window menu, the pin badge and the admin's all-ratings list come in later phases.
+
+### Added — Map tab: the heat field paints a window that has gone
+
+A past window on the Map tab (today's elapsed sunrise, yesterday's and the day before's) used to be
+a row with no picture behind it: the field is keyed on the briefing's rendered windows, and the
+briefing withdraws a window once it is over, so the Heat view was empty and the Heat|Pins toggle had
+nothing to toggle. The Map pane now builds a field for each past window from the locations' own
+forecast rows and hands it to the map beside the briefing's. A past window shows the same heat
+field, colour key and rated counts as a served one; a window nobody rated paints nothing and drops
+the key, as a served one does.
+
+The field reads the forecast row alone, the same rating the chips and the callout star already show
+on a past window, never the scores endpoint (which serves the latest result and, for a passed slot,
+may be one that landed after the event). The key is drawn only when a place the field actually paints
+holds a rating: a past window whose only rated rows are a wood's or an unregioned place's has no key
+over an empty field. The kernel's haze reads the inferred confidence (medium), since a past window
+carries no served confidence. The Plan matrix is untouched: past windows are added in the Map pane,
+never in the briefing context the Plan tab reads.
+
+### Added — Map tab: windows that have gone are rows of the window control, tagged Past
+
+The forecast list has served the last two days for a while, and the Map tab hid every one of them:
+the briefing withdraws a window once its sunrise or sunset is over, and the tab's own list only kept
+windows from today forward. A solar window the briefing no longer serves, that has forecast rows and
+whose earliest event time has passed (the same instant and thirty minutes the briefing retires it
+on, so the Map and the Plan tab retire a window at the same minute) is now a row: today's elapsed
+sunrise, yesterday's two windows and the day before's. The pill wears a `PAST` tag where a verdict
+word would sit, labelled `Today`, `Yesterday` or `Fri 16`, with the window's time narrowed to the
+places in your scope like any other. Stepping onto one forwards it to `App` with a provenance flag
+(`selectedDateIsPast`, beside the night one), because the map-date clamp refuses a date before today
+without it; a stale past pick without the flag still falls through to today.
+
+On a past window the chips, pins and the callout's star read the forecast row alone, never the
+briefing score index (which serves the latest result and, for a passed slot, may be one that landed
+after the event). The callout hides Drive and Leave by, keeps Dark sky and withholds "Open in Plan"
+(the location sheet it opens holds only upcoming windows); the collapsed "Other windows" summary
+never names a window that has gone. Nothing is rated or recorded yet and the window menu has no
+Earlier group: those, and the older-day fetch, are the next phases of the outcome-rating series
+(`docs/engineering/outcome-rating-plan.md`).
+
+### Changed — a sunrise or sunset that has already happened is served as the forecast stood at the event
+
+`GET /api/forecast` (its two past days, and today's elapsed sunrise) and the new `?date=` read now
+serve a passed slot — judged per place on its own event time plus the 30-minute afterglow — as of
+that event, using the same resolution an outcome rating is recorded against, instead of its latest
+row. A batch that lands after the event, or a stability skip recorded after it, can no longer repaint
+a window you have already seen. For Pro and Admin accounts the star on a passed slot is the star
+that was captured as served at the event; a woodland or bluebell place whose combined star cannot be
+recovered reads unscored (no star, no scores) rather than showing its sky-only star, and a place with
+nothing available by the event shows no row for that window. A Lite account's row is served as the
+list has always served it to Lite (the row's own rating and basic scores).
+Windows that are in the future, and today's event before it happens, are served exactly as before.
+
+Because the resolution needs the scoring time recorded since V178, for the first days after this
+deploys the windows that passed before it show fewer stars (a slot scored before V178 has nothing to
+resolve to and reads unscored); every window scored afterwards is served in full.
+
+### Added — `GET /api/forecast?date=`: one stored past day (backend only, nothing calls it yet)
+
+`GET /api/forecast?date=YYYY-MM-DD` returns that one day's stored forecast rows in the list's own
+shape, for the days the list does not carry — the Map tab's older-day fetch for rating how a past
+sunrise or sunset turned out. The day must be between four days ago and yesterday on the UK calendar
+(`ForecastHorizon.MAX_PAST_DAYS`, new); today, tomorrow, five days ago or a malformed date is a 400
+with `{"error": "date must be between T-4 and yesterday"}`. It reads stored rows only — it can never
+start a run, a batch or a model call — and LITE accounts get the same basic-score selection as the
+list.
+
+### Changed — `forecast_evaluation` rows now carry the instant they got their rating
+
+`forecast_evaluation` gains a nullable `scored_at` (V178): when a row acquired something to say. The
+synchronous engine and the triage and sentinel-skip paths stamp it at insert, from the clock, when the
+row carries a rating or a triage reason; a batch's `PENDING` row is stamped when its result scores it
+in place, and only when the star survived validation. A row still `PENDING`, an `ABANDONED` row, a
+wildlife comfort row and every row written before this deploy keep it null — no backfill, no guess.
+`forecast_run_at` is untouched: it is a submission instant (a batch row is stamped before its batch
+is even submitted, and the Batch API may land the result a day later), so it cannot say what existed
+at a given moment; `scored_at` can. Nothing reads it for serving yet; the outcome rating's provenance
+uses it as the availability bound, and a row without it is never taken as the forecast a reader saw.
+`ForecastResultHandler` now takes the application `Clock`.
+
+### Added — the outcome rating record and its three endpoints (backend only, nothing draws it yet)
+
+Pro and Admin readers can now record, per user and per location, how a sunrise or sunset that has
+already happened actually looked: 1–5 stars, or "didn't see it". `PUT /api/outcome/ratings`
+(`{locationId, eventDate, eventType, rating}`, an absent rating meaning not seen) replaces the user's
+earlier answer for the slot; `GET /api/outcome/ratings?from=&to=` returns the caller's own rows
+(any role — a Lite account simply has none — and at most 31 days); `GET /api/outcome/ratings/all`
+returns every user's row for one window, newest first, with the caller's own marked, for Admin. A
+Lite account's PUT is refused with 403, and a PUT for an event that has not yet happened (this
+place's own event time plus the 30-minute afterglow, on the real clock) or is more than 24 days old
+is a 400 with a plain sentence. The new `outcome_rating` table (V177) is separate from the old
+`actual_outcome`, whose API is untouched.
+
+Each rating is recorded against the forecast the reader actually saw, not the newest cycle before
+the event: the new `AsOfEventResolver` takes the result the Plan tab and the map serve for the slot
+if it had arrived by the event (a canopy-bearing place needs its cached entry last written by then
+as well), and otherwise the latest `forecast_evaluation` row that was scored by the event and not
+withdrawn by a stability skip recorded before it. The rating stores that forecast's age
+(`forecast_run_at`), the cycle whose trigger instant matches it exactly, the row it was paired with
+and the predicted star the reader saw — null when that star cannot be recovered, as for a
+bluebell-bearing place whose combined star the cache has since replaced. Nothing here reads a
+roster-wide "latest cycle", so a cycle that failed, skipped the slot or landed late is never named.
+A reader who changes their mind keeps the forecast record made the first time, since the event is
+fixed and a second resolution after a restart could only be poorer. The resolver also has a batch form so the forecast serve path can use the same answer for a whole
+roster in a handful of queries. The upsert is a find-or-insert in its own store class with no
+surrounding transaction, the one shape that survives a Postgres unique violation, and is raced by a
+12-thread test (and, in CI, on Postgres).
+
+The migrations and the Postgres race are proven by CI only; the H2 slice tests, the resolver's
+provenance cases and the endpoint role matrix run locally.
+
+### Docs — far-cloud P1: where the Part D working files live, and the JDK 23 flags
+
+- Plan §12 step 1 records that the replay set, its split with the 150-prompt control and the R1 system prompt
+  were made on 2026-10-15 and live under `~/goldenhour-p1/` on the owner's Mac, outside the repository.
+- The runbook's prerequisites say which three Maven flags a JDK 23 machine needs for the harness commands.
+
+### Docs — far-cloud P1: Part D results (2026-10-15)
+
+- `far-cloud-p1-plan.md` gains §13, the Part D replay results: five arms, about $6.28 at batch prices (primers not counted), zero failed attempts, with a 150-prompt same-model control giving a noise floor of 6.0% moved.
+- D-1: R1 (fiery_sky cap 55) passes the training cases (Angel 3★ in 20 of 20, Low Hauxley 4★ in 20 of 20) but fails the cost cap, demoting 179 of 658 gos (27.2%, +22.9 pp net of the control) against 15%, concentrated on sunsets; it is a blanket downgrade as drafted.
+- D-2: item 1 is not met (about 5 points against 8, and one-sided by selection) but item 2 is met (Angel 4★ 20 of 20 on Sonnet 5.5, 3★ 20 of 20 on Sonnet 4.6), so the plan's rule recommends the switch; Sonnet 4.6 withdrew 127 of 513 Sonnet 5.5 gos (24.8%).
+- §9 records the spend as approved and run, and adds item 6 (a narrower Angel-shape R1 arm, about $4, open). Docs only.
+
+### Docs — far-cloud P1: Batch Near-Term stays on Sonnet 5.5 (owner decision, 2026-10-15)
+
+- Plan §9 item 1 records the decision: no interim switch to Sonnet 4.6 until the Part B re-run over the
+  verified Sonnet 5.5 era, or Part E outcomes, resolves which model's gos are right.
+
 ## [v2.27.4] - 2026-10-15
 
 ### Docs — far-cloud P1: where the Part D working files live, and the JDK 23 flags

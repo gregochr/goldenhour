@@ -60,7 +60,7 @@ class SolarCatchUpPolicyTest {
     @DisplayName("morning job: fire passed, no run since, before 05:00 UK -> catch up, and the "
             + "run lookup used the cycle type and the fire instant")
     void morning_insideWindow_catchesUp() {
-        SchedulerJobConfigEntity job = solarJob(SolarForecastJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255);
+        SchedulerJobConfigEntity job = solarJob(ForecastCycleJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255);
         Instant fire = fireOf(job).fire();
         Instant now = fire.plus(Duration.ofMinutes(30));
         assertThat(now.atZone(SolarOffsetTrigger.LONDON).getHour()).as("test premise").isLessThan(5);
@@ -76,7 +76,7 @@ class SolarCatchUpPolicyTest {
     @Test
     @DisplayName("morning job: 04:59 UK is inside the window, 05:00 UK is not")
     void morning_windowClosesAtFiveUk() {
-        SchedulerJobConfigEntity job = solarJob(SolarForecastJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255);
+        SchedulerJobConfigEntity job = solarJob(ForecastCycleJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255);
         // 13 Oct is BST: 04:59 UK = 03:59Z and 05:00 UK = 04:00Z.
         Instant justInside = Instant.parse("2026-10-13T03:59:00Z");
         Instant closed = Instant.parse("2026-10-13T04:00:00Z");
@@ -88,7 +88,7 @@ class SolarCatchUpPolicyTest {
     @Test
     @DisplayName("morning job: before today's fire there is nothing to catch up, and no run lookup is made")
     void morning_beforeFire_doesNothing() {
-        SchedulerJobConfigEntity job = solarJob(SolarForecastJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255);
+        SchedulerJobConfigEntity job = solarJob(ForecastCycleJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255);
         Instant now = fireOf(job).fire().minusSeconds(60);
 
         assertThat(policyAt(now).reasonToRun(job)).isEmpty();
@@ -99,7 +99,7 @@ class SolarCatchUpPolicyTest {
     @Test
     @DisplayName("a cycle that already has a run at or after the fire is never caught up")
     void alreadyRun_doesNothing() {
-        SchedulerJobConfigEntity job = solarJob(SolarForecastJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255);
+        SchedulerJobConfigEntity job = solarJob(ForecastCycleJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255);
         Instant fire = fireOf(job).fire();
         when(runs.countRunsPastSubmission(CycleType.NIGHTLY, fire, PipelinePhase.PRE_SUBMISSION))
                 .thenReturn(1L);
@@ -112,7 +112,7 @@ class SolarCatchUpPolicyTest {
     @Test
     @DisplayName("afternoon job: catches up while at least 90 minutes remain before sunset, not after")
     void afternoon_windowClosesNinetyMinutesBeforeSunset() {
-        SchedulerJobConfigEntity job = solarJob(SolarForecastJobs.INTRADAY_JOB, SolarEvent.SUNSET, 240);
+        SchedulerJobConfigEntity job = solarJob(ForecastCycleJobs.INTRADAY_JOB, SolarEvent.SUNSET, 240);
         SolarOffsetTrigger.Fire fire = fireOf(job);
         Instant exactlyNinety = fire.eventInstant().minus(Duration.ofMinutes(90));
         Instant eightyNine = fire.eventInstant().minus(Duration.ofMinutes(89));
@@ -127,7 +127,7 @@ class SolarCatchUpPolicyTest {
     @DisplayName("a morning catch-up window of the afternoon job's kind does not apply: a sunset job "
             + "ignores the 05:00 rule and a sunrise job ignores the sunset rule")
     void windowsAreSpecificToTheEvent() {
-        SchedulerJobConfigEntity afternoon = solarJob(SolarForecastJobs.INTRADAY_JOB, SolarEvent.SUNSET, 240);
+        SchedulerJobConfigEntity afternoon = solarJob(ForecastCycleJobs.INTRADAY_JOB, SolarEvent.SUNSET, 240);
         SolarOffsetTrigger.Fire fire = fireOf(afternoon);
         // Well after 05:00 UK, but 2 h before sunset: the afternoon job is inside its window.
         Instant now = fire.eventInstant().minus(Duration.ofHours(2));
@@ -137,14 +137,28 @@ class SolarCatchUpPolicyTest {
     }
 
     @Test
+    @DisplayName("the evening refresh is never caught up, even if a row were mis-typed as solar")
+    void evening_isNeverCaughtUp() {
+        Instant now = Instant.parse("2026-10-13T03:00:00Z");
+        SchedulerJobConfigEntity cron = SchedulerJobConfigEntity.builder()
+                .jobKey(ForecastCycleJobs.EVENING_JOB).scheduleType(ScheduleType.CRON)
+                .cronExpression("0 0 20 * * *").build();
+        SchedulerJobConfigEntity solar = solarJob(ForecastCycleJobs.EVENING_JOB, SolarEvent.SUNRISE, 255);
+
+        assertThat(policyAt(now).reasonToRun(cron)).isEmpty();
+        assertThat(policyAt(now).reasonToRun(solar)).isEmpty();
+        verifyNoInteractions(runs);
+    }
+
+    @Test
     @DisplayName("a CRON job, an incomplete solar row and a job outside the forecast pair are never caught up")
     void ineligibleRows_doNothing() {
         Instant now = Instant.parse("2026-10-13T03:00:00Z");
         SchedulerJobConfigEntity cron = SchedulerJobConfigEntity.builder()
-                .jobKey(SolarForecastJobs.NIGHTLY_JOB).scheduleType(ScheduleType.CRON)
+                .jobKey(ForecastCycleJobs.NIGHTLY_JOB).scheduleType(ScheduleType.CRON)
                 .cronExpression("0 0 1 * * *").build();
         SchedulerJobConfigEntity incomplete = SchedulerJobConfigEntity.builder()
-                .jobKey(SolarForecastJobs.NIGHTLY_JOB).scheduleType(ScheduleType.SOLAR_OFFSET)
+                .jobKey(ForecastCycleJobs.NIGHTLY_JOB).scheduleType(ScheduleType.SOLAR_OFFSET)
                 .cronExpression("0 0 1 * * *").build();
         SchedulerJobConfigEntity other = solarJob("tide_refresh", SolarEvent.SUNRISE, 255);
 
@@ -158,13 +172,13 @@ class SolarCatchUpPolicyTest {
     @DisplayName("a day on which the solar fire is unusable is not caught up")
     void unusableFire_doesNothing() {
         SolarTriggerFactory broken = mock(SolarTriggerFactory.class);
-        when(broken.create(SolarForecastJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255, "0 0 1 * * *"))
-                .thenReturn(new SolarOffsetTrigger(SolarForecastJobs.NIGHTLY_JOB, SolarEvent.SUNRISE,
+        when(broken.create(ForecastCycleJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255, "0 0 1 * * *"))
+                .thenReturn(new SolarOffsetTrigger(ForecastCycleJobs.NIGHTLY_JOB, SolarEvent.SUNRISE,
                         255, "0 0 1 * * *", (event, date) -> date.atStartOfDay()));
         SolarCatchUpPolicy policy = new SolarCatchUpPolicy(broken, runs,
                 Clock.fixed(Instant.parse("2026-10-13T03:00:00Z"), ZoneOffset.UTC));
 
-        assertThat(policy.reasonToRun(solarJob(SolarForecastJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255)))
+        assertThat(policy.reasonToRun(solarJob(ForecastCycleJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255)))
                 .isEmpty();
         verifyNoInteractions(runs);
     }

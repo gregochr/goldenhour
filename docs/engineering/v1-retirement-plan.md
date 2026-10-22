@@ -975,6 +975,11 @@ Backend / product, out of this series' scope by the owner's instruction:
    `OutcomeModal.jsx` (+ test) and the orphaned `forecastApi.fetchOutcomes`, or keep them as the seed
    of a v2 outcome route (the popup? the location sheet?). CLAUDE.md still lists the feedback loop as
    a differentiator and LITE's one write permission.
+   **Status (2026-10-16): resolved — the outcome UI has a v2 home.** It is the Map tab's "How was it?"
+   rating block in the location callout, for a past sunrise or sunset, written by Pro and Admin
+   readers (`docs/engineering/outcome-rating-plan.md`, O0–O6). `OutcomeModal.jsx` and
+   `forecastApi.recordOutcome`/`fetchOutcomes` were left in place, as this item asked; the dead
+   `forecastApi.fetchAllOutcomes` went with the series (O6), its one caller having stopped fetching in O4b.
 8. **Dead API bindings to live endpoints** — `authApi.updateMarketingEmailOptIn`,
    `auroraApi.resetAuroraState`/`triggerAuroraRun`, `metricsApi.getBuildInfo`,
    `skyRatingEvalApi.getSkyRatingEvalResults` — zero callers; deleting a client for a live admin
@@ -989,13 +994,18 @@ Backend / product, out of this series' scope by the owner's instruction:
    `Modal`'s `z-50` — so the panel can open, invisibly, from a keyboard route through an open Plan
    dialog. Admin-only; CSS stacking-context mechanism confirmed by source, paint order not yet
    browser-measured), all three unmeasured.
+   *2026-10-20/21 (overlay convergence C4–C5): the doors' map buttons and `AuroraBanner` routes are
+   CLOSED, not guarded — no door opens an overlay any more; each moves the tab through the shell's
+   `openMapTab` (Plan dialogs closed first) or `selectTab`, and the banner pressed on the Map tab closes
+   the shell's dialogs through `registerCloseDialogs`. The `inert` fix and the health-pill route stand.*
 10. **A forecast-fetch error / retry surface for the Map tab** — v1's Map tab had one; v2 withholds
     the tab on empty and on error alike (`App.jsx:546-551`), and `useForecasts` keeps returning
     `loading`/`error` to nobody.
 11. **`#plan`/`#map`/`#manage` deep links and `AuroraBanner`'s simulated-alert `#manage` jump** —
     no-ops on v2 today; route through `tabRequest` if wanted.
 12. **`NlcSightingBanner` destination** — inert on v2; a route through the overlay like the aurora
-    banner's is plumbing that does not exist (`buildMapOverlay` has no dark-sky trigger).
+    banner's is plumbing that does not exist (`buildMapOverlay` has no dark-sky trigger). *(2026-10-21:
+    the overlay is retired (C5); a destination now would be a structured map door, `utils/mapDoor.js`.)*
 13. **Marker ink contrast on the ramp — RESOLVED 2026-08-25 (post-series, owner-requested).**
     D3's merge took the 2★ label from a PASS on `RATING_COLOURS` (4.61:1) to a FAIL on the ramp
     (3.70:1); 1★ had failed since P4 (2.96:1). The fix taken is the re-derive arm: `buildMarkerSvg`
@@ -1023,6 +1033,8 @@ Backend / product, out of this series' scope by the owner's instruction:
     the overlay?) and is design work, not settling. Natural pairing with item 9's "App-level
     siblings need the same treatment" for the modal-`inert` fix — both are "these two siblings
     need containment they don't have."
+    *(2026-10-21: `MapOverlay` is deleted (overlay convergence C5) and `MapView` is now mounted only in
+    the shell's map pane, inside `PlanErrorBoundary`; `UserSettingsModal` is still a sibling.)*
 21. **`PlanErrorBoundary`'s `role="alert"` is inserted into the DOM together with its content**,
     which this codebase elsewhere treats as unreliably announced (`WindowSpotSheet.jsx`,
     `WindowSheetDialog.jsx`, `WindowFirstComingUp.jsx` each instead keep an always-mounted live

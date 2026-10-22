@@ -50,6 +50,35 @@ class JwtServiceTest {
     }
 
     @Test
+    @DisplayName("A token issued for an account carries its id as uid and its credential version as cv")
+    void generateAccessToken_boundToTheAccountAndItsCredentialVersion() {
+        String token = jwtService.generateAccessToken("alice", UserRole.PRO_USER, 4_000_000_000L, 7L);
+
+        assertThat(jwtService.extractUserId(token)).isEqualTo(4_000_000_000L);
+        assertThat(jwtService.extractCredentialsVersion(token)).isEqualTo(7L);
+        assertThat(jwtService.extractUsername(token)).isEqualTo("alice");
+        assertThat(jwtService.extractRole(token)).isEqualTo(UserRole.PRO_USER);
+    }
+
+    @Test
+    @DisplayName("A version of zero is still a cv claim — a never-changed row's token is not 'legacy'")
+    void generateAccessToken_versionZeroIsStillAClaim() {
+        String token = jwtService.generateAccessToken("alice", UserRole.LITE_USER, 9L, 0L);
+
+        assertThat(jwtService.extractCredentialsVersion(token)).isEqualTo(0L);
+    }
+
+    @Test
+    @DisplayName("A token in the pre-credential-version shape has NO uid and NO cv (null, not zero)")
+    void generateAccessToken_legacyShapeCarriesNeitherClaim() {
+        String token = jwtService.generateAccessToken("alice", UserRole.LITE_USER);
+
+        assertThat(jwtService.extractUserId(token)).isNull();
+        assertThat(jwtService.extractCredentialsVersion(token)).isNull();
+        assertThat(jwtService.validateToken(token)).isTrue();
+    }
+
+    @Test
     @DisplayName("Valid token passes validation")
     void validateToken_validToken_returnsTrue() {
         String token = jwtService.generateAccessToken("alice", UserRole.LITE_USER);

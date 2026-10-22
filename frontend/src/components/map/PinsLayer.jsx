@@ -6,7 +6,11 @@ import { createPortal } from 'react-dom';
 import L from 'leaflet';
 import { useMap } from 'react-leaflet';
 import { seedObstacles } from '../../utils/labelPlacement.js';
-import { homeLabelItems, placeLabelPass, verdictWord } from '../../utils/mapLabels.js';
+import {
+  hasRatedBadge, homeLabelItems, placeLabelPass, verdictWord,
+} from '../../utils/mapLabels.js';
+import { badgeAccessibleClause } from '../../utils/outcomeRatingJoin.js';
+import RatedBadge from './RatedBadge.jsx';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import { rampHex as sharedRampHex } from '../../utils/scoreRamp.js';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
@@ -454,7 +458,12 @@ export default function PinsLayer({
                 color: pickInk,
                 boxShadow: `0 2px 0 -1px ${darkenHex(pickFill, 0.5)}, 0 5px 12px rgba(0,0,0,.5)`,
               }}
-              onClick={() => {
+              onClick={(pressEvent) => {
+                // ⚠️ Focuses itself first: macOS and iOS Safari do not focus a tapped <button>, and on
+                // the phone a pick press no longer expands the Ask section (whose `park()` used to
+                // rescue focus), so without this focus is on <body> and the pane's Escape rule never
+                // fires. The `MapCallout` pattern. `preventScroll`: the map frame must not jump.
+                pressEvent.currentTarget.focus({ preventScroll: true });
                 if (onSelectAskPick) onSelectAskPick(rankOnPress(pick));
                 else onSelect?.(spot.name);
               }}
@@ -498,7 +507,7 @@ export default function PinsLayer({
             aria-label={[
               hasRating ? `${spot.name}, ${spot.rating} star` : spot.name,
               tideAccessibleClause(spot.tideTier, spot.tideShortfall),
-            ].filter(Boolean).join(', ')}
+            ].filter(Boolean).join(', ') + (hasRatedBadge(spot) ? badgeAccessibleClause(spot.myRating) : '')}
             style={{
               left: `${x}px`,
               top: `${y}px`,
@@ -528,6 +537,7 @@ export default function PinsLayer({
                 <span className="wf-pin-star" aria-hidden="true">&#9733;</span>
               </>
             )}
+            {hasRatedBadge(spot) && <RatedBadge value={spot.myRating} />}
           </button>
         );
       })}
@@ -600,6 +610,10 @@ PinsLayer.propTypes = {
     tideFitPhrase: PropTypes.string,
     /** Whether the light was assessed for this window — see {@code tideTierHeading}. */
     tideAssessed: PropTypes.bool,
+    /** The reader's own outcome rating for this spot in the PAST window on screen (outcome-rating-plan
+     * .md §2 #6): {@code 1..5}, or {@code 'NOT_SEEN'}. Null/absent on a served window and for a spot
+     * the reader has not rated — the badge is drawn only when this is set. */
+    myRating: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
     /** Ask PhotoCast's pick (F3) — the answer's own facts for the pick's window. */
     askPick: PropTypes.shape({
       rank: PropTypes.number.isRequired,

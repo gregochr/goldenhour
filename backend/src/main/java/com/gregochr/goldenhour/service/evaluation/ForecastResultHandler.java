@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -28,6 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -121,6 +123,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
     private final ForecastScoreWriter forecastScoreWriter;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final SupersedingDispositionService supersedingDispositionService;
+    private final Clock clock;
+    private final AppBuild appBuild;
 
     /**
      * Constructs the handler.
@@ -150,6 +154,11 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      *                                  in front of the {@code forecast_score} dual write — see this
      *                                  class's own class javadoc for why a true batch-wide hoist is
      *                                  not possible with the streaming Batch API reader
+     * @param clock                     stamps {@code forecast_evaluation.scored_at} (V178) when a
+     *                                  {@code PENDING} row is scored in place
+     * @param appBuild                  the running build, stamped as
+     *                                  {@code forecast_evaluation.app_build} (V182) with the same
+     *                                  instant
      */
     public ForecastResultHandler(BriefingEvaluationService briefingEvaluationService,
             JobRunService jobRunService,
@@ -159,7 +168,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             ForecastScoreWriter forecastScoreWriter,
             SunsetEvaluationParser parser,
             ForecastEvaluationRepository forecastEvaluationRepository,
-            SupersedingDispositionService supersedingDispositionService) {
+            SupersedingDispositionService supersedingDispositionService,
+            Clock clock, AppBuild appBuild) {
         this.briefingEvaluationService = briefingEvaluationService;
         this.parser = parser;
         this.jobRunService = jobRunService;
@@ -169,6 +179,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         this.forecastScoreWriter = forecastScoreWriter;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.supersedingDispositionService = supersedingDispositionService;
+        this.clock = clock;
+        this.appBuild = appBuild;
     }
 
     @Override
@@ -664,7 +676,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             result = result.withForced(true);
         }
         if (evalRowId != null) {
-            scoreEvaluationRow(evalRowId, eval, result, resolvedModel);
+            scoreEvaluationRow(evalRowId, location, eval, result, resolvedModel);
         }
         return result;
     }
@@ -692,12 +704,14 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * secondary durable-history write.
      *
      * @param evalRowId     primary key of the pending row
+     * @param location      the evaluated location; its {@code mist_prone} flag is the gate on
+     *                      Claude's valley mist reading (valley-mist-plan M2)
      * @param eval          the parsed Claude evaluation — source of the basic-tier and inversion
      *                      fields {@link BriefingEvaluationResult} does not carry
      * @param result        the validated result also being written to {@code cached_evaluation}
      * @param resolvedModel the model that produced the response
      */
-    private void scoreEvaluationRow(Long evalRowId, SunsetEvaluation eval,
+    private void scoreEvaluationRow(Long evalRowId, LocationEntity location, SunsetEvaluation eval,
             BriefingEvaluationResult result, EvaluationModel resolvedModel) {
         Optional<ForecastEvaluationEntity> row = forecastEvaluationRepository.findById(evalRowId);
         if (row.isEmpty()) {
@@ -721,10 +735,27 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     .potential(eval.inversionPotential())
                     .build());
         }
+        // Claude's valley mist reading, kept only for a mist-prone site (the only kind whose
+        // message asked for it); the PENDING row has no AtmosphericData to consult, so the
+        // location flag is the same gate ForecastScoreWriter applies (valley-mist-plan M2).
+        if (location != null && location.isMistProne()) {
+            entity.setMistPotential(eval.mistPotential());
+        }
         if (resolvedModel != null) {
             entity.setEvaluationModel(resolvedModel);
         }
         entity.setBatchState(BatchState.SCORED);
+        if (result.rating() != null && entity.getScoredAt() == null) {
+            // V178: the AVAILABILITY instant. A result whose star was rejected leaves the row with
+            // nothing to say, so it stays unstamped and the as-of-event resolver never picks it. A row
+            // already stamped keeps its first instant: results processed a second time (a re-polled
+            // batch, a restart's recovery) must not move a row that was available before an event to
+            // after it.
+            entity.setScoredAt(clock.instant());
+            // V182: the build that scored the row, stamped with the same instant and guard so a
+            // re-processed result keeps the build that first made the row available.
+            entity.setAppBuild(appBuild.value());
+        }
         forecastEvaluationRepository.save(entity);
     }
 

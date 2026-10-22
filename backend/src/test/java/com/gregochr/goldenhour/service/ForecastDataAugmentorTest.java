@@ -11,6 +11,8 @@ import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
+import com.gregochr.goldenhour.model.MistPotential;
+import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.TideContext;
@@ -438,6 +440,66 @@ class ForecastDataAugmentorTest {
                 base, Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET));
 
         assertThat(result).isSameAs(base);
+    }
+
+    // ── Valley Mist Tests ───────────────────────────────────────────────────
+
+    /** Clear, calm, saturated and cooling sunrise: scores 9.0 and reads LIKELY. */
+    private static AtmosphericData mistyNight() {
+        MistTrend trend = new MistTrend(List.of(
+                new MistTrend.MistSlot(-3, 20000, 4.0, 5.0, 0, 1.0),
+                new MistTrend.MistSlot(-2, 20000, 3.9, 4.8, 0, 1.0),
+                new MistTrend.MistSlot(-1, 20000, 3.8, 4.6, 0, 1.0),
+                new MistTrend.MistSlot(0, 20000, 4.0, 4.5, 0, 1.0)));
+        return TestAtmosphericData.builder().targetType(TargetType.SUNRISE)
+                .visibility(20000).mistTrend(trend).build();
+    }
+
+    @Test
+    @DisplayName("augmentWithValleyMist() scores and bands a mist_prone site")
+    void augmentWithValleyMist_flaggedSite_addsScoreAndPotential() {
+        AtmosphericData result = augmentor.augmentWithValleyMist(mistyNight(), true);
+
+        assertThat(result.mistScore()).isCloseTo(9.0, org.assertj.core.data.Offset.offset(0.001));
+        assertThat(result.mistPotential()).isEqualTo(MistPotential.LIKELY);
+    }
+
+    @Test
+    @DisplayName("augmentWithValleyMist() leaves an unflagged site untouched: the gate is the site fact")
+    void augmentWithValleyMist_unflaggedSite_isReturnedUnchanged() {
+        AtmosphericData base = mistyNight();
+
+        AtmosphericData result = augmentor.augmentWithValleyMist(base, false);
+
+        assertThat(result).isSameAs(base);
+        assertThat(result.mistScore()).isNull();
+        assertThat(result.mistPotential()).isNull();
+    }
+
+    @Test
+    @DisplayName("augmentWithValleyMist() returns the data unchanged when a flagged site cannot be scored")
+    void augmentWithValleyMist_flaggedSiteWithNoTrend_isReturnedUnchanged() {
+        AtmosphericData noTrend = TestAtmosphericData.builder().targetType(TargetType.SUNRISE).build();
+
+        AtmosphericData result = augmentor.augmentWithValleyMist(noTrend, true);
+
+        assertThat(result).isSameAs(noTrend);
+        assertThat(result.mistScore()).isNull();
+    }
+
+    @Test
+    @DisplayName("augmentWithValleyMist() reports a fogbound morning as FOGBOUND, not LIKELY")
+    void augmentWithValleyMist_fogbound() {
+        MistTrend trend = new MistTrend(List.of(
+                new MistTrend.MistSlot(-1, 300, 4.0, 4.1, 0, 0.5),
+                new MistTrend.MistSlot(0, 200, 4.0, 4.1, 0, 0.5),
+                new MistTrend.MistSlot(1, 150, 4.0, 4.1, 0, 0.5)));
+        AtmosphericData fog = TestAtmosphericData.builder().targetType(TargetType.SUNRISE)
+                .visibility(200).mistTrend(trend).build();
+
+        AtmosphericData result = augmentor.augmentWithValleyMist(fog, true);
+
+        assertThat(result.mistPotential()).isEqualTo(MistPotential.FOGBOUND);
     }
 
     // ── Cloud Inversion Tests ───────────────────────────────────────────────

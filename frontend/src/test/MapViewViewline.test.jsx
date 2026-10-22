@@ -13,7 +13,7 @@
  * `date` fixed while toggling kind). The real replacement, `components/map/WindowControl.jsx`, has
  * no such pure switch: every dropdown row NAMES a date, so picking one is a combined kind+date
  * choice by design — exercising that coupling is `WindowControl.test.jsx`'s job, not this one's.
- * `handoffEventType` — a real, pre-existing `MapView` prop that already sets `eventType` with no
+ * `autoEventType` — a real, pre-existing `MapView` prop that already sets `eventType` with no
  * date implication (Plan-tab event-type handoffs use it the same way) — is the faithful stand-in.
  */
 import React from 'react';
@@ -108,11 +108,6 @@ vi.mock('../components/BottomSheet.jsx', () => ({
 vi.mock('../components/MarkerPopupContent.jsx', () => ({
   default: () => <div data-testid="popup-content" />,
 }));
-// Not driven any more (see the file header) — the Map tab this file renders no longer mounts it
-// at all. Kept as a harmless no-op so `MapView`'s own (unconditional) import of it stays inert.
-vi.mock('../components/ForecastTypeSelector.jsx', () => ({
-  default: () => null,
-}));
 vi.mock('../components/InfoTip.jsx', () => ({
   default: ({ text }) => <span data-testid="infotip-text">{text}</span>,
 }));
@@ -178,11 +173,11 @@ async function renderMap(overrides = {}) {
 
 /**
  * Switches event type — a pure kind switch, exactly what the removed mocked selector's buttons
- * did. `handoffEventType` sets `eventType` with no date implication (see the file header), which
+ * did. `autoEventType` sets `eventType` with no date implication (see the file header), which
  * is what every test below needs isolated.
  */
 async function selectEventType(rendered, eventType) {
-  await rendered.withProps({ handoffEventType: eventType });
+  await rendered.withProps({ autoEventType: eventType });
 }
 
 // Applies to every test in the file: MapView asks "is this the current night?" on each render, and

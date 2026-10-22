@@ -10,12 +10,13 @@ package com.gregochr.goldenhour.model.comingup;
  * avgLow at a semidiurnal port), so a served average shrinks the delta; that is the price of the day
  * bars' dashed line and the sparkline agreeing (tide-range-rank-plan.md §2).
  *
- * <p>{@code phase} names the extremum the entry's own alignment fact already carries, so the sparkline
- * can never draw a different water than the prose describes.
+ * <p>{@code phase} is always {@code HW}: the card's sunrise and sunset rows name the high water only
+ * (tide-both-lights-plan.md), so the sparkline can never draw a different water than the prose
+ * describes.
  *
  * @param range  the run's peak tidal range, in metres
  * @param delta  signed difference from the card's average range (see above), in metres
- * @param phase  {@code HW} or {@code LW} — which extremum the sparkline marks and inverts around
+ * @param phase  {@code HW} — the extremum the sparkline marks and inverts around
  */
 public record ComingUpTide(double range, double delta, String phase) {
 }

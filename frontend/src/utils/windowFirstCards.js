@@ -65,6 +65,43 @@ export function dayLabelFor(dateStr, todayStr, tomorrowStr) {
     .toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
 }
 
+/**
+ * A PAST window's day label — {@code Today}, {@code Yesterday}, else {@code Fri 16} (short weekday,
+ * day of month with no leading zero), the outcome-rating design's vocabulary for the Map tab's past
+ * rows (docs/engineering/outcome-rating-plan.md §2 #2). Kept beside {@link dayLabelFor} rather than
+ * widening it: its two Plan-tab callers never see a past date, and a long weekday name is the wrong
+ * word for a day that has gone ("Friday" is ambiguous with next Friday; "Fri 16" is not).
+ *
+ * <p>A lookup over a date string — the already-licensed filter/map/select class (CLAUDE.md
+ * Backend-heavy), deciding nothing. The weekday and day are read in UTC from a noon-pinned instant,
+ * so the answer is the calendar date's own whatever zone the browser is in.
+ *
+ * @param {string} dateStr the window's ISO date
+ * @param {string} todayStr the UK civil today
+ * @returns {string}
+ */
+export function pastDayLabel(dateStr, todayStr) {
+  if (dateStr === todayStr) return 'Today';
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  const t = new Date(`${todayStr}T12:00:00Z`);
+  if (Math.round((t.getTime() - d.getTime()) / 86400000) === 1) return 'Yesterday';
+  return dowDayLabel(dateStr);
+}
+
+/**
+ * {@code Thu 16} for any date, never {@code Today}/{@code Yesterday} — the form a sentence about ONE
+ * calendar day wants ("No stored forecast for Fri 16": "yesterday" would be wrong the next morning).
+ * The same noon-pinned UTC read {@link pastDayLabel} makes, so the answer is the date's own in any zone.
+ *
+ * @param {string} dateStr an ISO date
+ * @returns {string}
+ */
+export function dowDayLabel(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  const dow = d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
+  return `${dow} ${d.getUTCDate()}`;
+}
+
 /** 'sunrise' | 'sunset' — the window's own event, lower case for use inside a phrase. Exported
  *  beside {@link dayLabelFor} and for the same reason. */
 export function eventWord(targetType) {
@@ -199,6 +236,43 @@ const HAZE_VERDICTS = new Set([...CONFIDENCE_VERDICTS, 'UNRATED']);
 const TIDE_LIVE_MIN_COASTAL = 4;
 const TIDE_LIVE_FLOOR = 3;
 const TIDE_LIVE_SHARE = 0.5;
+
+/**
+ * The least rating the best-reachable line will name once a neighbour outlier was skipped to reach
+ * it (neighbour-guard-plan.md §4 G3). A client twin of the server's
+ * {@code NeighbourOutlierGuard.NAMED_FLOOR} (Java): deliberately a fixed 3 on both sides, not the
+ * guard's configurable {@code min-rating}, so the BEST BET pick and this line cannot disagree about
+ * one window. Change both together.
+ */
+export const NEIGHBOUR_NAMED_FLOOR = 3;
+
+/**
+ * The pool's best-reachable spot, and whether the neighbour guard withheld it.
+ *
+ * <p>The first spot of the pool carrying a rating that is not a served {@code neighbourOutlier}.
+ * The pool arrives ordered by {@code compareSpots} (rating desc, unrated last), so with no outlier
+ * this is exactly the head when the head is rated, and null when it is not. If an outlier was
+ * skipped and that spot is rated below {@link NEIGHBOUR_NAMED_FLOOR} — or no rated spot remains
+ * after the skip — nothing is named and {@code withheld} is true. A filter over a served flag, never
+ * a second ranking.
+ *
+ * @param {Array<object>} pool the reach-gated, pre-floor spots in {@code compareSpots} order
+ * @returns {{bestReach: ?object, withheld: boolean}}
+ */
+export function bestReachOf(pool) {
+  const spots = pool || [];
+  let skipped = false;
+  for (const spot of spots) {
+    if (spot?.rating == null) break;
+    if (spot.neighbourOutlier === true) {
+      skipped = true;
+      continue;
+    }
+    if (skipped && spot.rating < NEIGHBOUR_NAMED_FLOOR) return { bestReach: null, withheld: true };
+    return { bestReach: spot, withheld: false };
+  }
+  return { bestReach: null, withheld: skipped };
+}
 
 /**
  * The per-window tide-fit summary — is the coast live on this window, and how well served.
@@ -451,6 +525,66 @@ function verdictMeanOf(scoped, top) {
 }
 
 /**
+ * What a card says beside a STAND_DOWN word over a blanked region (plan-card-verdict-honesty-plan.md
+ * H4). The visible form is short enough for the mean's own slot ("unsettled", about 54px at
+ * 10px, the honesty filter's "Too unsettled to forecast" abridged); the spoken form is the filter's label in full, so the card
+ * and the popup's region rail speak one vocabulary.
+ */
+export const BLANKED_STAND_DOWN_VISIBLE = 'unsettled';
+export const BLANKED_STAND_DOWN_SPOKEN = 'too unsettled to forecast';
+
+/**
+ * The region a window's verdict WORD came from when no region carries a mean to rank it by — the
+ * server's own {@code PlanWindowProjector.BY_RANK} order over mean-less regions: a region with
+ * slots ahead of a blanked one, a blanked region the honesty filter worded anything but AWAITING
+ * (a real stand-down) ahead of a blanked AWAITING one, then the name. Client twin of the three
+ * steps of that comparator that still discriminate once every mean is absent; a selection among
+ * served records, never a threshold.
+ *
+ * @param {Array<object>} regions the eligible region records
+ * @returns {?object} the region the word came from, or null for an empty list
+ */
+function pickMeanlessWordRegion(regions) {
+  let best = null;
+  const rank = (region) => {
+    const blanked = Array.isArray(region?.slots) && region.slots.length === 0;
+    return [blanked ? 1 : 0, blanked && resolveRegionDisplay(region) === 'AWAITING' ? 1 : 0];
+  };
+  for (const region of Array.isArray(regions) ? regions : []) {
+    if (!region) continue;
+    if (best === null) { best = region; continue; }
+    const [a1, a2] = rank(region);
+    const [b1, b2] = rank(best);
+    const before = a1 !== b1 ? a1 < b1
+      : a2 !== b2 ? a2 < b2
+        : String(region.regionName ?? '').localeCompare(String(best.regionName ?? '')) < 0;
+    if (before) best = region;
+  }
+  return best;
+}
+
+/**
+ * Whether the card's verdict word is a weather stand-down over a BLANKED region (plan-card-
+ * verdict-honesty-plan.md H4): the word is {@code STAND_DOWN} and the region it came from — the
+ * origin's region when scoped, else the window's top region (the one {@link verdictMeanOf} reads),
+ * else, with no mean anywhere, the projector's pick among mean-less regions — has an empty served
+ * {@code slots} list. The honesty filter empties a region's slots exactly when it blanks it, and
+ * since it words an unknown reason AWAITING, a blanked STAND_DOWN can only be weather triage: the
+ * card then says so rather than leave "Poor" to be read as a rating. A STAND_DOWN region that still
+ * has slots gets no qualifier.
+ *
+ * @param {string} verdict the verdict the card wears
+ * @param {?object} scoped the origin's region record when away, else null
+ * @param {?object} es the event summary
+ * @returns {boolean}
+ */
+function verdictBlankedOf(verdict, scoped, es) {
+  if (verdict !== 'STAND_DOWN') return false;
+  const region = scoped ?? topRegion(es) ?? pickMeanlessWordRegion(eligibleRegions(es));
+  return Array.isArray(region?.slots) && region.slots.length === 0;
+}
+
+/**
  * The region mean as the card prints it: always ONE decimal (plan-card-verdict-honesty-plan.md H1).
  *
  * <p>{@code BriefingRegion.meanRating} is already rounded to one place server-side, so this adds no
@@ -653,6 +787,7 @@ export function buildWindowCards(
     // chose from, so the bar can say "42 of 138" without either number naming a different thing.
     const reached = gateSpotsByReach(allSpots, limitMinutes);
     const spots = gateSpotsByRating(reached, minRating);
+    const reachPick = bestReachOf(reached);
 
     return {
       key: `${date}:${targetType}`,
@@ -690,6 +825,10 @@ export function buildWindowCards(
       // `topMeanRating` stays untouched for the Order control; this is the honesty channel. The
       // away arm tests the SCOPED region, which is the one whose word `verdict` above wears.
       verdictMean: verdictMeanOf(scopedRegion, scopedRegion ? null : topRegion(es)),
+      // True when the word is a STAND_DOWN over a region the honesty filter blanked (empty `slots`):
+      // the card prints `unsettled` beside "Poor" in the mean's own slot (H4). Read from the
+      // same region `verdictMean` reads, so the qualifier and the word cannot describe two regions.
+      verdictBlanked: verdictBlankedOf(verdict, scopedRegion, es),
       // The same region `topMeanRating` names, carrying how far it has moved since the previous
       // forecast run. Null — never a zero — when there is nothing to compare against; see
       // `topRegionMovement` for why the two must stay distinguishable.
@@ -775,20 +914,27 @@ export function buildWindowCards(
       // second index (§1 #3, §2). Named `tideFit`, never `tide`: that name is taken by the served
       // `BriefingWindowTide` below, which the Map tab's strip forwards untouched (T6, §1 #3).
       tideFit: tideFit(reached),
-      // The pool's HEAD — the best location this reader could actually drive to for this window.
+      // The best location this reader could actually drive to for this window, NAMED.
       //
-      // ⚠️ It is `reached[0]` and nothing else, because the pool arrives ordered by
-      // `compareSpots` (rating desc, then drive, then name) from `buildWindowSpots` and both gates
-      // are order-preserving filters. Writing a second "pick the best" comparator here would be a
-      // second answer to a question the strip, the drill-down and this line all ask, which is
-      // exactly what `compareSpots` was exported to prevent.
+      // ⚠️ It is `bestReachOf(reached)`: the pool's first rated spot that is not a served
+      // `neighbourOutlier` (neighbour-guard-plan.md G3), over the PRE-floor pool `reached`, never
+      // `spots`. The pool arrives ordered by `compareSpots` (rating desc, then drive, then name)
+      // from `buildWindowSpots` and both gates are order-preserving filters, so with no outlier
+      // this is the head and nothing else — there is no second "pick the best" comparator here, only
+      // a skip of the server's flag plus the client twin of the server's named floor
+      // (`NEIGHBOUR_NAMED_FLOOR`), applied only after a skip.
       //
       // Null when the head carries no rating, which is the ordinary state on a far-horizon window
       // (T+4 is never evaluated). `compareSpots` sorts unrated last, so a rated head means every
       // rating in the pool was compared — and an UNRATED head means nothing in the pool is rated
       // at all, and the order that chose it was alphabetical. Naming that spot "the best you could
       // reach" would claim a ranking that never ran, so the caller says "not scored yet" instead.
-      bestReach: reached[0]?.rating != null ? reached[0] : null,
+      bestReach: reachPick.bestReach,
+      // True when a neighbour outlier was skipped and the next rated spot is below the named floor
+      // (or there is none): the card then says "no clear pick" rather than naming a place or
+      // claiming nothing is scored. Absent from the pool's histogram and every count — the outlier
+      // keeps its star everywhere a star is shown.
+      bestReachWithheld: reachPick.withheld,
       // How many the lens chose from. Equal to `spots.length` whenever nothing was gated, which is
       // exactly when the strip footer keeps P6's plain count rather than the design's "N of M".
       reachTotal: allSpots.length,

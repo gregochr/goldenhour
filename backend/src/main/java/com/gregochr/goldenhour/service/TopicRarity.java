@@ -69,7 +69,10 @@ public final class TopicRarity {
             Map.entry("CLEARANCE", 14),
             Map.entry("BLUEBELL", 15),
             Map.entry("NLC", 16),
-            Map.entry("SPRING_TIDE", 17));
+            Map.entry("SPRING_TIDE", 17),
+            // Valley mist at a flagged site: no census yet (the MIST_CALC log starts with M1b), so
+            // it takes the commonest rank rather than renumbering the table on a guess.
+            Map.entry("MIST", 18));
 
     private TopicRarity() {
     }

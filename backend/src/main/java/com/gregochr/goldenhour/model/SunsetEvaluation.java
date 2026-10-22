@@ -24,6 +24,9 @@ package com.gregochr.goldenhour.model;
  * @param inversionPotential       inversion classification (NONE, MODERATE, STRONG), or null
  * @param headline                 4-9 word Claude-authored card header (Gate 2 redesign), or null
  *                                 when Claude omitted the field (legacy responses)
+ * @param mistPotential            Claude's own reading of valley mist at a {@code mist_prone} site
+ *                                 (a {@link MistPotential} name), or null when absent or unrecognised
+ *                                 (valley-mist-plan M2)
  */
 public record SunsetEvaluation(
         Integer rating,
@@ -35,8 +38,34 @@ public record SunsetEvaluation(
         String basicSummary,
         Integer inversionScore,
         String inversionPotential,
-        String headline
+        String headline,
+        String mistPotential
 ) {
+
+    /**
+     * Constructs an evaluation with every field but Claude's valley mist reading (the shape
+     * before valley-mist-plan M2).
+     *
+     * @param rating                   1-5 rating
+     * @param fierySkyPotential        dramatic colour potential (0-100)
+     * @param goldenHourPotential      overall light quality (0-100)
+     * @param summary                  Claude's explanation
+     * @param basicFierySkyPotential   basic fiery sky score, or null
+     * @param basicGoldenHourPotential basic golden hour score, or null
+     * @param basicSummary             basic summary, or null
+     * @param inversionScore           inversion score (0-10), or null
+     * @param inversionPotential       inversion classification string, or null
+     * @param headline                 card header, or null
+     */
+    public SunsetEvaluation(Integer rating, Integer fierySkyPotential,
+            Integer goldenHourPotential, String summary,
+            Integer basicFierySkyPotential, Integer basicGoldenHourPotential,
+            String basicSummary, Integer inversionScore, String inversionPotential,
+            String headline) {
+        this(rating, fierySkyPotential, goldenHourPotential, summary,
+                basicFierySkyPotential, basicGoldenHourPotential, basicSummary,
+                inversionScore, inversionPotential, headline, null);
+    }
 
     /**
      * Constructs an evaluation without basic-tier or inversion fields.
@@ -108,6 +137,6 @@ public record SunsetEvaluation(
     public SunsetEvaluation withRating(Integer newRating) {
         return new SunsetEvaluation(newRating, fierySkyPotential, goldenHourPotential, summary,
                 basicFierySkyPotential, basicGoldenHourPotential, basicSummary,
-                inversionScore, inversionPotential, headline);
+                inversionScore, inversionPotential, headline, mistPotential);
     }
 }

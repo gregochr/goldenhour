@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * Spring and king tide runs across the whole feed, detected from the lunar cycle and enriched from
@@ -244,20 +245,21 @@ public class TideAlmanacSource implements AlmanacSource {
     }
 
     private AlmanacEvent toEvent(Run run, List<LocationEntity> coastal) {
-        Map<LocalDate, TideRunDay> enriched = coastal.isEmpty()
-                ? Map.of()
-                : tideRunBuilder.build(run.dates(), coastal, run.king());
+        TideRunBuilder.RunBuild built = coastal.isEmpty()
+                ? TideRunBuilder.RunBuild.empty()
+                : tideRunBuilder.buildWithEventWaters(run.dates(), coastal, run.king());
+        Map<LocalDate, TideRunDay> enriched = built.days();
 
         TideRunDay peak = pickPeak(run, enriched);
         boolean isTruePeak = peak != null && peak.peak();
 
-        // The alignment is a question about the RUN, and it is asked of a different day from the
-        // figures. The figures describe the run's biggest water; the alignment answers "is there a
-        // morning or evening in this run where the water lands in the light, and which one" — and
-        // the biggest day is frequently not that day. Publishing the peak day's verdict under an
-        // "alignment" label, which is what this used to do, answered a question nobody asked with a
-        // sentence about a low water two hours into the dark.
-        TideRunDay alignedDay = pickAligned(run, enriched);
+        // The sunrise and sunset high waters are questions about the RUN, each asked per event and
+        // each answered by its own day: the peak day when its water lands in that event's light,
+        // else the day whose high water is closest to the event. The figures above describe the
+        // run's biggest water; these answer "which morning, which evening".
+        EventPick sunrise = pickEvent(run, enriched, built.eventWaters(), TideRunBuilder.EventWaters::sunrise);
+        EventPick sunset = pickEvent(run, enriched, built.eventWaters(), TideRunBuilder.EventWaters::sunset);
+        boolean eventWaterPartial = run.dates().stream().anyMatch(d -> !enriched.containsKey(d));
 
         // Absent keys rather than empty ones: metaOf drops anything null or blank, so a run beyond
         // the stored-extremes window arrives carrying dates and nothing else.
@@ -269,20 +271,26 @@ public class TideAlmanacSource implements AlmanacSource {
         // happened to be inside the stored-extremes window indistinguishable, to a renderer, from
         // the biggest tide of the run.
         //
-        // "noAlignment" is a flag and is only ever emitted alongside real figures. It says "we
-        // looked at every day of this run and none of them lands the water in the light", which is
-        // a finding; silence would leave a reader unable to tell it from "we could not derive a
-        // curve at all", which is an absence and is already reported by the empty meta.
+        // "sunriseHw…" / "sunsetHw…" name the HIGH water only (owner decision, tide-both-lights
+        // plan): clock, signed gap in minutes from the event, the date it falls on, and an
+        // "…Aligned" flag when it is inside the alignment window. They are absent when no measured
+        // day has a high water that day. "eventWaterPartial" says some run date was not derivable,
+        // so a "no high water within an hour of the event" finding holds only for the days measured.
         Map<String, String> meta = peak == null
                 ? Map.of()
                 : AlmanacEvent.metaOf(
                         "range", peak.range(),
                         "rangeAnomaly", peak.rangeAnomaly(),
                         "highWater", peak.highWater(),
-                        "alignment", alignedDay == null ? null : alignedDay.alignmentPhrase(),
-                        "alignmentDate", alignedDay == null
-                                ? null : dateOf(run, enriched, alignedDay),
-                        "noAlignment", alignedDay == null ? "true" : null,
+                        "sunriseHw", sunrise == null ? null : TideWording.clock(sunrise.water().minutes()),
+                        "sunriseHwGap", sunrise == null ? null : Long.toString(sunrise.water().gapMinutes()),
+                        "sunriseHwDate", sunrise == null ? null : sunrise.date().toString(),
+                        "sunriseHwAligned", sunrise != null && sunrise.water().aligned() ? "true" : null,
+                        "sunsetHw", sunset == null ? null : TideWording.clock(sunset.water().minutes()),
+                        "sunsetHwGap", sunset == null ? null : Long.toString(sunset.water().gapMinutes()),
+                        "sunsetHwDate", sunset == null ? null : sunset.date().toString(),
+                        "sunsetHwAligned", sunset != null && sunset.water().aligned() ? "true" : null,
+                        "eventWaterPartial", eventWaterPartial ? "true" : null,
                         "location", peak.locationName(),
                         "peakDate", isTruePeak ? dateOf(run, enriched, peak) : null,
                         "figuresFrom", isTruePeak ? null : dateOf(run, enriched, peak),
@@ -326,35 +334,39 @@ public class TideAlmanacSource implements AlmanacSource {
     }
 
     /**
-     * Picks the day whose alignment the row states: the run's biggest day when its water also lands
-     * in the light, otherwise the first day of the run that does. Null when none does.
+     * Picks the day whose high water the sunrise (or sunset) row states: the run's true peak day when
+     * its water is aligned for that event, otherwise the day with the smallest gap to the event.
+     * Ties go to the earliest day. Null when no measured day has a high water for the event.
      *
-     * <p>The biggest day wins ties because a reader choosing one morning out of four wants the one
-     * where the largest water and the usable light coincide, and because it is the day the rest of
-     * the row is already about — the range chip and the "Biggest 14 Aug" note both describe it, so
-     * an alignment taken from elsewhere needs its own date stated and this one does not.
-     *
-     * <p>Only days the builder could derive are considered, and only their
-     * {@code alignmentPhrase} — non-null exactly when that day's water lands within the alignment
-     * window. Reading {@code verdict} instead would always find a sentence, because the verdict has
-     * an unaligned form; that is precisely how a low water 2h12 after sunset came to be printed
-     * under the label "alignment".
+     * <p>Peak-first keeps the long-standing rule that a reader choosing one morning out of four wants
+     * the one where the largest water and the usable light coincide, and it stops the row disagreeing
+     * with the coincidence line, which reads this same pick on the peak day. {@code peak()} is never
+     * true on a one-day run, so there the smallest-gap rule decides.
      */
-    private static TideRunDay pickAligned(Run run, Map<LocalDate, TideRunDay> enriched) {
-        TideRunDay firstAligned = null;
+    private static EventPick pickEvent(Run run, Map<LocalDate, TideRunDay> enriched,
+            Map<LocalDate, TideRunBuilder.EventWaters> waters,
+            Function<TideRunBuilder.EventWaters, TideRunBuilder.EventWater> selector) {
+        EventPick best = null;
         for (LocalDate date : run.dates()) {
-            TideRunDay day = enriched.get(date);
-            if (day == null || day.alignmentPhrase() == null) {
+            TideRunBuilder.EventWaters day = waters.get(date);
+            TideRunBuilder.EventWater water = day == null ? null : selector.apply(day);
+            if (water == null) {
                 continue;
             }
-            if (day.peak()) {
-                return day;
+            TideRunDay runDay = enriched.get(date);
+            if (water.aligned() && runDay != null && runDay.peak()) {
+                return new EventPick(date, water);
             }
-            if (firstAligned == null) {
-                firstAligned = day;
+            if (best == null
+                    || Math.abs(water.gapMinutes()) < Math.abs(best.water().gapMinutes())) {
+                best = new EventPick(date, water);
             }
         }
-        return firstAligned;
+        return best;
+    }
+
+    /** One event row's chosen day and its high water. */
+    private record EventPick(LocalDate date, TideRunBuilder.EventWater water) {
     }
 
     private static String dateOf(Run run, Map<LocalDate, TideRunDay> enriched, TideRunDay peak) {

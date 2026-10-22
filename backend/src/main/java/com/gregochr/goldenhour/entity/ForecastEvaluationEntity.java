@@ -19,6 +19,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -171,8 +172,9 @@ public class ForecastEvaluationEntity {
     /**
      * Claude's own sky rating (1-5) before the tide score is averaged in; {@link #rating} is the
      * combined star. Written by the batch result handler only; null for the sky-not-forecast
-     * substitution, triage rows, rows scored before V164 and the synchronous engine. Never
-     * serialised to any API response.
+     * substitution, triage rows, rows scored before V164 and the synchronous engine. Read on the
+     * serve path by {@code EvaluationViewService} so a row-served slot carries it as a
+     * cache-served one does, but never serialised from the entity to any API response directly.
      */
     @Column(name = "sky_rating")
     private Integer skyRating;
@@ -233,6 +235,15 @@ public class ForecastEvaluationEntity {
     @Embedded
     private InversionDetails inversion;
 
+    /**
+     * Claude's own reading of valley mist at a {@code mist_prone} site (a {@code MistPotential}
+     * name), or null for every other site and every row before V186. A plain String like the
+     * inversion's {@code potential}, not {@code @Enumerated}. Drives the map badge alone: the
+     * hot topic reads the calculator, and this echo only stands in for it (valley-mist-plan M2).
+     */
+    @Column(name = "mist_potential", length = 10)
+    private String mistPotential;
+
     /** Triage stand-down details, or null if the row was scored by Claude. */
     @Embedded
     private TriageDetails triage;
@@ -246,6 +257,45 @@ public class ForecastEvaluationEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "batch_state", length = 20)
     private BatchState batchState;
+
+    /**
+     * When this row GOT its rating or triage reason — its <em>availability</em> instant (V178).
+     *
+     * <p>Stamped from the clock wherever a row acquires something to say: {@code
+     * ForecastService} for a row inserted with a rating or a triage reason (the synchronous engine,
+     * a triage or sentinel row), and {@code ForecastResultHandler#scoreEvaluationRow} for a batch's
+     * {@code PENDING} row scored in place. A row still {@code PENDING} or {@code ABANDONED}, an
+     * {@code HOURLY} comfort row keep {@code null}, and so does a row written before V178 that had
+     * nothing to say; one that had a rating or a triage reason was stamped once, with its
+     * {@link #forecastRunAt}, by V183 (a deliberate, bounded backfill, outcome-rating plan §0 O7).
+     *
+     * <p>⚠️ <b>Not {@link #forecastRunAt}.</b> That is a SUBMISSION instant (a batch row is stamped
+     * when built, before its batch's own submit time is known, and the Batch API may land the result
+     * a day later), so it cannot say what existed at a given moment. {@code AsOfEventResolver} uses
+     * this column as the availability bound alone and {@code forecastRunAt} as the retraction
+     * comparison, exactly as {@code EvaluationViewService} compares a stability skip with the
+     * submission instant. A {@code null} here is never a candidate for the as-of-event resolution.
+     */
+    @Column(name = "scored_at")
+    private Instant scoredAt;
+
+    /**
+     * The release ({@code APP_VERSION}, V182) running when this row got its rating or triage reason,
+     * stamped beside {@link #scoredAt} at the same two seams. {@code null} for a row not yet scored
+     * and for every row written before V182. The calibration report buckets by it.
+     */
+    @Column(name = "app_build", length = 40)
+    private String appBuild;
+
+    /**
+     * SHA-256 (hex) of the SKY system prompt this row's batch request carried (V182), stamped when
+     * the batch is submitted. The system prompt rather than the whole user message, because the user
+     * message embeds the slot's own weather and would differ on every row. {@code null} for a row
+     * with no batch request behind it (the synchronous engine, a triage row, a comfort row), for a
+     * woodland or bluebell request and for every row written before V182.
+     */
+    @Column(name = "prompt_hash", length = 64)
+    private String promptHash;
 
     /**
      * Convenience accessor for the owning location's name.

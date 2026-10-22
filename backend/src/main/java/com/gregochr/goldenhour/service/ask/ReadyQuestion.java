@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * The Ready catalogue (plan §2.4): the questions PhotoCast answers ahead of time, once per scope,
@@ -35,11 +36,13 @@ public enum ReadyQuestion {
     BEST_WEEKEND(true, true, Events.NONE, "plan", "map") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
-            List<String> ids = windowsWithCandidates(snapshot, scope, w ->
+            Predicate<AskSnapshot.Window> weekend = w ->
                     w.date().getDayOfWeek() == DayOfWeek.SATURDAY
-                            || w.date().getDayOfWeek() == DayOfWeek.SUNDAY);
+                            || w.date().getDayOfWeek() == DayOfWeek.SUNDAY;
+            List<String> ids = windowsWithCandidates(snapshot, scope, weekend);
             return ids.isEmpty() ? Optional.empty()
-                    : Optional.of(new Offer("Best spot this weekend?", ids, null));
+                    : Optional.of(new Offer("Best spot this weekend?", ids, null,
+                            windowIds(snapshot, weekend)));
         }
     },
 
@@ -52,7 +55,8 @@ public enum ReadyQuestion {
             }
             List<String> ids = windowsWithCandidates(snapshot, scope, w -> true);
             return ids.size() < 2 ? Optional.empty()
-                    : Optional.of(new Offer("Best spot in the next few days?", ids, null));
+                    : Optional.of(new Offer("Best spot in the next few days?", ids, null,
+                            windowIds(snapshot, w -> true)));
         }
     },
 
@@ -83,7 +87,8 @@ public enum ReadyQuestion {
                 }
             }
             return ids.isEmpty() ? Optional.empty()
-                    : Optional.of(new Offer("Best coastal spot at high tide?", ids, null));
+                    : Optional.of(new Offer("Best coastal spot at high tide?", ids, null,
+                            windowIds(snapshot, w -> true)));
         }
     },
 
@@ -196,12 +201,34 @@ public enum ReadyQuestion {
      *                        question
      * @param contextWindowId the one window the conversation should treat as the reader's context
      *                        ({@code BEST_NEXT}'s next window), or null
+     * @param coveredWindowIds the windows the question is ABOUT, which is a temporal set and not the
+     *                        candidate-bearing {@code windowIds}: {@code BEST_WEEKEND} every window set
+     *                        Saturday and Sunday window, {@code BEST_SOON} and {@code COASTAL_HIGH}
+     *                        every solar window, {@code BEST_NEXT} the next window, {@code AM_OR_PM}
+     *                        both windows of its date. An all-blue Saturday beside a game-on Sunday is
+     *                        in this set and not in {@code windowIds}; the Ready prompt names this set,
+     *                        the no-pick admission is judged over it and the answer carries its
+     *                        spreads. {@code windowIds} keeps its own two jobs, the offer gate and
+     *                        {@link ReadyRelevance#admitsPick}'s set
      */
-    public record Offer(String text, List<String> windowIds, String contextWindowId) {
+    public record Offer(String text, List<String> windowIds, String contextWindowId,
+            List<String> coveredWindowIds) {
 
-        /** Canonical constructor: takes an immutable copy of the window ids. */
+        /** Canonical constructor: takes immutable copies of the window id lists. */
         public Offer {
             windowIds = List.copyOf(windowIds);
+            coveredWindowIds = List.copyOf(coveredWindowIds);
+        }
+
+        /**
+         * An offer whose covered windows are its own windows.
+         *
+         * @param text            the question text
+         * @param windowIds       the windows the question is about
+         * @param contextWindowId the context window, or null
+         */
+        public Offer(String text, List<String> windowIds, String contextWindowId) {
+            this(text, windowIds, contextWindowId, windowIds);
         }
     }
 
@@ -292,9 +319,15 @@ public enum ReadyQuestion {
 
     // -- shared helpers -----------------------------------------------------------------------
 
+    /** The ids of every window of the window set that passes {@code filter}, chronological. */
+    private static List<String> windowIds(AskSnapshot snapshot,
+            Predicate<AskSnapshot.Window> filter) {
+        return snapshot.windows().stream().filter(filter).map(AskSnapshot.Window::id).toList();
+    }
+
     /** The ids of the windows that pass {@code filter} and have a pick-eligible slot in scope. */
     private static List<String> windowsWithCandidates(AskSnapshot snapshot, AskScope scope,
-            java.util.function.Predicate<AskSnapshot.Window> filter) {
+            Predicate<AskSnapshot.Window> filter) {
         return snapshot.windows().stream()
                 .filter(filter)
                 .filter(w -> !snapshot.candidates(w, scope).isEmpty())

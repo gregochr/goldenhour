@@ -206,10 +206,12 @@ import java.util.List;
  *                                     {@code ForceEvalHeadlineSelector} and
  *                                     {@code BriefingEvaluationResult#forced}. A region with
  *                                     this {@code true} is exempt from the {@link #sampleSufficient}
- *                                     gate outright: its verdict, pick eligibility and ranking follow
- *                                     the rated average exactly as they did before the minimum-sample
- *                                     rule existed, and its confidence takes no extra floor from that
- *                                     rule. Owner decision, 2026-09-29: force-evaluation exists to
+ *                                     gate outright: its verdict and ranking order follow the rated
+ *                                     average exactly as they did before the minimum-sample rule
+ *                                     existed (but, since 2026-10-22, it is NOT pick-eligible: a
+ *                                     pick needs a sufficient sample, see
+ *                                     {@link #pickEligible()}), and its confidence takes no extra
+ *                                     floor from that rule. Owner decision, 2026-09-29: force-evaluation exists to
  *                                     crown a far-out day with real Claude evidence, and a
  *                                     minimum-sample rule with no exemption would have left it
  *                                     spending calls for stars alone, since a handful of forced
@@ -236,6 +238,18 @@ import java.util.List;
  *                                     <p>Nullable, {@code NON_NULL}, no migration — the
  *                                     {@code confidence} precedent; {@code null} on a legacy payload
  *                                     reads as unknown, never as exempt.
+ * @param coverageReason               why the honesty filter blanked this region, for a reader that
+ *                                     must tell a real weather stand-down ({@link
+ *                                     CoverageReason#STOOD_DOWN}) from the "no record" the filter
+ *                                     words AWAITING ({@link CoverageReason#UNKNOWN}). Set ONLY by
+ *                                     {@code BriefingHonestyFilter}'s zero-coverage rewrite on the
+ *                                     serve path, so it is never persisted into {@code
+ *                                     daily_briefing_cache}; {@code null} on every region the filter
+ *                                     did not blank and on a legacy payload, which reads as "not
+ *                                     known" (never as a stand-down). Ask PhotoCast is its only reader
+ *                                     (the window spread's region tallies); the Plan tab ignores it.
+ *                                     Every {@code with...} method below carries it, because the
+ *                                     assembler rebuilds each region after the filter.
  */
 public record BriefingRegion(
         String regionName,
@@ -258,7 +272,8 @@ public record BriefingRegion(
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer bestRating,
         @JsonInclude(JsonInclude.Include.NON_NULL) Double meanRatingDelta,
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean sampleSufficient,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean forcedSample) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean forcedSample,
+        @JsonInclude(JsonInclude.Include.NON_NULL) CoverageReason coverageReason) {
 
     /**
      * Canonical constructor: takes immutable copies of {@code tideHighlights} and {@code slots}, so
@@ -268,6 +283,50 @@ public record BriefingRegion(
     public BriefingRegion {
         tideHighlights = List.copyOf(tideHighlights);
         slots = List.copyOf(slots);
+    }
+
+    /**
+     * Backwards-compatible convenience constructor matching the pre-{@code coverageReason} canonical
+     * signature, so every existing 21-arg call site keeps compiling. Defaults {@code coverageReason}
+     * to {@code null} ("not blanked by the honesty filter, or not known").
+     *
+     * @param regionName                       display name
+     * @param verdict                          triage verdict
+     * @param summary                          one-line summary
+     * @param tideHighlights                   tide summary lines
+     * @param slots                            per-location assessments
+     * @param regionTemperatureCelsius         representative temperature
+     * @param regionApparentTemperatureCelsius feels-like temperature
+     * @param regionWindSpeedMs                representative wind speed
+     * @param regionWeatherCode                WMO weather code
+     * @param glossHeadline                    Claude gloss headline
+     * @param glossDetail                      Claude gloss detail
+     * @param displayVerdict                   unified colour/label signal
+     * @param scoredLocationCount              how many locations contributed a rating
+     * @param verdictLabel                     pill-label override
+     * @param lightlyEvaluated                 thin-coverage flag
+     * @param confidence                       derived confidence, or null
+     * @param meanRating                       the 1dp voting mean, or null
+     * @param bestRating                       the voting max, or null
+     * @param meanRatingDelta                  the 1dp movement since the last build, or null
+     * @param sampleSufficient                 whether the raw sample-size test passed, or null
+     * @param forcedSample                     whether the force-evaluation exemption applies, or null
+     */
+    public BriefingRegion(String regionName, Verdict verdict, String summary,
+            List<String> tideHighlights, List<BriefingSlot> slots,
+            Double regionTemperatureCelsius, Double regionApparentTemperatureCelsius,
+            Double regionWindSpeedMs, Integer regionWeatherCode,
+            String glossHeadline, String glossDetail,
+            DisplayVerdict displayVerdict, int scoredLocationCount,
+            String verdictLabel, boolean lightlyEvaluated, Confidence confidence,
+            Double meanRating, Integer bestRating, Double meanRatingDelta,
+            Boolean sampleSufficient, Boolean forcedSample) {
+        this(regionName, verdict, summary, tideHighlights, slots,
+                regionTemperatureCelsius, regionApparentTemperatureCelsius,
+                regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
+                displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
+                confidence, meanRating, bestRating, meanRatingDelta, sampleSufficient,
+                forcedSample, null);
     }
 
     /**
@@ -412,7 +471,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, newMeanRating,
-                bestRating, meanRatingDelta, sampleSufficient, forcedSample);
+                bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason);
     }
 
     /**
@@ -430,7 +489,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
-                newBestRating, meanRatingDelta, sampleSufficient, forcedSample);
+                newBestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason);
     }
 
     /**
@@ -448,7 +507,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
-                bestRating, newMeanRatingDelta, sampleSufficient, forcedSample);
+                bestRating, newMeanRatingDelta, sampleSufficient, forcedSample, coverageReason);
     }
 
     /**
@@ -468,7 +527,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
-                bestRating, meanRatingDelta, newSampleSufficient, forcedSample);
+                bestRating, meanRatingDelta, newSampleSufficient, forcedSample, coverageReason);
     }
 
     /**
@@ -486,7 +545,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
-                bestRating, meanRatingDelta, sampleSufficient, newForcedSample);
+                bestRating, meanRatingDelta, sampleSufficient, newForcedSample, coverageReason);
     }
 
     /**
@@ -515,6 +574,22 @@ public record BriefingRegion(
      */
     public boolean verdictEligible() {
         return Boolean.TRUE.equals(sampleSufficient) || Boolean.TRUE.equals(forcedSample);
+    }
+
+    /**
+     * Whether this region may be named a pick: BEST BET or ALSO GOOD on the Plan tab, an entry in
+     * {@code DailyBriefingResponse.bestBets} or {@code pipeline_run_pick}, or an Ask pick. Owner
+     * decision, 2026-10-22: a pick is a recommendation to drive somewhere, and a handful of
+     * force-evaluated ratings in a large region is too thin a basis for one, so unlike {@link
+     * #verdictEligible()} this does NOT count the {@link #forcedSample} exemption — a sufficient
+     * sample only. The exemption still sets the verdict word, stars and ordering.
+     *
+     * <p>{@code null} (a payload cached before the rule existed) reads as not eligible.
+     *
+     * @return true only when the region's rated sample cleared {@code VerdictSampleGate}
+     */
+    public boolean pickEligible() {
+        return Boolean.TRUE.equals(sampleSufficient);
     }
 
     /**
@@ -570,7 +645,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, true, confidence, meanRating, bestRating,
-                meanRatingDelta, sampleSufficient, forcedSample);
+                meanRatingDelta, sampleSufficient, forcedSample, coverageReason);
     }
 
     /**
@@ -586,7 +661,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, newConfidence, meanRating,
-                bestRating, meanRatingDelta, sampleSufficient, forcedSample);
+                bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason);
     }
 
     /**
@@ -604,7 +679,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, newGlossHeadline, newGlossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
-                bestRating, meanRatingDelta, sampleSufficient, forcedSample);
+                bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason);
     }
 
     /**
@@ -624,7 +699,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
-                bestRating, meanRatingDelta, sampleSufficient, forcedSample);
+                bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason);
     }
 
     /**

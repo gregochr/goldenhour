@@ -63,17 +63,6 @@ vi.mock('../components/BottomSheet.jsx', () => ({
 vi.mock('../components/MarkerPopupContent.jsx', () => ({
   default: () => <div data-testid="popup-content" />,
 }));
-// map-tab-v2-plan.md §3 P6 removed `ForecastTypeSelector` from the Map TAB mount (the only mount
-// this file renders — no test here uses `overlayMode`), so the event-type switch its old mocked
-// `type-sunrise` button drove now goes through the real `components/map/WindowControl.jsx`
-// instead (see `switchToSunrise` below). Left mocked to a no-op rather than deleted: `MapView`
-// still imports the real component for its overlay path, and this keeps that import inert here.
-vi.mock('../components/ForecastTypeSelector.jsx', () => ({
-  default: () => null,
-  EVENT_TYPE_LABELS: {
-    SUNRISE: '☀️ Sunrise', SUNSET: '🌇 Sunset', ASTRO: '🌙 Astro', AURORA: '🌌 Aurora',
-  },
-}));
 vi.mock('../components/InfoTip.jsx', () => ({
   default: () => null,
 }));
@@ -163,9 +152,8 @@ function switchToSunrise() {
 // drawer (`advanced-filters-toggle`/`advanced-filters-panel`, `filter-summary`'s text) in favour
 // of `FiltersPopover` — a click-to-open chip (`wf-filters-chip`) whose panel (`wf-filters-panel`)
 // mounts its rows only while open, and whose chip shows a COUNT rather than a text summary
-// (README §4: "chip `Filters (N)`"). The overlay's own drawer is untouched — see
-// `MapViewOverlayContext.test.jsx`'s "Plan tab drill-down" suite, which still exercises it. Old
-// pins named in-line below, each replaced rather than deleted.
+// (README §4: "chip `Filters (N)`"). (The Plan-tab overlay's own drawer went with the overlay,
+// overlay convergence C5.) Old pins named in-line below, each replaced rather than deleted.
 describe('MapView filters popover', () => {
   beforeEach(() => { localStorage.clear(); });
   afterEach(() => { localStorage.clear(); });

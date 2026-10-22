@@ -1,3 +1,4 @@
+import { REACH_TIERS } from './reachLens.js';
 import { RAMP_MAX, RAMP_MIN } from './scoreRamp.js';
 
 /**
@@ -74,6 +75,27 @@ import { RAMP_MAX, RAMP_MIN } from './scoreRamp.js';
  * contradict the map over the same fact. It carries its own, larger minimum height ({@link
  * SPREAD_UNRATED_BAR_MIN_PX}) than a rated band's floor — a 1px-thin hatch is not reliably
  * recognisable as a hatch rather than a hairline at the size a band's own floor would allow.
+ *
+ * <h2>Naming the pool and printing the counts (spread-row-plan.md, 2026-10-15)</h2>
+ *
+ * <p>The row draws the right picture but does not say out loud WHICH pool the bars were counted
+ * over (the reach tier lives in the lens bar, three cards away) or HOW MANY sit in each band (the
+ * tooltip alone says). {@link spreadQualifier} and {@link spokenPoolPhrase} name the pool, in the
+ * compact form for the label and the long form for speech; {@link formatSpreadCount}, {@link
+ * spreadColumnWidthPx}, {@link spreadCountLayout} and {@link spreadCountLayoutAcross} size the
+ * counts; {@link spreadBandsSpoken} gives the accessible sentence the figures the eye now reads.
+ * All of them are filter/map/select over the A10/A27 pool and the lens's own tiers — the already-licensed class of the CLAUDE.md
+ * "Backend-heavy" bullet, not a new member of it: nothing here decides a verdict, a rating or a
+ * pick, and nothing reads a clock or per-user state beyond the plain booleans and numbers the
+ * caller hands in.
+ *
+ * <p><b>The qualifier is silent where it could not be true.</b> An unknown drive passes every tier
+ * (see above), so a pool holding one was not wholly gated at the active tier and the label would
+ * be counting places it never measured. {@link spreadQualifier} therefore answers {@code null}
+ * under a finite tier unless the caller says every drive was measured — and the caller must pass
+ * the card's POOL-WIDE answer ({@link poolWithinReach}), never "some spot in the window has a
+ * drive", which is true of a mixed pool. Under "Any" nothing was gated, so the words "any drive"
+ * claim no gate and are always safe.
  */
 
 /** The bands, lowest first — the ramp's own domain, so a re-based ramp cannot silently widen this. */
@@ -356,4 +378,205 @@ export function spreadTitle(spread, withinReach) {
     .reverse()
     .join(', ');
   return `${lead} — ${bands}${unratedPhrase(spread)}`;
+}
+
+/** The narrowest a count column is drawn, in px — one character of count, and the gap's floor. */
+export const SPREAD_COLUMN_MIN_PX = 9;
+/** The widest a count column is drawn, in px — a four-character count (`1.2k`) at the smaller type fits it. */
+export const SPREAD_COLUMN_MAX_PX = 17;
+/** How wide one character of the count type is, in px — the column is `chars` of these, clamped. */
+export const SPREAD_COLUMN_CHAR_PX = 5.2;
+/** The longest count, in characters, drawn at the normal count type; beyond it the row shrinks the type. */
+export const SPREAD_COUNT_NORMAL_MAX_CHARS = 3;
+
+/** Counts below this print raw — `999`, never `1k`. */
+export const SPREAD_COUNT_RAW_BELOW = 1000;
+/** Counts below this print as `k` with one decimal; from here a whole `k` (`10k`), so the width stops at four. */
+export const SPREAD_COUNT_ONE_DECIMAL_BELOW = 9950;
+
+/**
+ * A band's count as printed under its bar: `< 1000` raw, `< 9950` one decimal and a `k` with a
+ * trailing `.0` dropped (`1.2k`, `1k`), else a rounded `k` (`12k`). Counts only ever grow with the
+ * catalogue, so the printed width is bounded at four characters for any pool up to ~99k places.
+ *
+ * <p>The tenths are rounded half-up in integers ({@code Math.round(n / 100)}), not with
+ * {@code toFixed(1)}: binary floating point makes {@code (1.15).toFixed(1)} "1.1" and
+ * {@code (1.25).toFixed(1)} "1.3", so the design prototype's own formatter rounds some hundreds
+ * the wrong way. The difference is at most 50 on a count past a thousand.
+ *
+ * @param {number} count a band's (or the unrated remainder's) count
+ * @returns {string} the printed count; a non-finite or negative input prints as {@code "0"}
+ */
+export function formatSpreadCount(count) {
+  const n = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+  if (n < SPREAD_COUNT_RAW_BELOW) return String(n);
+  if (n < SPREAD_COUNT_ONE_DECIMAL_BELOW) {
+    const tenths = Math.round(n / 100);
+    return tenths % 10 === 0 ? `${tenths / 10}k` : `${Math.floor(tenths / 10)}.${tenths % 10}k`;
+  }
+  return `${Math.round(n / 1000)}k`;
+}
+
+/**
+ * The width every count column is drawn at, in px: {@code chars × 5.2} clamped to
+ * 9–17. One width for all six columns of a card (and, via {@link spreadCountLayoutAcross}, for every
+ * card of the strip), so the bars stay evenly spaced whatever the
+ * longest count is. Rounded to two decimals because it is written into an inline custom property
+ * and {@code 3 × 5.2} is {@code 15.600000000000001} in floating point.
+ *
+ * @param {number} chars the longest printed count on the card, in characters
+ * @returns {number} the column width in px
+ */
+export function spreadColumnWidthPx(chars) {
+  const raw = (Number.isFinite(chars) ? chars : 0) * SPREAD_COLUMN_CHAR_PX;
+  const clamped = Math.min(SPREAD_COLUMN_MAX_PX, Math.max(SPREAD_COLUMN_MIN_PX, raw));
+  return Math.round(clamped * 100) / 100;
+}
+
+/**
+ * The per-card layout of the counts: how wide the columns are and whether the type drops a size.
+ * The strip draws the widest of these on every card ({@link spreadCountLayoutAcross}); this is the
+ * primitive it folds.
+ *
+ * <p>⚠️ <b>The hatched unrated bar's count takes part in {@code chars}.</b> It is a printed count
+ * like the five bands' — usually the LARGEST on the card (most of a large catalogue is
+ * unrated) — so leaving it out would size the columns for single-digit bands and clip a
+ * {@code 1.2k} remainder. Pass {@code null} for it where it is not drawn (a fully-rated pool, or
+ * a row below the minimum-sample gate), and it counts for nothing.
+ *
+ * @param {Array<{count: number}>} bars the five bands, from {@link spreadBars}
+ * @param {?{count: number}} unrated the remainder's bar from {@link unratedBar}, or null
+ * @returns {{chars: number, widthPx: number, small: boolean}} the longest printed count, the
+ *          column width, and whether the counts take the smaller type ({@code chars > 3})
+ */
+export function spreadCountLayout(bars, unrated) {
+  const drawn = [...(Array.isArray(bars) ? bars : []), ...(unrated ? [unrated] : [])];
+  const chars = drawn.reduce(
+    (longest, bar) => Math.max(longest, formatSpreadCount(bar?.count).length),
+    0,
+  );
+  return {
+    chars,
+    widthPx: spreadColumnWidthPx(chars),
+    small: chars > SPREAD_COUNT_NORMAL_MAX_CHARS,
+  };
+}
+
+/**
+ * The ONE count-column layout every card in the strip is drawn at: the widest of the per-card
+ * layouts, with its width and its type size.
+ *
+ * <p>Neighbours in a row make the same decision so their wells line up — the reasoning
+ * spread-row-plan.md §2 #2 gives for the stacked-state threshold, applied to the column width. The
+ * design bundle sized each card alone, and two cards side by side then drew histograms of different
+ * widths (a longest count of {@code 91} against {@code 125}: 10.4px columns against 15.6px), which
+ * reads as the two windows being measured differently when only their pools differ in size.
+ *
+ * <p>A card that draws no bars (an away cell, a row below the minimum-sample gate) passes
+ * {@code null} and contributes nothing, so a thousand-place pool that only prints text cannot widen
+ * its neighbours' columns. With nothing drawn at all the layout is the one-character floor, which
+ * is what a drawn card with only zero counts gets.
+ *
+ * @param {Array<?{chars: number}>} layouts each card's {@link spreadCountLayout}, or null where no
+ *        bars are drawn
+ * @returns {{chars: number, widthPx: number, small: boolean}} the longest printed count across the
+ *          strip (at least one character), the column width and whether the type drops a size
+ */
+export function spreadCountLayoutAcross(layouts) {
+  const chars = (Array.isArray(layouts) ? layouts : []).reduce(
+    (longest, layout) => Math.max(longest, layout && Number.isFinite(layout.chars) ? layout.chars : 0),
+    1,
+  );
+  return {
+    chars,
+    widthPx: spreadColumnWidthPx(chars),
+    small: chars > SPREAD_COUNT_NORMAL_MAX_CHARS,
+  };
+}
+
+/** What a finite-tier qualifier opens with, in text and speech alike — {@link spokenPoolPhrase} keys on it. */
+const GATED_PREFIX = 'within ';
+/** The qualifier under "Any" — claims no gate, so it needs no measured drive to be true. */
+const ANY_QUALIFIER = Object.freeze({ text: 'any drive', spoken: 'any drive' });
+
+/**
+ * The Spread row's second label line: the reach tier the pool was gated at, in two forms.
+ *
+ * <p>{@code text} is the compact form the label prints ({@code within 45m}, {@code within 1h30},
+ * {@code within 2h30}, {@code any drive}), built from the tier's {@code shortLabel}; {@code spoken}
+ * is the lens bar's own long form lower-cased ({@code within 45 min}, {@code within 1h 30min}),
+ * built from its {@code label}, because "45m" is voiced as a letter. Both come from the tiers
+ * rather than a table here, so a retuned tier cannot leave the row naming a threshold the lens no
+ * longer offers.
+ *
+ * <p>{@code null} — no second line at all — under a finite tier when {@code withinReach} is false,
+ * and for a threshold that matches no tier (silence is the safe direction): see the class comment.
+ * ⚠️ {@code withinReach} must be the card's POOL-WIDE answer ({@link poolWithinReach}, or
+ * {@code card.reachMeasured} for an empty pool), the very predicate the tooltip's "within reach"
+ * reads, so the label and the tooltip cannot disagree. Under "Any" ({@code reachLimitMinutes}
+ * exactly {@code null}) the answer is {@code any drive} whatever {@code withinReach} says; an
+ * {@code undefined} threshold is an unresolved lens, not Any, and stays silent.
+ *
+ * @param {{reachLimitMinutes: ?number, withinReach: boolean}} args the active tier's threshold
+ *        (null under Any) and whether every spot in the pool has a measured drive
+ * @param {Array} [tiers] the reach tiers to read, {@link REACH_TIERS} by default
+ * @returns {?{text: string, spoken: string}} the qualifier, or null
+ */
+export function spreadQualifier({ reachLimitMinutes, withinReach }, tiers = REACH_TIERS) {
+  if (reachLimitMinutes === null) return ANY_QUALIFIER;
+  if (reachLimitMinutes === undefined || !withinReach) return null;
+  const tier = tiers.find((t) => t.limitMinutes === reachLimitMinutes);
+  if (!tier?.shortLabel || !tier.label) return null;
+  return {
+    text: `${GATED_PREFIX}${tier.shortLabel}`,
+    spoken: `${GATED_PREFIX}${tier.label.toLowerCase()}`,
+  };
+}
+
+/**
+ * The pool clause of the card's accessible sentence, naming the same pool the visible label names:
+ * {@code 7 locations within 45 min} / {@code 7 locations, any drive}, and the bare
+ * {@code 7 locations} for a null qualifier — byte for byte {@code poolPhrase(total, false)}, so a
+ * mixed pool's sentence is exactly what it was. A pool of zero says so only when there is a
+ * qualifier to voice ({@code no locations within 45 min}); with none it answers {@code null}, the
+ * empty-pool path's existing silence (the Best row's own clause already states the fact).
+ *
+ * <p>The tooltip keeps {@link poolPhrase}'s "within reach" — it sits beside the label that names
+ * the tier, so a pointer reader sees no mismatch; speech has no such neighbour.
+ *
+ * @param {number} total the pool's size
+ * @param {?{spoken: string}} qualifier from {@link spreadQualifier}
+ * @returns {?string} the clause
+ */
+export function spokenPoolPhrase(total, qualifier) {
+  if (total === 0 && !qualifier) return null;
+  const base = total === 0 ? 'no locations' : poolPhrase(total, false);
+  if (!qualifier) return base;
+  return qualifier.spoken.startsWith(GATED_PREFIX)
+    ? `${base} ${qualifier.spoken}`
+    : `${base}, ${qualifier.spoken}`;
+}
+
+/**
+ * The visible band counts as words, for the accessible sentence: the NON-ZERO bands only, highest
+ * first, {@code "2 at 5 stars, 3 at 3 stars"}. Worded ("stars", singular for one), never the
+ * {@code ★} glyph, which a screen reader may skip or name. Zero bands are left out so a six-card
+ * strip stays scannable — the tooltip keeps all five. The sentence for an all-zero spread is the
+ * empty string, so a caller composes without a stray separator.
+ *
+ * <p>⚠️ This does not know about the minimum-sample gate: it voices whatever bands it is given. Only
+ * a row that DRAWS bars ({@link spreadRowState}{@code .bars}) prints counts a reader could hear
+ * repeated, so the caller must call it in bars mode alone — below the gate the visible text is
+ * {@code N/M rated} and the spoken form is {@code spreadRowState().spoken}.
+ *
+ * @param {object} spread the result of {@link buildSpread}
+ * @returns {string} the clause, or ''
+ */
+export function spreadBandsSpoken(spread) {
+  return SPREAD_STARS
+    .map((star, index) => ({ star, count: spread?.counts?.[index] ?? 0 }))
+    .filter((band) => band.count > 0)
+    .reverse()
+    .map((band) => `${band.count} at ${band.star} star${band.star === 1 ? '' : 's'}`)
+    .join(', ');
 }

@@ -1,6 +1,6 @@
 # P1: wasted trips, the canvas rule and far decks, measured on the history we already have
 
-**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13).
+**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13). Part A run for the Angel 2026-10-21 (§14): a forecastable far high lid behind the canvas, unread by the prompt. Meteosat agrees (2026-10-21). Part B re-run on the verified Sonnet 5.5 era 2026-10-21 (§15): keeping Sonnet 5.5 is evidence-backed. Far-lid rule sized on the first week of capture (§16): the single far-point reading is not a detector; the Angel shape is n = 1. The 15 Oct Meteosat frame (2026-10-22) refutes the far lid as the Angel's cause: the fault is a weak local canvas (§16, §9 item 7). Weak-canvas shape sized on stored data (§17, 2026-10-22).
 
 **Parent:** `far-cloud-lid-plan.md` §6 P1, which pre-registered hypotheses H1–H5. This plan builds P1
 and adds the analyses the reviews showed P1 cannot do without. Where it departs from a P1 rule, it
@@ -168,7 +168,7 @@ hour's own solar azimuth.
 
 **Owner's manual step, about 10 minutes.**
 - Look at Meteosat imagery for 13 October 15:30–17:20 UTC along the 257° bearing (EUMETSAT's public
-  viewer or any archive viewer).
+  viewer or any archive viewer) (done 2026-10-21, §14).
 - This is the plan's only observation, rather than a model.
 
 **Status.** Part A is exploratory, because it is the training case. It may say which mechanism to
@@ -396,7 +396,7 @@ Everything lives under `scripts/far-cloud-p1/`, plus one test-only Java change. 
 
 ## 9. Owner decisions
 
-1. **Interim protection, now.** — **Decided 2026-10-15: Batch Near-Term stays on Sonnet 5.5 until the question is resolved** (the Part B re-run after ERA5 verification reaches the Sonnet 5.5 era, §12 step 6, or Part E outcomes). D-2's second condition was met (§13) and the owner chose not to act on one case plus a disagreement whose truth is unknown.
+1. **Interim protection, now.** — **Decided 2026-10-15: Batch Near-Term stays on Sonnet 5.5 until the question is resolved** (the Part B re-run after ERA5 verification reaches the Sonnet 5.5 era, §12 step 6, or Part E outcomes). D-2's second condition was met (§13) and the owner chose not to act on one case plus a disagreement whose truth is unknown. §15 supports this.
    - Should Batch Near-Term go back to Sonnet 4.6 until Parts D and B report?
    - It is reversible on the Models screen.
    - The P0 evidence is one case: 4.6 gave 3★ 20/20 where 5.5 gave 4★ 20/20. — see §13 for the D-2 reading.
@@ -408,6 +408,7 @@ Everything lives under `scripts/far-cloud-p1/`, plus one test-only Java change. 
 4. Part E's protocol: which locations, and who records.
 5. Whether Part A should also run for the other training cases.
 6. **Open:** whether to buy a narrower R1 arm that fires only on the Angel shape (10 of 513 gos), at about $4 (§13). Not yet decided.
+7. **A weak-canvas rule, not a lid rule** — the shape the Angel establishes is 'clear overhead (observer mid and high < 20%) with cirrus only at the horizon (cone high ≥ 60%, cone low < 20%)': a weak canvas whatever lies behind it, since §16 shows the far deck present under a 4★ sky too. No far-point clause. Open; n = 1 rated (the Angel, 2026-10-13); every input it needs was already in the prompt before V175, so it could be sized on the whole Sonnet 5.5 era and replayed on stored prompts — a prompt-wording change, cost unestimated, not yet proposed. The V175/V176 far capture stays on for H1/H2's prospective test (§12 step 10) but is no longer this rule's input.
 
 ## 10. Review record (2026-10-14)
 
@@ -503,9 +504,9 @@ Written after the exports, Part B, the Part D set, the probe fix (#1166) and the
 5. **Part E starts now** (§2 Part E): 5–8 named locations, two with a westward high horizon like the Angel; every go recorded with `POST /api/outcome` whatever the sky did.
 
 **Two to three weeks**
-6. **ERA5 verification catching up with Sonnet 5.5.** At the 2026-10-14 export the latest verified `target_date` was 2026-10-04 and Sonnet 5.5's first run was 2026-10-06, so every Sonnet 5.5 go was premise-unknown and Part B judged Haiku's gos only. The hourly `cloud_verification_backfill` job walks forward in slices; check `GET /api/admin/cloud-verification/backfill/status` weekly, and when verification passes about 2026-10-14, re-export `p1_forecasts.csv` and re-run Part B (free, no network). That is the first Part B that can judge Sonnet 5.5 gos and the Angel row.
+6. **ERA5 verification catching up with Sonnet 5.5.** At the 2026-10-14 export the latest verified `target_date` was 2026-10-04 and Sonnet 5.5's first run was 2026-10-06, so every Sonnet 5.5 go was premise-unknown and Part B judged Haiku's gos only. The hourly `cloud_verification_backfill` job walks forward in slices; check `GET /api/admin/cloud-verification/backfill/status` weekly, and when verification passes about 2026-10-14, re-export `p1_forecasts.csv` and re-run Part B (free, no network). That is the first Part B that can judge Sonnet 5.5 gos and the Angel row. **Done 2026-10-21 (§15)**; re-run again when verification passes the end of October to widen the Sonnet 5.5 sample.
 7. **Part C in the background**, now the probe passes: `size.py` under the 60-call daily Open-Meteo weight, so weeks; drop it if steps 3 and 6 settle the question.
-8. **Part A** (§9 Q5): about a week of calls, only if step 3 leaves the Angel mechanism open.
+8. **Part A** (§9 Q5): about a week of calls, only if step 3 leaves the Angel mechanism open. **Done 2026-10-21 for the Angel (§14)**; the other training cases (§9 Q5) are not run.
 
 **Months**
 9. **Twenty outcomes** at a few a week; the report dates its finish from the rate achieved. A star change waits for this.
@@ -556,3 +557,195 @@ That is about $6.28 in total at batch prices, primer batches excluded. Every arm
 - Under the owner's requirement (a wasted trip costs more than a missed sky), a model that withdraws a quarter of the other's gos is the safe direction if the two are equally accurate, and the switch is reversible.
 - R1 at a 55 cap is rejected as drafted. A narrower R1 that fires only on the Angel shape (10 of 513 gos) is a possible follow-up arm at about $4, not yet decided (§9 item 6, open).
 - Part B re-run after verification will say whether the 127 gos Sonnet 4.6 withdrew fail P-low more often than the 386 it kept. That is the one test that can adjudicate the switch without outcomes.
+
+## 14. Part A result: the Angel's sun line (2026-10-21)
+
+**Run.** `case.py --row-csv p1_forecasts.csv --row-id 101110` on 2026-10-21: 18 requests, 288 Open-Meteo weighted calls, no Anthropic spend. The report is `~/goldenhour-p1/case_2026-10-13.md` and `.csv` on the owner's Mac (not committed).
+- **Sources:** ERA5 (`models=era5`); the Historical Forecast API's day-0 low, mid and high for `best_match`, `ukmo_seamless`, `ecmwf_ifs025` and `icon_seamless`; and its pressure levels (§11 explains why day 0 is the only forecast lead).
+- **Transect:** every 25 km from 0 to 400 km along each hour's own solar azimuth, at 16:00, 17:00 and 18:00 UTC. Sunset was 17:14 UTC. The production slot was 17:00, with the sun 1.3° up at azimuth 255°.
+
+**What the production prompt saw** (the stored prompt for evaluation 101110):
+- Overhead: `Low 0%, Mid 0%, High 0%`.
+- Solar horizon at 113 km: `Low 7%, Mid 24%, High 91%`, which is a cirrus canvas.
+- Antisolar: 0/0/0.
+- `Beyond horizon (226km, solar azimuth): Low 0%`. The prompt carried no far mid or high: V175 has recorded them since 2026-10-13, but no prompt reads them.
+- Sonnet 5.5 rated it 4★ (20 of 20 in replay). The observed sky was 2★.
+
+**What lay on the sun line at 17:00 UTC:**
+- ERA5 high cloud was 96–99% from 125 km and 99–100% from 225 km to 400 km. Mid cloud was 21–49% from 125 km. Low cloud stayed under 25% to 325 km.
+- Every one of the four forecast models (day 0, issued that day) shows high cloud at 98–100% from 225 km to at least 325 km: `best_match` and `ukmo_seamless` 100% at 225–300 km, `ecmwf_ifs025` 100% at 225–375 km, `icon_seamless` 100% at 225–350 km.
+- The ray from the Angel at 1.3° reaches the 8 km high band at about 225 km (the report's own `h(d)` line gives 9.1 km at 225 km). That is exactly where the continuous deck begins, so the 113 km canvas sat under a lid the setting sun could not get beneath.
+- At 16:00 UTC (sun 9°) the same deck is present from 150 km in ERA5 (99–100%) and from 175 km in all four models.
+
+**Reading.**
+- The Angel false go is the far-lid mechanism of H1 and H2: a horizon canvas with a continuous high deck behind it along the sun line.
+- It was forecastable on the day, since all four models agree with ERA5, but the prompt did not read it: production sampled only low cloud at 226 km.
+- The far-cloud-lid-plan's P2 capture (V175/V176) now records far mid/high and the pressure levels for every slot. The prospective H1, H2 and H5 test (§12 step 10) therefore reads stored values from 2026-10-13 onward.
+**Meteosat observation (2026-10-21):** the owner viewed the EUMETSAT Meteosat composite in Zoom Earth for 2026-10-13 at 17:50 BST, i.e. 16:50 UTC, twenty minutes before the 17:00 UTC slot (the frame is saved on the owner's Mac as `~/goldenhour-p1/meteosat_2026-10-13_1650Z_zoomearth.webp`, not committed). Along 255° from Gateshead it shows: north-east England and the coast clear (ground and city lights visible, a few thin streaks); a fibrous, streaky band of high cloud across the North Pennines, Cumbria and Dumfries at roughly 50–150 km, the cirrus canvas the prompt saw at 113 km; and a broad, continuous, more uniform grey-white sheet over the Isle of Man, the north Irish Sea and Northern Ireland from about 200 km outward. One frame, read by eye from a dusk composite, not a measurement; it agrees with the ERA5 transect and the four models (thin cirrus at the horizon, a solid lid behind it from about 225 km). Part A's observation step is done; a second frame at 18:10 BST (17:10 UTC, four minutes before sunset, the terminator crossing Newcastle) was viewed and shows the same three zones; it was not saved.
+
+**A first sizing hint, not a base rate.** Of the 98,255 exported `forecast_evaluation` rows, 577 (13–14 October only) carry `far_solar_high_cloud`. 390 of those read ≥ 60%, and 92 of the 390 were rated go. Two days inside one cirrus spell say nothing about frequency; Part C (§12 step 7) and the accruing capture do.
+
+**Implication for the rules.**
+- R1 as drafted, a fiery_sky cap keyed on "no canvas", was rejected in §13 as a blanket downgrade, and the Angel had a canvas.
+- A rule keyed instead on the **far high deck** is the shape this case points at: the canvas is present AND far high is ≥ 60% along the solar azimuth.
+- It cannot be replayed on stored prompts, because they carry no far high. Replaying it means rebuilding prompts from forecast rows, which is a prompt change, not a replay.
+- Recorded as §9 item 7, open.
+
+## 15. Part B re-run on the verified Sonnet 5.5 era (2026-10-21)
+
+**Trigger.** On 2026-10-21 production's `cloud_verification` had reached `target_date` 2026-10-15, with 12,093 verified rows dated 2026-10-06 or later (the first Sonnet 5.5 run was 2026-10-06). So `p1_forecasts.csv` was re-exported (106,118 rows, dates 2026-02-26 to 2026-10-24) and `premise.py` re-run (`~/goldenhour-p1/part_b2.md`). `replay_set.py compare` was re-run over the five Part D arms with the new `slots.csv`, so its premise-class tables now cover Sonnet 5.5 gos (`~/goldenhour-p1/part_d2.md`). No Anthropic spend. Neither report is committed.
+
+**Population.** 2,251 location-gos at T+0/T+1, 2,120 of them with a `cloud_verification` row (1,614 on 2026-10-14).
+
+**P-low** (ERA5 cone low >= 60%, the one premise that counts), among gos, by model:
+
+| Model | Event | Gos failing P-low |
+|---|---|---|
+| Haiku | sunrise | 79 of 904 (8.7%) |
+| Haiku | sunset | 39 of 714 (5.5%) |
+| Sonnet 5.5 | sunrise | 9 of 286 (3.1%) |
+| Sonnet 5.5 | sunset | 2 of 220 (0.9%) |
+
+Sonnet 5.5's gos stand on ERA5-blocked horizons less often than Haiku's.
+
+**The Angel sanity row** now reads: P-low passes, P-far passes, P-canvas passes. Part B's three premises cannot see the far high-cloud lid that §14 found. The Angel class is invisible to this test by construction, as §2 Part B warned.
+
+**Primary tests, same verdicts as before:**
+- R1 is inconclusive: 0 of 67 flagged gos failed P-low, fewer than 10 events.
+- R2 and R3 fail: the differences are +0.3 and 0.0 points, Holm p = 1.0.
+- R1's cost side: 59 of 67 Angel-shape gos (88.1%) had an ERA5 canvas, against the 25% ceiling. D-1 part 4 fails.
+
+**The Part D premise cross** (`part_d2.md`), which is the test §13 said could adjudicate the switch. Of Sonnet 5.5's 513 gos, 490 pass all three premises, 9 fail only the canvas premise, 1 fails only the far premise, and 13 are unknown.
+- Sonnet 4.6 withdrew 118 of the 490 all-pass gos (24.1%, its overall withdrawal rate), 7 of the 9 no-canvas gos, 0 of the 1 far-flagged go and 2 of the 13 unknown.
+- Its withdrawals are not concentrated on gos ERA5 contradicts. By ERA5 they read as missed opportunities, not avoided wasted trips, with the 9 no-canvas gos the one small class it catches.
+- R1 demoted 144 of 613 all-pass gos (23.5%) and 9 of 9 no-canvas gos. D-1 part 3 fails: there is no enrichment of P-low among demoted gos. R1 fails parts 2, 3 and 4 of D-1 and is rejected.
+
+**Reading.** The owner's 2026-10-15 decision to keep Batch Near-Term on Sonnet 5.5 (§9 item 1) is now supported by evidence rather than caution alone.
+
+**Caveat.** ERA5 is a reanalysis, not an observation, and these premises see only the horizon gap, the local canvas and the far LOW corridor. The far-lid class (§14) and any other unmodelled failure are outside them. So this does not say Sonnet 5.5's gos are right; it says only that Sonnet 4.6's withdrawals are not where ERA5 says the faults are. Part E outcomes remain the only test of wasted trips.
+
+**What this leaves as the live line of work:**
+- the far-lid rule (§9 item 7) on the V175/V176 capture;
+- Part C sizing (§12 step 7);
+- Part E.
+
+## 16. The far-lid rule, sized on the first week of capture (2026-10-21)
+
+**Data.** The 2026-10-21 re-export (`p1_forecasts.csv`), latest run per slot, restricted to slots dated 2026-10-14 to 2026-10-24 that carry `far_solar_high_cloud` (the V175 capture): 3,029 slots, 2,155 rated, 276 gos (rating >= 4), all Sonnet 5.5. No network, no spend. Definitions used here:
+- **Canvas:** cone (113 km) mid or high >= 60%.
+- **Lid:** `far_solar_high_cloud` >= 60%.
+- **Angel shape:** overhead mid and high both < 20%, cone low < 20%, and cone high >= 60%.
+
+**Canvas plus lid is common and bunched.**
+- 187 of the 276 gos had a canvas. 128 of those 187 (68%) had a lid behind it.
+- 100 of the 128 fall on 2026-10-15 alone. The others: 14 Oct 9, 16 Oct 9, 18 Oct 2, 22 Oct 2, 24 Oct 6.
+- A cap on canvas plus lid would have withdrawn 128 of the week's 276 gos.
+
+**ERA5 cannot adjudicate the lid yet.**
+- The 578 verified slots with `cv_far_high_cloud` are from 14-15 October only, where ERA5 itself saw a lid on 553 of 578.
+- Forecast lid against ERA5 lid: agreed on 469, forecast missed 84, forecast over-called 15, both clear 10.
+- Agreement on days when everything had a lid says nothing about days when the lid is local.
+
+**The first two recorded outcomes refute canvas plus lid as a verdict.** The owner's first two entries in the `outcome_rating` table ("How was it?"), Angel of the North and Copt Hill, 2026-10-15 SUNSET, were forecast 3★ and observed 4★. Cone high was 100% and far high 100% in both the forecast and ERA5: a good sky under exactly that shape. The owner's photo shows a mid-level canopy overhead lit pink from beneath, with an orange horizon band. The owner also reports Penshaw Monument, same evening and run, forecast 4★, as right.
+
+**What differed between 13 and 15 October is overhead, not the far point.**
+- 13 Oct Angel: forecast overhead 0/0/0 and ERA5 observer low/mid/high 2/16/8. Nothing to light except the 113 km cirrus, with the lid behind it (§14). ERA5 far high 88% (dark hour 99%).
+- 15 Oct Angel: forecast overhead 99/100/100 and ERA5 observer 2/100/84. A full mid/high canopy that lit anyway, with a far high of 100%.
+
+**15 October's error was the opposite class: an over-forecast low deck.**
+- At the Angel the forecast said overhead low 99% and horizon low 32% (ERA5: 2% and 4%).
+- At Copt Hill, overhead low 100% and horizon low 43% (ERA5: 2% and 3%).
+- At Penshaw Monument, horizon low 0% (ERA5 3%) and the rating was 4★.
+- Same sky, three sites a few miles apart; the one with the right low-cloud figure got the right star. That is a missed opportunity, not a wasted trip, and outside this plan's rules.
+
+**The Angel's exact shape is a sample of one.** Of the 276 gos, 25 match the Angel shape in the forecast (all 15 October), 15 of those with a lid, and ERA5 says none of the 15 was truly clear overhead. None has an outcome. No rule may ship on n = 1.
+
+**Revised §9 item 7.**
+- The candidate rule is not "canvas + far high >= 60" but "nothing overhead (mid and high < 20), horizon cirrus canvas (cone high >= 60), lid behind (far high >= 60)": the shape in which the only canvas needs the sun to pass under the far deck.
+- It stays open and uncosted. It waits on more Angel-shaped gos with owner ratings.
+- It must be sized against the far mid/high dark-hour columns and the pressure levels as well as the single 226 km point. The Angel's own far 300 hPa figure that evening, from the Historical Forecast API, was only 11-27%, so the pressure levels may not see a cirrus lid the layer figures do.
+
+**Tooling note.** The 15 October transect (`case.py --date 2026-10-15`) was attempted and refused by Open-Meteo's daily limit; it resumes from cache on a later day. The free daily limit was reached after about 600 weighted calls, far below `openmeteo.py`'s 8,000 default, so plan one transect per day.
+
+### The 15 October transect (2026-10-22)
+
+**Run.** `case.py --lat 54.914116 --lon -1.5895191 --date 2026-10-15 --type SUNSET` ran on 2026-10-22: 4 live requests and 56 weighted calls, the rest from the previous day's cache. The report is `~/goldenhour-p1/case_2026-10-15.md` on the owner's Mac (not committed). Sunset was 17:09 UTC; in the 17:00 UTC hour the sun was at 0.7°, azimuth 254°.
+
+**What lay on the sun line at 17:00 UTC (ERA5):**
+- High cloud was 91–100% at every point from 0 to 400 km, the same continuous 100% deck from 250 km outward that 13 October showed (§14).
+- Low cloud was 0–18% throughout.
+- Mid cloud was 86–95% from 0 to 125 km, then 75% at 150 km, 42% at 175, 30% at 200, 33% at 225, 17% at 250, 4% at 275 and 2–14% beyond.
+- All four forecast models agree on the high deck (100% from 150–175 km outward) and on the mid canopy to about 225 km.
+
+**The outcomes were opposite under the same far deck.** That evening's sky was rated 4★ by the owner at the Angel and at Copt Hill, and forecast-right at Penshaw (§16 above). So the ray to the Angel passed through a 100% high deck beyond 250 km on both evenings, and the results were opposite. What differed is the local canvas:
+- 15 October: a dense mid-level canopy overhead out to 125 km (ERA5 observer mid 100%), lit from under its thinning western edge.
+- 13 October: mid 0–30% and nothing overhead, the horizon cirrus at 113 km being the only canvas.
+
+**Consequence for the far-lid hypothesis: it is not established as the mechanism.**
+- Cloud-cover percentages cannot distinguish thin cirrus, which transmits red light, from an opaque shield.
+- The far point's pressure-level cloud (300–500 hPa) read under 25% on both evenings, so the capture cannot tell the two apart either.
+- The one robust difference in the data is the local canvas: a mid canopy overhead (good) against horizon cirrus only with a clear sky overhead (poor).
+- The §9 item 7 rule stays open. Its "lid behind" clause is now the least supported part and its "nothing overhead, horizon cirrus only" clause the best supported, with the Angel still its only rated case.
+
+**Next cheap check (owner's).** View the Zoom Earth / Meteosat frame for 2026-10-15 at 17:50 BST (16:50 UTC) and compare the brightness and texture of the Irish Sea sheet with the 13 October frame (§14). A visibly thinner sheet on the 15th would keep the lid alive as an optical-depth question; the same sheet would argue the lid was never the cause.
+
+### The 15 October Meteosat frame, and the end of the lid (2026-10-22)
+
+The owner viewed the Zoom Earth / Meteosat composite for 2026-10-15 at 17:50 BST (16:50 UTC, nineteen minutes before the 17:09 UTC sunset). The frame is saved on the owner's Mac as `~/goldenhour-p1/meteosat_2026-10-15_1650Z_zoomearth.webp` and is not committed.
+
+**What it shows.** A continuous, mottled, mid-level grey-white sheet over the Irish Sea, Northern Ireland, the Lake District, the Solway and Newcastle itself. It is denser and more uniform than the streaky cirrus of 13 October (§14), not thinner. This was the evening the owner rated 4★ at the Angel and at Copt Hill, and forecast-right at Penshaw.
+
+**Consequence: the far-lid hypothesis is refuted.**
+- The far cloud along the sun line was at least as thick on the good evening as on the bad one, so H1/H2 as the Angel's mechanism fail on the only two rated evenings. The lid was present both times and is not what separated them.
+- What separated them is the local canvas. On the 15th the deck extended overhead and its underside caught the light. On the 13th the only cloud was a cirrus strip at the horizon, with nothing above the Angel to light.
+- The far high-cloud reading, by cover percentage, is identical in both pictures and says nothing on its own.
+- §9 item 7 is rewritten accordingly, as a weak-canvas rule with no far-point clause.
+
+One frame each, read by eye from a dusk composite, not a measurement. A second frame at 18:10 BST (17:10 UTC, the terminator crossing Carlisle) was viewed and shows the same sheet, if anything a shade thinner over Durham and Newcastle than over the Solway; it was not saved.
+
+## 17. Weak-canvas sizing (2026-10-22)
+
+**Why.** §15 and the 15 October transect left a weak local canvas, not a far lid, as the best-supported difference between the Angel's 13 October fault and a good sky under the same far deck. Every input to that shape (observer mid/high, cone low/high) has been in `forecast_evaluation` and the prompt since the directional capture, so it can be sized on stored data. `scripts/far-cloud-p1/canvas.py` does it: no network, no spend, no decision.
+
+**Definitions** (also at the top of `out/canvas.md`):
+- **Go:** premise.py's selection: latest eligible run per (location, date, event), a prompted batch row with rating >= 4, T+0/T+1, sky locations. Training cases are included and flagged (the Angel 13 October is one go in the counts below).
+- **Weak canvas:** forecast observer mid < 20 and high < 20, cone (113 km) low < 20, cone high >= 60. This is the "Angel shape" of §16, which did not require the antisolar mid/high; the stricter `premise.angel_shape` (antisolar < 20 too) is counted as a subset.
+- **ERA5 view:** `cloud_verification` observer mid/high < 20 (clear overhead), cone high >= 60 (horizon cirrus), cone low < 20.
+- **Canopy overhead:** forecast observer mid >= 60 or high >= 60; the mirror class is a canopy-overhead slot rated <= 3, taken over every prompted rated batch slot, not only gos.
+
+**Headline counts** (the owner's 2026-10-21 export, 106,118 rows, go dates 2026-08-29 to 2026-10-22; 2,253 gos, 2,239 testable for the shape):
+- **137 weak-canvas gos (6.1%)**, over 11 dates. Haiku 75 of 1,615 (4.6%); Sonnet 5.5 62 of 624 testable (9.9%). It is bunched, not rare-and-steady: 28 September 32 (Haiku, Lake District sunsets), 15 October 28 (sunrise), 13 October 18 (sunset, the Angel's day), 14 October 16. By event: sunrise 51 of 1,297 (3.9%), sunset 86 of 942 (9.1%). The strict form is 68, of which 66 are sunsets and 57 Haiku's.
+- **ERA5's view of the 137.** All 137 have a `cloud_verification` row. ERA5 observer mid and high < 20 for 62 (45.3%): Haiku 55 of 75, Sonnet 5.5 only 7 of 62. ERA5 cone high >= 60 for 70 (51.1%), cone low < 20 for 130 (94.9%). All three together: 10 of 137 (Haiku 5 of 75, Sonnet 5.5 5 of 62).
+- **Reconciling §16.** For Sonnet 5.5 gos dated 14 October on with the far capture, 28 match, all 15 October, and 16 of those have a far high >= 60; ERA5 calls none of the 16 clear overhead. §16 counted 25 and 15; the 3 and 1 difference is selection (this tool uses premise.py's pooled population), not a different definition.
+- **Outcomes.** The forecast export carries no `outcome_rating`, so none of the 137 is joined. `canvas_weak_gos.csv` lists the slot keys; `export_outcome_ratings.sql` plus `canvas.py --ratings` does the join. Not yet run.
+- **Mirror class.** 5,202 rated canopy-overhead slots, 3,827 (73.6%) rated <= 3; that is the ordinary outcome, so the class is large by construction. Low cloud, forecast against ERA5, among the 3,610 rated <= 3 slots with both values: a forecast deck (>= 60%) where ERA5's point read < 20% for 14.2% on overhead low and 10.4% on cone low. Against the disjoint set of canopy slots rated > 3 (1,336 with both values): 11.7% and 1.7%. The reverse (an ERA5 deck, a clear forecast) is 1.6% and 0.3% for the <= 3 set and 3.1% and 0.2% for the > 3 set. So the over-forecast cone low deck is several times commoner among the low-rated canopy slots; the overhead figure differs by less than three points. ERA5 is a model, and a rating of 3 or less is not a record that the sky was good.
+
+**What this does and does not say.**
+- The weak-canvas shape is not rare on stored forecasts (6.1% of gos), and ERA5 reproduces the whole shape for only 10 of the 137. Where they differ, either could be the one that is wrong; both are models.
+- It says nothing about whether any of those skies was poor. Only owner ratings do, and none are joined here.
+- Nothing here changes a rule or the §9 item 7 status.
+
+
+## 18. Over-forecast low deck (2026-10-22)
+
+**Why.** §16 left the 15 October evening with a second error class beside the weak canvas: the forecast put a 99–100% low deck over the Angel of the North and Copt Hill (32–43% on their solar horizon) where ERA5 read 2% and 3–4% (the 99–100% is the forecast's observer reading, the 32–43% its cone), and Sonnet 5.5 rated them 3★ against the owner's 4★. §17's first cut found a forecast deck >= 60% over an ERA5 reading < 20% on about 14% of canopy slots rated <= 3. `scripts/far-cloud-p1/lowdeck.py` measures that class across the whole verified history on stored data: no network, no spend, no decision. ERA5 is a reanalysis, not an observation.
+
+**Definitions** (also at the top of `out/lowdeck.md`):
+- **Slot:** premise.py's latest eligible run per (location, date, event), sky locations, with a `cloud_verification` row, T+0/T+1 (T+2+ appears only in the days_ahead split). Every engine is kept: batch, sync and triaged. Training cases and disabled locations are not excluded.
+- **Observer low cloud:** forecast `low_cloud` against ERA5 `cv_observer_low_cloud`. **Cone low cloud:** `solar_low_cloud` (113 km) against `cv_horizon_low_cloud`.
+- **Phantom deck:** forecast >= 60, ERA5 < 20. **Missed deck:** forecast < 20, ERA5 >= 60. Both >= 60, both < 20, and a middle band (any other combination) are counted separately.
+- **Outcome:** *triaged on low cloud* (`triage_reason` HIGH_CLOUD, whose message names low cloud; the rule reads the cone), *triaged, other*, *rated 1-2 / 3 / 4-5* (the combined `rating`), *unrated*.
+- **ERA5 canopy overhead:** `cv_observer_mid_cloud` >= 60 or `cv_observer_high_cloud` >= 60.
+
+**Headline figures** (the owner's 2026-10-21 export, 106,118 rows: 35,982 slots, 31,393 sky slots with ERA5, **29,305 at T+0/T+1**, 2026-03-07 to 2026-10-15; intervals are 95% Wilson):
+- **Contingency, observer low:** phantom 3,811 (13.0% [12.6, 13.4]); missed 659 (2.2%); both >= 60 8,892 (30.3%); both < 20 6,414 (21.9%); middle 9,529 (32.5%). Of the 16,194 slots with a forecast deck, ERA5 reads 3,811 (23.5%) clear. **Cone low:** phantom 4,144 (14.1% [13.7, 14.5]); missed 117 (0.4%); both >= 60 8,015; both < 20 4,891; middle 12,138; 22.9% of forecast decks. Mean error (forecast minus ERA5) is +13.3 pp observer (MAE 27.5) and +24.0 pp cone (MAE 29.6).
+- **By model, observer phantom rate:** Haiku 13.4% (3,538 of 26,422), Sonnet 5.5 9.7% (266 of 2,737), Sonnet 146 slots 4.8%. Cone: Haiku 14.7%, Sonnet 5.5 7.4% (203), Sonnet 31.5% (46 of 146). **A model split is also a date split:** Sonnet 5.5 slots are all October (to the 15th); Haiku's October slots (97 of 1,580, 6.1%) are the early part of the month. By event, observer phantom is 7.6% for sunrise and 18.8% for sunset (cone 12.6% and 15.8%). By month it runs from 5.7% (April, 352 slots) and 8.4% (October) to 20.2% (May); by region 9.0% (Lake District) to 17.4% (North York Moors & Coast); coastal 14.9%, inland 12.5%.
+- **What the rating did, observer phantom (3,811):** triaged on low cloud 2,223 (58.3%), triaged for another reason 122, rated 1-2 837 (22.0%), rated 3 346 (9.1%), **rated 4-5 283 (7.4%)**. Triaged on low cloud or rated <= 3: 3,406 (89.4% [88.4, 90.3]), against 82.2% for both-clear slots. Sonnet 5.5 alone (266): triaged 15.4%, rated 1-2 40.6%, rated 3 28.2%, rated 4-5 12.8%; triaged or <= 3 84.2% [79.3, 88.1]. For **cone** phantoms (4,144) the triage figure is 75.2% (the triage rule reads the cone; none of the 4,891 both-clear cone slots was triaged on low cloud) and 95.8% were triaged or rated <= 3, against 65.4% for both-clear.
+- **Co-occurring canopy.** An ERA5 canopy overhead is present on 1,913 of the 3,811 observer phantoms (50.2%), against 36.7% of both-clear slots and 48.2% of all testable slots. Of those 1,913: triaged on low cloud **1,087**, rated <= 3 **579**, either **1,666 (87.1%)**, rated 4-5 187. Sonnet 5.5 alone: 95 canopy phantoms, 30 triaged, 38 rated <= 3, 27 rated 4-5. For cone phantoms with an ERA5 canopy overhead (2,026): 1,487 triaged, 449 rated <= 3, 1,936 either, 24 rated 4-5.
+- `out/lowdeck.md` also lists 20 examples for each variable and `out/lowdeck_phantom.csv` holds every phantom slot with its outcome. The top gap is a ceiling, so the list is a sample: 80 observer slots share the largest gap (100 pp) and 19 cone slots do; ties go to the most recent date, which puts the 15 October sunset first (observer).
+
+**What this does and does not say.**
+- ERA5 reads clear where the forecast has a deck on 13-14% of slots, and 89-96% of those slots were triaged on low cloud or rated 3 or lower. If ERA5 is right about those slots they are the missed-opportunity class; ERA5 may not be. The cone comparison is largely mechanical: weather triage fires on a cone reading above 80%, so a cone phantom (>= 60) is triaged whenever it is above 80, and no slot with a cone below 20 can be, which is why 95.8% sits against 65.4% there. The observer figures are the informative ones. ERA5 is a ~31 km model field, it can be the one that is wrong, and no owner rating is joined here (`canvas.py --ratings` is the route for that).
+- The Wilson intervals assume independent slots, which they are not (many locations share one weather situation on a date, and a model is a date range); the real uncertainty is wider. No date-resampled interval is computed here.
+- A canopy overhead in ERA5 is the 15 October shape; it co-occurs on about half the phantoms, and those slots are rated 4-5 only 187 times in 1,913.
+- Nothing here changes a rule or any §9 item.

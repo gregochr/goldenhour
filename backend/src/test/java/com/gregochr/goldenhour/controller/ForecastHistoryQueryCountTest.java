@@ -95,6 +95,12 @@ class ForecastHistoryQueryCountTest {
     @Mock
     private FailedSlotRetryService retryService;
 
+    @Mock
+    private com.gregochr.goldenhour.service.AsOfEventResolver asOfEventResolver;
+
+    @Mock
+    private com.gregochr.goldenhour.service.SolarEventFreshness solarEventFreshness;
+
     private Statistics statistics() {
         return entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
     }
@@ -103,7 +109,7 @@ class ForecastHistoryQueryCountTest {
         return new ForecastController(forecastEvaluationRepository, locationService, commandFactory,
                 commandExecutor, scheduledForecastService, dtoMapper, evaluationViewService,
                 jobRunService, progressTracker, Runnable::run, Clock.systemUTC().withZone(ZoneOffset.UTC),
-                retryService);
+                retryService, asOfEventResolver, solarEventFreshness);
     }
 
     @Test

@@ -6,6 +6,7 @@ import {
   ringLabelItems, RING_LABEL_MAX_ZOOM,
   chipCandidates,
   placeLabelPass,
+  BADGE_OVERHANG_X, BADGE_OVERHANG_Y, chipBoxWithinBadgedBox, hasRatedBadge, withBadgeOverhang,
   verdictWord, WORTH_IT_THRESHOLD, MAYBE_THRESHOLD,
 } from '../utils/mapLabels.js';
 import * as verdictWordModule from '../utils/verdictWord.js';
@@ -504,5 +505,64 @@ describe('mapLabels — density integration: the mid-zoom "hole" the bundle reco
     // Regions first — the README's own priority order (home, rings, regions, THEN chips).
     const placed = placeLabelPass([...regions, ...chips], 1200, 900);
     expect(placed.size).toBeGreaterThan(2);
+  });
+});
+
+describe('the rated badge\'s overhang (outcome-rating-plan.md §1 #4, §2 #6)', () => {
+  const chipAt = (key, x, y) => ({
+    key, x, y, w: 30, h: 14,
+  });
+
+  it('is 9px right and 7px up — the numbers .wf-rated-badge hangs by', () => {
+    expect(BADGE_OVERHANG_X).toBe(9);
+    expect(BADGE_OVERHANG_Y).toBe(7);
+  });
+
+  it('grows the item by the overhang and shifts its anchor by half of it, so the chip keeps its own place', () => {
+    expect(withBadgeOverhang(chipAt('chip:A', 100, 80))).toEqual({
+      key: 'chip:A', x: 104.5, y: 76.5, w: 39, h: 21,
+    });
+  });
+
+  it('chipBoxWithinBadgedBox is the exact inverse: the box the chip would have had without a badge', () => {
+    const chip = chipAt('chip:A', 100, 80);
+    const reserved = placeLabelPass([withBadgeOverhang(chip)], 800, 500).get('chip:A');
+    const plain = placeLabelPass([chip], 800, 500).get('chip:A');
+    expect(chipBoxWithinBadgedBox(reserved)).toEqual(plain);
+  });
+
+  it('a neighbour that would sit flush beside a bare chip is pushed clear of its badge', () => {
+    const a = chipAt('chip:A', 30, 40);
+    const b = chipAt('chip:B', 65, 40);
+    const bare = placeLabelPass([a, b], 800, 500);
+    const badged = placeLabelPass([withBadgeOverhang(a), b], 800, 500);
+    // Bare: B sits at its anchor (x 50), flush right of A (A ends at 45).
+    expect(bare.get('chip:B').x).toBe(50);
+    // The badge hangs to A.right + 9 = 54: B may not start inside it, and was moved.
+    const aRight = chipBoxWithinBadgedBox(badged.get('chip:A')).x + a.w;
+    expect(badged.get('chip:B').x).toBeGreaterThanOrEqual(aRight + BADGE_OVERHANG_X);
+  });
+
+  it('a chip too close to the top edge for its badge is nudged down, never clipped', () => {
+    const edge = chipAt('chip:A', 100, 10);
+    const bare = placeLabelPass([edge], 800, 500).get('chip:A');
+    const badged = placeLabelPass([withBadgeOverhang(edge)], 800, 500).get('chip:A');
+    expect(bare.y).toBe(3);
+    // The reserved box starts on screen, so the badge, 7px above the chip, is on screen too.
+    expect(badged.y).toBeGreaterThanOrEqual(1);
+    expect(chipBoxWithinBadgedBox(badged).y - BADGE_OVERHANG_Y).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('hasRatedBadge', () => {
+  it('is true for a spot carrying 1..5 or NOT_SEEN, false for none', () => {
+    expect(hasRatedBadge({ myRating: 4 })).toBe(true);
+    expect(hasRatedBadge({ myRating: 'NOT_SEEN' })).toBe(true);
+    expect(hasRatedBadge({ myRating: null })).toBe(false);
+    expect(hasRatedBadge({})).toBe(false);
+  });
+
+  it('is false for an Ask pick, whatever the record — a pick speaks for its own window', () => {
+    expect(hasRatedBadge({ myRating: 4, askPick: { rank: 1 } })).toBe(false);
   });
 });

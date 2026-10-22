@@ -13,12 +13,15 @@ import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.ForecastCycleJobs;
 import com.gregochr.goldenhour.service.LocationFailureService;
 import com.gregochr.goldenhour.service.ask.AskReadyPrecompute;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
 import com.gregochr.goldenhour.service.batch.CandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.EligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.ForecastBatchSubmissionOutcome;
+import com.gregochr.goldenhour.service.batch.EveningCandidateCollectionStrategy;
+import com.gregochr.goldenhour.service.batch.EveningEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.IntradayCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.BatchRetryService;
@@ -38,6 +41,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.EnumMap;
+import java.util.Map;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -128,6 +133,12 @@ public class PipelineOrchestrator {
      */
     static final Duration MIN_RETRY_BUDGET = Duration.ofMinutes(10);
 
+    /** Least value {@code photocast.pipeline.evening-safety-timeout} may take (startup fails below). */
+    static final Duration MIN_EVENING_SAFETY_TIMEOUT = Duration.ofMinutes(30);
+
+    /** Greatest value {@code photocast.pipeline.evening-safety-timeout} may take (startup fails above). */
+    static final Duration MAX_EVENING_SAFETY_TIMEOUT = DEFAULT_SAFETY_TIMEOUT;
+
     private final PipelineRunService pipelineRunService;
     private final ScheduledBatchEvaluationService scheduledBatchEvaluationService;
     private final BriefingService briefingService;
@@ -136,6 +147,7 @@ public class PipelineOrchestrator {
     private final Executor backgroundExecutor;
     private final Duration pollInterval;
     private final Duration safetyTimeout;
+    private final Map<CycleType, Duration> cycleBudgets;
     private final DynamicSchedulerService dynamicSchedulerService;
     private final PipelineRunPickService pipelineRunPickService;
     private final BatchRetryService batchRetryService;
@@ -168,6 +180,11 @@ public class PipelineOrchestrator {
      *                                        cycle's run is finished
      * @param almanacService                  rebuilds the "Coming up" feed's cache once the cycle's
      *                                        run is finished
+     * @param eveningSafetyTimeout            wait budget of the evening cycle
+     *                                        ({@code photocast.pipeline.evening-safety-timeout},
+     *                                        default PT2H); must lie within
+     *                                        {@code MIN_EVENING_SAFETY_TIMEOUT} and
+     *                                        {@code MAX_EVENING_SAFETY_TIMEOUT} or startup fails
      */
     @Autowired
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
@@ -182,13 +199,15 @@ public class PipelineOrchestrator {
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService,
             AskReadyPrecompute askReadyPrecompute,
-            AlmanacService almanacService) {
+            AlmanacService almanacService,
+            @Value("${photocast.pipeline.evening-safety-timeout:PT2H}") Duration eveningSafetyTimeout) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
                 DEFAULT_POLL_INTERVAL, safetyTimeout,
                 dynamicSchedulerService, pipelineRunPickService, batchRetryService,
-                adminAlertService, locationFailureService, askReadyPrecompute, almanacService);
+                adminAlertService, locationFailureService, askReadyPrecompute, almanacService,
+                budgetsFrom(safetyTimeout, eveningSafetyTimeout));
     }
 
     /**
@@ -309,6 +328,51 @@ public class PipelineOrchestrator {
             LocationFailureService locationFailureService,
             AskReadyPrecompute askReadyPrecompute,
             AlmanacService almanacService) {
+        this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                forecastBatchRepository, clock, backgroundExecutor, pollInterval, safetyTimeout,
+                dynamicSchedulerService, pipelineRunPickService, batchRetryService,
+                adminAlertService, locationFailureService, askReadyPrecompute, almanacService,
+                budgetsFrom(safetyTimeout));
+    }
+
+    /**
+     * Full constructor with a wait budget per cycle type, for tests that need a cycle type's budget
+     * to differ from the others'. The constructor above gives every type {@code safetyTimeout}.
+     *
+     * @param pipelineRunService              pipeline run / phase persistence
+     * @param scheduledBatchEvaluationService forecast batch submitter (cycle-aware variant)
+     * @param briefingService                 briefing refresh entry point
+     * @param forecastBatchRepository         queried for cycle completion
+     * @param clock                           injectable clock
+     * @param backgroundExecutor              where to run the wait+briefing tail and both hand-overs
+     * @param pollInterval                    DB poll interval during FORECAST_BATCH_WAIT
+     * @param safetyTimeout                   fallback budget for a run with no cycle type
+     * @param dynamicSchedulerService         scheduler the orchestrator registers itself with
+     * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
+     * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
+     * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
+     * @param locationFailureService          settles each cycle's per-place failure counting
+     * @param askReadyPrecompute              precomputes the Ready answers; {@code null} skips it
+     * @param almanacService                  rebuilds the "Coming up" feed; {@code null} skips it
+     * @param cycleBudgets                    the wait budget of each cycle type
+     */
+    PipelineOrchestrator(PipelineRunService pipelineRunService,
+            ScheduledBatchEvaluationService scheduledBatchEvaluationService,
+            BriefingService briefingService,
+            ForecastBatchRepository forecastBatchRepository,
+            Clock clock,
+            Executor backgroundExecutor,
+            Duration pollInterval,
+            Duration safetyTimeout,
+            DynamicSchedulerService dynamicSchedulerService,
+            PipelineRunPickService pipelineRunPickService,
+            BatchRetryService batchRetryService,
+            AdminAlertService adminAlertService,
+            LocationFailureService locationFailureService,
+            AskReadyPrecompute askReadyPrecompute,
+            AlmanacService almanacService,
+            Map<CycleType, Duration> cycleBudgets) {
+        this.cycleBudgets = Map.copyOf(cycleBudgets);
         this.pipelineRunService = pipelineRunService;
         this.scheduledBatchEvaluationService = scheduledBatchEvaluationService;
         this.briefingService = briefingService;
@@ -327,6 +391,37 @@ public class PipelineOrchestrator {
     }
 
     /**
+     * The per-type budgets with the evening's own, validated: an out-of-range value fails startup.
+     */
+    static Map<CycleType, Duration> budgetsFrom(Duration safetyTimeout, Duration eveningSafetyTimeout) {
+        if (eveningSafetyTimeout == null
+                || eveningSafetyTimeout.compareTo(MIN_EVENING_SAFETY_TIMEOUT) < 0
+                || eveningSafetyTimeout.compareTo(MAX_EVENING_SAFETY_TIMEOUT) > 0) {
+            throw new IllegalStateException("photocast.pipeline.evening-safety-timeout must be between "
+                    + MIN_EVENING_SAFETY_TIMEOUT + " and " + MAX_EVENING_SAFETY_TIMEOUT
+                    + " but was " + eveningSafetyTimeout);
+        }
+        Map<CycleType, Duration> budgets = budgetsFrom(safetyTimeout);
+        budgets.put(CycleType.EVENING, eveningSafetyTimeout);
+        return budgets;
+    }
+
+    private static Map<CycleType, Duration> budgetsFrom(Duration safetyTimeout) {
+        Map<CycleType, Duration> budgets = new EnumMap<>(CycleType.class);
+        for (CycleType type : CycleType.values()) {
+            budgets.put(type, safetyTimeout);
+        }
+        return budgets;
+    }
+
+    /**
+     * The wait budget of a cycle type; the configured safety timeout when the type is unknown.
+     */
+    private Duration budgetFor(CycleType cycleType) {
+        return cycleType == null ? safetyTimeout : cycleBudgets.getOrDefault(cycleType, safetyTimeout);
+    }
+
+    /**
      * Registers the orchestrator as the runnable for the {@code near_term_batch_evaluation}
      * scheduled job. Previously this job invoked
      * {@code ScheduledBatchEvaluationService.submitForecastBatch()} directly; from V102 it
@@ -342,6 +437,8 @@ public class PipelineOrchestrator {
                     "near_term_batch_evaluation", this::runNightlyCycle);
             dynamicSchedulerService.registerJobTarget(
                     "intraday_forecast_refresh", this::runIntradayCycle);
+            dynamicSchedulerService.registerJobTarget(
+                    ForecastCycleJobs.EVENING_JOB, this::runEveningCycle);
         }
     }
 
@@ -382,6 +479,19 @@ public class PipelineOrchestrator {
         runCycle(CycleType.INTRADAY,
                 new IntradayCandidateCollectionStrategy(clock),
                 IntradayEligibilityPolicy.INSTANCE);
+    }
+
+    /**
+     * Evening refresh entry point: one look at tomorrow's sunrise at about 20:00 UTC, so the bedtime
+     * decision rests on a forecast hours fresher than the afternoon's. Bound to the
+     * {@code evening_sunrise_refresh} schedule (seeded PAUSED). It differs from the other cycles in
+     * its strategy (tomorrow's sunrise alone, bypassing the cache gate), its policy (every stability),
+     * its own wait budget and in giving no failure evidence ({@link CycleType#EVENING}).
+     */
+    public void runEveningCycle() {
+        runCycle(CycleType.EVENING,
+                new EveningCandidateCollectionStrategy(clock),
+                EveningEligibilityPolicy.INSTANCE);
     }
 
     /**
@@ -544,8 +654,8 @@ public class PipelineOrchestrator {
     private boolean submitPhase(Long runId, CycleType cycleType,
             CandidateCollectionStrategy candidateStrategy,
             EligibilityPolicy eligibilityPolicy) {
-        boolean intraday = cycleType == CycleType.INTRADAY;
-        PipelinePhase firstPhase = intraday
+        boolean reclassify = cycleType.recordsReclassifyPhase();
+        PipelinePhase firstPhase = reclassify
                 ? PipelinePhase.STABILITY_RECLASSIFY
                 : PipelinePhase.FORECAST_BATCH_SUBMIT;
         pipelineRunService.startPhase(runId, firstPhase);
@@ -554,7 +664,7 @@ public class PipelineOrchestrator {
         // cost-gate summary) and opens FORECAST_BATCH_SUBMIT between the collect
         // and submit steps. For nightly the hook is a no-op and the single
         // FORECAST_BATCH_SUBMIT phase spans both steps.
-        Consumer<ReclassSummary> betweenSteps = intraday
+        Consumer<ReclassSummary> betweenSteps = reclassify
                 ? summary -> {
                     pipelineRunService.completePhase(runId,
                             PipelinePhase.STABILITY_RECLASSIFY, summary.detail());
@@ -565,7 +675,8 @@ public class PipelineOrchestrator {
         try {
             ForecastBatchSubmissionOutcome outcome =
                     scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
-                            runId, candidateStrategy, eligibilityPolicy, intraday, betweenSteps);
+                            runId, candidateStrategy, eligibilityPolicy,
+                            !cycleType.publishesStabilitySnapshot(), betweenSteps);
             if (!outcome.submitted()) {
                 String reason = "Forecast batch submission dropped — another pipeline run "
                         + "already holds the submission guard (overlapping cycle trigger)";
@@ -617,6 +728,7 @@ public class PipelineOrchestrator {
             // double-start their rows. The phases run in order WAIT → RETRY_FAILED
             // (conditional) → BRIEFING.
             PipelineRunEntity run = pipelineRunService.findById(runId).orElseThrow();
+            Duration budget = budgetFor(run.getCycleType());
             PipelinePhase phase = run.getCurrentPhase();
             boolean atOrPastBrief = phase == PipelinePhase.BRIEFING;
             boolean atOrPastRetry = atOrPastBrief || phase == PipelinePhase.RETRY_FAILED;
@@ -625,7 +737,7 @@ public class PipelineOrchestrator {
                 pipelineRunService.startPhase(runId, PipelinePhase.FORECAST_BATCH_WAIT);
             }
             if (!atOrPastRetry) {
-                BatchCompletionResult result = waitForBatchSetComplete(runId);
+                BatchCompletionResult result = waitForBatchSetComplete(runId, budget);
                 pipelineRunService.completePhase(runId, PipelinePhase.FORECAST_BATCH_WAIT,
                         result.summary());
             }
@@ -635,7 +747,7 @@ public class PipelineOrchestrator {
             // records no phase. Placed before BRIEFING so recovered locations are in
             // the data the briefing synthesises.
             if (!atOrPastBrief) {
-                retryFailedPhase(runId, phase == PipelinePhase.RETRY_FAILED);
+                retryFailedPhase(runId, phase == PipelinePhase.RETRY_FAILED, budget);
             }
 
             // A run resumed mid-BRIEFING already has a BRIEFING phase row — reuse it
@@ -901,8 +1013,9 @@ public class PipelineOrchestrator {
      * @param runId    pipeline run id
      * @param resuming {@code true} when re-entering an already-started RETRY_FAILED
      *                 phase after a restart (do not re-start the phase row)
+     * @param budget   the cycle type's wait budget
      */
-    private void retryFailedPhase(Long runId, boolean resuming) {
+    private void retryFailedPhase(Long runId, boolean resuming, Duration budget) {
         RetrySelection selection = batchRetryService.selectFailures(runId);
 
         if (selection.decision() == RetrySelection.Decision.NONE && !resuming) {
@@ -919,7 +1032,7 @@ public class PipelineOrchestrator {
                     selection.failureCount() + " failed — exceeds cap " + selection.cap()
                             + ", NOT retried (systematic failure — investigate)");
             case RETRY -> {
-                Duration remaining = remainingBudget(runId);
+                Duration remaining = remainingBudget(runId, budget);
                 // Only a retry batch that already exists (a restart after submitRetry created it)
                 // is exempt from the cutoff: it is paid for, and waiting on it is all that is left.
                 // A resume that restarted BEFORE the batch was created submits a new one, so it
@@ -934,7 +1047,7 @@ public class PipelineOrchestrator {
                     // failed left failed.
                     String detail = selection.failureCount() + " failed — NOT retried: only "
                             + Math.max(0, remaining.toMinutes()) + " min of the "
-                            + safetyTimeout.toMinutes() + " min cycle budget left (minimum "
+                            + budget.toMinutes() + " min cycle budget left (minimum "
                             + MIN_RETRY_BUDGET.toMinutes() + ")";
                     LOG.info("Pipeline run {}: RETRY_FAILED — {}", runId, detail);
                     pipelineRunService.completePhase(runId, PipelinePhase.RETRY_FAILED, detail);
@@ -952,7 +1065,7 @@ public class PipelineOrchestrator {
                             "retry could not be completed: " + e.getMessage());
                     throw e;
                 }
-                waitForBatchSetComplete(runId);
+                waitForBatchSetComplete(runId, budget);
                 if (retryResult.submissionFailed()) {
                     // A real, reconstructed retry batch never reached Anthropic — this is not
                     // "some failures stayed failed" (summariseRecovery's ordinary shape), it is
@@ -1046,11 +1159,13 @@ public class PipelineOrchestrator {
      * batch carries a submission instant the deadline is fixed at "now + timeout" on entry, which
      * is the pre-D3 behaviour; with no batches at all the loop returns on its first read anyway.
      *
+     * @param runId  pipeline run id
+     * @param budget the cycle type's wait budget
      * @return summary of the final state
      * @throws BatchSafetyTimeoutException if the safety budget is spent
      */
-    private BatchCompletionResult waitForBatchSetComplete(Long runId) {
-        Instant fallbackDeadline = clock.instant().plus(safetyTimeout);
+    private BatchCompletionResult waitForBatchSetComplete(Long runId, Duration budget) {
+        Instant fallbackDeadline = clock.instant().plus(budget);
 
         while (true) {
             List<ForecastBatchEntity> batches = forecastBatchRepository.findByPipelineRunId(runId);
@@ -1059,10 +1174,10 @@ public class PipelineOrchestrator {
                 LOG.info("Pipeline run {}: batch set complete — {}", runId, state.summary());
                 return state;
             }
-            Instant deadline = budgetDeadline(batches).orElse(fallbackDeadline);
+            Instant deadline = budgetDeadline(batches, budget).orElse(fallbackDeadline);
             if (clock.instant().isAfter(deadline)) {
                 throw new BatchSafetyTimeoutException(
-                        "Batch set did not reach terminal status within " + safetyTimeout
+                        "Batch set did not reach terminal status within " + budget
                                 + " of the cycle's first submission — " + state.summary());
             }
             pipelineRunService.updateWaitingOn(runId, state.waitingOnText());
@@ -1074,28 +1189,30 @@ public class PipelineOrchestrator {
      * The cycle's single deadline: its earliest batch submission plus the safety timeout.
      *
      * @param batches the run's batches
+     * @param budget  the cycle type's wait budget
      * @return the deadline, empty when no batch carries a submission instant
      */
-    private Optional<Instant> budgetDeadline(List<ForecastBatchEntity> batches) {
+    private Optional<Instant> budgetDeadline(List<ForecastBatchEntity> batches, Duration budget) {
         return batches.stream()
                 .map(ForecastBatchEntity::getSubmittedAt)
                 .filter(Objects::nonNull)
                 .min(Comparator.naturalOrder())
-                .map(first -> first.plus(safetyTimeout));
+                .map(first -> first.plus(budget));
     }
 
     /**
      * How much of the cycle's safety budget is left.
      *
-     * @param runId pipeline run id
+     * @param runId  pipeline run id
+     * @param budget the cycle type's wait budget
      * @return the remaining budget (negative once spent); the full timeout when no batch carries
      *         a submission instant
      */
-    private Duration remainingBudget(Long runId) {
+    private Duration remainingBudget(Long runId, Duration budget) {
         Instant now = clock.instant();
-        return budgetDeadline(forecastBatchRepository.findByPipelineRunId(runId))
+        return budgetDeadline(forecastBatchRepository.findByPipelineRunId(runId), budget)
                 .map(deadline -> Duration.between(now, deadline))
-                .orElse(safetyTimeout);
+                .orElse(budget);
     }
 
     /**

@@ -198,7 +198,7 @@ final class AskConversation {
     AskRun submit(Raw raw, int turns, List<AskTools.ToolCall> trace) {
         List<AskTools.ToolCall> full = withSubmit(trace, false);
         Result result = validator.validate(raw, snapshot, tools.evidence().withThread(thread.fact()), scope,
-                options.anchor(), eventsQuestion, canSeeAurora);
+                options.anchor(), eventsQuestion, canSeeAurora, options.readyBasis());
         if (result.turnedDownDropped() > 0) {
             LOG.info("Ask follow-up turned earlier places down: dropped {} submitted pick(s) at them",
                     result.turnedDownDropped());

@@ -1,10 +1,12 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.SeenTag;
 import com.gregochr.goldenhour.model.CalibrationBucket;
 import com.gregochr.goldenhour.model.CalibrationPair;
 import com.gregochr.goldenhour.model.CalibrationReport;
 import com.gregochr.goldenhour.repository.ActualOutcomeRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.repository.OutcomeRatingRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -25,8 +27,9 @@ import java.util.stream.Collectors;
  * tests compare Claude to hand-written expectations, the sky-rating eval harness compares band
  * assignments to fixtures, and the model-comparison harness compares models to each other — all
  * three can stay green while the forecast drifts away from reality. This service closes that gap
- * by joining {@code forecast_evaluation} to {@code actual_outcome} and reporting error by forecast
- * horizon, so a change to the scoring rules can be justified against observation.
+ * by joining {@code forecast_evaluation} to {@code actual_outcome} and to readers' per-user
+ * {@code outcome_rating} records, and reporting error by forecast horizon, so a change to the
+ * scoring rules can be justified against observation.
  *
  * <p>Intended use is a fixed window measured before and after a change. The aggregation is
  * deterministic for a given window, so the two reports diff directly.
@@ -42,19 +45,32 @@ public class ForecastCalibrationService {
     /** Bucket key used when an evaluation carried no model. */
     private static final String UNKNOWN_MODEL_KEY = "UNKNOWN";
 
+    /** Bucket key of the mist-prone bucket: pairs whose forecast carried the LIKELY mist band. */
+    static final String MIST_PRONE_KEY = "MIST_LIKELY";
+
+    /** {@code seen} count key for a rating given with no tag (and for every {@code actual_outcome}). */
+    static final String UNTAGGED_KEY = "UNTAGGED";
+
+    /** Bucket key used when a forecast row carried no recorded build or prompt fingerprint. */
+    private static final String UNKNOWN_KEY = "UNKNOWN";
+
     private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final ActualOutcomeRepository actualOutcomeRepository;
+    private final OutcomeRatingRepository outcomeRatingRepository;
 
     /**
      * Creates the calibration service.
      *
      * @param forecastEvaluationRepository repository supplying forecast/outcome pairs
      * @param actualOutcomeRepository      repository used to report outcome coverage
+     * @param outcomeRatingRepository      repository used to report rating coverage
      */
     public ForecastCalibrationService(ForecastEvaluationRepository forecastEvaluationRepository,
-            ActualOutcomeRepository actualOutcomeRepository) {
+            ActualOutcomeRepository actualOutcomeRepository,
+            OutcomeRatingRepository outcomeRatingRepository) {
         this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.actualOutcomeRepository = actualOutcomeRepository;
+        this.outcomeRatingRepository = outcomeRatingRepository;
     }
 
     /**
@@ -62,7 +78,7 @@ public class ForecastCalibrationService {
      *
      * @param from start of the window (inclusive)
      * @param to   end of the window (inclusive)
-     * @return accuracy overall, per forecast horizon, and per model
+     * @return accuracy overall, per forecast horizon, per model, per release and per prompt
      * @throws IllegalArgumentException if the window is null or inverted
      */
     @Transactional(readOnly = true)
@@ -74,9 +90,15 @@ public class ForecastCalibrationService {
             throw new IllegalArgumentException("to must not be before from");
         }
 
-        List<CalibrationPair> pairs = latestPerSlotHorizon(
+        List<CalibrationPair> raw = new ArrayList<>(
                 forecastEvaluationRepository.findCalibrationPairs(from, to));
-        int outcomesInRange = actualOutcomeRepository.findAllByOutcomeDateBetween(from, to).size();
+        raw.addAll(forecastEvaluationRepository.findCalibrationPairsFromRatings(from, to));
+        List<CalibrationPair> pairs = latestPerSlotHorizon(raw);
+        // Every row in the window in BOTH tables, "didn't see it" ratings included.
+        int outcomesInRange = actualOutcomeRepository.findAllByOutcomeDateBetween(from, to).size()
+                + Math.toIntExact(outcomeRatingRepository.countByEventDateBetween(from, to));
+
+        List<CalibrationPair> mistPairs = pairs.stream().filter(CalibrationPair::mistLikely).toList();
 
         CalibrationReport report = new CalibrationReport(
                 from,
@@ -85,14 +107,21 @@ public class ForecastCalibrationService {
                 pairs.size(),
                 CalibrationBucket.of(OVERALL_KEY, pairs),
                 bucketsByDaysAhead(pairs),
-                bucketsByModel(pairs));
+                bucketsByModel(pairs),
+                bucketsByKey(pairs, CalibrationPair::appBuild),
+                bucketsByKey(pairs, CalibrationPair::promptHash),
+                mistPairs.isEmpty() ? null : CalibrationBucket.of(MIST_PRONE_KEY, mistPairs),
+                seenCounts(mistPairs));
 
         LOG.info("[CALIBRATION] window={}..{} outcomes={} scoredPairs={} "
-                + "meanAbsError={} missedOpportunities={} wastedTrips={}",
+                + "meanAbsError={} missedOpportunities={} wastedTrips={} mistPronePairs={} "
+                + "mistProneMissedOpportunities={}",
                 from, to, outcomesInRange, pairs.size(),
                 report.overall().meanAbsoluteRatingError(),
                 report.overall().missedOpportunities(),
-                report.overall().wastedTrips());
+                report.overall().wastedTrips(),
+                mistPairs.size(),
+                report.mistProne() == null ? 0 : report.mistProne().missedOpportunities());
         return report;
     }
 
@@ -100,7 +129,9 @@ public class ForecastCalibrationService {
      * Keeps only the newest evaluation run within each (slot, horizon) group.
      *
      * <p>A slot at a given horizon can be evaluated more than once — the nightly batch and the
-     * intraday refresh both write rows — and counting both would weight that slot twice.
+     * intraday refresh both write rows — and counting both would weight that slot twice. The key
+     * includes the outcome's identity, so several readers' ratings of one slot (or a rating beside
+     * an {@code actual_outcome} row) each stay a pair; only runs of one forecast collapse.
      *
      * @param pairs the raw joined pairs
      * @return one pair per slot and horizon, newest run winning
@@ -131,6 +162,29 @@ public class ForecastCalibrationService {
     }
 
     /**
+     * Tallies what readers said they saw across a set of pairs: tag name to count, {@code UNTAGGED}
+     * for a pair with no tag. Insertion order is the enum's, then {@code UNTAGGED}, so reports diff
+     * cleanly; a tag nobody gave is absent rather than zero.
+     *
+     * @param pairs the pairs to tally
+     * @return tag name to number of pairs, empty for no pairs
+     */
+    private Map<String, Integer> seenCounts(List<CalibrationPair> pairs) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (SeenTag tag : SeenTag.values()) {
+            long n = pairs.stream().filter(pair -> pair.seen() == tag).count();
+            if (n > 0) {
+                counts.put(tag.name(), Math.toIntExact(n));
+            }
+        }
+        long untagged = pairs.stream().filter(pair -> pair.seen() == null).count();
+        if (untagged > 0) {
+            counts.put(UNTAGGED_KEY, Math.toIntExact(untagged));
+        }
+        return counts;
+    }
+
+    /**
      * Groups pairs by forecast horizon, ordered T+0 upward.
      *
      * @param pairs the scored pairs
@@ -158,6 +212,28 @@ public class ForecastCalibrationService {
         return pairs.stream()
                 .collect(Collectors.groupingBy(pair -> pair.evaluationModel() == null
                         ? UNKNOWN_MODEL_KEY : pair.evaluationModel().name()))
+                .entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator.naturalOrder()))
+                .map(entry -> CalibrationBucket.of(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    /**
+     * Groups pairs by a recorded string of the forecast row — its build or its prompt fingerprint.
+     * A pair whose row recorded none lands in {@code UNKNOWN}, so history from before the column
+     * existed stays visible as its own bucket rather than vanishing from the report.
+     *
+     * @param pairs the scored pairs
+     * @param key   reads the grouping value off a pair
+     * @return one bucket per distinct value present, ordered by value
+     */
+    private List<CalibrationBucket> bucketsByKey(List<CalibrationPair> pairs,
+            java.util.function.Function<CalibrationPair, String> key) {
+        return pairs.stream()
+                .collect(Collectors.groupingBy(pair -> {
+                    String value = key.apply(pair);
+                    return value == null || value.isBlank() ? UNKNOWN_KEY : value;
+                }))
                 .entrySet().stream()
                 .sorted(Map.Entry.comparingByKey(Comparator.naturalOrder()))
                 .map(entry -> CalibrationBucket.of(entry.getKey(), entry.getValue()))

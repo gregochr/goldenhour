@@ -68,4 +68,35 @@ public record ForecastListDto(
         Integer windDirection,
         BigDecimal precipitation,
         Integer precipitationProbabilityPercent) {
+
+    /**
+     * A copy of this projection with a different star rating — how the as-of-event serve path puts
+     * the star a reader actually saw on a row whose own {@code rating} is a later or sky-only figure.
+     *
+     * @param newRating the rating to serve, or {@code null} for an unscored slot
+     * @return this projection with only {@code rating} replaced
+     */
+    public ForecastListDto withRating(Integer newRating) {
+        return new ForecastListDto(id, locationName, locationLat, locationLon, targetDate, targetType,
+                forecastRunAt, solarEventTime, azimuthDeg, newRating, fierySkyPotential,
+                goldenHourPotential, triageReason, summary, triageMessage, temperatureCelsius,
+                apparentTemperatureCelsius, windSpeed, windDirection, precipitation,
+                precipitationProbabilityPercent);
+    }
+
+    /**
+     * A copy of this projection with no star and no scores — a slot whose star is not recoverable.
+     * The scores go with the star because a marker draws its arcs and number from them whenever they
+     * are present, so a null rating beside live scores would paint a scored pin over an unscored
+     * window. The stand-down reason is kept: it is a decision the reader saw, not a score.
+     *
+     * @return this projection with {@code rating}, {@code fierySkyPotential} and
+     *         {@code goldenHourPotential} cleared
+     */
+    public ForecastListDto unscored() {
+        return new ForecastListDto(id, locationName, locationLat, locationLon, targetDate, targetType,
+                forecastRunAt, solarEventTime, azimuthDeg, null, null, null, triageReason, summary,
+                triageMessage, temperatureCelsius, apparentTemperatureCelsius, windSpeed, windDirection,
+                precipitation, precipitationProbabilityPercent);
+    }
 }

@@ -23,6 +23,15 @@ vi.mock('../components/MapView.jsx', () => ({
     return <div data-testid="stub-map" />;
   },
 }));
+// The pane mounts the reader's outcome-rating hook (outcome-rating-plan.md §2 #5): it reads the role
+// and asks for the range of ratings — never answered here (a read that never lands changes no state, so
+// no act() noise), since this file is about what the pane hands the map, not about ratings
+// (`useOutcomeRatings.test.js` and `WindowFirstMapPaneRatings.test.jsx` are).
+vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
+vi.mock('../api/outcomeRatingApi.js', () => ({
+  fetchMyRatings: vi.fn(() => new Promise(() => {})),
+  putRating: vi.fn(),
+}));
 
 const DATES = ['2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14', '2026-08-15',
   '2026-08-16', '2026-08-17'];
@@ -176,6 +185,53 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.forecastDates).toEqual(DATES);
     });
 
+    it('hands MapView the past windows its locations hold forecast rows for — never the briefing\'s '
+        + '(outcome-rating-plan.md §2 #2)', () => {
+      // The briefing withdraws a window once it is over, which is exactly when the list starts to
+      // matter; the pane builds the input from `forecastsByDate` alone. Today here is DATES[0]
+      // (2026-08-11); the fixture holds yesterday's sunset (two stations), today's sunrise and a
+      // FUTURE sunrise that must not appear.
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({
+        heatSpots: [], heatPointSets: new Map(), heatStripCards: [], reachById: new Map(),
+        homePlace: null, todayStr: DATES[0], origin: null, setOrigin: vi.fn(),
+        effectiveReachById: new Map(), scoreRows: [], scoresLoaded: true, briefing: null,
+      });
+      const locations = [
+        {
+          id: 1, name: 'A', forecastsByDate: new Map([
+            ['2026-08-10', { sunset: { solarEventTime: '2026-08-10T19:41:00' } }],
+            ['2026-08-11', { sunrise: { solarEventTime: '2026-08-11T05:02:00' } }],
+            ['2026-08-12', { sunrise: { solarEventTime: '2026-08-12T05:04:00' } }],
+          ]),
+        },
+        {
+          id: 2, name: 'B', forecastsByDate: new Map([
+            ['2026-08-10', { sunset: { solarEventTime: '2026-08-10T19:38:00' } }],
+          ]),
+        },
+      ];
+
+      renderPane({ locations });
+
+      expect(MapStub.lastProps.pastSolarWindows).toEqual([
+        { date: '2026-08-10', targetType: 'SUNSET', earliestEventTime: '2026-08-10T19:38:00' },
+        { date: '2026-08-11', targetType: 'SUNRISE', earliestEventTime: '2026-08-11T05:02:00' },
+      ]);
+    });
+
+    it('keeps the past windows\' identity across a re-render that changes nothing they depend on', () => {
+      // MapView is React.memo'd and this pane re-renders on every provider tick; a fresh array each
+      // time would bust the `solarRowExists` memo downstream.
+      const locations = [];
+      const { rerender } = renderPane({ locations });
+      const first = MapStub.lastProps.pastSolarWindows;
+      rerender(
+        <WindowFirstMapPane locations={locations} dates={DATES} selectedDate={DATES[0]}
+          onSelectDate={vi.fn()} />,
+      );
+      expect(MapStub.lastProps.pastSolarWindows).toBe(first);
+    });
+
     it('renders the map, and hands it an empty list, when there are no dates at all', () => {
       // The App-level gate is what normally prevents this; gates get edited, so the pane must
       // still degrade rather than throw.
@@ -194,14 +250,112 @@ describe('WindowFirstMapPane', () => {
     });
   });
 
+  /**
+   * The older-day fetch's inputs (outcome-rating-plan.md §2 #2, §3 O3b step 2): whether one more
+   * stored past day can be loaded and which, derived here from the dates the pane holds against the
+   * T-4 floor. Today is DATES[0] (2026-08-11), so T-1 is the 10th, T-3 the 8th and the floor the 7th.
+   */
+  describe('the older-day fetch (O3b)', () => {
+    const onLoadOlderDay = vi.fn();
+    const withToday = () => vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({
+      heatSpots: [], heatPointSets: new Map(), heatStripCards: [], reachById: new Map(),
+      homePlace: null, todayStr: DATES[0], origin: null, setOrigin: vi.fn(),
+      effectiveReachById: new Map(), scoreRows: [], scoresLoaded: true, briefing: null,
+    });
+    const props = (extra = {}) => ({
+      dates: ['2026-08-09', '2026-08-10', ...DATES], onLoadOlderDay, ...extra,
+    });
+
+    it('offers the day before the oldest held date, and hands MapView the loader unchanged', () => {
+      withToday();
+      renderPane(props());
+      expect(MapStub.lastProps.canLoadOlder).toBe(true);
+      expect(MapStub.lastProps.olderDayDate).toBe('2026-08-08');
+      expect(MapStub.lastProps.onLoadOlderDay).toBe(onLoadOlderDay);
+    });
+
+    it('passes the date being loaded straight through', () => {
+      withToday();
+      renderPane(props({ olderDayLoading: '2026-08-08' }));
+      expect(MapStub.lastProps.olderDayLoading).toBe('2026-08-08');
+    });
+
+    it('with only today held, the next older date is T-1', () => {
+      withToday();
+      renderPane(props({ dates: ['2026-08-11', '2026-08-12'] }));
+      expect(MapStub.lastProps.olderDayDate).toBe('2026-08-10');
+    });
+
+    it('counts a loaded day, an empty one included: T-3 loaded offers T-4, T-4 loaded offers nothing', () => {
+      withToday();
+      renderPane(props({ loadedPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.olderDayDate).toBe('2026-08-07');
+      expect(MapStub.lastProps.canLoadOlder).toBe(true);
+
+      renderPane(props({ loadedPastDays: ['2026-08-08', '2026-08-07'] }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+      expect(MapStub.lastProps.olderDayDate).toBeNull();
+    });
+
+    it('hands MapView the most recently loaded day only when it came back empty (the line in the Load row\'s place)', () => {
+      withToday();
+      renderPane(props({ loadedPastDays: ['2026-08-08'], emptyPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.emptyOlderDayDate).toBe('2026-08-08');
+
+      renderPane(props({ loadedPastDays: ['2026-08-08', '2026-08-07'], emptyPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.emptyOlderDayDate).toBeNull();
+
+      renderPane(props({ loadedPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.emptyOlderDayDate).toBeNull();
+    });
+
+    it('keeps the empty day at the T-4 floor, where no Load row follows it', () => {
+      withToday();
+      renderPane(props({
+        loadedPastDays: ['2026-08-08', '2026-08-07'], emptyPastDays: ['2026-08-08', '2026-08-07'],
+      }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+      expect(MapStub.lastProps.emptyOlderDayDate).toBe('2026-08-07');
+    });
+
+    it('names no empty day without a loader', () => {
+      withToday();
+      renderPane(props({ onLoadOlderDay: null, loadedPastDays: ['2026-08-08'], emptyPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.emptyOlderDayDate).toBeNull();
+    });
+
+    it('never asks for anything older than T-4', () => {
+      withToday();
+      renderPane(props({ dates: ['2026-08-07', ...DATES] }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+      renderPane(props({ dates: ['2026-08-03', ...DATES] }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+    });
+
+    it('stands down under an admin rewind: no Load row, no fetch (plan section 5 #6)', async () => {
+      const { setRewind } = await import('../utils/rewind.js');
+      withToday();
+      setRewind('2026-08-10T12:00:00.000Z');
+      try {
+        renderPane(props());
+        expect(MapStub.lastProps.canLoadOlder).toBe(false);
+        expect(MapStub.lastProps.olderDayDate).toBeNull();
+      } finally {
+        setRewind(null);
+      }
+    });
+
+    it('offers nothing without a loader', () => {
+      withToday();
+      renderPane(props({ onLoadOlderDay: null }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+    });
+  });
+
   describe('what the map is handed', () => {
-    it('passes the selected date and the handoff through', () => {
-      const handoff = { eventType: 'AURORA', region: 'Northumberland & Tyneside', nonce: 7 };
-      renderPane({ handoff });
+    it('passes the selected date through', () => {
+      renderPane();
       expect(MapStub.lastProps.date).toBe(DATES[0]);
-      expect(MapStub.lastProps.handoffEventType).toBe('AURORA');
-      expect(MapStub.lastProps.handoffRegion).toBe('Northumberland & Tyneside');
-      expect(MapStub.lastProps.handoffNonce).toBe(7);
     });
 
     it('gives the map the same date setter the strip above it uses', () => {
@@ -216,18 +370,6 @@ describe('WindowFirstMapPane', () => {
       renderPane({ onSelectDate });
 
       expect(MapStub.lastProps.onSelectDate).toBe(onSelectDate);
-    });
-
-    it('nulls every handoff field when there is no handoff, rather than passing undefined', () => {
-      // `MapView` defaults these to null and branches on null; `undefined` would reach the same
-      // place by luck. Asserted because the pane spreads from a possibly-absent object.
-      renderPane();
-      expect(MapStub.lastProps.handoffEventType).toBeNull();
-      expect(MapStub.lastProps.handoffFilterAction).toBeNull();
-      expect(MapStub.lastProps.handoffDarkSky).toBeNull();
-      expect(MapStub.lastProps.handoffLocationName).toBeNull();
-      expect(MapStub.lastProps.handoffRegion).toBeNull();
-      expect(MapStub.lastProps.handoffNonce).toBeNull();
     });
 
     it('hands the home down as given — unknown stays unknown, never "no postcode"', () => {
@@ -273,12 +415,6 @@ describe('WindowFirstMapPane', () => {
       );
       expect(MapStub.lastProps.mapTideMode).toBe('off');
     });
-
-    it('forwards a darkSky handoff (D8, plan §6b) — the Coming up dark-sky-spots action', () => {
-      renderPane({ handoff: { darkSky: true, nonce: 3 } });
-      expect(MapStub.lastProps.handoffDarkSky).toBe(true);
-      expect(MapStub.lastProps.handoffNonce).toBe(3);
-    });
   });
 
   describe('the door handoff (D2, plan-to-map-doors-plan.md §3 D2 task 2)', () => {
@@ -292,51 +428,18 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.planHandoff).toEqual(PLAN_HANDOFF);
     });
 
-    it('a source:\'plan\' handoff nulls out every OLD per-field handoff* prop — a door\'s region '
-        + 'must never ALSO reach the FitBoundsController-driven handoffRegion effect', () => {
-      renderPane({ handoff: PLAN_HANDOFF });
-      expect(MapStub.lastProps.handoffEventType).toBeNull();
-      expect(MapStub.lastProps.handoffFilterAction).toBeNull();
-      expect(MapStub.lastProps.handoffDarkSky).toBeNull();
-      expect(MapStub.lastProps.handoffLocationName).toBeNull();
-      expect(MapStub.lastProps.handoffRegion).toBeNull();
-      expect(MapStub.lastProps.handoffNonce).toBeNull();
-    });
-
-    it('a source:\'map\' handoff rides the SAME structured prop, not the hatch\'s per-field ones', () => {
-      // ⚠️ The four-day sheet's footer, pressed while that sheet is already over the map. It MUST
-      // NOT go down the hatch: the hatch's own event effect sets `userHasOverriddenEvent` FALSE,
-      // which re-runs `MapView`'s auto-selection effect and replaces the named window with
-      // `autoEventType` a tick later — so "Show on map → Monday sunrise" landed on tonight's sunset
-      // (Codex review, P1 against the first cut, which emitted no `source` at all).
+    it('a source:\'map\' handoff rides the SAME structured prop', () => {
+      // ⚠️ The four-day sheet's footer, pressed while that sheet is already over the map.
       const IN_PLACE = {
         source: 'map', eventType: 'SUNRISE', date: DATES[0], locationName: 'Keswick View', nonce: 11,
       };
       renderPane({ handoff: IN_PLACE });
       expect(MapStub.lastProps.planHandoff).toEqual(IN_PLACE);
-      expect(MapStub.lastProps.handoffEventType).toBeNull();
-      expect(MapStub.lastProps.handoffLocationName).toBeNull();
-      expect(MapStub.lastProps.handoffNonce).toBeNull();
     });
 
-    it('a hatch handoff (no source field) reaches MapView through the OLD per-field props, exactly '
-        + 'as before — and planHandoff stays null', () => {
-      // Every one of the six OLD fields, not just three of them — proving the `isPlanHandoff`
-      // ternary genuinely FORWARDS a truthy/real value per field for a non-plan handoff, not just
-      // that it happens to null a plan one. A mutation collapsing any single field's ternary to
-      // an unconditional `null` (permanently disabling that field, doors or not) is caught here.
-      const hatch = {
-        eventType: 'AURORA', filterAction: 'BLUEBELL', darkSky: true,
-        locationName: 'Bamburgh Beach', region: 'Northumberland & Tyneside', nonce: 7,
-      };
-      renderPane({ handoff: hatch });
+    it('a handoff with no source is not a handoff - the legacy per-field hatch is gone (overlay convergence C5)', () => {
+      renderPane({ handoff: { eventType: 'AURORA', locationName: 'Bamburgh Beach', nonce: 7 } });
       expect(MapStub.lastProps.planHandoff).toBeNull();
-      expect(MapStub.lastProps.handoffEventType).toBe('AURORA');
-      expect(MapStub.lastProps.handoffFilterAction).toBe('BLUEBELL');
-      expect(MapStub.lastProps.handoffDarkSky).toBe(true);
-      expect(MapStub.lastProps.handoffLocationName).toBe('Bamburgh Beach');
-      expect(MapStub.lastProps.handoffRegion).toBe('Northumberland & Tyneside');
-      expect(MapStub.lastProps.handoffNonce).toBe(7);
     });
 
     it('planHandoff is null when there is no handoff at all', () => {

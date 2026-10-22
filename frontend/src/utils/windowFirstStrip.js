@@ -117,6 +117,9 @@ export function buildHeatStripCards(
       // (review F1) — a triage-fallback word has no mean behind it, and the face, the spoken
       // sentence and the H2 "beyond the tier" line all read THIS, never `topMeanRating`.
       verdictMean: card?.verdictMean ?? null,
+      // A STAND_DOWN word over a blanked region (H4): the face prints `unsettled` where the mean
+      // would sit. Folded from the card, never re-derived.
+      verdictBlanked: !away && card?.verdictBlanked === true,
       // The forecast's own pick, served on the window projection — never a client-side "which of
       // these six looks best" (plan §2.12). Exactly two picks exist across the whole forecast, and
       // the matrix rides BOTH on the card's border as legends, so the kind is carried rather than
@@ -165,6 +168,9 @@ export function buildHeatStripCards(
       // `reachMeasured`, for the H2 "region · beyond 45 min" line (plan-card-verdict-honesty-plan.md).
       reachLimitMinutes: card?.reachLimitMinutes ?? null,
       bestReach: card?.bestReach ?? null,
+      // Folded beside `bestReach` (the fold passes no unknown field through): a neighbour outlier
+      // was skipped and nothing clears the named floor, so the line says "no clear pick".
+      bestReachWithheld: card?.bestReachWithheld === true,
       // The payload's own list, unfiltered, so the matrix names every topic on the night — the
       // design's "nothing is collapsed behind a +2". ⚠️ There WAS a post-promotion `card.badges`
       // beside it, and this comment used to point at it; the snow-row promotion and that remainder

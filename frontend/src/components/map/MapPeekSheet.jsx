@@ -7,7 +7,8 @@ import VerdictWord from '../shared/VerdictWord.jsx';
 import { isNightRow } from '../../utils/mapPeek.js';
 import { EVENT_KIND } from '../../utils/mapEvents.js';
 import { meridiemOf } from '../../utils/askModel.js';
-import { KindChip } from './WindowControl.jsx';
+import { KindChip, RatedCell } from './WindowControl.jsx';
+import { noStoredForecast } from './outcomeRatingCopy.js';
 
 /**
  * The Map tab's phone peek sheet — map-mobile-sheet-plan.md §3 M2,
@@ -97,7 +98,9 @@ import { KindChip } from './WindowControl.jsx';
  * @param {React.ReactNode} [props.ask] `MapPeekAsk` — the entry row, the Ask section's body and the
  *        minimised line, in one node, since the three share focus handling.
  * @param {?{current: ?HTMLElement}} [props.fallbackFocusRef] where focus goes when the button row is
- *        removed while one of its buttons holds it (the Ask row's entry button) — see `PeekButtonRow`.
+ *        removed while one of its buttons — or, when the section closes, a control inside the open body —
+ *        holds it: the minimised line's Layers door when the answer is minimised (`MapView` chooses), the
+ *        Ask row's entry button otherwise — see `PeekButtonRow` and `PeekBody`.
  */
 export default function MapPeekSheet({
   section, onPressWindows, onPressLayers, onPressTide = null, tideVisible = false,
@@ -184,11 +187,11 @@ export default function MapPeekSheet({
           what makes a section swap tear the PREVIOUS section's content down rather than leaving two
           panes stacked in the DOM. */}
       {open && (
-        <div id="wf-map-peek-body" data-testid="wf-map-peek-body" className="wf-map-peek-body">
+        <PeekBody onUnmountWithFocus={() => { focusLostRef.current = true; }}>
           {section === 'win' && windowsBody}
           {section === 'tide' && tideBody}
           {section === 'lay' && layersBody}
-        </div>
+        </PeekBody>
       )}
     </section>
   );
@@ -201,8 +204,9 @@ export default function MapPeekSheet({
  * while focus is inside the pane — goes quiet: the defect this tab's panels have had five times. So the
  * row reports, from its layout-effect CLEANUP (which runs before the DOM is removed, while the focused
  * button is still {@code document.activeElement}; no blur event is reliable for a removed node), that
- * it held focus, and {@code MapPeekSheet} hands focus to {@code fallbackFocusRef} — the Ask row's entry
- * button, which exists in every mode the row can vanish into — once the commit has landed.
+ * it held focus, and {@code MapPeekSheet} hands focus to {@code fallbackFocusRef} — the minimised
+ * line's Layers door, or the Ask row's entry button in every other mode the row can vanish into — once
+ * the commit has landed.
  *
  * <p>The row's own class is the test for "was focus inside me", so it needs no ref (a ref is already
  * detached by the time a cleanup could read it) and no listener.
@@ -215,6 +219,33 @@ function PeekButtonRow({ onUnmountWithFocus, children }) {
   }, []);
   return <div className="wf-map-peek-row">{children}</div>;
 }
+
+/**
+ * The open section's body, which is UNMOUNTED whenever the section closes (Escape, a map touch, the
+ * section's own button). A control inside it that held focus — Tide mode, Heat / Pins, a window row —
+ * takes focus to {@code <body>} with it, and the pane's Escape rule goes quiet; the button row's report
+ * above does not see it (focus is not inside the row). Same mechanism: report from the layout-effect
+ * cleanup, while the focused node is still {@code document.activeElement}, and {@code MapPeekSheet}
+ * hands focus to {@code fallbackFocusRef} once the commit has landed — the minimised line's Layers door
+ * with an answer standing, the Ask row's entry button otherwise.
+ */
+function PeekBody({ onUnmountWithFocus, children }) {
+  const report = useRef(onUnmountWithFocus);
+  useEffect(() => { report.current = onUnmountWithFocus; });
+  useLayoutEffect(() => () => {
+    if (document.activeElement?.closest?.('.wf-map-peek-body')) report.current?.();
+  }, []);
+  return (
+    <div id="wf-map-peek-body" data-testid="wf-map-peek-body" className="wf-map-peek-body">
+      {children}
+    </div>
+  );
+}
+
+PeekBody.propTypes = {
+  onUnmountWithFocus: PropTypes.func.isRequired,
+  children: PropTypes.node,
+};
 
 PeekButtonRow.propTypes = {
   onUnmountWithFocus: PropTypes.func.isRequired,
@@ -250,7 +281,8 @@ MapPeekSheet.propTypes = {
   onTideButtonBlur: PropTypes.func,
   askMode: PropTypes.oneOf(['off', 'collapsed', 'expanded', 'minimised', 'section']),
   ask: PropTypes.node,
-  /** Where focus goes when the buttons unmount while holding it — the Ask row's entry button. */
+  /** Where focus goes when the buttons unmount while holding it — the minimised line's Layers door
+   * (answer minimised) or the Ask row's entry button. */
   fallbackFocusRef: PropTypes.shape({ current: PropTypes.any }),
 };
 
@@ -321,15 +353,109 @@ OtherWindowValue.propTypes = {
  * @param {Function} props.onSelect `(row) => void` — picks a row; the sheet stays open (rule 2)
  * @param {?Function} props.onOpenDrilldown opens `MapWindowPanel`; null withholds the row entirely
  *        (the same "no window to drill into" gate `WindowControl`'s own row observes)
+ * @param {boolean} [props.canLoadOlder] whether one more stored past day can be fetched (the EARLIER
+ *        group's Load row; outcome-rating-plan.md §2 #2, O3b)
+ * @param {?string} [props.olderDayLabel] the day the Load row fetches, {@code Thu 13}
+ * @param {?string} [props.emptyOlderDayLabel] the most recently loaded older day, {@code Fri 16}, when it
+ *   returned no rows; drawn as a quiet line in the Load row's place
+ * @param {?string} [props.olderDayLoadingLabel] the day being fetched now; the Load row is disabled
+ * @param {?Function} [props.onLoadOlderDay] the Load row's press; the caller closes the sheet and
+ *        moves focus to the pill before it starts the fetch
+ * @param {?Map<string, number>} [props.ratedCounts] row id to the reader's rated-location count for
+ *        that PAST window (outcome-rating-plan.md §2 #6, O4b) — the dropdown's own {@code {n} rated} /
+ *        {@code Not rated}. An id it lacks is unknown (not read yet, a failed read) and the row keeps
+ *        the {@code Past} tag it wore before the counts existed, never a false {@code Not rated}
  */
 export function MapPeekWindowsSection({
   heading, rows, verdicts = null, activeId = null, onSelect, onOpenDrilldown = null,
+  canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
+  emptyOlderDayLabel = null,
+  ratedCounts = null,
 }) {
+  // The same EARLIER group the dropdown draws (WindowControl): every PAST row under a sub-header per
+  // day, the Load row first. ⚠️ The Load row and the header sit OUTSIDE the listbox (it chooses no
+  // window); the future rows keep their flat list and per-row day label, so a date that is in both
+  // sets needs no heading disambiguation here.
+  const pastRows = rows.filter((row) => row.past === true);
+  const laterRows = rows.filter((row) => row.past !== true);
+  const pastDays = [];
+  for (const row of pastRows) {
+    if (pastDays.length === 0 || pastDays[pastDays.length - 1].date !== row.date) {
+      pastDays.push({ date: row.date, rows: [] });
+    }
+    pastDays[pastDays.length - 1].rows.push(row);
+  }
+  const loadable = Boolean(canLoadOlder && onLoadOlderDay && olderDayLabel);
+  const loading = Boolean(olderDayLoadingLabel);
+  // Not announced from here: the window control's `role="status"` region (mounted on the phone too, under
+  // the pill override) says it once.
+  const noStoredLine = emptyOlderDayLabel ? noStoredForecast(emptyOlderDayLabel) : null;
   return (
     <div data-testid="wf-map-peek-windows" className="wf-map-peek-pane">
       <h3 className="wf-map-peek-h3">{heading}</h3>
+      {(pastRows.length > 0 || loadable || noStoredLine) && (
+        <div data-testid="wf-map-peek-earlier" className="wf-map-peek-earlier">
+          EARLIER
+          <span className="wf-map-peek-earlier-hint">rate how it went</span>
+        </div>
+      )}
+      {noStoredLine && (
+        <div data-testid="wf-map-peek-none" className="wf-map-peek-none">{noStoredLine}</div>
+      )}
+      {loadable && (
+        <button
+          type="button"
+          data-testid="wf-map-peek-load"
+          className="wf-map-peek-wr wf-map-peek-load"
+          disabled={loading}
+          onClick={onLoadOlderDay}
+        >
+          <span className="wf-hc-sun wf-win-load-chip" aria-hidden="true">&#8593;</span>
+          <span className="wf-map-peek-load-txt">
+            <b className="wf-win-load-title">{`Load ${olderDayLabel}`}</b>
+            {' '}
+            <span className="wf-win-load-sub">
+              {`or press ‹ past the oldest window · fetches ${olderDayLabel}`}
+            </span>
+          </span>
+        </button>
+      )}
       <div role="listbox" aria-label="Choose an event" className="wf-map-peek-wlist">
-        {rows.map((row) => {
+        {pastDays.map((day) => (
+          <div key={`earlier:${day.date}`}>
+            <div data-testid="wf-map-peek-sub" className="wf-map-peek-sub">
+              {day.rows[0].dayLabel ?? day.date}
+            </div>
+            {day.rows.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                role="option"
+                aria-selected={row.id === activeId}
+                data-testid="wf-map-peek-win-row"
+                data-ev-id={row.id}
+                data-past="true"
+                className={`wf-map-peek-wr${row.id === activeId ? ' on' : ''}`}
+                onClick={() => onSelect(row)}
+              >
+                <KindChip row={row} />
+                <span className="wf-map-peek-wr-day wf-map-peek-wr-pasttime">
+                  <span className="sr-only">{`${row.dayLabel ?? row.label} `}</span>
+                  {row.time}
+                </span>
+                {/* `{n} rated` / `Not rated` where a verdict would be (outcome-rating-plan.md §2 #6),
+                    the dropdown's own cell. Unknown to the reader's ratings yet: the pill's own `PAST`
+                    tag, which states only what is known of the row. */}
+                <span className="wf-map-peek-wr-verdict">
+                  {ratedCounts?.has(row.id)
+                    ? <RatedCell ratedCount={ratedCounts.get(row.id)} />
+                    : <span className="wf-win-past" data-testid="wf-map-peek-wr-past">Past</span>}
+                </span>
+              </button>
+            ))}
+          </div>
+        ))}
+        {laterRows.map((row) => {
           const night = isNightRow(row);
           const verdict = night ? null : (verdicts?.get(row.id) ?? null);
           return (
@@ -394,9 +520,19 @@ MapPeekWindowsSection.propTypes = {
     time: PropTypes.string,
     bestRating: PropTypes.number,
     scored: PropTypes.bool,
+    date: PropTypes.string,
+    /** A window that has gone — drawn under the EARLIER group with a `Past` tag for its verdict. */
+    past: PropTypes.bool,
   })).isRequired,
   verdicts: PropTypes.instanceOf(Map),
   activeId: PropTypes.string,
   onSelect: PropTypes.func.isRequired,
   onOpenDrilldown: PropTypes.func,
+  canLoadOlder: PropTypes.bool,
+  olderDayLabel: PropTypes.string,
+  olderDayLoadingLabel: PropTypes.string,
+  emptyOlderDayLabel: PropTypes.string,
+  onLoadOlderDay: PropTypes.func,
+  /** Row id to the reader's rated-location count for a PAST window; an absent id is unknown. */
+  ratedCounts: PropTypes.instanceOf(Map),
 };

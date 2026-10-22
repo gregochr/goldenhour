@@ -124,12 +124,4 @@ describe('MapSizeSync', () => {
     tick(2000);
     expect(invalidateSize.mock.calls.length).toBe(settled);
   });
-
-  it('still runs in overlay mode, the path it was originally written for', () => {
-    // Never covered before this file, and it is the reason the component exists at all — the
-    // overlay's map grows and shrinks as the filter drawer animates.
-    renderMap({ overlayMode: true });
-    tick();
-    expect(invalidateSize).toHaveBeenCalled();
-  });
 });

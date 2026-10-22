@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.CoastalParameters;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.model.TideDerivation;
@@ -409,6 +410,31 @@ public class ForecastDataAugmentor {
         }
         LOG.debug("Inversion score for {}: {}/10", base.locationName(), score);
         return base.withInversionScore(score);
+    }
+
+    /**
+     * Returns a copy of {@code base} with a valley mist score and band for a {@code mist_prone}
+     * site (valley-mist-plan M1a). The gate is the site fact alone — an unflagged site is returned
+     * unchanged and never scored — because mist forming AROUND a place is geography the 11 km cell
+     * cannot show (the {@code overlooksWater} pattern). Returns the original data unchanged too when
+     * {@link ValleyMistCalculator} cannot score for want of inputs, which
+     * {@code SlotAtmosphereWriter} records as an authoritative null.
+     *
+     * @param base      atmospheric data to augment
+     * @param mistProne whether the location is flagged as one where mist forms around the camera
+     * @return a new {@link AtmosphericData} with the mist reading populated where applicable
+     */
+    public AtmosphericData augmentWithValleyMist(AtmosphericData base, boolean mistProne) {
+        if (!mistProne) {
+            return base;
+        }
+        Double score = ValleyMistCalculator.calculate(base);
+        if (score == null) {
+            return base;
+        }
+        MistPotential potential = ValleyMistCalculator.classify(base, score);
+        LOG.debug("Valley mist score for {}: {}/10 ({})", base.locationName(), score, potential);
+        return base.withValleyMist(score, potential);
     }
 
     /**

@@ -98,19 +98,19 @@ test.describe('Map view — marker interaction', () => {
     await page.waitForSelector('.leaflet-marker-icon', { timeout: 10000 });
   });
 
-  test('clicking a marker opens a popup', async ({ page }) => {
-    // Custom marker icons have child divs that intercept pointer events; use force click
+  test('clicking a marker opens its callout', async ({ page }) => {
+    // Custom marker icons have child divs that intercept pointer events; use force click.
+    // (The Leaflet popup this used to assert went with the Plan-tab overlay; the callout is the
+    // Map tab's one selection surface. This spec is not part of the local gate.)
     await page.locator('.leaflet-marker-icon').first().click({ force: true });
-    await expect(page.locator('.leaflet-popup')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('map-callout')).toBeVisible({ timeout: 5000 });
   });
 
-  test('popup contains location name and forecast summary', async ({ page }) => {
+  test('the callout names the location', async ({ page }) => {
     await page.locator('.leaflet-marker-icon').first().click({ force: true });
-    await page.waitForSelector('.leaflet-popup', { timeout: 5000 });
-
-    const popupContent = page.locator('.leaflet-popup-content');
-    // The popup should contain non-empty text (location name is rendered as bold text)
-    const text = await popupContent.textContent();
+    const callout = page.getByTestId('map-callout');
+    await callout.waitFor({ timeout: 5000 });
+    const text = await callout.textContent();
     expect(text.length).toBeGreaterThan(0);
   });
 });

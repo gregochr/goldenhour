@@ -142,11 +142,11 @@ class EvaluationServiceImplTest {
         when(batchRequestFactory.buildForecastRequestAndPrompt(
                 eq("fc-42-2026-04-16-SUNRISE"), eq(EvaluationModel.HAIKU),
                 eq(t1.data()), eq(EvaluationModel.HAIKU.getMaxTokens())))
-                .thenReturn(new BatchRequestFactory.ForecastRequest(req1, "msg1"));
+                .thenReturn(new BatchRequestFactory.ForecastRequest(req1, "msg1", null));
         when(batchRequestFactory.buildForecastRequestAndPrompt(
                 eq("fc-43-2026-04-16-SUNRISE"), eq(EvaluationModel.HAIKU),
                 eq(t2.data()), eq(EvaluationModel.HAIKU.getMaxTokens())))
-                .thenReturn(new BatchRequestFactory.ForecastRequest(req2, "msg2"));
+                .thenReturn(new BatchRequestFactory.ForecastRequest(req2, "msg2", null));
         when(batchSubmissionService.submit(
                 any(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED), anyString(),
                 org.mockito.ArgumentMatchers.isNull(), eq(false)))
@@ -247,11 +247,11 @@ class EvaluationServiceImplTest {
         when(batchRequestFactory.buildForecastRequestAndPrompt(
                 eq("fc-42-2026-04-16-SUNRISE-r901"), any(), any(),
                 org.mockito.ArgumentMatchers.anyInt()))
-                .thenReturn(new BatchRequestFactory.ForecastRequest(req, "message-for-901"));
+                .thenReturn(new BatchRequestFactory.ForecastRequest(req, "message-for-901", "hash-901"));
         when(batchRequestFactory.buildForecastRequestAndPrompt(
                 eq("fc-43-2026-04-16-SUNRISE"), any(), any(),
                 org.mockito.ArgumentMatchers.anyInt()))
-                .thenReturn(new BatchRequestFactory.ForecastRequest(req, "message-no-row"));
+                .thenReturn(new BatchRequestFactory.ForecastRequest(req, "message-no-row", "hash-none"));
         when(batchSubmissionService.submit(any(), any(), any(), anyString(),
                 org.mockito.ArgumentMatchers.isNull(), eq(false)))
                 .thenReturn(new BatchSubmitResult(1L, "msgbatch_x", 2));
@@ -261,6 +261,59 @@ class EvaluationServiceImplTest {
         ArgumentCaptor<Map<Long, String>> captor = ArgumentCaptor.forClass(Map.class);
         verify(forecastPromptStore).store(captor.capture());
         assertThat(captor.getValue()).containsOnly(Map.entry(901L, "message-for-901"));
+    }
+
+    @Test
+    @DisplayName("V182: submit stamps each pending row with the hash of the prompt its request carried; "
+            + "a task with no evalRowId stamps nothing")
+    void submit_skyTasks_stampPromptHashPerEvalRow() {
+        EvaluationTask.Forecast withRow = forecastTaskWithRow(42L, "Castlerigg", 901L);
+        EvaluationTask.Forecast otherRow = forecastTaskWithRow(44L, "Whitby", 902L);
+        EvaluationTask.Forecast noRow = forecastTask(43L, "Bamburgh", "North East");
+        BatchCreateParams.Request req = mock(BatchCreateParams.Request.class);
+        when(batchRequestFactory.buildForecastRequestAndPrompt(
+                eq("fc-42-2026-04-16-SUNRISE-r901"), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new BatchRequestFactory.ForecastRequest(req, "m1", "inland-hash"));
+        when(batchRequestFactory.buildForecastRequestAndPrompt(
+                eq("fc-44-2026-04-16-SUNRISE-r902"), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new BatchRequestFactory.ForecastRequest(req, "m2", "coastal-hash"));
+        when(batchRequestFactory.buildForecastRequestAndPrompt(
+                eq("fc-43-2026-04-16-SUNRISE"), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new BatchRequestFactory.ForecastRequest(req, "m3", "no-row-hash"));
+        when(batchSubmissionService.submit(any(), any(), any(), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq(false)))
+                .thenReturn(new BatchSubmitResult(1L, "msgbatch_x", 3));
+
+        service.submit(List.of(withRow, otherRow, noRow), BatchTriggerSource.SCHEDULED);
+
+        ArgumentCaptor<Map<String, List<Long>>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(forecastPromptStore).stampPromptHashes(captor.capture());
+        assertThat(captor.getValue()).containsOnly(
+                Map.entry("inland-hash", List.of(901L)), Map.entry("coastal-hash", List.of(902L)));
+    }
+
+    @Test
+    @DisplayName("V182: the hashes are stamped BEFORE the batch is submitted, so a fast-completing or "
+            + "adopted batch can never be scored against an unstamped row")
+    void submit_stampsPromptHashesBeforeSubmittingTheBatch() {
+        EvaluationTask.Forecast withRow = forecastTaskWithRow(42L, "Castlerigg", 901L);
+        when(batchRequestFactory.buildForecastRequestAndPrompt(any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new BatchRequestFactory.ForecastRequest(
+                        mock(BatchCreateParams.Request.class), "m", "inland-hash"));
+        when(batchSubmissionService.submit(any(), any(), any(), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq(false)))
+                .thenReturn(new BatchSubmitResult(1L, "msgbatch_x", 1));
+
+        service.submit(List.of(withRow), BatchTriggerSource.SCHEDULED);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(forecastPromptStore, batchSubmissionService);
+        order.verify(forecastPromptStore).stampPromptHashes(any());
+        order.verify(batchSubmissionService).submit(any(), any(), any(), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq(false));
     }
 
     @Test
@@ -279,6 +332,9 @@ class EvaluationServiceImplTest {
         ArgumentCaptor<Map<Long, String>> captor = ArgumentCaptor.forClass(Map.class);
         verify(forecastPromptStore).store(captor.capture());
         assertThat(captor.getValue()).isEmpty();
+        ArgumentCaptor<Map<String, List<Long>>> hashes = ArgumentCaptor.forClass(Map.class);
+        verify(forecastPromptStore).stampPromptHashes(hashes.capture());
+        assertThat(hashes.getValue()).as("no sky request, so no prompt fingerprint").isEmpty();
     }
 
     @Test
@@ -288,14 +344,14 @@ class EvaluationServiceImplTest {
         when(batchRequestFactory.buildForecastRequestAndPrompt(any(), any(), any(),
                 org.mockito.ArgumentMatchers.anyInt()))
                 .thenReturn(new BatchRequestFactory.ForecastRequest(
-                        mock(BatchCreateParams.Request.class), "m"));
+                        mock(BatchCreateParams.Request.class), "m", null));
         when(batchSubmissionService.submit(any(), any(), any(), anyString(),
                 org.mockito.ArgumentMatchers.isNull(), eq(false)))
                 .thenReturn(null);
 
         service.submit(List.of(withRow), BatchTriggerSource.SCHEDULED);
 
-        verifyNoInteractions(forecastPromptStore);
+        verify(forecastPromptStore, org.mockito.Mockito.never()).store(any());
     }
 
     @Test
@@ -305,7 +361,7 @@ class EvaluationServiceImplTest {
         when(batchRequestFactory.buildForecastRequestAndPrompt(any(), any(), any(),
                 org.mockito.ArgumentMatchers.anyInt()))
                 .thenReturn(new BatchRequestFactory.ForecastRequest(
-                        mock(BatchCreateParams.Request.class), "msg"));
+                        mock(BatchCreateParams.Request.class), "msg", null));
         when(batchSubmissionService.submit(
                 any(), any(), any(), anyString(),
                 org.mockito.ArgumentMatchers.isNull(), eq(false)))

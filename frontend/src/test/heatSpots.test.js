@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  POINT_SCORE_INDEX, buildHeatPointSets, buildHeatSpots, heatPointsFor,
+  POINT_SCORE_INDEX, buildHeatPointSets, buildHeatSpots, buildUnratedPointSets, forecastScoreRows, heatPointsFor, unratedPointsFor,
 } from '../utils/heatSpots.js';
 import { windowKey } from '../utils/windowKeys.js';
 
@@ -336,5 +336,100 @@ describe('buildHeatPointSets', () => {
     const sets = buildHeatPointSets(SPOTS, [{ date: '2026-08-19', targetType: 'SUNSET' }, {}]);
 
     expect([...sets.keys()]).toEqual(['2026-08-19:SUNSET']);
+  });
+});
+
+describe('forecastScoreRows — score rows from the forecast rows alone', () => {
+  const day = (date, entry) => new Map([[date, entry]]);
+  const windows = [
+    { date: '2026-08-19', targetType: 'SUNSET' },
+    { date: '2026-08-19', targetType: 'SUNRISE' },
+  ];
+
+  it('takes each window\'s rating off the location\'s own forecast row, in buildHeatSpots\' row shape', () => {
+    const rows = forecastScoreRows([
+      { id: 1, name: 'Bamburgh', forecastsByDate: day('2026-08-19', { sunset: { rating: 4 }, sunrise: { rating: 2 } }) },
+    ], windows);
+
+    expect(rows).toEqual([
+      { locationId: 1, locationName: 'Bamburgh', date: '2026-08-19', targetType: 'SUNSET', rating: 4 },
+      { locationId: 1, locationName: 'Bamburgh', date: '2026-08-19', targetType: 'SUNRISE', rating: 2 },
+    ]);
+  });
+
+  it('contributes nothing for a window the location has no row for', () => {
+    const rows = forecastScoreRows([
+      { id: 1, name: 'A', forecastsByDate: day('2026-08-19', { sunset: { rating: 4 } }) },
+      { id: 2, name: 'B', forecastsByDate: day('2026-08-20', { sunset: { rating: 5 } }) },
+    ], windows);
+
+    expect(rows.map((r) => `${r.locationName}:${r.targetType}`)).toEqual(['A:SUNSET']);
+  });
+
+  it('keeps a row with no rating as a null — an answer, not an absence', () => {
+    const [row] = forecastScoreRows([
+      { id: 1, name: 'A', forecastsByDate: day('2026-08-19', { sunset: { rating: null } }) },
+    ], windows);
+
+    expect(row.rating).toBeNull();
+  });
+
+  it('tolerates a missing roster, a location with no forecast map and no windows', () => {
+    const located = [{ id: 1, name: 'A', forecastsByDate: day('2026-08-19', { sunset: { rating: 4 } }) }];
+
+    expect(forecastScoreRows(undefined, windows)).toEqual([]);
+    expect(forecastScoreRows([{ id: 1 }, { id: 2, forecastsByDate: null }], windows)).toEqual([]);
+    expect(forecastScoreRows(located, undefined)).toEqual([]);
+  });
+
+  it('feeds buildHeatSpots, which paints the forecast row\'s star', () => {
+    const locations = [{
+      id: 1, name: 'A', lat: 55, lon: -1.5, regionName: 'North East', locationType: ['LANDSCAPE'],
+      forecastsByDate: day('2026-08-19', { sunset: { rating: 4 } }),
+    }];
+    const [spot] = buildHeatSpots(locations, forecastScoreRows(locations, windows), windows);
+
+    expect(spot.scores).toEqual([4, null]);
+  });
+});
+
+describe('buildUnratedPointSets (thin-sample F2)', () => {
+  const locations = [
+    location({ id: 1, name: 'Rated' }),
+    location({ id: 2, name: 'Unrated', lat: 55.7 }),
+    location({ id: 3, name: 'Stood', lat: 55.8 }),
+    location({ id: 4, name: 'Wood', lat: 55.9, locationType: ['WOODLAND'] }),
+  ];
+  const rows = [
+    row({ locationId: 1, locationName: 'Rated', rating: 4 }),
+    row({ locationId: 3, locationName: 'Stood', rating: null, triageReason: 'Heavy cloud' }),
+  ];
+  const spots = buildHeatSpots(locations, rows, EVENTS);
+
+  it('keys by the same window key and holds only places the window did not rate', () => {
+    const sets = buildUnratedPointSets(spots, EVENTS);
+    expect([...sets.keys()]).toEqual(['2026-08-19:SUNSET', '2026-08-20:SUNRISE']);
+    // A rated place, a stood-down place and a wood never appear.
+    expect(sets.get('2026-08-19:SUNSET').map((p) => p.name)).toEqual(['Unrated']);
+  });
+
+  it('is empty for no windows and skips a malformed event', () => {
+    expect(buildUnratedPointSets(spots, null).size).toBe(0);
+    expect([...buildUnratedPointSets(spots, [{}]).keys()]).toEqual([]);
+  });
+});
+
+describe('unratedPointsFor — no evidence, no hatch', () => {
+  it('yields nothing for a window where no spot is rated or stood down', () => {
+    const spots = buildHeatSpots([location(), location({ id: 2, name: 'Alnmouth' })], [], EVENTS);
+    expect(unratedPointsFor(spots, 0)).toEqual([]);
+    expect(buildUnratedPointSets(spots, EVENTS).get('2026-08-19:SUNSET')).toEqual([]);
+  });
+
+  it('still hatches the unrated neighbours of one rated spot', () => {
+    const spots = buildHeatSpots(
+      [location(), location({ id: 2, name: 'Alnmouth' })], [row({ rating: 4 })], EVENTS,
+    );
+    expect(unratedPointsFor(spots, 0).map((p) => p.name)).toEqual(['Alnmouth']);
   });
 });

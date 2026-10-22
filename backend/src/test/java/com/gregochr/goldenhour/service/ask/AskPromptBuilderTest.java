@@ -170,7 +170,8 @@ class AskPromptBuilderTest {
 
             assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, hasUser, false))
                     .isEqualTo(legacy);
-            assertThat(legacy).doesNotContain("Earlier picks").doesNotContain("emoji");
+            assertThat(legacy).doesNotContain("Earlier picks").doesNotContain("emoji")
+                    .doesNotContain("held back").doesNotContain("held-back");
         }
     }
 
@@ -272,5 +273,87 @@ class AskPromptBuilderTest {
             return new String(java.util.Objects.requireNonNull(in, name).readAllBytes(),
                     java.nio.charset.StandardCharsets.UTF_8);
         }
+    }
+
+    // -- the window criteria (ask-window-context plan §2.3) ----------------------------------------
+
+    private static String flat(String text) {
+        return text.replaceAll("\\s+", " ");
+    }
+
+    @Test
+    @DisplayName("the rules state the owner's scale and how to judge a window from its spread, and the fill "
+            + "instruction ('give 2 or 3 picks') is gone")
+    void rulesStateTheCriteria() {
+        String rules = flat(AskPromptBuilder.RULES);
+
+        assertThat(rules).contains("1★ and 2★ are stay home; 3★ is marginal; 4★ is game on; 5★ is go")
+                .contains("Read the spread before the best rating")
+                .contains("a stay-home window with a few exceptions, not a good window")
+                .contains("quoting the figures as returned")
+                .contains("A window whose regions were all stood down is poor everywhere")
+                .contains("mostly not scored or thin is mostly unlooked-at: say that, never that it is poor")
+                .contains("Never call a window good because its best rating is 4★ or 5★ when its spread says "
+                        + "otherwise")
+                .contains("give up to 3 picks at different spots, best first. Fewer is fine and none is fine")
+                .contains("never fill the list with marginal places")
+                .doesNotContain("give 2 or 3 picks");
+    }
+
+    @Test
+    @DisplayName("the hint is a hint: the stop condition is 'no game-on place anywhere the question is about', "
+            + "never 'every window is stay-home', and it excuses questions it does not fit")
+    void rulesStateTheHint() {
+        String rules = flat(AskPromptBuilder.RULES);
+
+        assertThat(rules).contains("A good investigation usually runs: list_windows; if none of the windows the "
+                + "question is about holds a game-on place, say so and stop")
+                .contains("even a couple of exceptions on a stay-home window, rank_spots in those regions and "
+                        + "windows")
+                .contains("check get_hot_topics for a spring or king tide")
+                .contains("Questions this does not fit (one place, one tide, one event, the night) need none "
+                        + "of it")
+                .doesNotContain("every window is stay-home");
+    }
+
+    @Test
+    @DisplayName("the 3★ clause is split by conversation and the spread's population is named, with no home "
+            + "in a user-less prompt")
+    void threeStarAndPopulationSentences() {
+        String userLess = flat(AskPromptBuilder.USER_LESS);
+        String withUser = flat(AskPromptBuilder.WITH_USER);
+
+        assertThat(userLess).contains("never mention home, distance or drive times")
+                .contains("say which area it counts, as the result's over says")
+                .contains("never \"within reach\"")
+                .contains("a 3★ pick is only ever the forecast's own BEST BET or ALSO GOOD, named as the "
+                        + "forecast's pick");
+        assertThat(withUser).contains("A 3★ place is worth considering only close to the reader's home; say so "
+                + "when you offer one")
+                .contains("The spread counts the whole area, not the places within the reader's drive");
+        assertThat(userLess).doesNotContain("close to the reader's home");
+    }
+
+    @Test
+    @DisplayName("a follow-up about the windows themselves is told to call list_windows again")
+    void threadRulesSendWindowFollowUpsToListWindows() {
+        assertThat(flat(AskPromptBuilder.THREAD_RULES)).contains("A follow-up about the windows themselves "
+                + "(\"so is it a stay-home weekend?\", \"how does Sunday look?\") calls list_windows again.");
+    }
+
+    @Test
+    @DisplayName("a Ready conversation's prompt names the windows its question covers; with none the prompt is "
+            + "the one it was")
+    void readyPromptNamesTheCoveredWindows() {
+        String plain = builder.systemPrompt(MONDAY, TestScopes.of(), null, null, null, false, false);
+
+        String ready = builder.systemPrompt(MONDAY, TestScopes.of(), null, null, null, false, false,
+                java.util.List.of("2026-10-10_sunrise", "2026-10-10_sunset", "2026-10-11_sunset"));
+
+        assertThat(ready).contains("The question is about these windows: 2026-10-10_sunrise, 2026-10-10_sunset, "
+                + "2026-10-11_sunset.");
+        assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, null, null, false, false,
+                java.util.List.of())).isEqualTo(plain);
+        assertThat(plain).doesNotContain("The question is about these windows");
     }
 }

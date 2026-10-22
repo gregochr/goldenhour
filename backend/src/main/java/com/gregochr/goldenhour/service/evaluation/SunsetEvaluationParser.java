@@ -3,10 +3,12 @@ package com.gregochr.goldenhour.service.evaluation;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.model.BluebellEvaluation;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.WoodlandEvaluation;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import org.springframework.stereotype.Component;
 
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -102,6 +104,10 @@ public class SunsetEvaluationParser {
     /** Extracts the cloud inversion score (0-10) from Claude's response. */
     static final Pattern INVERSION_SCORE_PATTERN =
             Pattern.compile("\"inversion_score\"\\s*:\\s*(\\d{1,2})");
+
+    /** Extracts Claude's valley mist reading from the response (valley-mist-plan M2). */
+    static final Pattern MIST_POTENTIAL_PATTERN =
+            Pattern.compile("\"mist_potential\"\\s*:\\s*\"(\\w+)\"");
 
     /** Extracts the cloud inversion potential classification from Claude's response. */
     static final Pattern INVERSION_POTENTIAL_PATTERN =
@@ -247,12 +253,14 @@ public class SunsetEvaluationParser {
                     : null;
             String headline = node.has("headline")
                     ? node.get("headline").stringValue() : null;
+            String mistPotential = node.has("mist_potential")
+                    ? sanitiseMistPotential(node.get("mist_potential").stringValue()) : null;
             // Bluebell left the standard prompt in Pass 3 — it now has its own prompt/parser
             // (parseBluebellEvaluation), so the colour evaluation carries no bluebell score.
             return new ParseResult(new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
                     inversionScore, inversionPotential,
-                    headline), false);
+                    headline, mistPotential), false);
         } catch (Exception jsonException) {
             // Strict JSON parse failed — fall through to the greedy regex fallback and flag it so
             // the caller can persist the raw response for diagnosis (Bug B). Diagnostic only:
@@ -310,11 +318,15 @@ public class SunsetEvaluationParser {
             Matcher headlineMatcher = HEADLINE_PATTERN.matcher(text);
             String headline = headlineMatcher.find() ? headlineMatcher.group(1) : null;
 
+            Matcher mistPotentialMatcher = MIST_POTENTIAL_PATTERN.matcher(text);
+            String mistPotential = mistPotentialMatcher.find()
+                    ? sanitiseMistPotential(mistPotentialMatcher.group(1)) : null;
+
             // Bluebell fields left the standard prompt in Pass 3 (own prompt/parser).
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
                     inversionScore, inversionPotential,
-                    headline);
+                    headline, mistPotential);
         }
 
         throw new IllegalArgumentException(
@@ -362,5 +374,26 @@ public class SunsetEvaluationParser {
             return "MODERATE";
         }
         return "NONE";
+    }
+
+    /**
+     * Normalises Claude's valley mist reading to a {@link MistPotential} name. Unlike the
+     * inversion's sanitiser, an unrecognised value is null rather than NONE: a made-up band is no
+     * reading at all, and a fabricated NONE would be stored as one (valley-mist-plan M2).
+     *
+     * @param raw the raw string from Claude's JSON response, or null
+     * @return NONE, POSSIBLE, LIKELY or FOGBOUND, or null when absent or not one of those
+     */
+    static String sanitiseMistPotential(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String upper = raw.trim().toUpperCase(Locale.ROOT);
+        for (MistPotential potential : MistPotential.values()) {
+            if (potential.name().equals(upper)) {
+                return upper;
+            }
+        }
+        return null;
     }
 }

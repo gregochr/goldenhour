@@ -125,6 +125,23 @@ class PipelineRunRepositoryTest {
                 .isEqualTo(first);
     }
 
+    private static final java.util.List<CycleType> COUNTED =
+            java.util.List.of(CycleType.NIGHTLY, CycleType.INTRADAY);
+
+    @Test
+    @DisplayName("findNewestSettledTriggerTime ignores a settled cycle of a type outside the list")
+    void findNewestSettledTriggerTime_ignoresUnlistedTypes() {
+        PipelineRunEntity counted = repository.save(
+                run(CycleType.NIGHTLY, Instant.parse("2026-10-01T01:00:00Z")));
+        PipelineRunEntity evening = repository.save(
+                run(CycleType.EVENING, Instant.parse("2026-10-01T20:00:00Z")));
+        repository.claimFailureSettle(counted.getId(), Instant.parse("2026-10-01T02:00:00Z"));
+        repository.claimFailureSettle(evening.getId(), Instant.parse("2026-10-01T21:00:00Z"));
+
+        assertThat(repository.findNewestSettledTriggerTime(COUNTED))
+                .isEqualTo(Instant.parse("2026-10-01T01:00:00Z"));
+    }
+
     @Test
     @DisplayName("findNewestSettledTriggerTime is the maximum trigger over SETTLED runs only, and "
             + "null when none is settled")
@@ -134,14 +151,14 @@ class PipelineRunRepositoryTest {
         PipelineRunEntity newer = repository.save(
                 run(CycleType.INTRADAY, Instant.parse("2026-10-02T14:00:00Z")));
         repository.save(run(CycleType.NIGHTLY, Instant.parse("2026-10-03T01:00:00Z")));
-        assertThat(repository.findNewestSettledTriggerTime()).isNull();
+        assertThat(repository.findNewestSettledTriggerTime(COUNTED)).isNull();
 
         repository.claimFailureSettle(older.getId(), Instant.parse("2026-10-01T02:00:00Z"));
-        assertThat(repository.findNewestSettledTriggerTime())
+        assertThat(repository.findNewestSettledTriggerTime(COUNTED))
                 .isEqualTo(Instant.parse("2026-10-01T01:00:00Z"));
         repository.claimFailureSettle(newer.getId(), Instant.parse("2026-10-02T15:00:00Z"));
 
-        assertThat(repository.findNewestSettledTriggerTime())
+        assertThat(repository.findNewestSettledTriggerTime(COUNTED))
                 .isEqualTo(Instant.parse("2026-10-02T14:00:00Z"));
     }
 
@@ -363,5 +380,20 @@ class PipelineRunRepositoryTest {
                 com.gregochr.goldenhour.entity.PipelinePhase.FORECAST_BATCH_SUBMIT);
         assertThat(com.gregochr.goldenhour.entity.PipelinePhase.isPreSubmission(
                 com.gregochr.goldenhour.entity.PipelinePhase.FORECAST_BATCH_WAIT)).isFalse();
+    }
+
+    @Test
+    @DisplayName("findFirstByTriggerTimeOrderByIdAsc matches the EXACT instant and answers the lowest id on a tie")
+    void findFirstByTriggerTime_exactMatchLowestId() {
+        Instant trigger = Instant.parse("2026-10-14T01:05:00Z");
+        PipelineRunEntity first = repository.save(run(CycleType.NIGHTLY, trigger));
+        repository.save(run(CycleType.INTRADAY, trigger));
+        repository.save(run(CycleType.INTRADAY, trigger.plusMillis(1)));
+
+        assertThat(repository.findFirstByTriggerTimeOrderByIdAsc(trigger)).map(PipelineRunEntity::getId)
+                .contains(first.getId());
+        assertThat(repository.findFirstByTriggerTimeOrderByIdAsc(trigger.minusMillis(1))).isEmpty();
+        assertThat(repository.findFirstByTriggerTimeOrderByIdAsc(Instant.parse("2026-10-14T01:05:01Z")))
+                .isEmpty();
     }
 }

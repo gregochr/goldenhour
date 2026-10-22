@@ -19,3 +19,6 @@ export const BUSY_BUTTON = 'aria-disabled:opacity-40 aria-disabled:cursor-not-al
 
 /** The same busy treatment for `.btn-secondary`, copying its `disabled:hover:bg-plex-surface-light`. */
 export const BUSY_BUTTON_SECONDARY = 'aria-disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:hover:bg-plex-surface-light';
+
+/** The same busy treatment for `.btn-danger` (index.css), whose hover is a dimming, not a fill. */
+export const BUSY_BUTTON_DANGER = 'aria-disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:hover:opacity-40';

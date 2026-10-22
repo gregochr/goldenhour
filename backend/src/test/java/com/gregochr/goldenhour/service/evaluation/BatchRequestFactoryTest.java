@@ -211,6 +211,41 @@ class BatchRequestFactoryTest {
     }
 
     @Test
+    void promptHashIsTheHashOfTheSystemPromptTheRequestCarries() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchRequestFactory.ForecastRequest built = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE-r5", EvaluationModel.HAIKU, data, 512);
+
+        String sentSystem = built.request().params().system().orElseThrow()
+                .asTextBlockParams().get(0).text();
+        assertThat(sentSystem).isEqualTo(inlandBuilder.getSystemPrompt());
+        assertThat(built.promptHash()).isEqualTo(PromptHash.sha256Hex(sentSystem)).hasSize(64);
+    }
+
+    @Test
+    void promptHashIgnoresTheSlotsWeatherButSeparatesInlandFromCoastal() {
+        AtmosphericData clear = TestAtmosphericData.builder().build();
+        AtmosphericData otherWeather = TestAtmosphericData.builder().lowCloud(91).highCloud(7).build();
+        AtmosphericData coastal = TestAtmosphericData.builder().tide(coastalTide()).build();
+
+        BatchRequestFactory.ForecastRequest first = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE-r5", EvaluationModel.HAIKU, clear, 512);
+        BatchRequestFactory.ForecastRequest second = factory.buildForecastRequestAndPrompt(
+                "fc-2-2026-04-17-SUNSET-r6", EvaluationModel.SONNET, otherWeather, 512);
+        BatchRequestFactory.ForecastRequest sea = factory.buildForecastRequestAndPrompt(
+                "fc-3-2026-04-16-SUNRISE-r7", EvaluationModel.HAIKU, coastal, 512);
+
+        assertThat(second.promptHash()).as("same prompt, different slot and model: same hash")
+                .isEqualTo(first.promptHash());
+        assertThat(sea.promptHash()).as("the coastal system prompt is a different prompt")
+                .isNotEqualTo(first.promptHash())
+                .isEqualTo(PromptHash.sha256Hex(coastalBuilder.getSystemPrompt()));
+        assertThat(second.userMessage()).as("the weather IS in the user message, which is why it is "
+                + "not what gets hashed").isNotEqualTo(first.userMessage());
+    }
+
+    @Test
     void buildForecastRequestDelegatesToTheCapturingBuild() {
         AtmosphericData data = TestAtmosphericData.builder().build();
 

@@ -415,6 +415,14 @@ public class HotTopicSimulationService {
                     2, null,
                     List.of("The North York Moors"), 1, null),
             new SimulationTemplate(
+                    "MIST", "Valley mist",
+                    "Valley mist likely at mist-prone sites",
+                    "On a clear, calm, near-saturated night, mist forms over rivers, lake shores"
+                            + " and valley floors. Low sun through it is among the most"
+                            + " atmospheric light the landscape offers.",
+                    2, null,
+                    List.of("The Lake District"), 1, null),
+            new SimulationTemplate(
                     "SUPERMOON", "Supermoon",
                     "Full moon at perigee — moonrise over the coast",
                     "A supermoon occurs when the full moon coincides with its closest approach"

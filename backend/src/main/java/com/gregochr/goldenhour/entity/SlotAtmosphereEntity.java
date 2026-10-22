@@ -139,6 +139,36 @@ public class SlotAtmosphereEntity {
     @Column(name = "inversion_scored", nullable = false)
     private boolean inversionScored;
 
+    /**
+     * Valley mist likelihood score (0–10, {@code ValleyMistCalculator}), or null when the location
+     * is not {@code mist_prone} or the calculator could not score it for want of inputs. V185
+     * (valley-mist-plan M1a): captured at the same collection-time seam as every other reading, so a
+     * triaged-out or stood-down candidate is recorded too. Always paired with {@link #mistScored} —
+     * a null reading alone does not mean "unscored".
+     */
+    @Column(name = "mist_score")
+    private Double mistScore;
+
+    /**
+     * True when THIS row was produced by a writer that ran the valley-mist check this cycle,
+     * whatever the result — false only for a row written before V185 (default {@code FALSE}). The
+     * V158 {@link #inversionScored} rule verbatim: a fresh null {@link #mistScore} is an
+     * authoritative answer (an unflagged site, or one the calculator could not score) where a
+     * pre-column row's null is not. {@code SlotAtmosphereWriter} sets this {@code true} on every
+     * write, with a score or with a null one alike.
+     */
+    @Column(name = "mist_scored", nullable = false)
+    private boolean mistScored;
+
+    /**
+     * The {@code MistPotential} band's enum NAME for {@link #mistScore}, or null exactly when the
+     * score is null. Stored because FOGBOUND is decided by event-hour visibility, not by the score:
+     * a white frame and a LIKELY morning can share a score, and a reader rebuilding the band from
+     * the score alone would recommend the white frame.
+     */
+    @Column(name = "mist_potential", length = 10)
+    private String mistPotential;
+
     /** Total storm surge in metres (pressure + wind), or null. Feeds the STORM_SURGE facts line. */
     @Column(name = "surge_total_m")
     private Double surgeTotalMetres;

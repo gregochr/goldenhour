@@ -336,3 +336,65 @@ export function placeLabelPass(items, frameWidth, frameHeight, obstacles = []) {
   }
   return placed;
 }
+
+// ── The rated badge's overhang (outcome-rating-plan.md §1 #4, §2 #6, O4b) ─────────────────────────
+
+/**
+ * How far the "you rated this" badge hangs outside a chip's own box: 9px to the right and 7px up
+ * ({@code .wf-rated-badge}'s {@code right: -9px; top: -7px}). The chip is measured by
+ * {@code offsetWidth/offsetHeight}, which an absolutely positioned child does not enlarge, so
+ * without folding this in the placer sees the chip and not the badge and would put a neighbour
+ * under it at any density.
+ */
+export const BADGE_OVERHANG_X = 9;
+export const BADGE_OVERHANG_Y = 7;
+
+/**
+ * Whether a chip or pin draws the rated badge: the spot carries the reader's own record
+ * ({@code spot.myRating}, set only on a PAST window) and is not one of Ask's picks — a pick is built
+ * from the PICK'S own window, which need not be the one on screen, so it speaks for none of the
+ * reader's records here.
+ *
+ * @param {{myRating: ?(number|string), askPick: ?object}} spot
+ * @returns {boolean}
+ */
+export function hasRatedBadge(spot) {
+  return spot.myRating != null && !spot.askPick;
+}
+
+/**
+ * The placer item for a chip that wears the rated badge: its measured box grown to include the
+ * overhang (right and up), the anchor shifted by half of it so the CHIP itself keeps exactly the
+ * place it would have had without a badge ({@link placeLabelPass} centres a box on its anchor).
+ * Pair with {@link chipBoxWithinBadgedBox} once placed.
+ *
+ * @param {{key: string, x: number, y: number, w: number, h: number}} item a measured chip item
+ * @returns {{key: string, x: number, y: number, w: number, h: number}}
+ */
+export function withBadgeOverhang(item) {
+  return {
+    ...item,
+    x: item.x + BADGE_OVERHANG_X / 2,
+    y: item.y - BADGE_OVERHANG_Y / 2,
+    w: item.w + BADGE_OVERHANG_X,
+    h: item.h + BADGE_OVERHANG_Y,
+  };
+}
+
+/**
+ * The chip's own box inside a box {@link placeLabelPass} placed for {@link withBadgeOverhang}: the
+ * reserved box's left edge and bottom, minus the overhang above and to the right. This is where the
+ * chip is DRAWN; the reserved box stays in the placer's committed list so later items keep clear of
+ * the badge.
+ *
+ * @param {{x: number, y: number, w: number, h: number}} box a placed, badge-inclusive box
+ * @returns {{x: number, y: number, w: number, h: number}}
+ */
+export function chipBoxWithinBadgedBox(box) {
+  return {
+    x: box.x,
+    y: box.y + BADGE_OVERHANG_Y,
+    w: box.w - BADGE_OVERHANG_X,
+    h: box.h - BADGE_OVERHANG_Y,
+  };
+}

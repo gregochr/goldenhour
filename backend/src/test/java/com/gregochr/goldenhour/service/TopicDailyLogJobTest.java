@@ -251,6 +251,79 @@ class TopicDailyLogJobTest {
         assertThat(surge.get(0).isPresent()).isFalse();
     }
 
+    // ---------------------------------------------------------------- MIST (valley-mist M1b)
+
+    private static SlotAtmosphereEntity mistSlot(LocationEntity location, TargetType event,
+            boolean scored, Double score, String band) {
+        SlotAtmosphereEntity row = new SlotAtmosphereEntity();
+        row.setLocation(location);
+        row.setEventType(event);
+        row.setMistScored(scored);
+        row.setMistScore(score);
+        row.setMistPotential(band);
+        return row;
+    }
+
+    @Test
+    @DisplayName("the mist topic type is MIST_CALC and fits topic_type's VARCHAR(20)")
+    void mist_typeIsPinned() {
+        assertThat(TopicDailyLogJob.TYPE_MIST).isEqualTo("MIST_CALC");
+        assertThat(TopicDailyLogJob.TYPE_MIST.length()).isLessThanOrEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("MIST_CALC logs present=true for a LIKELY row at EITHER event, with the region's max score")
+    void mist_likelyAtEitherEvent_isPresent() {
+        LocationEntity location = locationWithRegion(10L, region(1L));
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(
+                mistSlot(location, TargetType.SUNRISE, true, 6.5, "LIKELY"),
+                mistSlot(location, TargetType.SUNSET, true, 8.0, "LIKELY")));
+
+        job.runScheduled();
+
+        List<TopicDailyLogEntity> mist = savedRowsOfType("MIST_CALC");
+        assertThat(mist).hasSize(1);
+        assertThat(mist.get(0).getRegionId()).isEqualTo(1L);
+        assertThat(mist.get(0).isPresent()).isTrue();
+        assertThat(mist.get(0).getLandedOnWindow()).isTrue();
+        assertThat(mist.get(0).getIntensity()).isEqualByComparingTo("8");
+    }
+
+    @Test
+    @DisplayName("⚠️ only LIKELY is present: FOGBOUND and POSSIBLE are measured absences "
+            + "(present=false), exactly as the hot topic would not fire")
+    void mist_otherBandsAreMeasuredAbsences() {
+        LocationEntity location = locationWithRegion(10L, region(1L));
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(
+                mistSlot(location, TargetType.SUNRISE, true, 9.0, "FOGBOUND"),
+                mistSlot(location, TargetType.SUNSET, true, 5.0, "POSSIBLE")));
+
+        job.runScheduled();
+
+        List<TopicDailyLogEntity> mist = savedRowsOfType("MIST_CALC");
+        assertThat(mist).hasSize(1);
+        assertThat(mist.get(0).isPresent()).isFalse();
+        assertThat(mist.get(0).getLandedOnWindow()).isNull();
+        assertThat(mist.get(0).getIntensity()).isEqualByComparingTo("9");
+    }
+
+    @Test
+    @DisplayName("an unflagged site (scored, null score and band), a pre-column row and a place with no "
+            + "region are unmeasured: nothing is logged, and the inversion type is never written")
+    void mist_unmeasuredLogsNothing() {
+        LocationEntity location = locationWithRegion(10L, region(1L));
+        LocationEntity regionless = LocationEntity.builder().id(11L).name("Nowhere").build();
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(
+                mistSlot(location, TargetType.SUNRISE, true, null, null),
+                mistSlot(location, TargetType.SUNSET, false, 8.0, "LIKELY"),
+                mistSlot(regionless, TargetType.SUNRISE, true, 8.0, "LIKELY")));
+
+        job.runScheduled();
+
+        assertThat(savedRowsOfType("MIST_CALC")).isEmpty();
+        assertThat(savedRowsOfType("INVERSION_CALC")).isEmpty();
+    }
+
     // ---------------------------------------------------------------- INVERSION
 
     private static SlotAtmosphereEntity slot(LocationEntity location, TargetType event, boolean inversionScored,

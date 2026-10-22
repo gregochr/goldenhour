@@ -95,6 +95,21 @@ class StubAskEngineTest {
                 "Whitby.", List.of(picks), List.of(), java.time.LocalDateTime.of(2026, 10, 5, 12, 0), false))));
     }
 
+    @Test
+    @DisplayName("a place the neighbour guard marked is not offered by the stub, though it is the best-rated")
+    void markedPlaceIsNotOffered() {
+        BriefingRegion marked = AskFixtures.region("Coast", true,
+                AskFixtures.outlier(AskFixtures.coastal(1L, "Whitby", 5, "HIGH", true)),
+                AskFixtures.slot(3L, "Inland Edge", 4));
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(
+                List.of(AskFixtures.sunsetDay(TODAY, null, marked)), List.of()));
+
+        AskRun run = engine.run(question("Where is the best spot?"), snapshot, USER, AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(names(run)).containsExactly("Inland Edge");
+    }
+
     // -- the thread -------------------------------------------------------------------------
 
     @Test
@@ -246,7 +261,9 @@ class StubAskEngineTest {
         assertThat(picks.getFirst().ratingAtAnswer()).isEqualTo(5);
         assertThat(picks.getFirst().regionName()).isEqualTo("Coast");
         assertThat(picks.getFirst().why()).contains("Rated 5").contains("today sunset").contains("tide suits");
-        assertThat(run.outcome().answer().summary()).startsWith("Whitby at today sunset looks strongest at 5★")
+        // The framing comes from the served spread, then the stub's own sentence about the picks.
+        assertThat(run.outcome().answer().summary()).startsWith("Broadly game on across every region")
+                .contains("Whitby at today sunset looks strongest at 5★")
                 .contains("followed by Inland Edge and High Crag");
         assertThat(run.trace()).extracting(AskTools.ToolCall::tool)
                 .containsExactly("rank_spots", "submit_answer");
@@ -275,7 +292,8 @@ class StubAskEngineTest {
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
         assertThat(run.outcome().answer().picks()).extracting(AskPick::regionName).containsOnly("Hills");
-        assertThat(names(run)).containsExactly("High Crag", "Hill Top");
+        // Only the game-on place: Hill Top is a 3★, marginal, and the stub never fills a list with one.
+        assertThat(names(run)).containsExactly("High Crag");
     }
 
     @Test
@@ -328,7 +346,7 @@ class StubAskEngineTest {
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
         assertThat(run.outcome().answer().picks()).isEmpty();
-        assertThat(run.outcome().answer().summary()).contains("3★");
+        assertThat(run.outcome().answer().summary()).contains("none is 4★");
     }
 
     @Test
@@ -351,7 +369,9 @@ class StubAskEngineTest {
 
         AskRun run = engine.run(question("best"), snapshot, USER, AskRunOptions.none());
 
-        assertThat(run.outcome().answer().summary()).isEqualTo("Only Spot at today sunset looks strongest at 4★.");
+        assertThat(run.outcome().answer().summary()).isEqualTo(
+                "Broadly game on across every region: 1 of 1 rated place is 4★ or better. "
+                        + "Only Spot at today sunset looks strongest at 4★.");
     }
 
     @Test
@@ -628,7 +648,7 @@ class StubAskEngineTest {
     @DisplayName("an answer the validator discards is a FAILED run with the reason: the stub is not trusted either")
     void discardedAnswerFails() {
         AskAnswerValidator rejecting = mock(AskAnswerValidator.class);
-        when(rejecting.validate(any(), any(), any(), any(), any(), any(), anyBoolean()))
+        when(rejecting.validate(any(), any(), any(), any(), any(), any(), anyBoolean(), any()))
                 .thenReturn(new AskAnswerValidator.Result(null, "no summary"));
         StubAskEngine strict = new StubAskEngine(rejecting, driveTimes, new ObjectMapper());
 
@@ -643,7 +663,7 @@ class StubAskEngineTest {
     @DisplayName("a validated unanswerable reply is a CANT outcome (the stub's validator path, not its script)")
     void cantStatusIsReportedFromTheValidator() {
         AskAnswerValidator cant = mock(AskAnswerValidator.class);
-        when(cant.validate(any(), any(), any(), any(), any(), any(), anyBoolean())).thenReturn(
+        when(cant.validate(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(
                 new AskAnswerValidator.Result(
                         new AskAnswer(false, "Cannot tell.", List.of(), List.of(), "parking"), null));
         StubAskEngine stub = new StubAskEngine(cant, driveTimes, new ObjectMapper());

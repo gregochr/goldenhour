@@ -86,6 +86,20 @@
      under the entire window-first subtree, and nothing fails loudly when it does. */
   --color-plex-panel: #1E1712;
 
+  /* Status colours for the auth screens and Settings — error and success INK, nothing else. They
+     are their own tokens and deliberately not --color-verdict-standdown / --color-verdict-go: the
+     verdict colours mean a FORECAST verdict everywhere they appear, and a rejected password or a
+     met rule is not a forecast. `plex-ok` happens to share --color-verdict-go's value and must stay
+     a separate declaration, so a later retune of the verdict green does not drag the form text with
+     it. Contrast, measured at plan time: #F07A62 is 6.25:1 on --color-plex-surface (#221A15) and
+     6.77:1 on --color-plex-bg (#181210); #8AAE72 is 6.83:1 on #221A15 — all above the 4.5:1 that
+     12px text needs (authTokens.test.js recomputes them). They sit in this block so they
+     are declared whether or not a scanned file happens to name them yet — the --color-plex-panel
+     lesson — and `.field-error` below reaches `plex-error` through an @apply, not a class a file
+     mentions. */
+  --color-plex-error: #F07A62;
+  --color-plex-ok: #8AAE72;
+
   /* Condition channels — objective, independent of the sky verdict, and each its own hue so a
      tide, a noctilucent display and lying snow never read as three grades of one thing.
      (--color-tide is the third member and already lives above, where it is in use today.) */
@@ -249,6 +263,19 @@
      `--color-plex-coral` two lines up. */
   --color-plex-astro: #8E86D6;
   --color-plex-astro-bright: #A79FE4;
+
+  /* The outcome-rating block's three stars (docs/design/outcome-rating/README.md §6; outcome-rating-
+     plan.md §2 #5) — the only colours that block needs that this file did not already name; every
+     other one it draws is an existing token (`--color-plex-border`, `--color-plex-border-light`,
+     `--color-plex-panel`, `--color-plex-text*`, `--color-verdict-marginal`). `static`, not the plain
+     block above, because their only consumers are the handwritten `.wf-rate*` rules below and a
+     plain-block token with no scanned Tailwind reference prunes to the empty string (the
+     `--color-plex-panel` incident recorded at the top of this block). `--color-star-off` is the same
+     hex as `--color-plex-border-light` today and is a separate name on purpose: an unlit star is not a
+     border, and a retune of one must not recolour the other. */
+  --color-star: #E5A00D;
+  --color-star-off: #4A3A2E;
+  --color-star-selected-bg: rgba(229, 160, 13, 0.12);
 }
 
 /* ── Safe areas ──────────────────────────────────────────────────────────────────────────────────
@@ -288,11 +315,10 @@
                               padding box, so the root's inset does not reach it
      · `BottomSheet`        · `position: fixed` to the bottom edge
      · `Modal`              · `position: fixed inset-0`
-     · `MapOverlay`         · a fifth `fixed; inset: 0` layer, styled INLINE in its own component,
-                              so no rule here can reach it — it resolves its 24px gutter against
-                              the insets with `max()` itself. Missed by the first cut of this audit,
-                              which is why the list now says how each element is reached, not just
-                              that it was found.
+          (A fifth, `MapOverlay` - `fixed; inset: 0`, styled INLINE, resolving its own 24px gutter against
+      the insets with `max()` - was on this list until overlay convergence C5 deleted it. It was
+      missed by the first cut of this audit, which is why the list says how each element is reached,
+      not just that it was found.)
 
    ⚠️ AND A DESCENDANT CAN CANCEL AN ANCESTOR'S INSET, which is the failure mode this block's
    "everything in normal flow is inset without knowing about it" premise does not survive on its
@@ -351,8 +377,7 @@
    was made, and it is why this is one named class rather than a value inlined twice: a later bundle
    that wants a different scrim changes it here and knows it is changing all of them. Warmer and
    denser than both defaults, which darkens the page behind a dialog and so raises the contrast of
-   anything drawn on top of it. `MapOverlay` keeps its own inline `rgba(8,6,5,.72)` with a blur —
-   the window-first value, on a separate surface. */
+   anything drawn on top of it. (The retired `MapOverlay` kept its own inline `rgba(8,6,5,.72)` with a blur.) */
 .app-scrim {
   background: rgba(8, 6, 5, 0.74);
 }
@@ -421,6 +446,63 @@
   .btn-secondary {
     @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg bg-plex-surface-light hover:bg-plex-border text-plex-text focus-visible:ring-plex-gold disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-plex-surface-light;
   }
+
+  /* The destructive button — the Settings danger zone's "Delete account" (login-registration R5b),
+     and nothing else yet. Filled from `--color-plex-error`, the token the form errors already use,
+     never a raw `red-*`: the label is `plex-bg` on it, 6.77:1 (the page-background figure
+     `authTokens.test.js` pins; contrast is symmetric). Its focus rules are the other two buttons'
+     — `focus-visible:` only, `outline-hidden` for forced colours, a 2px ring at a 2px offset —
+     with the ring in the error colour (6.77:1 on the page) where theirs is gold, and they live HERE
+     rather than as utilities on the call site because a ring utility beside a `.btn*` class wins
+     from a later layer (`buttonFocusRules.test.js` fails on it). A busy button is `aria-disabled`,
+     not `disabled` (BUSY_BUTTON's reason), so its dimming is the call site's. */
+  .btn-danger {
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg bg-plex-error hover:opacity-90 text-plex-bg focus-visible:ring-plex-error disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40;
+  }
+
+  /* The ONE text-input style for the auth screens (and, from R4c, Settings).
+
+     ⚠️ `.field` REPLACES an input's class string; it does not sit beside the old one. Tailwind 4's
+     `utilities` layer outranks this `components` layer, so a `text-sm` or `bg-plex-surface-light`
+     left on the same element WINS — and `text-base sm:text-sm` below is the iOS Safari zoom fix
+     (a focused input under 16px makes the whole page zoom), so a leftover `text-sm` silently puts
+     the bug back. Only layout utilities (`pr-10`, `flex-1`) may accompany it; `fieldClass.test.jsx`
+     fails on `text-sm`, `bg-plex-surface-light` or a bare `rounded` on any auth input.
+     `focus:outline-hidden` for the reason `.btn` records: forced-colours mode repaints it. */
+  .field {
+    @apply w-full bg-plex-bg border border-plex-border rounded-lg px-3 py-2 text-base sm:text-sm text-plex-text placeholder:text-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold;
+  }
+
+  /* After `.field` on purpose: equal specificity, so source order is what makes the error border win. */
+  .field-error {
+    @apply border-plex-error;
+  }
+
+  /* The auth page wrapper (AuthShell). One padding rule per side, each resolved with `max()` against
+     the safe-area vars declared once on :root — the `.app-safe-modal` precedent, and never a raw
+     `env()`, which `safeAreas.test.jsx` forbids without a 0px fallback and which would double-count
+     with the vars. Below 640px the card sits at the top with 3rem of air so the keyboard cannot
+     cover the buttons (`dvh` follows the keyboard-aware viewport where `vh` does not); from 640px
+     it is centred and the top padding is the inset alone. The bottom and sides keep a gutter. */
+  .auth-shell {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background-color: var(--color-plex-bg);
+    padding-top: max(3rem, var(--safe-t));
+    padding-right: max(1rem, var(--safe-r));
+    padding-bottom: max(1.5rem, var(--safe-b));
+    padding-left: max(1rem, var(--safe-l));
+  }
+
+  @media (min-width: 640px) {
+    .auth-shell {
+      align-items: center;
+      padding-top: var(--safe-t);
+    }
+  }
 }
 
 /* ── Basemap dress (map-tab-v2-plan.md §3 P3) ──
@@ -429,9 +511,8 @@
    prop on the two Esri TileLayers in MapView.jsx. Leaflet's GridLayer adds `options.className`
    straight onto each tile <img>, so these are literal per-tile filters, not app theme tokens —
    they stay OUT of the `@theme static` block above (a bare declaration here is fine; that block's
-   pruning rule only bites a `var()` reference with no consumer). Reach BOTH the Map tab and the
-   Plan overlay mount deliberately: pure tile dress, not a behavioural change, so it is exempt from
-   the overlay-freeze rule that `zoomSnap` (MapView.jsx) is not. */
+   pruning rule only bites a `var()` reference with no consumer). Pure tile dress, not a
+    behavioural change. */
 .wf-basemap-warm {
   filter: saturate(.5) sepia(.32) brightness(.9) contrast(1.08);
 }
@@ -878,7 +959,7 @@
      was rejected: it makes a context at the band's natural `z-auto` position, which is BELOW
      `.wf-lens` (20), so the health panel would paint under the very bar it drops across. 45 is the
      design's own number and still the right one — it must beat the pane and lose to `Modal`
-     (Tailwind `z-50`), `.wf-peek` (60) and `MapOverlay` (200). Against `.wf-lens` it is moot either
+     (Tailwind `z-50`) and `.wf-peek` (60). Against `.wf-lens` it is moot either
      way: the two cannot co-occupy a scroll position, because the bar reaches `top: 0` only once this
      band's wrapper is wholly above the viewport.
 
@@ -1311,10 +1392,9 @@
      at the 0.42 value: the window dropdown's `—` unscored marker and the callout strip cell's, both
      of which are meaningful words ("nothing is scored here"), not decoration.
 
-     ⚠️ Scoped to `.wf-body--map` — the Map TAB's own wrapper — and NOT to `MapView`. The Plan-tab
-     overlay mounts the same component and is a deliberately frozen pre-v2 surface (CLAUDE.md's Map
-     tab bullet); a variable override reaching it would be an unasked-for change to a surface this
-     project has decided not to touch.
+     ⚠️ Scoped to `.wf-body--map` — the Map TAB's own wrapper — and NOT to `MapView`: the override is
+     the tab's, and another host of the component (the Plan-tab overlay, retired in overlay
+     convergence C5, was one) would not want it.
 
      The increment names two exceptions to the same rule in the bundle (`.rg2`, `.ringlb` — bare
      text over tiles with text-shadows, which must not compete with the field). This arm has no
@@ -1497,7 +1577,7 @@
    lens 20 > tiles 15 > rails 14 > every z-auto stacking context inside the strip (a hovered
    card's transform, the always-on `.wf-hc-away` opacity context) > the pick legend, which is
    correctly UNDER a pinned layer since it is absolute and z-auto inside its own card. Dialogs
-   (z-50), `.wf-peek` (60) and `MapOverlay` (200) stay above all of it. ⚠️ 15/14 is a DELIBERATE
+   (z-50) and `.wf-peek` (60) stay above all of it. ⚠️ 15/14 is a DELIBERATE
    deviation from the design bundle's 22/20: the bundle's lens bar is z-30, this app's is z-20, so
    the bundle's own numbers would paint the tiles OVER the lens bar as they slide under it — only the
    ordering is normative, not the literals. */
@@ -1686,6 +1766,17 @@
   gap: 5px;
   position: relative;
   overflow: visible;
+  /* The card is a SIZE CONTAINER for the Spread row's stacked state (spread-row-plan.md §2 #2,
+     `@container wf-card` in the value-grid block): the row switches layout on the width of THE CARD,
+     never on its content, because every card in a grid row shares one width and so makes the SAME
+     decision — a content-driven wrap would let two neighbours' Best rows land on different baselines.
+     `inline-size` only: the card's height is still its content's. The tracks above are
+     `minmax(0, 1fr)`, so the card's min-content width (which this containment zeroes) never set a
+     column floor in the first place. ⚠️ Layout containment makes the card a stacking context and the
+     containing block for fixed descendants; the pick legend (`top: -8px`, absolute) and the hover
+     `transform` below are both unaffected — measured in the §7 fixture, not reasoned. */
+  container-type: inline-size;
+  container-name: wf-card;
   transition: border-color 0.14s ease, background 0.14s ease, transform 0.12s ease;
 }
 /* Tailwind v4's Preflight no longer restores `cursor: pointer` on `button` — the gap this file has
@@ -1937,7 +2028,9 @@ button.wf-hc.on:hover {
 }
 /* ── The value grid ───────────────────────────────────────────────────────────────────────────
    Label left, value right, four rows at a shared minimum height so every card's rows land on the
-   same baselines however much any one of them has to say. */
+   same baselines however much any one of them has to say. (The Spread row is the one exception to
+   the two-column shape: it spans both columns and takes its height from `--wf-hc-well` — the
+   wrapper block below.) */
 .wf-hc-pls {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -2038,6 +2131,46 @@ button.wf-hc.on:hover {
   font-variant-numeric: tabular-nums;
   color: var(--color-plex-text-secondary);
 }
+/* `unsettled` beside a blanked STAND_DOWN "Poor" (plan-card-verdict-honesty-plan.md H4): the mean's
+   own slot, ink and size, so no new colour. Unlike the figure it is TEXT: 9 characters at 10px is
+   54.0px, and what is left of the value column once "Poor" (4 x 0.6 x 11px = 26.4px) and the 4px
+   gap are taken off is 39.9px at a 320px viewport (column 70.3px), 59.9px at 360 (90.3), 67.4px at
+   375 (97.8) and 48.9px at 640 (79.3). So it fits from about 360px and clips below that, and at
+   640px. It is the part that gives way when it does not fit: it shrinks and ellipsises, and the
+   verdict word beside it does not ("Poor" is the claim being qualified). The full phrase, "too
+   unsettled to forecast", is the element's title and the card's spoken sentence. */
+.wf-hc-mean.wf-hc-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-hc-pv:has(.wf-hc-note) .wf-hc-vd { flex: none; }
+/* The thin-sample count beside the verdict (thin-sample plan F3): separator ink-3 400, count ink 500,
+   solid colours, no opacity. ONE LINE or NOT AT ALL. The value column is 70-175px (see `.wf-hc-mean`)
+   and "Worth it 4.0★ · 6 rated" needs about 112px beside the time, so the figure is drawn only where
+   the CARD is wide enough to hold the whole line (`@container wf-card`, below); narrower, it is hidden.
+   It is never voiced on its own: the card's spoken sentence already says "N of M rated" below the gate. A wrapped verdict row would push this card's Spread and
+   Best rows out of line with its neighbours'. */
+.wf-hc-thin {
+  display: none;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-plex-text);
+}
+.wf-hc-thin-sep {
+  font-weight: 400;
+  color: #857c70;
+}
+/* Known limit (accepted): on the narrowest phone cards the count is not drawn; the hatch and the
+   Spread row's own `N/M rated` directly below carry it, and the spread clause speaks it. */
+@container wf-card (min-width: 190px) {
+  .wf-hc-thin { display: inline; }
+}
 /* "Too few 3.6★" — the UNRATED card's verdict row (unrated-verdict-plan.md U2, review F2). The mean
    is the honest half of the card here: the region has ratings, the sample gate withheld a verdict
    from them, and the word and the figure say so together.
@@ -2059,6 +2192,100 @@ button.wf-hc.on:hover {
    MEASURED (headless Chromium, the built stylesheet, the real faces): the row is 20.0px on one line
    for WORTH_IT, MAYBE and UNRATED at every viewport above, and the Spread and Best rows sit at
    y = 56 and y = 80 in an UNRATED card and in a WORTH_IT card alike, in the same row of cards. */
+/* ── The Spread row's wrapper (spread-row-plan.md §2 #2, S2) ────────────────────────────────
+   The label now has a second line — "Spread" over "(within 45m)" — and a longer label in the grid's
+   shared `auto` column would widen it and push the `5★ <name>` row below out of shape (the spec's own
+   regression note). So the row is one grid child spanning BOTH columns, and its two children are
+   laid out by the wrapper instead: label left, value right, 8px apart. Both states (bars, and the
+   below-gate note) live inside it, so the pool label is drawn in both.
+
+   ⚠️ SPECIFICITY, the trap this block already documents. `.wf-hc-pls > span` above is (0,1,1) and
+   reaches the WRAPPER (a direct child) but not its two children (grandchildren), which therefore lose
+   the `display: flex; align-items: center; min-width: 0` they used to inherit from it — the nested
+   `.wf-hc-pv` keeps its `justify-content: flex-end` only while it IS a flex container, and without
+   `display: flex` the histogram sits at the LEFT of its line in the stacked state. So every rule
+   here is written through `.wf-hc-pls > .wf-hc-sprow` ((0,2,0) for the wrapper, (0,2,1) for the
+   children's shared rule, (0,3,0) for the label's and the value cell's own overrides of it).
+
+   ⚠️ ONE FIGURE for the row's height. `--wf-hc-col` is the count column (25px: a 13px bar, the 2px
+   gap and the 9px count, with a pixel to spare) and `--wf-hc-well` is the dark well that holds it
+   (the column plus the well's 3px of vertical padding). The wrapper's `min-height`, the nested value
+   cell's `min-height` and the well's `height` all read `--wf-hc-well`, so the three cannot drift.
+   The value cell must reserve it in the text state too: `.wf-hc-hist-note` is one 10px line, and the
+   nested cell no longer inherits the grid's 20px minimum, so two neighbours on opposite sides of the
+   minimum-sample gate (one drawing bars, one printing `124/253 rated`) would otherwise differ by
+   ~15px and their Best rows would part. The note sits vertically centred in it, as the grid's own
+   `align-items: center` centred it before.
+
+   Two states, decided by the CARD's width (`@container wf-card`, below), never by content: side by
+   side where the card is wide enough, STACKED — label line, then the histogram on its own
+   right-aligned line — where it is not (§1 #7: this grid is 112–169px wide at eight of its ten
+   measured shell geometries — S2's §7 fixture — and the histogram plus the longest qualifier needs
+   155px at one-character counts). The query measures the container's CONTENT box (the card less its
+   1px border and 6px padding each side), which is the value grid's own width. 205px was sized for
+   the widest histogram the clamp allows before the `.sm` give-back below (four-character counts,
+   122px, beside the longest qualifier 73px and the 8px gap: 203px); with the give-back that card
+   needs 114px (195px beside the label), so 205 now carries about 10px of slack — deliberately left,
+   since the three-character case (113.6px, 194.6px beside the label) sits just under it. Retuning
+   `.sm`, the 17px column maximum or the type changes these figures; this threshold and its test
+   move with them. */
+.wf-hc-pls > .wf-hc-sprow {
+  --wf-hc-col: 25px;
+  --wf-hc-well: calc(var(--wf-hc-col) + 3px);
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--wf-hc-well);
+}
+.wf-hc-pls > .wf-hc-sprow > span {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.wf-hc-pls > .wf-hc-sprow > .wf-hc-pv {
+  min-height: var(--wf-hc-well);
+}
+/* The two-line label: "Spread" over its qualifier, left-aligned, the pair centred in the row.
+   ⚠️ `min-height: 21px` is RESERVED whether or not the qualifier is drawn (two 8.5px lines at 1.15
+   plus the 1px gap), and `justify-content: center` keeps the lone word where its first line would
+   be. Two neighbours in one STACKED row can legitimately disagree on the qualifier (one pool wholly
+   measured, the other holding an unknown drive — `spreadQualifier`), and `.wf-hc` is a top-packed
+   flex column: a one-line label beside a two-line one would put their Best rows a line apart.
+   `flex: none` so the value cell gives way (it clips inside itself) and the label never wraps. */
+.wf-hc-pls > .wf-hc-sprow > .wf-hc-sk {
+  flex: none;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  min-height: 21px;
+  line-height: 1.15;
+}
+/* The qualifier — "(within 45m)" — the same type as "Spread" at a tighter tracking, never wrapped.
+   `font-size` is stated because Tailwind's preflight sets `small { font-size: 80% }`. The text is the
+   parenthesised string from the markup, uppercased by the inherited `text-transform` like its label. */
+.wf-hc-sk small {
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+/* STACKED (spread-row-plan.md §2 #2, §4 #10): below a 205px card the histogram takes its own line,
+   right-aligned. ON TOP OF the base rules above — the nested value cell keeps its
+   `justify-content: flex-end` only because `.wf-hc-pls > .wf-hc-sprow > span` made it a flex
+   container. The row-gap is 2px (the base `gap: 8px` is for the side-by-side column gap); the row
+   is then ~21 + 2 + 28px, and every card in a grid row grows together because they share a width. */
+@container wf-card (max-width: 205px) {
+  .wf-hc-pls > .wf-hc-sprow {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .wf-hc-pls > .wf-hc-sprow > .wf-hc-pv {
+    flex-basis: 100%;
+    margin-left: auto;
+  }
+}
 /* The spread histogram: five bars, one per star band, heights proportional to the tallest band.
    A lone spike on the right reads "one good spot, drive to it"; a right-weighted block reads "the
    whole area is on" — which two averaged digits could never say. Bar colours are the ramp's, set
@@ -2081,41 +2308,114 @@ button.wf-hc.on:hover {
    graphical object conveying information, and what 1.4.11 measures here is the bar against what
    surrounds it. Alphas are set inline in the component beside the ramp call that needs them.
 
-   `cursor: help` because the exact per-band counts are in the `title`; the pool total, the remainder
-   and the best-reach figures are all in the card's own accessible sentence, so nothing a reader acts
-   on is pointer-only. */
+   `cursor: help` because the `title` still carries the full per-band sentence (the counts under the
+   bars are its short form, §2 #7); the pool total, the non-zero band counts, the remainder and the
+   best-reach figures are all in the card's own accessible sentence, so nothing a reader acts on is
+   pointer-only. */
 .wf-hc-hist {
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  height: 16px;
-  padding: 0 3px 1px;
+  height: var(--wf-hc-well);
+  padding: 1px 3px 2px;
   border-radius: 3px;
   background: var(--color-heat-sea);
   flex: none;
   cursor: help;
 }
+/* One COLUMN per bar (spread-row-plan.md §2 #3): the bar over its count, bottom-aligned so every
+   bar's foot lands on one line whatever its height. The width is the STRIP's, `--cw`, set inline
+   from `spreadCountLayoutAcross` (one value for all six columns of every card, so the bars stay
+   evenly spaced and neighbouring wells line up whatever the longest count is; the design bundle
+   sized it per card, spread-row-plan.md §4 #15). The column is one flex item of the well, so the
+   well's 2px `gap` is the spacing between bands. (0,2,0) — `.wf-hc-hist i` below is (0,1,1) and these are different elements,
+   but the habit of this block is one specificity per property across a rule family. */
+.wf-hc-hist .wf-hc-hb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  width: var(--cw, 9px);
+  height: var(--wf-hc-col);
+  flex: none;
+}
+/* The unrated remainder's COLUMN carries the wider gap, not its bar. `margin-right` stacks on the
+   well's own 2px `gap`, so the hatched column sits 6px from 1★ against 2px between bands — the one
+   spacing cue that marks it as a different KIND of bar (A27 Part 2). ⚠️ It used to sit on the `<i>`;
+   inside a fixed-width column the margin would be spent inside the column (absorbed by
+   `width: var(--cw)`) and the next column would stay the ordinary 2px away. Same two-class form as
+   the bar's own rule, for the same specificity reason. `spreadColumnWidthPx`'s arithmetic
+   (`6×cw + 5×2 + 4`) already counts this 4px between OUTER items. */
+.wf-hc-hist .wf-hc-hb-unrated {
+  margin-right: 4px;
+}
+/* The bar. 7px, up from 5px (§4 #1) — wide enough to read as a bar over a column of count text, and
+   the hatched bar's width too (it used to be set on the unrated rule alone). `min-height: 1px` is
+   the empty band's hairline floor. */
 .wf-hc-hist i {
-  width: 5px;
+  width: 7px;
   border-radius: 1px;
   min-height: 1px;
   display: block;
 }
+/* The counts (§2 #3, #4): mono, 9px/600, one line, tightened tracking so a three-digit count fits
+   the 15.6px column. SECONDARY ink for every count, zero included — the spec's muted `--ink-3` at
+   .6 maps to `--color-plex-text-muted` (rgba(242,231,211,.42)), which composites over the well at
+   ~3.55:1, under the 4.5:1 AA asks of 9px text, so a ZERO count is quietened by WEIGHT (400 against
+   600) and never by a lighter ink (§4 #6). `.sm` (set when some count is four characters, e.g.
+   `1.2k`) drops to 7.5px and a tighter tracking so the longest count still fits the 17px column.
+   The specificities line up on purpose: the zero-count and `.sm` rules are (0,2,1), above the base
+   (0,1,1), and set disjoint properties, so a four-character zero count takes both. */
+.wf-hc-hist em {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.06em;
+  white-space: nowrap;
+  color: var(--color-plex-text-secondary);
+}
+.wf-hc-hist.sm em {
+  font-size: 7.5px;
+  letter-spacing: -0.1em;
+}
+/* ⚠️ The four-character card gives its edges back (plan §6 Q4's own remedy, applied because the §7
+   measurement showed the first estimate short): the well's 3px side padding and 2px of the hatched
+   column's 4px gap. The stacked histogram's line is only the card's content width — 112px at a 320px
+   viewport, not the 116 the plan first assumed — and a `1.2k` card needs 122px, so without this the
+   value cell (`overflow: hidden`, content pushed to its right edge) cuts 10px off the hatched
+   column's leading edge: the "1" goes and the count reads ".2k", a sixth of the figure it is. With it
+   the row needs 114px: 2px is still cut, from the hatched column's own leading edge — about 1px of
+   its blank margin (a 15px count in a 17px column) and a sliver of the "1", legible in the §7
+   screenshot. Only under `.sm`:
+   every card with counts up to three characters keeps the padding and the full 4px gap. (0,2,0) and
+   (0,3,0), above the base well rule and the unrated column's own (0,2,0). */
+.wf-hc-hist.sm {
+  padding-inline: 0;
+}
+.wf-hc-hist.sm .wf-hc-hb-unrated {
+  margin-right: 2px;
+}
+.wf-hc-hist .wf-hc-hb-zero em {
+  font-weight: 400;
+}
 /* The unrated remainder's own bar (minimum-sample rule Part 2, 2026-09-29) — to the LEFT of 1★, so
    a tall bar never sits at the reading's right edge (under-reporting is this project's safe
    direction: a bar that READS as good news at a glance belongs nowhere near "most of this pool is
-   unlooked-at"). `margin-right` stacks on top of `.wf-hc-hist`'s own 2px flex `gap`, giving this one
-   gap 6px total — visibly wider than the 2px between the five bands, which is what marks it as a
-   different KIND of bar rather than a sixth band.
+   unlooked-at"). The wider gap that marks it as a different KIND of bar rather than a sixth band
+   (6px against the 2px between bands) is carried by its COLUMN, `.wf-hc-hb-unrated` above, since
+   S2 put every bar inside a fixed-width column; its 7px width is the shared bar's.
 
    ⚠️ THE SELECTOR IS `.wf-hc-hist .wf-hc-hist-unrated`, not the bare class, and this is load-bearing,
-   not decoration. `.wf-hc-hist i` (below) is a class-plus-type selector, specificity (0,1,1); the
-   bare class `.wf-hc-hist-unrated` is (0,1,0) — LOWER — so `width: 7px` here would lose to that
-   rule's `width: 5px` regardless of source order, and did in the first cut of this fix (caught by
-   loading the page and reading `getComputedStyle`, not by re-reading the CSS). The two-class
-   descendant form is (0,2,0), which clears it. `margin-right` and `background` are not actually
-   contested by `.wf-hc-hist i` (which sets neither), but the selector is written this way
-   throughout for one rule rather than mixing specificities across one element's properties.
+   not decoration. `.wf-hc-hist i` (above) is a class-plus-type selector, specificity (0,1,1); the
+   bare class `.wf-hc-hist-unrated` is (0,1,0) — LOWER — so any property both rules set (it used to
+   be `width`, which lost to the bar's regardless of source order and did in the first cut of this
+   fix, caught by loading the page and reading `getComputedStyle`) would be decided by the wrong
+   rule. The two-class descendant form is (0,2,0), which clears it; today only `background` is set
+   here, uncontested, but the selector is written this way throughout for one rule rather than mixing
+   specificities across one element's properties.
 
    ⚠️ THE ANGLE MUST MATCH THE CANVAS, and 45deg does not — verified 2026-09-29 with a side-by-side
    canvas/CSS comparison (`moveTo(x, h)` → `lineTo(x + h, 0)`, `heatField.js`'s own hatchPlate loop):
@@ -2140,8 +2440,6 @@ button.wf-hc.on:hover {
    2px stripe are a defensive margin for a lower ratio's coarser rasterisation, reasoned rather than
    screenshotted at DPR 1. See the plan-matrix-plan.md A27 update for what was actually seen. */
 .wf-hc-hist .wf-hc-hist-unrated {
-  width: 7px;
-  margin-right: 4px;
   background: repeating-linear-gradient(
     -45deg,
     rgba(242, 231, 211, 0.45) 0,
@@ -2159,10 +2457,11 @@ button.wf-hc.on:hover {
    shared class would let an unrelated future edit to the Best row silently retint or reweight this
    one, which is a different row answering a different question.
 
-   ⚠️ `white-space: nowrap`, never a wrap. The row reserves `min-height: 20px`
-   (`.wf-hc-pls > span`) for ONE line — unlike `.wf-hc-best`'s own `text-wrap: pretty`, which lives
-   in a slot (`.wf-hc-pv2`) built to absorb a second line. A wrapped Spread row grows past its
-   neighbours' and pushes every row below it out of alignment across the card grid.
+   ⚠️ `white-space: nowrap`, never a wrap. The row reserves ONE line (and, since S2, the well's
+   height around it: `.wf-hc-sprow > .wf-hc-pv`'s `min-height`, so this note and a neighbour's bars
+   take the same room) — unlike `.wf-hc-best`'s own `text-wrap: pretty`, which lives in a slot
+   (`.wf-hc-pv2`) built to absorb a second line. A wrapped Spread row grows past its neighbours' and
+   pushes every row below it out of alignment across the card grid.
 
    ⚠️ `font-size: 10px`, one size down from the card's other value text, and NEITHER escalation the
    review offered was enough alone — both are applied together. Measured in the real card grid (not
@@ -2282,8 +2581,8 @@ button.wf-hc.on:hover {
    topic keeps one colour across the arm. `plain` takes chrome ink rather than being forced into the
    nearest channel — a colour names a claim.
 
-   ⚠️ `plain` is NOT "shouldn't happen". `badgeChannel` matches by SUBSTRING, so six recognised,
-   badge-capable kinds land there — INVERSION, DUST, BLUEBELL, EQUINOX, METEOR, SUPERMOON — including
+   ⚠️ `plain` is NOT "shouldn't happen". `badgeChannel` matches by SUBSTRING, so seven recognised,
+   badge-capable kinds land there — INVERSION, MIST, DUST, BLUEBELL, EQUINOX, METEOR, SUPERMOON — including
    two of the rarest things this app can show. The deleted `.wf-promo[data-channel='plain']` block
    carried that warning and M5 moved it here rather than letting it go with the strip, because the
    misreading it corrects ("unrecognised, so give supermoon a hue of its own") is the one a future
@@ -2525,6 +2824,39 @@ button.wf-hc.also.on:hover {
 }
 .wf-hstrip-sp {
   margin-left: auto;
+}
+/* Legend swatches (thin-sample plan F2): plate fill, coastline ink inset, 26x13. The hatch ink is
+   brighter than the map's .18 so it survives at 13px. */
+.wf-hstrip-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.wf-hstrip-sw {
+  display: inline-block;
+  width: 26px;
+  height: 13px;
+  flex: none;
+  border-radius: 2px;
+  background-color: #241d18;
+  box-shadow: inset 0 0 0 1px rgba(242, 231, 211, 0.3);
+}
+.wf-hstrip-sw-hatch {
+  background-image: repeating-linear-gradient(-45deg, rgba(242, 231, 211, 0.32) 0 0.8px, transparent 0.8px 5px);
+}
+/* Forced colours drop background colours and box-shadows, so the plain swatch would vanish and the
+   hatch could not be told from it. Both get a real CanvasText border; the hatch swatch keeps its
+   gradient (`forced-color-adjust: none`) in CanvasText ink so the two stay distinguishable. */
+@media (forced-colors: active) {
+  .wf-hstrip-sw {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+  .wf-hstrip-sw-hatch {
+    forced-color-adjust: none;
+    background-color: Canvas;
+    background-image: repeating-linear-gradient(-45deg, CanvasText 0 1px, transparent 1px 5px);
+  }
 }
 /* ── Movement (heat-field plan §4.7, narrowed by plan-matrix M1) ──────────────────────────────
    ONE rendering now, not two. P6 put a per-card delta chip on each thumbnail's top row beside this
@@ -2939,15 +3271,6 @@ button.wf-hc.also.on:hover {
   .wf-hstrip .wf-hc-sun { letter-spacing: 0.04em; padding: 2px 4px; }
 }
 
-/* Map overlay panel — rises in on open */
-@keyframes map-overlay-rise {
-  from { transform: translateY(14px) scale(0.99); opacity: 0; }
-  to { transform: none; opacity: 1; }
-}
-.map-overlay-panel {
-  animation: map-overlay-rise 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-
 /* ── "Centre on home" map control ──
    Its own container in Leaflet's bottom-right corner, under the zoom bar, which
    `ZoomControlPositioner` moves there after the ⌂ has added itself (map-tab-v2-plan.md §3 P7).
@@ -3018,58 +3341,6 @@ button.wf-hc.also.on:hover {
 .map-home-control button[data-disabled]:hover {
   background: transparent;
   color: var(--color-close-to-home);
-}
-
-/* ── Map overlay context bar ──
-   The read-only receipt that replaced five rows of filter controls. Chips are stated, not
-   operated: arriving from a plan card IS a filter action, so the bar's job is to show what was
-   inherited, and the one control on it is the disclosure that gets the controls back. */
-.map-ctx-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid var(--color-plex-border-light);
-  color: var(--color-plex-text-secondary);
-  white-space: nowrap;
-}
-/* The lead chip is the event, which is the fact the user actually chose on the way in. */
-.map-ctx-chip--lead {
-  background: rgba(224, 165, 66, 0.14);
-  border-color: rgba(224, 165, 66, 0.38);
-  color: #f0cd8a;
-}
-/* Same visual weight as the modal's ✕ — a disclosure, not a panel. */
-.map-ctx-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-plex-text-secondary);
-  border: 1px solid var(--color-plex-border);
-  background: transparent;
-  border-radius: 7px;
-  padding: 5px 11px;
-  transition: border-color 0.14s ease, color 0.14s ease;
-}
-.map-ctx-btn:hover {
-  border-color: var(--color-plex-border-light);
-  color: var(--color-plex-text);
-}
-.map-ctx-caret {
-  transition: transform 0.18s ease;
-}
-.map-ctx-caret[data-open] {
-  transform: rotate(180deg);
-}
-@media (prefers-reduced-motion: reduce) {
-  .map-ctx-caret { transition: none; }
 }
 
 /* Bottom sheet slide-up animation */
@@ -3482,25 +3753,11 @@ button.wf-hc.also.on:hover {
 
    `--color-plex-panel` is opaque, which matters here and does not on the Plan bar: this control
    floats over map tiles, and a translucent ground would put a coastline through the words. */
-.wf-map-toolbar {
-  /* Leaflet's zoom control owns the top-left corner and paints above anything below z-index 1100;
-     `CentreOnHomeControl` stacks under it in the same column. 60px clears both. */
-  position: absolute;
-  top: 8px;
-  left: 60px;
-  z-index: 1100;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  /* On a phone the three controls wrap, and the right edge is what gives, never the map. */
-  max-width: calc(100% - 68px);
-  /* ⚠️ The container is transparent to the pointer and its CONTROLS are not. A wrapped toolbar's
-     box spans the union of its rows, so on a 390px screen a plain div would swallow every drag that
-     started in the empty half of a short row — a dead strip across the top of a map whose whole job
-     is panning. */
-  pointer-events: none;
-}
+/* ⚠️ A transparent container must not swallow drags: wrapped chrome spans the union of its rows, so
+   on a 390px screen a plain div would eat every drag begun in the empty half of a short row - a
+   dead strip across a map whose whole job is panning. The containers are `pointer-events: none`
+   and their CONTROLS opt back in here. (This rationale lived on the deleted overlay-only
+   `.wf-map-toolbar` rule.) */
 .wf-map-toolbar-row,
 .wf-map-key {
   pointer-events: auto;
@@ -3516,7 +3773,7 @@ button.wf-hc.also.on:hover {
    The z-ladder the plan requires: heat 410 / selection ring 415 / labels 420 (design bundle) /
    CHROME 1100 / callout 1350 / tooltip 1400 / MENUS 1500 (a menu must beat every sibling chip, and
    both live `wf-win-menu`/`wf-filters-panel` already sit at 1500). Every chip here is 1100 for the
-   same reason `.wf-map-toolbar` already was.
+   same reason (the pointer-events rule at `.wf-map-toolbar-row` above).
 
    ⚠️ LABELS actually ships at 650, not the bundle's 420 (PR #733 review) — `MapLabels.jsx`'s own
    `LABEL_PANE_Z` carries the full reasoning. The bundle's prototype never renders a marker
@@ -3525,7 +3782,7 @@ button.wf-hc.also.on:hover {
    would sit, and hit-test, UNDER the very marker its chip names. (⚠️ The reason this used to give —
    that the app "fades them back to full opacity AND interactivity past the zoom handover" — no
    longer holds: `MapHeatLayer` hides those panes unconditionally. They are still restored on
-   unmount (and still mounted in the Plan overlay, which has no field), so 650 stands.) 650 clears the
+   unmount so 650 stands.) 650 clears the
    marker pane while staying below Leaflet's popup pane (700) and every chip in this file (1100+).
    That z-index is set in JS on the Leaflet pane itself, never in this stylesheet, so it has no CSS
    rule to slice here — see `mapChromeZLadderCascade.test.jsx`'s own note on why its cascade
@@ -3550,7 +3807,7 @@ button.wf-hc.also.on:hover {
 
      · a transparent ~600px × 36px div at `z-index: 1100` across the top of the map, swallowing
        every drag begun in it — verbatim the dead strip this bound exists to prevent, relocated.
-       `.wf-map-toolbar`'s own comment records the same failure and its cure;
+       the pointer-events rule at `.wf-map-toolbar-row` (above) records the same failure and its cure;
      · `[data-testid="wf-map-chrome-tl"]` is the FIRST label-placement obstacle in both
        `MapLabels.jsx` and `PinsLayer.jsx`, and map-tab-v2-plan.md §4 #31 licensed the last
        widening of it (187→334px) by measuring that no label moved. Stretching it to ~970px would
@@ -3572,7 +3829,7 @@ button.wf-hc.also.on:hover {
    ~16px of slack. ⚠️ That cluster's width is not fixed — `FiltersPopover` renders `Filters (N)` —
    so the slack is the whole margin of safety; see `.wf-map-chrome-tr` for the back-reference.
 
-   Tab-only. The frozen Plan-tab overlay mounts no window control. */
+   */
 .wf-map-tab .wf-map-chrome-tl {
   max-width: calc(100% - 308px);
 }
@@ -3588,9 +3845,7 @@ button.wf-hc.also.on:hover {
   max-width: calc(100% - 68px);
 }
 /* The heat/pins segment + ramp key, nested inside `.wf-map-chrome-tr` rather than positioning
-   itself — unlike the overlay's own untouched `.wf-map-toolbar` (still absolute, still top-left,
-   never actually reachable since the overlay is never handed `heat`), this cluster's parent
-   already owns the absolute placement. */
+   itself - this cluster's parent already owns the absolute placement. */
 .wf-map-toolbar-cluster {
   display: flex;
   flex-direction: column;
@@ -3940,6 +4195,12 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text);
   font-weight: 600;
 }
+/* The door's own headline (overlay convergence C1): "Aurora tonight", "Tomorrow sunrise · 06:12".
+   Primary text, like the window clause's day word - it is the thing the reader came for. */
+.wf-map-breadcrumb-title {
+  color: var(--color-plex-text);
+  font-weight: 600;
+}
 /* The prototype's `.cf{margin-left:auto}` — pushed to the row's far end on desktop; the phone
    media query below cancels that and wraps it onto its own line instead. */
 .wf-map-breadcrumb-carrying {
@@ -3994,8 +4255,7 @@ button.wf-hc.also.on:hover {
 
 /* ── Phone chrome re-arrangement (map-tab-v2-plan.md §3 P12, README "Responsive" table) ─────────
    Everything in this block is scoped to `.wf-map-tab` — the TAB's own root wrapper
-   (`MapView.jsx`), never present on the Plan-tab overlay's mount — so none of it can reach the
-   overlay, which the plan requires stay untouched at every viewport.
+   (`MapView.jsx`), so none of it can reach a host that does not carry that class.
 
    Window control: full-width across the top (the pill itself grows via `.wf-win-pill`'s own
    media query above; this box only needs to stop clearing Leaflet's top-left corner and span the
@@ -4047,6 +4307,7 @@ button.wf-hc.also.on:hover {
      re-setting `right: 8px` eight lines later, which was dead CSS whose own comment described the
      rule above it as a different block. */
   .wf-map-tab .wf-win-verdict-region { display: none; }
+  .wf-map-tab .wf-win-verdict-count { display: none; }
   .wf-map-tab .wf-win-pick { padding: 3px 5px; }
   .wf-map-tab .wf-win-pick-glyph { font-size: 11px; }
   /* The group fills the bar here; the 504px cap is a desktop/tablet concern. */
@@ -4488,6 +4749,48 @@ button.wf-hc.also.on:hover {
    `.wf-map-peek-v-verdict` above — the row word otherwise inherited primary ink. */
 .wf-map-peek-wr-verdict[data-tier="UNRATED"] { color: var(--color-plex-text-secondary); }
 .wf-map-peek-wr-unscored { color: var(--color-plex-text-muted); }
+/* The EARLIER group on the phone sheet (outcome-rating-plan.md §2 #2, O3b) — the dropdown's own
+   header, sub-header and Load row (`.wf-win-earlier`, `.wf-win-sub`, `.wf-win-load-*`) at the
+   sheet's row height. */
+.wf-map-peek-earlier {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+  padding: 6px 4px 2px;
+}
+.wf-map-peek-earlier-hint { letter-spacing: 0; text-transform: none; font-weight: 400; }
+.wf-map-peek-sub {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+  padding: 8px 4px 0;
+}
+.wf-map-peek-wr-pasttime { color: var(--color-plex-text-secondary); }
+.wf-map-peek-load { align-items: flex-start; padding-top: 8px; padding-bottom: 8px; }
+/* `.wf-hc-sun` carries `min-width: 0; overflow: hidden` and shrinks by default, so in this flex row the
+   long sub-line would clip the `↑` chip (`.wf-land-row .wf-hc-sun` records the same defect). */
+.wf-map-peek-load .wf-hc-sun { flex-shrink: 0; }
+/* `.wf-map-peek-wr:last-child` drops the rule under the LAST row of the list; a past day's rows sit in a
+   wrapper of their own, so each day's last row would lose it too. Put it back. */
+.wf-map-peek-wlist > div > .wf-map-peek-wr:last-child { border-bottom: 1px solid var(--color-plex-border); }
+.wf-map-peek-load:disabled { opacity: 0.35; cursor: default; }
+/* The same line on the phone sheet (`.wf-win-none` at the sheet's gutter). */
+.wf-map-peek-none {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  line-height: 1.35;
+  padding: 6px 4px;
+}
+.wf-map-peek-load-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .wf-map-peek-drilldown {
   color: var(--color-plex-text-secondary);
   font-size: 13px;
@@ -4771,6 +5074,25 @@ button.wf-hc.also.on:hover {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* The PAST tag (outcome-rating-plan.md §2 #2): where a verdict word would sit on a window that has
+   gone. mono 9.5px, uppercase, .08em, ink-3, 1px border-light, radius 4, padding 1px 5px — the
+   design's `.wpast`, every value an existing token. `--color-plex-text-muted` IS the design's ink-3,
+   and inside the Map tab it already resolves to the passing ink (the `.wf-body--map` override), so
+   this clears 4.5:1 on the pill without a rule of its own. The text is "Past" in the DOM so the
+   pill's accessible name says it in words; the case is this rule's. `flex: none` because it is a
+   flex item beside a label that shrinks, and a tag clipped to "PA" says nothing. */
+.wf-win-past {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--color-plex-text-muted);
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
 .wf-win-caret {
   font-size: 9px;
   color: var(--color-plex-text-muted);
@@ -4920,6 +5242,25 @@ button.wf-hc.also.on:hover {
    (map-tab-v2-plan.md O-4). ⚠️ A px cap on 9px text does not scale with a browser minimum-font-size
    setting or Firefox's text-only zoom; at raised text scale the sentence clips. Stated rather than
    defended against — the text stays in the accessible name either way. */
+.wf-win-verdict-line {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+/* The thin-sample count (thin-sample plan F4): separator in ink-3 400, count in ink 500, solid
+   colours, no opacity muting. Hidden with the region line at phone width; it stays in the name. */
+.wf-win-verdict-count {
+  margin-left: 4px;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--color-plex-text);
+}
+.wf-win-verdict-count-sep {
+  margin-right: 4px;
+  font-weight: 400;
+  color: #857c70;
+}
 .wf-win-verdict-region {
   display: block;
   max-width: 112px;
@@ -5125,7 +5466,7 @@ button.wf-hc.also.on:hover {
    is not. ⚠️ The design bundle puts `#land` at 1300 over a `.bar` at 1100 and has the identical
    defect — it is a prototype, and its number is not evidence.
 
-   Tab-only — `MapView` mounts it behind `!overlayMode`, so there is no overlay rule to write. */
+   */
 .wf-land {
   position: absolute;
   top: 60px;
@@ -6036,6 +6377,90 @@ button.wf-hc.also.on:hover {
   text-align: right;
 }
 
+/* ── The EARLIER group (outcome-rating-plan.md §2 #2, O3b) ──────────────────────────────────────
+   Header, Load row, sub-headers and past rows, every value the prototype's (`.wday.ear`, `.wr.more`,
+   `.wk.lo`, `.wsub`, `.wr.past .wm b`) on this stylesheet's tokens. */
+.wf-win-earlier {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+  padding: 8px 12px 4px;
+}
+/* `rate how it went`: no caps, normal weight, no tracking — the prototype's `.wday.ear span`. */
+.wf-win-earlier-hint {
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+}
+/* A past day's sub-header — mono 9.5px / 600 in ink-2. */
+.wf-win-sub {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+  padding: 6px 12px 0 14px;
+}
+/* The first future day under the EARLIER group: `.wf-win-day:first-child` removes every group's rule
+   (each heading is the first child of its own wrapper), so this puts back the one that marks where
+   the past ends. ⚠️ Written `.wf-win-day.wf-win-day-after-earlier` (0,2,0), because `:first-child`
+   counts as a class: a bare `.wf-win-day-after-earlier` (0,1,0) LOSES to it whatever the source order
+   (a review finding; the rule never drew until this was raised). */
+.wf-win-day.wf-win-day-after-earlier { border-top: 1px solid var(--color-plex-border); }
+.wf-win-row-pasttime {
+  font-size: 12.5px;
+  color: var(--color-plex-text-secondary);
+}
+/* The prototype's `.wr { min-height: 44px }` — a past row has no second line to make it tall like a
+   future one (46.75px measured), and the dropdown is also the tablet's touch menu. */
+.wf-win-row-past { min-height: 44px; }
+/* `Not rated` / `{n} rated`. Its own literal for `Not rated`, for the reason `.wf-win-row-unscored`
+   records (the muted token is the passing ink inside a panel, the same ink as a real score); the
+   count is the design's star gold (`--color-star`). The 0.6 (not .52) keeps `Not rated` above 4.5:1 on
+   the selected row's gold wash (`.wf-win-row.on`) as well as on the plate, while still a step quieter
+   than the secondary ink of the time beside it. */
+.wf-win-notrated { color: rgba(242, 231, 211, 0.6); font-weight: 400; }
+.wf-win-rated { color: var(--color-star); }
+/* The Load row: a two-line row whose chip slot holds `↑` in the tide teal on a 1px teal border (the
+   prototype's `.wk.lo`), the title in teal and the sub-line in the quiet mono. It has no score or
+   topic cell, so the grid is two columns. The sub-line WRAPS (white-space: normal) — at a 320px
+   viewport the menu is narrower than the sentence. */
+.wf-win-load { grid-template-columns: auto 1fr; align-items: start; }
+.wf-win-load-chip {
+  color: var(--color-tide);
+  border: 1px solid rgba(111, 168, 176, 0.35);
+  /* A kind chip's height (3+3 padding and a 9px line against 2+1+2+1); the width differs, as it does
+     in the prototype, since every row is its own `auto` column. */
+  padding: 2px 6px;
+}
+.wf-win-load-title { color: var(--color-tide); font-size: 12.5px; }
+.wf-win-load-sub {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  white-space: normal;
+  line-height: 1.35;
+}
+.wf-win-load:disabled { opacity: 0.35; cursor: default; }
+.wf-win-load:disabled:hover { background: transparent; }
+/* An older day that loaded with no rows (§4 #15, amended 2026-10-17): a quiet, non-interactive line in
+   the Load row's place — the sub-line's own mono 9.5px and muted ink. */
+.wf-win-none {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  line-height: 1.35;
+  padding: 6px 12px;
+}
+/* The pill while an older day is fetched. */
+.wf-win-loading { color: var(--color-plex-text-secondary); font-weight: 500; }
+
 /* The ramp's key. It lives in the toolbar-cluster because a key belongs beside the control that
    turns on the thing it explains. On the TAB (map-tab-v2-plan.md §3 P7) every corner is spoken
    for: the LITE viewline chip bottom-left, the counts footer bottom-centre, the scored-locations
@@ -6120,7 +6545,7 @@ button.wf-hc.also.on:hover {
    z-index 650 (Leaflet pane, set in JS — see `MapLabels.jsx`'s `LABEL_PANE_Z`), NOT the design
    bundle's 420 the P7 chrome comment above records: Leaflet's real marker pane sits at a built-in
    600 and this app keeps its markers mounted there (hidden by `MapHeatLayer` on the tab, restored
-   on unmount and in the Plan overlay, which mounts no field — they no longer fade back by zoom), so the label
+   on unmount - they no longer fade back by zoom), so the label
    layer has to clear that pane too, not merely the heat canvas beneath it (PR #733 review — the
    bundle's prototype never renders a marker under its own label layer at all).
    The home marker (`.wf-hm`/`.wf-hm-mk`/`.wf-hm-lb`) and ring labels (`.wf-ringlb`) REUSE the
@@ -6328,8 +6753,8 @@ button.wf-hc.also.on:hover {
 }
 
 /* ── The filters popover (map-tab-v2-plan.md §3 P7, README §4) ─────────────────────────────────
-   Replaces the Map tab's old slide-down drawer entirely — the Plan-tab overlay keeps that drawer
-   (`advanced-filters-panel` in `MapView.jsx`), byte-identical and untouched. `.wf-filters-chip`
+   Replaces the Map tab's old slide-down drawer entirely (the Plan-tab overlay kept it until overlay
+   convergence C5 deleted both). `.wf-filters-chip`
    takes the SAME visual language as `.wf-win-pill` (same panel background, same border) so the two
    read as one control family in the top-right cluster. */
 .wf-filters {
@@ -6559,6 +6984,32 @@ button.wf-hc.also.on:hover {
   font-size: 0.62em;
   margin-left: 1px;
   opacity: 0.85;
+}
+
+/* The "you rated this" corner badge on a PAST window's pins and chips (outcome-rating-plan.md §2 #6,
+   O4b; the prototype's `.pin .mine`): `3★`, or `–` for "didn't see it", top-right, hanging 7px above
+   and 9px beside its host. Both hosts are `position: absolute` buttons, so this positions against
+   them. A host's own opacity (a tide miss, an Ask fade) dims it with the rest of the mark. `aria-hidden`
+   in the markup — the meaning joins the host's accessible name. ⚠️ The overhang is mirrored by
+   `BADGE_OVERHANG_X/Y` in `utils/mapLabels.js`, which the chip placer reserves around a badged chip:
+   change one and the other, and `MapLabels.test.jsx` pins the pair. A single class at (0,1,0); it
+   names no `data-ask`/`data-tide` selector, so the Ask cascade above (`askMapCascade.test.jsx`) is
+   untouched. */
+.wf-rated-badge {
+  position: absolute;
+  top: -7px;
+  right: -9px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  white-space: nowrap;
+  padding: 0 3px;
+  color: var(--color-star);
+  background: #0e0b09;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 6px;
+  pointer-events: none;
 }
 
 /* ── Ask PhotoCast's picks on the map (F3, docs/engineering/ask-photocast-plan.md §2.7) ──────────
@@ -6835,6 +7286,46 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text);
   font-weight: 600;
   font-size: 10.5px;
+}
+.wf-legend-ground {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-legend-ground-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* The swatches from the thin-sample spec: 26x13, radius 2, the map plate's fill with the coastline
+   ink inset; the hatch swatch rules the same 45 degree mark, brighter than the map's own .18 so it
+   survives at 13px. Fixed values, mirrored from `heatField.js`'s plate colour. */
+.wf-legend-swatch {
+  flex: none;
+  width: 26px;
+  height: 13px;
+  border-radius: 2px;
+  background: #241d18;
+  box-shadow: inset 0 0 0 1px rgba(242, 231, 211, 0.3);
+}
+.wf-legend-swatch-hatch {
+  background:
+    repeating-linear-gradient(-45deg, rgba(242, 231, 211, 0.32) 0 0.8px, transparent 0.8px 5px),
+    #241d18;
+}
+/* Forced colours drop backgrounds and box-shadows, so both swatches would vanish: a CanvasText border
+   on each, and the hatch swatch keeps its own colours so it stays distinguishable from the plain one. */
+@media (forced-colors: active) {
+  .wf-legend-swatch {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+  .wf-legend-swatch-hatch {
+    forced-color-adjust: none;
+    border-style: dashed;
+  }
 }
 .wf-legend-ring-toggle {
   display: flex;
@@ -7296,6 +7787,17 @@ button.wf-hc.also.on:hover {
   line-height: 1.4;
   color: var(--color-plex-text-secondary);
 }
+/* Overlay convergence C2 — a one-line fact under the verdict row (the aurora alert level, the
+   travel-day notice). Same register as `.wf-callout-hide`; `overflow-wrap` so a long notice wraps
+   inside the phone card's 266px rather than pushing it wide. */
+.wf-callout-note {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--color-plex-text-secondary);
+  overflow-wrap: anywhere;
+}
 .wf-callout-comfort {
   display: block;
   width: 100%;
@@ -7338,8 +7840,8 @@ button.wf-hc.also.on:hover {
   -webkit-user-select: text;
 }
 
-/* The hourly comfort table (`components/HourlyComfortTable.jsx`) — one table for the Plan-tab
-   overlay's popup and the Map tab's four-day sheet. The popup's look is what it was when this was a
+/* The hourly comfort table (`components/HourlyComfortTable.jsx`) — one table for the admin Prompt
+   Test's popup (`MarkerPopupContent`) and the Map tab's four-day sheet. The popup's look is what it was when this was a
    run of `display: table` divs: 11px, the time column muted, 8px between columns, 3px under a row.
    `th`/`td` are reset to left-aligned normal weight because the UA gives a `th` bold centred text. */
 .wf-hourly {
@@ -7467,6 +7969,366 @@ button.wf-hc.also.on:hover {
   text-transform: uppercase;
   font-size: 9px;
   letter-spacing: 0.06em;
+}
+
+/* The outcome-rating block ("How was it?" — components/map/OutcomeRatingBlock.jsx, outcome-rating-
+   plan.md §2 #5, docs/design/outcome-rating/README.md §3). A past window only. It lives inside
+   `.wf-callout-body` (the card's one scroller), after the facts row, so it shares that scroll and the
+   card's measured height; the callout names its layout in its repaint dependencies.
+
+   ⚠️ Sizes are the spec's: a 44px star, a 40px "Didn't see it" and "Change". The phone card is 266px
+   wide with 13px side padding (238px inside, not the plan's 226 — §4 #1 assumed 10px), so five
+   columns and four 5px gaps leave a 43.59px cell; the phone override below takes the gap to 4px to
+   bring it to 44.39px (both measured in headless Chromium over this stylesheet, plan §0 O4a row). */
+.wf-rate {
+  border-top: 1px solid var(--color-plex-border);
+  padding-top: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.wf-rate-q {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wf-rate-q b {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.wf-rate-meta {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  text-align: right;
+}
+.wf-rate-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+.wf-rate-star {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 9px;
+  background: var(--color-plex-panel);
+  line-height: 1.05;
+  cursor: pointer;
+}
+.wf-rate-glyph {
+  font-size: 16px;
+  color: var(--color-plex-text-muted);
+}
+.wf-rate-n {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+}
+.wf-rate-star:hover {
+  border-color: var(--color-plex-text-muted);
+}
+.wf-rate-star[data-selected] {
+  border-color: var(--color-star);
+  background: var(--color-star-selected-bg);
+}
+.wf-rate-star[data-selected] .wf-rate-glyph {
+  color: var(--color-star);
+}
+/* Saving dims both controls to .55; a Lite lock dims the stars alone to .45 and leaves "Didn't see
+   it" at full strength (screenshot 08). Both stay `aria-disabled`, never `disabled`, so a press can
+   still answer and a focused control keeps focus. */
+.wf-rate-grid.is-saving,
+.wf-rate-ns.is-saving {
+  opacity: 0.55;
+}
+.wf-rate-grid.is-locked {
+  opacity: 0.45;
+}
+.wf-rate-ns {
+  min-height: 40px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 9px;
+  background: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-rate-ns:hover {
+  border-color: var(--color-plex-border-light);
+  color: var(--color-plex-text);
+}
+.wf-rate-ns[data-selected] {
+  border-color: var(--color-star);
+  background: var(--color-star-selected-bg);
+  color: var(--color-plex-text);
+}
+.wf-rate-done {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 40px;
+}
+.wf-rate-you {
+  font-size: 13px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-rate-glyphs {
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+.wf-rate-on {
+  color: var(--color-star);
+}
+.wf-rate-off {
+  color: var(--color-star-off);
+}
+.wf-rate-numeral {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-rate-change {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 8px;
+  background: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+  flex: none;
+}
+.wf-rate-change:hover {
+  color: var(--color-plex-text);
+}
+/* The "what did you see" chips (valley-mist-plan M3): Colour · Mist · Inversion · Flat, under the stars of
+   a rated block (and, dimmed, in the Lite lock). Four toggle buttons that WRAP — at the phone card's
+   238px inner width they do not fit one line (Inversion alone is ~84px), so `flex-wrap` puts the fourth
+   on a second row and `flex: 1 1 auto` lets each row fill the width. 36px high, taller than the 24px
+   WCAG 2.2 minimum and shorter than the 40/44px of the primary controls: this is a secondary choice and
+   two rows of it must not dominate a 266px card. The pressed chip takes the star control's selected
+   treatment; saving dims to .55 and the Lite lock to .45, both `aria-disabled` and never `disabled`. */
+.wf-seen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* The visible caption: a full-width first line of the wrapping row, in the block's meta voice. */
+.wf-seen-q {
+  flex: 0 0 100%;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+}
+.wf-seen-chip {
+  flex: 1 1 auto;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 9px;
+  background: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-seen-chip:hover {
+  border-color: var(--color-plex-text-muted);
+  color: var(--color-plex-text);
+}
+.wf-seen-chip[aria-pressed='true'] {
+  border-color: var(--color-star);
+  background: var(--color-star-selected-bg);
+  color: var(--color-plex-text);
+}
+.wf-seen.is-saving {
+  opacity: 0.55;
+}
+.wf-seen.is-locked {
+  opacity: 0.45;
+}
+/* ⚠️ An INSET ring on every control in the block: `.wf-callout-body` scrolls (`overflow-y: auto`
+   clips on both axes) and has no side padding, so an outset ring at the first and last column is cut
+   off — the `.wf-callout-comfort:focus-visible` note above has the same geometry. */
+.wf-rate-star:focus-visible,
+.wf-rate-ns:focus-visible,
+.wf-seen-chip:focus-visible,
+.wf-rate-change:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+/* The save-failed line and the Lite line. The status element is ALWAYS rendered (a live region mounted
+   with its text announces nothing) and collapses when empty, so an unfailed block carries no gap. */
+.wf-rate-status,
+.wf-rate-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-rate-note {
+  /* The Lite line is the only explanation for the dimmed controls, so it takes the secondary ink (the
+     spec's ink-3 is 3.6:1 on the callout at 12px); the 9.5px meta keeps the spec's muted ink. */
+  color: var(--color-plex-text-secondary);
+}
+.wf-rate-status:empty {
+  /* Collapsed, NOT `display: none`: that would take the live region out of the accessibility tree,
+     and text that arrives in a region that was not in the tree a moment earlier is announced by
+     almost nobody. 0 height cancels the row's 7px flex gap with a negative margin. */
+  height: 0;
+  margin-top: -7px;
+  overflow: hidden;
+}
+/* The only amber in the flow. */
+.wf-rate-status i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-verdict-marginal);
+}
+/* The Admin's "All ratings" box (outcome-rating-plan.md §2 #7; the prototype's `.adm`): a 1px
+   `--color-plex-border` box on the panel, radius 9, a 36px header, rows as a three-column grid
+   (name · stars or "Not seen" · time) and a mono 9.5px footer. The panel is `hidden` while collapsed;
+   the status line is OUTSIDE it (always mounted, 0 high when empty), so the sentences that arrive after
+   an open land in a region that already exists. The footer and the time keep the spec's muted ink (mono, 9.5–10px, the same call the
+   block's meta line made); the two sentences that carry content in prose ("Not seen", "No ratings
+   yet.", the status line) take the secondary ink, which the muted one cannot give at 11.5px (the
+   timestamp and footer are the spec's 10px / 9.5px muted ink, 3.55:1 on the panel, like the block's meta
+   line). Deviations from the prototype, on purpose: the name column is `minmax(0, 1fr)` with
+   `overflow-wrap: anywhere` (a bare `1fr` lets a long name push the stars out of the card); the time
+   column reserves 56px, not 64 — "Wed 23:59" in 10px mono is ~55px, and at the 238px inner width every
+   spare pixel goes to the name (~76px, about 11 characters before it wraps); an empty-state row is one
+   column; and the header has hover and an inset focus ring. */
+.wf-adm {
+  border: 1px solid var(--color-plex-border);
+  border-radius: 9px;
+  background: var(--color-plex-panel);
+}
+.wf-adm-h {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  font-size: 12px;
+  color: var(--color-plex-text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+.wf-adm-h:hover {
+  color: var(--color-plex-text);
+}
+.wf-adm-caret {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-muted);
+}
+/* Inset, like every control in the callout body: the body clips an outset ring. */
+.wf-adm-h:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+.wf-adm-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wf-adm-r {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  margin: 0;
+  padding: 6px 10px;
+  border-top: 1px solid var(--color-plex-border);
+  font-size: 12px;
+}
+.wf-adm-u {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wf-adm-g {
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+/* The rating cell: the stars (or "Not seen") with the reader's "what did you see" word under them. */
+.wf-adm-c {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.wf-adm-tag {
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-adm-t {
+  min-width: 56px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-muted);
+  text-align: right;
+}
+.wf-adm-nsv {
+  font-size: 11.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-adm-empty {
+  grid-template-columns: minmax(0, 1fr);
+}
+.wf-adm-run {
+  padding: 6px 10px;
+  border-top: 1px solid var(--color-plex-border);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+}
+/* The loading / failed line. Collapsed (0 height) rather than `display: none` when empty: the region
+   stays in the accessibility tree, so text arriving in it is announced. */
+.wf-adm-state {
+  font-size: 11.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-adm-state:empty {
+  height: 0;
+  overflow: hidden;
+}
+.wf-adm-state:not(:empty) {
+  padding: 6px 10px;
+  border-top: 1px solid var(--color-plex-border);
+}
+@media (max-width: 639px) {
+  .wf-rate-grid {
+    gap: 4px;
+  }
+}
+/* Windows high contrast flattens every border and fill to system colours, which left the current
+   choice marked by nothing. */
+@media (forced-colors: active) {
+  .wf-rate-star[data-selected],
+  .wf-rate-ns[data-selected],
+  .wf-seen-chip[aria-pressed='true'] {
+    border-color: Highlight;
+    border-width: 3px;
+  }
 }
 
 /* The tide-fit block (tide-window-plan.md T5, design spec §4) — ONE shared component
@@ -7711,7 +8573,7 @@ button.wf-hc.also.on:hover {
    accessibility tree together, and covers icons Leaflet creates later, which a `tabindex` sweep
    would not. This class stays as defence in depth: `inert` blocks pointer events too, so the rule
    below is redundant wherever the attribute is honoured, but it is the older and more widely
-   supported half. See `MapHeatLayer.jsx`'s `applyMarkerFade` for why the overlay and aurora are
+   supported half. See `MapHeatLayer.jsx`'s `applyMarkerFade` for why aurora is
    unaffected. */
 .wf-markers-inert .leaflet-marker-icon,
 .wf-markers-inert .leaflet-marker-shadow,
@@ -8142,7 +9004,7 @@ button.wf-hc.also.on:hover {
      `.wf-spot:hover` lift, plus 2px of slack so the next change to either is not a silent regression.
      At 4px the ring sat exactly flush on the padding-box clip at rest and 2px OUTSIDE it while
      lifted — the whole top stroke and both top corners gone. Reachable by mouse alone, because
-     closing the map overlay restores focus to the card the pointer is still resting on, so hover
+     closing a dialog opened from a card restores focus to the card the pointer is still resting on, so hover
      and focus-visible are live at once.
      TOP ONLY — the card basis is a percentage of the WIDTH, so the horizontal 4px must stay 4px or
      `calc((100% - 24px)/3.5)` stops resolving against the spec's content box; and nothing ever
@@ -8229,8 +9091,8 @@ button.wf-hc.also.on:hover {
    otherwise re-base a fixed descendant onto the very button the panel hangs off.
 
    z-index 60 clears everything on the Plan screen: the sticky lens bar is 20, a hovered heatmap
-   cell 10, a focused spot card 3, the strip's edge fades 2. It sits BELOW `MapOverlay`'s 200 on
-   purpose.
+   cell 10, a focused spot card 3, the strip's edge fades 2. (The retired `MapOverlay` sat above it at
+   200, on purpose.)
 
    Width is mirrored by PEEK_WIDTH in `windowSpotPeek.js`; keep the two in step.
 
@@ -9263,6 +10125,15 @@ button.wf-hc.also.on:hover {
    84×24 against a 104×24 viewBox (the design's own figures), stretched by `preserveAspectRatio=
    "none"` on the SVG itself — unlike `.wf-mini` (`WindowTideSparkline`'s 1:1 box), which must NOT
    stretch because it plots a day-shape whose circular marker `none` would turn into an ellipse. */
+/* A tide-run card's facts (`.wf-facts-rows`, keyed on the entry's tide-run type): the sunrise and
+   sunset high-water rows are ROWS, not chips. Every fact after the first takes its own line (the
+   range stays beside the sparkline), and each fact is running text, so a row wraps at its own
+   spaces — the non-breaking spaces and the dot's NBSP keep each figure and the separator whole —
+   instead of at segment edges. Other card types keep the chip layout above. */
+.wf-cu-card .wf-facts-rows { row-gap: 4px; }
+.wf-cu-card .wf-facts-rows > .wf-cu-fact { display: block; min-width: 0; }
+.wf-cu-card .wf-facts-rows > .wf-cu-fact ~ .wf-cu-fact { flex-basis: 100%; }
+.wf-cu-card .wf-facts-rows > .wf-cu-fact > span { display: inline; }
 .wf-cu-card .wf-facts > .wf-cu-spark {
   /* Not the bare `.wf-cu-spark` selector: `.wf-facts > span { gap: 2px 4px }` (index.css above)
      matches this element too at equal specificity (0,1,1) and wins on source order, so an
@@ -10570,6 +11441,80 @@ button.wf-cond-oc:focus-visible {
   font-style: normal;
   font-size: 10.5px;
 }
+/* Overlay convergence C2 — the forecast detail the retired overlay popup showed, below a window row's prose:
+   conditions badges, wind and comfort rows, the generated-at footer. The sheet's own vocabulary
+   (mono, 10.5px, `--color-plex-text-secondary` — `.wf-loc-light`'s measured ink), never the popup's
+   inline pills. `.wf-loc-why` carries no bottom margin, so the block owns the gap above itself.
+   The badge tones are the popup's own hues, as borders and a faint wash with the INK left at the
+   secondary token: a tone is a colour on the edge, never the only carrier of the fact — the text is
+   the whole message, so no tone has to clear 4.5:1 on its own. */
+.wf-loc-facts {
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-loc-facts-skeleton {
+  height: 14px;
+  width: 70%;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  background: var(--color-plex-surface-light);
+}
+.wf-loc-fact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+.wf-loc-fact {
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--color-plex-text-secondary);
+  overflow-wrap: anywhere;
+}
+.wf-loc-fact[data-tone='amber'] { border-color: rgba(245, 158, 11, 0.45); background: rgba(245, 158, 11, 0.1); }
+.wf-loc-fact[data-tone='violet'] { border-color: rgba(171, 71, 188, 0.5); background: rgba(123, 31, 162, 0.14); }
+.wf-loc-fact[data-tone='blue'] { border-color: rgba(25, 118, 210, 0.5); background: rgba(25, 118, 210, 0.14); }
+.wf-loc-fact[data-tone='indigo'] { border-color: rgba(99, 102, 241, 0.3); background: rgba(99, 102, 241, 0.08); }
+.wf-loc-fact[data-tone='indigo-strong'] { border-color: rgba(99, 102, 241, 0.5); background: rgba(99, 102, 241, 0.15); }
+.wf-loc-fact[data-tone='sea'] { border-color: rgba(111, 168, 176, 0.45); background: rgba(111, 168, 176, 0.12); }
+/* The role-gating pattern for a PRO fact shown to LITE (CLAUDE.md, *Role gating — UI pattern*). */
+/* A locked (Pro) fact for a LITE reader. CLAUDE.md's greyed pattern (opacity .45, no pointer events) is
+   applied to the CONTAINER'S edge and wash, not to the text: .45 on 10.5px ink drops it under AA, and the
+   words ("Upgrade to Pro") are the whole point. The item is non-interactive, so pointer-events is moot. */
+.wf-loc-fact[data-locked='true'] {
+  border-style: dashed;
+  border-color: rgba(99, 102, 241, 0.2);
+  background: transparent;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-loc-facts-skeleton { animation: none; }
+}
+.wf-loc-comfort {
+  margin: 0 0 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-plex-border);
+  line-height: 1.8;
+}
+.wf-loc-comfort-row {
+  display: flex;
+  align-items: center;
+}
+.wf-loc-generated {
+  margin: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-plex-border);
+  font-size: 10px;
+  /* The popup's footer used the MUTED token; at 10px mono it is 3.53:1 over the surface, under AA. */
+  color: var(--color-plex-text-secondary);
+}
 /* Borrowed prose names its owner. A REGION's sky gloss shown under a location's name is labelled
    with a mono kicker in the prose's own colour — non-italic, so it reads as a label on the prose
    rather than as part of it — and the same rule dresses the callout's kicker below.
@@ -10899,6 +11844,11 @@ button.wf-mchip:hover {
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
+  color: var(--color-plex-text-secondary);
+}
+.wf-wsh-vnote {
+  font-size: 10px;
+  white-space: nowrap;
   color: var(--color-plex-text-secondary);
 }
 .wf-wsh-bdg {
@@ -11941,6 +12891,18 @@ button.wf-mchip:hover {
   font-weight: 600;
   color: var(--acc-ink);
 }
+/* A banner with no door (overlay convergence C4: a simulated alert for a non-admin, a real alert with
+   no Map tab to reach) is a statement, not a button: no pointer, and a call-to-action word that does
+   not carry the accent weight an actionable one does. */
+.wf-aurora-card[data-actionable='false'],
+.wf-aurora-strip[data-actionable='false'] {
+  cursor: default;
+}
+.wf-aurora-card[data-actionable='false'] .wf-aurora-cta,
+.wf-aurora-strip[data-actionable='false'] .wf-aurora-strip-cta {
+  font-weight: 400;
+  color: var(--color-plex-text-secondary);
+}
 /* ── end Aurora alert banner ── */
 
 /* ══ Ask PhotoCast — the conversation (docs/engineering/ask-photocast-plan.md §2.6, F1a) ══════════
@@ -12185,6 +13147,25 @@ button.wf-mchip:hover {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--color-plex-text-secondary);
+}
+/* The server's figures beside the model's sentence (ask-window-context-plan.md §2.4, W2): one quiet
+   line per carried window, in the footer's mono and ink, a size up so the counts can be read. In no
+   media query and under no role: `askCss.test.js` pins it. */
+.wf-ask-spread {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wf-ask-spread-l {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-plex-text-secondary);
+  overflow-wrap: anywhere;
 }
 .wf-ask-notice {
   margin: 0;
@@ -12910,6 +13891,8 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 /* The pane's own node is a programmatic-only focus target (`tabIndex -1`): focus parks here when a
    control that held it unmounts, and moves on to the entry button. It needs no ring. */
 .wf-map-peek-ask:focus { outline: none; }
+/* The pane's own node is a programmatic focus target (the callout's ✕ hands focus to it): not a control, no ring. */
+.wf-map-tab:focus { outline: none; }
 .wf-map-peek[data-ask='expanded'] .wf-map-peek-ask { flex: 1 1 auto; }
 .wf-map-peek-ask-row {
   flex: none;
@@ -13017,14 +14000,25 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   padding: 8px 14px 14px;
   border-top: 1px solid var(--color-plex-border);
 }
-/* THE MINIMISED LINE — one 44px button: rank, spot, time, "N picks ▴". */
-.wf-map-peek-mini {
+/* THE MINIMISED LINE — a 44px ROW (`phone-pick-callout-plan.md` §3 P2): the line's button (rank, spot,
+   time, "N picks ▴") and, beside it, the Layers door. The row owns the line's 10px side margin and its
+   44px; the sheet's budget is unchanged (14 handle + 52 ask row + 44 + 1 border = 111 of 112px). */
+.wf-map-peek-mini-row {
   flex: none;
-  min-height: 44px;
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 0 10px;
+  min-height: 44px;
+}
+.wf-map-peek-mini {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
   padding: 0 4px;
   background: none;
   border: 0;
@@ -13066,6 +14060,39 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   margin-left: auto;
   font-family: var(--font-mono);
   font-size: 11px;
+}
+/* THE LAYERS DOOR — the Layers peek button in miniature (`.wf-map-peek-btn-lay`: the LAYERS caption over
+   ☰), 58 x 44px, with the Ask ✕'s 1px border and radius so it reads as a button and not as part of the line. */
+.wf-map-peek-mini-lay {
+  flex: none;
+  box-sizing: border-box;
+  width: 58px;
+  height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: none;
+  border: 1px solid var(--color-plex-border-light);
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-map-peek-mini-lay-g {
+  font-size: 13px;
+  line-height: 1;
+}
+.wf-map-peek-mini-lay:hover { color: var(--color-plex-text); }
+/* Inset like the line's, for the same reason (the door ends the sheet's 111 of 112px), and an `outline` so
+   forced-colours keeps it. */
+.wf-map-peek-mini-lay:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+/* Below 400px the window pill above usually already says it (the map follows the chosen pick); the spot's
+   name needs the room (measured at 320px). */
+@media (max-width: 399px) {
+  .wf-map-peek-mini-when { display: none; }
 }
 
 /* ── PLAN THIS, AND THE PLAN-CARD HIGHLIGHT (F5, `docs/engineering/ask-photocast-plan.md` §2.8) ────────

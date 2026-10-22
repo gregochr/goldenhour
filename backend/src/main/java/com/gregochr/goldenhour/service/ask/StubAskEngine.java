@@ -243,7 +243,13 @@ public class StubAskEngine implements AskEngine {
                 : LOW_TIDE.matcher(text).find() ? "LOW" : null;
 
         List<SpotInfo> lead = new ArrayList<>();
-        if (anchor != null) {
+        // A Ready question whose covered windows hold nothing game on is answered with no pick, so there is
+        // nothing to lead with: the very set test the validator, the relevance rule and the freshness check
+        // consult (ReadyRelevance.mayHaveNoPick).
+        AskAnswerValidator.ReadyBasis basis = conversation.options().readyBasis();
+        boolean nothingGameOn = basis != null
+                && ReadyRelevance.mayHaveNoPick(basis.question(), basis.offer(), snapshot, conversation.scope());
+        if (anchor != null && !nothingGameOn) {
             Optional<AskSnapshot.Window> leadWindow =
                     AskAnswerValidator.anchoredWindow(snapshot, anchor, conversation.scope());
             if (leadWindow.isPresent()) {
@@ -260,15 +266,27 @@ public class StubAskEngine implements AskEngine {
         Set<Long> turnedDown = conversation.thread().fact().turnedDown();
         List<SpotInfo> chosen = new ArrayList<>();
         Set<Long> seen = new HashSet<>();
+        // Picks are the game-on places only (the owner's scale: 3★ is marginal, never filler). The one
+        // exception is the forecast's own BEST BET, which an anchored Ready answer must lead with.
+        SpotInfo crown = lead.isEmpty() ? null : lead.getFirst();
         for (SpotInfo spot : concat(lead, ranked)) {
-            if (chosen.size() < PICKS && !turnedDown.contains(spot.locationId()) && seen.add(spot.locationId())) {
+            boolean gameOn = spot.rating() >= AskSnapshot.Spread.GAME_ON_FROM;
+            if (chosen.size() < PICKS && !turnedDown.contains(spot.locationId())
+                    && (gameOn || spot == crown) && seen.add(spot.locationId())) {
                 chosen.add(spot);
             }
         }
         List<RawPick> picks = chosen.stream()
                 .map(s -> new RawPick(s.locationId(), s.windowId(), why(s, snapshot.today())))
                 .toList();
-        return new AskAnswerValidator.Raw(true, spotsSummary(chosen, snapshot.today()), picks,
+        // The figures quoted are over the windows the question COVERS when it is a Ready one (an all-blue
+        // Saturday is part of "this weekend"), else the windows asked about; the carried set is the same.
+        List<String> quoted = basis != null ? basis.offer().coveredWindowIds()
+                : windowIds != null ? windowIds
+                : snapshot.windows().stream().map(AskSnapshot.Window::id).toList();
+        List<AskSnapshot.Spread> spreads = quoted.stream()
+                .flatMap(id -> snapshot.spread(id, conversation.scope()).stream()).toList();
+        return new AskAnswerValidator.Raw(true, spotsSummary(chosen, spreads, snapshot.today()), picks,
                 List.of(), null);
     }
 
@@ -365,7 +383,64 @@ public class StubAskEngine implements AskEngine {
         return ids.isEmpty() ? Optional.empty() : Optional.of(ids);
     }
 
-    private static String spotsSummary(List<SpotInfo> chosen, LocalDate today) {
+    /**
+     * The share of rated places at 4★ or better from which the stub calls a window broadly game on.
+     * A stub-only template threshold: the real engine is given the spread and the owner's criteria and
+     * judges it; nothing in the server applies a threshold (ask-window-context plan §2.3).
+     */
+    private static final int STUB_BROADLY_GAME_ON_PCT = 40;
+
+    /**
+     * How the asked windows read from their spreads, in the words the criteria use, or empty when the
+     * snapshot holds none of them. Summed over the windows asked about; the figures are the served
+     * ones, never recomputed from the picks.
+     */
+    private static Optional<String> framing(List<AskSnapshot.Spread> spreads) {
+        if (spreads.isEmpty()) {
+            return Optional.empty();
+        }
+        int rated = spreads.stream().mapToInt(AskSnapshot.Spread::rated).sum();
+        int gameOn = spreads.stream().mapToInt(AskSnapshot.Spread::gameOn).sum();
+        // "Every region stood down" only when nothing else was in scope: regions that are thin or not scored
+        // are missing evidence, never bad weather.
+        boolean allStoodDown = spreads.stream().allMatch(sp -> sp.regions().stoodDown() != null
+                && sp.regions().counted() == 0 && sp.regions().thin() == null && sp.regions().notScored() == null);
+        String over = spreads.getFirst().over();
+        String area = AskSnapshot.Spread.EVERY_REGION.equals(over) ? "across every region" : "in " + over;
+        if (rated == 0) {
+            return Optional.of(allStoodDown
+                    ? "Every region is stood down for that window, so it is poor " + area + "."
+                    : "That window is mostly not scored yet, so there is nothing to say about it " + area + ".");
+        }
+        String places = rated + " rated " + (rated == 1 ? "place" : "places");
+        if (gameOn == 0) {
+            return Optional.of("Nothing worth going out for " + area + ": of " + places
+                    + " none is 4★ or better.");
+        }
+        String verb = gameOn == 1 ? " is" : " are";
+        if (100 * gameOn / rated < STUB_BROADLY_GAME_ON_PCT) {
+            return Optional.of("Not a window to go out for " + area + ": of " + places + ", " + gameOn + verb
+                    + " 4★ or better.");
+        }
+        return Optional.of("Broadly game on " + area + ": " + gameOn + " of " + places + (gameOn == 1 ? " is" : " are")
+                + " 4★ or better.");
+    }
+
+    private static String spotsSummary(List<SpotInfo> chosen, List<AskSnapshot.Spread> spreads,
+            LocalDate today) {
+        Optional<String> framing = framing(spreads);
+        if (framing.isPresent()) {
+            if (chosen.isEmpty()) {
+                return framing.get();
+            }
+            List<String> names = chosen.stream().filter(s -> s.rating() >= AskSnapshot.Spread.GAME_ON_FROM)
+                    .map(SpotInfo::name).toList();
+            boolean exceptions = framing.get().startsWith("Not a window") && !names.isEmpty();
+            return framing.get() + (exceptions
+                    ? " The " + (names.size() == 1 ? "exception is " : "exceptions are ")
+                            + String.join(" and ", names) + "."
+                    : " " + spotsSummary(chosen, List.of(), today));
+        }
         if (chosen.isEmpty()) {
             return "No spot in scope is rated 3★ or better in the current forecast.";
         }

@@ -155,7 +155,7 @@ async function land(settle) {
 }
 
 const map = () => (
-  <MapView locations={LOCATIONS} date={THE_NIGHT} autoEventType={null} handoffEventType="AURORA" />
+  <MapView locations={LOCATIONS} date={THE_NIGHT} autoEventType="AURORA" />
 );
 
 /**

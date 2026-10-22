@@ -103,6 +103,33 @@ public record SlotSignals(
     }
 
     /**
+     * Returns the effective valley mist band for this key &mdash; the ONE rule every reader of
+     * valley mist uses (valley-mist-plan M2): {@link Readings#mistPotential()} (the deterministic
+     * calculator's own band, null included) when {@link Readings#mistScored()} says this row's
+     * writer ran the valley-mist check, else {@link Scores#mistBand()} (Claude's
+     * {@code forecast_score} MIST echo) as a stand-in for a slot the calculator never reached.
+     *
+     * <p>The {@link #effectiveInversionScore()} rule verbatim, round 4 included: a fresh
+     * {@code mistScored} row's null band is an AUTHORITATIVE answer (an unflagged site, or a
+     * flagged one the calculator could not score) and is returned as is, never overridden by an
+     * older echo that {@code ForecastScoreWriter} leaves in place indefinitely. The echo is
+     * consulted only for a row written before V185, or a key that has an echo and no reading at
+     * all. It works on the BAND, not a score, because the band is what the hot topic and Coming up
+     * consume and FOGBOUND is decided by visibility, not by any score. {@code TopicDailyLogJob}'s
+     * {@code MIST_CALC} series does NOT use this fallback: it reads the calculator alone, so its
+     * population stays unbiased.
+     *
+     * @return the effective band, or null when the calculator scored this slot and found nothing,
+     *         or when neither surface has anything (or only an unrecognised name) for this key
+     */
+    public MistPotential effectiveMistPotential() {
+        if (readings.mistScored()) {
+            return readings.mistPotential();
+        }
+        return Readings.parsePotential(scores.mistBand());
+    }
+
+    /**
      * Score-shaped slot signals from {@code forecast_score} — each nullable when that score was
      * not written for the key (ineligible location, out of season, or eval not yet returned).
      *
@@ -128,12 +155,29 @@ public record SlotSignals(
      *                        written before it was plumbed through read as null
      * @param bluebell        bluebell conditions score 1–5, or null
      * @param bluebellSummary the bluebell component's prose clause, or null
+     * @param mistBand        Claude's valley mist band (a {@link MistPotential} name) from the
+     *                        {@code forecast_score} MIST row's {@code summary}, or null. Read only
+     *                        through {@link SlotSignals#effectiveMistPotential()}
      */
     public record Scores(Integer inversion, String inversionBand, Integer bluebell,
-            String bluebellSummary) {
+            String bluebellSummary, String mistBand) {
+
+        /**
+         * Backward-compatible constructor for scores that carry no Claude valley mist echo (every
+         * fixture written before valley-mist-plan M2).
+         *
+         * @param inversion       cloud inversion score 0-10 (Claude's echo), or null
+         * @param inversionBand   the inversion row's stored classification, or null
+         * @param bluebell        bluebell conditions score 1-5, or null
+         * @param bluebellSummary the bluebell component's prose clause, or null
+         */
+        public Scores(Integer inversion, String inversionBand, Integer bluebell,
+                String bluebellSummary) {
+            this(inversion, inversionBand, bluebell, bluebellSummary, null);
+        }
 
         /** The all-absent scores, used for a key that has only readings. */
-        public static final Scores EMPTY = new Scores(null, null, null, null);
+        public static final Scores EMPTY = new Scores(null, null, null, null, null);
     }
 
     /**
@@ -176,6 +220,22 @@ public record SlotSignals(
      *                                  {@link SlotSignals#effectiveInversionScore()}'s own
      *                                  javadoc for the full history (round 4, a Codex P1 against
      *                                  round 3's own unify-onto-one-rule fix)
+     * @param mistScore                 valley mist likelihood score (0–10,
+     *                                  {@code ValleyMistCalculator}), or null when the site is not
+     *                                  {@code mist_prone} or the calculator could not score it.
+     *                                  V185 (valley-mist-plan M1a). Always pair with
+     *                                  {@link #mistScored()}, or read the band through
+     *                                  {@link SlotSignals#effectiveMistPotential()}
+     * @param mistScored                true when this row's writer ran the valley-mist check THIS
+     *                                  cycle, whatever the score — false only for a row written
+     *                                  before V185. The V158 {@link #inversionScored()} rule
+     *                                  verbatim: a fresh {@code true} row's null score is an
+     *                                  authoritative answer
+     * @param mistPotential             the band for {@link #mistScore()}, or null when there is no
+     *                                  score or the stored name is not a known band (never throws).
+     *                                  Carried separately because FOGBOUND is decided by event-hour
+     *                                  visibility, not by the score: two slots with the same score
+     *                                  can be LIKELY and FOGBOUND
      */
     public record Readings(
             BigDecimal aerosolOpticalDepth,
@@ -190,10 +250,61 @@ public record SlotSignals(
             Double surgeWindDirectionDegrees,
             Double temperatureCelsius,
             Double inversionScore,
-            boolean inversionScored) {
+            boolean inversionScored,
+            Double mistScore,
+            boolean mistScored,
+            MistPotential mistPotential) {
+
+        /**
+         * Backward-compatible constructor for readings that carry no valley-mist columns (every
+         * reading-shaped fixture written before V185): both read as absent ({@code mistScored}
+         * false), the pre-column state.
+         *
+         * @param aerosolOpticalDepth       aerosol optical depth, or null
+         * @param dust                      surface dust µg/m³, or null
+         * @param pm25                      PM2.5 µg/m³, or null
+         * @param surgeRiskLevel            storm surge risk classification name, or null
+         * @param snowDepthMetres           lying snow depth in metres, or null
+         * @param freezingLevelMetres       0 °C isotherm altitude in metres, or null
+         * @param humidity                  relative humidity percent, or null
+         * @param surgeTotalMetres          total storm surge in metres, or null
+         * @param surgeWindSpeedMs          surge-time 10 m wind speed in m/s, or null
+         * @param surgeWindDirectionDegrees surge-time wind direction, or null
+         * @param temperatureCelsius        2 m air temperature in °C, or null
+         * @param inversionScore            cloud inversion score, or null
+         * @param inversionScored           whether the inversion check ran for this row
+         */
+        public Readings(BigDecimal aerosolOpticalDepth, BigDecimal dust, BigDecimal pm25,
+                String surgeRiskLevel, Double snowDepthMetres, Double freezingLevelMetres,
+                Integer humidity, Double surgeTotalMetres, Double surgeWindSpeedMs,
+                Double surgeWindDirectionDegrees, Double temperatureCelsius,
+                Double inversionScore, boolean inversionScored) {
+            this(aerosolOpticalDepth, dust, pm25, surgeRiskLevel, snowDepthMetres,
+                    freezingLevelMetres, humidity, surgeTotalMetres, surgeWindSpeedMs,
+                    surgeWindDirectionDegrees, temperatureCelsius, inversionScore,
+                    inversionScored, null, false, null);
+        }
+
+        /**
+         * Parses a stored band name, tolerating a null or unknown one.
+         *
+         * @param name the {@code slot_atmosphere.mist_potential} value, or null
+         * @return the band, or null for a null or unrecognised name
+         */
+        public static MistPotential parsePotential(String name) {
+            if (name == null) {
+                return null;
+            }
+            try {
+                return MistPotential.valueOf(name);
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
+        }
 
         /** The all-absent readings, used for a key that has only scores. */
         public static final Readings EMPTY = new Readings(
-                null, null, null, null, null, null, null, null, null, null, null, null, false);
+                null, null, null, null, null, null, null, null, null, null, null, null, false,
+                null, false, null);
     }
 }

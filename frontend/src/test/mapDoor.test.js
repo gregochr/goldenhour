@@ -1,0 +1,513 @@
+import { describe, it, expect } from 'vitest';
+// `resolveDoor` is the pure resolution the retired overlay's builder became (overlay convergence C5):
+// the door's headline and field resolution are read off its output.
+import {
+  normalizeMapTrigger, resolveDoor, doorHeadline, doorFromTrigger,
+} from '../utils/mapDoor.js';
+
+const DATE = '2026-07-04';
+
+function loc(name, regionName, rating, { lat = 54, lon = -1, types = ['LANDSCAPE'], bortleClass = null } = {}) {
+  return {
+    name,
+    regionName,
+    lat,
+    lon,
+    enabled: true,
+    locationType: types,
+    bortleClass,
+    forecastsByDate: new Map([[DATE, { sunset: { rating, solarEventTime: `${DATE}T20:49:00` } }]]),
+  };
+}
+
+const ctx = (locations, briefingScores = new Map()) => ({
+  locations,
+  briefingScores,
+  todayStr: DATE,
+  tomorrowStr: '2026-07-05',
+});
+
+describe('resolveDoor', () => {
+  it('region trigger → single region, flies to the top-rated location', () => {
+    const locations = [
+      loc('Low', 'Tyne and Wear', 2),
+      loc('Top', 'Tyne and Wear', 4),
+    ];
+    const ov = resolveDoor(
+      { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
+      ctx(locations),
+    );
+    expect(ov.title).toBe('Tyne and Wear');
+    expect(ov.subLine).toContain('Today sunset');
+    expect(ov.subLine).toContain('21:49'); // 20:49Z → 21:49 BST
+    expect(ov.focus).toBeNull();
+    expect(ov.handoff.locationName).toBe('Top');
+  });
+
+  it('follows a BRIEFING rating over the forecast row\'s own: the top spot is the briefing\'s, not the forecast\'s', () => {
+    // Forecast rows say Rival is the better spot (4 against 2); the briefing (the rating the Plan
+    // tab serves) says Briefed is a 5. The door must land where the briefing points.
+    const locations = [
+      loc('Briefed', 'Tyne and Wear', 2),
+      loc('Rival', 'Tyne and Wear', 4),
+    ];
+    const scores = new Map([['Tyne and Wear|2026-07-04|SUNSET|Briefed', { rating: 5 }]]);
+    const ov = resolveDoor(
+      { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
+      ctx(locations, scores),
+    );
+    expect(ov.handoff.locationName).toBe('Briefed');
+    // Control: without the briefing entry the forecast row decides.
+    expect(resolveDoor(
+      { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
+      ctx(locations),
+    ).handoff.locationName).toBe('Rival');
+  });
+
+  it('event trigger spanning >1 region → fits to pins with no spot opened', () => {
+    const locations = [
+      loc('A', 'Region One', 4, { lat: 54.1, lon: -1.1 }),
+      loc('B', 'Region Two', 3, { lat: 55.2, lon: -2.2 }),
+    ];
+    const ov = resolveDoor({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx(locations));
+    expect(ov.subLine).toContain('2 regions');
+    expect(ov.focus.points).toHaveLength(2);
+    expect(ov.handoff.locationName).toBeUndefined();
+  });
+
+  it('event trigger with a single rated region behaves like a region trigger', () => {
+    const locations = [
+      loc('A', 'Only Region', 4),
+      loc('B', 'Only Region', 2),
+    ];
+    const ov = resolveDoor({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx(locations));
+    expect(ov.focus).toBeNull();
+    expect(ov.handoff.locationName).toBe('A');
+    expect(ov.title).toBe('Only Region');
+  });
+
+  it('location trigger → lands on that location', () => {
+    const locations = [loc('Simonside', 'Tyne and Wear', 4)];
+    const ov = resolveDoor(
+      { kind: 'location', locationName: 'Simonside', date: DATE, eventType: 'SUNSET' },
+      ctx(locations),
+    );
+    expect(ov.title).toBe('Simonside');
+    expect(ov.handoff.locationName).toBe('Simonside');
+    expect(ov.focus).toBeNull();
+  });
+
+  it('region trigger with locationNames restricts to the single qualifying spot', () => {
+    const locations = [
+      loc('Buttermere', 'The Lake District', 4),
+      loc('Other', 'The Lake District', 3),
+    ];
+    const ov = resolveDoor(
+      { kind: 'region', region: 'The Lake District', date: DATE, eventType: 'SUNSET', locationNames: ['Buttermere'], label: 'Cloud inversion' },
+      ctx(locations),
+    );
+    expect(ov.handoff.locationName).toBe('Buttermere');
+    // The single qualifying spot still restricts the map's markers to just it (names, no points).
+    expect(ov.focus.names).toEqual(['Buttermere']);
+    expect(ov.focus.points).toBeUndefined();
+    expect(ov.subLine).toContain('Cloud inversion');
+  });
+
+  it('region trigger with several qualifying spots fits to them', () => {
+    const locations = [
+      loc('A', 'The Lake District', 4, { lat: 54.0, lon: -3.0 }),
+      loc('B', 'The Lake District', 3, { lat: 54.5, lon: -3.2 }),
+      loc('C', 'The Lake District', 2, { lat: 54.7, lon: -3.1 }),
+    ];
+    const ov = resolveDoor(
+      { kind: 'region', region: 'The Lake District', date: DATE, eventType: 'SUNSET', locationNames: ['A', 'B'], label: 'Cloud inversion' },
+      ctx(locations),
+    );
+    expect(ov.focus.points).toHaveLength(2);
+    expect(ov.focus.names).toEqual(['A', 'B']); // markers restricted to just the qualifying spots
+    expect(ov.title).toBe('The Lake District');
+  });
+
+  it('a typed topic (bluebell) passes its filterAction so the map filters to that type', () => {
+    const locations = [
+      loc('Wood A', 'The Lake District', 3, { lat: 54.0, lon: -3.0, types: ['BLUEBELL'] }),
+      loc('Wood B', 'The Lake District', 3, { lat: 54.5, lon: -3.2, types: ['BLUEBELL'] }),
+    ];
+    const ov = resolveDoor(
+      { kind: 'region', region: 'The Lake District', date: DATE, eventType: 'SUNSET', locationNames: ['Wood A', 'Wood B'], label: 'Bluebell conditions', filterAction: 'BLUEBELL' },
+      ctx(locations),
+    );
+    expect(ov.handoff.filterAction).toBe('BLUEBELL');
+    expect(ov.focus.points).toHaveLength(2);
+  });
+
+  it('a topic without a location type carries a null filterAction', () => {
+    const locations = [loc('Buttermere', 'The Lake District', 4)];
+    const ov = resolveDoor(
+      { kind: 'region', region: 'The Lake District', date: DATE, eventType: 'SUNSET', locationNames: ['Buttermere'], label: 'Cloud inversion', filterAction: null },
+      ctx(locations),
+    );
+    expect(ov.handoff.filterAction).toBeNull();
+  });
+
+  describe('the coming-up trigger (D8, plan §6b)', () => {
+    it('coastal-spots → filters and fits to the matching pins', () => {
+      const locations = [
+        loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] }),
+        loc('Whitby', 'Yorkshire', 3, { types: ['SEASCAPE'] }),
+        loc('Elsewhere', 'Yorkshire', 3, { types: ['LANDSCAPE'] }),
+      ];
+      const ov = resolveDoor(
+        { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+        ctx(locations),
+      );
+      expect(ov.title).toBe('Spring tide run');
+      expect(ov.handoff.filterAction).toBe('SEASCAPE');
+      expect(ov.handoff.darkSky).toBe(false);
+      expect(ov.handoff.date).toBe(DATE);
+      expect(ov.focus.points).toHaveLength(2);
+    });
+
+    it('dark-sky-spots → filters by Bortle class, never by locationType', () => {
+      const locations = [
+        loc('Kielder', 'Northumberland', 3, { bortleClass: 3 }),
+        loc('Thick Sky', 'Northumberland', 3, { bortleClass: 7 }),
+        loc('Unmeasured', 'Northumberland', 3, { bortleClass: null }),
+      ];
+      const ov = resolveDoor(
+        { kind: 'coming-up', darkSky: true, label: 'Perseids', date: DATE },
+        ctx(locations),
+      );
+      expect(ov.handoff.darkSky).toBe(true);
+      expect(ov.handoff.filterAction).toBeNull();
+      expect(ov.focus.names).toEqual(['Kielder']);
+    });
+
+    it('dark-sky-spots includes Bortle 4 exactly and excludes 5 - the threshold is inclusive', () => {
+      const locations = [
+        loc('Four', 'Northumberland', 3, { bortleClass: 4 }),
+        loc('Five', 'Northumberland', 3, { bortleClass: 5 }),
+      ];
+      const ov = resolveDoor({ kind: 'coming-up', darkSky: true, date: DATE }, ctx(locations));
+      expect(ov.focus.names).toEqual(['Four']);
+    });
+
+    it('a plan chip (neither filter) shows every visible location, matching nothing by type or Bortle', () => {
+      // plan §11.26: a plan entry's chip filters nothing. With no `filterAction` the type filter
+      // used to match NOTHING (`includes(null)`), leaving an empty overlay.
+      const locations = [
+        loc('Bamburgh', 'Northumberland', 3, { lat: 55.6, lon: -1.7, types: ['SEASCAPE'] }),
+        loc('Kielder', 'Northumberland', 3, { lat: 55.2, lon: -2.6, types: ['LANDSCAPE'], bortleClass: 3 }),
+        loc('Thick Sky', 'Yorkshire', 3, { lat: 54.3, lon: -0.9, types: ['LANDSCAPE'], bortleClass: 7 }),
+        { ...loc('Switched Off', 'Yorkshire', 3, { lat: 50.0, lon: -5.0, types: ['LANDSCAPE'] }), enabled: false },
+      ];
+      const ov = resolveDoor(
+        { kind: 'coming-up', filterAction: null, darkSky: false, label: 'Winter solstice · Sun 21 Dec', date: DATE },
+        ctx(locations),
+      );
+      expect(ov.title).toBe('Winter solstice · Sun 21 Dec');
+      // No `names`: that would narrow the map to exactly these pins as a named lens. "Every spot" is
+      // not a selection. Points only — the fit.
+      expect(ov.focus.names).toBeUndefined();
+      expect(ov.focus).not.toHaveProperty('names');
+      // Every enabled location's point, in order; the disabled one (50.0, -5.0) is not in the fit.
+      expect(ov.focus.points).toEqual([[55.6, -1.7], [55.2, -2.6], [54.3, -0.9]]);
+      expect(ov.subLine).toBe('2 regions');
+      expect(ov.handoff.filterAction).toBeNull();
+      expect(ov.handoff.darkSky).toBe(false);
+      expect(ov.handoff.date).toBe(DATE);
+    });
+
+    it('a plan chip with no label falls back to a generic title rather than a type name', () => {
+      const ov = resolveDoor(
+        { kind: 'coming-up', filterAction: null, darkSky: false, date: DATE },
+        ctx([loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] })]),
+      );
+      expect(ov.title).toBe('Coming up');
+    });
+
+    it('carries the trigger date, unlike the aurora branch — no rating is ever claimed for it', () => {
+      const ov = resolveDoor(
+        { kind: 'coming-up', filterAction: 'SEASCAPE', date: '2026-11-26' },
+        ctx([loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] })]),
+      );
+      expect(ov.handoff.date).toBe('2026-11-26');
+    });
+
+    it('falls back to a null-safe title when nothing matches', () => {
+      const ov = resolveDoor(
+        { kind: 'coming-up', darkSky: true, date: DATE },
+        ctx([loc('Nowhere Dark', 'Northumberland', 3, { bortleClass: 8 })]),
+      );
+      expect(ov.title).toBe('Dark-sky spots');
+      expect(ov.focus).toBeNull();
+    });
+  });
+
+  describe('the aurora trigger', () => {
+    it('hands the map the aurora event for the night in question', () => {
+      const ov = resolveDoor({ kind: 'aurora', date: DATE }, ctx([loc('Kielder', 'Northumberland', 4)]));
+      expect(ov.handoff.eventType).toBe('AURORA');
+      expect(ov.handoff.date).toBe(DATE);
+      expect(ov.title).toBe('Aurora tonight');
+    });
+
+    // The trap this branch exists to avoid, and the reason it claims so little: `ratingFor` and
+    // `solarTimeFor` both resolve any non-SUNRISE event to the SUNSET forecast. An aurora overlay
+    // built through the ordinary path would therefore have shown that evening's sunset rating and
+    // its 20:49 sunset time, presented as aurora facts. The fixture carries both so this test
+    // fails loudly if a later change starts reaching for them. (21:49, not the fixture's
+    // 20:49: the overlay prints Europe/London local time, which the control below pins.)
+    it('claims no rating, no clock time and no count of our own locations', () => {
+      const ov = resolveDoor({ kind: 'aurora', date: DATE }, ctx([
+        loc('Kielder', 'Northumberland', 4),
+        loc('Derwent', 'Durham', 5),
+      ]));
+      expect(ov.subLine).toBeNull();
+      expect(ov.focus).toBeNull();
+      const printed = `${ov.title} ${ov.subLine ?? ''}`;
+      expect(printed).not.toMatch(/21:49/);
+      expect(printed).not.toMatch(/\d\u2605|\bbest\b/i);
+      expect(printed).not.toMatch(/\b2 locations\b/);
+    });
+
+    // The positive control for the assertion above: the ordinary event path DOES print the time,
+    // so "no 20:49" is a fact about the aurora branch rather than about the fixture.
+    it('is a departure from the event trigger, which does print the solar time', () => {
+      const ov = resolveDoor({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx([
+        loc('Kielder', 'Northumberland', 4),
+      ]));
+      const printed = `${ov.title} ${ov.subLine ?? ''}`;
+      expect(printed).toMatch(/21:49/);
+    });
+  });
+});
+
+describe('normalizeMapTrigger (extracted from App.jsx\'s handleShowOnMap, D8)', () => {
+  it('a coming-up handoff normalises to kind:\'coming-up\'', () => {
+    // P6 (`docs/engineering/coming-up-plan.md` D7) deleted kind:'topic' and its only producer
+    // (`HotTopicStrip`), so `coming-up` is now normalizeMapTrigger's only `filterAction`-bearing
+    // object shape. This pins that it still normalises correctly now that it has no sibling shape
+    // to be confused with.
+    const trigger = normalizeMapTrigger(
+      { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+      null,
+    );
+    expect(trigger).toEqual({
+      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run', date: DATE,
+    });
+  });
+
+  it('a dark-sky coming-up handoff carries an explicit boolean darkSky and a null filterAction', () => {
+    const trigger = normalizeMapTrigger({ kind: 'coming-up', darkSky: true, date: DATE }, null);
+    expect(trigger).toEqual({
+      kind: 'coming-up', filterAction: null, darkSky: true, label: null, date: DATE,
+    });
+  });
+
+  it('a plain filterAction handoff with no kind and no region falls through to an event trigger — kind:\'topic\' no longer exists', () => {
+    // P6 deleted the branch that used to catch this shape, because its only producer
+    // (`HotTopicStrip`) died with it — nothing in the app builds a bare `{filterAction}` object any
+    // more. Pinned here so a reintroduced caller of this shape fails loudly (an `event` trigger
+    // whose `date` is the whole object, not a date string) rather than silently reviving `topic`.
+    const trigger = normalizeMapTrigger({ filterAction: 'BLUEBELL', label: 'Bluebell', date: DATE }, null);
+    expect(trigger.kind).toBe('event');
+    expect(trigger.date).toEqual({ filterAction: 'BLUEBELL', label: 'Bluebell', date: DATE });
+  });
+
+  it('an aurora handoff is still checked first, ahead of coming-up', () => {
+    const trigger = normalizeMapTrigger({ kind: 'aurora', date: DATE }, null);
+    expect(trigger).toEqual({ kind: 'aurora', date: DATE });
+  });
+
+  it('a region handoff normalises to kind:\'region\'', () => {
+    const trigger = normalizeMapTrigger({ region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' }, null);
+    expect(trigger.kind).toBe('region');
+  });
+
+  it('a plain date plus a location name normalises to kind:\'location\'', () => {
+    const trigger = normalizeMapTrigger(DATE, 'SUNSET', 'Bamburgh Beach');
+    expect(trigger).toEqual({ kind: 'location', locationName: 'Bamburgh Beach', date: DATE, eventType: 'SUNSET' });
+  });
+
+  it('a bare date with no location name normalises to kind:\'event\'', () => {
+    const trigger = normalizeMapTrigger(DATE, 'SUNSET');
+    expect(trigger).toEqual({ kind: 'event', date: DATE, eventType: 'SUNSET' });
+  });
+});
+
+describe('doorHeadline (the breadcrumb\'s title · caption, overlay convergence C1)', () => {
+  it('names the aurora door "Aurora tonight" with no caption', () => {
+    expect(doorHeadline({ kind: 'aurora', date: DATE }, ctx([]))).toEqual({
+      title: 'Aurora tonight', caption: null,
+    });
+  });
+
+  it('names a region door by region, with the day, event and clock as its caption', () => {
+    const locations = [loc('Top', 'Tyne and Wear', 4)];
+    const headline = doorHeadline(
+      { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
+      ctx(locations),
+    );
+    expect(headline.title).toBe('Tyne and Wear');
+    expect(headline.caption).toBe('Today sunset · 21:49');
+  });
+
+  it('names a coming-up door by its label, with the region count as its caption', () => {
+    const locations = [
+      loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] }),
+      loc('Whitby', 'Yorkshire', 3, { types: ['SEASCAPE'] }),
+    ];
+    expect(doorHeadline(
+      { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+      ctx(locations),
+    )).toEqual({ title: 'Spring tide run', caption: '2 regions' });
+  });
+
+  it('never borrows the overlay\'s "tap a pin" prompt as a caption', () => {
+    const locations = [loc('A', 'North', 3, { lat: 55 }), loc('B', 'South', 3, { lat: 51 })];
+    const headline = doorHeadline({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx(locations));
+    expect(headline.caption).not.toMatch(/tap a pin/i);
+  });
+});
+
+describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)', () => {
+  it('aurora: names the night, the AURORA event and its headline; no lens fields at all', () => {
+    const door = doorFromTrigger({ kind: 'aurora', date: DATE }, ctx([]));
+    expect(door).toEqual({
+      date: DATE,
+      targetType: 'AURORA',
+      region: null,
+      locationName: null,
+      title: 'Aurora tonight',
+      caption: null,
+      night: { kind: 'aurora', date: DATE },
+    });
+    expect(door).not.toHaveProperty('focusNames');
+    expect(door).not.toHaveProperty('focusPoints');
+  });
+
+  it('location: a plain door onto the spot - no lens, no night', () => {
+    const door = doorFromTrigger(
+      { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(door).toMatchObject({ date: DATE, targetType: 'SUNSET', locationName: 'Top', region: null });
+    expect(Object.keys(door).sort()).toEqual(
+      ['caption', 'date', 'locationName', 'region', 'targetType', 'title'],
+    );
+  });
+
+  it('single region: lands on the top-rated spot AND keeps the region, so the map frames it (C4)', () => {
+    const door = doorFromTrigger(
+      { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('Low', 'Tyne and Wear', 2), loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(door.locationName).toBe('Top');
+    expect(door.region).toBe('Tyne and Wear');
+  });
+
+  it('a location or event trigger never invents a region', () => {
+    const door = doorFromTrigger(
+      { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(door.region).toBeNull();
+  });
+
+  it('carries the tab the door was pressed on (`from`) and nothing when it names none', () => {
+    const c = ctx([loc('Top', 'Tyne and Wear', 4)]);
+    const base = { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' };
+    expect(doorFromTrigger({ ...base, from: 'coming-up' }, c).from).toBe('coming-up');
+    expect(doorFromTrigger(base, c)).not.toHaveProperty('from');
+  });
+
+  it('several regions: fits the pins (focusPoints) and restricts nothing (no focusNames)', () => {
+    const door = doorFromTrigger(
+      { kind: 'event', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('A', 'North', 3, { lat: 55 }), loc('B', 'South', 4, { lat: 51 })]),
+    );
+    expect(door.focusPoints).toHaveLength(2);
+    expect(door).not.toHaveProperty('focusNames');
+  });
+
+  it('coming-up by subject: names the exact spots, the points and the subject filter', () => {
+    const door = doorFromTrigger(
+      { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+      ctx([
+        loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] }),
+        loc('Whitby', 'Yorkshire', 3, { types: ['SEASCAPE'] }),
+        loc('Elsewhere', 'Yorkshire', 3, { types: ['LANDSCAPE'] }),
+      ]),
+    );
+    expect(door.focusNames).toEqual(['Bamburgh', 'Whitby']);
+    expect(door.focusPoints).toHaveLength(2);
+    expect(door.filterAction).toBe('SEASCAPE');
+    expect(door).not.toHaveProperty('darkSky');
+    expect(door.title).toBe('Spring tide run');
+    expect(door.targetType).toBeNull();
+  });
+
+  it('coming-up dark sky: carries darkSky and no filterAction', () => {
+    const door = doorFromTrigger(
+      { kind: 'coming-up', darkSky: true, filterAction: null, label: null, date: DATE },
+      ctx([loc('Dark', 'Northumberland', 3, { bortleClass: 2 }), loc('Bright', 'Tyne', 3, { bortleClass: 7 })]),
+    );
+    expect(door.darkSky).toBe(true);
+    expect(door).not.toHaveProperty('filterAction');
+    expect(door.focusNames).toEqual(['Dark']);
+  });
+
+  it('coming-up with no subject (a plan chip): fits every pin and names no spot set', () => {
+    const door = doorFromTrigger(
+      { kind: 'coming-up', filterAction: null, darkSky: false, label: null, date: DATE },
+      ctx([loc('A', 'North', 3), loc('B', 'South', 3)]),
+    );
+    expect(door.focusPoints).toHaveLength(2);
+    expect(door).not.toHaveProperty('focusNames');
+  });
+
+  it('the wrapper-supplied lens (minRating, limitMinutes) rides through to the door', () => {
+    const door = doorFromTrigger(
+      {
+        kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET', minRating: 4, limitMinutes: 90,
+      },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(door.minRating).toBe(4);
+    expect(door.limitMinutes).toBe(90);
+  });
+
+  it('a trigger without a lens yields a door with neither key - absent, not null', () => {
+    const door = doorFromTrigger(
+      { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect('minRating' in door).toBe(false);
+    expect('limitMinutes' in door).toBe(false);
+    expect('inPlace' in door).toBe(false);
+  });
+
+  it('inPlace survives conversion, so the in-place branch in App is not skipped', () => {
+    const door = doorFromTrigger(
+      { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET', inPlace: true },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(door.inPlace).toBe(true);
+  });
+
+  it('region with qualifying locationNames: the spot set rides focusNames', () => {
+    const door = doorFromTrigger(
+      {
+        kind: 'region', region: 'The Lake District', date: DATE, eventType: 'SUNSET',
+        locationNames: ['Wood A', 'Wood B'], label: 'Bluebell conditions', filterAction: 'BLUEBELL',
+      },
+      ctx([
+        loc('Wood A', 'The Lake District', 3, { lat: 54.0, lon: -3.0, types: ['BLUEBELL'] }),
+        loc('Wood B', 'The Lake District', 3, { lat: 54.5, lon: -3.2, types: ['BLUEBELL'] }),
+      ]),
+    );
+    expect(door.focusNames).toEqual(['Wood A', 'Wood B']);
+    expect(door.filterAction).toBe('BLUEBELL');
+  });
+});

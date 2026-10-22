@@ -19,7 +19,12 @@ import {
 } from '../../utils/hourlyComfort.js';
 import { formatDateLabel } from '../../utils/conversions.js';
 import { ukDateStr } from '../../utils/mapDates.js';
-import { appNow } from '../../utils/rewind.js';
+import { appNow, getRewindTo } from '../../utils/rewind.js';
+import { isEventTimePast } from '../../utils/briefingDisplay.js';
+import { rowKey } from '../../hooks/useOutcomeRatings.js';
+import { useSlotRatings } from '../../hooks/useSlotRatings.js';
+import OutcomeRatingBlock, { ratingView, showsSeenChips } from './OutcomeRatingBlock.jsx';
+import { seenLabel } from './outcomeRatingCopy.js';
 import { nextAlignedRow } from '../../utils/mapTideFit.js';
 import TideFitBlock from './TideFitBlock.jsx';
 import EclipseSpotLine from './EclipseSpotLine.jsx';
@@ -95,6 +100,11 @@ const LEAFLET_CORNER_SELECTOR = '.leaflet-bottom.leaflet-right';
 /** `pendingNightRowIds`' default — one shared empty set rather than a fresh one per render. */
 const NO_PENDING_ROWS = new Set();
 
+/** The served geomagnetic alert levels, as the words the callout prints. */
+const ALERT_LEVEL_WORDS = {
+  QUIET: 'Quiet', MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Strong',
+};
+
 /**
  * The peek sheet's own collapsed height with NO Ask row, in px — the fallback for {@code --psh} when
  * the CSS custom property cannot be read (a test harness with no real stylesheet, mainly). Matches
@@ -104,6 +114,15 @@ const NO_PENDING_ROWS = new Set();
  * answer), so on a real phone this fallback is only what a stylesheet-less read gets.
  */
 const PEEK_SHEET_COLLAPSED_HEIGHT = PEEK_HEIGHT.plain;
+
+/**
+ * "Not scored yet" promises a score still to come; on a window that has PASSED none is, so it reads
+ * "Not scored" (outcome-rating-plan.md §3 O4a). Every other unrated word is already a statement of
+ * fact ("Not rated", "Poor") and is left alone.
+ */
+function pastUnratedWord(word, past) {
+  return past && word === 'Not scored yet' ? 'Not scored' : word;
+}
 
 /** am / pm / night — reuses `WindowControl.jsx`'s own kind-chip class rather than minting a second
  * chip vocabulary (that file's own comment on `.wf-hc-sun`). */
@@ -284,6 +303,25 @@ function kindShort(event) {
  *        sheet as `onOpenSheet`, plus the tab move its label promises. The two are deliberately
  *        NOT one control: the prose is a peek that keeps the map, the button names a destination
  * @param {?Function} [props.onClose] `() => void` — the ✕ button and the map-background click rule
+ * @param {?string} [props.userRole] the reader's role, `'ADMIN' | 'PRO_USER' | 'LITE_USER'` — read only by
+ *        the rating block (outcome-rating-plan.md §2 #5); null mounts none
+ * @param {?object} [props.ratings] `hooks/useOutcomeRatings.js`'s return value, or null when the reader
+ *        has none to offer (a rewind, the overlay, no hook mounted). The block mounts only on a past
+ *        window (`event.past`), for a sky location, once `ratings.covers(event.date)` (that date's ratings have been read), and only when THIS place's
+ *        own forecast row for the window has an event time that has passed by the afterglow rule
+ *        (`placePassed`): never from `event.past` alone, which is decided on the roster's EARLIEST
+ *        time, and never for a place with no row or no time — the server's per-place check would
+ *        refuse the rating (§4 #4). There is no timer: the block appears at the next render after
+ *        that instant, like the window going past
+ * @param {?string} [props.auroraAlertLevel] the SERVED geomagnetic alert level for THIS place on the
+ *        aurora night on screen (`QUIET | MINOR | MODERATE | STRONG` — the aurora result row's
+ *        `alertLevel`, the same row `MarkerPopupContent` read it from; overlay convergence C2). Drawn
+ *        as one "Alert level" line under the verdict on an aurora window only; null or any other
+ *        window draws nothing. The callout showed the stars alone before
+ * @param {boolean} [props.travelDay] true when the window's date falls in one of the operator's travel
+ *        ranges (overlay convergence C2): the overnight batch skips Claude forecasts on those days,
+ *        so a solar window says why it has no rating rather than reading as a pipeline gap. Honoured
+ *        on a SOLAR window only. The sheet's own away rows say the same in its vocabulary
  */
 export default function MapCallout({
   location, rating = null, event = null, driveMinutes = null, distanceMiles = null,
@@ -293,11 +331,18 @@ export default function MapCallout({
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
   tideStripHeight = null, bandKey = null, hourlyRows = null, now = null, dayMode = false,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
+  userRole = null, ratings = null, auroraAlertLevel = null, travelDay = false,
 }) {
   const map = useMap();
   const isMobile = useIsMobile();
   const calloutWidth = isMobile ? CALLOUT_WIDTH_MOBILE : CALLOUT_WIDTH;
   const [stripOpen, setStripOpen] = useState(false);
+  // The rating block's two layout states are OWNED here, not by the block (outcome-rating-plan.md §1
+  // #3, §2 #5): the card places itself from a dependency list of its own props and state, and a child's
+  // private state cannot be named in it. `changing` swaps a 40px "You rated" row for the 44px grid;
+  // `adminOpen` is the Admin's "All ratings" box (O5a). Both reset when the selection or the window changes.
+  const [changing, setChanging] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
   /** The candidate anchor point + band for the CURRENT paint — no DOM measurement yet. */
   const [frame, setFrame] = useState(null);
   /** `{frame, box}` once the measure-then-place pass has run for THIS frame. */
@@ -403,6 +448,55 @@ export default function MapCallout({
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
   }, []);
 
+  // ── The rating block's mount condition (outcome-rating-plan.md §2 #5) ──────────────────────────
+  // Computed ABOVE the repaint effect because its layout is one of that effect's dependencies. A past
+  // window (`event.past`) is decided on the roster's EARLIEST event time; the block needs THIS place's
+  // own, read from the place's own forecast row for the window — and a place with no row, or a row
+  // with no time, gets no block (nothing vouches for it, and the server's per-place `hasPassed` would
+  // refuse the rating). Never `activeWindowPast` and never `event.past` alone.
+  const isHide = isWildlifeOnly(location?.locationType);
+  const slotKey = event?.eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
+  const placeEventTime = event?.kind === 'solar'
+    ? (location?.forecastsByDate?.get?.(event.date)?.[slotKey]?.solarEventTime ?? null)
+    : null;
+  const ratingKey = event?.kind === 'solar' && location?.id != null
+    ? rowKey(location.id, event.date, event.eventType) : null;
+  const ratingRoleKnown = userRole === 'ADMIN' || userRole === 'PRO_USER' || userRole === 'LITE_USER';
+  const showRating = ratings != null && ratingKey != null && ratings.covers(event.date) && ratingRoleKnown
+    && Boolean(event?.past) && !isHide && getRewindTo() == null && isEventTimePast(placeEventTime);
+  const myRating = showRating ? (ratings.mine.get(ratingKey) ?? null) : null;
+  const ratingSaving = showRating && ratings.saving.has(ratingKey);
+  const ratingFailed = showRating && ratings.saveError.has(ratingKey);
+  const tagSaving = showRating && Boolean(ratings.tagSaving?.has(ratingKey));
+  const tagFailed = showRating && Boolean(ratings.tagSaveError?.has(ratingKey));
+  // The layout the block is in, for the repaint below: unrated/saving/changing/failed grids and the
+  // done row differ in height, a failed save adds a line, and the "what did you see" chip row (which
+  // wraps to two lines on a phone) comes and goes with the layout.
+  const ratingState = {
+    userRole, mine: myRating, changing, saving: ratingSaving, saveError: ratingFailed,
+  };
+  const ratingLayout = showRating
+    ? `${ratingView(ratingState)}${ratingFailed ? '!' : ''}${tagFailed ? '~' : ''}`
+      + `${showsSeenChips(ratingState) ? '+' : ''}`
+    : null;
+
+  // The Admin's "All ratings" list (O5a, plan §2 #7). Its rows and `loading` are HOISTED here, above the
+  // block, for the same reason `changing` is: they change the card's height and the card places itself
+  // from this component's own dependency list. ADMIN only, and only while the block itself is mounted
+  // for this slot — any other role passes `enabled: false` and the hook never makes the request.
+  const isAdmin = userRole === 'ADMIN';
+  const slotRatings = useSlotRatings({
+    enabled: isAdmin && showRating,
+    locationId: location?.id ?? null,
+    date: event?.date ?? null,
+    eventType: event?.eventType ?? null,
+    open: adminOpen,
+  });
+  // One string naming everything about the box that changes the card's height.
+  const adminLayout = isAdmin && showRating
+    ? `${adminOpen ? 'o' : 'c'}${slotRatings.loading ? 'l' : ''}${slotRatings.failed ? 'f' : ''}:${slotRatings.rows?.length ?? '-'}:${(slotRatings.rows ?? []).filter((r) => seenLabel(r.seen)).length}`
+    : null;
+
   // Repaint on anything that is not a map event but can change the anchor point or the card's own
   // size: a new selection, a different active window (content/height changes), or the strip's own
   // disclosure toggling. `paint`'s identity already moves with `location`; `stripOpen` and
@@ -453,6 +547,30 @@ export default function MapCallout({
   // collapsed→open, or the strip appearing/disappearing entirely) is a repaint trigger, the same
   // shape every dependency above already takes.
   //
+  // ⚠️ And `event?.past` (outcome-rating-plan.md §2 #2) — a window goes past with its row id
+  // unchanged (`solar:DATE:TYPE` is a filler's id until the clock elapses it, a past row's after),
+  // and a past window hides the Drive / Leave by facts, so the card changes height with no other
+  // dependency here moving.
+  //
+  // ⚠️ And the rating block's layout (outcome-rating-plan.md §2 #5, §3 O4a): `ratingLayout` (it mounts
+  // on a past window once the reader's ratings and this place's own time allow, and switches between
+  // the 44px grid, the 40px "You rated" row and a grid with a failed-save line), plus the two states
+  // this component owns for it, `changing` and `adminOpen` — a child's own state cannot be named here,
+  // which is why they live in this component.
+  //
+  // ⚠️ And `adminLayout` (O5a): the Admin's "All ratings" box is a 36px header that grows into a list
+  // when opened, and the rows arrive from a fetch that lands after the open — so the box's open flag,
+  // its loading and failed states and its row count all change the card's height with nothing else
+  // here moving. They are folded into one string because the rows and `loading` live in a hook this
+  // component calls, not in the block, where the card could not see them.
+  //
+  // ⚠️ And `travelDay` / `auroraAlertLevel` (overlay convergence C2): each adds or removes a whole
+  // line under the verdict row, and both arrive from fetches that can land with the card already
+  // open — `fetchTravelDayRanges` resolves after the map mounts, the live aurora scoring after the
+  // alert's night is on screen — with `event?.id` and everything else here unmoved. Without them the
+  // card kept its old height until an unrelated pan/zoom re-measured, and on a phone the grown card
+  // could overlap the peek sheet.
+  //
   // ⚠️ And `hourlyRows` — a wildlife hide's comfort summary is 2–5 lines of text whose number and
   // height depend on which readings are served for the window's date, and the forecast refresh that
   // lands them can arrive with the card already open. Stable between ordinary renders (the caller
@@ -460,8 +578,9 @@ export default function MapCallout({
   // `[]`), but NOT across polls: `useForecasts` rebuilds `forecastsByDate` on every refresh, so a
   // poll hands a new array with the same contents and this fires once — one extra measure, no loop.
   useEffect(() => { repaintNow(); }, [
-    paint, stripOpen, event?.id, rating, ratingKnown, ratingRetrying,
-    tideAlignmentIndex, tideStripHeight, bandKey, hourlyRows, repaintNow,
+    paint, stripOpen, event?.id, event?.past, rating, ratingKnown, ratingRetrying,
+    tideAlignmentIndex, tideStripHeight, bandKey, hourlyRows, ratingLayout, changing, adminOpen,
+    adminLayout, travelDay, auroraAlertLevel, repaintNow,
   ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
@@ -487,6 +606,17 @@ export default function MapCallout({
   if (locKey !== prevLocKey) {
     setPrevLocKey(locKey);
     setStripOpen(false);
+  }
+  // The rating block's two states reset on a new selection OR a new window — the admin list is per
+  // (spot, window), so a list left open over another window's slot would show the wrong rows
+  // (plan §4 #20), and a half-changed block must not follow the reader to another place. Same
+  // during-render adjustment as the strip above, for the same reason: no frame with the old state.
+  const blockKey = `${locKey}|${event?.id ?? ''}`;
+  const [prevBlockKey, setPrevBlockKey] = useState(blockKey);
+  if (blockKey !== prevBlockKey) {
+    setPrevBlockKey(blockKey);
+    setChanging(false);
+    setAdminOpen(false);
   }
 
   // Measure-then-place (see the class doc's two-pass note) — keyed on the `frame` OBJECT's identity,
@@ -525,7 +655,6 @@ export default function MapCallout({
   });
 
   // A wildlife hide with no event at all is the ONE card that may exist without one (`dayMode`).
-  const isHide = isWildlifeOnly(location?.locationType);
   const isDay = !event && dayMode && isHide;
   if (!location || (!event && !isDay) || !chromeRoot) return null;
 
@@ -548,6 +677,9 @@ export default function MapCallout({
   // rating never reaches this catalogue in practice (`utils/verdictWord.js`'s own note), but
   // rounding before classifying is what keeps "4★ Maybe" from ever being printable if one ever did.
   const word = verdictWord(ratingRounded);
+  // The aurora alert level as the one word the line prints ('STRONG' → 'Strong'); an unknown value is
+  // not guessed at, it is not drawn.
+  const alertWord = ALERT_LEVEL_WORDS[auroraAlertLevel] ?? null;
   // The kind chip beside this already reads SUNRISE/SUNSET — `dayLabel`, never `event.label`
   // (kind-chip dedup). Falls back to `label` for a caller that predates the field (e.g. a fixture
   // built before `utils/mapEvents.js` started emitting it).
@@ -581,6 +713,7 @@ export default function MapCallout({
     distanceMiles,
     eventTimeIso,
     bortleClass: location.bortleClass ?? null,
+    past: Boolean(event?.past),
   });
 
   const coastalTidal = isCoastalTidalLocation(location);
@@ -801,11 +934,30 @@ export default function MapCallout({
             // arriving.
             <span className="wf-callout-verdict-score unscored" data-testid="map-callout-score">
               {ratingKnown
-                ? unratedSlotWord(slotVerdictOf(scoreEntry, slotEntry))
+                ? pastUnratedWord(unratedSlotWord(slotVerdictOf(scoreEntry, slotEntry)), event?.past)
                 : ratingRetrying ? NIGHT_RETRY_LINE : 'Loading…'}
             </span>
           )}
         </div>
+        )}
+        {/* Overlay convergence C2 — the aurora alert level, the one word the popup's aurora block
+            carried that the callout's stars did not. Its own line UNDER the verdict row rather than
+            another chip IN it: that row already holds the kind word, the window label and the
+            rating badge, and a fourth item would wrap or push the badge off the 266px phone card.
+            `'aur'` matches this file's existing literal kind tests (`'solar'`, `'astro'`); the value
+            is pinned against `mapEvents.EVENT_KIND.AURORA` by a test. */}
+        {!isDay && event?.kind === 'aur' && alertWord && (
+          <p className="wf-callout-note" data-testid="map-callout-aurora-level">
+            {`Alert level: ${alertWord}`}
+          </p>
+        )}
+        {/* C2 — why a solar window has no rating on a travel day (the popup's notice, in this
+            card's vocabulary). Solar only: a night window is not skipped by the travel rule. */}
+        {!isDay && event?.kind === 'solar' && travelDay && (
+          <p className="wf-callout-note" data-testid="map-callout-travel-day">
+            <span aria-hidden="true">✈️ </span>
+            Forecast not run — you&apos;re away (travel day).
+          </p>
         )}
         {/* ⚠️ No status region here, deliberately: the failure line is announced by `MapView`'s
             own (`statusLine`). A region inside this card would be mounted by the selection, so a
@@ -947,6 +1099,47 @@ export default function MapCallout({
           </div>
         )}
 
+        {/* "How was it?" (outcome-rating-plan.md §2 #5) — after the facts row (which a past window has
+            already shortened) and ahead of the tide-fit block, so it sits between the why text and
+            the actions as the design asks without being the last thing before them (§4 #12). Keyed on
+            the selection so a new place or window starts a fresh block. */}
+        {showRating && (
+          <OutcomeRatingBlock
+            key={blockKey}
+            event={event}
+            mine={myRating}
+            userRole={userRole}
+            saving={ratingSaving}
+            saveError={ratingFailed}
+            tagSaving={tagSaving}
+            tagSaveError={tagFailed}
+            onTag={async (tag) => {
+              const ok = await ratings.rateTag(location.id, event.date, event.eventType, tag);
+              if (ok && isAdmin) slotRatings.refetch(ratingKey);
+              return ok;
+            }}
+            changing={changing}
+            onChangingChange={setChanging}
+            onRate={async (value) => {
+              const ok = await ratings.rate(location.id, event.date, event.eventType, value);
+              // The admin's own save landed: the list they may have open (or opened before) is stale.
+              // The hook acts only when that slot is the one it holds a fetch for.
+              if (ok && isAdmin) slotRatings.refetch(ratingKey);
+              return ok;
+            }}
+            onClearError={() => ratings.clearSaveError(ratingKey)}
+            admin={isAdmin ? {
+              open: adminOpen,
+              onToggle: () => setAdminOpen((o) => !o),
+              loading: slotRatings.loading,
+              failed: slotRatings.failed,
+              rows: slotRatings.rows,
+              eventTime: slotRatings.eventTime,
+              forecastRunAt: slotRatings.forecastRunAt,
+            } : null}
+          />
+        )}
+
         {/* The tide-fit block (T5, design spec §4) — keyed on a served tide fact EXISTING at all
             (`tideOnLight != null`), never on `onTheLight` (bundle rev 2's different, on-the-light
             question, which survives only inside `fitPhrase`'s offset clause — §1 #6). `TideFitBlock`
@@ -1049,14 +1242,20 @@ export default function MapCallout({
           >
             Zoom to it
           </button>
-          <button
-            type="button"
-            data-testid="map-callout-open-in-plan"
-            aria-haspopup="dialog"
-            onClick={() => onOpenInPlan?.()}
-          >
-            Open in Plan
-          </button>
+          {/* Withheld on a PAST window (outcome-rating-plan.md §4 #14): the location sheet this opens
+              is built from the briefing's windows, which never hold a past one, so the press would
+              open the place's upcoming windows under a card about one that has gone. "Zoom to it"
+              stays. */}
+          {!event?.past && (
+            <button
+              type="button"
+              data-testid="map-callout-open-in-plan"
+              aria-haspopup="dialog"
+              onClick={() => onOpenInPlan?.()}
+            >
+              Open in Plan
+            </button>
+          )}
         </div>
       </div>
     </>,
@@ -1089,6 +1288,8 @@ MapCallout.propTypes = {
     dayLabel: PropTypes.string,
     time: PropTypes.string,
     badges: PropTypes.array,
+    /** A window that has gone (outcome-rating-plan.md §2 #2): hides Drive / Leave by and "Open in Plan". */
+    past: PropTypes.bool,
   }),
   driveMinutes: PropTypes.number,
   distanceMiles: PropTypes.number,
@@ -1133,4 +1334,20 @@ MapCallout.propTypes = {
   onOpenSheet: PropTypes.func,
   onOpenInPlan: PropTypes.func,
   onClose: PropTypes.func,
+  /** The reader's role — read only by the rating block; see the JSDoc above. */
+  userRole: PropTypes.string,
+  /** The served alert level for this place on the aurora night on screen — see the JSDoc above. */
+  auroraAlertLevel: PropTypes.string,
+  /** True on a travel day — see the JSDoc above. */
+  travelDay: PropTypes.bool,
+  /** `useOutcomeRatings`'s return value, or null — see the JSDoc above. */
+  ratings: PropTypes.shape({
+    loaded: PropTypes.bool,
+    covers: PropTypes.func,
+    mine: PropTypes.instanceOf(Map),
+    saving: PropTypes.instanceOf(Set),
+    saveError: PropTypes.instanceOf(Set),
+    rate: PropTypes.func,
+    clearSaveError: PropTypes.func,
+  }),
 };

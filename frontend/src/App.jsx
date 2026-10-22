@@ -1,19 +1,24 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { computeAutoSelection, colourForecastDates } from './utils/conversions.js';
-import { buildMapOverlay, normalizeMapTrigger } from './utils/mapOverlay.js';
+import { normalizeMapTrigger, doorFromTrigger } from './utils/mapDoor.js';
 import LoginPage from './components/LoginPage.jsx';
 import RegisterPage from './components/RegisterPage.jsx';
 import ChangePasswordPage from './components/ChangePasswordPage.jsx';
+import ForgotPasswordPage from './components/auth/ForgotPasswordPage.jsx';
+import ResetPasswordPage from './components/auth/ResetPasswordPage.jsx';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import AuroraBanner from './components/AuroraBanner.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
+import PostcodePromptOverlay from './components/auth/PostcodePromptOverlay.jsx';
+import { markPostcodePromptDismissed } from './api/settingsApi.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
 import { useAuroraStatus } from './hooks/useAuroraStatus.js';
 import { ukDateStr, ukDateStrOffset, resolveAuroraNight, resolveMapDate } from './utils/mapDates.js';
+import { auroraTabOffered } from './utils/auroraTab.js';
 import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
@@ -21,6 +26,7 @@ import RunCompleteBanner from './components/RunCompleteBanner.jsx';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
 import useReaderSettings from './hooks/useReaderSettings.js';
+import useModalPresent from './hooks/useModalPresent.js';
 import { createColourSaveQueue, keepColourSaveLineOpen } from './utils/colourSaveQueue.js';
 import { resolveInitialTab } from './utils/initialTab.js';
 import { appNow } from './utils/rewind.js';
@@ -41,9 +47,7 @@ import { AskProvider } from './context/AskContext.jsx';
 // tablet/desktop the fallback below covers the fetch — see `WindowFirstShell.jsx`'s own note on the
 // Map pane not existing until `hasForecastData` for why that fetch cannot simply be moved
 // earlier.
-const MapView = lazy(() => import('./components/MapView.jsx'));
 const WindowFirstMapPane = lazy(() => import('./components/WindowFirstMapPane.jsx'));
-const MapOverlay = lazy(() => import('./components/MapOverlay.jsx'));
 const ManageView = lazy(() => import('./components/ManageView.jsx'));
 
 /** Lightweight fallback shown while a lazily-loaded view chunk is fetched. */
@@ -56,24 +60,48 @@ function ViewFallback() {
 }
 
 /**
+ * Reads the {@code ?token=} of the page's URL, or null.
+ *
+ * @returns {string|null}
+ */
+function urlToken() {
+  return new URLSearchParams(window.location.search).get('token') || null;
+}
+
+/**
  * Auth gate — renders {@link LoginPage} when no token is present,
  * or the main app otherwise. This keeps hooks out of the unauthenticated path.
+ *
+ * <p>Two emailed links arrive here with a {@code ?token=}, and they must not share state. A link
+ * on {@code /reset} is a password reset ({@code resetToken}); a token on any other path
+ * ({@code /verify}, or the legacy {@code /}) is an email verification ({@code verifyToken}). The
+ * reset page is chosen BEFORE the token test, so a reader already signed in on this browser — the
+ * usual case, the link is opened on the phone the account lives on — still gets it. The cleanup
+ * effect below belongs to the verification token alone: the reset page clears its own token and
+ * the URL itself, because an effect that cleared both whenever a stored token coexists with a URL
+ * token would unmount the reset page before the reader could submit.
  */
 function AuthGate() {
-  const { token, mustChangePassword } = useAuth();
+  const { token, mustChangePassword, registrationPending } = useAuth();
   const [showRegister, setShowRegister] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
 
-  // Check URL for ?token= param (email verification link) and clear it once consumed
-  const [verifyToken, setVerifyToken] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('token') || null;
-  });
+  // /reset?token= is a reset link; read once, from the pathname it was opened on.
+  const [resetToken, setResetToken] = useState(() => (
+    window.location.pathname === '/reset' ? urlToken() : null
+  ));
+
+  // Any other path with ?token= (the /verify link, or the legacy /?token=) is email verification;
+  // cleared once consumed.
+  const [verifyToken, setVerifyToken] = useState(() => (
+    window.location.pathname === '/reset' ? null : urlToken()
+  ));
 
   // Once authenticated, clear any leftover verify token from URL and state.
   // RegisterPage unmounts before its own cleanup can run, so we handle it here.
   useEffect(() => {
     if (token && verifyToken) {
-      window.history.replaceState({}, '', window.location.pathname);
+      window.history.replaceState({}, '', '/');
       // One-time cleanup coupled to the history side effect above: clear the
       // consumed verify token so RegisterPage stops rendering in verify mode.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -81,14 +109,39 @@ function AuthGate() {
     }
   }, [token, verifyToken]);
 
-  if (!token) {
+  if (resetToken) {
+    return (
+      <ResetPasswordPage
+        token={resetToken}
+        onDone={() => setResetToken(null)}
+        onRequestNewLink={() => {
+          setResetToken(null);
+          setShowForgot(true);
+        }}
+      />
+    );
+  }
+
+  // Also ahead of the token test: "Request a new link" on a dead link must reach this page for a
+  // reader who is signed in on this browser too. Its "Back to sign in" then lands them in the app.
+  if (showForgot) {
+    return <ForgotPasswordPage onBackToLogin={() => setShowForgot(false)} />;
+  }
+
+  // `registrationPending` keeps registration on screen after `completeRegistration` has stored the
+  // new session: the `HOME` and Welcome steps run with a token already in place, and without it the
+  // gate would swap to the app the moment the token appeared (login-registration plan §2 #2). Both
+  // tests need it — the first to enter this branch, the second to pick the SAME `<RegisterPage>`
+  // element (same type, same position, no key) so React keeps its instance and its `step` state
+  // when `verifyToken` has been cleared by the effect above.
+  if (!token || registrationPending) {
     // If there's a verification token in the URL, show RegisterPage in verify mode
-    if (verifyToken) {
+    if (verifyToken || registrationPending) {
       return (
         <RegisterPage
           verifyToken={verifyToken}
           onBackToLogin={() => {
-            window.history.replaceState({}, '', window.location.pathname);
+            window.history.replaceState({}, '', '/');
             setVerifyToken(null);
             setShowRegister(false);
           }}
@@ -98,7 +151,12 @@ function AuthGate() {
     if (showRegister) {
       return <RegisterPage onBackToLogin={() => setShowRegister(false)} />;
     }
-    return <LoginPage onRegister={() => setShowRegister(true)} />;
+    return (
+      <LoginPage
+        onRegister={() => setShowRegister(true)}
+        onForgotPassword={() => setShowForgot(true)}
+      />
+    );
   }
   if (mustChangePassword) {
     return <ChangePasswordPage />;
@@ -155,7 +213,7 @@ AskWhenLive.propTypes = {
  * Inner app component — only rendered when the user is authenticated.
  */
 function AppInner() {
-  const { isAdmin, logout, token } = useAuth();
+  const { isAdmin, role, logout, token, postcodePromptSuppressed, suppressPostcodePrompt } = useAuth();
   // The admin's rewind, if any. Read ONCE per mount for the two seeds below (`RewindGate` remounts
   // this component on every change, so a mount always sees the rewind it was mounted for) and
   // live for the pill.
@@ -196,6 +254,7 @@ function AppInner() {
   const isMapTabActive = activePlanTab === 'map';
   const {
     locations, loading: forecastsLoading, error: forecastsError, refresh,
+    loadOlderDay, olderDayLoading, loadedPastDays, emptyPastDays,
   } = useForecasts();
   // Defer the two long-lived SSE streams until after first paint so they don't compete with the
   // critical forecast/briefing fetches during boot.
@@ -208,8 +267,6 @@ function AppInner() {
   const { lastCompletedRun } = useRunNotifications(!!token && streamsReady);
   const [showRunBanner, setShowRunBanner] = useState(false);
 
-  /** Map overlay opened over the Plan tab (null = closed). Reuses the same handoff/date as the Map tab. */
-  const [mapOverlay, setMapOverlay] = useState(null);
   /** Monotonic counter so repeat taps on the same location re-trigger the handoff. */
   // Nonce -1 is reserved for the rewind seed `mapTabHandoff` below is initialised with, so the
   // first live handoff (nonce 0) can never repeat the seed's nonce and be swallowed by the keyed
@@ -241,13 +298,55 @@ function AppInner() {
    * its readers depend on server-side state this component never sees. See the hook.
    */
   const {
-    homePlace, homeCoords, comingUpLastSeenDate, setComingUpLastSeenDate,
+    homePlace, homeCoords, comingUpLastSeenDate, setComingUpLastSeenDate, postcodePromptDue,
     homeSettingsVersion, driveTimesVersion, mapColourScale, colourScaleDefaulted,
     startSettingsRead, homeSaved, driveTimesRecalculated, colourSaved,
     // Threaded to the Map pane on the same route as `mapColourScale` (map-mobile-sheet-plan.md
     // M4) — unread by any UI until M5, which is why nothing here calls `saveTideMode` yet.
     mapTideMode, saveTideMode,
   } = useReaderSettings();
+  /**
+   * The one-time "set your home postcode" prompt (login-registration plan §2 #3). Raised by the
+   * server's {@code postcodePromptDue} on the mount read, as an overlay over the app that is already
+   * mounted — never a gate — and only when nothing else is claiming to be the modal: a slow first
+   * read lets the reader open Settings, a Plan dialog or Ask first, and a late
+   * answer must not put a second {@code aria-modal} over (and the app {@code inert} under) any of
+   * them. {@code useModalPresent} reads the DOM because the shell's and Ask's dialogs are not
+   * {@code App} state; the prompt waits for the last one to close.
+   *
+   * <p>{@code promptDone} is set by Save and Not now and lives for one mount of this component (the
+   * server's flag, and a reload, are the only durable state — never {@code localStorage}, so a second
+   * account on this browser cannot inherit a dismissal). {@code postcodePromptSuppressed} is the
+   * auth context's in-memory "said not now this page session", which also covers a registration
+   * Skip whose PUT failed. A rewound admin is never prompted: a rewind is a read of the past, not a
+   * sign-in. {@code promptShown} latches on the first mount so a condition that flips while the
+   * prompt is up (the mount expression alone does not latch) cannot unmount it mid-lookup.
+   */
+  const modalPresent = useModalPresent();
+  const [promptDone, setPromptDone] = useState(false);
+  const [promptShown, setPromptShown] = useState(false);
+  const promptEligible = postcodePromptDue && !promptDone && !postcodePromptSuppressed
+    && !modalPresent && !rewind;
+  if (promptEligible && !promptShown) setPromptShown(true);
+  const showPostcodePrompt = !promptDone && (promptShown || promptEligible);
+  const handlePromptSaved = useCallback((updated) => {
+    homeSaved(updated);
+    setPromptDone(true);
+  }, [homeSaved]);
+  const handlePromptNotNow = useCallback(async () => {
+    // Before the request: a dismissal whose PUT fails must still keep the prompt away this session.
+    suppressPostcodePrompt();
+    // Numbered as asked, so the dismissal's answer is dropped if a newer one (the Settings dialog's
+    // read, a saved home) has been applied by the time it lands.
+    const report = startSettingsRead();
+    try {
+      report(await markPostcodePromptDismissed());
+    } catch {
+      // The app must open either way. A failed dismissal means one more prompt at the reader's
+      // next page load — the safe direction.
+    }
+    setPromptDone(true);
+  }, [startSettingsRead, suppressPostcodePrompt]);
   /**
    * Where the settings dialog puts focus on close if the element that opened it has gone — a
    * function returning that element, or null. Only the masthead's "set a postcode" nudge supplies
@@ -306,13 +405,24 @@ function AppInner() {
    */
   const [selectedDateIsNight, setSelectedDateIsNight] = useState(false);
   /**
-   * The one writer for the pair above. {@code isNight} defaults false, so every route that is not
-   * explicitly a night selection — a Plan door, a grid cell, the Map tab's own `onSelectDate` —
-   * gets the safe answer without having to know this rule exists.
+   * Whether {@code selectedDate} NAMES A PAST SOLAR WINDOW — the Map tab's window control stepped
+   * back onto a window that has gone (outcome-rating-plan.md §2 #2). The second provenance flag,
+   * on exactly the first's terms: {@code resolveMapDate} refuses a date before today, and a flag
+   * set by the pick (never inferred from the value) is the only licence, so a stale past pick
+   * without it — after a reload, a handoff, any other route to {@code selectDate} — falls through
+   * to the today-forward pick as a stale solar date always did.
    */
-  const selectDate = useCallback((date, { isNight = false } = {}) => {
+  const [selectedDateIsPast, setSelectedDateIsPast] = useState(false);
+  /**
+   * The one writer for the trio above. {@code isNight} and {@code isPast} default false, so every
+   * route that is not explicitly a night or past selection — a Plan door, a grid cell, the Ask
+   * handoff, the aurora jump — gets the safe answer without having to know these rules exist. Only
+   * `MapView.selectEvRow` can name a past window.
+   */
+  const selectDate = useCallback((date, { isNight = false, isPast = false } = {}) => {
     setSelectedDate(date);
     setSelectedDateIsNight(isNight);
+    setSelectedDateIsPast(isPast);
   }, []);
 
 
@@ -364,6 +474,11 @@ function AppInner() {
   // landscape photographer wants today's sunrise, not last night's sunset.
   const { status: auroraStatus } = useAuroraStatus();
   const auroraNightStr = resolveAuroraNight(auroraStatus);
+  // C3 (overlay convergence): a REAL MODERATE/STRONG alert offers the Map tab even with no sunrise or
+  // sunset forecast, so the aurora banner's door never has to land on nothing. Never LITE, never a
+  // simulation (`utils/auroraTab.js` states why). With forecast data the tab was offered anyway, so
+  // this changes nothing for any reader who had one (the pane, and a date that falls through to today, both test `hasForecastData` first).
+  const auroraTabOn = auroraTabOffered(auroraStatus, role);
 
   // ⚠️ Never a PAST date on ANY branch — `resolveMapDate` owns the whole precedence and records
   // what the old shape cost, the same way `normalizeMapTrigger` owns the handoff branch selection
@@ -377,77 +492,81 @@ function AppInner() {
   const effectiveDate = resolveMapDate({
     selectedDate,
     selectedIsNight: selectedDateIsNight,
+    selectedIsPast: selectedDateIsPast,
     autoDate: autoSelection?.date ?? null,
     allDates,
     todayStr,
     // The one "past" date an explicit choice may name — see `handleAuroraViewOnMap` below, which
     // sets it deliberately, and `resolveMapDate`'s own note on the regression this prevents.
     nightDate: auroraNightStr,
-  }) ?? (hasForecastData ? todayStr : null);
+  }) ?? (hasForecastData ? todayStr : auroraTabOn ? auroraNightStr : null);
 
   /**
-   * Called from any Plan-tab recommendation (Best Bet, Hot Topic, region row, grid cell, strip
-   * pill). Opens the map as an *overlay* over the Plan tab — focused on what was tapped — instead
-   * of a full tab switch, so the user keeps their place. The same handoff + date feed the Map tab,
-   * so "Open the full Map tab →" lands exactly where the overlay was focused.
+   * The dialogs the Plan shell owns, closed on request. The shell registers its closer here
+   * (`registerCloseDialogs`) because the aurora banner sits OUTSIDE the shell and a press on the Map
+   * tab never changes tab, so nothing else would take a Map-hosted four-day sheet down before the
+   * window changes under it.
    */
-  const handleShowOnMap = (dateOrHandoff, eventType, locationName = null) => {
-    // The branch-selection logic (and its ordering — the part that actually matters, D8) lives in
-    // `normalizeMapTrigger`, tested directly there rather than only indirectly through this handler.
-    const trigger = normalizeMapTrigger(dateOrHandoff, eventType, locationName);
-
-    const nonce = handoffNonce.current++;
-    const overlay = buildMapOverlay(trigger, {
-      locations: visibleLocations, briefingScores, todayStr, tomorrowStr, nonce,
-    });
-    // `kind: 'aurora'` is the only night-naming trigger `normalizeMapTrigger` produces — see
-    // `selectedDateIsNight` above for why the flag rides along rather than being inferred later.
-    if (trigger.date) selectDate(trigger.date, { isNight: trigger.kind === 'aurora' });
-    setMapOverlay({ ...overlay, nonce, date: trigger.date });
-  };
+  const closeShellDialogs = useRef(null);
+  const registerCloseDialogs = useCallback((closer) => { closeShellDialogs.current = closer; }, []);
 
   /**
-   * Aurora banner "View on map".
+   * Aurora banner "View on map" (overlay convergence C4, `docs/engineering/overlay-convergence-plan.md`
+   * section 3 C4 and section 4 #4) - kept and rewritten rather than deleted: the banner is mounted
+   * above `<main>` on EVERY tab, so it takes the structured door like every Plan producer - an
+   * `aurora` trigger from {@link normalizeMapTrigger}, resolved by {@link openMapTabFromPlan} into a
+   * `night` door for {@link resolveAuroraNight}'s night.
    *
-   * <p>The window-first Plan has no Map tab, so the banner reaches the map through the same overlay
-   * every plan card uses.
+   * <p>The banner hands over the Plan's live lens (it reads it from the briefing context it already
+   * sits in), so the door imports the reader's rating floor and reach tier exactly as a Plan card's
+   * does and does not silently reset them, and `from` names the tab the press came from so the
+   * breadcrumb's return goes back there (an extension of section 5 D2, not a reversal).
    *
-   * <p>⚠️ Setting the date here (rather than leaving it to `effectiveDate`'s default) is what keeps
-   * the viewline gate and the destination on the same night. The gate is keyed on the night in
-   * progress, not the calendar date — pressed at 02:00 with a live alert and no stored run for that
-   * night, `effectiveDate`'s default lands on today while the night is yesterday, and `MapView`'s
-   * jump cannot help — it is gated on stored aurora RESULTS, which a live NOAA alert does not imply.
-   * Left to the default, the banner would take the reader to the map with the viewline missing, for
-   * up to seven hours a night in midwinter. Found by review; the two conditions are genuinely
-   * independent.
+   * <p>⚠️ <b>On the Map tab itself the press is a window change and nothing more</b>: `inPlace`
+   * takes {@link openMapTabFromPlan}'s `source: 'map'` branch (no lens, scope or camera write, no
+   * tab request), which carries the night so `MapView` selects the aurora row and leaves any
+   * standing door lens and its breadcrumb alone. The shell's own dialogs (a Map-hosted four-day
+   * sheet) are closed first, through the closer the shell registered. Pressed on any other tab it
+   * moves to the Map tab. Only offered when the Map tab is.
+   *
+   * @param {{minRating: ?number, limitMinutes: ?number}} [lens] the Plan's live lens, from the banner
    */
-  const handleAuroraViewOnMap = () => {
-    // The night in progress, not today. Pressed at 02:00 this used to open the map on a date the
-    // run that produced the banner's own alert never scored.
-    handleShowOnMap({ kind: 'aurora', date: auroraNightStr });
+  const handleAuroraViewOnMap = ({ minRating = null, limitMinutes = null } = {}) => {
+    const trigger = {
+      ...normalizeMapTrigger({ kind: 'aurora', date: auroraNightStr }),
+      minRating,
+      limitMinutes,
+    };
+    if (isMapTabActive) {
+      closeShellDialogs.current?.();
+      openMapTabFromPlan({ ...trigger, inPlace: true });
+    } else {
+      openMapTabFromPlan({ ...trigger, from: activePlanTab });
+    }
   };
 
   /**
    * A tab the window-first shell should select, asked for from out here. Nonce'd for the same
-   * reason map handoffs are: the reader can open the overlay and press the hatch twice running, and
-   * the second press has to land even though the destination has not changed.
+   * reason map handoffs are: the reader can press a door (or the breadcrumb's return) twice running,
+   * and the second press has to land even though the destination has not changed.
    */
   const [tabRequest, setTabRequest] = useState(null);
   const tabRequestNonce = useRef(0);
+  /** The control a door was pressed on, for the breadcrumb's return focus. */
+  const doorOpener = useRef(null);
 
   /**
-   * The handoff the MAP TAB should act on, which is deliberately not App's overlay handoff.
+   * The handoff the MAP TAB should act on.
    *
-   * <p>⚠️ Found by review and reproduced at 390px. The shell mounts a pane once and then hides it
-   * rather than unmounting it, so once the Map tab has been visited its `MapView` is alive for the
-   * rest of the session — and it was being handed App's overlay handoff, which every plan-card tap
-   * sets. On a phone `MapView` answers a location handoff with a `BottomSheet`, which is
-   * `createPortal(…, document.body)` at `z-index: 10000`, so `display: none` on the panel cannot
-   * suppress it: tapping "Open on map" on the PLAN tab raised **two** stacked sheets — one from the
-   * overlay the reader asked for, one from a map that is not on screen — and locked body scroll.
+   * <p>⚠️ Found by review and reproduced at 390px (when plan-card taps still opened an overlay). The
+   * shell mounts a pane once and then hides it rather than unmounting it, so once the Map tab has
+   * been visited its `MapView` is alive for the rest of the session. On a phone `MapView` answers a
+   * location handoff with a `BottomSheet`, which is `createPortal(…, document.body)` at
+   * `z-index: 10000`, so `display: none` on the panel cannot suppress it: a handoff the reader did
+   * not ask for would raise a sheet from a map that is not on screen and lock body scroll.
    *
-   * <p>So the tab is handed a handoff only when the reader explicitly asks to be taken to it, which
-   * is the hatch below and nothing else. Every other handoff belongs to the overlay.
+   * <p>So the tab is handed a handoff only when the reader explicitly asks to be taken to it - a
+   * door (`openMapTabFromPlan`) and nothing else.
    */
   const [mapTabHandoff, setMapTabHandoff] = useState(() => (rewind?.focus ? {
     // The rewind's window, as a map-sourced handoff: `source: 'map'` is the one shape that selects
@@ -462,21 +581,8 @@ function AppInner() {
   } : null));
 
   /**
-   * Close the overlay and hand off to the full Map tab, landing where the overlay was focused.
-   */
-  const openFullMapTab = () => {
-    // Read before the overlay is cleared — this is what "landing where the overlay was focused"
-    // actually means, and it is the only handoff the Map tab ever receives.
-    const focus = mapOverlay?.handoff ?? null;
-    setMapOverlay(null);
-    tabRequestNonce.current += 1;
-    if (focus) setMapTabHandoff({ ...focus, nonce: handoffNonce.current++ });
-    setTabRequest({ id: 'map', nonce: tabRequestNonce.current });
-  };
-
-  /**
    * The location a four-day sheet should be opened for, asked for from the Map tab's selection
-   * callout (map-tab-v2-plan.md §3 P9) — `openFullMapTab`'s shape, in reverse. Kept SEPARATE from
+   * callout (map-tab-v2-plan.md §3 P9) — the Map door's shape, in reverse. Kept SEPARATE from
    * `tabRequest` for the identical reason `mapTabHandoff` is kept separate from it in the forward
    * direction: the Plan tab's body is `hidden` rather than unmounted while another tab is active
    * (`WindowFirstShell.jsx`'s own sticky-pane idiom), so a handoff that arrived on some OTHER
@@ -515,11 +621,10 @@ function AppInner() {
    * locationName: ?string}`, already carrying the Plan's own lens values (read at the moment of the
    * tap by `WindowFirstShell`'s internal `openMapTab`, never re-read here).
    *
-   * <p>Reuses the SAME `mapTabHandoff`/`tabRequest` channel `openFullMapTab` uses, not a second
-   * one — `App.jsx:307–318`'s own ⚠️ about that channel applies unchanged: the Map pane is never
+   * <p>Rides the `mapTabHandoff`/`tabRequest` channel documented above: the Map pane is never
    * unmounted, so a handoff on it must only ever arrive when the reader explicitly asked to be
-   * taken there, which a door tap is. The two are told apart downstream by `source: 'plan'`, which
-   * `openFullMapTab`'s own handoff never carries.
+   * taken there, which a door tap is. A door is told apart from a window change made in place by
+   * `source: 'plan'` against `source: 'map'`.
    *
    * <p><b>Origin is deliberately NOT in the payload</b> (plan §2, §4 #1) — it is shared state the
    * Map tab already reads from the SAME `WindowFirstBriefingContext` the Plan tab does, so sending
@@ -529,8 +634,20 @@ function AppInner() {
    * <p>⚠️ <b>`door.inPlace` is not a door at all</b> — it is the same footer pressed from a sheet
    * that is already OVER the map, and it takes the other branch below for the reasons stated there.
    */
-  const openMapTabFromPlan = (door) => {
-    selectDate(door.date);
+  const openMapTabFromPlan = (doorOrTrigger) => {
+    // Overlay convergence C1: a NORMALISED TRIGGER (`utils/mapDoor.normalizeMapTrigger`, the seven
+    // producer shapes - it names its `kind`) is turned into the structured door here
+    // (`utils/mapDoor.doorFromTrigger`); a plain door (no `kind`) passes through untouched.
+    const door = doorOrTrigger?.kind
+      ? doorFromTrigger(doorOrTrigger, {
+        locations: visibleLocations, briefingScores, todayStr, tomorrowStr,
+      })
+      : doorOrTrigger;
+    // A night door names a night, which `App.resolveMapDate` refuses as a solar date once past -
+    // the `isNight` provenance every night selection records. Absent for
+    // every solar door, so their call is unchanged.
+    if (door.night) selectDate(door.date, { isNight: true });
+    else selectDate(door.date);
     if (door.inPlace) {
       // ⚠️ The reader is ALREADY on the Map tab — the four-day sheet was opened over it by the
       // callout's `Four days here ›` peek, and this is its footer's `Show on map → <window>`. A
@@ -543,15 +660,11 @@ function AppInner() {
       // then appear over it reading "Where you came from · ← Plan", which is not where they came
       // from, and the `tabRequest` would move focus to the Map tab button of the tab they are on.
       //
-      // ⚠️ `source: 'map'`, NOT an absent source. A source-less payload is the OVERLAY HATCH's
-      // shape, and the hatch's own effect sets `userHasOverriddenEvent` to FALSE — which re-runs
-      // `MapView`'s auto-selection effect and immediately replaces the window this press just named
-      // with `autoEventType`. So "Show on map → Monday sunrise", pressed from a map the reader had
-      // manually stepped to, landed on tonight's sunset instead. (Codex review, P1 on the first cut
-      // — the structured door effect already sets that flag TRUE for exactly this reason, and its
-      // own comment records the same reset as a previously shipped blocking defect.) The payload
-      // therefore rides the STRUCTURED channel, where the event is treated as an explicit
-      // selection, and carries no lens fields at all — `MapView` skips the lens/scope/camera block
+      // ⚠️ `source: 'map'`, NOT an absent source. A source-less payload is no longer a handoff at
+      // all (the overlay hatch's per-field effects, which set `userHasOverriddenEvent` to FALSE and
+      // so let `autoEventType` replace the named window a tick later, were deleted in overlay
+      // convergence C5, and the pane drops it). The payload rides the STRUCTURED channel, where the
+      // event is treated as an explicit selection, and carries no lens fields at all — `MapView` skips the lens/scope/camera block
       // and the landing strip for a map-sourced one. No `tabRequest` either: there is no tab to
       // change.
       setMapTabHandoff({
@@ -559,11 +672,18 @@ function AppInner() {
         eventType: door.targetType,
         date: door.date,
         locationName: door.locationName ?? null,
+        // The aurora banner pressed on the Map tab itself (overlay convergence C4) names a NIGHT:
+        // `MapView` follows its row, and still writes no lens, scope or camera.
+        ...(door.night ? { night: door.night } : {}),
         nonce: handoffNonce.current++,
       });
       return;
     }
     tabRequestNonce.current += 1;
+    // The control the reader pressed, kept for the breadcrumb's return (focus goes back to it when it
+    // is still mounted - a Coming up card - else to the tab's own button).
+    const pressed = document.activeElement;
+    doorOpener.current = pressed && pressed !== document.body ? pressed : null;
     setMapTabHandoff({
       source: 'plan',
       eventType: door.targetType,
@@ -572,19 +692,54 @@ function AppInner() {
       minRating: door.minRating ?? null,
       limitMinutes: door.limitMinutes ?? null,
       locationName: door.locationName ?? null,
+      // The overlay-convergence fields (C1, C4). ABSENT, not null, when the door carries none, so a
+      // plain door's payload is exactly what it was and `MapView` reads absence as "not asked".
+      ...(door.night ? { night: door.night } : {}),
+      ...(door.focusNames?.length ? { focusNames: door.focusNames } : {}),
+      ...(door.focusPoints?.length ? { focusPoints: door.focusPoints } : {}),
+      ...(door.filterAction ? { filterAction: door.filterAction } : {}),
+      ...(door.darkSky ? { darkSky: true } : {}),
+      ...(door.title ? { title: door.title } : {}),
+      ...(door.caption ? { caption: door.caption } : {}),
+      // The tab the door was pressed on (a Plan, Coming up or Operations press), so the breadcrumb's
+      // return names and goes back to it. ABSENT means Plan, as every door was before.
+      ...(door.from && door.from !== 'map' ? { from: door.from } : {}),
       nonce: handoffNonce.current++,
     });
     setTabRequest({ id: 'map', nonce: tabRequestNonce.current });
   };
 
   /**
-   * The breadcrumb's `← Plan` (doors D2) — lands on the plan itself, no dialog reopened, no window
-   * key carried (plan §6 Q2, decided). The shell's existing `tabRequest` effect already selects the
-   * tab and moves focus there; this needs no new channel of its own.
+   * The breadcrumb's return (doors D2, extended in overlay convergence C4): lands on the tab the door
+   * was pressed on - Plan by default, Coming up or Operations when it came from there - with no
+   * dialog reopened and no window key carried (plan §6 Q2, decided). The shell's existing
+   * `tabRequest` effect selects the tab and moves focus; the request also carries the pressed
+   * control, which the shell focuses if it is still mounted and otherwise falls back to the tab's
+   * own button.
+   *
+   * @param {string} [from] the tab to return to; anything but a tab a door can come from is Plan
    */
-  const returnToPlan = () => {
+  const returnToPlan = (from = 'plan') => {
+    const id = from === 'coming-up' || from === 'operations' ? from : 'plan';
     tabRequestNonce.current += 1;
-    setTabRequest({ id: 'plan', nonce: tabRequestNonce.current });
+    const opener = doorOpener.current;
+    doorOpener.current = null;
+    setTabRequest({ id, nonce: tabRequestNonce.current, ...(opener ? { opener } : {}) });
+  };
+
+  /**
+   * The Operations tab, asked for from the aurora banner: a SIMULATED alert has no map to show (it
+   * has no scores and no stored run - `utils/auroraTab.js`), and the place it is made and its scores
+   * generated is Operations -> Job Runs. ADMIN only, because the pane is withheld from everyone else.
+   *
+   * <p>The `#manage/metrics` hash is read by `ManageView` ONCE, at mount, so it lands on Job Runs only
+   * when the Operations pane is opened for the first time this session; with it already mounted the
+   * reader arrives on whichever sub-tab they left (nothing listens for the hash to move it).
+   */
+  const openOperations = () => {
+    window.location.hash = 'manage/metrics';
+    tabRequestNonce.current += 1;
+    setTabRequest({ id: 'operations', nonce: tabRequestNonce.current });
   };
 
   // Show banner when a run completes, auto-dismiss after 15 seconds
@@ -607,27 +762,6 @@ function AppInner() {
    * dialogs down in the same commit.
    */
   const settingsOpen = Boolean(showSettings || settingsFocus);
-  /**
-   * …and `App` takes down its OWN other dialog, the map overlay, in the same commit — the shell's
-   * edge cannot, because the overlay is state here.
-   *
-   * <p>⚠️ The overlay is `aria-modal` and deliberately no trap, and it paints over settings
-   * (`zIndex: 200` against `Modal`'s `z-50`): a reader who Tabbed out of it and pressed ⚙ or the
-   * nudge — or the ⌂, with the overlay opened over the Map tab — got settings UNDER it, holding
-   * focus in a dialog they could not see. Settings is not a destination, and closing the overlay
-   * loses only what its own ✕ does. During render on the rising edge, as the shell's is, so no
-   * commit holds both; an effect's close would land a commit later.
-   *
-   * <p>What is still NOT the only modal under settings, named rather than implied: an
-   * Operations-tab admin `Modal` (left open — it can hold data a close would lose) and any dialog
-   * opened behind settings after it opened (the reverse route).
-   */
-  const [settingsWasOpen, setSettingsWasOpen] = useState(settingsOpen);
-  if (settingsOpen !== settingsWasOpen) {
-    setSettingsWasOpen(settingsOpen);
-    if (settingsOpen) setMapOverlay(null);
-  }
-
   return (
     // Recast as a flex column on the Map tab (map-tab-v2-plan.md §3 P7's full-frame owner,
     // rebuilt after the `calc(100dvh - …)` chain above proved to be chasing terms rather than
@@ -677,7 +811,13 @@ function AppInner() {
         <SessionExpiryBanner />
         {isAdmin && rewind && <RewindPill rewind={rewind} />}
         <div className="max-w-4xl mx-auto px-4 mt-4">
-          <AuroraBanner onViewOnMap={handleAuroraViewOnMap} />
+          {/* The banner's two doors, each WITHHELD when it would lead nowhere (the dead-control ban): the
+              Map tab when it is offered at all (a forecast, or a real alert - `auroraTabOn`), and
+              Operations for a SIMULATED alert, which has no map (`utils/auroraTab.js`), for an admin. */}
+          <AuroraBanner
+            onViewOnMap={hasForecastData || auroraTabOn ? handleAuroraViewOnMap : undefined}
+            onOpenSimulated={isAdmin ? openOperations : undefined}
+          />
           <div className="mt-2">
             {/* Inert: the window-first Plan has no Map tab to switch to and no route to give it. */}
             <NlcSightingBanner />
@@ -788,12 +928,12 @@ function AppInner() {
                 setSettingsFocus('postcode');
               }}
               contentDisabled={isDown}
-              onShowOnMap={handleShowOnMap}
               // The map doors (D2) — withheld under the identical rule that withholds `mapPane`
               // and `onOpenFullMap` below: a door onto no map is what §6 of the matrix plan bans.
               // No door UI ships in this phase (D3/D4 add the buttons), but the shell's own
               // `openMapTab` reads this prop already, so the wiring is live from here on.
               onOpenMapTab={hasForecastData ? openMapTabFromPlan : undefined}
+              registerCloseDialogs={registerCloseDialogs}
               // The same admin gate the Operations pane uses, and for the same reason: the role
               // stays here, and the shell renders whatever node it is handed. Withheld for a
               // pilot user, who has no use for a build id or a WorldTides latency. The pill is
@@ -821,7 +961,7 @@ function AppInner() {
               // whenever `GET /api/forecast` returned no rows for a visible location, and a Map tab
               // onto no data would be a tab onto a blank. (`allDates` can be empty while this is
               // true — a hides-only forecast — and then the pane draws chips and no window.)
-              mapPane={hasForecastData ? (
+              mapPane={hasForecastData || auroraTabOn ? (
                 <Suspense fallback={<ViewFallback />}>
                   <WindowFirstMapPane
                     locations={visibleLocations}
@@ -834,7 +974,12 @@ function AppInner() {
                     autoEventType={autoSelection?.eventType ?? null}
                     handoff={mapTabHandoff}
                     briefingScores={briefingScores}
-                    onForecastRun={refresh}
+                    // The Map tab's older-day fetch (outcome-rating-plan.md §2 #2): `useForecasts` owns
+                    // the fetch and merges the day into `locations`, so `allDates` above widens by itself.
+                    onLoadOlderDay={loadOlderDay}
+                    olderDayLoading={olderDayLoading}
+                    loadedPastDays={loadedPastDays}
+                    emptyPastDays={emptyPastDays}
                     seasonalFeatures={seasonalFeatures}
                     homeCoords={homeCoords}
                     mapColourScale={mapColourScale}
@@ -916,58 +1061,15 @@ function AppInner() {
           onColourSaved={colourSaved}
           colourSaveQueue={colourSaveQueue}
           onDriveTimesRefreshed={refresh}
+          // Account deletion (the dialog's danger zone) ends the session through the same sign-out.
+          onSignOut={logout}
         />
       )}
 
-      {mapOverlay && (
-        <Suspense fallback={<ViewFallback />}>
-          <MapOverlay
-            title={mapOverlay.title}
-            subLine={mapOverlay.subLine}
-            caption={mapOverlay.caption}
-            narrative={mapOverlay.narrative}
-            narrativeHead={mapOverlay.narrativeHead}
-            narrativeTone={mapOverlay.narrativeTone}
-            onClose={() => setMapOverlay(null)}
-            // Withheld when there is no Map tab to reach (no forecast data), because MapOverlay
-            // drops the button when no handler arrives and a button onto nothing is what §6 bans.
-            onOpenFullMap={hasForecastData ? openFullMapTab : undefined}
-          >
-            <MapView
-              locations={visibleLocations}
-              date={mapOverlay.date ?? effectiveDate}
-              // Deliberately NO onSelectDate, and the omission IS the mechanism — `MapView` checks
-              // for the handler and asks for nothing without one. Do not "fix" that by adding one
-              // on the assumption the overlay would ignore it: the date below falls through to
-              // `effectiveDate` whenever the trigger carried none, and `effectiveDate` is driven by
-              // `selectedDate`, so a handler here would move the Plan tab under the reader and
-              // could move the overlay itself. The aurora path in already opens on the right night
-              // — `handleAuroraViewOnMap` targets it directly.
-              //
-              // Deliberately NO `heat`: this map opens focused on one spot from a card that already
-              // answered the question; `MapView` keys the field on the prop's presence
-              // (`heatOffered`), so the omission IS the mechanism — do not add one.
-              autoEventType={autoSelection?.eventType ?? null}
-              handoffEventType={mapOverlay.handoff.eventType ?? null}
-              handoffFilterAction={mapOverlay.handoff.filterAction ?? null}
-              handoffDarkSky={mapOverlay.handoff.darkSky ?? null}
-              handoffLocationName={mapOverlay.handoff.locationName ?? null}
-              handoffRegion={mapOverlay.handoff.region ?? null}
-              handoffNonce={mapOverlay.nonce}
-              focus={mapOverlay.focus}
-              emphasiseLocationName={mapOverlay.handoff.locationName ?? null}
-              briefingScores={briefingScores}
-              onForecastRun={refresh}
-              seasonalFeatures={seasonalFeatures}
-              colourScaleDefaulted={colourScaleDefaulted}
-              // This map arrived from a plan card, which already chose the location and the solar
-              // event — so it opens with the filters folded behind a one-line context bar and
-              // spends the reclaimed height on the map. The Map tab keeps the full rail.
-              overlayMode
-            />
-          </MapOverlay>
-        </Suspense>
+      {showPostcodePrompt && (
+        <PostcodePromptOverlay onSaved={handlePromptSaved} onNotNow={handlePromptNotNow} />
       )}
+
     </div>
   );
 }

@@ -2753,6 +2753,104 @@ class EvaluationViewServiceTest {
     }
 
     /**
+     * The sky component (V164 {@code sky_rating}) rides along when a {@code forecast_evaluation}
+     * row wins the cache-versus-row precedence, exactly as a cache-served result already carries
+     * it, so the tide-fit block's "sky N" clause is not lost on a row-served slot.
+     */
+    @Nested
+    @DisplayName("sky rating from the winning source")
+    class SkyRatingFromWinningSource {
+
+        @Test
+        @DisplayName("a row-served result carries the row's sky_rating through both readers")
+        void rowServed_carriesRowSkyRating() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburgh).targetDate(DATE).targetType(SUNRISE)
+                            .rating(3).skyRating(4).fierySkyPotential(70)
+                            .goldenHourPotential(60).summary("Wrong water, good sky")
+                            .evaluationModel(EvaluationModel.HAIKU)
+                            .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
+                            .build()));
+
+            BriefingEvaluationResult single =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+            BriefingEvaluationResult bulk = service
+                    .getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNRISE))
+                    .get(REGION_NAME + "|" + DATE + "|" + SUNRISE).get("Bamburgh");
+
+            assertThat(single.rating()).isEqualTo(3);
+            assertThat(single.skyRating()).isEqualTo(4);
+            assertThat(bulk.rating()).isEqualTo(3);
+            assertThat(bulk.skyRating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("a rated row with no sky_rating (pre-V164, synchronous engine) serves null")
+        void rowServed_withoutSkyRating_servesNull() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburgh).targetDate(DATE).targetType(SUNRISE)
+                            .rating(4).fierySkyPotential(70).goldenHourPotential(60)
+                            .summary("Good").evaluationModel(EvaluationModel.HAIKU)
+                            .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
+                            .build()));
+
+            BriefingEvaluationResult result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+
+            assertThat(result.rating()).isEqualTo(4);
+            assertThat(result.skyRating()).isNull();
+        }
+
+        @Test
+        @DisplayName("a cache-served result keeps the cache entry's own sky rating")
+        void cacheServed_keepsCacheSkyRating() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh", new BriefingEvaluationResult("Bamburgh", 3, 75,
+                            60, "Great sky", null, null, null, null, 5)));
+
+            BriefingEvaluationResult result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+
+            assertThat(result.rating()).isEqualTo(3);
+            assertThat(result.skyRating()).isEqualTo(5);
+        }
+
+        @Test
+        @DisplayName("a triaged row carries no sky rating even if its column holds one")
+        void triageRow_carriesNoSkyRating() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburgh).targetDate(DATE).targetType(SUNRISE)
+                            .skyRating(4)
+                            .triage(new TriageDetails(TriageReason.PRECIPITATION, "Rain expected"))
+                            .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
+                            .build()));
+
+            BriefingEvaluationResult result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+
+            assertThat(result.rating()).isNull();
+            assertThat(result.skyRating()).isNull();
+            assertThat(result.triageReason()).isEqualTo(TriageReason.PRECIPITATION);
+        }
+    }
+
+    /**
      * The verdict-minimum-sample rule's "examined" evidence (a Codex review of #943, P1-A):
      * {@link EvaluationViewService#loadTriagedByBatch} must be sourced from the BATCH's own
      * {@code forecast_run_disposition} table, never from a slot's independently-computed
@@ -2997,6 +3095,57 @@ class EvaluationViewServiceTest {
             verify(forecastRunDispositionRepository, times(1))
                     .findLatestNonCachedDispositions(DATE, DATE);
             verify(locationService, times(1)).findAllEnabled();
+        }
+
+        private Object[] rowWithDetail(String location, String disposition, String detail) {
+            return new Object[] {location, DATE, SUNRISE.name(), disposition, AT, 7L, detail};
+        }
+
+        @Test
+        @DisplayName("valley-mist M1b: a SKIPPED_TRIAGED row whose own reason is the visibility rule "
+                + "is marked lowVisibility; any other reason, a missing reason and a non-triage "
+                + "category are not — all from the one existing disposition read")
+        void lowVisibilityIsReadOffTheDispositionsOwnReason() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            rowWithDetail("Fog", "SKIPPED_TRIAGED",
+                                    "Visibility 3200 m — poor visibility"),
+                            rowWithDetail("Rain", "SKIPPED_TRIAGED",
+                                    "Precipitation 3.1 mm — active rain"),
+                            rowWithDetail("NoText", "SKIPPED_TRIAGED", null),
+                            rowWithDetail("Stability", "SKIPPED_STABILITY",
+                                    "Visibility 3200 m — poor visibility")));
+
+            Map<String, EvaluationViewService.LatestDisposition> latest =
+                    service.loadServeTriage(DATE, DATE, Set.of(SUNRISE)).latestBySlot();
+
+            assertThat(latest.get(key("Fog")).lowVisibility()).isTrue();
+            assertThat(latest.get(key("Rain")).lowVisibility()).isFalse();
+            assertThat(latest.get(key("NoText")).lowVisibility()).isFalse();
+            assertThat(latest.get(key("Stability")).lowVisibility()).isFalse();
+            verify(forecastRunDispositionRepository, times(1))
+                    .findLatestNonCachedDispositions(DATE, DATE);
+        }
+
+        @Test
+        @DisplayName("a tie at the same instant counts as low visibility only if every tied row says so")
+        void tiedRows_needEveryRowToSayLowVisibility() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            rowWithDetail("Both", "SKIPPED_TRIAGED",
+                                    "Visibility 3200 m — poor visibility"),
+                            rowWithDetail("Both", "SKIPPED_TRIAGED",
+                                    "Visibility 2900 m — poor visibility"),
+                            rowWithDetail("Mixed", "SKIPPED_TRIAGED",
+                                    "Visibility 3200 m — poor visibility"),
+                            rowWithDetail("Mixed", "SKIPPED_TRIAGED",
+                                    "Precipitation 3.1 mm — active rain")));
+
+            Map<String, EvaluationViewService.LatestDisposition> latest =
+                    service.loadServeTriage(DATE, DATE, Set.of(SUNRISE)).latestBySlot();
+
+            assertThat(latest.get(key("Both")).lowVisibility()).isTrue();
+            assertThat(latest.get(key("Mixed")).lowVisibility()).isFalse();
         }
 
         @Test

@@ -54,7 +54,34 @@ class CalibrationControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.scoredPairs").value(12))
                 .andExpect(jsonPath("$.overall.meanAbsoluteRatingError").value(0.75))
                 .andExpect(jsonPath("$.overall.missedOpportunities").value(3))
-                .andExpect(jsonPath("$.byDaysAhead[0].key").value("T+0"));
+                .andExpect(jsonPath("$.byDaysAhead[0].key").value("T+0"))
+                .andExpect(jsonPath("$.bucketsByBuild[0].key").value("v2.28.0"))
+                .andExpect(jsonPath("$.bucketsByBuild[0].sampleCount").value(6))
+                .andExpect(jsonPath("$.bucketsByPromptHash[0].key").value("UNKNOWN"))
+                .andExpect(jsonPath("$.bucketsByPromptHash[1]").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("GET /api/admin/calibration serves the mist-prone bucket and its seen tally (V187)")
+    @WithMockUser(roles = "ADMIN")
+    void getCalibration_servesMistProne() throws Exception {
+        CalibrationBucket mist = new CalibrationBucket(
+                "MIST_LIKELY", 3, 0.0, 1.0, 0.33, 0.67, 1, 0, null);
+        CalibrationReport base = report();
+        when(calibrationService.report(FROM, TO)).thenReturn(new CalibrationReport(base.from(), base.to(),
+                base.outcomesInRange(), base.scoredPairs(), base.overall(), base.byDaysAhead(),
+                base.byModel(), base.bucketsByBuild(), base.bucketsByPromptHash(), mist,
+                java.util.Map.of("MIST", 2, "UNTAGGED", 1)));
+
+        mockMvc.perform(get("/api/admin/calibration")
+                .param("from", "2026-05-01")
+                .param("to", "2026-05-31")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mistProne.key").value("MIST_LIKELY"))
+                .andExpect(jsonPath("$.mistProne.missedOpportunities").value(1))
+                .andExpect(jsonPath("$.mistProneSeenCounts.MIST").value(2))
+                .andExpect(jsonPath("$.mistProneSeenCounts.UNTAGGED").value(1));
     }
 
     @Test
@@ -76,7 +103,11 @@ class CalibrationControllerTest extends AbstractControllerTest {
                 "ALL", 12, 0.25, 0.75, 0.5, 0.83, 3, 1, 18.0);
         CalibrationBucket sameDay = new CalibrationBucket(
                 "T+0", 6, 0.0, 0.5, 0.67, 1.0, 0, 0, 12.0);
+        CalibrationBucket build = new CalibrationBucket(
+                "v2.28.0", 6, 0.0, 0.5, 0.67, 1.0, 0, 0, 12.0);
+        CalibrationBucket unknownPrompt = new CalibrationBucket(
+                "UNKNOWN", 12, 0.25, 0.75, 0.5, 0.83, 3, 1, 18.0);
         return new CalibrationReport(FROM, TO, 9, 12, overall,
-                List.of(sameDay), List.of(overall));
+                List.of(sameDay), List.of(overall), List.of(build), List.of(unknownPrompt));
     }
 }

@@ -344,6 +344,25 @@ const alphaOf = (rgba) => parseFloat(/rgba\([^)]*,\s*([\d.]+)\s*\)/.exec(rgba)[1
  * These are the deleted card's own assertions, re-pointed — the plan's task 7 asks for exactly that
  * ("salvage assertions that still describe popup behaviour into the new suites").
  */
+describe('WindowSheetDialog — a blanked stand-down says the weather called it (verdict-honesty H4)', () => {
+  const POOR = { verdict: 'STAND_DOWN', verdictLabel: 'Poor' };
+
+  it('prints `unsettled` beside the "Poor" badge and voices it in the live message', () => {
+    renderDialog({ card: card({ ...POOR, verdictBlanked: true }) });
+
+    expect(screen.getByTestId('window-sheet-verdict')).toHaveTextContent(/^Poor$/);
+    expect(screen.getByTestId('window-sheet-verdict-note')).toHaveTextContent(/^unsettled$/);
+    expect(screen.getByTestId('window-sheet-live')).toHaveTextContent('Poor, too unsettled to forecast');
+  });
+
+  it('prints neither for a stood-down card whose region still has slots', () => {
+    renderDialog({ card: card({ ...POOR, verdictBlanked: false }) });
+
+    expect(screen.queryByTestId('window-sheet-verdict-note')).toBeNull();
+    expect(screen.getByTestId('window-sheet-live')).not.toHaveTextContent('too unsettled');
+  });
+});
+
 describe('WindowSheetDialog — the verdict badge', () => {
   const badge = () => screen.getByTestId('window-sheet-verdict');
 
@@ -1297,5 +1316,87 @@ describe('WindowSheetDialog — the dawn race (lunar-eclipse-plan.md §2.7, §3 
     expect(screen.getByTestId('infotip-popover')).toBeInTheDocument();
     expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('WindowSheetDialog — the neighbour guard (neighbour-guard-plan.md §4 G3)', () => {
+  const OUTLIER = spot({ neighbourOutlier: true, rating: 4 });
+  const LOW = spot({
+    key: '3', locationId: 3, locationName: 'Craster', regionName: 'Coast', rating: 2,
+  });
+
+  it('⚠️ says "no clear pick within reach" for a withheld window, never "nothing rated yet"', () => {
+    const spots = [OUTLIER, LOW];
+    renderDialog({ card: card({ spots, bestReach: null, bestReachWithheld: true }) });
+    const best = screen.getByTestId('window-sheet-best');
+    expect(best).toHaveTextContent('no clear pick within reach');
+    expect(best).not.toHaveTextContent('nothing rated yet');
+  });
+
+  it('⚠️ drops "within reach" from the withheld header when no drive was measured', () => {
+    const unmeasured = [
+      { ...OUTLIER, driveMinutes: null }, { ...LOW, driveMinutes: null },
+    ];
+    renderDialog({
+      card: card({
+        spots: unmeasured, pool: unmeasured, allSpots: unmeasured, bestReach: null, bestReachWithheld: true,
+      }),
+    });
+    expect(screen.getByTestId('window-sheet-best')).toHaveTextContent('no clear pick');
+    expect(screen.getByTestId('window-sheet-best')).not.toHaveTextContent('reach');
+  });
+
+  it('still says "nothing rated yet" when nothing was withheld', () => {
+    renderDialog({ card: card({ bestReach: null, bestReachWithheld: false }) });
+    expect(screen.getByTestId('window-sheet-best')).toHaveTextContent('nothing rated yet');
+  });
+
+  it('⚠️ never captions the dawn race with a neighbour outlier', () => {
+    const LUNAR = {
+      type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', detail: '93% at 05:13', rarityRank: 2,
+    };
+    const sight = {
+      type: 'LUNAR_ECLIPSE',
+      race: 'DAWN',
+      moonAltAtMax: 7,
+      moonAzAtMax: 244,
+      moonAzCardinal: 'WSW',
+      maximum: `${TODAY}T05:13:00`,
+      umbraStart: `${TODAY}T03:34:00`,
+      umbraEnd: `${TODAY}T06:52:00`,
+      moonset: `${TODAY}T06:16:00`,
+      moonrise: null,
+      setsInShadow: true,
+      risesInShadow: false,
+      stops: [
+        { key: 'NAUTICAL_DAWN', time: `${TODAY}T03:09:00` },
+        { key: 'CIVIL_DAWN', time: `${TODAY}T05:24:00` },
+        { key: 'SUNRISE', time: `${TODAY}T06:11:00` },
+        { key: 'GOLDEN_MORNING_END', time: `${TODAY}T06:41:00` },
+      ],
+    };
+    const byId = new Map();
+    byId.set(`${DALES.locationId}|${TODAY}|SUNSET`, sight);
+    byId.set(`${OUTLIER.locationId}|${TODAY}|SUNSET`, sight);
+    renderDialog({
+      card: card({
+        allBadges: [LUNAR], spots: [OUTLIER, DALES], bestReach: null, bestReachWithheld: true,
+      }),
+      eclipseIndex: { byId, byName: new Map() },
+    });
+    const race = screen.getByTestId('dawn-race');
+    expect(within(race).getByText(new RegExp(DALES.locationName))).toBeInTheDocument();
+    expect(within(race).queryByText(new RegExp(OUTLIER.locationName))).toBeNull();
+  });
+});
+
+describe('WindowSheetDialog — hands its row map the OPEN window\'s unrated places', () => {
+  it('forwards field.unrated to the kernel', () => {
+    const mine = [{ id: 7, name: 'Alnmouth', lat: 5, lng: 5, rid: 'Coast', r: [0] }];
+    drawGeo.mockClear();
+    withMeasured(() => {
+      renderDialog({ field: field({ unrated: mine }) });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5].unrated).toBe(mine);
   });
 });

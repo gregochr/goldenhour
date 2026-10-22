@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { DRIVE_TIME_TIERS } from './FiltersPopover.jsx';
 import { watchDeparture } from '../../utils/watchDeparture.js';
@@ -14,6 +14,13 @@ const KIND_WORD = {
   ASTRO: 'astro',
   AURORA: 'aurora',
 };
+
+/**
+ * The words for the tab a door was pressed on, for the return control. ABSENT `from` is Plan, as
+ * every door was before the return learned to go back to where the reader came from (overlay
+ * convergence C4, an extension of the doors plan's D2).
+ */
+const RETURN_LABEL = { plan: 'Plan', 'coming-up': 'Coming up', operations: 'Operations' };
 
 /**
  * A door's landing strip (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 3) — mounted by
@@ -35,13 +42,16 @@ const KIND_WORD = {
  * never carries an origin at all (§2: origin is shared state, not copied), so its only test is
  * "is one in force right now", regardless of which one.
  *
- * <h2>`clear` is four separate resets, not one</h2>
+ * <h2>`clear` is five separate resets, not one</h2>
  *
- * <p>Four callback props rather than one `onClear`, so the caller's own tests can pin the ORDER —
- * rating, then reach, then scope, then origin, mirroring the prototype's `crumbclr`
- * (`map-tab-v2.js:526`) exactly. Subjects and dark-sky are deliberately absent: the prototype never
- * clears them and this door never carried them (plan §5 decision 1 names only rating/reach/region/
- * location as carried facts).
+ * <p>Five callback props rather than one `onClear`, so the caller's own tests can pin the ORDER —
+ * rating, then reach, then scope, then origin (mirroring the prototype's `crumbclr`,
+ * `map-tab-v2.js:526`), then the door's temporary lenses (`onClearLens`, overlay convergence C1).
+ * The lenses are a door's named spot set, subject filter and dark-sky toggle: each is a live clause
+ * (`lensClauses`, derived by the caller from the state in force, like every clause above), so it is
+ * never silent, and `clear` removes exactly what the door applied, handing back the reader's own
+ * filters as they were. The prototype never cleared subjects or dark-sky because no door carried
+ * them; doors now can, so `clear` must.
  *
  * <h2>⚠️ `clear` takes itself away, so it hands the reader's focus to the strip</h2>
  *
@@ -139,7 +149,8 @@ const KIND_WORD = {
  *        compared against `carried.limitMinutes`
  * @param {?string} props.regionInForce the name of the region the map's own jump-fit override is
  *        CURRENTLY framing (`MapView`'s `jumpFitOverride.regionName`), or null when no jump stands
- * @param {Function} props.onBack `← Plan` — `App.jsx`'s `returnToPlan`
+ * @param {Function} props.onBack `← Plan` (or `← Coming up`, `← Operations`: `carried.from`) -
+ *        `App.jsx`'s `returnToPlan`
  * @param {Function} props.onClearRating resets the floor to the map's own default
  * @param {Function} props.onClearReach resets the reach tier to Any
  * @param {Function} props.onClearScope resets scope to My area (`MapView.resetToMyArea`)
@@ -148,6 +159,7 @@ const KIND_WORD = {
 export default function MapBreadcrumb({
   carried, activeRow = null, origin = null, minStars, driveTimeFilter, regionInForce = null,
   onBack, onClearRating, onClearReach, onClearScope, onClearOrigin,
+  lensClauses = [], onClearLens = null,
 }) {
   // The strip, where `clear` hands the reader's focus when it takes itself away (class comment).
   const stripRef = useRef(null);
@@ -173,6 +185,8 @@ export default function MapBreadcrumb({
     if (nowhere) stripRef.current?.focus();
   });
 
+  const returnLabel = RETURN_LABEL[carried.from] ?? RETURN_LABEL.plan;
+
   const clauses = [];
   if (origin) clauses.push(`drive times from ${origin.baseName}`);
   if (carried.minRating != null && minStars === carried.minRating) {
@@ -185,15 +199,42 @@ export default function MapBreadcrumb({
   if (carried.region && regionInForce === carried.region) {
     clauses.push(carried.region);
   }
+  // The door's temporary lenses (overlay convergence C1: a named spot set, the subject filter, the
+  // dark-sky toggle). The caller derives them from the state in force, like every clause above, and
+  // they are named here so a lens is never silent.
+  clauses.push(...lensClauses);
+
+  // The door's own headline (`title · caption`, e.g. "Aurora tonight", "Tomorrow sunrise · 06:12").
+  // A plain door carries neither and the strip is exactly what it was.
+  const headline = [carried.title, carried.caption].filter(Boolean).join(' · ');
+
+  // The arrival, announced once per DOOR (the overlay's title was the screen reader's announcement;
+  // this strip is a plain <nav>, so on its own the arrival would be silent). A visually-hidden
+  // `role="status"` whose text is set when the door's nonce changes and left alone by every other
+  // render - a floor moved, a window stepped - so a live region speaks once, not on each commit.
+  // The text is read through a ref at that moment: the window clause may arrive a render later than
+  // the door, and re-announcing for it would be the very repetition this avoids.
+  const arrivalText = [headline, activeRow
+    ? `${activeRow.dayLabel} ${KIND_WORD[activeRow.eventType] ?? activeRow.eventType?.toLowerCase() ?? ''}`.trim()
+    : null].filter(Boolean).join('. ');
+  const arrivalRef = useRef(arrivalText);
+  useEffect(() => { arrivalRef.current = arrivalText; });
+  const [announcement, setAnnouncement] = useState('');
+  useEffect(() => {
+    // The announcement IS the effect's purpose: a live region speaks on a change of its text.
+    setAnnouncement(arrivalRef.current);
+  }, [carried.nonce]);
 
   function handleClear() {
     onClearRating();
     onClearReach();
     onClearScope();
     onClearOrigin();
+    onClearLens?.();
   }
 
   return (
+    <>
     <nav
       ref={stripRef}
       // Focusable, never a Tab stop: the landing for a focused `clear` that takes itself away.
@@ -209,8 +250,18 @@ export default function MapBreadcrumb({
         data-testid="wf-map-breadcrumb-back"
       >
         <span aria-hidden="true">{'← '}</span>
-        Plan
+        {returnLabel}
       </button>
+      {headline && (
+        <>
+          {' '}
+          <span className="wf-map-breadcrumb-sep">/</span>
+          {' '}
+          <span className="wf-map-breadcrumb-title" data-testid="wf-map-breadcrumb-title">
+            {headline}
+          </span>
+        </>
+      )}
       {activeRow && (
         <>
           {' '}
@@ -243,6 +294,13 @@ export default function MapBreadcrumb({
         </>
       )}
     </nav>
+    {/* The arrival announcement: a SIBLING of the strip, not a child, so the strip's own text (and the
+        `textContent` the spacing tests read) is exactly what it was; visually hidden, spoken once
+        per door. */}
+    <span className="sr-only" role="status" data-testid="wf-map-breadcrumb-announce">
+      {announcement}
+    </span>
+    </>
   );
 }
 
@@ -251,6 +309,10 @@ MapBreadcrumb.propTypes = {
     region: PropTypes.string,
     minRating: PropTypes.number,
     limitMinutes: PropTypes.number,
+    title: PropTypes.string,
+    caption: PropTypes.string,
+    from: PropTypes.string,
+    nonce: PropTypes.number,
   }).isRequired,
   activeRow: PropTypes.shape({
     dayLabel: PropTypes.string,
@@ -267,4 +329,6 @@ MapBreadcrumb.propTypes = {
   onClearReach: PropTypes.func.isRequired,
   onClearScope: PropTypes.func.isRequired,
   onClearOrigin: PropTypes.func.isRequired,
+  lensClauses: PropTypes.arrayOf(PropTypes.string),
+  onClearLens: PropTypes.func,
 };

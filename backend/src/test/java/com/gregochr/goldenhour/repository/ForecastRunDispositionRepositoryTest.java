@@ -337,4 +337,30 @@ class ForecastRunDispositionRepositoryTest {
                     new com.gregochr.goldenhour.model.CycleDisposition(3L, "EVALUATED"));
         }
     }
+
+    @Nested
+    @DisplayName("findStabilitySkipInstantsUpTo - the as-of-event retraction evidence")
+    class StabilitySkipInstantsUpTo {
+
+        @Test
+        @DisplayName("returns every SKIPPED_STABILITY at or before the bound for the asked places, date and "
+                + "type; a later skip, another category, another place, date or type are excluded")
+        void boundsByInstantPlaceDateAndType() {
+            Instant bound = Instant.parse("2026-09-29T14:00:00Z");
+            insertDisposition(1L, "X", DATE, SUNSET, "SKIPPED_STABILITY", bound.minusSeconds(3600));
+            insertDisposition(1L, "X", DATE, SUNSET, "SKIPPED_STABILITY", bound);
+            insertDisposition(1L, "X", DATE, SUNSET, "SKIPPED_STABILITY", bound.plusSeconds(1));
+            insertDisposition(1L, "X", DATE, SUNSET, "SKIPPED_TRIAGED", bound.minusSeconds(60));
+            insertDisposition(1L, "Y", DATE, SUNSET, "SKIPPED_STABILITY", bound.minusSeconds(60));
+            insertDisposition(1L, "Z", DATE, SUNSET, "SKIPPED_STABILITY", bound.minusSeconds(120));
+            insertDisposition(1L, "X", DATE.plusDays(1), SUNSET, "SKIPPED_STABILITY", bound.minusSeconds(60));
+            insertDisposition(1L, "X", DATE, "SUNRISE", "SKIPPED_STABILITY", bound.minusSeconds(60));
+
+            List<Object[]> rows = repository.findStabilitySkipInstantsUpTo(
+                    List.of("X", "Y"), DATE, SUNSET, bound);
+
+            assertThat(rows).extracting(r -> r[0] + "@" + r[1]).containsExactlyInAnyOrder(
+                    "X@" + bound.minusSeconds(3600), "X@" + bound, "Y@" + bound.minusSeconds(60));
+        }
+    }
 }

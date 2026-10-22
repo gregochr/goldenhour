@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
@@ -13,6 +14,7 @@ import com.gregochr.goldenhour.exception.EvaluationFailedException;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.exception.RunStoppedException;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
@@ -127,6 +129,12 @@ class ForecastServiceTest {
     @Spy
     private Clock clock = Clock.fixed(Instant.parse("2026-08-11T12:00:00Z"), java.time.ZoneOffset.UTC);
 
+    /** The release every stamped row is expected to carry (V182). */
+    private static final String BUILD = "v2.28.0";
+
+    @Spy
+    private AppBuild appBuild = new AppBuild(BUILD);
+
     @InjectMocks
     private ForecastService forecastService;
 
@@ -152,6 +160,8 @@ class ForecastServiceTest {
         lenient().when(augmentor.augmentWithInversionScore(any(), any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithBluebellConditions(any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
         // Tide alignment passes by default (non-SEASCAPE locations in most tests)
         lenient().when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
@@ -655,6 +665,58 @@ class ForecastServiceTest {
     }
 
     @Test
+    @DisplayName("fetchWeatherAndTriage() scores valley mist for a mist_prone site BEFORE the readings "
+            + "write, so a weather-triaged slot still records the score (V185)")
+    void fetchWeatherAndTriage_mistProneSite_scoreReachesTheWriterEvenWhenTriaged() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        LocationEntity mistProne = LocationEntity.builder()
+                .id(3L).name("Brathay").lat(DURHAM_LAT).lon(DURHAM_LON).mistProne(true).build();
+        AtmosphericData data = buildAtmosphericData(sunrise, TargetType.SUNRISE);
+        AtmosphericData scored = data.withValleyMist(6.5, MistPotential.LIKELY);
+        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(12L).build();
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(augmentor.augmentWithValleyMist(any(), eq(true))).thenReturn(scored);
+        when(augmentor.augmentWithBluebellConditions(eq(scored), any(), any(), any())).thenReturn(scored);
+        when(weatherTriageEvaluator.evaluate(any()))
+                .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
+        when(repository.save(any())).thenReturn(savedEntity);
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                mistProne, date, TargetType.SUNRISE, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        assertThat(result.triaged()).isTrue();
+        verify(augmentor).augmentWithValleyMist(any(), eq(true));
+        verify(slotAtmosphereWriter, times(1))
+                .write(mistProne, date, TargetType.SUNRISE, scored);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() hands the gate false for a site that is not mist_prone")
+    void fetchWeatherAndTriage_unflaggedSite_gateIsFalse() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+
+        forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        verify(augmentor).augmentWithValleyMist(any(), eq(false));
+    }
+
+    @Test
     @DisplayName("fetchWeatherAndTriage() still records the candidate's atmospheric readings "
             + "when tide-alignment triage stands a SEASCAPE slot down")
     void fetchWeatherAndTriage_tideTriaged_stillRecordsReadings() {
@@ -728,7 +790,8 @@ class ForecastServiceTest {
         ForecastService serviceWithFlagOff = new ForecastService(
                 solarService, openMeteoService, augmentor, evaluationService,
                 engineEvaluationService, repository, notificationDispatcher, eventPublisher,
-                weatherTriageEvaluator, tideAlignmentEvaluator, flagOffWriter, runProgressTracker, clock);
+                weatherTriageEvaluator, tideAlignmentEvaluator, flagOffWriter, runProgressTracker, clock,
+                new AppBuild(BUILD));
 
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
@@ -818,6 +881,10 @@ class ForecastServiceTest {
         assertThat(saved.getSummary()).isNull();
         assertThat(saved.getTriage().getReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
         assertThat(saved.getTriage().getMessage()).contains("tide");
+        assertThat(saved.getScoredAt()).as("a tide stand-down is stamped like any triage row")
+                .isEqualTo(STAMP);
+        assertThat(saved.getAppBuild()).as("and carries the build that decided it").isEqualTo(BUILD);
+        assertThat(saved.getPromptHash()).as("a triage row had no prompt").isNull();
     }
 
     @Test
@@ -1198,7 +1265,8 @@ class ForecastServiceTest {
             ForecastService service = new ForecastService(
                     solarService, openMeteoService, augmentor, evaluationService, engineEvaluationService,
                     repository, notificationDispatcher, eventPublisher, weatherTriageEvaluator,
-                    tideAlignmentEvaluator, slotAtmosphereWriter, realTracker, clock);
+                    tideAlignmentEvaluator, slotAtmosphereWriter, realTracker, clock,
+                    new AppBuild(BUILD));
             int calls = 5;
             List<String[]> tasks = new ArrayList<>();
             List<ForecastPreEvalResult> preEvals = new ArrayList<>();
@@ -1252,6 +1320,96 @@ class ForecastServiceTest {
         }
     }
 
+    // --- forecast_evaluation.scored_at (V178): the availability stamp's write sites ---
+
+    private static final Instant STAMP = Instant.parse("2026-08-11T12:00:00Z");
+
+    @Test
+    @DisplayName("V178: a synchronous row inserted with a rating is stamped at insert; one without is not")
+    void runForecasts_stampsScoredAtOnlyWhenTheRowHasARating() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData forecastData = buildAtmosphericData(sunrise, TargetType.SUNRISE);
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(forecastData, null));
+        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
+                .thenReturn(new SunsetEvaluation(4, 70, 75, "Rated."))
+                .thenReturn(new SunsetEvaluation(null, 70, 75, "Potentials only, no star."));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null);
+
+        ArgumentCaptor<ForecastEvaluationEntity> saved = ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository, times(2)).save(saved.capture());
+        assertThat(saved.getAllValues().get(0).getRating()).isEqualTo(4);
+        assertThat(saved.getAllValues().get(0).getScoredAt()).isEqualTo(STAMP);
+        assertThat(saved.getAllValues().get(0).getAppBuild()).isEqualTo(BUILD);
+        assertThat(saved.getAllValues().get(0).getPromptHash())
+                .as("the synchronous engine has no batch request, so no prompt fingerprint").isNull();
+        assertThat(saved.getAllValues().get(1).getRating()).isNull();
+        assertThat(saved.getAllValues().get(1).getScoredAt())
+                .as("nothing to say, so no availability instant").isNull();
+        assertThat(saved.getAllValues().get(1).getAppBuild())
+                .as("nothing to say, so no build either").isNull();
+    }
+
+    @Test
+    @DisplayName("V178: a triage stand-down row is stamped at insert — a triage reason is something to say")
+    void fetchWeatherAndTriage_triageRowIsStampedAtInsert() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(
+                        buildAtmosphericData(sunrise, TargetType.SUNRISE), null));
+        when(weatherTriageEvaluator.evaluate(any()))
+                .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        forecastService.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        ArgumentCaptor<ForecastEvaluationEntity> saved = ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getRating()).isNull();
+        assertThat(saved.getValue().getScoredAt()).isEqualTo(STAMP);
+        assertThat(saved.getValue().getAppBuild()).isEqualTo(BUILD);
+    }
+
+    @Test
+    @DisplayName("V178: a PENDING batch row is inserted unstamped, and abandoning it never stamps it")
+    void pendingRowIsUnstampedAndAbandonedRowStaysUnstamped() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, buildAtmosphericData(sunset, TargetType.SUNSET), DURHAM_LOCATION, date,
+                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
+                DURHAM + "|" + date + "|SUNSET", null);
+        when(repository.save(any())).thenAnswer(inv -> {
+            ForecastEvaluationEntity e = inv.getArgument(0);
+            e.setId(55L);
+            return e;
+        });
+
+        Long id = forecastService.persistPendingEvaluation(preEval);
+
+        ArgumentCaptor<ForecastEvaluationEntity> saved = ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository).save(saved.capture());
+        assertThat(id).isEqualTo(55L);
+        assertThat(saved.getValue().getBatchState()).isEqualTo(com.gregochr.goldenhour.entity.BatchState.PENDING);
+        assertThat(saved.getValue().getScoredAt()).isNull();
+        assertThat(saved.getValue().getAppBuild()).as("a PENDING row is not yet scored").isNull();
+
+        when(repository.findById(55L)).thenReturn(Optional.of(saved.getValue()));
+        forecastService.markAbandoned(55L);
+        assertThat(saved.getValue().getBatchState()).isEqualTo(com.gregochr.goldenhour.entity.BatchState.ABANDONED);
+        assertThat(saved.getValue().getScoredAt()).isNull();
+    }
+
     // --- persistCannedResult tests ---
 
     @Test
@@ -1285,6 +1443,9 @@ class ForecastServiceTest {
         assertThat(saved.getTriage().getReason()).isEqualTo(
                 com.gregochr.goldenhour.model.TriageReason.GENERIC);
         assertThat(saved.getTriage().getMessage()).contains("Sentinel skip — region poor");
+        assertThat(saved.getScoredAt()).as("a sentinel skip is a stand-down, stamped like a triage row")
+                .isEqualTo(STAMP);
+        assertThat(saved.getAppBuild()).isEqualTo(BUILD);
     }
 
     @Test
@@ -2334,6 +2495,42 @@ class ForecastServiceTest {
 
             assertThat(result.getInversion()).isNull();
         }
+
+        @Test
+        @DisplayName("a mist-prone slot (band present) stores Claude's mist_potential on the entity (V186)")
+        void evaluateAndPersist_mistProneSlot_storesClaudesMistPotential() {
+            AtmosphericData data = TestAtmosphericData.builder()
+                    .solarEventTime(SUNSET).targetType(TargetType.SUNSET)
+                    .mistScore(7.0).mistPotential(com.gregochr.goldenhour.model.MistPotential.LIKELY)
+                    .build();
+            SunsetEvaluation evaluation = new SunsetEvaluation(
+                    4, 20, 70, "Mist.", null, null, null, null, null, null, "LIKELY");
+
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(evaluation));
+            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
+
+            assertThat(result.getMistPotential()).isEqualTo("LIKELY");
+        }
+
+        @Test
+        @DisplayName("a slot with no mist band (unflagged site) drops a mist_potential Claude volunteered")
+        void evaluateAndPersist_unflaggedSlot_dropsAStrayMistPotential() {
+            AtmosphericData data = TestAtmosphericData.builder()
+                    .solarEventTime(SUNSET).targetType(TargetType.SUNSET).build();
+            SunsetEvaluation evaluation = new SunsetEvaluation(
+                    4, 20, 70, "Haze.", null, null, null, null, null, null, "FOGBOUND");
+
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(evaluation));
+            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
+
+            assertThat(result.getMistPotential()).isNull();
+        }
     }
 
     private AtmosphericData buildAtmosphericData(LocalDateTime eventTime, TargetType targetType) {
@@ -2448,7 +2645,7 @@ class ForecastServiceTest {
                     solarService, openMeteoService, augmentor, evaluationService,
                     engineEvaluationService, repository, notificationDispatcher,
                     eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                    slotAtmosphereWriter, runProgressTracker, at);
+                    slotAtmosphereWriter, runProgressTracker, at, new AppBuild(BUILD));
 
             service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
                     Set.of(), EvaluationModel.SONNET, true, null);
@@ -2478,7 +2675,7 @@ class ForecastServiceTest {
                     solarService, openMeteoService, augmentor, evaluationService,
                     engineEvaluationService, repository, notificationDispatcher,
                     eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                    slotAtmosphereWriter, runProgressTracker, at);
+                    slotAtmosphereWriter, runProgressTracker, at, new AppBuild(BUILD));
 
             return service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
                     Set.of(), EvaluationModel.SONNET, true, null);

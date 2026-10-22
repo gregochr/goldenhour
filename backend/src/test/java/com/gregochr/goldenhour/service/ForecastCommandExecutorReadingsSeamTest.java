@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
@@ -121,7 +122,7 @@ class ForecastCommandExecutorReadingsSeamTest {
                 solarService, openMeteoService, augmentor, legacyEvaluationService,
                 engineEvaluationService, forecastEvaluationRepository, notificationDispatcher,
                 eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                slotAtmosphereWriter, progressTracker, CLOCK);
+                slotAtmosphereWriter, progressTracker, CLOCK, new AppBuild("v2.28.0"));
 
         executor = new ForecastCommandExecutor(
                 realForecastService, locationService, jobRunService, solarService,
@@ -171,6 +172,8 @@ class ForecastCommandExecutorReadingsSeamTest {
         lenient().when(augmentor.augmentWithInversionScore(any(), any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithBluebellConditions(any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
 
         // The candidate's weather, served from the (empty) prefetch cache — ForecastService

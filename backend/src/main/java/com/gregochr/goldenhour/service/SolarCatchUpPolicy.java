@@ -87,7 +87,7 @@ public class SolarCatchUpPolicy {
                 || config.getSolarOffsetMinutes() == null) {
             return Optional.empty();
         }
-        CycleType cycle = SolarForecastJobs.cycleOf(config.getJobKey());
+        CycleType cycle = ForecastCycleJobs.cycleOf(config.getJobKey());
         if (cycle == null) {
             return Optional.empty();
         }

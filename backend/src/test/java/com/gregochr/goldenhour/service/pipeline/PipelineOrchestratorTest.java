@@ -18,6 +18,8 @@ import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.LocationFailureService;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
 import com.gregochr.goldenhour.service.batch.ForecastBatchSubmissionOutcome;
+import com.gregochr.goldenhour.service.batch.EveningCandidateCollectionStrategy;
+import com.gregochr.goldenhour.service.batch.EveningEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.IntradayCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.BatchRetryService;
@@ -32,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -46,6 +49,7 @@ import java.util.Optional;
 import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
@@ -786,7 +790,8 @@ class PipelineOrchestratorTest {
         @Test
         @DisplayName("CycleType enum reserves INTRADAY for future intraday refresh")
         void intraday_cycle_type_is_reserved() {
-            assertThat(CycleType.values()).contains(CycleType.NIGHTLY, CycleType.INTRADAY);
+            assertThat(CycleType.values()).contains(CycleType.NIGHTLY, CycleType.INTRADAY,
+                    CycleType.EVENING);
         }
     }
 
@@ -981,6 +986,9 @@ class PipelineOrchestratorTest {
             verify(scheduler).registerJobTarget(
                     org.mockito.ArgumentMatchers.eq("intraday_forecast_refresh"),
                     org.mockito.ArgumentMatchers.any(Runnable.class));
+            verify(scheduler).registerJobTarget(
+                    org.mockito.ArgumentMatchers.eq("evening_sunrise_refresh"),
+                    org.mockito.ArgumentMatchers.any(Runnable.class));
         }
 
         @Test
@@ -1056,6 +1064,31 @@ class PipelineOrchestratorTest {
             // And it reaches briefing through the identical tail.
             verify(briefingService).refreshBriefing();
             verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @Timeout(10)
+        @DisplayName("an INTRADAY run waits on INTRADAY's own budget, not the nightly one: 30 min "
+                + "in, a 10 min INTRADAY budget is spent while the 1 h nightly budget is not")
+        void intraday_wait_uses_the_intraday_budget() {
+            Clock thirtyMinutesIn = Clock.fixed(T0.plus(Duration.ofMinutes(30)), ZoneOffset.UTC);
+            PipelineOrchestrator budgeted = new PipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, thirtyMinutesIn, directExecutor,
+                    Duration.ofMillis(1), Duration.ofHours(1), null, pipelineRunPickService,
+                    batchRetryService, adminAlertService, locationFailureService, null, null,
+                    java.util.Map.of(CycleType.NIGHTLY, Duration.ofHours(1),
+                            CycleType.INTRADAY, Duration.ofMinutes(10)));
+            when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(newIntradayRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newIntradayRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.SUBMITTED)));
+
+            budgeted.runIntradayCycle();
+
+            verify(pipelineRunService).failRun(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.contains("within PT10M"));
+            verify(briefingService, never()).refreshBriefing();
         }
 
         @Test
@@ -1150,6 +1183,136 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService).failRun(eq(RUN_ID),
                     org.mockito.ArgumentMatchers.contains("restarted during pre-submission"));
             verify(briefingService, never()).refreshBriefing();
+        }
+    }
+
+    @Nested
+    @DisplayName("Evening cycle")
+    class EveningCycle {
+
+        private PipelineRunEntity newEveningRun() {
+            PipelineRunEntity run = new PipelineRunEntity(CycleType.EVENING, T0);
+            run.setId(RUN_ID);
+            run.setCurrentPhase(PipelinePhase.FORECAST_BATCH_SUBMIT);
+            return run;
+        }
+
+        @Test
+        @DisplayName("runEveningCycle goes through the SAME runCycle path with the evening's strategy "
+                + "and policy and ephemeral=true (the morning snapshot is not overwritten)")
+        void evening_uses_shared_runCycle_with_evening_inputs() {
+            when(pipelineRunService.startRun(CycleType.EVENING)).thenReturn(newEveningRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newEveningRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+            when(briefingService.getCachedBriefing()).thenReturn(null);
+
+            orchestrator.runEveningCycle();
+
+            verify(pipelineRunService).startRun(CycleType.EVENING);
+            verify(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
+                    eq(RUN_ID),
+                    isA(EveningCandidateCollectionStrategy.class),
+                    eq(EveningEligibilityPolicy.INSTANCE),
+                    eq(true),
+                    any());
+            verify(briefingService).refreshBriefing();
+            verify(pipelineRunService).completeRun(RUN_ID);
+            verify(locationFailureService, times(1)).settleCycle(any());
+        }
+
+        @Test
+        @DisplayName("records STABILITY_RECLASSIFY then FORECAST_BATCH_SUBMIT as distinct phases")
+        void evening_records_reclassify_then_submit_phases() {
+            when(pipelineRunService.startRun(CycleType.EVENING)).thenReturn(newEveningRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newEveningRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+            when(briefingService.getCachedBriefing()).thenReturn(null);
+            doAnswer(inv -> {
+                @SuppressWarnings("unchecked")
+                java.util.function.Consumer<ReclassSummary> hook = inv.getArgument(4);
+                hook.accept(new ReclassSummary(2, 0, 2));
+                return ForecastBatchSubmissionOutcome.ran(BatchSubmissionSummary.allEmpty());
+            }).when(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
+                    eq(RUN_ID), any(), any(), eq(true), any());
+
+            orchestrator.runEveningCycle();
+
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.STABILITY_RECLASSIFY);
+            verify(pipelineRunService).completePhase(eq(RUN_ID),
+                    eq(PipelinePhase.STABILITY_RECLASSIFY),
+                    eq("2 considered, 0 settled-skipped, 2 evaluated"));
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT);
+        }
+
+        @Test
+        @Timeout(10)
+        @DisplayName("an EVENING run waits on the evening's own budget, not the nightly one: 30 min "
+                + "in, a 10 min EVENING budget is spent while the 1 h nightly budget is not")
+        void evening_wait_uses_the_evening_budget() {
+            Clock thirtyMinutesIn = Clock.fixed(T0.plus(Duration.ofMinutes(30)), ZoneOffset.UTC);
+            PipelineOrchestrator budgeted = new PipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, thirtyMinutesIn, directExecutor,
+                    Duration.ofMillis(1), Duration.ofHours(1), null, pipelineRunPickService,
+                    batchRetryService, adminAlertService, locationFailureService, null, null,
+                    java.util.Map.of(CycleType.NIGHTLY, Duration.ofHours(1),
+                            CycleType.EVENING, Duration.ofMinutes(10)));
+            when(pipelineRunService.startRun(CycleType.EVENING)).thenReturn(newEveningRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newEveningRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.SUBMITTED)));
+
+            budgeted.runEveningCycle();
+
+            verify(pipelineRunService).failRun(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.contains("within PT10M"));
+            verify(briefingService, never()).refreshBriefing();
+        }
+
+        @Test
+        @DisplayName("the budgets the application builds give the evening its own value and the other "
+                + "cycles the safety timeout; the evening default is two hours")
+        void budgets_giveTheEveningItsOwnValue() {
+            java.util.Map<CycleType, Duration> budgets = PipelineOrchestrator.budgetsFrom(
+                    Duration.ofMinutes(210), Duration.ofHours(2));
+
+            assertThat(budgets)
+                    .containsEntry(CycleType.NIGHTLY, Duration.ofMinutes(210))
+                    .containsEntry(CycleType.INTRADAY, Duration.ofMinutes(210))
+                    .containsEntry(CycleType.EVENING, Duration.ofHours(2));
+        }
+
+        @Test
+        @DisplayName("the evening budget accepts both ends of PT30M..PT3H30M")
+        void budget_acceptsTheBounds() {
+            assertThat(PipelineOrchestrator.budgetsFrom(Duration.ofMinutes(210), Duration.ofMinutes(30))
+                    .get(CycleType.EVENING)).isEqualTo(Duration.ofMinutes(30));
+            assertThat(PipelineOrchestrator.budgetsFrom(Duration.ofMinutes(210), Duration.ofMinutes(210))
+                    .get(CycleType.EVENING)).isEqualTo(Duration.ofMinutes(210));
+        }
+
+        @Test
+        @DisplayName("an evening budget outside PT30M..PT3H30M fails startup, through the constructor "
+                + "Spring uses")
+        void budget_outsideTheRange_failsStartup() {
+            Clock clock = Clock.fixed(T0, ZoneOffset.UTC);
+
+            assertThatThrownBy(() -> springConstructed(clock, Duration.ofMinutes(29)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("photocast.pipeline.evening-safety-timeout");
+            assertThatThrownBy(() -> springConstructed(clock, Duration.ofMinutes(211)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("photocast.pipeline.evening-safety-timeout");
+            assertThatThrownBy(() -> springConstructed(clock, null))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThat(springConstructed(clock, Duration.ofHours(2))).isNotNull();
+        }
+
+        private PipelineOrchestrator springConstructed(Clock clock, Duration eveningTimeout) {
+            return new PipelineOrchestrator(pipelineRunService, scheduledBatchEvaluationService,
+                    briefingService, forecastBatchRepository, clock, Duration.ofMinutes(210), null,
+                    pipelineRunPickService, batchRetryService, adminAlertService,
+                    locationFailureService, null, null, eveningTimeout);
         }
     }
 

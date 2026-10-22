@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -49,6 +50,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -77,6 +79,9 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ForecastResultHandlerTest {
 
+    private static final String BUILD = "v2.28.0";
+    private static final Instant NOW = Instant.parse("2026-04-16T09:30:00Z");
+    private static final Clock CLOCK = Clock.fixed(NOW, java.time.ZoneOffset.UTC);
     private static final LocalDate DATE = LocalDate.of(2026, 4, 16);
     private static final TargetType SUNRISE = TargetType.SUNRISE;
     private static final AtmosphericData ATMOSPHERIC = TestAtmosphericData.defaults();
@@ -109,7 +114,8 @@ class ForecastResultHandlerTest {
                         new SkyVisitor(), new TideVisitor(), new BluebellVisitor(),
                         new WoodlandVisitor())),
                 forecastDataAugmentor, forecastScoreWriter, parser,
-                forecastEvaluationRepository, supersedingDispositionService);
+                forecastEvaluationRepository, supersedingDispositionService, CLOCK,
+                new AppBuild(BUILD));
     }
 
     @Test
@@ -243,6 +249,10 @@ class ForecastResultHandlerTest {
         assertThat(saved.getBatchState()).isEqualTo(BatchState.SCORED);
         // forecast_run_at means "when the weather was sampled" — R5 must never bump it.
         assertThat(saved.getForecastRunAt()).isEqualTo(submittedAt);
+        // V178: the AVAILABILITY instant is the clock reading at scoring, not the submission instant.
+        assertThat(saved.getScoredAt()).isEqualTo(NOW);
+        // V182: stamped with the same instant, from the same guard, by the build that scored it.
+        assertThat(saved.getAppBuild()).isEqualTo(BUILD);
         // LITE-tier and inversion fields, absent from BriefingEvaluationResult, must still land.
         assertThat(saved.getBasicFierySkyPotential()).isEqualTo(55);
         assertThat(saved.getBasicGoldenHourPotential()).isEqualTo(48);
@@ -250,6 +260,82 @@ class ForecastResultHandlerTest {
         assertThat(saved.getInversion()).isNotNull();
         assertThat(saved.getInversion().getScore()).isEqualTo(6);
         assertThat(saved.getInversion().getPotential()).isEqualTo("MODERATE");
+    }
+
+    private ForecastEvaluationEntity scoreWithMist(boolean mistProne, String claudeBand) {
+        LocationEntity location = locationWithRegion(42L, "Brathay", "Lake District");
+        location.setMistProne(mistProne);
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, 790L);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE-r790",
+                "{\"rating\":4,\"fiery_sky\":20,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 20, 65, "X", null, null, null, null, null, null,
+                                claudeBand),
+                        false));
+        ForecastEvaluationEntity pendingRow = ForecastEvaluationEntity.builder()
+                .id(790L)
+                .forecastRunAt(LocalDateTime.of(2026, 4, 16, 3, 0))
+                .batchState(BatchState.PENDING)
+                .build();
+        when(forecastEvaluationRepository.findById(790L)).thenReturn(Optional.of(pendingRow));
+
+        handler.parseBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        ArgumentCaptor<ForecastEvaluationEntity> savedCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(forecastEvaluationRepository).save(savedCaptor.capture());
+        return savedCaptor.getValue();
+    }
+
+    @Test
+    @DisplayName("V186: a batch result for a mist_prone site lands Claude's mist_potential on the scored row")
+    void parseBatchResponse_withEvalRowId_mistProne_keepsMistPotential() {
+        assertThat(scoreWithMist(true, "LIKELY").getMistPotential()).isEqualTo("LIKELY");
+    }
+
+    @Test
+    @DisplayName("V186: a stray mist_potential for an unflagged site is not stored")
+    void parseBatchResponse_withEvalRowId_unflagged_dropsStrayMistPotential() {
+        assertThat(scoreWithMist(false, "LIKELY").getMistPotential()).isNull();
+    }
+
+    @Test
+    @DisplayName("V178: a row already stamped keeps its first availability instant when its result is "
+            + "processed a second time")
+    void parseBatchResponse_withEvalRowId_alreadyStamped_keepsFirstInstant() {
+        LocationEntity location = locationWithRegion(46L, "Ullswater", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(46L, DATE, SUNRISE, 781L);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-46-2026-04-16-SUNRISE-r781",
+                "{\"rating\":4,\"fiery_sky\":50,\"golden_hour\":45,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 50, 45, "X"), false));
+        Instant first = Instant.parse("2026-04-16T04:00:00Z");
+        ForecastEvaluationEntity scoredRow = ForecastEvaluationEntity.builder()
+                .id(781L)
+                .forecastRunAt(LocalDateTime.of(2026, 4, 16, 3, 0))
+                .batchState(BatchState.SCORED)
+                .scoredAt(first)
+                .appBuild("v2.27.0")
+                .build();
+        when(forecastEvaluationRepository.findById(781L)).thenReturn(Optional.of(scoredRow));
+
+        handler.parseBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        ArgumentCaptor<ForecastEvaluationEntity> savedCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(forecastEvaluationRepository).save(savedCaptor.capture());
+        assertThat(savedCaptor.getValue().getScoredAt()).isEqualTo(first).isNotEqualTo(NOW);
+        assertThat(savedCaptor.getValue().getAppBuild())
+                .as("a re-processed result keeps the build that first scored the row")
+                .isEqualTo("v2.27.0");
     }
 
     @Test
@@ -325,6 +411,39 @@ class ForecastResultHandlerTest {
         assertThat(saved.getSummary()).isEqualTo(ForecastResultHandler.SKY_NOT_FORECAST_SUMMARY);
         assertThat(saved.getHeadline()).isNull();
         assertThat(saved.getBatchState()).isEqualTo(BatchState.SCORED);
+        assertThat(saved.getScoredAt()).as("the substituted 1★ is something to say").isEqualTo(NOW);
+    }
+
+    @Test
+    @DisplayName("V178: a PENDING row is unstamped until scored, and a rejected rating leaves it "
+            + "unstamped — it has nothing to say")
+    void parseBatchResponse_withEvalRowId_rejectedRating_leavesScoredAtNull() {
+        LocationEntity location = locationWithRegion(45L, "Buttermere", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(45L, DATE, SUNRISE, 780L);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-45-2026-04-16-SUNRISE-r780",
+                "{\"rating\":9,\"fiery_sky\":50,\"golden_hour\":45,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(9, 50, 45, "X"), false));
+        ForecastEvaluationEntity pendingRow = ForecastEvaluationEntity.builder()
+                .id(780L)
+                .forecastRunAt(LocalDateTime.of(2026, 4, 16, 3, 0))
+                .batchState(BatchState.PENDING)
+                .build();
+        assertThat(pendingRow.getScoredAt()).as("a PENDING row is never stamped").isNull();
+        when(forecastEvaluationRepository.findById(780L)).thenReturn(Optional.of(pendingRow));
+
+        handler.parseBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        ArgumentCaptor<ForecastEvaluationEntity> savedCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(forecastEvaluationRepository).save(savedCaptor.capture());
+        assertThat(savedCaptor.getValue().getRating()).isNull();
+        assertThat(savedCaptor.getValue().getScoredAt()).isNull();
+        assertThat(savedCaptor.getValue().getAppBuild()).as("nothing to say, so no build").isNull();
     }
 
     @Test

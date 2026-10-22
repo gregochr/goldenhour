@@ -102,6 +102,36 @@ public interface ForecastRunDispositionRepository
             @Param("start") LocalDate start, @Param("end") LocalDate end);
 
     /**
+     * Every {@code SKIPPED_STABILITY} instant recorded at or before {@code upTo} for a set of places
+     * on one event date and type — the as-of-event resolver's retraction evidence ({@code
+     * AsOfEventResolver}, outcome-rating plan §2 #1 step 2).
+     *
+     * <p>The sibling of {@link #findLatestStabilitySkipTimestamps} bounded by an instant instead of
+     * grouped to the latest: a skip recorded AFTER an event retracts what the reader saw later, not
+     * what they saw then, so "the latest skip" is only meaningful up to the event. Rows are returned
+     * ungrouped ({@code [locationName, createdAt]}) because a roster's places have different event
+     * instants; the caller takes, per place, the latest instant not after its own event. Bounded by
+     * this table's 30-day retention, which is why the rating write is bounded by {@code
+     * OutcomeRatingService.MAX_RATING_AGE_DAYS}.
+     *
+     * @param locationNames the places asked about (the disposition table is keyed by name)
+     * @param evaluationDate the event date
+     * @param eventType     {@code SUNRISE} or {@code SUNSET}, as the disposition stores it
+     * @param upTo          the latest skip instant of interest (inclusive)
+     * @return rows of {@code [locationName (String), createdAt (Instant)]}
+     */
+    @Query("SELECT d.locationName, d.createdAt FROM ForecastRunDispositionEntity d "
+            + "WHERE d.disposition = 'SKIPPED_STABILITY' "
+            + "AND d.locationName IN :locationNames "
+            + "AND d.evaluationDate = :evaluationDate AND d.eventType = :eventType "
+            + "AND d.createdAt <= :upTo")
+    List<Object[]> findStabilitySkipInstantsUpTo(
+            @Param("locationNames") Collection<String> locationNames,
+            @Param("evaluationDate") LocalDate evaluationDate,
+            @Param("eventType") String eventType,
+            @Param("upTo") Instant upTo);
+
+    /**
      * For every (location name, evaluation date, event type) with at least one disposition in the
      * range OTHER THAN {@code SKIPPED_CACHED}, returns the disposition AND {@code created_at} of
      * the <em>most recent</em> such row.
@@ -167,12 +197,13 @@ public interface ForecastRunDispositionRepository
      * @param start first evaluation date to include (inclusive)
      * @param end   last evaluation date to include (inclusive)
      * @return rows of {@code [locationName (String), evaluationDate (LocalDate), eventType
-     *         (String), disposition (String), createdAt (Instant), jobRunId (Long)]}, one per slot
+     *         (String), disposition (String), createdAt (Instant), jobRunId (Long), detail
+     *         (String, the free-text reason, null for an evaluated slot)]}, one per slot
      *         with at least one non-{@code SKIPPED_CACHED} disposition — the disposition and instant of whichever
      *         such row is most recent for that slot
      */
     @Query("SELECT d.locationName, d.evaluationDate, d.eventType, d.disposition, d.createdAt, "
-            + "d.jobRunId "
+            + "d.jobRunId, d.detail "
             + "FROM ForecastRunDispositionEntity d "
             + "WHERE d.disposition <> 'SKIPPED_CACHED' "
             + "AND d.evaluationDate BETWEEN :start AND :end "

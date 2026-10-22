@@ -18,14 +18,31 @@ import java.util.Set;
  * @param events    the events {@code get_hot_topics} and {@code get_coming_up} returned
  * @param toolCalls how many tool calls the conversation made (errors included)
  * @param thread    what the thread offered; null reads as nothing
+ * @param listedWindows the solar window ids {@code list_windows} returned in this conversation, whose
+ *                  spreads the answer may have quoted and so must carry; a result the character cap
+ *                  refused lists nothing
  */
-public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls, ThreadFact thread) {
+public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls, ThreadFact thread,
+        Set<String> listedWindows) {
 
     /** Canonical constructor: takes immutable copies; a null set reads as empty. */
     public AskEvidence {
         pairs = pairs == null ? Set.of() : Set.copyOf(pairs);
         events = events == null ? Set.of() : Set.copyOf(events);
         thread = thread == null ? ThreadFact.NONE : thread;
+        listedWindows = listedWindows == null ? Set.of() : Set.copyOf(listedWindows);
+    }
+
+    /**
+     * Evidence that lists no window.
+     *
+     * @param pairs     the (location, window) pairs {@code rank_spots} or {@code rank_night_spots} returned
+     * @param events    the events the event tools returned
+     * @param toolCalls how many tool calls the conversation made
+     * @param thread    what the thread offered
+     */
+    public AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls, ThreadFact thread) {
+        this(pairs, events, toolCalls, thread, Set.of());
     }
 
     /**
@@ -46,7 +63,7 @@ public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls,
      * @return the combined evidence
      */
     public AskEvidence withThread(ThreadFact offered) {
-        return new AskEvidence(pairs, events, toolCalls, offered);
+        return new AskEvidence(pairs, events, toolCalls, offered, listedWindows);
     }
 
     /**
@@ -88,12 +105,25 @@ public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls,
      * @param turnedDown   the locations of every earlier pick, when the follow-up turns the earlier places
      *                     down ({@code ReadyIntentRules.turnsDownEarlierPlaces}); empty otherwise. The
      *                     validator drops any submitted pick at one of them, at every window
+     * @param heldBack     the subset of {@code droppedPicks} dropped for one reason alone: the neighbour
+     *                     guard marked the slot as rated far above the places beside it (its rating has
+     *                     not fallen, so "no longer in the forecast" would be false)
      */
     public record ThreadFact(Set<Pair> picks, Set<Pair> droppedPicks, Set<EventFact> events,
-            Set<Long> turnedDown) {
+            Set<Long> turnedDown, Set<Pair> heldBack) {
 
         /** No thread: nothing offered. */
-        public static final ThreadFact NONE = new ThreadFact(Set.of(), Set.of(), Set.of(), Set.of());
+        public static final ThreadFact NONE = new ThreadFact(Set.of(), Set.of(), Set.of(), Set.of(), Set.of());
+
+        /** Why a stale-thread can't-answer is given: what became of the places the answer rested on. */
+        public enum StaleKind {
+            /** None is held back: they have left the forecast, been rated down or left the scope. */
+            GONE,
+            /** Every one is held back by the neighbour guard. */
+            HELD_BACK,
+            /** Some are held back and some are not. */
+            MIXED
+        }
 
         /** Canonical constructor: immutable copies, in order; null reads as empty. */
         public ThreadFact {
@@ -103,6 +133,21 @@ public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls,
             events = events == null ? Set.of() : Collections.unmodifiableSet(new LinkedHashSet<>(events));
             turnedDown = turnedDown == null ? Set.of()
                     : Collections.unmodifiableSet(new LinkedHashSet<>(turnedDown));
+            heldBack = heldBack == null ? Set.of()
+                    : Collections.unmodifiableSet(new LinkedHashSet<>(heldBack));
+        }
+
+        /**
+         * A thread fact with nothing held back by the neighbour guard.
+         *
+         * @param picks        the earlier picks still offered
+         * @param droppedPicks the earlier picks that are not
+         * @param events       the earlier events still flagged
+         * @param turnedDown   the locations the follow-up turns down
+         */
+        public ThreadFact(Set<Pair> picks, Set<Pair> droppedPicks, Set<EventFact> events,
+                Set<Long> turnedDown) {
+            this(picks, droppedPicks, events, turnedDown, Set.of());
         }
 
         /**
@@ -129,6 +174,22 @@ public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls,
                 return false;
             }
             return !submitted.isEmpty() || picks.isEmpty();
+        }
+
+        /**
+         * Why the stale-thread can't-answer is given, for choosing its words: judged over the pairs the
+         * model submitted, or over every dropped earlier pick when it submitted none.
+         *
+         * @param submitted the pairs the model submitted
+         * @return {@link StaleKind#HELD_BACK} when every one is held back by the neighbour guard,
+         *         {@link StaleKind#MIXED} when only some are, otherwise {@link StaleKind#GONE}
+         */
+        public StaleKind staleKind(Set<Pair> submitted) {
+            Set<Pair> judged = submitted.isEmpty() ? droppedPicks : submitted;
+            if (!judged.isEmpty() && heldBack.containsAll(judged)) {
+                return StaleKind.HELD_BACK;
+            }
+            return judged.stream().anyMatch(heldBack::contains) ? StaleKind.MIXED : StaleKind.GONE;
         }
     }
 

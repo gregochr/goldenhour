@@ -246,17 +246,26 @@ async function land(settle) {
  * `scoresKnown` is TRUE throughout unless a test says otherwise: the solar scores have landed, which
  * is exactly the state in which the old callout claimed "Not scored yet" on every night step.
  */
+let handoffSeq = 0;
+let lastHandoffEvent = null;
 function mapOn(night, eventType, extra) {
+  // The window and the selected place arrive as a map-sourced handoff (the same structured payload
+  // the four-day sheet's footer sends): it names the event, selects the place, and a new nonce
+  // re-applies it. `handoffLocationName`/`handoffNonce` in `extra` override the defaults.
+  const { handoffLocationName = SELECTED, handoffNonce = null, ...rest } = extra ?? {};
+  // A new event type is a new handoff (the effect is nonce-keyed), as the old per-field prop was
+  // keyed on its own value.
+  if (eventType !== lastHandoffEvent) { handoffSeq += 1; lastHandoffEvent = eventType; }
   return (
     <MapView
       locations={LOCATIONS}
       date={night}
       autoEventType={null}
-      handoffEventType={eventType}
-      handoffLocationName={SELECTED}
-      handoffNonce={1}
+      planHandoff={{
+        source: 'map', eventType, date: night, locationName: handoffLocationName, nonce: handoffNonce ?? handoffSeq,
+      }}
       scoresKnown
-      {...extra}
+      {...rest}
     />
   );
 }
@@ -316,6 +325,9 @@ const RETRYING = 'Couldn’t load — trying again';
 
 
 beforeEach(() => {
+  // The handoff nonce must not depend on which test ran before.
+  handoffSeq = 0;
+  lastHandoffEvent = null;
   localStorage.clear();
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(NOW));
@@ -1110,20 +1122,6 @@ describe.each(KINDS)('a failed $name night request is asked again', (kind) => {
     expect(sentFor(kind.requests, NIGHT_B)).toBe(2);
   });
 
-  it('asks only once on the frozen Plan-tab overlay, as it always has — and listens for nothing', async () => {
-    const added = vi.spyOn(window, 'addEventListener');
-    try {
-      await renderOn(NIGHT_A, kind.eventType, { overlayMode: true });
-      await land(() => nth(kind.requests, NIGHT_A, 0).reject(new Error('night A timed out')));
-      await focusTheWindow();
-      await elapse(HOUR_MS);
-      expect(sentFor(kind.requests, NIGHT_A)).toBe(1);
-      expect(added.mock.calls.filter(([type]) => type === 'focus')).toHaveLength(0);
-    } finally {
-      added.mockRestore();
-    }
-  });
-
   it('removes every focus and visibility listener it adds — across night steps and when the map goes', async () => {
     const spies = [
       vi.spyOn(window, 'addEventListener'), vi.spyOn(window, 'removeEventListener'),
@@ -1145,19 +1143,6 @@ describe.each(KINDS)('a failed $name night request is asked again', (kind) => {
     } finally {
       spies.forEach((spy) => spy.mockRestore());
     }
-  });
-});
-
-describe.each(KINDS)('the frozen Plan-tab overlay and the $name preview', (kind) => {
-  beforeEach(() => { kind.arrange([NIGHT_A, NIGHT_B]); });
-
-  it('never asks the preview — only the night on screen, even when handed a forecast horizon', async () => {
-    // The overlay mounts no window control, so a preview there is pure waste (`MapView`'s
-    // `astroPreviewDates` note). `App` hands that mount no `forecastDates` today, which alone would
-    // keep the preview's horizon empty; this hands it some, so the overlay gate itself is what is
-    // under test — and the one list the preview and the pending set both read.
-    await renderOn(NIGHT_A, kind.eventType, { forecastDates: PREVIEWED, overlayMode: true });
-    expect(kind.requests.map((r) => r.night)).toEqual([NIGHT_A]);
   });
 });
 
@@ -1241,5 +1226,53 @@ describe('the callout on the aurora night in progress', () => {
     // A rating outranks the failure line, and the live state's is a rating.
     expect(headline()).toHaveTextContent('5★');
     expect(headline()).not.toHaveTextContent('Couldn’t load');
+  });
+});
+
+describe('the callout\'s aurora alert level (overlay convergence C2)', () => {
+  const level = () => screen.queryByTestId('map-callout-aurora-level');
+
+  it('names the level the stored aurora row serves for the selected place', async () => {
+    KINDS[1].arrange([NIGHT_A]);
+    await renderOn(NIGHT_A, 'AURORA');
+    await land(() => nth(sent.aurora, NIGHT_A, 0).resolve([
+      { locationName: SELECTED, stars: 4, alertLevel: 'STRONG' },
+    ]));
+    // The control: the callout is up on this night and reads the row's stars.
+    expect(headline()).toHaveTextContent('4★');
+    expect(level()).toHaveTextContent('Alert level: Strong');
+  });
+
+  it('names the LIVE level when the night on screen is the live alert\'s night (live wins over the stored request)', async () => {
+    KINDS[1].arrange([NIGHT_A]);
+    // The live alert's night IS the night on screen, so `liveAuroraOnScreen` is true.
+    auroraStatusRef.current = {
+      level: 'MODERATE', kpIndex: 6, currentNightDate: NIGHT_A, active: true,
+    };
+    getAuroraLocations.mockResolvedValue([
+      { location: { name: SELECTED, lat: 55.23, lon: -2.58 }, stars: 5, summary: 'Live', alertLevel: 'STRONG' },
+    ]);
+    await renderOn(NIGHT_A, 'AURORA');
+    // The stored request is left unanswered on purpose: only the live row can supply the level.
+    expect(headline()).toHaveTextContent('5★');
+    expect(level()).toHaveTextContent('Alert level: Strong');
+  });
+
+  it('draws no level line when the row serves none', async () => {
+    KINDS[1].arrange([NIGHT_A]);
+    await renderOn(NIGHT_A, 'AURORA');
+    await land(() => nth(sent.aurora, NIGHT_A, 0).resolve([{ locationName: SELECTED, stars: 4 }]));
+    expect(headline()).toHaveTextContent('4★');
+    expect(level()).not.toBeInTheDocument();
+  });
+
+  it('draws none on an astro night, whatever its rows carry', async () => {
+    KINDS[0].arrange([NIGHT_A]);
+    await renderOn(NIGHT_A, 'ASTRO');
+    await land(() => nth(sent.astro, NIGHT_A, 0).resolve([
+      { locationName: SELECTED, stars: 4, alertLevel: 'STRONG' },
+    ]));
+    expect(headline()).toHaveTextContent('4★');
+    expect(level()).not.toBeInTheDocument();
   });
 });

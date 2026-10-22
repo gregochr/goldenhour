@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.client.PostcodeLookupException;
+import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.client.PostcodesIoClient;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
@@ -1254,5 +1255,210 @@ class UserSettingsServiceTest {
         assertThatThrownBy(() -> service.getSettings(auth))
                 .isInstanceOf(NoSuchElementException.class)
                 .hasMessageContaining(USERNAME);
+    }
+
+    // ── the one-time sign-in postcode prompt (login-registration plan §2 #3, R4a) ──
+
+    @Nested
+    @DisplayName("postcodePromptDue and markPostcodePromptDismissed")
+    class PostcodePrompt {
+
+        @Test
+        @DisplayName("due is true with neither a postcode nor a dismissal — the existing-user case")
+        void due_withNeitherPostcodeNorDismissal() {
+            stubAuth();
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(buildUser()));
+
+            UserSettingsResponse response = service.getSettings(auth);
+
+            assertThat(response.postcodePromptDue()).isTrue();
+            assertThat(response.postcodePromptDismissedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("due is false with a postcode, whatever the dismissal says")
+        void notDue_withAPostcode() {
+            stubAuth();
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(
+                    home(DURHAM, DURHAM_LAT, DURHAM_LON)));
+            when(postcodesIoClient.lookup(DURHAM)).thenThrow(new PostcodeLookupException("x"));
+
+            assertThat(service.getSettings(auth).postcodePromptDue()).isFalse();
+        }
+
+        @Test
+        @DisplayName("due is false with a dismissal and no postcode, and the instant is served")
+        void notDue_withADismissal() {
+            stubAuth();
+            AppUserEntity user = buildUser();
+            user.setPostcodePromptDismissedAt(NOW);
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+            UserSettingsResponse response = service.getSettings(auth);
+
+            assertThat(response.postcodePromptDue()).isFalse();
+            assertThat(response.postcodePromptDismissedAt()).isEqualTo(NOW);
+        }
+
+        @Test
+        @DisplayName("due is false with both a postcode and a dismissal")
+        void notDue_withBoth() {
+            stubAuth();
+            AppUserEntity user = home(DURHAM, DURHAM_LAT, DURHAM_LON);
+            user.setPostcodePromptDismissedAt(NOW);
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+            when(postcodesIoClient.lookup(DURHAM)).thenThrow(new PostcodeLookupException("x"));
+
+            assertThat(service.getSettings(auth).postcodePromptDue()).isFalse();
+        }
+
+        @Test
+        @DisplayName("every other write's response carries the flag too — it is decided in the one "
+                + "response builder, not per endpoint")
+        void otherWritesCarryTheFlag() {
+            stubAuth();
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(buildUser()));
+
+            assertThat(service.markComingUpSeen(auth).postcodePromptDue()).isTrue();
+            assertThat(service.saveMapTideMode(auth, new MapTideModeRequest("auto"))
+                    .postcodePromptDue()).isTrue();
+            assertThat(service.saveMapColourPreferences(auth,
+                    new MapColourPreferencesRequest("temp")).postcodePromptDue()).isTrue();
+        }
+
+        @Test
+        @DisplayName("saving a postcode ends the question: the saveHome response says not due")
+        void saveHome_endsTheQuestion() {
+            stubAuth();
+            when(userRepository.findByUsernameForUpdate(USERNAME)).thenReturn(Optional.of(buildUser()));
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(
+                    home(DURHAM, DURHAM_LAT, DURHAM_LON)));
+
+            UserSettingsResponse response = service.saveHome(auth,
+                    new SaveHomeRequest(DURHAM, DURHAM_LAT, DURHAM_LON, null));
+
+            assertThat(response.homePostcode()).isEqualTo(DURHAM);
+            assertThat(response.postcodePromptDue()).isFalse();
+            assertThat(response.postcodePromptDismissedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("dismissing writes the server's clock through the column-scoped update, never "
+                + "save(), and answers a fresh read with the flag false")
+        void dismiss_writesTheClockThroughTheScopedUpdate() {
+            stubAuth();
+            // The row as a fresh read finds it once the scoped update has landed — this test is
+            // the service's orchestration (write one column, then re-read), as markComingUpSeen's.
+            AppUserEntity afterWrite = buildUser();
+            afterWrite.setPostcodePromptDismissedAt(NOW);
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(afterWrite));
+
+            UserSettingsResponse response = service.markPostcodePromptDismissed(auth);
+
+            verify(userRepository).updatePostcodePromptDismissedAtByUsername(USERNAME, NOW);
+            verify(userRepository, never()).save(any());
+            assertThat(response.postcodePromptDismissedAt()).isEqualTo(NOW);
+            assertThat(response.postcodePromptDue()).isFalse();
+            // The write is not a geocode: no postcodes.io call on this path.
+            verifyNoInteractions(postcodesIoClient);
+        }
+
+        @Test
+        @DisplayName("dismissing is idempotent — a second press writes the instant again")
+        void dismiss_isIdempotent() {
+            stubAuth();
+            AppUserEntity afterWrite = buildUser();
+            afterWrite.setPostcodePromptDismissedAt(NOW);
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(afterWrite));
+
+            service.markPostcodePromptDismissed(auth);
+            UserSettingsResponse second = service.markPostcodePromptDismissed(auth);
+
+            verify(userRepository, times(2)).updatePostcodePromptDismissedAtByUsername(USERNAME, NOW);
+            assertThat(second.postcodePromptDue()).isFalse();
+        }
+
+        @Test
+        @DisplayName("dismissing an unknown user is a NoSuchElementException (404)")
+        void dismiss_unknownUser_throws() {
+            stubAuth();
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.markPostcodePromptDismissed(auth))
+                    .isInstanceOf(NoSuchElementException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("reverseLookupPostcode")
+    class ReverseLookup {
+
+        @Test
+        @DisplayName("hands a valid point to the client, latitude first, and returns its result")
+        void delegatesToTheClient() {
+            PostcodeLookupResult expected = new PostcodeLookupResult(
+                    DURHAM, DURHAM_LAT, DURHAM_LON, "Durham, County Durham");
+            when(postcodesIoClient.reverseLookup(54.776, -1.575)).thenReturn(expected);
+
+            assertThat(service.reverseLookupPostcode(54.776, -1.575)).isEqualTo(expected);
+        }
+
+        @ParameterizedTest(name = "[{index}] latitude {0}, longitude {1} is accepted")
+        @CsvSource({"90.0, 180.0", "-90.0, -180.0", "0.0, 0.0"})
+        @DisplayName("the range bounds themselves are valid")
+        void boundsAreInclusive(double lat, double lon) {
+            when(postcodesIoClient.reverseLookup(lat, lon)).thenReturn(
+                    new PostcodeLookupResult(DURHAM, DURHAM_LAT, DURHAM_LON, "x"));
+
+            assertThat(service.reverseLookupPostcode(lat, lon)).isNotNull();
+        }
+
+        @Test
+        @DisplayName("a missing latitude or longitude is refused with the fixed message, upstream untouched")
+        void missingValue_isRefused() {
+            assertThatThrownBy(() -> service.reverseLookupPostcode(null, -1.5))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("latitude and longitude are required");
+            assertThatThrownBy(() -> service.reverseLookupPostcode(54.0, null))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("latitude and longitude are required");
+            verifyNoInteractions(postcodesIoClient);
+        }
+
+        @ParameterizedTest(name = "[{index}] latitude {0}")
+        @ValueSource(doubles = {90.0001, -90.0001, 1000.0, Double.NaN, Double.POSITIVE_INFINITY,
+                Double.NEGATIVE_INFINITY})
+        @DisplayName("an out-of-range or non-finite latitude is refused, upstream untouched")
+        void badLatitude_isRefused(double lat) {
+            assertThatThrownBy(() -> service.reverseLookupPostcode(lat, 0.0))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("latitude must be between -90 and 90");
+            verifyNoInteractions(postcodesIoClient);
+        }
+
+        @ParameterizedTest(name = "[{index}] longitude {0}")
+        @ValueSource(doubles = {180.0001, -180.0001, 1000.0, Double.NaN, Double.POSITIVE_INFINITY,
+                Double.NEGATIVE_INFINITY})
+        @DisplayName("an out-of-range or non-finite longitude is refused, upstream untouched")
+        void badLongitude_isRefused(double lon) {
+            assertThatThrownBy(() -> service.reverseLookupPostcode(0.0, lon))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("longitude must be between -180 and 180");
+            verifyNoInteractions(postcodesIoClient);
+        }
+
+        @Test
+        @DisplayName("the client's not-found and unavailable failures pass through unchanged")
+        void clientFailuresPassThrough() {
+            when(postcodesIoClient.reverseLookup(0.0, 0.0))
+                    .thenThrow(new PostcodeLookupException("No UK postcode found for that location"));
+            when(postcodesIoClient.reverseLookup(1.0, 1.0))
+                    .thenThrow(new PostcodeLookupUnavailableException());
+
+            assertThatThrownBy(() -> service.reverseLookupPostcode(0.0, 0.0))
+                    .isInstanceOf(PostcodeLookupException.class);
+            assertThatThrownBy(() -> service.reverseLookupPostcode(1.0, 1.0))
+                    .isInstanceOf(PostcodeLookupUnavailableException.class);
+        }
     }
 }

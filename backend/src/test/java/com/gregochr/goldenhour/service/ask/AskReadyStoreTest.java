@@ -246,4 +246,74 @@ class AskReadyStoreTest {
         assertThat(jobRuns.countByRunTypeAndTriggeredManuallyAndStartedAtGreaterThanEqual(RunType.ASK_READY,
                 true, ukMidnight)).isEqualTo(1);
     }
+
+    // -- the carried window figures (ask-window-context plan §2.4) ---------------------------------------
+
+    private static AskAnswer answerWithWindows() {
+        AskSnapshot.Spread spread = new AskSnapshot.Spread("every region", 180, List.of(0, 56, 122, 2, 0), 2, 1, 0,
+                178, 56, null, null, null, new AskSnapshot.Spread.Regions(1, null, null, null),
+                List.of(new AskSnapshot.Spread.Pocket("Northumberland", 2, 2.7)), null);
+        return answer("First.").withWindows(List.of(new AskAnswer.WindowSpread("2026-10-10_sunset", spread)));
+    }
+
+    @Test
+    @DisplayName("a solar pick answer round-trips with its whole spread per window and the covered windows it was "
+            + "built over, in answer_json with no column")
+    void windowsAndCoveredRoundTrip() {
+        ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Best spot this weekend?",
+                List.of("2026-10-10_sunset"), null, List.of("2026-10-10_sunrise", "2026-10-10_sunset"));
+        store().upsert("ALL", ReadyQuestion.BEST_WEEKEND, offer, answerWithWindows(), BUILT, 1L);
+
+        AskReadyStore.Stored found = store().findScope("ALL").getFirst();
+
+        assertThat(found.answer().windows()).isEqualTo(answerWithWindows().windows());
+        assertThat(found.coveredWindowIds()).containsExactly("2026-10-10_sunrise", "2026-10-10_sunset");
+        assertThat(found.windowIds()).containsExactly("2026-10-10_sunset");
+        assertThat(repository.findAll().getFirst().getAnswerJson()).contains("\"coveredWindowIds\"")
+                .contains("\"windows\"");
+    }
+
+    @Test
+    @DisplayName("a night-bound or events question stores no covered windows, and reads back with none")
+    void nightAndEventsStoreNoCoveredWindows() {
+        store().upsert("ALL", ReadyQuestion.NIGHT_SKY,
+                new ReadyQuestion.Offer("Anything for the night sky tonight?", List.of("2026-10-05_astro"), null),
+                nightAnswer(), BUILT, null, "n1;2026-10-05=1");
+        store().upsert("ALL", ReadyQuestion.RARE_EVENTS, new ReadyQuestion.Offer("Any?", List.of(), null),
+                answer("Events."), BUILT, null);
+
+        assertThat(store().findScope("ALL")).extracting(AskReadyStore.Stored::coveredWindowIds)
+                .containsOnlyNulls();
+        assertThat(repository.findAll()).extracting(AskReadyAnswerEntity::getAnswerJson)
+                .noneMatch(json -> json.contains("coveredWindowIds"));
+    }
+
+    @Test
+    @DisplayName("a row written before the figures existed, and a row carrying a property this build does not "
+            + "know, both decode: unknown is not stale, and an unknown field never drops the row")
+    void legacyAndFutureRowsDecode() {
+        for (String json : List.of(
+                "{\"answerable\":true,\"summary\":\"Old.\",\"picks\":[],\"events\":[],\"missing\":null}",
+                "{\"answerable\":true,\"summary\":\"New.\",\"picks\":[],\"events\":[],\"missing\":null,"
+                        + "\"windows\":[],\"aFutureField\":{\"x\":1}}")) {
+            AskReadyAnswerEntity row = new AskReadyAnswerEntity();
+            row.setScopeKey("ALL");
+            row.setQuestionId("BEST_NEXT");
+            row.setQuestionText("Best spot tonight?");
+            row.setWindowIds("2026-10-05_sunset");
+            row.setBriefingGeneratedAt(BUILT);
+            row.setAnswerJson(json);
+            row.setCreatedAt(NOW);
+            repository.deleteAllInBatch();
+            repository.flush();
+            repository.saveAndFlush(row);
+
+            List<AskReadyStore.Stored> found = store().findScope("ALL");
+
+            assertThat(found).singleElement().satisfies(s -> {
+                assertThat(s.answer().windows()).isEmpty();
+                assertThat(s.coveredWindowIds()).isNull();
+            });
+        }
+    }
 }

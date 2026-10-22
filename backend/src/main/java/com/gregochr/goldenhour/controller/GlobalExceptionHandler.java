@@ -1,6 +1,9 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.client.PostcodeLookupException;
+import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
+import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,6 +76,47 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ErrorResponse handleRegistrationClosed(RegistrationClosedException ex) {
         return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link StaleCredentialsException} to HTTP 401: the caller's session was superseded by a
+     * credential change, so the client's existing session-expired path signs the reader out.
+     *
+     * @param ex the exception
+     * @return an error response body carrying "Your session has changed. Sign in again."
+     */
+    @ExceptionHandler(StaleCredentialsException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ErrorResponse handleStaleCredentials(StaleCredentialsException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link PostcodeLookupException} — the postcode lookup worked and found nothing — to
+     * HTTP 400. Until the login-registration series this fell into the catch-all and answered 500.
+     *
+     * @param ex the exception, whose message is fixed text by contract
+     * @return an error response body
+     */
+    @ExceptionHandler(PostcodeLookupException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handlePostcodeNotFound(PostcodeLookupException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link PostcodeLookupUnavailableException} — the postcode service failed or could not be
+     * reached — to HTTP 502 with a fixed message. The upstream's own message is never echoed.
+     *
+     * @param ex the exception
+     * @return an error response body
+     */
+    @ExceptionHandler(PostcodeLookupUnavailableException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public ErrorResponse handlePostcodeUnavailable(PostcodeLookupUnavailableException ex) {
+        // The exception's message is the fixed text above by contract, so logging it carries no upstream text.
+        LOG.debug("Postcode lookup unavailable: {}", ex.getMessage());
+        return new ErrorResponse(PostcodeLookupUnavailableException.MESSAGE);
     }
 
     /**

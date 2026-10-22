@@ -5,9 +5,11 @@ import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +22,9 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -52,6 +57,16 @@ class SlotSignalReaderTest {
     private ForecastScoreRepository forecastScoreRepository;
     @Mock
     private SlotAtmosphereRepository slotAtmosphereRepository;
+
+    /**
+     * The reader also asks for the MIST echo rows (V186); a test that does not care leaves them
+     * empty, and strict stubs would otherwise reject the unstubbed MIST call as an argument mismatch.
+     */
+    @BeforeEach
+    void noMistEchoByDefault() {
+        lenient().when(forecastScoreRepository.findComponentsByType(
+                eq(ForecastType.MIST.getId()), any(), any())).thenReturn(List.of());
+    }
 
     private SlotSignalReader reader() {
         return new SlotSignalReader(forecastScoreRepository, slotAtmosphereRepository);
@@ -212,6 +227,157 @@ class SlotSignalReaderTest {
 
         SlotSignals s = reader().read(FROM, TO).get(0);
         assertThat(s.readings().inversionScore()).isEqualTo(9.0);
+    }
+
+    @Test
+    @DisplayName("V185: the reader maps mistScore and mistScored off the entity, carried together")
+    void readings_mapsMistScoreAndFlag() {
+        LocationEntity loc = location(20L);
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
+        a.setLocation(loc);
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setMistScore(6.5);
+        a.setMistScored(true);
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(a));
+
+        SlotSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.readings().mistScore()).isEqualTo(6.5);
+        assertThat(s.readings().mistScored()).isTrue();
+    }
+
+    @Test
+    @DisplayName("V185: a fresh authoritative null (mistScored true, no score) and a pre-column row "
+            + "(mistScored false) stay distinguishable through the reader")
+    void readings_freshNullAndPreColumnRowAreDistinct() {
+        LocationEntity fresh = location(21L);
+        SlotAtmosphereEntity freshRow = new SlotAtmosphereEntity();
+        freshRow.setLocation(fresh);
+        freshRow.setEvaluationDate(FROM);
+        freshRow.setEventType(SUNSET);
+        freshRow.setMistScored(true);
+        LocationEntity old = location(22L);
+        SlotAtmosphereEntity oldRow = readings(old, "1.00");
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(freshRow, oldRow));
+
+        List<SlotSignals> result = reader().read(FROM, TO);
+
+        SlotSignals freshSignals = result.stream()
+                .filter(x -> x.location().getId() == 21L).findFirst().orElseThrow();
+        SlotSignals oldSignals = result.stream()
+                .filter(x -> x.location().getId() == 22L).findFirst().orElseThrow();
+        assertThat(freshSignals.readings().mistScore()).isNull();
+        assertThat(freshSignals.readings().mistScored()).isTrue();
+        assertThat(oldSignals.readings().mistScore()).isNull();
+        assertThat(oldSignals.readings().mistScored()).isFalse();
+    }
+
+    @Test
+    @DisplayName("V185: the reader maps the stored band name onto Readings.mistPotential")
+    void readings_mapsMistPotential() {
+        LocationEntity loc = location(23L);
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
+        a.setLocation(loc);
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setMistScore(8.0);
+        a.setMistScored(true);
+        a.setMistPotential("FOGBOUND");
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(a));
+
+        SlotSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.readings().mistPotential()).isEqualTo(MistPotential.FOGBOUND);
+    }
+
+    @Test
+    @DisplayName("V186: a forecast_score MIST row's summary is read as Claude's mist band beside the readings")
+    void reader_foldsTheMistEchoOntoTheSlotKey() {
+        LocationEntity loc = location(24L);
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        when(forecastScoreRepository.findComponentsByType(ForecastType.MIST.getId(), FROM, TO))
+                .thenReturn(List.of(score(ForecastType.MIST, loc, 8, "LIKELY")));
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
+        a.setLocation(loc);
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setMistScore(3.0);
+        a.setMistScored(true);
+        a.setMistPotential("NONE");
+        stubReadings(List.of(a));
+
+        SlotSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.scores().mistBand()).isEqualTo("LIKELY");
+        assertThat(s.readings().mistPotential()).isEqualTo(MistPotential.NONE);
+        assertThat(s.effectiveMistPotential())
+                .as("the calculator's fresh band wins over the echo")
+                .isEqualTo(MistPotential.NONE);
+    }
+
+    @Test
+    @DisplayName("V186: a key with only a MIST echo (no reading) still produces a composite carrying it")
+    void reader_mistEchoAloneMakesAComposite() {
+        LocationEntity loc = location(25L);
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        when(forecastScoreRepository.findComponentsByType(ForecastType.MIST.getId(), FROM, TO))
+                .thenReturn(List.of(score(ForecastType.MIST, loc, 8, "LIKELY")));
+        stubReadings(List.of());
+
+        SlotSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.readings()).isSameAs(SlotSignals.Readings.EMPTY);
+        assertThat(s.effectiveMistPotential()).isEqualTo(MistPotential.LIKELY);
+    }
+
+    @Test
+    @DisplayName("V185: the stored band name parses null-safely: null, every known name, and garbage")
+    void parsePotential_isNullSafe() {
+        assertThat(SlotSignals.Readings.parsePotential(null)).isNull();
+        assertThat(SlotSignals.Readings.parsePotential("")).isNull();
+        assertThat(SlotSignals.Readings.parsePotential("not-a-band")).isNull();
+        assertThat(SlotSignals.Readings.parsePotential("likely")).isNull();
+        for (MistPotential p : MistPotential.values()) {
+            assertThat(SlotSignals.Readings.parsePotential(p.name())).isEqualTo(p);
+        }
+    }
+
+    @Test
+    @DisplayName("V185: an unknown stored band name reads as null through the reader, never throws")
+    void readings_unknownMistPotentialReadsNull() {
+        LocationEntity loc = location(24L);
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
+        a.setLocation(loc);
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setMistScore(8.0);
+        a.setMistScored(true);
+        a.setMistPotential("GARBAGE");
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(a));
+
+        SlotSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.readings().mistScore()).isEqualTo(8.0);
+        assertThat(s.readings().mistPotential()).isNull();
+    }
+
+    @Test
+    @DisplayName("EMPTY readings carries no mist reading and is not scored")
+    void emptyReadings_mistIsAbsent() {
+        assertThat(SlotSignals.Readings.EMPTY.mistScore()).isNull();
+        assertThat(SlotSignals.Readings.EMPTY.mistScored()).isFalse();
+        assertThat(SlotSignals.Readings.EMPTY.mistPotential()).isNull();
     }
 
     @Test

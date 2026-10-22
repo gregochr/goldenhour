@@ -476,8 +476,7 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     // The stale-invariant guard used to live here as two absence checks on exact prose sentences the
     // same commit deleted — unfailable by construction, and so protecting nothing (the standards'
     // own rule). The falsifiable claim in its place is the ordering the band's stacking context
-    // exists to impose: 45 must stay under `Modal`'s Tailwind `z-50`, `.wf-peek`'s 60 and
-    // `MapOverlay`'s 200, or clamping the health panel to it stops being a fix. `.wf-peek` is the
+    // exists to impose: 45 must stay under `Modal`'s Tailwind `z-50`, and `.wf-peek`'s 60 (the retired `MapOverlay` sat at 200 above both), or clamping the health panel to it stops being a fix. `.wf-peek` is the
     // one of the three declared in this stylesheet, so it is the one that can drift here.
     const peek = decls(block('.wf-peek'));
     const mastZ = Number(decls(block('.wf-mast')).match(/z-index:\s*(\d+)/)[1]);

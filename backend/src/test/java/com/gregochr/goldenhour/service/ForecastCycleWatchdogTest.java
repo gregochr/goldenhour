@@ -48,8 +48,10 @@ import static org.mockito.Mockito.when;
 class ForecastCycleWatchdogTest {
 
     private static final LocalDate DAY = LocalDate.of(2026, 10, 13);
-    private static final String NIGHTLY = SolarForecastJobs.NIGHTLY_JOB;
-    private static final String INTRADAY = SolarForecastJobs.INTRADAY_JOB;
+    private static final String NIGHTLY = ForecastCycleJobs.NIGHTLY_JOB;
+    private static final String INTRADAY = ForecastCycleJobs.INTRADAY_JOB;
+    private static final String EVENING = ForecastCycleJobs.EVENING_JOB;
+    private static final Duration EVENING_BUDGET = Duration.ofHours(2);
 
     /** A clock the test can move. */
     private static final class MovableClock extends Clock {
@@ -104,7 +106,8 @@ class ForecastCycleWatchdogTest {
         alerts = mock(AdminAlertService.class);
         scheduler = mock(DynamicSchedulerService.class);
         clock = new MovableClock(Instant.parse("2026-10-13T01:45:00Z"));
-        watchdog = new ForecastCycleWatchdog(configs, runs, batches, factory, alerts, scheduler, clock);
+        watchdog = new ForecastCycleWatchdog(configs, runs, batches, factory, alerts, scheduler, clock,
+                EVENING_BUDGET);
         when(runs.findFirstByCycleTypeAndTriggerTimeBetweenOrderByTriggerTimeDesc(any(), any(), any()))
                 .thenReturn(Optional.empty());
         when(runs.findByCycleTypeAndTriggerTimeGreaterThanEqualOrderByTriggerTimeAsc(any(), any()))
@@ -455,6 +458,197 @@ class ForecastCycleWatchdogTest {
         nightly(cronJob(NIGHTLY, "not a cron", SchedulerJobStatus.ACTIVE));
 
         assertThatCode(watchdog::check).doesNotThrowAnyException();
+
+        verify(alerts, never()).sendForecastCycleWatchdogAlert(anyString(), anyString(), anyString());
+    }
+
+    // ---------------------------------------------------------------- the evening refresh
+
+    private void evening() {
+        when(configs.findByJobKey(NIGHTLY)).thenReturn(Optional.empty());
+        when(configs.findByJobKey(INTRADAY)).thenReturn(Optional.empty());
+        when(configs.findByJobKey(EVENING)).thenReturn(Optional.of(
+                cronJob(EVENING, "0 0 20 * * *", SchedulerJobStatus.ACTIVE)));
+    }
+
+    private static ForecastBatchEntity eveningBatch(BatchStatus status, String submittedAt) {
+        ForecastBatchEntity b = batch(BatchType.FORECAST, status);
+        b.setSubmittedAt(Instant.parse(submittedAt));
+        return b;
+    }
+
+    @Test
+    @DisplayName("an evening run inside its budget, with a batch still polling, is on time: no mail")
+    void evening_onTime_noAlert() {
+        evening();
+        runStarted(run(30, CycleType.EVENING, Instant.parse("2026-10-13T20:00:05Z"),
+                PipelineRunStatus.RUNNING));
+        when(batches.findByPipelineRunId(30L)).thenReturn(List.of(
+                eveningBatch(BatchStatus.SUBMITTED, "2026-10-13T20:05:00Z")));
+        clock.set(Instant.parse("2026-10-13T21:30:00Z"));
+
+        watchdog.check();
+
+        verify(alerts, never()).sendForecastCycleWatchdogAlert(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("an evening fire 45 minutes ago with no EVENING run alerts once, and never asks for a "
+            + "solar event")
+    void evening_didNotStart_alertsOnce() {
+        evening();
+        clock.set(Instant.parse("2026-10-13T20:45:00Z"));
+
+        watchdog.check();
+        watchdog.check();
+
+        verifyAlertedOnce(EVENING, "did not start");
+        verify(alerts).sendForecastCycleWatchdogAlert(eq(EVENING), eq("did not start"),
+                contains("EVENING"));
+        verify(runs, times(2)).findFirstByCycleTypeAndTriggerTimeBetweenOrderByTriggerTimeDesc(
+                CycleType.EVENING, Instant.parse("2026-10-13T20:00:00Z"), clock.instant());
+    }
+
+    @Test
+    @DisplayName("an evening run failed by the safety timeout alerts once, quoting the reason")
+    void evening_timedOut_alertsOnce() {
+        evening();
+        PipelineRunEntity failed = run(31, CycleType.EVENING, Instant.parse("2026-10-13T20:00:05Z"),
+                PipelineRunStatus.FAILED);
+        failed.setFailureReason("Safety timeout: Batch set did not reach terminal status within PT2H");
+        runStarted(failed);
+        clock.set(Instant.parse("2026-10-13T22:10:00Z"));
+
+        watchdog.check();
+        watchdog.check();
+
+        verifyAlertedOnce(EVENING, "did not finish");
+        verify(alerts).sendForecastCycleWatchdogAlert(eq(EVENING), eq("did not finish"),
+                contains("safety timeout"));
+    }
+
+    @Test
+    @DisplayName("an evening run failed for any other reason is not the watchdog's alert")
+    void evening_otherFailure_noAlert() {
+        evening();
+        PipelineRunEntity failed = run(32, CycleType.EVENING, Instant.parse("2026-10-13T20:00:05Z"),
+                PipelineRunStatus.FAILED);
+        failed.setFailureReason("Submit phase failed: boom");
+        runStarted(failed);
+        clock.set(Instant.parse("2026-10-13T22:10:00Z"));
+
+        watchdog.check();
+
+        verify(alerts, never()).sendForecastCycleWatchdogAlert(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("a batch still outside TERMINAL once the budget has passed alerts, measured from the "
+            + "first batch submit")
+    void evening_batchPollingPastBudget_alerts() {
+        evening();
+        runStarted(run(33, CycleType.EVENING, Instant.parse("2026-10-13T20:00:05Z"),
+                PipelineRunStatus.RUNNING));
+        when(batches.findByPipelineRunId(33L)).thenReturn(List.of(
+                eveningBatch(BatchStatus.SUBMITTED, "2026-10-13T20:10:00Z"),
+                eveningBatch(BatchStatus.COMPLETED, "2026-10-13T20:20:00Z")));
+
+        clock.set(Instant.parse("2026-10-13T22:09:00Z"));
+        watchdog.check();
+        verify(alerts, never()).sendForecastCycleWatchdogAlert(anyString(), anyString(), anyString());
+
+        clock.set(Instant.parse("2026-10-13T22:11:00Z"));
+        watchdog.check();
+        watchdog.check();
+
+        verifyAlertedOnce(EVENING, "did not finish");
+        verify(alerts).sendForecastCycleWatchdogAlert(eq(EVENING), eq("did not finish"),
+                contains("1 forecast batch(es)"));
+    }
+
+    @Test
+    @DisplayName("a run still RUNNING past its budget with every batch terminal is in its briefing "
+            + "build: no mail")
+    void evening_runningPastBudgetAllBatchesTerminal_noAlert() {
+        evening();
+        runStarted(run(34, CycleType.EVENING, Instant.parse("2026-10-13T20:00:05Z"),
+                PipelineRunStatus.RUNNING));
+        when(batches.findByPipelineRunId(34L)).thenReturn(List.of(
+                eveningBatch(BatchStatus.COMPLETED, "2026-10-13T20:10:00Z")));
+        clock.set(Instant.parse("2026-10-13T23:00:00Z"));
+
+        watchdog.check();
+
+        verify(alerts, never()).sendForecastCycleWatchdogAlert(anyString(), anyString(), anyString());
+    }
+
+    private ForecastCycleWatchdog watchdogWithEveningBudget(Duration budget) {
+        return new ForecastCycleWatchdog(configs, runs, batches, factory, alerts, scheduler, clock, budget);
+    }
+
+    @Test
+    @DisplayName("a summer evening run whose PT3H30M budget ends after UK midnight is still found, "
+            + "and alerts once while its batch is polling")
+    void evening_batchPollingAfterUkMidnight_alertsOnce() {
+        evening();
+        Duration budget = Duration.ofMinutes(210);
+        PipelineRunEntity run = run(40, CycleType.EVENING, Instant.parse("2026-07-15T20:00:05Z"),
+                PipelineRunStatus.RUNNING);
+        runStarted(run);
+        when(batches.findByPipelineRunId(40L)).thenReturn(List.of(
+                eveningBatch(BatchStatus.SUBMITTED, "2026-07-15T20:00:30Z")));
+        clock.set(Instant.parse("2026-07-15T23:40:00Z")); // 00:40 BST on the 16th
+
+        ForecastCycleWatchdog wd = watchdogWithEveningBudget(budget);
+        wd.check();
+        wd.check();
+
+        verifyAlertedOnce(EVENING, "did not finish");
+        // lower bound is now - budget - 1h, earlier than the UK day start (15 Jul 23:00Z)
+        verify(runs, times(2)).findByCycleTypeAndTriggerTimeGreaterThanEqualOrderByTriggerTimeAsc(
+                CycleType.EVENING, Instant.parse("2026-07-15T19:10:00Z"));
+    }
+
+    @Test
+    @DisplayName("a timeout-FAILED evening run seen after UK midnight alerts once")
+    void evening_timedOutSeenAfterUkMidnight_alertsOnce() {
+        evening();
+        PipelineRunEntity failed = run(41, CycleType.EVENING, Instant.parse("2026-07-15T20:00:05Z"),
+                PipelineRunStatus.FAILED);
+        failed.setFailureReason("Safety timeout: Batch set did not reach terminal status within PT3H30M");
+        runStarted(failed);
+        clock.set(Instant.parse("2026-07-15T23:45:00Z"));
+
+        ForecastCycleWatchdog wd = watchdogWithEveningBudget(Duration.ofMinutes(210));
+        wd.check();
+        wd.check();
+
+        verifyAlertedOnce(EVENING, "did not finish");
+    }
+
+    @Test
+    @DisplayName("the evening look-back never reaches a run from two evenings ago")
+    void evening_lookBackExcludesTwoEveningsAgo() {
+        evening();
+        clock.set(Instant.parse("2026-07-16T12:00:00Z"));
+
+        watchdogWithEveningBudget(Duration.ofMinutes(210)).check();
+
+        // now - 3h30 - 1h = 07:30Z on the 16th (the UK day start, 15 Jul 23:00Z, is earlier here),
+        // so the 14 Jul 20:00Z run is outside the query either way
+        verify(runs).findByCycleTypeAndTriggerTimeGreaterThanEqualOrderByTriggerTimeAsc(
+                CycleType.EVENING, Instant.parse("2026-07-15T23:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("with no batch submitted the budget runs from the trigger time")
+    void evening_noBatch_budgetFromTrigger() {
+        evening();
+        runStarted(run(35, CycleType.EVENING, Instant.parse("2026-10-13T20:00:05Z"),
+                PipelineRunStatus.RUNNING));
+        clock.set(Instant.parse("2026-10-13T23:00:00Z"));
+
+        watchdog.check();
 
         verify(alerts, never()).sendForecastCycleWatchdogAlert(anyString(), anyString(), anyString());
     }

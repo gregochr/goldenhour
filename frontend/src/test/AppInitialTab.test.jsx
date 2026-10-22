@@ -17,7 +17,6 @@ import App from '../App.jsx';
 vi.mock('../api/forecastApi.js', () => ({
   fetchForecasts: vi.fn(),
   fetchLocations: vi.fn(),
-  fetchAllOutcomes: vi.fn(),
   clearForecastDetailCache: vi.fn(),
 }));
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
@@ -65,7 +64,7 @@ vi.mock('../components/WindowFirstMapPane.jsx', () => ({
 // The one mock this file exists to NOT set to 'plan' — see the header comment.
 vi.mock('../utils/initialTab.js', () => ({ resolveInitialTab: vi.fn(() => 'map') }));
 
-import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi.js';
+import { fetchForecasts, fetchLocations } from '../api/forecastApi.js';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getSettings, getReach, getDriveTimes } from '../api/settingsApi.js';
@@ -98,7 +97,6 @@ beforeEach(() => {
   localStorage.clear();
   fetchForecasts.mockReset().mockResolvedValue(FORECASTS);
   fetchLocations.mockReset().mockResolvedValue(LOCATION_META);
-  fetchAllOutcomes.mockReset().mockResolvedValue([]);
   getDailyBriefing.mockReset().mockResolvedValue(null);
   getAllEvaluationScores.mockReset().mockResolvedValue([]);
   getSettings.mockReset().mockResolvedValue({});

@@ -61,7 +61,18 @@ Checkstyle and SpotBugs gate those in CI.
    removing it or "consolidating" it in a review — the dual-engine
    consolidation is a tracked architecture item, not a cleanup. Note also: no
    store keeps per-run rating history; `cached_evaluation` and `forecast_score`
-   are latest-wins by design.
+   are latest-wins by design. Likewise `cloud_verification`'s
+   `deleteIncompleteVerifications` names only the observations the sampling
+   REQUIRES: the recorded-only columns (the V175 far-point mid/high/dark-side
+   readings, V187's `observer_temp_c`/`observer_dew_point_c`) must never join
+   it, or the first run after the deploy re-walks the whole history.
+   `outcome_rating` follows the column-scoped-update rule (the `app_user`
+   settings columns' lost-update precedent): an existing row is changed by ONE
+   statement that writes only the columns its request owns (`updateRating`,
+   `updateSeen`; `updateRow` only for a "didn't see it" that names its tag), never
+   a read followed by a save, so overlapping star and tag writes cannot restore
+   each other's stale value. The pairing rule lives in the SQL; V187's CHECK is
+   the last line of defence and a tag-only update it refuses is a 409.
 
 4. **Hot topics are recomputed live on every serve.** Build-time enrichment
    must ride an in-memory `AtomicReference` carrier (`NlcClarityService`,
@@ -123,7 +134,7 @@ Checkstyle and SpotBugs gate those in CI.
       an Ask surface drop that note is a P0.
     - **The window set is the served `renderedEvents`**, not "events with a non-null
       `window()`" (every summary carries a window; only six are rendered), minus passed windows
-      and travel days. Pick-eligible means non-canopy, rated 3–5, in a `verdictEligible()` region:
+      and travel days. Pick-eligible means non-canopy, rated 3–5, in a `pickEligible()` region (sufficient sample only, 2026-10-22):
       no rating exempts an ineligible region (the 2026-09-29 shape).
     - **`engine_calls` is never refunded**; `used` is, on the RESERVED date. The refund is what
       makes the ceiling necessary. The rate limit runs in an interceptor BEFORE the body is
@@ -142,6 +153,25 @@ Checkstyle and SpotBugs gate those in CI.
     - Ready answers are precomputed AFTER `finishRun` on the background executor: a RUNNING
       pipeline run forces later tail settles to `RESETS_ONLY`, so precompute must never run inside
       one.
+
+12. **The valley-mist topic fires on `LIKELY` only, reading the stored band**
+    (`MistHotTopicStrategy`, `ComingUpConditionsBuilder.buildMist`, `TopicDailyLogJob.logMist`).
+    FOGBOUND is deliberately excluded (a white frame, not mist with a view through it), POSSIBLE is
+    too weak a claim, and the band is *read* from `slot_atmosphere.mist_potential`, never rebuilt
+    from `mist_score` (FOGBOUND is decided by event visibility, not the score). A `mist_scored =
+    false` row falls back to Claude's `forecast_score` MIST echo ONLY through
+    `SlotSignals.effectiveMistPotential()` (the `effectiveInversionScore()` rule: a scored row's
+    null band is an answer and is never overridden by an echo). Its Coming up
+    rarity is pinned to the config fallback like the inversion's. Do not widen the band or add a
+    score cut without a change to the plan.
+
+13. **The valley-mist triage exemption is `LIKELY` only, and the echo instruction lives in the
+    USER message.** `WeatherTriageEvaluator` skips rule 3 (visibility under 5 km) for a slot whose
+    `mistPotential` is exactly LIKELY (never POSSIBLE, FOGBOUND or an unflagged site); rules 1
+    and 2 still apply. The `VALLEY MIST CONDITIONS:` block and the `mist_potential` instruction
+    are in `PromptBuilder.buildUserMessage`, never the system prompt (the batch cache prefix every
+    site shares). Do not add text to a disposition `detail` for a mist candidate: the "Fog
+    forecast" wording matches that column's free text.
 
 ### Bugs that were fixed and must not come back
 

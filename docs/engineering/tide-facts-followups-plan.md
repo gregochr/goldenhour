@@ -124,6 +124,8 @@ before V163.
 | `FAILED` | `AWAITING` | "Forecast unavailable" | "No per-location forecast — the forecast run didn't complete" | "The forecast run for this window didn't complete, so there is no per-location forecast. It may be tried again at the next run." |
 | `UNKNOWN` | `STAND_DOWN` | today's | today's | today's |
 
+> **Amended 2026-10-21:** `UNKNOWN` now reads `AWAITING`, "Not scored", "No per-location forecast — the record does not say why": a record that cannot say why is not a weather claim, and "Poor" over a hatched field read as a rating. Only `STOOD_DOWN` keeps the `STAND_DOWN` row above.
+
 Travel days are global, not per reader: `TravelDayService` marks dates the operator is away. That is why the AWAY copy
 says "marked as a travel day", never "you're away".
 

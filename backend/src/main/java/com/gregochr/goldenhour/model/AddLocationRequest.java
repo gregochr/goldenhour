@@ -25,6 +25,8 @@ import java.util.Set;
  * @param gridLng            Open-Meteo snapped grid longitude (nullable)
  * @param overlooksWater     manual toggle — location overlooks a body of water
  * @param coastalTidal       manual toggle — location is coastal and tidally influenced
+ * @param mistProne          manual toggle — mist forms around this location (valley floor,
+ *                           riverside, lake shore); null is read as false
  */
 public record AddLocationRequest(
         String name,
@@ -40,8 +42,37 @@ public record AddLocationRequest(
         Double gridLat,
         Double gridLng,
         Boolean overlooksWater,
-        Boolean coastalTidal
+        Boolean coastalTidal,
+        Boolean mistProne
 ) {
+    /**
+     * Constructor for callers that predate the valley-mist flag: {@code mistProne} reads as absent.
+     *
+     * @param name             human-readable location identifier
+     * @param lat              latitude in decimal degrees
+     * @param lon              longitude in decimal degrees
+     * @param solarEventTypes  which solar events to evaluate
+     * @param locationTypes    photography types
+     * @param tideTypes        tide preferences
+     * @param regionId         optional region ID
+     * @param bortleClass      auto-detected Bortle class (nullable)
+     * @param skyBrightnessSqm auto-detected sky brightness (nullable)
+     * @param elevationMetres  auto-detected elevation in metres (nullable)
+     * @param gridLat          Open-Meteo snapped grid latitude (nullable)
+     * @param gridLng          Open-Meteo snapped grid longitude (nullable)
+     * @param overlooksWater   manual toggle — overlooks a body of water
+     * @param coastalTidal     manual toggle — coastal and tidally influenced
+     */
+    public AddLocationRequest(String name, double lat, double lon,
+            Set<SolarEventType> solarEventTypes, Set<LocationType> locationTypes,
+            Set<TideType> tideTypes, Long regionId, Integer bortleClass, Double skyBrightnessSqm,
+            Integer elevationMetres, Double gridLat, Double gridLng, Boolean overlooksWater,
+            Boolean coastalTidal) {
+        this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, bortleClass,
+                skyBrightnessSqm, elevationMetres, gridLat, gridLng, overlooksWater, coastalTidal,
+                null);
+    }
+
     /** Compact canonical constructor — defensive copy of mutable sets. */
     public AddLocationRequest {
         solarEventTypes = solarEventTypes == null ? Set.of() : Set.copyOf(solarEventTypes);

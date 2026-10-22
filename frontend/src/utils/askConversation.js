@@ -102,6 +102,7 @@ export const INITIAL_CONVERSATION = Object.freeze({
   busyRunLabel: null,
   selectedPick: null,
   selectionNonce: 0,
+  selectionCallout: false,
   planPick: null,
   error: null,
   inputError: null,
@@ -296,17 +297,25 @@ export function reduce(conv, action) {
       // Choosing a pick leaves the plan view for the answer: the pick list is where a choice is made
       // (a chip on the map is one too), and the reader who tapped another spot wants to see it in the
       // list, not a plan for the one they were on. The answer is put BACK, not delivered.
+      // `callout` rides the choice, atomic with its nonce (docs/engineering/phone-pick-callout-plan.md §3
+      // P1): a chip on the phone asks for the pick's callout, a card never does, so a later card choice
+      // can never inherit an earlier chip's intent and a deferred choice keeps its own.
       return {
         ...conv,
         selectedPick: action.rank,
         selectionNonce: action.nonce,
+        selectionCallout: action.callout === true,
         ...(conv.planPick !== null ? { planPick: null, restored: true } : null),
       };
     case ACTION.PLAN_OPENED:
       // The pick is chosen as well as planned: the map follows it and the Plan card is highlighted.
       if (!conv.answer || conv.phase !== 'answer') return conv;
       return {
-        ...conv, planPick: action.rank, selectedPick: action.rank, selectionNonce: action.nonce,
+        ...conv,
+        planPick: action.rank,
+        selectedPick: action.rank,
+        selectionNonce: action.nonce,
+        selectionCallout: false,
       };
     case ACTION.PLAN_LEFT:
       // The answer is put BACK, not delivered: it goes outside the live region (`restored`), or a
@@ -385,7 +394,23 @@ export function normaliseAnswer(body, meta) {
     charged: !ready && body.charged === true,
     allowanceLeft: !ready && Number.isInteger(body.allowanceLeft) ? body.allowanceLeft : null,
     allowanceLimit: !ready && Number.isInteger(body.allowanceLimit) ? body.allowanceLimit : null,
+    windows: carriedWindows(body.windows),
   };
+}
+
+/**
+ * The windows an answer carries (`ask-window-context-plan.md` §2.4, W1: the whole served spread of every
+ * window its prose may have quoted), kept exactly as served — the line that draws them reads the record,
+ * nothing reshapes it. Absent on every answer stored before W1 and on every can't-answer, which reads as
+ * an empty list: no line, no claim. An entry without a window id and a spread object is dropped.
+ *
+ * <p>⚠️ A card fact, never a thread fact: {@link exchangeOf} does not copy it and {@link threadForWire}
+ * does not send it (a test pins both), so a stale figure can never ride a follow-up.
+ */
+function carriedWindows(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((w) => w !== null && typeof w === 'object'
+    && typeof w.windowId === 'string' && w.spread !== null && typeof w.spread === 'object');
 }
 
 /**

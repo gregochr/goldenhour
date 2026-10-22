@@ -264,7 +264,8 @@ public class AskService {
             AskReadyResponse.Answer answer = ready.get().answer();
             AskResponse response = new AskResponse(true, AskResponse.KIND_READY, answer.summary(),
                     answer.picks(), answer.events(), null, answer.tryThese(), left(userId, day, limit),
-                    limit, false, ready.get().generatedAt(), ready.get().runLabel());
+                    limit, false, ready.get().generatedAt(), ready.get().runLabel(), null, null, null,
+                    answer.windows());
             log(userId, question, AskLog.Outcome.READY_MATCH, null, startedAt, carry);
             return carry.apply(response);
         }
@@ -482,7 +483,8 @@ public class AskService {
             boolean charged) {
         return new AskResponse(true, AskResponse.KIND_OWN, answer.summary(),
                 answer.picks().stream().map(AskReadyResponse.Pick::of).toList(), answer.events(),
-                null, List.of(), left, limit, charged, snapshot.generatedAt(), snapshot.runLabel());
+                null, List.of(), left, limit, charged, snapshot.generatedAt(), snapshot.runLabel(), null, null,
+                null, answer.windows());
     }
 
     /**

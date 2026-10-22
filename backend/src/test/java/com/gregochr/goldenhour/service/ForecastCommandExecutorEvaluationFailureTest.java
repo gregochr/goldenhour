@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.anthropic.errors.AnthropicServiceException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.config.ProductionAnthropicBreaker;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -67,6 +68,7 @@ import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -184,7 +186,8 @@ class ForecastCommandExecutorEvaluationFailureTest {
                         tracker.onTaskEvent(taskEvent);
                     }
                 },
-                weatherTriageEvaluator, tideAlignmentEvaluator, slotAtmosphereWriter, tracker, CLOCK);
+                weatherTriageEvaluator, tideAlignmentEvaluator, slotAtmosphereWriter, tracker, CLOCK,
+                new AppBuild("v2.28.0"));
     }
 
     /** Stubs exactly what a pipeline run through the real {@link ForecastService} touches; no strategies. */
@@ -215,6 +218,8 @@ class ForecastCommandExecutorEvaluationFailureTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         when(augmentor.augmentWithInversionScore(any(), any(), anyBoolean())).thenAnswer(inv -> inv.getArgument(0));
         when(augmentor.augmentWithBluebellConditions(any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
         AtmosphericData data = TestAtmosphericData.builder().targetType(TargetType.SUNSET).build();
         when(openMeteoService.getAtmosphericDataFromCache(any(), any(), any()))

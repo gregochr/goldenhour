@@ -118,7 +118,7 @@ async function land(settle) {
 }
 
 const mapOn = (night) => (
-  <MapView locations={LOCATIONS} date={night} autoEventType={null} handoffEventType="ASTRO" />
+  <MapView locations={LOCATIONS} date={night} autoEventType="ASTRO" />
 );
 
 async function renderNight(night) {

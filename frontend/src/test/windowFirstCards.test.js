@@ -1240,6 +1240,96 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
     });
   });
 
+  describe('verdictBlanked — a STAND_DOWN word over a blanked region (verdict-honesty H4)', () => {
+    // The honesty filter empties a blanked region's `slots`, and since it words an unknown reason
+    // AWAITING a blanked STAND_DOWN can only be weather triage. The card then qualifies "Poor".
+    const windowOf = (regions, verdict = 'STAND_DOWN') => ({
+      events: events([TODAY, 'SUNSET']),
+      days: [day(TODAY, [{
+        targetType: 'SUNSET', regions, unregioned: [], window: { verdict, badges: [] },
+      }])],
+    });
+    const slot = { locationName: 'Somewhere', canopy: false };
+
+    it('is true for a STAND_DOWN word over a region with empty slots', () => {
+      const [card] = build(windowOf([
+        { regionName: 'North', displayVerdict: 'STAND_DOWN', slots: [] },
+      ]));
+      expect(card.verdict).toBe('STAND_DOWN');
+      expect(card.verdictBlanked).toBe(true);
+    });
+
+    it('is false for a STAND_DOWN region that still carries slots (a triage stand-down below the gate)', () => {
+      const [card] = build(windowOf([
+        { regionName: 'North', displayVerdict: 'STAND_DOWN', slots: [slot], meanRating: 2, sampleSufficient: false },
+      ]));
+      expect(card.verdict).toBe('STAND_DOWN');
+      expect(card.verdictBlanked).toBe(false);
+    });
+
+    it('is false for a blanked AWAITING region, whose word is not Poor', () => {
+      const [card] = build(windowOf([
+        { regionName: 'North', displayVerdict: 'AWAITING', slots: [] },
+      ], 'AWAITING'));
+      expect(card.verdict).toBe('AWAITING');
+      expect(card.verdictBlanked).toBe(false);
+    });
+
+    it('is false for a region payload that carries no slots field at all (legacy)', () => {
+      const [card] = build(windowOf([{ regionName: 'North', displayVerdict: 'STAND_DOWN' }]));
+      expect(card.verdictBlanked).toBe(false);
+    });
+
+    it('reads the region the word came from: a blanked stand-down beside a region WITH slots is false', () => {
+      // The projector ranks a region with content ahead of a blanked one, so the window's word comes
+      // from the former and the latter must not qualify it.
+      const [card] = build(windowOf([
+        { regionName: 'A-blank', displayVerdict: 'STAND_DOWN', slots: [] },
+        { regionName: 'B-live', displayVerdict: 'STAND_DOWN', slots: [slot] },
+      ]));
+      expect(card.verdictBlanked).toBe(false);
+    });
+
+    it('a real blanked stand-down outranks a blanked AWAITING region, whatever the names', () => {
+      const [card] = build(windowOf([
+        { regionName: 'A-awaiting', displayVerdict: 'AWAITING', slots: [] },
+        { regionName: 'Z-stood-down', displayVerdict: 'STAND_DOWN', slots: [] },
+      ]));
+      expect(card.verdictBlanked).toBe(true);
+    });
+
+    it('at home scope a RATED top region speaks for the window, whatever blanked sibling it has', () => {
+      // `topRegion` names the rated region (it has a mean), whose word is the window's; the blanked
+      // stand-down beside it is not the word's region and must not qualify it.
+      const [card] = build(windowOf([
+        { regionName: 'A-blank', displayVerdict: 'STAND_DOWN', slots: [] },
+        { regionName: 'Z-rated', displayVerdict: 'STAND_DOWN', slots: [slot], meanRating: 2.4 },
+      ]));
+      expect(card.verdict).toBe('STAND_DOWN');
+      expect(card.verdictBlanked).toBe(false);
+    });
+
+    it('under an origin the SCOPED region decides, not the roster', () => {
+      const away = (originName) => buildWindowCards(
+        events([TODAY, 'SUNSET']),
+        [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [
+            { regionName: 'Blank', displayVerdict: 'STAND_DOWN', slots: [] },
+            { regionName: 'Live', displayVerdict: 'STAND_DOWN', slots: [slot], meanRating: 2.1 },
+          ],
+          unregioned: [],
+          window: { verdict: 'STAND_DOWN', badges: [] },
+        }])],
+        TODAY, TOMORROW, new Set(), undefined,
+        { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: originName } },
+      )[0];
+
+      expect(away('Blank').verdictBlanked).toBe(true);
+      expect(away('Live').verdictBlanked).toBe(false);
+    });
+  });
+
   describe('verdictMean for an UNRATED region (unrated-verdict-plan.md U2)', () => {
     // The production state of 2026-10-13: Northumberland & Tyneside, 38 rated, mean 3.6, sample gate
     // failed, triage GO. The word was "Worth it" on weather alone; it is now "Too few rated", and the

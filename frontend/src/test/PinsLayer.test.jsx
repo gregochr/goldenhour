@@ -852,3 +852,63 @@ describe('PinsLayer — the aurora ramp and glow (aurora-heat-plan.md §3 A2)', 
     expect(pin.style.boxShadow).toBe('0 2px 0 -1px rgb(100,20,16), 0 5px 12px rgba(0,0,0,.5)');
   });
 });
+
+describe('PinsLayer — the "you rated this" badge (outcome-rating-plan.md §2 #6, O4b)', () => {
+  const rated = (myRating) => SPOTS.map((spot) => (spot.name === 'Bamburgh' ? { ...spot, myRating } : spot));
+  const pinNamed = (name) => [...document.querySelectorAll('[data-testid="map-pin"]')]
+    .find((el) => el.getAttribute('aria-label') === name);
+
+  it('draws N★ top-right on a pin whose spot carries the reader\'s rating, aria-hidden', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ spots: rated(3) });
+    const pin = [...document.querySelectorAll('[data-testid="map-pin"]')]
+      .find((el) => el.getAttribute('aria-label').startsWith('Bamburgh'));
+    const badge = pin.querySelector('.wf-rated-badge');
+    expect(badge).toHaveTextContent('3★');
+    expect(badge).toHaveAttribute('aria-hidden', 'true');
+    // Exactly one badge on the layer: the other pins carry no record.
+    expect(document.querySelectorAll('.wf-rated-badge')).toHaveLength(1);
+  });
+
+  it('appends the spoken clause to the pin\'s accessible name (the badge itself is hidden)', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ spots: rated(3) });
+    expect(pinNamed('Bamburgh, 5 star, you rated 3 out of 5')).toBeInTheDocument();
+  });
+
+  it('draws an en dash and says "not seen" for a "didn\'t see it" record', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ spots: rated('NOT_SEEN') });
+    const pin = pinNamed('Bamburgh, 5 star, you marked this not seen');
+    expect(pin.querySelector('.wf-rated-badge')).toHaveTextContent('–');
+  });
+
+  it('draws no badge, and leaves the name alone, when no spot carries a rating', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount();
+    expect(screen.queryByTestId('wf-rated-badge')).not.toBeInTheDocument();
+    expect(pinNamed('Bamburgh, 5 star')).toBeInTheDocument();
+  });
+
+  it('draws a badge on an UNRATED pin too (the reader may have rated a place nothing scored)', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ spots: [{ name: 'Blank', lat: 55, lng: -2, rid: 'X', rating: null, myRating: 2 }] });
+    const pin = pinNamed('Blank, you rated 2 out of 5');
+    expect(pin.querySelector('.wf-rated-badge')).toHaveTextContent('2★');
+  });
+
+  it('a pick pin never wears the badge — it is built from the PICK\'s own window', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        ...SPOTS[0],
+        myRating: 4,
+        askPick: {
+          rank: 1, shortWindow: 'Sun', rating: 4, verdict: 'WORTH_IT', label: 'Pick 1', selected: false,
+        },
+      }],
+    });
+    expect(document.querySelector('.wf-rated-badge')).toBeNull();
+    expect(document.querySelector('[data-ask="pick"]')).toHaveAttribute('aria-label', 'Pick 1');
+  });
+});

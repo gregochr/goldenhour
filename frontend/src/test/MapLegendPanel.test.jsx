@@ -32,6 +32,22 @@ function baseProps(overrides = {}) {
   };
 }
 
+describe('MapLegendPanel — the ground key (thin-sample plan F4)', () => {
+  it('names the hatch and the plain ground on a solar window', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} />);
+    const key = screen.getByTestId('wf-legend-ground');
+    expect(key).toHaveTextContent('not rated yet');
+    expect(key).toHaveTextContent('no places');
+    expect(key.querySelectorAll('.wf-legend-swatch')).toHaveLength(2);
+    expect(key.querySelectorAll('.wf-legend-swatch-hatch')).toHaveLength(1);
+  });
+
+  it('is not drawn on an aurora night, which paints no hatch', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} variant="aurora" />);
+    expect(screen.queryByTestId('wf-legend-ground')).toBeNull();
+  });
+});
+
 describe('MapLegendPanel — the chip', () => {
   it('mounts the panel only while open — not merely CSS-hidden', () => {
     const { rerender } = render(<MapLegendPanel {...baseProps({ open: false })} />);
@@ -242,9 +258,10 @@ describe('MapLegendPanel — the confidence note', () => {
 /**
  * The default-variant rendered HTML, captured BEFORE the aurora variant existed (aurora-heat-plan.md
  * §3 A3) with the temperature scale, handover 0.5, rings on and a home. Any pixel the aurora work
- * moves in the solar legend breaks this literal.
+ * moves in the solar legend breaks this literal. Thin-sample plan F4 added the ground key (the hatch and
+ * plain-ground swatches) on purpose; nothing else moved.
  */
-const SOLAR_BASELINE_HTML = '<div data-testid="wf-legend" class="wf-legend"><button type="button" data-testid="wf-legend-chip" class="wf-legend-chip" aria-haspopup="dialog" aria-expanded="true" aria-controls="wf-legend-panel"><span aria-hidden="true">▤ </span>Legend<span aria-hidden="true" class="wf-win-caret">▾</span></button><div id="wf-legend-panel" data-testid="wf-legend-panel" class="wf-legend-panel" role="dialog" aria-label="Map legend"><div data-testid="wf-legend-ramp" class="wf-legend-ramp" style="background: linear-gradient(90deg, rgb(58, 92, 112) 0.0%, rgb(80, 104, 120) 30.0%, rgb(146, 140, 128) 45.0%, rgb(196, 148, 64) 50.0%, rgb(201, 146, 48) 55.0%, rgb(223, 107, 42) 72.5%, rgb(222, 72, 38) 82.5%, rgb(200, 40, 32) 100.0%);"></div><div class="wf-legend-ramp-row"><span>1★ poor</span><span>3★</span><span>5★ worth it</span></div><div data-testid="wf-legend-hand" class="wf-legend-hand"><span class="wf-legend-hand-bar"><i style="width: 60%;"></i></span><span class="wf-legend-hand-txt"><b>Zooming in</b>regions giving way to places</span></div><button type="button" data-testid="wf-legend-rings-toggle" aria-pressed="true" class="wf-legend-ring-toggle on"><span aria-hidden="true" class="wf-legend-ring-box"></span>Reach rings · 25 mi, 50 mi</button><div data-testid="wf-legend-note" class="wf-legend-note">Colour appears only near rated locations, and only over land. Later days look hazier — lower confidence.</div></div></div>';
+const SOLAR_BASELINE_HTML = '<div data-testid="wf-legend" class="wf-legend"><button type="button" data-testid="wf-legend-chip" class="wf-legend-chip" aria-haspopup="dialog" aria-expanded="true" aria-controls="wf-legend-panel"><span aria-hidden="true">▤ </span>Legend<span aria-hidden="true" class="wf-win-caret">▾</span></button><div id="wf-legend-panel" data-testid="wf-legend-panel" class="wf-legend-panel" role="dialog" aria-label="Map legend"><div data-testid="wf-legend-ramp" class="wf-legend-ramp" style="background: linear-gradient(90deg, rgb(58, 92, 112) 0.0%, rgb(80, 104, 120) 30.0%, rgb(146, 140, 128) 45.0%, rgb(196, 148, 64) 50.0%, rgb(201, 146, 48) 55.0%, rgb(223, 107, 42) 72.5%, rgb(222, 72, 38) 82.5%, rgb(200, 40, 32) 100.0%);"></div><div class="wf-legend-ramp-row"><span>1★ poor</span><span>3★</span><span>5★ worth it</span></div><div data-testid="wf-legend-ground" class="wf-legend-ground"><span class="wf-legend-ground-item"><i aria-hidden="true" class="wf-legend-swatch wf-legend-swatch-hatch"></i>not rated yet</span><span class="wf-legend-ground-item"><i aria-hidden="true" class="wf-legend-swatch"></i>no places</span></div><div data-testid="wf-legend-hand" class="wf-legend-hand"><span class="wf-legend-hand-bar"><i style="width: 60%;"></i></span><span class="wf-legend-hand-txt"><b>Zooming in</b>regions giving way to places</span></div><button type="button" data-testid="wf-legend-rings-toggle" aria-pressed="true" class="wf-legend-ring-toggle on"><span aria-hidden="true" class="wf-legend-ring-box"></span>Reach rings · 25 mi, 50 mi</button><div data-testid="wf-legend-note" class="wf-legend-note">Colour appears only near rated locations, and only over land. Later days look hazier — lower confidence.</div></div></div>';
 
 describe('MapLegendPanel — the aurora variant (aurora heat, A3)', () => {
   afterEach(() => {

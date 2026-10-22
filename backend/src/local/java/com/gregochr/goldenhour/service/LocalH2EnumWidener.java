@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.RunType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,7 +43,8 @@ import java.util.regex.Pattern;
  *
  * <p><b>Why a registry and not every enum column.</b> Finding every enum column from Hibernate's
  * mapping needs internal metamodel API that moves between versions; a short list is reviewable.
- * {@link #TARGETS} has the one column the Ask phases write a new value to. <em>Add a line
+ * {@link #TARGETS} has the columns a new value has been written to so far
+ * (the Ask phases' run types, the evening cycle's cycle type). <em>Add a line
  * when a change adds a value to an enum whose column an existing local database must accept.</em>
  *
  * <p><b>Local H2 only, and it cannot misfire elsewhere.</b> The bean exists only under the
@@ -72,7 +74,8 @@ public class LocalH2EnumWidener implements SmartInitializingSingleton {
 
     /** The columns to keep wide. */
     static final List<Target> TARGETS = List.of(
-            new Target("job_run", "run_type", RunType.class));
+            new Target("job_run", "run_type", RunType.class),
+            new Target("pipeline_run", "cycle_type", CycleType.class));
 
     private final DataSource dataSource;
 

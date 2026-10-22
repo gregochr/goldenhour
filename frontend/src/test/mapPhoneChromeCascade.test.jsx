@@ -223,8 +223,8 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
       const style = computedStyleFor('wf-map-chrome-tl');
       // The base (non-media, non-`.wf-map-tab`) rule sets `left: 60px` and no `right` at all —
       // this pins that the descendant-scoped mobile rule cannot reach an element with no
-      // `.wf-map-tab` ancestor, which is exactly the overlay's own shape (`MapView.jsx` never
-      // applies that class on its `overlayMode` mount).
+      // `.wf-map-tab` ancestor, which is exactly the shape the retired Plan-tab overlay had
+      // (it never carried that class).
       expect(style.left).toBe('60px');
       expect(style.right).toBe('auto');
     } finally {

@@ -71,6 +71,27 @@ public class AskAnswerValidator {
     static final String STALE_THREAD_SUMMARY =
             "The places from your earlier answers are no longer in the forecast.";
 
+    /**
+     * The {@code missing} phrase when every earlier place is held back by the neighbour guard (6 words).
+     * The client reads it after "PhotoCast doesn't have:", so it is a noun phrase.
+     */
+    static final String HELD_BACK_MISSING = "a trustworthy rating for those places";
+
+    /** The summary of that can't-answer: ours, and true, since the places are still in the forecast. */
+    static final String HELD_BACK_SUMMARY =
+            "The places from your earlier answers are rated well above the places beside them, "
+                    + "so PhotoCast is not suggesting them.";
+
+    /**
+     * The {@code missing} phrase when some earlier places are held back and some are gone (4 words); a
+     * noun phrase for the client's "PhotoCast doesn't have:" frame.
+     */
+    static final String MIXED_STALE_MISSING = "those places as suggestions";
+
+    /** The summary of that can't-answer: ours, true of both reasons. */
+    static final String MIXED_STALE_SUMMARY =
+            "The places from your earlier answers can no longer be suggested.";
+
     /** The {@code missing} phrase of a follow-up that turned the earlier places down and has nothing else to offer. */
     static final String TURNED_DOWN_MISSING = "the other places are not rated well enough";
 
@@ -142,6 +163,18 @@ public class AskAnswerValidator {
     }
 
     /**
+     * What a Ready conversation answers, for the rules that depend on the question and not only on its
+     * anchor: the windows it COVERS (never the candidate-bearing {@code windowIds} alone, which leave an
+     * all-blue Saturday out of "this weekend") decide whether a no-pick answer stands
+     * ({@link ReadyRelevance#mayHaveNoPick}) and whose spreads the answer carries.
+     *
+     * @param question the Ready question
+     * @param offer    what it is asked under
+     */
+    public record ReadyBasis(ReadyQuestion question, ReadyQuestion.Offer offer) {
+    }
+
+    /**
      * The verdict on a submitted answer.
      *
      * @param answer the validated answer, or null when the answer was discarded
@@ -190,6 +223,29 @@ public class AskAnswerValidator {
      */
     public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence,
             AskScope scope, BestAnchor anchor, ReadyQuestion eventsQuestion, boolean canSeeAurora) {
+        return validate(raw, snapshot, evidence, scope, anchor, eventsQuestion, canSeeAurora, null);
+    }
+
+    /**
+     * Validates an answer given the Ready question behind it (ask-window-context plan §2.3, §2.4).
+     * Everything {@link #validate(Raw, AskSnapshot, AskEvidence, AskScope, BestAnchor, ReadyQuestion,
+     * boolean)} does, plus: a Ready solar pick question whose covered windows hold no game-on candidate
+     * the question admits may be answered with no pick (the anchor then has nothing to lead with), and an
+     * accepted answer carries the spread of every window it may have quoted.
+     *
+     * @param raw      the model's submitted answer
+     * @param snapshot the snapshot the conversation ran against
+     * @param evidence what the conversation's tools returned
+     * @param scope    the regions the question is about
+     * @param anchor   the Ready {@code BEST_*} rule, or null
+     * @param eventsQuestion which events question this is, or null
+     * @param canSeeAurora whether the asker's role may see aurora figures
+     * @param basis    the Ready question and offer, or null for a typed question
+     * @return the validated answer, or the reason it was discarded
+     */
+    public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence,
+            AskScope scope, BestAnchor anchor, ReadyQuestion eventsQuestion, boolean canSeeAurora,
+            ReadyBasis basis) {
         // Strip what a follow-up would refuse the summary for, THEN the word cap and the code-point bound, so
         // every summary served is accepted back verbatim as an earlier exchange.
         String summary = boundCodePoints(
@@ -233,19 +289,49 @@ public class AskAnswerValidator {
             if (evidence.thread().staleOnly(submittedPairs(raw.picks()))) {
                 // A follow-up about places the thread named and the forecast has since lost: an honest
                 // can't-answer in our words, not the model's, and not an engine fault.
-                return new Result(new AskAnswer(false, STALE_THREAD_SUMMARY, List.of(), List.of(),
-                        STALE_THREAD_MISSING), null);
+                return switch (evidence.thread().staleKind(submittedPairs(raw.picks()))) {
+                    case HELD_BACK -> new Result(new AskAnswer(false, HELD_BACK_SUMMARY, List.of(),
+                            List.of(), HELD_BACK_MISSING), null);
+                    case MIXED -> new Result(new AskAnswer(false, MIXED_STALE_SUMMARY, List.of(),
+                            List.of(), MIXED_STALE_MISSING), null);
+                    case GONE -> new Result(new AskAnswer(false, STALE_THREAD_SUMMARY, List.of(),
+                            List.of(), STALE_THREAD_MISSING), null);
+                };
             }
             return discard("answerable with no pick, no event and no tool call");
         }
         if (anchor != null) {
             Optional<AskSnapshot.Window> lead = anchoredWindow(snapshot, anchor, scope);
-            if (lead.isPresent()
+            // A no-pick answer stands when the covered windows hold no game-on place at all: there is then
+            // nothing to lead with. Read from the one predicate, never inferred from the lead's absence.
+            boolean noPickStands = picks.isEmpty() && basis != null
+                    && ReadyRelevance.mayHaveNoPick(basis.question(), basis.offer(), snapshot, scope);
+            if (lead.isPresent() && !noPickStands
                     && (picks.isEmpty() || !picks.getFirst().windowId().equals(lead.get().id()))) {
                 return discard("pick 1 is not on the BEST BET window " + lead.get().id());
             }
         }
-        return new Result(new AskAnswer(true, summary, picks, events, null), null, turnedDownDropped[0]);
+        return new Result(new AskAnswer(true, summary, picks, events, null,
+                carriedWindows(snapshot, evidence, scope, picks, basis)), null, turnedDownDropped[0]);
+    }
+
+    /**
+     * The windows an answer carries the spread of: every solar window {@code list_windows} returned in
+     * the conversation, each pick's solar window and, for a Ready question, every window it covers, in
+     * window order. Joined from the live snapshot, never from the model, so what is carried is what was
+     * served. A night window has no spread and is skipped.
+     */
+    private static List<AskAnswer.WindowSpread> carriedWindows(AskSnapshot snapshot, AskEvidence evidence,
+            AskScope scope, List<AskPick> picks, ReadyBasis basis) {
+        Set<String> ids = new HashSet<>(evidence.listedWindows());
+        picks.stream().filter(p -> !p.targetType().isNight()).forEach(p -> ids.add(p.windowId()));
+        if (basis != null) {
+            ids.addAll(basis.offer().coveredWindowIds());
+        }
+        return snapshot.windows().stream()
+                .filter(w -> ids.contains(w.id()))
+                .map(w -> new AskAnswer.WindowSpread(w.id(), AskSnapshot.Spread.of(w, scope)))
+                .toList();
     }
 
     /**

@@ -14,9 +14,9 @@ const SHORT_HEADERS = { Temperature: 'Temp', 'Rain chance': 'Rain' };
  * The hourly comfort table — one row per daylight hour: time, temperature with feels-like, wind
  * with its compass point, and rain chance.
  *
- * <p>One table, two hosts: the Plan-tab overlay's marker popup (`MarkerPopupContent`'s
- * pure-wildlife branch, the frozen surface it first lived in) and the Map tab's four-day location
- * sheet (`LocationFourDaySheet`). It is a real `<table>` with column headers and a row header per
+ * <p>One table, two hosts: the marker popup (`MarkerPopupContent`'s pure-wildlife branch, now
+ * mounted only by the admin Prompt Test) and the Map tab's four-day location sheet
+ * (`LocationFourDaySheet`). It is a real `<table>` with column headers and a row header per
  * hour, so a screen reader can ask "wind at 15:00" rather than walking a run of loose cells. The
  * popup, whose own heading already says what the table is, keeps the headers visually hidden
  * (`headersVisible` false) so its look is what it always was; the sheet shows them.

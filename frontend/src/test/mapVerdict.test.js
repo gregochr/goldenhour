@@ -629,14 +629,6 @@ describe('buildEvVerdicts', () => {
     expect(out.size).toBe(1);
   });
 
-  it('draws nothing on the frozen Plan-tab overlay', () => {
-    const events = [evRow('solar:2026-09-06:SUNSET', 'solar', DATE, SUNSET)];
-
-    expect(buildEvVerdicts({
-      events, index: INDEX(), regionsInScope: SCOPE, overlayMode: true,
-    }).size).toBe(0);
-  });
-
   it('degrades to an empty map with no index, no events and an empty scope', () => {
     const events = [evRow('solar:2026-09-06:SUNSET', 'solar', DATE, SUNSET)];
 

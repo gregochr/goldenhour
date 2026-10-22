@@ -7,6 +7,7 @@ import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.anthropic.services.blocking.MessageService;
 import com.anthropic.services.blocking.messages.BatchService;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
@@ -168,7 +169,9 @@ class ClaudeResponseParseResilienceTest {
                 forecastScoreWriter,
                 new SunsetEvaluationParser(),
                 forecastEvaluationRepository,
-                supersedingDispositionService);
+                supersedingDispositionService,
+                java.time.Clock.systemUTC(),
+                new AppBuild("v2.28.0"));
     }
 
     // ── (i) + (ii) + (iii), table-driven ─────────────────────────────────────

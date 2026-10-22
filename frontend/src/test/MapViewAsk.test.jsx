@@ -563,7 +563,9 @@ describe('picks on the map', () => {
       });
 
       const [chip] = askSpots();
-      expect(cameraCalls.at(-1).selection).toEqual({ lat: chip.lat, lng: chip.lng, nonce: 4 });
+      expect(cameraCalls.at(-1).selection).toEqual({
+        lat: chip.lat, lng: chip.lng, nonce: 4, still: false,
+      });
     });
 
     it('does not disturb another place\'s single pick, which keeps its plain shape', async () => {
@@ -599,8 +601,9 @@ describe('picks on the map', () => {
 
     await renderTab({ askPicks: [pick()], askAnswerId: 1, onSelectAskPick });
 
-    // Not the same function since F4 (the phone wraps it to expand a minimised answer), but the same
-    // CHOICE: pressing a chip reaches the caller with the rank, unchanged.
+    // Not the same function since F4 (`MapView` wraps it; on the phone the wrap asks for the pick's
+    // callout, `onSelectAskPick(rank, { callout: true })`, docs/engineering/phone-pick-callout-plan.md),
+    // but the same CHOICE: off the phone, as here, pressing a chip reaches the caller with the bare rank.
     act(() => { lastLabels().onSelectAskPick(2); });
     expect(onSelectAskPick).toHaveBeenCalledExactlyOnceWith(2);
   });
@@ -657,7 +660,9 @@ describe('the camera is handed the picks and the choice', () => {
       askPicks: TWO, askAnswerId: 5, askSelectedRank: 2, askWindow: { date: TODAY, eventType: 'SUNRISE', nonce: 9 },
     });
 
-    expect(cameraCalls.at(-1).selection).toEqual({ lat: 54.45, lng: -3.0, nonce: 9 });
+    expect(cameraCalls.at(-1).selection).toEqual({
+      lat: 54.45, lng: -3.0, nonce: 9, still: false,
+    });
   });
 
   it('has no selection when a pick is selected but no choice was made (a rank with no nonce)', async () => {
@@ -670,12 +675,6 @@ describe('the camera is handed the picks and the choice', () => {
     await renderTab({ askPicks: TWO, askAnswerId: 5, paneVisible: false });
 
     expect(cameraCalls.at(-1).active).toBe(false);
-  });
-
-  it('is not mounted on the frozen overlay', async () => {
-    await renderTab({ overlayMode: true, askPicks: TWO, askAnswerId: 5 });
-
-    expect(cameraCalls).toEqual([]);
   });
 });
 

@@ -3,10 +3,9 @@
  *
  * <h2>Why the default-off half is the important half</h2>
  *
- * <p>`MapView` is mounted twice: the Map pane, and the Plan overlay. Only the pane passes `heat` —
- * the overlay opens focused on one spot from a card that has already answered the question, so it
- * never fetches the field or renders the toolbar. Plan §8 names this component's blast radius for
- * exactly that reason.
+ * <p>`MapView` was mounted twice (the Map pane and the Plan overlay, retired in overlay convergence
+ * C5), and only the pane passed `heat`. It stays a prop with no default: with none passed there is
+ * no field and no toolbar. Plan §8 names this component's blast radius for exactly that reason.
  *
  * <p>The toolbar half then pins the four rules §4.5 and D6/D7/D8 state and a screenshot cannot:
  * the area segment's absence without a home, the `{animate: false}` fit, which populations each
@@ -66,7 +65,7 @@ vi.mock('react-leaflet', () => ({
     getContainer: () => ({ clientHeight: 500 }),
     fitBounds,
     // `getZoom`/`flyTo`: `FlyToController`'s effect calls both once a fly target is set — reached
-    // for the first time in this file by the azimuth-line tests' `handoffLocationName` prop, which
+    // for the first time in this file by the azimuth-line tests' map-sourced `planHandoff`, which
     // sets one as a side effect of selecting a location. No-ops; this file has no assertion on
     // camera movement.
     getZoom: () => mockMapZoomAtMount,
@@ -151,6 +150,7 @@ vi.mock('../components/markerUtils.js', async (importOriginal) => {
 
 import MapView from '../components/MapView.jsx';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
+import { buildPastSolarWindows } from '../utils/mapEvents.js';
 import {
   STOPS_VERDICT, STOPS_TEMP, setMode, rampHex,
 } from '../utils/scoreRamp.js';
@@ -338,9 +338,10 @@ function openLegend() {
 /**
  * A minimal Leaflet-`LatLngBounds`-shaped stand-in for `target.getBounds()` — never a real
  * viewport, just enough that neither `BoundsTracker` consumer throws. `getSouth`/`getWest`/
- * `getNorth`/`getEast` are the overlay's own `handleBounds`; `pad`/`contains` are
+ * `getNorth`/`getEast` are the old overlay-era `handleBounds` shape (kept so any `BoundsTracker`
+ * consumer works); `pad`/`contains` are
  * `mapTideFit.stripModel`'s (tide-window-plan.md T6), reached now that `MapView.jsx` mounts a
- * SECOND `BoundsTracker` for the tab (`!overlayMode`) as well as the overlay's own. `contains`
+ * `BoundsTracker` for the tab. `contains`
  * always answers false — this file's fixtures are not testing the tide strip, so a stray "visible"
  * would be a second, accidental thing to explain in an unrelated assertion.
  */
@@ -360,7 +361,7 @@ function boundsStub() {
  * (adversarial review C7), which must drive a REAL zoom rather than rely on the `useState(9)` mount
  * default every earlier test in this file was content with. `getBounds` was added for
  * tide-window-plan.md T6 — `BoundsTracker`'s own `zoomend` handler calls it unconditionally, and a
- * SECOND `BoundsTracker` now mounts on the tab as well as the overlay.
+ * `BoundsTracker` mounts on the tab.
  */
 function fireZoomend(zoom) {
   act(() => {
@@ -400,19 +401,17 @@ afterEach(() => {
 });
 
 describe('MapView heat — the opt-in is off by default', () => {
-  it('renders no toolbar and no field for the Plan overlay, which passes no heat prop', async () => {
-    // The overlay is the no-heat mount: it opens focused on one spot from a card that has already
-    // answered the question, so a toolbar leaking here would sit over a modal. The pinned
-    // default-off test — deleting the `heatOffered` guard, or defaulting `heat` to a truthy
-    // object, is exactly the change this catches, and nothing else in the suite would.
-    await renderMap({ overlayMode: true });
+  it('renders no toolbar and no field when no heat prop is passed', async () => {
+    // The pinned default-off test — deleting the `heatOffered` guard, or defaulting `heat` to a
+    // truthy object, is exactly the change this catches, and nothing else in the suite would.
+    await renderMap({});
     expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
     expect(screen.queryByTestId('map-heat-layer')).toBeNull();
     expect(heatLayerProps.mounts).toBe(0);
   });
 
-  it('opens on the whole catalogue, at the overlay’s 60px padding, with no heat prop passed', async () => {
-    const { locations } = await renderMap({ overlayMode: true });
+  it('opens on the whole catalogue, at the default 60px padding, with no heat prop passed', async () => {
+    const { locations } = await renderMap({});
     expect(mapContainerProps.last.boundsOptions).toEqual({ padding: [60, 60] });
     expect(mapContainerProps.last.bounds).toEqual(locations.map((l) => [l.lat, l.lon]));
   });
@@ -1120,7 +1119,7 @@ describe('MapView heat — the modes it stands down for', () => {
   // whenever aurora is unavailable, so a live alert (or a stored result) is what lets it stand.
   it('offers the toolbar and the field in aurora mode', async () => {
     auroraStatus = { active: true, level: 'QUIET' };
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA' });
     expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument();
     await screen.findByTestId('map-heat-layer');
   });
@@ -1134,7 +1133,7 @@ describe('MapView heat — the modes it stands down for', () => {
     // A STORED result for the same night that says something different: on the night in progress
     // the medallion rule (plan D1) reads the live source, so this must not reach the field.
     getAuroraForecastResults.mockResolvedValue([{ locationName: SPOTS[0].name, stars: 1 }]);
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA' });
     await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(2));
     // Tynemouth has no aurora rating: ABSENT, never a 1-star placeholder.
     expect(heatLayerProps.last.points.map((p) => [p.name, p.r[0]]).sort()).toEqual(
@@ -1148,7 +1147,7 @@ describe('MapView heat — the modes it stands down for', () => {
     getAuroraForecastResults.mockImplementation((night) => Promise.resolve(
       night === TODAY ? [{ locationName: SPOTS[2].name, stars: 3 }] : [],
     ));
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA' });
     await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
     expect(heatLayerProps.last.points[0].name).toBe(SPOTS[2].name);
     expect(heatLayerProps.last.points[0].r).toEqual([3]);
@@ -1156,7 +1155,7 @@ describe('MapView heat — the modes it stands down for', () => {
 
   it('hands the aurora field its own capped-inference confidence, never null/full strength', async () => {
     auroraStatus = { active: true, level: 'QUIET' };
-    await renderMap({ heat: heatProp(), date: '2026-01-20', handoffEventType: 'AURORA' });
+    await renderMap({ heat: heatProp(), date: '2026-01-20', autoEventType: 'AURORA' });
     await screen.findByTestId('map-heat-layer');
     // A T+5 night: the capped-inference tier is 'low', scalar 0.5 — not the null-default 1.
     expect(heatLayerProps.last.conf).toBe(0.5);
@@ -1167,7 +1166,7 @@ describe('MapView heat — the modes it stands down for', () => {
     getAuroraLocations.mockResolvedValue([{ location: { name: SPOTS[0].name }, stars: 4 }]);
     // A stored night is what puts an aurora ROW in the window control to switch back to.
     getAuroraForecastAvailableDates.mockResolvedValue([TODAY]);
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA' });
     await waitFor(() => expect(heatLayerProps.last.ramp).toBe(AURORA_RAMP.rgb));
     expect(heatLayerProps.last.bloom).toBe(AURORA_BLOOM);
 
@@ -1186,7 +1185,7 @@ describe('MapView heat — the modes it stands down for', () => {
 
   it('hands the chips the aurora ramp in aurora mode and the shared ramp otherwise', async () => {
     auroraStatus = { active: true, level: 'QUIET' };
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA' });
     await waitFor(() => expect(labelSpotsProps.last).not.toBeNull());
     expect(labelSpotsProps.last.rampHex).toBe(AURORA_RAMP.hex);
   });
@@ -1217,7 +1216,7 @@ describe('MapView heat — the modes it stands down for', () => {
 
   it('omits a NaN, a null and a missing aurora rating from the field points', async () => {
     liveNight([[0, 4], [1, Number.NaN], [2, null]]);
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA', locations: plainLocations() });
     await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
     expect(heatLayerProps.last.points[0].name).toBe(SPOTS[0].name);
   });
@@ -1229,14 +1228,14 @@ describe('MapView heat — the modes it stands down for', () => {
         ? [{ locationName: SPOTS[0].name, stars: 3 }, { locationName: SPOTS[1].name, stars: null }]
         : [],
     ));
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA', locations: plainLocations() });
     await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
   });
 
   it('on the live night, falls back to the stored result for a spot the live cache does not hold', async () => {
     liveNight([[0, 4]]);
     getAuroraForecastResults.mockResolvedValue([{ locationName: SPOTS[2].name, stars: 3 }]);
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA', locations: plainLocations() });
     await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(2));
     expect(heatLayerProps.last.points.map((p) => [p.name, p.r[0]]).sort()).toEqual(
       [[SPOTS[0].name, 4], [SPOTS[2].name, 3]].sort(),
@@ -1246,7 +1245,7 @@ describe('MapView heat — the modes it stands down for', () => {
   it('shows the unscored line in aurora mode when nothing is rated, and not when something is', async () => {
     auroraStatus = { active: true, level: 'QUIET' };
     getAuroraForecastAvailableDates.mockResolvedValue([TODAY]);
-    const { unmount } = await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    const { unmount } = await renderMap({ heat: heatProp(), autoEventType: 'AURORA' });
     await screen.findByTestId('map-heat-layer');
     expect(screen.getByTestId('wf-map-heat-unscored')).toHaveTextContent('This event is not scored yet');
     expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
@@ -1254,7 +1253,7 @@ describe('MapView heat — the modes it stands down for', () => {
 
     liveNight([[0, 4]]);
     getAuroraForecastAvailableDates.mockResolvedValue([TODAY]);
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA', locations: plainLocations() });
     await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
     expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
     expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
@@ -1266,7 +1265,7 @@ describe('MapView heat — the modes it stands down for', () => {
     const FAR = '2026-01-20';
     auroraStatus = { active: true, level: 'QUIET' };
     getAuroraForecastAvailableDates.mockResolvedValue([FAR]);
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA' });
     fireEvent.click(screen.getByTestId('wf-win-pill'));
     const row = screen.getAllByTestId('wf-win-row')
       .find((r) => r.getAttribute('data-ev-id') === `aur:${FAR}:AURORA`);
@@ -1296,13 +1295,13 @@ describe('MapView heat — the modes it stands down for', () => {
 
   it('counts the aurora points in the footer', async () => {
     liveNight([[0, 4], [2, 3]]);
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA', locations: plainLocations() });
     await waitFor(() => expect(screen.getByTestId('wf-map-counts-footer')).toHaveTextContent('2 of 5 shown'));
   });
 
   it('draws the colour key as a 1-star to 5-star aurora rating, not Poor to Worth it', async () => {
     liveNight([[0, 4]]);
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA', locations: plainLocations() });
     const key = await screen.findByTestId('wf-map-heat-legend');
     expect(key).toHaveAttribute('aria-label', 'Colour key: the field runs from 1★ to 5★ aurora rating');
     expect(key).toHaveTextContent('1★');
@@ -1328,7 +1327,7 @@ describe('MapView heat — the modes it stands down for', () => {
   it('mounts the legend panel in aurora mode with the aurora variant; the note names the viewline on the live night', async () => {
     // Reverses A2's "withheld in aurora until A3".
     liveNight([[0, 4]]);
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA', locations: plainLocations() });
     await screen.findByTestId('wf-map-heat-legend');
     openLegend();
     const panel = screen.getByTestId('wf-legend-panel');
@@ -1344,7 +1343,7 @@ describe('MapView heat — the modes it stands down for', () => {
       viewlineAnswer = answer;
       liveNight([[0, 4]]);
       const { unmount } = await renderMap({
-        heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations(),
+        heat: heatProp(), autoEventType: 'AURORA', locations: plainLocations(),
       });
       await screen.findByTestId('wf-map-heat-legend');
       openLegend();
@@ -1360,7 +1359,7 @@ describe('MapView heat — the modes it stands down for', () => {
     getAuroraForecastResults.mockImplementation((night) => Promise.resolve(
       night === TODAY ? [{ locationName: SPOTS[0].name, stars: 3 }] : [],
     ));
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA', locations: plainLocations() });
     await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
     openLegend();
     expect(screen.getByTestId('wf-legend-panel')).toHaveTextContent('COLOUR = AURORA RATING');
@@ -1371,7 +1370,7 @@ describe('MapView heat — the modes it stands down for', () => {
 
   it('hands PinsLayer and MapLabels the aurora ramp, the glow and omitUnrated in aurora mode only', async () => {
     liveNight([[0, 4]]);
-    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await renderMap({ heat: heatProp(), autoEventType: 'AURORA', locations: plainLocations() });
     await waitFor(() => expect(labelSpotsProps.last).not.toBeNull());
     expect(labelSpotsProps.last.omitUnrated).toBe(true);
     fireEvent.click(screen.getByTestId('wf-map-view-pins'));
@@ -1400,7 +1399,7 @@ describe('MapView heat — the modes it stands down for', () => {
   it('offers the toolbar in astro mode, painting nothing while nothing is scored', async () => {
     // This file's `astroApi` mock resolves no conditions for any date, so the field exists but has
     // nothing to paint — the same shape aurora now has (aurora heat A2 offers the toolbar there too).
-    await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
+    await renderMap({ heat: heatProp(), autoEventType: 'ASTRO' });
     expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument();
     await screen.findByTestId('map-heat-layer');
     expect(heatLayerProps.last.points).toEqual([]);
@@ -1421,7 +1420,7 @@ describe('MapView heat — the modes it stands down for', () => {
       { locationName: SPOTS[0].name, stars: 4 }, // Bamburgh
       { locationName: SPOTS[2].name, stars: 2 }, // Wastwater
     ]);
-    await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
+    await renderMap({ heat: heatProp(), autoEventType: 'ASTRO' });
     await screen.findByTestId('map-heat-layer');
     expect(heatLayerProps.last.points.map((p) => p.name).sort()).toEqual(
       [SPOTS[0].name, SPOTS[2].name].sort(),
@@ -1436,7 +1435,7 @@ describe('MapView heat — the modes it stands down for', () => {
     // capped-inference tier is 'low' (`confidenceScalar('low')` = 0.5) — a figure that could not
     // be mistaken for the null-default 1.0 a regression would fall back to.
     const FAR_NIGHT = '2026-01-20';
-    await renderMap({ heat: heatProp(), date: FAR_NIGHT, handoffEventType: 'ASTRO' });
+    await renderMap({ heat: heatProp(), date: FAR_NIGHT, autoEventType: 'ASTRO' });
     await screen.findByTestId('map-heat-layer');
     expect(heatLayerProps.last.conf).toBe(0.5);
   });
@@ -1883,19 +1882,26 @@ describe('MapView heat — the Legend panel (map-tab-v2-plan.md §3 P10)', () =>
   });
 });
 
+/** A map-sourced handoff selecting a named place - the structured way a location arrives. */
+function selectSpot(name, nonce = 1) {
+  return {
+    source: 'map', eventType: 'SUNSET', date: TODAY, locationName: name, nonce,
+  };
+}
+
 /**
- * Azimuth lines are overlay-only in the tab's Pins mode (decision D-9, map-tab-v2-plan.md §3 P10)
- * — they were marker-layer furniture with no host in the new pin vocabulary. Zero coverage existed
- * for this before adversarial review C5; the `handoffLocationName` prop drives the selection this
+ * Azimuth lines are dropped in the tab's Pins mode (decision D-9, map-tab-v2-plan.md §3 P10)
+ * — they were marker-layer furniture with no host in the pin vocabulary. Zero coverage existed
+ * for this before adversarial review C5; a map-sourced `planHandoff` drives the selection this
  * needs (a real click needs a marker mock this file's own `Marker` stub discards `eventHandlers`
  * from), and `polylineCalls` (the recording mock above) is what proves a line was actually asked
  * for, not merely that nothing crashed.
  */
-describe('MapView heat — azimuth lines are overlay-only in Pins mode (decision D-9, adversarial review C5)', () => {
+describe('MapView heat — azimuth lines are dropped in Pins mode (decision D-9, adversarial review C5)', () => {
   it('draws the sunset azimuth line in Heat view, for a selected location', async () => {
     const azLoc = makeAzimuthLocation();
     await renderMap({
-      heat: heatProp(), locations: azLoc, handoffLocationName: azLoc[0].name,
+      heat: heatProp(), locations: azLoc, planHandoff: selectSpot(azLoc[0].name),
     });
     expect(polylineCalls.length).toBeGreaterThan(0);
   });
@@ -1903,7 +1909,7 @@ describe('MapView heat — azimuth lines are overlay-only in Pins mode (decision
   it('drops the azimuth line the moment the tab switches to Pins', async () => {
     const azLoc = makeAzimuthLocation();
     await renderMap({
-      heat: heatProp(), locations: azLoc, handoffLocationName: azLoc[0].name,
+      heat: heatProp(), locations: azLoc, planHandoff: selectSpot(azLoc[0].name),
     });
     expect(polylineCalls.length).toBeGreaterThan(0);
 
@@ -1915,7 +1921,7 @@ describe('MapView heat — azimuth lines are overlay-only in Pins mode (decision
   it('brings the azimuth line straight back on switching back to Heat', async () => {
     const azLoc = makeAzimuthLocation();
     await renderMap({
-      heat: heatProp(), locations: azLoc, handoffLocationName: azLoc[0].name,
+      heat: heatProp(), locations: azLoc, planHandoff: selectSpot(azLoc[0].name),
     });
     expect(polylineCalls.length).toBeGreaterThan(0);
 
@@ -1924,14 +1930,6 @@ describe('MapView heat — azimuth lines are overlay-only in Pins mode (decision
     expect(polylineCalls.length).toBe(0);
 
     fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
-    expect(polylineCalls.length).toBeGreaterThan(0);
-  });
-
-  it('keeps the azimuth line on the Plan-tab overlay, which never enters Pins mode at all', async () => {
-    const azLoc = makeAzimuthLocation();
-    await renderMap({
-      overlayMode: true, locations: azLoc, handoffLocationName: azLoc[0].name,
-    });
     expect(polylineCalls.length).toBeGreaterThan(0);
   });
 });
@@ -2022,7 +2020,7 @@ describe('MapView heat — the Regions jump list (map-tab-v2-plan.md §3 P11)', 
     getAstroConditions.mockResolvedValueOnce(nightRows);
     getAstroConditions.mockResolvedValueOnce(nightRows);
 
-    await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
+    await renderMap({ heat: heatProp(), autoEventType: 'ASTRO' });
     openJump();
 
     const rows = screen.getAllByTestId('wf-jump-row');
@@ -2682,9 +2680,7 @@ describe('the window panel — this window, region by region', () => {
   });
 
   it('offers no entry when the map is on a window the EV list has no row for', async () => {
-    // ⚠️ The overlay test below cannot cover this gate: `WindowControl` is not mounted there at all,
-    // so `wf-win-more` can never exist regardless of what the gate does (measured — removing it left
-    // that test green). A date outside the forecast domain is the reachable case.
+    // A date outside the forecast domain is the reachable case.
     await renderMap({ ...panelProps(), date: '2026-01-25' });
 
     fireEvent.click(screen.getByTestId('wf-win-pill'));
@@ -2776,13 +2772,6 @@ describe('the window panel — this window, region by region', () => {
       rerender(<MapView locations={locations} date="2026-01-25" autoEventType={null} {...props} />);
     });
 
-    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
-  });
-
-  it('never mounts on the frozen Plan-tab overlay', async () => {
-    await renderMap(panelProps({ overlayMode: true }));
-
-    expect(screen.queryByTestId('wf-win-more')).toBeNull();
     expect(screen.queryByTestId('wf-win-panel')).toBeNull();
   });
 });
@@ -3332,7 +3321,7 @@ describe('the region panel — one region, into the sheet that already exists', 
     // same value, for the same reason.
     const locations = [...makeAzimuthLocation(), ...makeLocations()];
     const props = panelProps({
-      locations, handoffLocationName: 'AzimuthSpot', handoffNonce: 11,
+      locations, planHandoff: selectSpot('AzimuthSpot', 11),
     });
     polylineCalls.length = 0;
     const { rerender } = await renderMap(props);
@@ -3557,7 +3546,7 @@ describe('the region panel — one region, into the sheet that already exists', 
     const locations = [...makeAzimuthLocation(), ...makeLocations()];
     polylineCalls.length = 0;
     await renderMap(panelProps({
-      onOpenLocationSheet, locations, handoffLocationName: 'AzimuthSpot', handoffNonce: 7,
+      onOpenLocationSheet, locations, planHandoff: selectSpot('AzimuthSpot', 7),
     }));
     expect(polylineCalls.length).toBeGreaterThan(0);
     openPanel();
@@ -3626,17 +3615,6 @@ describe('the landing card — once per forecast run, and dismissed only three w
 
   it('stays shut with no run to key a dismissal on — silence is the safe degrade', async () => {
     await renderMap({ heat: heatProp(), regionVerdictIndex: buildRegionVerdictIndex(DAYS) });
-
-    expect(screen.queryByTestId('wf-land')).toBeNull();
-  });
-
-  it('never mounts on the frozen Plan-tab overlay', async () => {
-    // ⚠️ Asserts the OUTCOME, not one mechanism — the overlay is closed off three independent ways
-    // and no single-term mutation of any of them is observable here: the card's JSX lives in the
-    // `!overlayMode` render branch, `buildMapEvents` is skipped outright so there are no rows to
-    // show, and `landingRunStamp` is null. Recorded because a mutation test of the third one
-    // survives, and "survived" would otherwise read as a coverage gap rather than as redundancy.
-    await renderMap(landingProps({ overlayMode: true }));
 
     expect(screen.queryByTestId('wf-land')).toBeNull();
   });
@@ -3857,7 +3835,7 @@ describe('MapView heat — the key slot while an astro night\'s own request fail
   const slot = () => screen.getByTestId('wf-map-heat-unscored');
 
   it('says the night could not load — never "not scored" — while its own request fails and is asked again', async () => {
-    await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
+    await renderMap({ heat: heatProp(), autoEventType: 'ASTRO' });
     // The night's own request, and nothing else: no available dates, so no preview.
     expect(requests).toHaveLength(1);
     expect(slot()).not.toHaveTextContent('Couldn’t load');
@@ -3868,7 +3846,7 @@ describe('MapView heat — the key slot while an astro night\'s own request fail
   });
 
   it('says "not scored" once the night answers after failing — an answer outranks the failure', async () => {
-    await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
+    await renderMap({ heat: heatProp(), autoEventType: 'ASTRO' });
     await land(() => requests[0].reject(new Error('astro conditions down')));
     expect(slot()).toHaveTextContent('Couldn’t load — trying again');
 
@@ -3883,7 +3861,7 @@ describe('MapView heat — the key slot while an astro night\'s own request fail
   it('announces the key slot\'s failure line through the tab\'s status region — no place need be picked', async () => {
     // Nothing is selected in this file's renders, so no callout: the slot is the only surface saying
     // it, and the tab's region (Codex, #848 — mounted with the tab, not with a selection) carries it.
-    await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
+    await renderMap({ heat: heatProp(), autoEventType: 'ASTRO' });
     expect(screen.queryByTestId('map-callout')).toBeNull();
     const region = screen.getByTestId('map-status');
     expect(region.textContent).toBe('');
@@ -3924,5 +3902,344 @@ describe('MapView heat — the pill’s time follows the scope, not the whole ca
     openFilters();
     fireEvent.click(screen.getByRole('button', { name: 'Everywhere' }));
     expect(pillTime()).toHaveTextContent('16:05');
+  });
+});
+
+/**
+ * The heat field on a PAST window (outcome-rating-plan.md §2 #3, O3c) — `MapView`'s half.
+ *
+ * <p>The pane lists a past window in `heat.windows` (flagged `past: true`) and gives it a point set;
+ * `MapView` must paint it, show the colour key only when something is rated behind it, and never let
+ * a `past` entry stand in for a window it has not itself judged to be past. The pane's half —
+ * building the entries and points from the forecast rows — is `WindowFirstMapPaneHeat.test.jsx`.
+ */
+describe('MapView heat — a past window', () => {
+  const YESTERDAY = '2026-01-14';
+
+  const pastLocations = (rating = 4) => SPOTS.map((s) => ({
+    id: s.id,
+    name: `${s.name}-${markerNonce}`,
+    lat: s.lat,
+    lon: s.lng,
+    regionName: s.rid,
+    bortleClass: s.bortleClass,
+    locationType: ['LANDSCAPE'],
+    forecastsByDate: new Map([[YESTERDAY, {
+      sunset: { rating, solarEventTime: `${YESTERDAY}T16:10:00` },
+    }]]),
+  }));
+
+  const pastEntry = (overrides = {}) => ({
+    key: `${YESTERDAY}:SUNSET`,
+    date: YESTERDAY,
+    targetType: 'SUNSET',
+    past: true,
+    bestRating: 4,
+    confidence: null,
+    conf: 0.82,
+    ...overrides,
+  });
+
+  const pastHeat = ({ entry = pastEntry(), points = [pointOf(SPOTS[0], 4), pointOf(SPOTS[2], 2)] } = {}) => heatProp({
+    windows: [...WINDOWS, entry],
+    pointsByKey: new Map([...POINTS_BY_KEY, [`${YESTERDAY}:SUNSET`, points]]),
+  });
+
+  async function renderPast(heat, extra = {}, rating = 4) {
+    const locations = pastLocations(rating);
+    return renderMap({
+      heat,
+      locations,
+      pastSolarWindows: buildPastSolarWindows(locations, TODAY),
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY, TODAY, TOMORROW],
+      autoEventType: 'SUNSET',
+      ...extra,
+    });
+  }
+
+  it('paints the past window\'s own points, at the inferred confidence', async () => {
+    await renderPast(pastHeat());
+    await screen.findByTestId('map-heat-layer');
+
+    expect(heatLayerProps.last.points.map((p) => p.name)).toEqual(['Bamburgh', 'Wastwater']);
+    expect(heatLayerProps.last.conf).toBe(0.82);
+  });
+
+  it('shows the colour key for a rated past window and says nothing about it being unscored', async () => {
+    await renderPast(pastHeat());
+
+    expect(screen.getByTestId('wf-map-heat-legend')).toHaveTextContent('Poor');
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.getByTestId('wf-win-past')).toBeInTheDocument();
+  });
+
+  it('withholds the key and names the window unscored when nothing is rated behind the field', async () => {
+    // A window whose only rated rows are a wood's: the pane reads `bestRating` null from the painted
+    // points (pinned there), and here the key must go with it rather than sit over an empty field.
+    await renderPast(pastHeat({ entry: pastEntry({ bestRating: null }), points: [] }), {}, null);
+
+    expect(screen.getByTestId('wf-map-heat-unscored')).toHaveTextContent('This event is not scored yet');
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+    expect(heatLayerProps.last.points).toEqual([]);
+  });
+
+  it('⚠️ withholds the key but NOT contradicts the chips: stars held by unpainted places silence the line', async () => {
+    // The pane's `bestRating` counts painted points only, so a past window rated solely on places
+    // the field withholds reads null while every chip carries a star. "Not scored yet" beside rated
+    // chips is the contradiction the filler rule exists to prevent, so the line stays down; the key
+    // is still withheld because no field is painted behind it.
+    await renderPast(pastHeat({ entry: pastEntry({ bestRating: null }), points: [] }));
+
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('paints today\'s elapsed sunrise: the entry counts once THIS view agrees the window has gone', async () => {
+    // The clock reads 12:00 and the sunrise was at 08:24 (+30 min afterglow), so `activeWindowPast`
+    // agrees with the pane's entry — the one branch of the guard that depends on the app clock.
+    const locations = pastLocations().map((l) => ({
+      ...l,
+      forecastsByDate: new Map([[TODAY, { sunrise: { rating: 4, solarEventTime: `${TODAY}T08:24:00` } }]]),
+    }));
+    await renderMap({
+      heat: heatProp({
+        windows: [pastEntry({ key: `${TODAY}:SUNRISE`, date: TODAY, targetType: 'SUNRISE' })],
+        pointsByKey: new Map([[`${TODAY}:SUNRISE`, [pointOf(SPOTS[0], 4)]]]),
+      }),
+      locations,
+      pastSolarWindows: buildPastSolarWindows(locations, TODAY),
+      date: TODAY,
+      forecastDates: [TODAY],
+      autoEventType: 'SUNRISE',
+    });
+
+    expect(screen.getByTestId('wf-win-past')).toBeInTheDocument();
+    expect(heatLayerProps.last.points).toHaveLength(1);
+    expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
+  });
+
+  it('control: the same window with NO past entry paints nothing and has no key', async () => {
+    // Without the pane's entry the window is an ordinary row with no `heatWindow`: the point set the
+    // map holds under that key is never read. The pair is the assertion that the entry is what paints.
+    await renderPast(heatProp({
+      pointsByKey: new Map([...POINTS_BY_KEY, [`${YESTERDAY}:SUNSET`, [pointOf(SPOTS[0], 4)]]]),
+    }));
+
+    expect(heatLayerProps.last?.points ?? []).toEqual([]);
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('⚠️ ignores a past entry for a window this view does not judge past — a filler paints no field', async () => {
+    // Tonight's sunset, 16:12 against a 12:00 clock, has not elapsed. The pane builds entries for
+    // every unserved window with rows (it cannot follow the clock), so a `past` entry exists for it;
+    // honouring it would give a D-13 filler a field and a key it has never had.
+    const locations = pastLocations().map((l) => ({
+      ...l,
+      forecastsByDate: new Map([[TODAY, { sunset: { rating: 4, solarEventTime: `${TODAY}T16:12:00` } }]]),
+    }));
+    await renderMap({
+      heat: heatProp({
+        windows: [pastEntry({ key: `${TODAY}:SUNSET`, date: TODAY })],
+        pointsByKey: new Map([[`${TODAY}:SUNSET`, [pointOf(SPOTS[0], 4)]]]),
+      }),
+      locations,
+      pastSolarWindows: buildPastSolarWindows(locations, TODAY),
+      date: TODAY,
+      forecastDates: [TODAY],
+      autoEventType: 'SUNSET',
+    });
+
+    expect(screen.queryByTestId('wf-win-past')).toBeNull();
+    expect(heatLayerProps.last?.points ?? []).toEqual([]);
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('does not turn the past entry into a served row: the pill is Past, not a verdict', async () => {
+    await renderPast(pastHeat());
+
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Yesterday');
+    expect(screen.getByTestId('wf-win-past')).toHaveTextContent('Past');
+  });
+
+  it('follows the Heat|Pins toggle on a past window as on a served one', async () => {
+    await renderPast(pastHeat());
+    expect(heatLayerProps.last.fieldEnabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
+    expect(heatLayerProps.last.fieldEnabled).toBe(false);
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
+    expect(heatLayerProps.last.fieldEnabled).toBe(true);
+    expect(heatLayerProps.last.points).toHaveLength(2);
+    expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
+  });
+});
+
+describe('MapView heat — the thin-sample hatch and the pill count (thin-sample plan F4)', () => {
+  const SKY_SPOTS = SPOTS.map((s) => ({ ...s, skySubject: true }));
+  const SKY_AREA = [SKY_SPOTS[0], SKY_SPOTS[1], SKY_SPOTS[2], SKY_SPOTS[4], SKY_SPOTS[5]];
+  const unratedPoint = (spot) => ({
+    id: spot.id, name: spot.name, lat: spot.lat, lng: spot.lng, rid: spot.rid, r: [0],
+  });
+  const keyOf = (spot) => `#${spot.id}`;
+
+  /** Tonight's window states: the named spot ids rated, the rest unrated, none stood down. */
+  function statesFor(ratedIds) {
+    const states = new Map(SKY_SPOTS.map((s) => [keyOf(s), ratedIds.includes(s.id) ? 'rated' : 'unrated']));
+    const unrated = SKY_SPOTS.filter((s) => !ratedIds.includes(s.id)).map(unratedPoint);
+    return new Map([[`${TODAY}:SUNSET`, { unrated, states }]]);
+  }
+
+  const DAY = (displayVerdict) => [{
+    date: TODAY,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [
+        { regionName: 'North East', meanRating: 4, displayVerdict, slots: [{ canopy: false }] },
+      ],
+    }],
+  }];
+
+  const props = (ratedIds, verdict = 'WORTH_IT') => ({
+    heat: heatProp({
+      spots: SKY_SPOTS, areaSpots: SKY_AREA, windowStates: statesFor(ratedIds),
+    }),
+    regionVerdictIndex: buildRegionVerdictIndex(DAY(verdict)),
+  });
+
+  it('hands the layer the places no one has rated yet, on a solar window', async () => {
+    await renderMap(props([1, 2]));
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated.map((p) => p.name))
+      .toEqual(['Wastwater', 'Kelso', 'Alnmouth', 'Coquet']);
+  });
+
+  it('hands it none when the window has no rating at all — the existing unscored predicate', async () => {
+    const base = props([1, 2]);
+    await renderMap({ ...base, heat: { ...base.heat, windows: WINDOWS_TONIGHT_UNRATED } });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated).toEqual([]);
+  });
+
+  it('hands it none on an astro night', async () => {
+    await renderMap({ ...props([1, 2]), autoEventType: 'ASTRO' });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated).toEqual([]);
+  });
+
+  it('narrows the hatch by the dark-sky filter as it narrows the colour', async () => {
+    // Bortle <= 4 keeps Bamburgh (4) and Wastwater (2); of those only Wastwater is unrated. Without
+    // the join the hatch would claim Kelso and Alnmouth, which the colour layer has excluded.
+    await renderMap(props([1, 2]));
+    openFilters();
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated.map((p) => p.name)).toEqual(['Wastwater']);
+  });
+
+  it('prints the scope pool\'s rated count on a thin sample, spoken in words', async () => {
+    await renderMap(props([1, 2]));
+    const count = screen.getByTestId('wf-win-verdict-count');
+    expect(count).toHaveTextContent('2 rated');
+    expect(count).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('wf-win-verdict')).toHaveTextContent(', 2 places rated');
+  });
+
+  it('prints no count once the scope pool clears the spread\'s two floors', async () => {
+    // Five of five sky places in the area rated: rated >= 5 and >= half.
+    await renderMap(props([1, 2, 3, 5, 6]));
+    expect(screen.queryByTestId('wf-win-verdict-count')).toBeNull();
+  });
+
+  it('prints no count beside a "Too few rated" verdict, which already says so', async () => {
+    await renderMap(props([1, 2], 'UNRATED'));
+    expect(screen.getByTestId('wf-win-verdict')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-win-verdict-count')).toBeNull();
+  });
+
+  it('prints no "0 rated" beside a verdict resting on places the scope does not hold', async () => {
+    await renderMap(props([4]));
+    expect(screen.queryByTestId('wf-win-verdict-count')).toBeNull();
+  });
+
+  it('hands it none on an aurora night, and draws no ground key there', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TODAY };
+    getAuroraLocations.mockResolvedValue([{ location: { name: SPOTS[0].name }, stars: 4 }]);
+    await renderMap({ ...props([1, 2]), autoEventType: 'AURORA' });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated).toEqual([]);
+    openLegend();
+    expect(screen.queryByTestId('wf-legend-ground')).toBeNull();
+  });
+
+  it('draws the ground key on a rated solar window and withholds it on an astro night', async () => {
+    const { unmount } = await renderMap(props([1, 2]));
+    openLegend();
+    expect(screen.getByTestId('wf-legend-ground')).toBeInTheDocument();
+    unmount();
+    await renderMap({ ...props([1, 2]), autoEventType: 'ASTRO' });
+    openLegend();
+    expect(screen.queryByTestId('wf-legend-ground')).toBeNull();
+  });
+
+  it('prints the count on a SUNRISE row too', async () => {
+    const sunrise = [{
+      date: TODAY,
+      eventSummaries: [{
+        targetType: 'SUNRISE',
+        regions: [{
+          regionName: 'North East', meanRating: 4, displayVerdict: 'MAYBE', slots: [{ canopy: false }],
+        }],
+      }],
+    }];
+    const base = props([1, 2]);
+    const states = statesFor([1, 2]).get(`${TODAY}:SUNSET`);
+    await renderMap({
+      ...base,
+      heat: { ...base.heat, windowStates: new Map([[`${TODAY}:SUNRISE`, states]]) },
+      regionVerdictIndex: buildRegionVerdictIndex(sunrise),
+      autoEventType: 'SUNRISE',
+    });
+    expect(screen.getByTestId('wf-win-verdict-count')).toHaveTextContent('2 rated');
+  });
+});
+
+describe('MapView heat — a past window\'s hatch comes from the pane\'s window states (thin-sample F4)', () => {
+  const YESTERDAY = '2026-01-14';
+  it('hands the layer the past entry\'s unrated places, not the served windows\'', async () => {
+    const locations = SPOTS.map((s) => ({
+      id: s.id,
+      name: `${s.name}-${markerNonce}`,
+      lat: s.lat,
+      lon: s.lng,
+      regionName: s.rid,
+      bortleClass: s.bortleClass,
+      locationType: ['LANDSCAPE'],
+      forecastsByDate: new Map([[YESTERDAY, { sunset: { rating: 4, solarEventTime: `${YESTERDAY}T16:10:00` } }]]),
+    }));
+    const unrated = [{
+      id: 3, name: 'Wastwater', lat: 54.44, lng: -3.3, rid: 'The Lakes', r: [0],
+    }];
+    await renderMap({
+      heat: heatProp({
+        windows: [...WINDOWS, {
+          key: `${YESTERDAY}:SUNSET`, date: YESTERDAY, targetType: 'SUNSET', past: true, bestRating: 4, confidence: null, conf: 0.82,
+        }],
+        pointsByKey: new Map([...POINTS_BY_KEY, [`${YESTERDAY}:SUNSET`, [pointOf(SPOTS[0], 4)]]]),
+        windowStates: new Map([
+          [`${TODAY}:SUNSET`, { unrated: [{ ...unrated[0], name: 'Served' }], states: new Map() }],
+          [`${YESTERDAY}:SUNSET`, { unrated, states: new Map() }],
+        ]),
+      }),
+      locations,
+      pastSolarWindows: buildPastSolarWindows(locations, TODAY),
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY, TODAY, TOMORROW],
+      autoEventType: 'SUNSET',
+    });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated.map((p) => p.name)).toEqual(['Wastwater']);
   });
 });

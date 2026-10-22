@@ -7,9 +7,8 @@
  * <p>Three claims the plan makes and a screenshot cannot: the base tile always carries
  * `wf-basemap-warm`; the reference tile is UNMOUNTED (not merely hidden) below zoom 11.8 and
  * carries `wf-basemap-ref` + `opacity: 0.6` once it mounts; and `zoomSnap` is `0` on the tab's
- * `MapContainer` and Leaflet's own default (`1`) on the Plan overlay's — the one deliberate
- * overlay diff this phase makes, everything else (the tile classes, the reference gate) reaching
- * both mounts on purpose.
+ * `MapContainer` (the Plan overlay's Leaflet default of `1` went with the overlay, overlay
+ * convergence C5).
  *
  * <p>⚠️ A fourth claim, added after PR #728 review (Codex confirmed the charge our own review
  * wrongly refuted): the reference layer's presence is correct AT MOUNT, seeded from the map's own
@@ -180,46 +179,22 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); localStorage.clear(); });
 
-describe('MapView basemap dress — zoomSnap is the one sanctioned overlay diff', () => {
+describe('MapView basemap dress — fractional zoom', () => {
   it('passes zoomSnap 0 on the tab’s MapContainer', async () => {
     await renderMap();
     expect(mapContainerProps.last.zoomSnap).toBe(0);
   });
-
-  it('passes zoomSnap 1 (Leaflet’s own default) on the Plan overlay’s MapContainer, never 0', async () => {
-    // Explicit `1`, not an omitted prop: `L.Util.setOptions` copies an own `undefined` key onto the
-    // map's options same as any other value, and Leaflet's `_limitZoom` treats `zoomSnap` as a bare
-    // truthy check — so `undefined` is exactly as falsy as `0` and would have put the overlay into
-    // fractional zoom too. The explicit default is the only value that is provably NOT `0`.
-    await renderMap({ overlayMode: true });
-    expect(mapContainerProps.last.zoomSnap).toBe(1);
-    expect(mapContainerProps.last.zoomSnap).not.toBe(0);
-  });
 });
 
-describe('MapView basemap dress — the warm filter classes reach both TileLayers, in both mounts', () => {
+describe('MapView basemap dress — the warm filter classes reach both TileLayers', () => {
   it('carries wf-basemap-warm on the base tile on the tab', async () => {
     await renderMap();
     const base = tileLayerCalls.find((p) => p.url.includes('World_Dark_Gray_Base'));
     expect(base.className).toBe('wf-basemap-warm');
   });
 
-  it('carries wf-basemap-warm on the base tile on the Plan overlay too — pure tile dress, not gated on overlayMode', async () => {
-    await renderMap({ overlayMode: true });
-    const base = tileLayerCalls.find((p) => p.url.includes('World_Dark_Gray_Base'));
-    expect(base.className).toBe('wf-basemap-warm');
-  });
-
   it('carries wf-basemap-ref and opacity 0.6 on the reference tile once it mounts, on the tab', async () => {
     await renderMap();
-    fireZoomend(12);
-    const ref = tileLayerCalls.find((p) => p.url.includes('World_Dark_Gray_Reference'));
-    expect(ref.className).toBe('wf-basemap-ref');
-    expect(ref.opacity).toBe(0.6);
-  });
-
-  it('carries wf-basemap-ref on the reference tile on the overlay too, once it mounts', async () => {
-    await renderMap({ overlayMode: true });
     fireZoomend(12);
     const ref = tileLayerCalls.find((p) => p.url.includes('World_Dark_Gray_Reference'));
     expect(ref.className).toBe('wf-basemap-ref');

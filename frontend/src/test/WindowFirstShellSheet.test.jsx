@@ -3,6 +3,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import { openMapDoor } from '../utils/mapDoors.js';
+
+// A passthrough spy over the door's close-then-move entry, so one press can be run with the door's
+// own closes neutralised and the handler's EXPLICIT closes proven to be what ends the browsing.
+vi.mock('../utils/mapDoors.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, openMapDoor: vi.fn(actual.openMapDoor) };
+});
 
 /**
  * The drill-down's wiring, which lives in the shell and nowhere else.
@@ -18,6 +26,17 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
  */
 vi.mock('../components/WindowFirstDoors.jsx', () => ({
   default: () => <div data-testid="stub-doors" />,
+}));
+
+// Thin-sample F2: the row map is stubbed to print the unrated set the shell hands the open card, so
+// "the OPEN window's own set" is observable without a canvas.
+vi.mock('../components/WindowRowFieldMap.jsx', async (importOriginal) => ({
+  ...(await importOriginal()),
+  default: ({ windowKey, unrated }) => (
+    <div data-testid="stub-row-map" data-window={windowKey}>
+      {(unrated || []).map((p) => p.name).join(',') || '-'}
+    </div>
+  ),
 }));
 
 const TODAY = '2026-08-08';
@@ -145,7 +164,7 @@ const renderShell = (overrides = {}, extraProps = {}) => {
   const props = {
     onOpenSettings: vi.fn(),
     onSignOut: vi.fn(),
-    onShowOnMap: vi.fn(),
+    onOpenMapTab: vi.fn(),
     locations: LOCATIONS,
     ...extraProps,
   };
@@ -592,8 +611,9 @@ describe('WindowFirstShell — the drill-down', () => {
     });
   });
 
-  it('closes the sheet before the map overlay opens, so two dialogs are never stacked', async () => {
-    // `MapOverlay` is itself `aria-modal`. Leaving the sheet mounted underneath puts two dialogs on
+  it('closes the sheet before the map door opens, so two dialogs are never stacked', async () => {
+    // The map overlay of the day was itself `aria-modal` (retired in overlay convergence C5), and any
+    // layer a door lands on is no place for a dialog left standing. Leaving the sheet mounted underneath puts two dialogs on
     // the page, gives Escape two listeners, and holds the reader's place in a list they have just
     // navigated away from.
     renderShell();
@@ -741,16 +761,18 @@ describe('WindowFirstShell — the drill-down', () => {
   });
 
   it('opens the map on the spot clicked inside the sheet, not on its region', async () => {
-    const { onShowOnMap } = renderShell();
+    const { onOpenMapTab } = renderShell();
     await openSheet();
     fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
-    // The POSITIONAL form, which centres one location — the object form opens a whole region.
-    expect(onShowOnMap).toHaveBeenCalledWith(TODAY, 'SUNSET', 'Bamburgh Beach');
+    // The `location` trigger, which centres one location - a `region` trigger opens a whole region.
+    expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      kind: 'location', locationName: 'Bamburgh Beach', date: TODAY, eventType: 'SUNSET', inPlace: false,
+    }));
   });
 
   it('⚠️ takes the WINDOW POPUP down with it, not just this sheet', async () => {
-    // `MapOverlay` is itself an `aria-modal` dialog with its own unconditional document Escape
-    // listener, and the popup re-arms its own the moment nothing is stacked on it — so a
+    // The Plan-tab overlay this was written against was itself an `aria-modal` dialog with its own
+    // unconditional document Escape listener, and the popup re-arms its own the moment nothing is stacked on it — so a
     // sheet-only close leaves two dialogs on the page and makes one press take both. The sheet's
     // own comment has always stated that rule; until M4 it closed only the sheet. Its sibling in
     // `locationSheetShell.test.jsx` pins the same line for the four-day sheet's footer.
@@ -761,6 +783,35 @@ describe('WindowFirstShell — the drill-down', () => {
     expect(screen.queryByTestId('window-sheet')).toBeNull();
   });
 
+  it('⚠️ closes the sheet AND the popup itself even when the door did not (the explicit closes are load-bearing)', async () => {
+    const { onOpenMapTab } = renderShell();
+    await openSheet();
+    openMapDoor.mockImplementationOnce(() => {});
+
+    fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
+
+    expect(onOpenMapTab).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
+    expect(screen.queryByTestId('window-sheet')).toBeNull();
+  });
+
+  it('registers a closer with App that takes every dialog the shell owns down, and unregisters on unmount', async () => {
+    const registerCloseDialogs = vi.fn();
+    const { unmount } = renderShell({}, { registerCloseDialogs });
+    await openSheet();
+    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+    const closer = registerCloseDialogs.mock.calls.at(-1)[0];
+    expect(typeof closer).toBe('function');
+
+    act(() => { closer(); });
+
+    expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
+    expect(screen.queryByTestId('window-sheet')).toBeNull();
+
+    unmount();
+    expect(registerCloseDialogs).toHaveBeenLastCalledWith(null);
+  });
+
   it('keeps naming the MAP on its own cards, which is what the caller opt-in is for', async () => {
     // M4 retargeted the popup's copy of the ranked strip to the location sheet and gave the card's
     // destination wording to the caller (plan §3 rule 10). This sheet did not retarget, so its
@@ -769,5 +820,30 @@ describe('WindowFirstShell — the drill-down', () => {
     await openSheet();
     expect(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0])
       .toHaveTextContent('Open on map');
+  });
+});
+
+describe('WindowFirstShell — the open window\'s own unrated set reaches the row map', () => {
+  it('hands the opened card its set, not another window\'s and not an empty one', async () => {
+    const other = card({ key: '2026-08-09:SUNRISE', date: '2026-08-09', targetType: 'SUNRISE' });
+    const mine = card();
+    const point = (name) => ({ id: name, name, lat: 55, lng: -1, rid: 'R', r: [0] });
+    renderShell({
+      windowCards: [mine, other],
+      heatUnratedSets: new Map([
+        [mine.key, [point('Alnmouth')]],
+        [other.key, [point('Wastwater')]],
+      ]),
+    });
+    await openPopup();
+    const stub = await screen.findByTestId('stub-row-map');
+    // Whichever window the matrix put first is the one opened; the stub must carry THAT window's
+    // set and never the other's.
+    const sets = new Map([[mine.key, 'Alnmouth'], [other.key, 'Wastwater']]);
+    const opened = stub.getAttribute('data-window');
+    expect(sets.has(opened)).toBe(true);
+    expect(stub).toHaveTextContent(sets.get(opened));
+    sets.delete(opened);
+    expect(stub).not.toHaveTextContent([...sets.values()][0]);
   });
 });

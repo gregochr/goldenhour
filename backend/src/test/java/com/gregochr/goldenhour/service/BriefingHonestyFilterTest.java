@@ -48,11 +48,11 @@ class BriefingHonestyFilterTest {
         DailyBriefingResponse out = BriefingHonestyFilter.apply(response);
 
         BriefingRegion rewritten = firstRegion(out);
-        assertThat(rewritten.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
-        assertThat(rewritten.verdictLabel()).isEqualTo("Too unsettled to forecast");
-        assertThat(rewritten.summary()).isEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
+        assertThat(rewritten.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(rewritten.verdictLabel()).isEqualTo("Not scored");
+        assertThat(rewritten.summary()).isEqualTo(BriefingHonestyFilter.UNKNOWN_SUMMARY);
         assertThat(rewritten.glossHeadline()).isNull();
-        assertThat(rewritten.glossDetail()).isEqualTo(BriefingHonestyFilter.REPLACEMENT_GLOSS_DETAIL);
+        assertThat(rewritten.glossDetail()).isEqualTo(BriefingHonestyFilter.UNKNOWN_GLOSS_DETAIL);
         assertThat(rewritten.slots()).isEmpty();
     }
 
@@ -159,8 +159,8 @@ class BriefingHonestyFilterTest {
         DailyBriefingResponse out = BriefingHonestyFilter.apply(response);
         List<BriefingRegion> regions = out.days().get(0).eventSummaries().get(0).regions();
 
-        assertThat(regions.get(0).displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
-        assertThat(regions.get(0).verdictLabel()).isEqualTo("Too unsettled to forecast");
+        assertThat(regions.get(0).displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(regions.get(0).verdictLabel()).isEqualTo("Not scored");
         assertThat(regions.get(0).slots()).isEmpty();
         assertThat(regions.get(1).displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
         assertThat(regions.get(1).verdictLabel()).isNull();
@@ -214,8 +214,8 @@ class BriefingHonestyFilterTest {
 
         BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
 
-        assertThat(out.summary()).isEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
-        assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        assertThat(out.summary()).isEqualTo(BriefingHonestyFilter.UNKNOWN_SUMMARY);
+        assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
     }
 
     @Test
@@ -357,9 +357,9 @@ class BriefingHonestyFilterTest {
 
         BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
 
-        assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
-        assertThat(out.verdictLabel()).isEqualTo("Too unsettled to forecast");
-        assertThat(out.summary()).isEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
+        assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(out.verdictLabel()).isEqualTo("Not scored");
+        assertThat(out.summary()).isEqualTo(BriefingHonestyFilter.UNKNOWN_SUMMARY);
         assertThat(out.slots()).isEmpty();
         // The zero tier is its own thing — not the lightly-evaluated tier.
         assertThat(out.lightlyEvaluated()).isFalse();
@@ -442,7 +442,7 @@ class BriefingHonestyFilterTest {
 
         assertThat(out.bestBets()).isEmpty();
         assertThat(firstRegion(out).summary())
-                .isEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
+                .isEqualTo(BriefingHonestyFilter.UNKNOWN_SUMMARY);
     }
 
     @Test
@@ -609,11 +609,19 @@ class BriefingHonestyFilterTest {
                 0.5, latestForAll(category, cycleEnded), clock);
     }
 
-    private static void assertOriginalWording(BriefingRegion r) {
+    private static void assertStandDownWording(BriefingRegion r) {
         assertThat(r.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
         assertThat(r.verdictLabel()).isEqualTo("Too unsettled to forecast");
         assertThat(r.summary()).isEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
         assertThat(r.glossDetail()).isEqualTo(BriefingHonestyFilter.REPLACEMENT_GLOSS_DETAIL);
+    }
+
+    private static void assertNotScoredWording(BriefingRegion r) {
+        assertThat(r.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(r.verdictLabel()).isEqualTo("Not scored");
+        assertThat(r.summary()).isEqualTo("No per-location forecast — the record does not say why");
+        assertThat(r.glossDetail()).startsWith("No per-location forecast was produced for this region")
+                .contains("Nothing here is a judgement about the weather.");
     }
 
     @Test
@@ -643,10 +651,125 @@ class BriefingHonestyFilterTest {
     }
 
     @Test
-    @DisplayName("A region triage stood down keeps STAND_DOWN and today's wording")
-    void triageStandDown_keepsOriginalWording() {
-        assertOriginalWording(firstRegion(blanked(DispositionCategory.SKIPPED_TRIAGED, false,
+    @DisplayName("A region triage stood down keeps STAND_DOWN and 'Too unsettled to forecast'")
+    void triageStandDown_keepsStandDownWording() {
+        assertStandDownWording(firstRegion(blanked(DispositionCategory.SKIPPED_TRIAGED, false,
                 T_PLUS_0)));
+    }
+
+    /**
+     * The three sample slots' latest dispositions, all SKIPPED_TRIAGED, the first
+     * {@code lowVisibilityCount} of them for the visibility rule (valley-mist M1b).
+     */
+    private static Map<String, EvaluationViewService.LatestDisposition> triagedWithVisibility(
+            int lowVisibilityCount) {
+        Map<String, EvaluationViewService.LatestDisposition> latest = new HashMap<>();
+        List<BriefingSlot> slots = threeSampleSlots();
+        for (int i = 0; i < slots.size(); i++) {
+            latest.put(EvaluationViewService.stabilitySkipKey(
+                            slots.get(i).locationName(), TODAY, TargetType.SUNSET),
+                    new EvaluationViewService.LatestDisposition(
+                            DispositionCategory.SKIPPED_TRIAGED, false, i < lowVisibilityCount));
+        }
+        return latest;
+    }
+
+    private static BriefingRegion blankedWithVisibility(int lowVisibilityCount) {
+        return firstRegion(BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"), List.of()),
+                0.5, triagedWithVisibility(lowVisibilityCount), T_PLUS_0));
+    }
+
+    @Test
+    @DisplayName("valley-mist M1b: a stand-down whose triage was mostly visibility reads 'Fog forecast', "
+            + "still STAND_DOWN and still a STOOD_DOWN coverage reason")
+    void visibilityMajority_readsFogForecast() {
+        BriefingRegion r = blankedWithVisibility(3);
+
+        assertThat(r.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        assertThat(r.verdictLabel()).isEqualTo("Fog forecast");
+        assertThat(r.summary()).isEqualTo(BriefingHonestyFilter.FOG_SUMMARY);
+        assertThat(r.glossDetail()).isEqualTo(BriefingHonestyFilter.FOG_GLOSS_DETAIL);
+        assertThat(r.coverageReason()).isEqualTo(com.gregochr.goldenhour.model.CoverageReason.STOOD_DOWN);
+        // Two of three is still a strict majority.
+        assertThat(blankedWithVisibility(2).verdictLabel()).isEqualTo("Fog forecast");
+    }
+
+    @Test
+    @DisplayName("valley-mist M1b: a visibility minority keeps 'Too unsettled to forecast'")
+    void visibilityMinority_keepsTooUnsettled() {
+        assertStandDownWording(blankedWithVisibility(1));
+        assertStandDownWording(blankedWithVisibility(0));
+    }
+
+    @Test
+    @DisplayName("valley-mist M1b: an exact tie keeps 'Too unsettled to forecast' — a specific cause "
+            + "needs a majority")
+    void visibilityTie_keepsTooUnsettled() {
+        // Four scoreable slots, two stood down for visibility and two for anything else.
+        List<BriefingSlot> four = List.of(
+                slot("Buttermere", Verdict.GO), slot("Wast Water", Verdict.GO),
+                slot("Coniston Water", Verdict.GO), slot("Ullswater", Verdict.GO));
+        Map<String, EvaluationViewService.LatestDisposition> latest = new HashMap<>();
+        for (int i = 0; i < four.size(); i++) {
+            latest.put(EvaluationViewService.stabilitySkipKey(
+                            four.get(i).locationName(), TODAY, TargetType.SUNSET),
+                    new EvaluationViewService.LatestDisposition(
+                            DispositionCategory.SKIPPED_TRIAGED, false, i < 2));
+        }
+        BriefingRegion region = regionWith("Northumberland", Verdict.GO, "Clear at 0 of 4",
+                DisplayVerdict.WORTH_IT, 0, four);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET, region, List.of()), 0.5, latest, T_PLUS_0));
+
+        assertStandDownWording(out);
+    }
+
+    @Test
+    @DisplayName("valley-mist M1b: only TRIAGE stand-downs make up the majority's denominator — two "
+            + "visibility stand-downs among three triaged and two stability skips is still fog")
+    void fogMajority_ignoresNonTriagedSlots() {
+        List<BriefingSlot> five = List.of(
+                slot("A", Verdict.GO), slot("B", Verdict.GO), slot("C", Verdict.GO),
+                slot("D", Verdict.GO), slot("E", Verdict.GO));
+        Map<String, EvaluationViewService.LatestDisposition> latest = new HashMap<>();
+        for (int i = 0; i < five.size(); i++) {
+            boolean triaged = i < 3;
+            latest.put(EvaluationViewService.stabilitySkipKey(
+                            five.get(i).locationName(), TODAY, TargetType.SUNSET),
+                    new EvaluationViewService.LatestDisposition(
+                            triaged ? DispositionCategory.SKIPPED_TRIAGED
+                                    : DispositionCategory.SKIPPED_STABILITY,
+                            false, i < 2));
+        }
+        BriefingRegion region = regionWith("Northumberland", Verdict.GO, "Clear at 0 of 5",
+                DisplayVerdict.WORTH_IT, 0, five);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET, region, List.of()), 0.5, latest, T_PLUS_0));
+
+        // Triage 3 beats stability 2, so the fold is STOOD_DOWN; 2 of 3 triaged are visibility.
+        assertThat(out.verdictLabel()).isEqualTo("Fog forecast");
+    }
+
+    @Test
+    @DisplayName("valley-mist M1b: a region that is not a triage stand-down never reads 'Fog forecast', "
+            + "whatever the lowVisibility flag says (it only ever rides a SKIPPED_TRIAGED row)")
+    void fogWording_onlyForAStandDown() {
+        Map<String, EvaluationViewService.LatestDisposition> latest = new HashMap<>();
+        for (BriefingSlot s : threeSampleSlots()) {
+            latest.put(EvaluationViewService.stabilitySkipKey(
+                            s.locationName(), TODAY, TargetType.SUNSET),
+                    new EvaluationViewService.LatestDisposition(
+                            DispositionCategory.SKIPPED_TRAVEL_DAY, false, true));
+        }
+
+        BriefingRegion r = firstRegion(BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"), List.of()),
+                0.5, latest, T_PLUS_0));
+
+        assertThat(r.verdictLabel()).isEqualTo("Not forecast");
     }
 
     @Test
@@ -663,25 +786,26 @@ class BriefingHonestyFilterTest {
     }
 
     @Test
-    @DisplayName("EVALUATED in an ended cycle is FAILED; in a cycle still going it keeps today's "
-            + "wording")
+    @DisplayName("EVALUATED in an ended cycle is FAILED; in a cycle still going the record cannot say, "
+            + "so it reads 'Not scored'")
     void evaluatedReadsByWhetherTheCycleEnded() {
         assertThat(firstRegion(blanked(DispositionCategory.EVALUATED, true, T_PLUS_0))
                 .verdictLabel()).isEqualTo("Forecast unavailable");
-        assertOriginalWording(firstRegion(blanked(DispositionCategory.EVALUATED, false,
+        assertNotScoredWording(firstRegion(blanked(DispositionCategory.EVALUATED, false,
                 T_PLUS_0)));
     }
 
     @Test
-    @DisplayName("No lookup, an empty lookup or an unsettled record keep today's wording")
-    void unknownKeepsOriginalWording() {
+    @DisplayName("A region whose record is incomplete never reads STAND_DOWN: no lookup, an empty "
+            + "lookup or an unsettled record read AWAITING 'Not scored'")
+    void aRegionWhoseRecordIsIncompleteNeverReadsStandDown() {
         DailyBriefingResponse in = responseWith(TargetType.SUNSET,
                 zeroCoverageRegion("Northumberland"), List.of());
 
-        assertOriginalWording(firstRegion(BriefingHonestyFilter.apply(in, 0.5)));
-        assertOriginalWording(firstRegion(
+        assertNotScoredWording(firstRegion(BriefingHonestyFilter.apply(in, 0.5)));
+        assertNotScoredWording(firstRegion(
                 BriefingHonestyFilter.apply(in, 0.5, Map.of(), T_PLUS_0)));
-        assertOriginalWording(firstRegion(blanked(
+        assertNotScoredWording(firstRegion(blanked(
                 DispositionCategory.SKIPPED_NO_REFRESH_NEEDED, false, T_PLUS_0)));
     }
 
@@ -723,14 +847,50 @@ class BriefingHonestyFilterTest {
         }
         assertThat(firstRegion(blankedFrom(in, DispositionCategory.SKIPPED_TRIAGED))
                 .displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
-        // No lookup at all: the old overload keeps today's STAND_DOWN wording, still not UNRATED.
+        // No lookup at all: the record cannot say, so AWAITING, still not UNRATED.
         assertThat(firstRegion(BriefingHonestyFilter.apply(in, 0.5)).displayVerdict())
-                .isEqualTo(DisplayVerdict.STAND_DOWN);
+                .isEqualTo(DisplayVerdict.AWAITING);
     }
 
     private static DailyBriefingResponse blankedFrom(DailyBriefingResponse in,
             DispositionCategory category) {
         return BriefingHonestyFilter.apply(in, 0.5, latestForAll(category, false), T_PLUS_0);
+    }
+
+    @Test
+    @DisplayName("The filter's reason rides the blanked region (the Ask window spread tells a real stand-down "
+            + "from the UNKNOWN the filter words AWAITING); a region it did not blank carries none")
+    void blankedRegionCarriesItsCoverageReason() {
+        assertThat(firstRegion(blanked(DispositionCategory.SKIPPED_TRIAGED, false, T_PLUS_0)).coverageReason())
+                .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.STOOD_DOWN);
+        assertThat(firstRegion(blanked(DispositionCategory.SKIPPED_TRAVEL_DAY, false, T_PLUS_0)).coverageReason())
+                .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.AWAY);
+        assertThat(firstRegion(blanked(DispositionCategory.SKIPPED_STABILITY, false, T_PLUS_4)).coverageReason())
+                .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.NOT_ATTEMPTED);
+        assertThat(firstRegion(blanked(DispositionCategory.SUBMISSION_FAILED, false, T_PLUS_0)).coverageReason())
+                .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.FAILED);
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"), List.of());
+        assertThat(firstRegion(BriefingHonestyFilter.apply(in, 0.5)).coverageReason())
+                .as("no lookup is UNKNOWN, worded AWAITING and never mistaken for a stand-down")
+                .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.UNKNOWN);
+        assertThat(firstRegion(BriefingHonestyFilter.apply(in, 0.5, Map.of(), T_PLUS_0)).coverageReason())
+                .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.UNKNOWN);
+    }
+
+    @Test
+    @DisplayName("A region the filter did not blank (scored, or only lightly evaluated) carries no reason")
+    void aRegionNotBlankedCarriesNoCoverageReason() {
+        DailyBriefingResponse scored = responseWith(TargetType.SUNSET,
+                regionWith("Northumberland", Verdict.GO, "Clear at 10 of 10", DisplayVerdict.WORTH_IT, 10,
+                        goSlots(10)), List.of());
+        DailyBriefingResponse light = responseWith(TargetType.SUNSET,
+                regionWith("Northumberland", Verdict.GO, "Clear at 1 of 10", DisplayVerdict.WORTH_IT, 1,
+                        goSlots(10)), List.of());
+
+        assertThat(firstRegion(BriefingHonestyFilter.apply(scored, 0.5)).coverageReason()).isNull();
+        BriefingRegion lightly = firstRegion(BriefingHonestyFilter.apply(light, 0.5));
+        assertThat(lightly.lightlyEvaluated()).isTrue();
+        assertThat(lightly.coverageReason()).isNull();
     }
 
     @Test

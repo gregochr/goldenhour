@@ -503,7 +503,7 @@
             <plugin>
                 <groupId>com.github.spotbugs</groupId>
                 <artifactId>spotbugs-maven-plugin</artifactId>
-                <version>4.10.4.1</version>
+                <version>4.10.5.0</version>
                 <configuration>
                     <effort>Max</effort>
                     <threshold>High</threshold>
@@ -702,7 +702,7 @@
             <plugin>
                 <groupId>org.pitest</groupId>
                 <artifactId>pitest-maven</artifactId>
-                <version>1.30.0</version>
+                <version>1.30.1</version>
                 <dependencies>
                     <dependency>
                         <groupId>org.pitest</groupId>
@@ -748,9 +748,11 @@
                         <param>com.gregochr.goldenhour.*IT</param>
                         <param>com.gregochr.goldenhour.service.evaluation.BestBetAuroraPromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.PromptRegressionTest</param>
+                        <param>com.gregochr.goldenhour.service.evaluation.ValleyMistPromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.ask.AskPromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.ask.AskThreadRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.ask.AskNightRegressionTest</param>
+                        <param>com.gregochr.goldenhour.service.ask.AskWindowContextRegressionTest</param>
                         <param>com.gregochr.goldenhour.eval.SkyRatingEvalTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.SystemPromptTokenCountTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.PromptReplayHarnessTest</param>

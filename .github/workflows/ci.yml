@@ -210,6 +210,31 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm run build
 
+      # ⚠️ Nothing else checks nginx.conf's syntax before production. deploy.yml writes the file from
+      # the release tag onto the host and recreates the frontend container (`restart: always`), so a
+      # stray brace takes app.photocast.online down until a rollback — and neither this machine nor
+      # any other step here has nginx. `nginx -t` in the pinned image is the check.
+      #
+      # The one edit to the file is the upstream: `goldenhour-backend` only resolves on the compose
+      # network, and an unresolvable upstream fails `-t` by itself, which would say nothing about
+      # the syntax. The sed is guarded on both sides (the name gone, the stub present) so it cannot
+      # quietly do nothing and leave the step proving a different file.
+      #
+      # This step must fail on a broken file. It does so by exit code alone: `nginx -t` exits
+      # non-zero on any syntax or semantic error, and `set -e` carries that out of the step.
+      - name: nginx -t (nginx.conf syntax)
+        if: needs.changes.outputs.docs_only != 'true'
+        run: |
+          set -euo pipefail
+          CHECKED="$RUNNER_TEMP/nginx.checked.conf"
+          sed 's/goldenhour-backend:8082/127.0.0.1:8082/g' nginx.conf > "$CHECKED"
+          if grep -q 'goldenhour-backend' "$CHECKED"; then
+            echo "an upstream name is still unresolved in the copy — the stub did not apply" >&2
+            exit 1
+          fi
+          grep -q '127.0.0.1:8082' "$CHECKED"
+          docker run --rm -v "$CHECKED:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
+
       - name: Documentation-only change — suite skipped
         if: needs.changes.outputs.docs_only == 'true'
         run: |

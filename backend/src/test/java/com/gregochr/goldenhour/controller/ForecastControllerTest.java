@@ -42,6 +42,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -879,6 +880,88 @@ class ForecastControllerTest extends AbstractControllerTest {
         verify(dtoMapper).toListDtoList(any(), eq(false));
     }
 
+    // ── GET /api/forecast?date= — one stored past day (outcome-rating plan §2 #4, O2) ────────
+
+    private static LocalDate ukToday() {
+        return ForecastHorizon.today(Clock.systemUTC());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast?date= admits yesterday and T-4: 200, and the repository is read for "
+            + "exactly that one day")
+    void getForecastsForDate_admitsYesterdayAndT4() throws Exception {
+        when(forecastEvaluationRepository
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(dtoMapper.toListDtoList(any(), anyBoolean())).thenReturn(List.of());
+
+        for (LocalDate day : List.of(ukToday().minusDays(1),
+                ukToday().minusDays(ForecastHorizon.MAX_PAST_DAYS))) {
+            mockMvc.perform(get("/api/forecast").param("date", day.toString()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$").isArray());
+            verify(forecastEvaluationRepository)
+                    .findLatestRunPerSlotByLocationIds(any(), eq(day), eq(day));
+        }
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast?date= refuses today, tomorrow, T-5 and a malformed date with a 400 "
+            + "{error} and reads nothing")
+    void getForecastsForDate_refusesOutOfWindowDates() throws Exception {
+        for (String refused : List.of(ukToday().toString(), ukToday().plusDays(1).toString(),
+                ukToday().minusDays(ForecastHorizon.MAX_PAST_DAYS + 1).toString(), "not-a-date",
+                "2026-13-45")) {
+            mockMvc.perform(get("/api/forecast").param("date", refused))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value("date must be between T-4 and yesterday"));
+        }
+
+        verify(forecastEvaluationRepository, never())
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class));
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/forecast?date= as LITE_USER passes isLiteUser=true to the mapper (score gating "
+            + "applies to the one-day read too)")
+    void getForecastsForDate_asLiteUser_passesLiteFlag() throws Exception {
+        when(forecastEvaluationRepository
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(dtoMapper.toListDtoList(any(), eq(true))).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast").param("date", ukToday().minusDays(1).toString()))
+                .andExpect(status().isOk());
+
+        verify(dtoMapper).toListDtoList(any(), eq(true));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast?date= never reaches a run, a batch or a model")
+    void getForecastsForDate_runsNothing() throws Exception {
+        when(forecastEvaluationRepository
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(dtoMapper.toListDtoList(any(), anyBoolean())).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast").param("date", ukToday().minusDays(1).toString()))
+                .andExpect(status().isOk());
+
+        verifyNoInteractions(commandFactory, forecastCommandExecutor, scheduledForecastService,
+                jobRunService, forceSubmitBatchService, scheduledBatchEvaluationService, failedSlotRetryService);
+    }
+
+    @Test
+    @DisplayName("GET /api/forecast?date= without a token is refused (the path is not opened up)")
+    void getForecastsForDate_unauthenticated_isRefused() throws Exception {
+        mockMvc.perform(get("/api/forecast").param("date", ukToday().minusDays(1).toString()))
+                .andExpect(status().isUnauthorized());
+    }
+
     @Test
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 404 with no body when there is nothing to retry")
@@ -1190,6 +1273,6 @@ class ForecastControllerTest extends AbstractControllerTest {
                 null, null, null, null, null, null,
                 null, null,
                 null, null, null, null, null, null, null,
-                null, null, null, null, null);
+                null, null, null, null, null, null);
     }
 }

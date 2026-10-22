@@ -102,6 +102,8 @@ MapLabels, MapCallout, RegionsJump, MapLegendPanel, PinsLayer), mounted by `MapV
   today). A later owner decision (recorded in §6) may converge the overlay onto the callout; this
   plan does not.
 
+> **Dated note, 2026-10-21 — the overlay this section freezes no longer exists:** the Plan-tab overlay was retired 2026-10-20/21 by overlay convergence (`overlay-convergence-plan.md`, C1–C5, #1246 #1248 #1252 #1258 #1262). Every door that opened it opens the Map tab; `MapView` has one mount and no `overlayMode`. The freeze rule above is history, kept for the reasoning (O-6, §6).
+
 **Data strategy: solar-first.** The briefing already serves the ordered ≤6 solar event list
 (`DailyBriefingResponse.renderedEvents`), per-window roster best (`BriefingWindow.bestRating`),
 confidence, badges/topics, and per-location per-window ratings + summaries ride
@@ -612,12 +614,16 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
    ForecastTypeSelector. The bundle redesigns "the Map tab"; the overlay is a different surface
    with a different job. Convergence is O-6. ⚠️ **Clustering was struck from this list on
    2026-09-04 (item 20) — the first place the overlay's freeze has been deliberately broken.** ⚠️ **It was broken a SECOND time on 2026-10-02** (the hourly comfort forecast): the frozen popup's pure-wildlife block was rewritten as the shared `HourlyComfortTable` — a real `<table>`, the column headers kept for assistive technology only (`sr-only` text, so the popup's look is what it was), a missing figure a dash plus a hidden "not forecast", no "feels" invented from the air temperature, no "undefined" compass word, the inline icon styles moved to `.wf-wx-icon` and the icons extracted to `WeatherIcons.jsx` — and the dead waterfall comfort block was removed. Its visible look is intended to be unchanged.
+   **Retired:** the Plan-tab overlay was retired 2026-10-20/21 by overlay convergence (`overlay-convergence-plan.md`, C1–C5, #1246 #1248 #1252 #1258 #1262); `MarkerPopupContent` survives only in the admin `PromptTestView`.
 10. **Keyboard shortcuts are pane-scoped**, not document-global — the prototype had no other
     focusable surfaces; the app does.
 11. **The callout carries a reduced fact set by design**; the full forecast detail (tide
     indicator, comfort rows, score bars, inversion/dust badges) stays one step away in the Plan
     popup/location sheet and the overlay popup. Anything later judged missing is added to the
-    callout deliberately, not by porting `MarkerPopupContent` across. ⚠️ **"Comfort rows … one step
+    callout deliberately, not by porting `MarkerPopupContent` across. (Since overlay convergence C2/C5,
+    2026-10-20/21, the sheet carries the popup's badges, sea/surge/rising-tide, wind/comfort and
+    generated-at lines, the callout the aurora alert-level word and the travel-day notice, and the
+    overlay popup is gone.) ⚠️ **"Comfort rows … one step
     away in the Plan popup/location sheet" was false until 2026-10-02.** The only renderer of a
     hide's hourly comfort rows was `MarkerPopupContent`'s pure-wildlife branch, mounted only in the
     frozen overlay; the location sheet had none, and the Map tab callout said "Not scored yet" for a
@@ -1112,6 +1118,18 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     only the flip the jump itself caused, carried forward across a second jump; a reader who chose
     Everywhere *before* jumping stays there.
 
+33. **The window control reaches the past, and carries a `selectedIsPast` provenance flag (2026-10-15 to
+    2026-10-16).** The bundle's window control lists only windows the briefing still serves, so a sunrise
+    or sunset that has gone vanished from the map. The outcome-rating series
+    (`docs/engineering/outcome-rating-plan.md`) adds **past solar windows**: rows the control draws with
+    `past: true` and `served: false` (no verdict, tint or tick; a `PAST` tag where the verdict sits), an
+    EARLIER group above the future days and a Load row that fetches one stored day at a time back to T-4.
+    `App` and `resolveMapDate` take a `selectedIsPast` flag beside `selectedIsNight`: provenance set only
+    by the routes that name a past row, never inferred from the value, because a stale past date must not
+    stay "usable" once the list no longer holds it. The heat field, the callout, the chips and pins read a
+    past window from the forecast rows alone, and "Open in Plan" is withheld on one.
+    CLAUDE.md's *Map tab — past windows* and *Map tab — rating a past window* bullets are the maintained description.
+
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 
 - **D-1** Bloom gated on temp mode (§4.1). Alternative — retiring verdict mode — is O-1.
@@ -1121,8 +1139,10 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 - **D-6** maxZoom 16 (§4.4).
 - **D-8** Admin drawer toggles ride into the filters popover as an admin-only row; the popup's
   admin "Run Forecast" does **not** move to the callout (Ops + the overlay cover it) — revisit as
-  O-7 if the owner misses it.
-- **D-9** Azimuth lines: overlay keeps them; the tab's pins mode drops them initially (they were
+  O-7 if the owner misses it. *(2026-10-21: the overlay is retired (C5), so no map route reaches a
+  single-location run, and no other UI does either until O-7: the admin `PromptTestView` preview mounts
+  `MarkerPopupContent` with a forecast, and its Run Forecast button is drawn only with none.)*
+- **D-9** Azimuth lines: overlay keeps them (overlay retired 2026-10-21, C5); the tab's pins mode drops them initially (they were
   marker-layer furniture; the design's chip/pin vocabulary has no host). Restore later on the
   selection ring if wanted — O-5.
 - **D-11** Region short names by CSS truncation for now; a curated nullable `regions.short_name`
@@ -1170,7 +1190,7 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   is the never-cached per-user endpoint, which is the exit for CLAUDE.md's licensed client classes
   (including the Map tab's own, added at map-landing L7). Two plans, two O-4s, unrelated.
 - **O-5** Azimuth lines on the redesigned tab.
-- **O-6** Overlay convergence onto the callout (and `MarkerPopupContent`'s long-term home). ⚠️ What in `HourlyComfortTable` exists only for the frozen popup: the default hidden-header mode (`headersVisible` false, the `.wf-hourly-head-off` rule and its `sr-only` header text), and the popup's `label`/`popup-hourly-table` test id; when the overlay converges, delete that mode. One
+- **O-6** ✅ **DECIDED and DONE 2026-10-21: the overlay is RETIRED, not converged onto the callout** (`overlay-convergence-plan.md`, C1–C5, #1246 #1248 #1252 #1258 #1262; C6 the docs). Every producer below now takes the structured door to the Map tab; `MarkerPopupContent`'s long-term home is the admin `PromptTestView` alone. `HourlyComfortTable`'s hidden-header mode and the `popup-hourly-table` id were KEPT, not deleted as the note below says: the popup is their only consumer and never reaches them (`PromptTestView` passes `hourlyData={[]}`), so a follow-up may delete the mode. The history below is as written. Overlay convergence onto the callout (and `MarkerPopupContent`'s long-term home). ⚠️ What in `HourlyComfortTable` exists only for the frozen popup: the default hidden-header mode (`headersVisible` false, the `.wf-hourly-head-off` rule and its `sr-only` header text), and the popup's `label`/`popup-hourly-table` test id; when the overlay converges, delete that mode. One
   producer has already moved off the overlay: the location sheet's `Show on map` footer button now
   opens the Map tab directly (`plan-to-map-doors-plan.md` doors D3, #764), landing on the sheet's
   own window with the location's callout up. Every other producer (`WindowPickDialog`'s two

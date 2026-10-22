@@ -193,6 +193,18 @@ public class LocationEntity {
     @Builder.Default
     private boolean overlooksWater = false;
 
+    /**
+     * Whether mist forms AROUND this place (valley floor, riverside, lake shore, a low crag with
+     * negligible relief) — an admin-entered fact, not derivable from stored metadata
+     * (valley-mist-plan Q1). Gates {@code ForecastDataAugmentor.augmentWithValleyMist}, and nothing
+     * else in M1a. A plain column written only by the admin's whole-entity
+     * {@code LocationService.update}, exactly like {@link #overlooksWater}: no detached or scheduled
+     * writer touches it, so it needs no column-scoped updater.
+     */
+    @Column(name = "mist_prone", nullable = false)
+    @Builder.Default
+    private boolean mistProne = false;
+
     /** Snapped Open-Meteo grid latitude (~2 km resolution). Null until first fetch. */
     @Column(name = "grid_lat")
     private Double gridLat;

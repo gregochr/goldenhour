@@ -36,7 +36,11 @@ overlap (only #753, a Coming up label fix).
 **Status: COMPLETE — D1–D4 are all on `main` (D1 `dffd764a`, #762; D2 `399a7e36`, #763; D3
 `f52a6013`, #764; D4 `a4964ed8`, #765). D5 was dropped unbuilt (§6 Q1) and D6 (this sweep) closes
 the series.** All three owner decisions recorded 2026-09-04 (§6): Q1
-drop door 3, Q2 land on the plan, Q3 re-point the sheet footer. Phase log (D1 creates the first row; every phase appends its own
+drop door 3, Q2 land on the plan, Q3 re-point the sheet footer.
+
+> **Dated note, 2026-10-21 — the Plan-tab overlay was retired 2026-10-20/21 by overlay convergence (`overlay-convergence-plan.md`, C1–C5, #1246 #1248 #1252 #1258 #1262).** The producers this plan left on the overlay (§1, Q3) now take this plan's structured door (`source:'plan'`, widened in C1 with `night`, `focusNames`, `focusPoints`, `filterAction`/`darkSky`, `title`/`caption` and in C4 with `from`), the breadcrumb's return names the tab the door came from, and the hatch is deleted. So **O-D3** is moot (C1 gave the crumb that vocabulary) and **O-D6** closed with the hatch (C5). D5 (the thumbnail glyph) stays dropped: nothing in the series reopened it. The text below is the record as written.
+
+Phase log (D1 creates the first row; every phase appends its own
 in the same commit as its code):
 
 | phase | branch | commit | date | notes |

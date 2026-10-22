@@ -3,13 +3,16 @@ import {
 } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal';
+import PasswordInput from './auth/PasswordInput.jsx';
+import { deleteAccount } from '../api/accountApi.js';
 import {
   getSettings, lookupPostcode, saveHome, refreshDriveTimes, saveMapColourPreferences,
 } from '../api/settingsApi';
 import { resolveMode } from '../utils/scoreRamp.js';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 import { apiErrorMessage } from '../utils/apiError.js';
-import { BUSY_BUTTON } from '../utils/busyButton.js';
+import { BUSY_BUTTON, BUSY_BUTTON_DANGER } from '../utils/busyButton.js';
+import useGeolocationPostcode from '../hooks/useGeolocationPostcode.js';
 import { colourAfterRead, createColourSaveQueue, saveColourInTurn } from '../utils/colourSaveQueue.js';
 
 const ROLE_LABELS = {
@@ -26,6 +29,16 @@ const ROLE_LABELS = {
  * unless the user actually moves the control, so the server keeps deciding what null means.
  */
 const DEFAULT_RADIUS_MILES = 22;
+
+/** The account-deletion refusals a reader is told in the server's own words (plan §2 #12). */
+const DELETE_REFUSAL_FALLBACKS = {
+  403: 'Password is incorrect',
+  409: 'Admin accounts are deleted by another admin',
+  429: 'Too many attempts. Please wait a few minutes and try again.',
+};
+
+/** Anything else the delete can fail with — a 400, a 5xx, a lost connection. */
+const DELETE_FAILED = 'Couldn’t delete your account. Try again.';
 
 /**
  * The lines this dialog moves focus ONTO — the new home, the refresh's status line, its "last
@@ -50,6 +63,7 @@ const LANDING_TARGET = '-mx-1 px-1 rounded-sm focus-visible:outline-2 focus-visi
 export default function UserSettingsModal({
   onClose, onDriveTimesRefreshed, startSettingsRead, onHomeSaved, onDriveTimesRecalculated,
   onColourSaved, colourSaveQueue = null, focusField = null, restoreFocusFallback = null,
+  onSignOut = undefined,
 }) {
   const [settings, setSettings] = useState(null);
   // The read on opening starts through the newest callback without the read re-running when the
@@ -81,6 +95,13 @@ export default function UserSettingsModal({
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupError, setLookupError] = useState(null);
   const [lookingUp, setLookingUp] = useState(false);
+  // "Use my location" lands in the SAME `lookupResult` a typed lookup does, so the Save button, the
+  // radius and every focus landing below see one result whichever way it was produced.
+  const {
+    available: canLocate, locate, locating, error: locateError, clearError: clearLocateError,
+  } = useGeolocationPostcode();
+  // A newer typed lookup supersedes a location request still out: that result is then dropped.
+  const lookupSeq = useRef(0);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState(null);
@@ -92,6 +113,22 @@ export default function UserSettingsModal({
   // during render) so the render stays pure (react-hooks/purity), and refreshed
   // every minute so the label stays current.
   const [now, setNow] = useState(null);
+
+  // ── Danger zone: deleting the reader's own account ─────────────────────────────────────────────
+  //
+  // An INLINE confirmation region in this dialog, never a second `aria-modal` over it (plan §1 #26,
+  // §4 #17). `deleteOpen` swaps the opener for the region; the region asks for the password.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  // `{ text, passwordRefused }` — the sentence the reader is shown, and whether it is about the
+  // password field itself (a 403) rather than the request (a 409 or 429).
+  const [deleteError, setDeleteError] = useState(null);
+  const deleteOpenerRef = useRef(null);
+  const deletePasswordRef = useRef(null);
+  const deleteHeadingId = useId();
+  const deleteSentenceId = useId();
+  const deleteErrorId = useId();
 
   // ── Where focus goes when a step of this dialog removes the control the reader pressed ─────────
   //
@@ -235,6 +272,8 @@ export default function UserSettingsModal({
     // out (see BUSY_BUTTON), and Enter in the field reaches here too — a second press must not
     // start a second lookup racing the first for the result slot.
     if (!postcode.trim() || lookingUp) return;
+    lookupSeq.current += 1;
+    clearLocateError();
     setLookingUp(true);
     setLookupError(null);
     setLookupResult(null);
@@ -248,9 +287,36 @@ export default function UserSettingsModal({
     }
   };
 
+  /**
+   * "Use my location": the device's position → the postcode there (the hook), landed in the field
+   * and the confirmation row exactly as a typed lookup would. Nothing is saved until Save. The link
+   * is `aria-disabled` while a request is out, so the reader who pressed it keeps focus on it —
+   * and keeps it on a failure, so no landing is needed.
+   */
+  const handleLocate = async () => {
+    if (locating || lookingUp || saving) return;
+    lookupSeq.current += 1;
+    const seq = lookupSeq.current;
+    setLookupError(null);
+    const found = await locate();
+    if (seq !== lookupSeq.current) {
+      // Superseded by a typed lookup or a save: its result is dropped, and so is a failure the
+      // hook raised late, which would otherwise surface above the newer, valid result.
+      clearLocateError();
+      return;
+    }
+    if (!found) return;
+    setPostcode(found.postcode);
+    setLookupResult(found);
+  };
+
   const handleSave = async () => {
     // `saving` as well: the button stays focusable while the save is out (see BUSY_BUTTON).
     if (!lookupResult || saving) return;
+    // A location request still out must not land after this save: it would overwrite the field and
+    // raise a Save row for a postcode the reader did not choose, or unmount the home line focus is
+    // about to land on.
+    lookupSeq.current += 1;
     setSaving(true);
     try {
       // null when the user has never chosen one, so the column stays NULL and the server keeps
@@ -415,6 +481,76 @@ export default function UserSettingsModal({
     if (e.key === 'Enter') handleLookup();
   };
 
+  /**
+   * Opens the confirmation region. The opener leaves with the press, so the reader lands on the
+   * password field — which is also what the dialog a confirm would have been was for.
+   */
+  const openDelete = () => {
+    setDeleteOpen(true);
+    setFocusRequest([deletePasswordRef]);
+  };
+
+  /**
+   * Collapses the region and returns the reader to the button that opened it. Refused while the
+   * request is out: a delete that then succeeds would sign the reader out of a region they had
+   * just walked away from. The password is dropped with the region.
+   */
+  const cancelDelete = () => {
+    if (deleting) return;
+    setDeleteOpen(false);
+    setDeletePassword('');
+    setDeleteError(null);
+    setFocusRequest([deleteOpenerRef]);
+  };
+
+  /**
+   * The × and the backdrop, refused while a delete is out: closing then would drop a 403, 409 or
+   * 429 on the floor with nobody to read it, and the reader would not know whether the account
+   * had gone. (A 204 signs out whether or not the dialog is open.)
+   */
+  const closeUnlessDeleting = () => {
+    if (!deleting) onClose();
+  };
+
+  /**
+   * Sends the delete. `aria-disabled`, not `disabled`, while it is out (BUSY_BUTTON's reason): the
+   * reader has just pressed this button, and a button that becomes `disabled` under focus drops it
+   * on `<body>` — where a refused password would leave them. So a second press, or Enter in the
+   * field, is refused here instead.
+   *
+   * <p>204 and 401 both end the session — the first because the account is gone, the second because
+   * the credentials changed under this one (plan §2 #7) — and both go through `onSignOut`. A 403,
+   * 409 or 429 shows the server's sentence inside the region, which stays open.
+   */
+  const handleDelete = async (e) => {
+    e.preventDefault();
+    if (!deletePassword || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteAccount(deletePassword);
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 401) {
+        await onSignOut?.();
+        return;
+      }
+      const fallback = DELETE_REFUSAL_FALLBACKS[status];
+      setDeleteError({
+        text: fallback ? apiErrorMessage(err, fallback) : DELETE_FAILED,
+        passwordRefused: status === 403,
+      });
+      setDeleting(false);
+      return;
+    }
+    // Left `deleting` on: the page is about to drop this dialog, and a button that re-enabled in
+    // the gap would let a second delete go out against an account that no longer exists.
+    await onSignOut?.();
+  };
+
+  // A location request's own failure replaces the typed lookup's line; the two never show together.
+  const shownError = locateError || lookupError;
+
   const roleBadge = settings?.role ? ROLE_LABELS[settings.role] : null;
   const hasHome = settings?.homePostcode != null;
   const isPro = settings?.role === 'ADMIN' || settings?.role === 'PRO_USER';
@@ -494,13 +630,18 @@ export default function UserSettingsModal({
   return (
     <Modal
       label="Settings"
-      onClose={onClose}
+      onClose={closeUnlessDeleting}
+      // The dialog is already four sections tall and the open danger zone adds a field, an error
+      // line and two buttons: on a short or keyboard-shortened phone the centred panel would clip
+      // at both ends with no way to scroll. `Modal`'s root is a definite-height flex box, so
+      // `max-h-full` caps the panel and `overflow-y-auto` scrolls the rest.
+      className="max-h-full overflow-y-auto"
       restoreFocusFallback={restoreFocusFallback}
       data-testid="settings-modal"
     >
       <div key="settings" ref={viewRef} className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-plex-text">Settings</h2>
-        <button onClick={onClose} className="text-plex-text-muted hover:text-plex-text text-lg" aria-label="Close">&times;</button>
+        <button onClick={closeUnlessDeleting} className="text-plex-text-muted hover:text-plex-text text-lg" aria-label="Close">&times;</button>
       </div>
 
       {loading ? (
@@ -547,7 +688,7 @@ export default function UserSettingsModal({
                   className={`text-sm text-plex-text mb-2 ${LANDING_TARGET}`}
                   data-testid="settings-home-current"
                 >
-                  <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1.5" />
+                  <span className="inline-block w-2 h-2 rounded-full bg-plex-ok mr-1.5" />
                   {settings.homePlaceName || settings.homePostcode}
                 </p>
               )}
@@ -573,7 +714,17 @@ export default function UserSettingsModal({
                   onKeyDown={handleKeyDown}
                   placeholder="Enter UK postcode"
                   ref={postcodeRef}
-                  className="flex-1 px-3 py-1.5 text-sm bg-plex-bg border border-plex-border rounded-lg text-plex-text placeholder:text-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
+                  // `.field` REPLACES the old utility string (index.css records why); only the layout
+                  // utilities that let it share a row with the button stay beside it.
+                  className={`field flex-1 min-w-0 ${lookupError ? 'field-error' : ''}`}
+                  autoComplete="postal-code"
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  inputMode="text"
+                  enterKeyHint="search"
+                  aria-invalid={lookupError ? 'true' : undefined}
+                  aria-describedby={shownError ? 'settings-lookup-error' : undefined}
                   data-testid="settings-postcode-input"
                 />
                 {/* Truly disabled only while the field is empty — a state the reader cannot reach
@@ -588,14 +739,34 @@ export default function UserSettingsModal({
                   {lookingUp ? 'Looking up…' : 'Look up'}
                 </button>
               </div>
-              {lookupError && (
-                <p className="text-sm text-red-400 mt-1" data-testid="settings-lookup-error">{lookupError}</p>
+              {shownError && (
+                <p
+                  id="settings-lookup-error"
+                  className="text-sm text-plex-error mt-1"
+                  role="alert"
+                  data-testid="settings-lookup-error"
+                >
+                  {shownError}
+                </p>
+              )}
+              {canLocate && (
+                <div className="mt-1">
+                  <button
+                    type="button"
+                    className="text-xs text-plex-gold hover:underline rounded-sm py-1.5 -my-1.5 focus-visible:outline-2 focus-visible:outline-plex-gold aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
+                    onClick={handleLocate}
+                    aria-disabled={locating || lookingUp || saving || undefined}
+                    data-testid="settings-use-location"
+                  >
+                    {locating ? 'Locating…' : 'Use my location'}
+                  </button>
+                </div>
               )}
               {lookupResult && (
                 <div className="mt-2 flex items-center gap-3" data-testid="settings-lookup-result">
                   <div>
                     <p className="text-sm text-plex-text">
-                      <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1.5" />
+                      <span className="inline-block w-2 h-2 rounded-full bg-plex-ok mr-1.5" />
                       {lookupResult.placeName}
                     </p>
                     <p className="text-xs text-plex-text-muted">
@@ -691,7 +862,7 @@ export default function UserSettingsModal({
                   </p>
                 )}
                 {radiusError && (
-                  <p className="text-xs text-red-400 mt-1" data-testid="settings-radius-error">
+                  <p className="text-xs text-plex-error mt-1" data-testid="settings-radius-error">
                     Could not save the radius. Try again.
                   </p>
                 )}
@@ -732,7 +903,7 @@ export default function UserSettingsModal({
                   id={refreshErrorId}
                   ref={refreshErrorRef}
                   tabIndex={-1}
-                  className={`text-sm text-red-400 mt-1 ${LANDING_TARGET}`}
+                  className={`text-sm text-plex-error mt-1 ${LANDING_TARGET}`}
                   data-testid="settings-refresh-error"
                 >
                   {refreshError}
@@ -783,20 +954,105 @@ export default function UserSettingsModal({
                 {colourSaving ? 'Saving…' : ''}
               </span>
               {colourError && (
-                <p className="text-xs text-red-400" data-testid="settings-colour-error">
+                <p className="text-xs text-plex-error" data-testid="settings-colour-error">
                   Could not save the colour preference. Try again.
                 </p>
               )}
             </div>
           </section>
           {!isPro && (
-            <p className="text-center text-plex-text-secondary" style={{ fontSize: '13px' }}>
-              Your postcode sets your light times. Upgrade to Pro for personalised drive times.
+            <p className="text-center text-plex-text-secondary text-[13px]">
+              Your postcode sets your light times. Pro accounts also get drive times from home.
             </p>
           )}
+
+          {/* Danger zone — every role, the administrator included: an admin's attempt is a 409 the
+              region reports in the server's words, so the refusal is not duplicated here. */}
+          <section className="border-t border-plex-border pt-4">
+            <h3
+              id={deleteHeadingId}
+              className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2"
+            >
+              Danger zone
+            </h3>
+            {deleteOpen ? (
+              <div
+                role="group"
+                aria-labelledby={deleteHeadingId}
+                aria-describedby={deleteSentenceId}
+                className="flex flex-col gap-3"
+                data-testid="settings-delete-region"
+              >
+                <p id={deleteSentenceId} className="text-sm text-plex-text-secondary">
+                  This deletes your account, your home postcode and drive times, your Ask history and your
+                  ratings. It cannot be undone.
+                </p>
+                <form onSubmit={handleDelete} noValidate className="flex flex-col gap-3">
+                  <label htmlFor="settings-delete-password" className="sr-only">Password</label>
+                  <PasswordInput
+                    id="settings-delete-password"
+                    testId="settings-delete-password"
+                    autoComplete="current-password"
+                    required={false}
+                    value={deletePassword}
+                    onChange={(e) => {
+                      setDeletePassword(e.target.value);
+                      // A refusal is about the password that was sent; once it changes the line is stale.
+                      if (deleteError) setDeleteError(null);
+                    }}
+                    inputRef={deletePasswordRef}
+                    describedBy={deleteError ? deleteErrorId : undefined}
+                    invalid={Boolean(deleteError?.passwordRefused)}
+                  />
+                  {deleteError && (
+                    <p
+                      id={deleteErrorId}
+                      className="text-sm text-plex-error -mt-1"
+                      role="alert"
+                      data-testid="settings-delete-error"
+                    >
+                      {deleteError.text}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="submit"
+                      className={`btn-danger ${BUSY_BUTTON_DANGER}`}
+                      // Truly disabled only while the field is empty — the reader cannot be on this
+                      // button then. In flight it is `aria-disabled` (see `handleDelete`).
+                      disabled={!deletePassword}
+                      aria-disabled={deleting || undefined}
+                      data-testid="settings-delete-confirm"
+                    >
+                      {deleting ? 'Deleting…' : 'Delete account'}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-sm text-plex-text-secondary hover:text-plex-text rounded-sm py-1.5 focus-visible:outline-2 focus-visible:outline-plex-gold aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
+                      onClick={cancelDelete}
+                      aria-disabled={deleting || undefined}
+                      data-testid="settings-delete-cancel"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              <button
+                ref={deleteOpenerRef}
+                type="button"
+                className="btn-secondary"
+                onClick={openDelete}
+                data-testid="settings-delete-open"
+              >
+                Delete account
+              </button>
+            )}
+          </section>
         </div>
       ) : (
-        <p className="text-sm text-red-400 py-4">Failed to load settings.</p>
+        <p className="text-sm text-plex-error py-4">Failed to load settings.</p>
       )}
     </Modal>
   );
@@ -844,4 +1100,10 @@ UserSettingsModal.propTypes = {
    * button a saved postcode can replace while this dialog is still open.
    */
   restoreFocusFallback: PropTypes.func,
+  /**
+   * Called when the reader's session is over — their account was deleted (204), or the credentials
+   * it was signed in with changed under it (401). `App` passes `logout`. Awaited, but nothing here
+   * waits on its result: the page drops this dialog when the session goes.
+   */
+  onSignOut: PropTypes.func,
 };

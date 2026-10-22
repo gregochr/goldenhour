@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.CloudApproachDetails;
@@ -43,6 +44,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -84,6 +86,7 @@ public class ForecastService {
             slotAtmosphereWriter;
     private final RunProgressTracker runProgressTracker;
     private final Clock clock;
+    private final AppBuild appBuild;
 
     /**
      * Constructs a {@code ForecastService} with all required dependencies.
@@ -108,6 +111,8 @@ public class ForecastService {
      *                                tells it when a call shows the key was rejected
      * @param clock                   supplies "today" for the {@code daysAhead} horizon, resolved in
      *                                {@code Europe/London} by {@link ForecastHorizon}
+     * @param appBuild                the running build, stamped on every row that gets a rating or a
+     *                                triage reason (V182)
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
             ForecastDataAugmentor augmentor, EvaluationService evaluationService,
@@ -119,7 +124,7 @@ public class ForecastService {
             com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
                     slotAtmosphereWriter,
             RunProgressTracker runProgressTracker,
-            Clock clock) {
+            Clock clock, AppBuild appBuild) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
         this.augmentor = augmentor;
@@ -133,6 +138,7 @@ public class ForecastService {
         this.slotAtmosphereWriter = slotAtmosphereWriter;
         this.runProgressTracker = runProgressTracker;
         this.clock = clock;
+        this.appBuild = appBuild;
     }
 
     /**
@@ -401,8 +407,13 @@ public class ForecastService {
                 forecastResponse);
         AtmosphericData withInversion = augmentor.augmentWithInversionScore(
                 withSurge, location.getElevationMetres(), location.isOverlooksWater());
+        // Valley mist (V185, valley-mist-plan M1a): scored for a mist_prone site only, here and
+        // before the readings write and both triage checks below, exactly like the inversion score
+        // above — so a stood-down candidate still records it (the two-question rule).
+        AtmosphericData withMist = augmentor.augmentWithValleyMist(
+                withInversion, location.isMistProne());
         AtmosphericData forecastData = augmentor.augmentWithBluebellConditions(
-                withInversion, location.getLocationType(), location.getBluebellExposure(), date);
+                withMist, location.getLocationType(), location.getBluebellExposure(), date);
 
         // Record conditions for every place whose weather was fetched — the ONE seam every
         // caller of fetchWeatherAndTriage shares (the batch collector's scheduled AND
@@ -430,7 +441,7 @@ public class ForecastService {
             ForecastEvaluationEntity entity = buildEntity(
                     location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
                     forecastData, emptyEval, model);
-            entity.setTriage(new TriageDetails(tr.triageReason(), reason));
+            standDown(entity, tr.triageReason(), reason);
             repository.save(entity);
             publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                     LocationTaskState.TRIAGED);
@@ -460,7 +471,7 @@ public class ForecastService {
                 ForecastEvaluationEntity entity = buildEntity(
                         location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
                         forecastData, emptyEval, model);
-                entity.setTriage(new TriageDetails(tr.triageReason(), reason));
+                standDown(entity, tr.triageReason(), reason);
                 repository.save(entity);
                 publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                         LocationTaskState.TRIAGED);
@@ -593,7 +604,7 @@ public class ForecastService {
                 preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
                 preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
                 preEval.azimuth(), preEval.atmosphericData(), emptyEval, preEval.model());
-        entity.setTriage(new TriageDetails(TriageReason.GENERIC, reason));
+        standDown(entity, TriageReason.GENERIC, reason);
         ForecastEvaluationEntity saved = repository.save(entity);
 
         Long runId = jobRun != null ? jobRun.getId() : null;
@@ -787,6 +798,18 @@ public class ForecastService {
     }
 
     /**
+     * Marks an unsaved row as a stand-down: attaches the triage reason and stamps {@code scoredAt}
+     * (V178) and the running build (V182), because a triage reason is something to say — the reader
+     * saw it as the slot's decision — and the row is saved with it, never without. The three triage
+     * sites and the sentinel skip all go through here so none can forget the stamp.
+     */
+    private void standDown(ForecastEvaluationEntity entity, TriageReason reason, String message) {
+        entity.setTriage(new TriageDetails(reason, message));
+        entity.setScoredAt(clock.instant());
+        entity.setAppBuild(appBuild.value());
+    }
+
+    /**
      * Builds an unsaved {@link ForecastEvaluationEntity} from the evaluated forecast data.
      *
      * <p>Sole site at which the durable per-evaluation {@code confidence} is derived, so every
@@ -808,7 +831,10 @@ public class ForecastService {
     private ForecastEvaluationEntity buildEntity(LocationEntity location, double lat, double lon,
             LocalDate date, TargetType type, int daysAhead, LocalDateTime eventTime, Integer azimuth,
             AtmosphericData data, SunsetEvaluation evaluation, EvaluationModel model) {
+        Instant scoredAt = evaluation.rating() != null ? clock.instant() : null;
         return ForecastEvaluationEntity.builder()
+                .scoredAt(scoredAt)
+                .appBuild(scoredAt != null ? appBuild.value() : null)
                 .locationLat(BigDecimal.valueOf(lat))
                 .locationLon(BigDecimal.valueOf(lon))
                 .location(location)
@@ -853,6 +879,10 @@ public class ForecastService {
                         data.adjustedRangeMetres(), data.astronomicalRangeMetres()))
                 .inversion(InversionDetails.from(data.inversionScore() != null,
                         evaluation.inversionScore(), evaluation.inversionPotential()))
+                // Claude's valley mist reading, kept only for a site whose prompt carried the
+                // VALLEY MIST CONDITIONS block (data.mistPotential() non-null): the echo of a
+                // question that was asked (valley-mist-plan M2).
+                .mistPotential(data.mistPotential() != null ? evaluation.mistPotential() : null)
                 .build();
     }
 }
