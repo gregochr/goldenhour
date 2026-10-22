@@ -2149,8 +2149,8 @@ button.wf-hc.on:hover {
 /* The thin-sample count beside the verdict (thin-sample plan F3): separator ink-3 400, count ink 500,
    solid colours, no opacity. ONE LINE or NOT AT ALL. The value column is 70-175px (see `.wf-hc-mean`)
    and "Worth it 4.0★ · 6 rated" needs about 112px beside the time, so the figure is drawn only where
-   the CARD is wide enough to hold the whole line (`@container wf-card`, below); narrower, it is hidden
-   and stays in the card's spoken sentence. A wrapped verdict row would push this card's Spread and
+   the CARD is wide enough to hold the whole line (`@container wf-card`, below); narrower, it is hidden.
+   It is never voiced on its own: the card's spoken sentence already says "N of M rated" below the gate. A wrapped verdict row would push this card's Spread and
    Best rows out of line with its neighbours'. */
 .wf-hc-thin {
   display: none;
