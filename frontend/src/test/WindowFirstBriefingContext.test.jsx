@@ -3,7 +3,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  render, screen, act, fireEvent, waitFor,
+  cleanup, render, screen, act, fireEvent, waitFor,
 } from '@testing-library/react';
 import { WindowFirstBriefingProvider, useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import WindowFirstLensBar from '../components/WindowFirstLensBar.jsx';
@@ -1226,6 +1226,24 @@ describe('WindowFirstBriefingProvider', () => {
       await waitFor(() => expect(screen.getByTestId('heat-points').textContent).toBe(expected));
       // The fixture really does have more than one window, or none of the above discriminates.
       expect(payload.renderedEvents.length).toBeGreaterThan(1);
+    });
+
+    it('publishes NO unrated sets while the scores are pending, and none after a failed fetch', async () => {
+      // Codex P1 on #1284: with `scoreRows` empty every sky place reads unrated, which would hatch
+      // the whole map under a briefing that already rates the window.
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getAllEvaluationScores.mockReturnValue(new Promise(() => {}));
+      renderProviderWithLocations(ROSTER);
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
+      expect(screen.getByTestId('heat-unrated').textContent).toBe('none');
+
+      cleanup();
+      getAllEvaluationScores.mockRejectedValue(new Error('502'));
+      renderProviderWithLocations(ROSTER);
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
+      await act(async () => {});
+      expect(getAllEvaluationScores).toHaveBeenCalled();
+      expect(screen.getByTestId('heat-unrated').textContent).toBe('none');
     });
 
     it('publishes heatUnratedSets: one entry per window, holding the places that window did not rate', async () => {

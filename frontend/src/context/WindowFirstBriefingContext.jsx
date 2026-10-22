@@ -712,10 +712,15 @@ export function WindowFirstBriefingProvider({
   /**
    * The unrated places per window, keyed like {@link heatPointSets} — what the Plan thumbnails and
    * the open row's field hatch as "not rated yet" (thin-sample plan F2).
+   *
+   * <p>⚠️ Empty until {@code scoresLoaded}: while {@code /evaluate/scores} is in flight (and for good
+   * if it fails) {@code scoreRows} is empty, so every sky place would read as unrated and the hatch
+   * would cover the whole map under a briefing that already rates the window. The same success-only
+   * flag the strip's unscored mark uses.
    */
   const heatUnratedSets = useMemo(
-    () => buildUnratedPointSets(heatSpotList, upcomingEvents),
-    [heatSpotList, upcomingEvents],
+    () => (scoresLoaded ? buildUnratedPointSets(heatSpotList, upcomingEvents) : EMPTY_POINT_SETS),
+    [scoresLoaded, heatSpotList, upcomingEvents],
   );
 
   /**
