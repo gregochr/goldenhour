@@ -256,6 +256,8 @@ public class ComingUpAssembler {
         String scoreNote;
         ComingUpAction action;
         double rarityBits;
+        /** False when the rarity figure is a configured estimate, so no sentence may state it. */
+        boolean rarityIsStatable = true;
         double magnitudeBits;
         double bits;
         ComingUpTide tide;
@@ -546,6 +548,7 @@ public class ComingUpAssembler {
     }
 
     private void enrichSupermoon(AlmanacEvent event, Staged s) {
+        s.rarityIsStatable = false;
         s.family = "sun-moon";
         s.rarityBits = SurpriseScore.rarity(scoringProperties.getRarity().getSupermoonMeanGapDays());
         s.magnitudeBits = SurpriseScore.DEFAULT_MAGNITUDE_BITS;
@@ -604,6 +607,7 @@ public class ComingUpAssembler {
     }
 
     private void enrichEclipse(AlmanacEvent event, Staged s) {
+        s.rarityIsStatable = false;
         s.family = "eclipse";
         s.rarityBits = SurpriseScore.rarity(scoringProperties.getRarity().getEclipseMeanGapDays());
         s.magnitudeBits = SurpriseScore.DEFAULT_MAGNITUDE_BITS;
@@ -621,6 +625,7 @@ public class ComingUpAssembler {
     }
 
     private void enrichLunarEclipse(AlmanacEvent event, Staged s) {
+        s.rarityIsStatable = false;
         s.family = "eclipse";
         s.rarityBits = SurpriseScore.rarity(scoringProperties.getRarity().getLunarEclipseMeanGapDays());
         s.magnitudeBits = SurpriseScore.DEFAULT_MAGNITUDE_BITS;
@@ -1282,8 +1287,12 @@ public class ComingUpAssembler {
                 continue;
             }
             if (s.rarityBits >= s.magnitudeBits) {
-                s.scoreNote = "It comes round about once " + SurpriseScore.gapWord(s.rarityBits)
-                        + ", which is rare enough to flag on its own.";
+                // A configured estimate (eclipses, supermoon) scores the badge but is never stated
+                // to a reader as a frequency; only ephemeris-derived gaps are.
+                s.scoreNote = s.rarityIsStatable
+                        ? "It comes round about once " + SurpriseScore.gapWord(s.rarityBits)
+                                + ", which is rare enough to flag on its own."
+                        : "It is rare enough to flag on its own.";
             } else if (s.metric != null && s.magnitudeMedianLabel != null) {
                 s.scoreNote = "An unusually big one — " + s.metric + " against the usual "
                         + s.magnitudeMedianLabel + ".";

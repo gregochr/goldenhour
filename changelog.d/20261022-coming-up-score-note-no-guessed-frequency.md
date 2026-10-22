@@ -1,0 +1,3 @@
+### Fix — Coming up no longer states a guessed eclipse frequency
+
+The "It comes round about once …" sentence on a Coming up entry read back the configured mean gap, so solar eclipses said "every 4 years" and a lunar eclipse with no earlier catalogue entry said "every two to three years" — both configured estimates, not measured rates. Eclipse (solar and lunar) and supermoon entries now read "It is rare enough to flag on its own." Ephemeris-derived gaps (spring tide, meteors, turning points, NLC) keep the frequency sentence. The rarity figures, the badge bands and the annual census are unchanged.

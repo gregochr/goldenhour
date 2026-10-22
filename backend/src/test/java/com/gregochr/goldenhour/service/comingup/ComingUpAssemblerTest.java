@@ -189,7 +189,7 @@ class ComingUpAssemblerTest {
         // gapWord(rarity(900)) → gapWordFromDays(900), which falls in the ≤1200 band: "every two
         // to three years" (the plan's own worked figure — lunar-eclipse-plan.md §1 row 12).
         assertThat(entry.scoreNote()).isEqualTo(
-                "It comes round about once every two to three years, which is rare enough to flag on its own.");
+                "It is rare enough to flag on its own.");
         assertThat(entry.aside())
                 .isEqualTo("No filter needed — bracket, the shadow is ~10 stops under the lit edge");
     }
@@ -317,8 +317,9 @@ class ComingUpAssemblerTest {
         ComingUpEntry entry = response.entries().getFirst();
         assertThat(entry.bits()).isGreaterThanOrEqualTo(7.5);
         assertThat(entry.scoreNote()).isEqualTo(
-                "It comes round about once every 4 years, which is rare enough to flag on its own.");
-        assertThat(entry.scoreNote()).doesNotContain("bits").doesNotContain("Rarity");
+                "It is rare enough to flag on its own.");
+        assertThat(entry.scoreNote()).doesNotContain("bits").doesNotContain("Rarity")
+                .doesNotContain("once").doesNotContain("years");
     }
 
     @Test
