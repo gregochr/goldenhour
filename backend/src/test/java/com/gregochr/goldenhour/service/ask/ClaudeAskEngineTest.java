@@ -704,6 +704,70 @@ class ClaudeAskEngineTest {
     }
 
     @Test
+    @DisplayName("look_up_place is dispatched: it explains a place with its status, adds no pick evidence, and an "
+            + "answerable no-pick answer built on it is OK, not a discarded or failed run")
+    void lookUpPlaceIsDispatched() {
+        AskRun run = run(USER,
+                toolTurn(tool("lookup", "look_up_place", Map.of("name", "bamburgh"))),
+                submit(Map.of("answerable", true, "summary", "Bamburgh is rated 5 for tonight's sunset.")));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().answer().answerable()).isTrue();
+        assertThat(run.outcome().answer().picks()).isEmpty();
+        assertThat(run.outcome().answer().events()).isEmpty();
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool).containsExactly("look_up_place", "submit_answer");
+        ToolResultBlockParam result = toolResultsIn(sentParams().get(1)).getFirst();
+        assertThat(result.isError().orElse(false)).isFalse();
+        String content = result.content().orElseThrow().string().orElseThrow();
+        assertThat(content).contains("\"name\":\"Bamburgh\"").contains("\"status\":\"PICK\"")
+                .contains("\"rating\":5");
+    }
+
+    @Test
+    @DisplayName("a pick built from a looked-up place is dropped: look_up_place is not rank_spots")
+    void pickFromALookupIsDropped() {
+        AskRun run = run(USER,
+                toolTurn(tool("lookup", "look_up_place", Map.of("name", "bamburgh"))),
+                submit(answer(pick(1, WINDOW))));
+
+        assertThat(run.outcome().answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("look_up_place with a missing name, a wrongly typed name or window list is a tool error, not an "
+            + "exception")
+    void lookUpPlaceBadArgumentsAreToolErrors() {
+        AskRun run = run(USER,
+                toolTurn(tool("none", "look_up_place", Map.of()),
+                        tool("number", "look_up_place", Map.of("name", 5)),
+                        tool("windows", "look_up_place", Map.of("name", "bamburgh", "windowIds", "x")),
+                        tool("unknown", "look_up_place",
+                                Map.of("name", "bamburgh", "windowIds", List.of("2026-10-05_midnight")))),
+                submit(Map.of("answerable", false, "summary", "Can't tell.")));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
+        List<ToolResultBlockParam> results = toolResultsIn(sentParams().get(1));
+        assertThat(results).extracting(r -> r.isError().orElse(false)).containsExactly(true, true, true, true);
+        assertThat(results.get(0).content().orElseThrow().string().orElseThrow()).isEqualTo("name is required.");
+        assertThat(results.get(1).content().orElseThrow().string().orElseThrow()).contains("'name'");
+        assertThat(results.get(2).content().orElseThrow().string().orElseThrow()).contains("'windowIds'");
+        assertThat(results.get(3).content().orElseThrow().string().orElseThrow()).contains("Unknown window id");
+    }
+
+    @Test
+    @DisplayName("a typed prompt tells the model about look_up_place; the unknown-tool error lists it")
+    void typedPromptAndUnknownToolMessageNameIt() {
+        AskRun run = run(USER, toolTurn(tool("bad", "delete_everything", Map.of())),
+                submit(Map.of("answerable", false, "summary", "Can't tell.")));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
+        assertThat(sentParams().getFirst().system().orElseThrow().asTextBlockParams().getFirst().text())
+                .contains("call look_up_place with its name");
+        assertThat(toolResultsIn(sentParams().get(1)).getFirst().content().orElseThrow().string().orElseThrow())
+                .contains("rank_spots, look_up_place, rank_night_spots");
+    }
+
+    @Test
     @DisplayName("an unknown tool name is bounded in the error and the trace, so a model cannot flood either")
     void unknownToolNameIsClipped() {
         String longName = "x".repeat(500);
@@ -923,14 +987,17 @@ class ClaudeAskEngineTest {
     }
 
     @Test
-    @DisplayName("each request carries the model, the 600-token ceiling, every tool, and tool_choice any")
+    @DisplayName("each typed request carries the model, the 600-token ceiling, every tool (look_up_place after "
+            + "rank_spots, submit_answer last), and tool_choice any")
     void requestShape() {
         run(USER, submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
         MessageCreateParams params = sentParams().getFirst();
         assertThat(params.model().asString()).isEqualTo(EvaluationModel.HAIKU.getModelId());
         assertThat(params.maxTokens()).isEqualTo(600);
-        assertThat(params.tools().orElseThrow()).hasSize(6);
+        assertThat(params.tools().orElseThrow()).extracting(t -> t.asTool().name()).containsExactly(
+                "list_windows", "rank_spots", "look_up_place", "rank_night_spots", "get_hot_topics",
+                "get_coming_up", "submit_answer");
         assertThat(params.toolChoice().orElseThrow().isAny()).isTrue();
         assertThat(params.outputConfig()).as("Haiku and Sonnet 4.6 take no effort setting").isEmpty();
     }

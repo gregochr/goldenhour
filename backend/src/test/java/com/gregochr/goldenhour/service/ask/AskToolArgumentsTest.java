@@ -26,6 +26,24 @@ class AskToolArgumentsTest {
     }
 
     @Test
+    @DisplayName("look_up_place reads its name and window list; an absent input reads as no name, a wrong type is a "
+            + "BadArguments")
+    void lookUpPlaceFields() throws Exception {
+        AskTools.LookUpPlaceArgs a = AskToolArguments.lookUpPlace(
+                json("{\"name\": \"Alnmouth\", \"windowIds\": [\"2026-10-05_sunset\"], \"x\": 1}"));
+
+        assertThat(a.name()).isEqualTo("Alnmouth");
+        assertThat(a.windowIds()).containsExactly("2026-10-05_sunset");
+        assertThat(AskToolArguments.lookUpPlace(null)).isEqualTo(new AskTools.LookUpPlaceArgs(null, null));
+        assertThatThrownBy(() -> AskToolArguments.lookUpPlace(json("{\"name\": 3}")))
+                .isInstanceOf(BadArguments.class).hasMessage("'name' must be text.");
+        assertThatThrownBy(() -> AskToolArguments.lookUpPlace(json("{\"name\": \"a\", \"windowIds\": \"x\"}")))
+                .isInstanceOf(BadArguments.class).hasMessage("'windowIds' must be a list of text.");
+        assertThatThrownBy(() -> AskToolArguments.lookUpPlace(json("[1]")))
+                .isInstanceOf(BadArguments.class);
+    }
+
+    @Test
     @DisplayName("every rank_spots field is read, and a JSON null reads as absent")
     void rankSpotsFields() throws Exception {
         RankSpotsArgs a = AskToolArguments.rankSpots(json("""
