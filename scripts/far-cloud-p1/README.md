@@ -423,6 +423,27 @@ python3 canopydeck.py p1_forecasts.csv --out out/
 
 Writes `out/canopydeck.md` (definitions at the top). About 30 seconds. Tests: `python3 -m unittest tests.test_canopydeck`.
 
+## 8c. Replay of the rated forecast-deck-under-canopy analogues (spends real money; read the estimate first)
+
+The slots the plan section 19 rule would release have no stored prompt, so this replays rated slots with the same forecast
+shape (plan section 20). `select` writes the set and prints a cost range; the harness then prints its own plan and
+refuses to submit until `REPLAY_CONFIRM_COST` equals the printed request count; `report` joins the runs to ERA5.
+
+```
+python3 canopyreplay.py select --prompts p1_prompts.csv --forecasts p1_forecasts.csv --out ~/goldenhour-p1/canopy-replay
+cd ../../backend
+export ANTHROPIC_API_KEY=...        # in your shell only
+export REPLAY_BATCH=true REPLAY_N=1 REPLAY_MODELS=SONNET_55 REPLAY_PROMPTS_DIR=$HOME/goldenhour-p1/canopy-replay
+T=(-Pprompt-regression -Dtest=PromptReplayHarnessTest#replayStoredPrompts)
+./mvnw test "${T[@]}"                              # prints the plan and refuses: read N
+REPLAY_CONFIRM_COST=<N> ./mvnw test "${T[@]}"      # submits and waits
+cp target/p0-replay/runs.csv $HOME/goldenhour-p1/canopy-replay-arm/
+cd ../scripts/far-cloud-p1
+python3 canopyreplay.py report --manifest ~/goldenhour-p1/canopy-replay/manifest.csv --runs ~/goldenhour-p1/canopy-replay-arm/runs.csv --forecasts p1_forecasts.csv --out out/
+```
+
+Add the JDK flags from section 0 on a Mac with JDK 23. Writes `out/canopyreplay.md`. Tests: `python3 -m unittest tests.test_canopyreplay`.
+
 ## 9. Send back to Claude
 
 `out/part_b.md`, `out/part_d.md`, `out/case_2026-10-13.md` (plus what you saw on Meteosat), `out/pilot.md`,
