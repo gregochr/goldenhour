@@ -141,6 +141,19 @@ because a zone *east* of the UK fails in the opposite direction.
 
 ---
 
+### A date literal that was "today" stops being today
+
+Any assertion that involves "Today", "Tomorrow", "Tonight", a relative day or "has this passed"
+must freeze the clock: `vi.useFakeTimers({ toFake: ['Date'] })` plus `vi.setSystemTime(...)`
+(about seventy files already do; grep the file first, a sibling block usually has the pattern).
+`HotTopicStrip.test.jsx` dated its eclipse fixture `2026-08-12` and asserted the lead read
+"Today". It was true the day it was written, went red on every branch overnight and blocked an
+unrelated PR. Fix such a test by freezing the clock, never by moving the date forward.
+
+The backend has the mirror-image trap (a fixed `Clock` that lands on the real today lets a
+clock-ignoring bug pass), recorded in `test-improvement-standards.md` §6. One root cause: the wall
+clock reaching a fixture.
+
 ## Queries: roles where there is a role contract, test-ids elsewhere
 
 The suite is test-id heavy (~2,000 `getByTestId` against 63 `getByRole`), and CLAUDE.md asks for
@@ -254,6 +267,41 @@ Two traps specific to this codebase:
   wrapper written only for the test proves the harness works. Prefer rendering the component that
   actually uses the hook; keep a harness only for a hook with no single natural consumer, and say so
   in a comment.
+
+---
+
+## Keyboard tests: send the key where the browser would
+
+**Fire keys at `document.activeElement`, and assert where focus is, whenever a test covers a
+transition that removes or replaces the control that was pressed.**
+
+`fireEvent.keyDown(panelNode, …)` dispatches to that node wherever focus actually is, and
+`fireEvent.click` does not move focus in jsdom. So when one panel replaces another, the pressed
+control is destroyed, focus falls to `<body>`, and `Escape` is dead in the shipped product (a
+pane's `onKeyDown` is no longer on the dispatch path) while a test aimed at the panel node still
+passes. This shipped about five times across the map-landing series and `MapCallout` (#774).
+
+- After the transition, `expect(document.activeElement).toBe(<the landing>)`, then
+  `fireEvent.keyDown(document.activeElement, { key: 'Escape' })`.
+- The fix is to move focus somewhere that survives: the new panel's root (`tabIndex={-1}`) or the
+  invoking control on the way back.
+- A browser check on one engine exonerates nothing: Chromium and Edge lose focus to `<body>` on a
+  mouse press; Safari and macOS Firefox do not.
+
+## Mutation-checking a test without destroying work
+
+Mutating production source to prove a test can fail is encouraged. Restoring it is where work
+gets lost.
+
+- **Never restore with `git checkout -- <path>`** (or `git restore`, or `git stash` around the
+  mutation). It reverts to HEAD and silently deletes any **uncommitted** change in that file,
+  which is usually the very change being tested. This destroyed work on 2026-08-04 and again in
+  a review agent's cleanup; the suite still passed, so the loss was silent.
+- **Back up with `cp` first and restore with `cp`**, or commit before mutating, or run the
+  mutation in its own worktree (`isolation: 'worktree'` for an agent). Review agents read only.
+- **Confirm the restore**: `git diff` on the file must show exactly the change you started with.
+  An unrestored mutation looks like a flake: one named test fails in a full run and passes in the
+  next.
 
 ---
 
