@@ -54,16 +54,23 @@ of trailing history behind their words (2 plumes, 18 strong mornings). Leave the
 Local gate with the integration exclusion; exit code, not grep. No migration, no UI build needed
 (frontend untouched). Seen in a browser: not possible here (sign-in); the row's text is pinned by test.
 
-## Dust and inversions: the same fault (owner widening, 2026-10-22)
+## Dust and inversions: the same fault, and the rule that replaced "not measured" (owner, 2026-10-22)
 
-The quant line's `frequencyPhrase(rarityBits, ...)` prints the config guess whenever rarity is the
-fallback, contradicting the observed history beside it ("2 plumes" over "about one a week"; "18 strong
-mornings" over "about one a week"). Rule, applied to dust, inversion and mist alike: the quant line
-states a frequency only when the rarity was measured (dust at or over `evidentiaryBarArrivals`;
-inversion and mist never, today). Otherwise it opens `no frequency measured yet` and keeps the rest of
-the line. Rarity bits, scores and badges are unchanged. Dust's measured branch is as before; coastal
-tides are untouched. Cadence words stay (`recurrent` dust, `persistent` inversion); only mist gets the
-"new" rule above.
+The quant line's `frequencyPhrase(rarityBits, ...)` printed the config guess whenever rarity was the
+fallback, contradicting the observed history beside it. A first cut said "no frequency measured yet";
+the owner corrected that: dust and inversions have been tracked for months (dust was frequent in
+summer, rarer now) and the trailing window IS a measurement of that. Final rule, all three history rows
+(dust, inversion, mist):
+
+1. The frequency is the OBSERVED rate over the trailing window, on the rateLabel: with at least 2
+   occurrences, append ` · lately about <describeGap(windowDays / count)>` ("2 plumes in the last 60
+   days · lately about one a month"); with 0 or 1, no phrase.
+2. The quant line states no frequency: the threshold text alone ("counts as a plume above a haze
+   reading of 0.50 (early threshold)"). Coastal tides are untouched (ephemeris).
+3. `describeGap` buckets: <=1.5 daily; <=2.5 every other day; <=4.5 twice a week; <=9 one a week;
+   <=20 one a fortnight; <=45 one a month; else one every N days.
+4. Unchanged: rarity bits, scores, badges, mist "new" cadence below two likely days, dust "recurrent",
+   inversion "persistent".
 
 ## "since <date>" becomes "in the last N days"
 

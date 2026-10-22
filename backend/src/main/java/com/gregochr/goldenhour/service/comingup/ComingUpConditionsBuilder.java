@@ -111,9 +111,6 @@ public class ComingUpConditionsBuilder {
     /** Likely days the trailing window must hold before valley mist may be called by its configured cadence. */
     static final int MIST_RECURRENT_MIN_DAYS = 2;
 
-    /** Opens a quant line whose rarity is still a configured guess rather than a measured rate. */
-    private static final String NO_FREQUENCY_YET = "no frequency measured yet";
-
     /** Cadence word for a condition with too short a record to be called recurrent. */
     private static final String CADENCE_NEW = "new";
 
@@ -499,7 +496,7 @@ public class ComingUpConditionsBuilder {
             double meanGapDays = (double) windowDays / arrivals;
             rarityBits = SurpriseScore.rarity(meanGapDays);
             rateLabel = arrivals + (arrivals == 1 ? " plume" : " plumes") + " in the last "
-                    + windowDays + " days · about " + describeGap(meanGapDays);
+                    + windowDays + " days" + lately(windowDays, arrivals);
         } else {
             rarityBits = SurpriseScore.rarity(dustConfig.getFallbackMeanGapDays());
             if (trailingReadFailed) {
@@ -508,7 +505,7 @@ public class ComingUpConditionsBuilder {
                 rateLabel = arrivals == 0
                         ? "none in the last " + windowDays + " days"
                         : arrivals + (arrivals == 1 ? " plume" : " plumes") + " in the last "
-                                + windowDays + " days";
+                                + windowDays + " days" + lately(windowDays, arrivals);
             }
         }
 
@@ -542,9 +539,8 @@ public class ComingUpConditionsBuilder {
                     "AOD " + fmt2(aod), null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        // A frequency is stated only when the rarity was measured; the config guess is not a rate.
-        String quantLabel = (dustRateMeasured ? frequencyPhrase(rarityBits, "most days") : NO_FREQUENCY_YET)
-                + " · counts as a plume above a haze reading of "
+        // The observed recent rate lives on the rateLabel; the quant line states no frequency.
+        String quantLabel = "counts as a plume above a haze reading of "
                 + fmt2(BigDecimal.valueOf(dustConfig.getMagnitudeThresholdAod())) + " (early threshold)";
         return new ComingUpCondition("DUST", "Saharan dust", scoringProperties.getCadence().getDust(), true,
                 rateLabel, quantLabel, peak, occurrences);
@@ -627,7 +623,7 @@ public class ComingUpConditionsBuilder {
         String rateLabel = dates.isEmpty()
                 ? "none in the last " + windowDays + " days"
                 : dates.size() + (dates.size() == 1 ? " strong morning" : " strong mornings") + " in the last "
-                        + windowDays + " days";
+                        + windowDays + " days" + lately(windowDays, dates.size());
 
         List<ComingUpConditionOccurrence> occurrences = new ArrayList<>();
         for (LocalDate date : dates) {
@@ -659,8 +655,8 @@ public class ComingUpConditionsBuilder {
                     valueLabel, null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        // Inversion rarity is pinned to the config fallback by design, so no frequency is stated.
-        String quantLabel = NO_FREQUENCY_YET + " · counts as strong above "
+        // The observed recent rate lives on the rateLabel; the quant line states no frequency.
+        String quantLabel = "counts as strong above "
                 + fmt0(inversionConfig.getMagnitudeThresholdScore()) + "/10 (early threshold)";
         return new ComingUpCondition("VALLEY_INVERSIONS", "Valley inversions",
                 scoringProperties.getCadence().getInversion(), true, rateLabel, quantLabel, peak, occurrences);
@@ -728,7 +724,7 @@ public class ComingUpConditionsBuilder {
         String rateLabel = dates.isEmpty()
                 ? "none in the last " + windowDays + " days"
                 : dates.size() + (dates.size() == 1 ? " likely day" : " likely days") + " in the last "
-                        + windowDays + " days";
+                        + windowDays + " days" + lately(windowDays, dates.size());
 
         List<ComingUpConditionOccurrence> occurrences = new ArrayList<>();
         for (LocalDate date : dates) {
@@ -759,9 +755,9 @@ public class ComingUpConditionsBuilder {
                     valueLabel, null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        // The rarity is still the config's first guess, so no frequency is stated, and a feature with
-        // fewer than two likely days on record is "new", not whatever the config would call it later.
-        String quantLabel = NO_FREQUENCY_YET + " · counts as a standout above "
+        // The observed recent rate lives on the rateLabel; a feature with fewer than two likely days
+        // on record is "new", not whatever the config would call it later.
+        String quantLabel = "counts as a standout above "
                 + fmt0(mistConfig.getMagnitudeThresholdScore()) + "/10 (early threshold)";
         String cadence = dates.size() >= MIST_RECURRENT_MIN_DAYS
                 ? scoringProperties.getCadence().getMist() : CADENCE_NEW;
@@ -904,12 +900,26 @@ public class ComingUpConditionsBuilder {
         }
     }
 
-    private static String describeGap(double meanGapDays) {
+    /** The history label's observed-rate clause: empty below two occurrences, else the window's own rate. */
+    private static String lately(int windowDays, int count) {
+        return count < 2 ? "" : " · lately about " + describeGap((double) windowDays / count);
+    }
+
+    static String describeGap(double meanGapDays) {
         if (meanGapDays <= 1.5) {
             return "daily";
         }
+        if (meanGapDays <= 2.5) {
+            return "every other day";
+        }
+        if (meanGapDays <= 4.5) {
+            return "twice a week";
+        }
         if (meanGapDays <= 9.0) {
             return "one a week";
+        }
+        if (meanGapDays <= 20.0) {
+            return "one a fortnight";
         }
         if (meanGapDays <= 45.0) {
             return "one a month";
