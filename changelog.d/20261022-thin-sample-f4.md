@@ -12,5 +12,7 @@ The Legend panel gains `not rated yet` and `no places` swatches on solar windows
 unchanged), and the window pill gains `· N rated` beside a rated verdict word when the rated sky places
 in the reader's scope fail the Plan spread's own two floors. The count is its own population (scope,
 not the Plan card's reach pool), is spoken in words in the pill's accessible name, and hides with the
-region line on a phone. Stars, verdict words and every rated place's colour are unchanged. Seen in a
+region line on a phone (a known limit: the count is still in the pill's accessible name, and the Layers
+section's ground key states the hatch). The hatch fades with the field at the zoom handover and under
+Ask's dim. Stars, verdict words and every rated place's colour are unchanged. Seen in a
 throwaway canvas harness only, not the signed-in app.

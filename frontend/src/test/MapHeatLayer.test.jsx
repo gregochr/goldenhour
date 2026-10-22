@@ -292,6 +292,17 @@ describe('MapHeatLayer — the "not rated yet" hatch (thin-sample plan F4)', () 
     expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 400);
   });
 
+  it('the hatch takes the field\'s own opacity, scaled by dim', async () => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount({ unrated: UNRATED, dim: 1 });
+    const full = drawTiles.mock.calls.at(-1)[4].opacity;
+    await mount({ unrated: UNRATED, dim: 0.5 });
+    // One options object reaches both the colour and `paintUnknown`, so one `opacity` is the factor
+    // for both: the zoom handover's `fade.heat` and Ask's dim are inside it.
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(full * 0.5, 5);
+    expect(full).toBeGreaterThan(0);
+  });
+
   it.each([[null], [[]], [undefined]])('leaves the options object as it was for %j', async (unrated) => {
     currentMap = makeMap({ panes: markerPanes() });
     await mount({ unrated });

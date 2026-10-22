@@ -551,6 +551,8 @@ export default function MapHeatLayer({
           : getMode() === 'temp' ? { bloom: FIELD_BLOOM } : null),
         ...(ramp ? { ramp } : null),
         // Absence, not an empty array: `drawTiles` then sees today's exact options object.
+        // `opacity` above is the hatch's too: `paintUnknown` reads it from these same options, so the
+        // hatch fades with the field at the handover and under Ask's dim.
         ...(unrated?.length ? { unrated } : null),
         // Same rule as the bloom above: below LAND_CLIP_MAX_ZOOM this spreads all five clip keys
         // (clipPath may still be null); at/above it, none at all — absence, not a falsy value.

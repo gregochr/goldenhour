@@ -4163,4 +4163,83 @@ describe('MapView heat — the thin-sample hatch and the pill count (thin-sample
     await renderMap(props([4]));
     expect(screen.queryByTestId('wf-win-verdict-count')).toBeNull();
   });
+
+  it('hands it none on an aurora night, and draws no ground key there', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TODAY };
+    getAuroraLocations.mockResolvedValue([{ location: { name: SPOTS[0].name }, stars: 4 }]);
+    await renderMap({ ...props([1, 2]), autoEventType: 'AURORA' });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated).toEqual([]);
+    openLegend();
+    expect(screen.queryByTestId('wf-legend-ground')).toBeNull();
+  });
+
+  it('draws the ground key on a rated solar window and withholds it on an astro night', async () => {
+    const { unmount } = await renderMap(props([1, 2]));
+    openLegend();
+    expect(screen.getByTestId('wf-legend-ground')).toBeInTheDocument();
+    unmount();
+    await renderMap({ ...props([1, 2]), autoEventType: 'ASTRO' });
+    openLegend();
+    expect(screen.queryByTestId('wf-legend-ground')).toBeNull();
+  });
+
+  it('prints the count on a SUNRISE row too', async () => {
+    const sunrise = [{
+      date: TODAY,
+      eventSummaries: [{
+        targetType: 'SUNRISE',
+        regions: [{
+          regionName: 'North East', meanRating: 4, displayVerdict: 'MAYBE', slots: [{ canopy: false }],
+        }],
+      }],
+    }];
+    const base = props([1, 2]);
+    const states = statesFor([1, 2]).get(`${TODAY}:SUNSET`);
+    await renderMap({
+      ...base,
+      heat: { ...base.heat, windowStates: new Map([[`${TODAY}:SUNRISE`, states]]) },
+      regionVerdictIndex: buildRegionVerdictIndex(sunrise),
+      autoEventType: 'SUNRISE',
+    });
+    expect(screen.getByTestId('wf-win-verdict-count')).toHaveTextContent('2 rated');
+  });
+});
+
+describe('MapView heat — a past window\'s hatch comes from the pane\'s window states (thin-sample F4)', () => {
+  const YESTERDAY = '2026-01-14';
+  it('hands the layer the past entry\'s unrated places, not the served windows\'', async () => {
+    const locations = SPOTS.map((s) => ({
+      id: s.id,
+      name: `${s.name}-${markerNonce}`,
+      lat: s.lat,
+      lon: s.lng,
+      regionName: s.rid,
+      bortleClass: s.bortleClass,
+      locationType: ['LANDSCAPE'],
+      forecastsByDate: new Map([[YESTERDAY, { sunset: { rating: 4, solarEventTime: `${YESTERDAY}T16:10:00` } }]]),
+    }));
+    const unrated = [{
+      id: 3, name: 'Wastwater', lat: 54.44, lng: -3.3, rid: 'The Lakes', r: [0],
+    }];
+    await renderMap({
+      heat: heatProp({
+        windows: [...WINDOWS, {
+          key: `${YESTERDAY}:SUNSET`, date: YESTERDAY, targetType: 'SUNSET', past: true, bestRating: 4, confidence: null, conf: 0.82,
+        }],
+        pointsByKey: new Map([...POINTS_BY_KEY, [`${YESTERDAY}:SUNSET`, [pointOf(SPOTS[0], 4)]]]),
+        windowStates: new Map([
+          [`${TODAY}:SUNSET`, { unrated: [{ ...unrated[0], name: 'Served' }], states: new Map() }],
+          [`${YESTERDAY}:SUNSET`, { unrated, states: new Map() }],
+        ]),
+      }),
+      locations,
+      pastSolarWindows: buildPastSolarWindows(locations, TODAY),
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY, TODAY, TOMORROW],
+      autoEventType: 'SUNSET',
+    });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated.map((p) => p.name)).toEqual(['Wastwater']);
+  });
 });

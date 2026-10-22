@@ -3564,12 +3564,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * The pill's `· N rated` per solar row — rated sky places in the SCOPE pool, shown only on a thin
    * sample (thin-sample plan F4; `utils/mapThinSample.js` states the population and the gate).
    */
-  const thinCounts = buildThinCounts({
+  const thinCounts = useMemo(() => buildThinCounts({
     events: mapEvents,
     verdicts: evVerdicts,
     windowStates: heat?.windowStates,
     scopePool: verdictScopePool,
-  });
+  // `mapEvents` and `evVerdicts` are new objects every render (see `evVerdicts`), so this recomputes
+  // each render by construction; the memo is for the one object identity the pill reads.
+  }), [mapEvents, evVerdicts, heat, verdictScopePool]);
 
   /**
    * Everything the landing card draws (map-landing-plan.md §3 L4) — one call into the pure
@@ -6441,6 +6443,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       </span>
                     </div>
                   )}
+                  {/* The ground key (thin-sample plan F4), solar and rated windows only: the hatch is
+                      not drawn on a night or an unscored window, so neither is its key. */}
+                  {heatOffered && heatOn && !windowUnscored && !isAstroMode && !isAuroraMode && (
+                    <div data-testid="wf-map-peek-ground" className="wf-map-peek-lay-row">
+                      <span className="wf-map-peek-lay-label">Ground</span>
+                      <span className="wf-legend-ground">
+                        <span className="wf-legend-ground-item">
+                          <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-hatch" />
+                          not rated yet
+                        </span>
+                        <span className="wf-legend-ground-item">
+                          <i aria-hidden="true" className="wf-legend-swatch" />
+                          no places
+                        </span>
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             />
@@ -6520,6 +6539,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 reachMeasured={mapReachMeasured}
                 variant={isAuroraMode ? 'aurora' : 'solar'}
                 viewlineShown={viewlineShown}
+                groundKey={!isAstroMode && !isAuroraMode && !windowUnscored}
               />
             )}
             {!isMobile && (

@@ -7234,7 +7234,7 @@ button.wf-hc.also.on:hover {
   flex-wrap: wrap;
   gap: 4px 12px;
   font-size: 10.5px;
-  color: var(--color-plex-text-muted);
+  color: var(--color-plex-text-secondary);
 }
 .wf-legend-ground-item {
   display: inline-flex;
@@ -7256,6 +7256,18 @@ button.wf-hc.also.on:hover {
   background:
     repeating-linear-gradient(-45deg, rgba(242, 231, 211, 0.32) 0 0.8px, transparent 0.8px 5px),
     #241d18;
+}
+/* Forced colours drop backgrounds and box-shadows, so both swatches would vanish: a CanvasText border
+   on each, and the hatch swatch keeps its own colours so it stays distinguishable from the plain one. */
+@media (forced-colors: active) {
+  .wf-legend-swatch {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+  .wf-legend-swatch-hatch {
+    forced-color-adjust: none;
+    border-style: dashed;
+  }
 }
 .wf-legend-ring-toggle {
   display: flex;
