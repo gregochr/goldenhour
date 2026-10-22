@@ -1,6 +1,6 @@
 # P1: wasted trips, the canvas rule and far decks, measured on the history we already have
 
-**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13). Part A run for the Angel 2026-10-21 (§14): a forecastable far high lid behind the canvas, unread by the prompt. Meteosat agrees (2026-10-21). Part B re-run on the verified Sonnet 5.5 era 2026-10-21 (§15): keeping Sonnet 5.5 is evidence-backed. Far-lid rule sized on the first week of capture (§16): the single far-point reading is not a detector; the Angel shape is n = 1.
+**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13). Part A run for the Angel 2026-10-21 (§14): a forecastable far high lid behind the canvas, unread by the prompt. Meteosat agrees (2026-10-21). Part B re-run on the verified Sonnet 5.5 era 2026-10-21 (§15): keeping Sonnet 5.5 is evidence-backed. Far-lid rule sized on the first week of capture (§16): the single far-point reading is not a detector; the Angel shape is n = 1. Weak-canvas shape sized on stored data (§17, 2026-10-22).
 
 **Parent:** `far-cloud-lid-plan.md` §6 P1, which pre-registered hypotheses H1–H5. This plan builds P1
 and adds the analyses the reviews showed P1 cannot do without. Where it departs from a P1 rule, it
@@ -688,3 +688,26 @@ Sonnet 5.5's gos stand on ERA5-blocked horizons less often than Haiku's.
 - The §9 item 7 rule stays open. Its "lid behind" clause is now the least supported part and its "nothing overhead, horizon cirrus only" clause the best supported, with the Angel still its only rated case.
 
 **Next cheap check (owner's).** View the Zoom Earth / Meteosat frame for 2026-10-15 at 17:50 BST (16:50 UTC) and compare the brightness and texture of the Irish Sea sheet with the 13 October frame (§14). A visibly thinner sheet on the 15th would keep the lid alive as an optical-depth question; the same sheet would argue the lid was never the cause.
+
+## 17. Weak-canvas sizing (2026-10-22)
+
+**Why.** §15 and the 15 October transect left a weak local canvas, not a far lid, as the best-supported difference between the Angel's 13 October fault and a good sky under the same far deck. Every input to that shape (observer mid/high, cone low/high) has been in `forecast_evaluation` and the prompt since the directional capture, so it can be sized on stored data. `scripts/far-cloud-p1/canvas.py` does it: no network, no spend, no decision.
+
+**Definitions** (also at the top of `out/canvas.md`):
+- **Go:** premise.py's selection: latest eligible run per (location, date, event), a prompted batch row with rating >= 4, T+0/T+1, sky locations. Training cases are included and flagged (the Angel 13 October is one go in the counts below).
+- **Weak canvas:** forecast observer mid < 20 and high < 20, cone (113 km) low < 20, cone high >= 60. This is the "Angel shape" of §16, which did not require the antisolar mid/high; the stricter `premise.angel_shape` (antisolar < 20 too) is counted as a subset.
+- **ERA5 view:** `cloud_verification` observer mid/high < 20 (clear overhead), cone high >= 60 (horizon cirrus), cone low < 20.
+- **Canopy overhead:** forecast observer mid >= 60 or high >= 60; the mirror class is a canopy-overhead slot rated <= 3, taken over every prompted rated batch slot, not only gos.
+
+**Headline counts** (the owner's 2026-10-21 export, 106,118 rows, go dates 2026-08-29 to 2026-10-22; 2,253 gos, 2,239 testable for the shape):
+- **137 weak-canvas gos (6.1%)**, over 11 dates. Haiku 75 of 1,615 (4.6%); Sonnet 5.5 62 of 624 testable (9.9%). It is bunched, not rare-and-steady: 28 September 32 (Haiku, Lake District sunsets), 15 October 28 (sunrise), 13 October 18 (sunset, the Angel's day), 14 October 16. By event: sunrise 51 of 1,297 (3.9%), sunset 86 of 942 (9.1%). The strict form is 68, of which 66 are sunsets and 57 Haiku's.
+- **ERA5 does not usually agree.** All 137 have a `cloud_verification` row. ERA5 observer mid and high < 20 for 62 (45.3%): Haiku 55 of 75, Sonnet 5.5 only 7 of 62. ERA5 cone high >= 60 for 70 (51.1%), cone low < 20 for 130 (94.9%). All three together: 10 of 137 (Haiku 5 of 75, Sonnet 5.5 5 of 62).
+- **Reconciling §16.** For Sonnet 5.5 gos dated 14 October on with the far capture, 28 match, all 15 October, and 16 of those have a far high >= 60; ERA5 calls none of the 16 clear overhead. §16 counted 25 and 15; the 3 and 1 difference is selection (this tool uses premise.py's pooled population), not a different definition.
+- **Outcomes.** The forecast export carries no `outcome_rating`, so none of the 137 is joined. `canvas_weak_gos.csv` lists the slot keys; `export_outcome_ratings.sql` plus `canvas.py --ratings` does the join. Not yet run.
+- **Mirror class.** 5,202 rated canopy-overhead slots, 3,827 (73.6%) rated <= 3; that is the ordinary outcome, so the class is large by construction. The informative column is low cloud: among rated <= 3 canopy slots with both values, the forecast had a >= 60% deck where ERA5's matching point was < 20% for 14.2% on overhead low (3,610 slots) and 10.4% on cone low; among all rated canopy slots the same figures are 13.5% and 8.1%. On 15 October (Sonnet 5.5) it was 15.9% against 11.6% for all canopy slots that day. By model, over all dates: Sonnet 5.5 10.5% (rated <= 3) against 9.1% (all canopy); Haiku 15.0% against 14.6%. The reverse, an ERA5 deck with a clear forecast, is under 3% everywhere. The two sets differ by a point or two, so the over-forecast deck is common among canopy slots generally, not concentrated in the low-rated ones.
+
+**What this does and does not say.**
+- The weak-canvas shape is not rare on stored forecasts, but most of its hits were not weak-canvas skies by ERA5; the forecast's own overhead and cone figures are the thing disagreeing.
+- It says nothing about whether any of those skies was poor. Only owner ratings do, and none are joined here.
+- Nothing here changes a rule or the §9 item 7 status.
+
