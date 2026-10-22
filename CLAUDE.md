@@ -27,6 +27,38 @@ grep there for the phrase.
 
 ---
 
+## ⚠️ How every code change is made (owner rule, 2026-10-22)
+
+**Opus and Fable plan and review; Sonnet writes all the code.** An Opus or Fable session never edits
+source, tests, build files or migrations itself, not even a one-line fix. (Docs-only edits such as
+plans and this file may be written by the planning session.)
+
+1. **Plan, then review the plan adversarially.** Read the code, write the plan (a multi-phase series
+   gets a plan doc under `docs/engineering/`), and review it with agents sized to the risk: one or two
+   for a one-file fix, about six lenses plus refuters for a cross-cutting or UI change (see
+   *UI Work — Review Cadence*).
+2. **Delegate the build to a Sonnet subagent**: the Agent tool with `model: "sonnet"` and its own
+   worktree (never `subagent_type: "fork"`, which ignores the model). The brief carries the plan, the
+   files, the tests to write, the local gates (the build ladder below and the frontend's four
+   commands) and the `changelog.d/` entry. Sonnet runs the gates until green. The planner reviews the
+   diff read-only and sends any fixes back to Sonnet.
+3. **Commit** on a feature branch (conventional commit, changelog entry).
+4. **Push the branch and open a ready PR** (not a draft) against `main`.
+5. **Wait for CI and Codex, and fix what they find** (through Sonnet, as in step 2), then push again.
+   Codex reviews every PR automatically: a 👍 reaction on the PR is a clean review, 👀 means it is
+   still running (never merge on it), and comments are findings. On a later round, judge only
+   comments and reviews on the current head commit; ask for another round with an `@codex review`
+   comment.
+6. **Merge (squash) only when CI is green and Codex has given 👍 on the exact head commit.** Re-read
+   both immediately before `gh pr merge`.
+7. **Multi-phase plans repeat steps 2–6 for each phase**: one PR per phase, each branched from the
+   updated `main` after the previous phase merged.
+
+Still never done by a session: creating or deleting tags, cutting a release (the owner runs
+`release.sh`), changing prompt-regression assertions, pushing directly to `main`.
+
+---
+
 ## Reference index — read the file for the area you are touching
 
 | Area | File |
@@ -197,7 +229,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 - `.gitignore`: `application.yml`, `*.env`, `node_modules/`, `target/`, `backend/data/`, `.claude/`
 - Branch naming: `feature/`, `fix/`, `chore/`
 - Every meaningful commit adds a changelog entry as its **own file**: `changelog.d/YYYYMMDD-<slug>.md`, opening with a `### Category — title` heading (see `changelog.d/README.md`). **Never write under `CHANGELOG.md`'s `[Unreleased]` directly** — that line is where every pair of open PRs used to conflict; `release.sh` folds the entry files into `CHANGELOG.md` at release time
-- **NEVER push to remote** — not even if the user has pushed before. Always wait to be explicitly asked.
+- **Push only feature branches, as part of the workflow above** (push, open a PR, merge once CI is green and Codex has given 👍). Never push directly to `main`, and never force-push a branch someone else is working on.
 - **NEVER create or delete git tags** — tags mark tested, confirmed releases. Wait for the user to instruct this after real-world testing.
 - **NEVER change assertions in prompt regression tests** (`src/test/java/.../regression/`) — these encode ground-truth expectations against real Claude output and must only be updated by the user.
 - When you change behaviour described in a `docs/engineering/reference/` file, update that file in the same PR.
