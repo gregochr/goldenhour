@@ -4076,3 +4076,91 @@ describe('MapView heat — a past window', () => {
     expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
   });
 });
+
+describe('MapView heat — the thin-sample hatch and the pill count (thin-sample plan F4)', () => {
+  const SKY_SPOTS = SPOTS.map((s) => ({ ...s, skySubject: true }));
+  const SKY_AREA = [SKY_SPOTS[0], SKY_SPOTS[1], SKY_SPOTS[2], SKY_SPOTS[4], SKY_SPOTS[5]];
+  const unratedPoint = (spot) => ({
+    id: spot.id, name: spot.name, lat: spot.lat, lng: spot.lng, rid: spot.rid, r: [0],
+  });
+  const keyOf = (spot) => `#${spot.id}`;
+
+  /** Tonight's window states: the named spot ids rated, the rest unrated, none stood down. */
+  function statesFor(ratedIds) {
+    const states = new Map(SKY_SPOTS.map((s) => [keyOf(s), ratedIds.includes(s.id) ? 'rated' : 'unrated']));
+    const unrated = SKY_SPOTS.filter((s) => !ratedIds.includes(s.id)).map(unratedPoint);
+    return new Map([[`${TODAY}:SUNSET`, { unrated, states }]]);
+  }
+
+  const DAY = (displayVerdict) => [{
+    date: TODAY,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [
+        { regionName: 'North East', meanRating: 4, displayVerdict, slots: [{ canopy: false }] },
+      ],
+    }],
+  }];
+
+  const props = (ratedIds, verdict = 'WORTH_IT') => ({
+    heat: heatProp({
+      spots: SKY_SPOTS, areaSpots: SKY_AREA, windowStates: statesFor(ratedIds),
+    }),
+    regionVerdictIndex: buildRegionVerdictIndex(DAY(verdict)),
+  });
+
+  it('hands the layer the places no one has rated yet, on a solar window', async () => {
+    await renderMap(props([1, 2]));
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated.map((p) => p.name))
+      .toEqual(['Wastwater', 'Kelso', 'Alnmouth', 'Coquet']);
+  });
+
+  it('hands it none when the window has no rating at all — the existing unscored predicate', async () => {
+    const base = props([1, 2]);
+    await renderMap({ ...base, heat: { ...base.heat, windows: WINDOWS_TONIGHT_UNRATED } });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated).toEqual([]);
+  });
+
+  it('hands it none on an astro night', async () => {
+    await renderMap({ ...props([1, 2]), autoEventType: 'ASTRO' });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated).toEqual([]);
+  });
+
+  it('narrows the hatch by the dark-sky filter as it narrows the colour', async () => {
+    // Bortle <= 4 keeps Bamburgh (4) and Wastwater (2); of those only Wastwater is unrated. Without
+    // the join the hatch would claim Kelso and Alnmouth, which the colour layer has excluded.
+    await renderMap(props([1, 2]));
+    openFilters();
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.unrated.map((p) => p.name)).toEqual(['Wastwater']);
+  });
+
+  it('prints the scope pool\'s rated count on a thin sample, spoken in words', async () => {
+    await renderMap(props([1, 2]));
+    const count = screen.getByTestId('wf-win-verdict-count');
+    expect(count).toHaveTextContent('2 rated');
+    expect(count).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('wf-win-verdict')).toHaveTextContent(', 2 places rated');
+  });
+
+  it('prints no count once the scope pool clears the spread\'s two floors', async () => {
+    // Five of five sky places in the area rated: rated >= 5 and >= half.
+    await renderMap(props([1, 2, 3, 5, 6]));
+    expect(screen.queryByTestId('wf-win-verdict-count')).toBeNull();
+  });
+
+  it('prints no count beside a "Too few rated" verdict, which already says so', async () => {
+    await renderMap(props([1, 2], 'UNRATED'));
+    expect(screen.getByTestId('wf-win-verdict')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-win-verdict-count')).toBeNull();
+  });
+
+  it('prints no "0 rated" beside a verdict resting on places the scope does not hold', async () => {
+    await renderMap(props([4]));
+    expect(screen.queryByTestId('wf-win-verdict-count')).toBeNull();
+  });
+});

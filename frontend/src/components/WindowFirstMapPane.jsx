@@ -23,7 +23,9 @@ import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import { buildWindowTideIndex } from '../utils/mapTideFit.js';
 import { buildPastSolarWindows, pastWindowBest } from '../utils/mapEvents.js';
-import { buildHeatPointSets, buildHeatSpots, forecastScoreRows } from '../utils/heatSpots.js';
+import {
+  buildHeatPointSets, buildHeatSpots, buildHeatWindowStates, forecastScoreRows,
+} from '../utils/heatSpots.js';
 import { windowKey } from '../utils/windowKeys.js';
 import { formatTime } from '../utils/briefingDisplay.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -43,7 +45,7 @@ const FRAME_PAD_DEG = 0.12;
  * keeps the identity of everything built from it — `MapView` is `React.memo`, and a fresh empty
  * `Map` per call would rebuild the `heat` prop on every re-render of a pane that has nothing to add.
  */
-const NO_PAST_HEAT = Object.freeze({ windows: [], pointSets: new Map() });
+const NO_PAST_HEAT = Object.freeze({ windows: [], pointSets: new Map(), windowStates: new Map() });
 
 /** Stable empty list: no older days fetched. The `loadedPastDays` prop's default, so an absent prop keeps one identity. */
 const NO_LOADED_DAYS = Object.freeze([]);
@@ -291,7 +293,7 @@ export default function WindowFirstMapPane({
    */
   useEffect(() => { import('./LocationFourDaySheet.jsx').catch(() => {}); }, []);
   const {
-    heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
+    heatSpots, heatPointSets, heatStripCards, upcomingEvents, reachById, homePlace, todayStr,
     origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions,
   } = useWindowFirstBriefing();
 
@@ -525,6 +527,7 @@ export default function WindowFirstMapPane({
         };
       }),
       pointSets: buildHeatPointSets(spots, events),
+      windowStates: buildHeatWindowStates(spots, events),
     };
   }, [heatStripCards, pastSolarWindows, locations, todayStr]);
 
@@ -597,6 +600,12 @@ export default function WindowFirstMapPane({
     () => buildWindowTideIndex(briefing?.days, formatTime), [briefing?.days],
   );
 
+  // Place states per served window (thin-sample plan F4), beside the briefing's own point sets.
+  const servedWindowStates = useMemo(
+    () => buildHeatWindowStates(heatSpots, upcomingEvents),
+    [heatSpots, upcomingEvents],
+  );
+
   /**
    * The heat field's opt-in, built here and nowhere else.
    *
@@ -635,6 +644,10 @@ export default function WindowFirstMapPane({
       // The briefing's own point sets, plus the PAST windows' (`pastHeat`, built above and never in
       // the context). With no past window the provider's Map is handed through untouched, so its
       // identity is the provider's and a test can pin that the pane added nothing.
+      // Each window's place states and unrated points (thin-sample plan F4): the "not rated yet" hatch
+      // and the pill's rated count read them. Same keys as `pointsByKey`, same two sources.
+      windowStates: pastHeat.windowStates.size === 0
+        ? servedWindowStates : new Map([...servedWindowStates, ...pastHeat.windowStates]),
       pointsByKey: pastHeat.pointSets.size === 0
         ? heatPointSets : new Map([...heatPointSets, ...pastHeat.pointSets]),
       // The briefing's served tide for EVERY window it carries, rendered or not — lent to the
@@ -750,7 +763,7 @@ export default function WindowFirstMapPane({
        */
       beyondRegionNames: origin ? [] : beyondRegions(heatSpots, reachById),
     };
-  }, [heatSpots, heatPointSets, heatStripCards, pastHeat, tideByWindow, reachById, homePlace,
+  }, [heatSpots, heatPointSets, servedWindowStates, heatStripCards, pastHeat, tideByWindow, reachById, homePlace,
     todayStr, origin, effectiveReachById]);
 
   useEffect(() => {

@@ -279,6 +279,26 @@ describe('MapHeatLayer — the paint', () => {
   });
 });
 
+describe('MapHeatLayer — the "not rated yet" hatch (thin-sample plan F4)', () => {
+  const UNRATED = [{ lat: 54.9, lng: -2.1, rid: 'North East', r: [0] }];
+
+  it('hands the kernel the unrated places, beside the rated points', async () => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount({ unrated: UNRATED });
+    const opts = drawTiles.mock.calls.at(-1)[4];
+    expect(opts.unrated).toBe(UNRATED);
+    expect(drawTiles.mock.calls.at(-1)[2]).toBe(POINTS);
+    // The radius is the field's own, unchanged.
+    expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 400);
+  });
+
+  it.each([[null], [[]], [undefined]])('leaves the options object as it was for %j', async (unrated) => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount({ unrated });
+    expect('unrated' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+  });
+});
+
 describe('MapHeatLayer — the heat bloom (map-tab-v2-plan.md §3 P2)', () => {
   // MODE is scoreRamp module state, not a per-test fixture — a test that switches it and forgets
   // to undo it leaks into every case that runs after it, in this file or another.

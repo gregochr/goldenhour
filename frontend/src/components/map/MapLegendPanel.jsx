@@ -173,6 +173,22 @@ export default function MapLegendPanel({
             )}
           </div>
 
+          {/* thin-sample plan F4: the two ground states beside the ramp's "rated" — the hatch is drawn
+              around places nobody has rated for this window, plain ground where there are no places.
+              Solar windows only; an aurora night draws no hatch, so its key has none. */}
+          {!aurora && (
+            <div data-testid="wf-legend-ground" className="wf-legend-ground">
+              <span className="wf-legend-ground-item">
+                <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-hatch" />
+                not rated yet
+              </span>
+              <span className="wf-legend-ground-item">
+                <i aria-hidden="true" className="wf-legend-swatch" />
+                no places
+              </span>
+            </div>
+          )}
+
           <div data-testid="wf-legend-hand" className="wf-legend-hand">
             <span className="wf-legend-hand-bar">
               <i style={{ width: `${barWidthPct}%` }} />
