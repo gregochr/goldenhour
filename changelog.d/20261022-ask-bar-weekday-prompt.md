@@ -1,3 +1,0 @@
-### Fixed — Ask entry no longer says "this weekend" on a weekday-only forecast
-
-The Ask entry on the Plan tab always read "Ask about this weekend…" on a phone, and the tablet and desktop field always read "Ask about the forecasts…". The phone bar and the field now share one prompt: "Ask about this weekend…" only when the matrix holds a Saturday or Sunday window that is not a travel day, otherwise "Ask about the next few days…", mirroring the Ready catalogue's weekend/soon split. The Map tab takes the Plan rule; Coming up keeps "Ask about rare events…". The typed-input placeholder is unchanged.

@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.30.1] - 2026-10-22
+
+### Fixed — Coming up rows show the observed recent rate, not a guess
+
+The Coming up strip printed the configured first guess as if it were an observed rate ("about one a
+week" beside "2 plumes"), and a Valley mist row called itself RECURRENT before it had recorded a day.
+Dust, valley inversions and valley mist now state the rate the trailing window actually shows, on the
+history line once it holds two occurrences ("2 plumes in the last 60 days · lately about one a month",
+"18 strong mornings in the last 60 days · lately about twice a week"), and their threshold line states
+no frequency. The history lines say "in the last 60 days" instead of "since <date>", because the first
+occurrence's date is often just the window's own start, and the gap wording gained "every other day"
+and "twice a week". Valley mist reads `new` until two likely days are recorded. Scores, badges, rarity
+bits and the tide rows are unchanged.
+
+### Chore — far-cloud P1 output directories are ignored whatever their suffix
+
+`scripts/far-cloud-p1/.gitignore` ignores `out*/` rather than `out/` alone: the Part B re-run of 2026-10-21 wrote to `out2/`, which git saw as untracked and which stopped `release.sh` on its working-tree check. A third run (`out3/`) no longer trips it.
+
+### Fix — Coming up no longer states a guessed eclipse frequency
+
+The "It comes round about once …" sentence on a Coming up entry read back the configured mean gap, so solar eclipses said "every 4 years" and a lunar eclipse with no earlier catalogue entry said "every two to three years" — both configured estimates, not measured rates. Eclipse (solar and lunar) and supermoon entries now read "It is rare enough to flag on its own." Ephemeris-derived gaps (spring tide, meteors, turning points, NLC) keep the frequency sentence. The rarity figures, the badge bands and the annual census are unchanged.
+
+### Fixed — Ask entry no longer says "this weekend" on a weekday-only forecast
+
+The Ask entry on the Plan tab always read "Ask about this weekend…" on a phone, and the tablet and desktop field always read "Ask about the forecasts…". The phone bar and the field now share one prompt: "Ask about this weekend…" only when the matrix holds a Saturday or Sunday window that is not a travel day, otherwise "Ask about the next few days…", mirroring the Ready catalogue's weekend/soon split. The Map tab takes the Plan rule; Coming up keeps "Ask about rare events…". The typed-input placeholder is unchanged.
+
 ## [v2.30.0] - 2026-10-21
 
 ### Added — valley mist loop: what the reader saw, an ERA5 saturation proxy, a mist-prone calibration bucket
