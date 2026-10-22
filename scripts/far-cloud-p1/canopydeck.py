@@ -11,7 +11,7 @@ Sizes one candidate rule, "do not stand down on low cloud alone when the forecas
  2. what the latest run did on those: triaged on low cloud / rated <= 3 / rated >= 4 (and every other outcome, so
     the categories sum to the count);
  3. the exposure: among ALL slots with forecast low >= 60 and a forecast canopy (phantom or not), how many had
-    ERA5 low >= 60 (a genuinely obstructed sky), with an ERA5 canopy present or not;
+    ERA5 low >= 60 (ERA5 reads the deck as real), with an ERA5 canopy present or not;
  4. the cost: extra Claude evaluations per day the rule would have caused, by model era, priced at the
     application-example.yml rates with an ASSUMED token count per call.
 
@@ -80,9 +80,9 @@ def era5_canopy_state(r: Dict[str, object]) -> int:
 
 
 def released_by_rule(r: Dict[str, object]) -> bool:
-    """A slot the rule would not stand down: its latest run was triaged on low cloud and the forecast shows a
-    canopy. (The rule changes rule 1 of the weather triage only.)"""
-    return lowdeck.low_cloud_triage(r) and forecast_canopy(r) is True
+    """A run the rule would not stand down: a rule-1 stand-down (reason HIGH_CLOUD, which only rule 1 of the weather
+    triage produces, whatever its message says) with a forecast canopy present. The rule changes rule 1 only."""
+    return r['triage_reason'] == lowdeck.HIGH_CLOUD and forecast_canopy(r) is True
 
 
 # ------------------------------------------------------------------ cost
@@ -171,14 +171,27 @@ def era_rows(slots: Sequence[dict], runs_by_model: Dict[str, int], in_tok: int,
 
 # ------------------------------------------------------------------ report
 
-def exposure_table(units: Sequence[dict]) -> List[str]:
-    """Rows: ERA5 observer low band; columns: ERA5 canopy state. Units must have a known ERA5 low band."""
+def cone_band(r: Dict[str, object]) -> Optional[int]:
+    """As era5_band, on the ERA5 113 km cone low cloud (`cv_horizon_low_cloud`), which is what weather triage's rule
+    1 reads when directional data exists."""
+    if r['cv_id'] is None or r['cv_horizon_low_cloud'] is None:
+        return None
+    v = r['cv_horizon_low_cloud']
+    return 0 if v < lowdeck.CLEAR_MAX else (2 if v >= lowdeck.DECK_MIN else 1)
+
+
+def exposure_table(units: Sequence[dict], band: Callable[[Dict[str, object]], Optional[int]] = era5_band,
+                   label: str = 'ERA5 observer low') -> List[str]:
+    """Rows: ERA5 low band (observer by default; pass ``cone_band`` for the 113 km cone); columns: ERA5 canopy
+    state. Units with an unknown band are left out of the table."""
     grid: Dict[Tuple[int, int], int] = defaultdict(int)
     for u in units:
-        grid[(era5_band(u['row']), era5_canopy_state(u['row']))] += 1
+        b = band(u['row'])
+        if b is not None:
+            grid[(b, era5_canopy_state(u['row']))] += 1
     rows = [[ERA5_BANDS[b], sum(grid[(b, c)] for c in range(3))] + [grid[(b, c)] for c in range(3)]
             for b in range(3)]
-    return premise.md_table(['ERA5 observer low', 'slots'] + list(CANOPY_STATES), rows)
+    return premise.md_table([label, 'slots'] + list(CANOPY_STATES), rows)
 
 
 def render(rows: Sequence[dict], in_tok: int = replay_set.DEFAULT_INPUT_TOKENS,
@@ -224,10 +237,10 @@ def _render(rows: Sequence[dict], in_tok: int, out_tok: int) -> str:
     L.append('- **Outcome of a slot** (its latest run): *triaged on low cloud* (`triage_reason` HIGH_CLOUD with a message '
              'naming low cloud), *triaged, HIGH_CLOUD without a low-cloud message*, *triaged, other reason*, *rated 1-2 / '
              '3 / 4-5* (`rating`, the combined star), *unrated, not triaged*. They sum to the slot count.')
-    L.append('- **Released by the rule (count 4):** a slot whose latest run was *triaged on low cloud* and shows a '
-             'forecast canopy. **Runs** are every stored run row (eligible state, before the event) of those same slots '
-             'that is triaged on low cloud and shows a forecast canopy, counted under the model and day span of the '
-             'slot\'s latest run.')
+    L.append('- **Released by the rule (count 4):** a slot whose latest run was a rule-1 stand-down (`triage_reason` '
+             'HIGH_CLOUD, which only that rule produces) and shows a forecast canopy. **Runs** are every stored run row '
+             '(eligible state, before the event) of a sky T+0/T+1 slot that is such a stand-down with a forecast canopy, '
+             'whatever that slot\'s latest run was, counted under the model and day span of the slot\'s latest run.')
     L.append('- **Cost assumption (ASSUMED, not measured):** %d input and %d output tokens per call (the replay '
              'harness\'s default: the user message plus the uncached share of the system prompt; thinking tokens and '
              'prompt caching are not modelled). Rates are USD per million tokens from application-example.yml: %s. '
@@ -299,7 +312,8 @@ def _render(rows: Sequence[dict], in_tok: int, out_tok: int) -> str:
     L.append('## 3. The exposure: forecast deck and forecast canopy, whatever ERA5 reads')
     L.append('')
     L.append('Every slot with forecast low >= %d and a forecast canopy, phantom or not (ERA5 observer low known): '
-             '**%d**. ERA5 observer low >= %d (a genuinely obstructed sky the rule would send to Claude): **%d**, %s.'
+             '**%d**. ERA5 observer low >= %d (ERA5 reads the deck as real): **%d**, %s. These slots include ones Claude '
+             'already rated, which the rule does not touch; the slots it would release are the subset below.'
              % (FORECAST_DECK_MIN, len(exp), lowdeck.DECK_MIN, len(obstructed),
                 lowdeck.brate(exp, lambda u: era5_band(u['row']) == 2)))
     L.append('')
@@ -323,6 +337,16 @@ def _render(rows: Sequence[dict], in_tok: int, out_tok: int) -> str:
                 sum(1 for u in rel if era5_band(u['row']) == 0), lowdeck.brate(rel, lambda u: era5_band(u['row']) == 0)))
     L.append('')
     L += exposure_table(rel)
+    cone_known = [u for u in rel if cone_band(u['row']) is not None]
+    L.append('The same released slots by the ERA5 113 km CONE low cloud, the reading weather triage\'s rule 1 uses when '
+             'directional data exists (the observer table above is the reading counts 1 and 2 use). ERA5 cone low known '
+             'for **%d**; >= %d for **%d**, %s; < %d for **%d**, %s.'
+             % (len(cone_known), lowdeck.DECK_MIN, sum(1 for u in cone_known if cone_band(u['row']) == 2),
+                lowdeck.brate(cone_known, lambda u: cone_band(u['row']) == 2), lowdeck.CLEAR_MAX,
+                sum(1 for u in cone_known if cone_band(u['row']) == 0),
+                lowdeck.brate(cone_known, lambda u: cone_band(u['row']) == 0)))
+    L.append('')
+    L += exposure_table(cone_known, cone_band, 'ERA5 cone low')
 
     # ---- 4
     runs = released_runs_by_model(rows, sky_leads)

@@ -333,6 +333,9 @@ def block_txt(units: Sequence[dict], hit: Callable[[dict], bool], block_days: in
               draws: int = stats.DEFAULT_DRAWS) -> str:
     """'[lo, hi]' of block_rate, with ' (drop N%)' when any draw was dropped; 'n/a' for no units."""
     ci, dropped = block_rate(units, hit, block_days, draws)
+    if dropped > stats.MAX_DROPPED_FRACTION:
+        return ci_txt(ci) + ' (drop %s, over %d%%: conditioned on the surviving draws)' % (
+            pct(dropped), int(100 * stats.MAX_DROPPED_FRACTION))
     return ci_txt(ci) + (' (drop %s)' % pct(dropped) if dropped else '')
 
 

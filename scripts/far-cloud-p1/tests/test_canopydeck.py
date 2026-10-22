@@ -64,7 +64,8 @@ class DefinitionTest(unittest.TestCase):
         self.assertFalse(canopydeck.released_by_rule(mk(**dict(base, mid_cloud=None, high_cloud=10))))  # unknown
         self.assertFalse(canopydeck.released_by_rule(mk(**dict(base, triage_reason='PRECIPITATION',
                                                                triage_message='Precipitation 2.10 mm'))))
-        self.assertFalse(canopydeck.released_by_rule(mk(**dict(base, triage_message=None))))   # not low-cloud triage
+        # HIGH_CLOUD is produced only by rule 1, so a missing or odd message is still a rule-1 stand-down
+        self.assertTrue(canopydeck.released_by_rule(mk(**dict(base, triage_message=None))))
 
 
 class CostTest(unittest.TestCase):
@@ -155,8 +156,10 @@ class CountsTest(unittest.TestCase):
         t = self.text()
         sec = t.split('## 3.')[1].split('## 4.')[0]
         self.assertIn('Every slot with forecast low >= 60 and a forecast canopy, phantom or not (ERA5 observer low '
-                      'known): **6**. ERA5 observer low >= 60 (a genuinely obstructed sky the rule would send to '
-                      'Claude): **2**, 33.3%', sec)
+                      'known): **6**. ERA5 observer low >= 60 (ERA5 reads the deck as real): **2**, 33.3%', sec)
+        self.assertIn('include ones Claude already rated, which the rule does not touch', sec)
+        self.assertNotIn('genuinely', sec)
+        self.assertNotIn('send to Claude', sec)
         self.assertIn('| ERA5 < 20 (phantom) | 3 | 0 | 3 | 0 |', sec)
         self.assertIn('| ERA5 20-59 | 1 | 0 | 1 | 0 |', sec)
         self.assertIn('| ERA5 >= 60 (obstructed) | 2 | 1 | 1 | 0 |', sec)
@@ -165,6 +168,15 @@ class CountsTest(unittest.TestCase):
     def test_released_slots_section_lists_the_triaged_ones(self):
         sec = self.text().split('actually release')[1].split('## 4.')[0]
         self.assertIn('triaged on low cloud and a forecast canopy present (ERA5 observer low known): **1**', sec)
+        # the same released slots by the ERA5 cone reading (rule 1's own reading)
+        self.assertIn('ERA5 cone low known for **1**; >= 60 for **0**', sec)
+        self.assertIn('| ERA5 cone low | slots |', sec)
+
+    def test_cone_band_boundaries(self):
+        b = lambda v, **kw: canopydeck.cone_band(mk(cv_horizon_low_cloud=v, **kw))  # noqa: E731
+        self.assertEqual((b(19), b(20), b(59), b(60)), (0, 1, 1, 2))
+        self.assertIsNone(b(None))
+        self.assertIsNone(b(10, cv_id=None))
 
     def test_definitions_and_no_verdict(self):
         t = self.text()

@@ -117,7 +117,8 @@ def band_of(combined):
 
 
 def basis_crosstab(rows, combined_key):
-    """{group: {basis: {band: count}}} for the go and three groups. `basis` is what selected the prompt (the
+    """{group: {basis: {band: count}}} for the go and three groups (every row passed: in `compare` that is the whole
+    manifest, not only the prompts with results). `basis` is what selected the prompt (the
     sky-only star where stored, else the combined one); `combined_key` names the combined rating in each row
     ('rating' in a forecast row, 'stored_rating' in a manifest row). A 'go' whose basis is the sky star can
     be a 3 or less to a reader, because the combined star averages the tide score in for a coastal row."""
@@ -155,7 +156,8 @@ def crosstab_note(table):
     three = table.get("three", {})
     n3 = sum(sum(c.values()) for c in three.values())
     up = sum(c.get(BANDS[0], 0) for c in three.values())
-    return (f"reader-visible gos (basis >= 4 and combined rating also >= 4): {visible} of {n}; "
+    return (f"reader-visible gos (basis >= 4 and the stored combined rating also >= 4; the combined star is "
+            f"forecast_evaluation.rating, which can differ from the cached star the app serves): {visible} of {n}; "
             f"{below} are gos on the basis star only (combined below 4 or missing). "
             f"Mirror: {up} of {n3} basis-3 rows are a 4 or more to a reader")
 

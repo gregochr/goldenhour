@@ -178,11 +178,15 @@ class CrosstabTest(unittest.TestCase):
 
     def test_compare_header_repeats_it_and_excludes_training(self):
         manifest = make_set(Path(tempfile.mkdtemp()))
+        # a pinned/training row that still carries group "go": only the training flag keeps it out of the table
+        manifest.append(dict(manifest[0], evaluation_id="98", label="trgo", group="go", training="1",
+                             stored_rating="1"))
         text = replay_set.compare(manifest, {})
         self.assertIn("| group | basis | n | combined >= 4 | combined 3 | combined < 3 | combined missing |", text)
         self.assertIn("| go | all | 3 | 3 | 0 | 0 | 0 |", text)
         self.assertIn("| three | all | 7 | 0 | 7 | 0 | 0 |", text)   # the training row (training=1) is not counted
-        self.assertIn("reader-visible gos (basis >= 4 and combined rating also >= 4): 3 of 3", text)
+        self.assertIn("reader-visible gos (basis >= 4 and the stored combined rating also >= 4;", text)
+        self.assertIn(": 3 of 3;", text)
 
 
 class PatchTest(unittest.TestCase):
