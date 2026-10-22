@@ -2,6 +2,7 @@ import React, {
   lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
+import { askEntryPrompt } from '../utils/askEntryPrompt.js';
 import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
 import MastheadTickLine from './MastheadTickLine.jsx';
@@ -179,15 +180,6 @@ const TABS = [
   { id: 'map', label: 'Map', glyph: '◍', slot: 'mapPane' },
   { id: 'operations', label: 'Operations', glyph: null, slot: 'operationsPane', gated: true },
 ];
-
-/**
- * The bar's prompt, by tab (design README, "Where Ask lives"). The bar is drawn on Plan and Coming up
- * only, so those are the two keys.
- */
-const ASK_BAR_PROMPT = {
-  plan: 'Ask about this weekend…',
-  'coming-up': 'Ask about rare events…',
-};
 
 /**
  * What the view chip says, and what the question is sent with, by tab. Map reads "all regions" here
@@ -401,7 +393,7 @@ export default function WindowFirstShell({
     windowCards, paneItems, loading, briefing, evaluationScores, scoresLoaded,
     scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
     origin, setOrigin, regions, effectiveReachById,
-    comingUpLastSeenDate, setComingUpLastSeenAt, isPro,
+    comingUpLastSeenDate, setComingUpLastSeenAt, isPro, upcomingEvents, travelDayDates,
   } = useWindowFirstBriefing();
   /**
    * Whether the first fetch has been running long enough that the pending line should admit it is
@@ -567,6 +559,11 @@ export default function WindowFirstShell({
    * {@code activeTab} is still {@code null}.
    */
   const effectiveTab = tabs.some((t) => t.id === requestedTab) ? requestedTab : tabs[0].id;
+  // The Ask bar's prompt, by tab (design README, "Where Ask lives"): Plan's follows the matrix's windows.
+  const askEntryText = useMemo(
+    () => askEntryPrompt(effectiveTab, upcomingEvents, travelDayDates),
+    [effectiveTab, upcomingEvents, travelDayDates],
+  );
   /**
    * The shell→App channel the full-frame Map tab needs (map-tab-v2-plan.md §3 P7's first owner).
    * `App` recasts its whole page as a flex column on the map tab (dropping `<main>`'s own padding
@@ -2301,7 +2298,7 @@ export default function WindowFirstShell({
       {askEntry === 'field' && (
         <AskField
           width={260}
-          prompt="Ask about the forecasts…"
+          prompt={askEntryText}
           disabled={askDisabled}
           expanded={askSheetShown}
           onOpen={openAskSheet}
@@ -2316,7 +2313,7 @@ export default function WindowFirstShell({
           width={askFieldWidth}
           showKeyHint={askSurface === 'wide'}
           keyShortcut
-          prompt="Ask about the forecasts…"
+          prompt={askEntryText}
           disabled={askDisabled}
           expanded={askDockShown}
           controls={ASK_DOCK_ID}
@@ -2663,7 +2660,7 @@ export default function WindowFirstShell({
           where `askEntry` says (plan §2.6). */}
       {askEntry === 'bar' && (
         <AskBar
-          prompt={ASK_BAR_PROMPT[effectiveTab] ?? ASK_BAR_PROMPT.plan}
+          prompt={askEntryText}
           disabled={askDisabled}
           expanded={askSheetShown}
           onOpen={openAskSheet}
