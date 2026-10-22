@@ -369,7 +369,28 @@ Without `--yes` a live run refuses and prints the exact command. The budget is p
 (exit 2), re-run the same command later and it resumes from `cache/`. Read `out/pilot.md` before the full run. The pilot's reliability verdict is **per lead** (T+0 and T+1 each need 20 comparable pairs within 15 pp):
 `size.py` then fetches forecast values only for the leads marked reliable and uses stored values for the rest.
 
-## 7. Send back to Claude
+## 7. Weak-canvas sizing (no network, no spend)
+
+Sizes the Angel's 13 October shape (clear overhead, cirrus only at the horizon) and its mirror, a mid/high canopy
+overhead rated 3 or lower, on the stored forecast rows. Definitions are at the top of `out/canvas.md` and in plan section 17.
+Sizing only: it prints counts and shares and recommends nothing. It takes about a minute on the full export.
+
+```
+python3 canvas.py p1_forecasts.csv --out out/
+```
+
+Writes `out/canvas.md` and `out/canvas_weak_gos.csv` (every weak-canvas go with its slot key). The forecast export carries
+no outcome ratings, so section 4 lists the slot keys to look up. To join your ratings, export them (personal data,
+`user_id` is not exported) and re-run:
+
+```
+ssh gregochr@<host> 'docker exec -i goldenhour-db psql -X -U goldenhour -d goldenhour -v ON_ERROR_STOP=1 -f -' < export_outcome_ratings.sql > outcome_ratings.csv
+python3 canvas.py p1_forecasts.csv --out out/ --ratings outcome_ratings.csv
+```
+
+Tests: `python3 -m unittest tests.test_canvas` from this directory.
+
+## 8. Send back to Claude
 
 `out/part_b.md`, `out/part_d.md`, `out/case_2026-10-13.md` (plus what you saw on Meteosat), `out/pilot.md`,
-`out/part_c.md`, and `p1_summary.csv`. Not the prompt or forecast CSVs, and never the API key.
+`out/part_c.md`, `out/canvas.md`, and `p1_summary.csv`. Not the prompt or forecast CSVs, and never the API key.
