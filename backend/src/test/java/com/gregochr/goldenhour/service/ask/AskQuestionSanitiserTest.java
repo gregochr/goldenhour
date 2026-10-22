@@ -151,6 +151,16 @@ class AskQuestionSanitiserTest {
     }
 
     @Test
+    @DisplayName("a glyph rating keeps its count in the cache key, so ★★★★☆ and ★☆☆☆☆ never share an answer")
+    void typedStarRunsKeepTheirRating() {
+        assertThat(typed("Why does Alnmouth show ★★★★☆?").normalised()).isEqualTo("why does alnmouth show 4star");
+        assertThat(typed("Why does Alnmouth show ★☆☆☆☆?").normalised()).isEqualTo("why does alnmouth show 1star");
+        assertThat(typed("Why does Alnmouth show ★★★★?").normalised())
+                .isEqualTo(typed("Why does Alnmouth show ****?").normalised());
+        assertThat(typed("Is it ☆☆☆☆☆ everywhere").normalised()).isEqualTo("is it 0star everywhere");
+    }
+
+    @Test
     @DisplayName("an accent typed as letter + combining mark is composed first, so it is the same visible letter")
     void typedComposesAccents() {
         assertThat(typedClean("Café spot")).isEqualTo("Café spot");
