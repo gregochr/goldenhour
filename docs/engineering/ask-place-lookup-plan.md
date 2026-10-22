@@ -88,24 +88,26 @@ regions this question is about." Never return the out-of-scope place's rating.
 **Result** (`@JsonInclude(NON_NULL)`, the `RankSpotsResult` pattern):
 
 ```java
-public record LookUpPlaceResult(List<PlaceInfo> places, String note) { }
+public record LookUpPlaceResult(List<PlaceInfo> places, Map<String, String> reasons, String note) { }
 public record PlaceInfo(long locationId, String name, String region, String windowId, String day,
         String event, Integer rating, String verdict, String headline, String tideState,
-        Boolean tideAligned, String tideFitPhrase, String status, String statusReason) { }
+        Boolean tideAligned, String tideFitPhrase, String status) { }
 ```
+
+**Payload shape (review fix, 2026-10-22).** `reasons` maps each status present in `places` to its fixed text once, not on every row; `BELOW_GAME_ON` and `PICK` have none. `places` holds at most `MAX_PLACE_ROWS` (6) rows: the exact match's first, then the others', each place's in window order; a cut adds "Showing N of M place-windows; pass windowIds to narrow." to `note`. The conversation's 9,000-character cap is shared with `list_windows`, so one lookup is held to 4,500 (measured worst case 3,785).
 
 `day` and `event` are formatted as `windowInfo` does (`dayWord`, the event name). Rating, verdict,
 headline and tide come straight off `AskSnapshot.Slot`, so they are the served figures.
 
 **`status`**, one per (place, window), tested in this order:
 
-| status | when | `statusReason` (fixed text, ours) |
+| status | when | `reasons` entry (fixed text, ours) |
 |---|---|---|
 | `UNRATED` | `rating == null` or not `RatingValidator.isInRange` | `"Not rated for this window."` plus the region's `coverageReason` phrase when it is non-null (reuse whatever wording `list_windows`' spread already uses for stood-down / not scored; do not invent new text) |
 | `CANOPY` | `slot.canopy()` | `"A woodland canopy rating: how good the light under the trees is, not the sky."` (check the canopy wording the Plan / Map already use and match it) |
-| `NEIGHBOUR_OUTLIER` | `slot.neighbourOutlier()` | `"Rated well above the places beside it, so PhotoCast is not suggesting it."` |
+| `BELOW_GAME_ON` | `rating < AskSnapshot.MIN_PICK_RATING` (tested before the outlier and region tests: a 2-star place is below the floor whatever its region, and "too few were rated" would imply it might otherwise be recommended) | null |
+| `NEIGHBOUR_OUTLIER` | `slot.neighbourOutlier()` (after the rating floor) | `"Rated well above the places beside it, so PhotoCast is not suggesting it."` |
 | `THIN_SAMPLE` | `!region.pickEligible()` | `"Too few places in this region were rated to recommend one."` |
-| `BELOW_GAME_ON` | `rating < AskSnapshot.MIN_PICK_RATING` | null |
 | `PICK` | `AskSnapshot.isPickEligible(region, slot)` | null |
 
 Add a final `else` that throws `IllegalStateException`, so a future pick rule the table misses fails a
@@ -292,3 +294,22 @@ places as evidence pairs fails four tests (`lookupIsNeverEvidence`, `rankSpotsUn
 `AskAnswerValidatorTest.lookUpPlace_pickOnAPickEligiblePlaceRankSpotsNeverReturnedIsDropped`,
 `ClaudeAskEngineTest.pickFromALookupIsDropped`); giving Ready the tool (`withPlaceLookup` always true) fails
 `AskReadyClaudeEngineTest`.
+
+**Review fixes (2026-10-22, coordinator review of the first build).**
+
+1. **Character budget.** `RESULT_CHAR_CAP` is per conversation and cumulative, and `list_windows` comes first, so an
+   unfiltered "Alnmouth" lookup (2 places x 5-6 windows, ~500 characters a row) could return `LIMIT_REACHED` for the
+   very question this feature exists for. Fixed three ways: `MAX_PLACE_ROWS` (6; 8 measured 5,102 characters in the
+   worst case, over the 4,500 bar) caps total (place, window) rows, exact match first, with the cut named in `note`;
+   `statusReason` moved off every row into a top-level `reasons` map (status name to text, only statuses present;
+   the `UNRATED` text uses the first unrated row's region reason); and the prompt now tells the model to pass the
+   `windowIds` the question is about. Tests: the worst case (4 places, 160-character tide phrases, 120-character
+   headlines, long names and regions) serialises to 3,785 characters (6 windows) and 2,503 (all four reasons present),
+   both pinned at <= 4,500; and on one `AskTools` instance the busy-day `list_windows` followed by an unfiltered
+   lookup is not an error (`AskToolsTest.lookUpPlace_afterABusyDayListWindowsIsNotCutOff`). The new prompt sentence
+   contains "looking at", so `ClaudeAskEngineTest.contextWindowOnlyWhenKnown` now asserts the absence of the context
+   sentence "The reader is looking at" instead of the bare phrase.
+2. **Status order.** `UNRATED, CANOPY, BELOW_GAME_ON, NEIGHBOUR_OUTLIER, THIN_SAMPLE, PICK`: a 2-star place in a
+   thin-sample region used to read `THIN_SAMPLE` ("too few were rated to recommend one"), which implies it might
+   otherwise be recommended; its rating is the honest reason. Mutation (BELOW_GAME_ON moved after THIN_SAMPLE) fails
+   `lowRatingBeatsThinSampleAndOutlier`. The earlier mutation line above refers to the previous order.

@@ -41,9 +41,11 @@ public class AskPromptBuilder {
             Questions this does not fit (one place: call look_up_place; one tide, one event, the night) \
             need none of it.
             - When the question is about one named place ("why is Alnmouth 4★", "how is Bamburgh on \
-            Saturday"), call look_up_place with its name. Answer from what it returns: the rating, \
-            verdict, headline and tide fit. If its status is not PICK, explain the rating and say in \
-            one clause why PhotoCast is not suggesting the place, using its statusReason. Never give \
+            Saturday"), call look_up_place with its name. Pass the windowIds the question is about \
+            (the window the reader is looking at, or the day it names); leave them out only when it \
+            asks about every window. Answer from what it returns: the rating, verdict, headline and \
+            tide fit. If its status is not PICK, explain the rating and say in one clause why \
+            PhotoCast is not suggesting the place, using the reason given for its status. Never give \
             it as a pick. If the reader also wants somewhere to go, call rank_spots. If look_up_place \
             finds nothing, the place is not in the forecast: answer answerable false.
             """;

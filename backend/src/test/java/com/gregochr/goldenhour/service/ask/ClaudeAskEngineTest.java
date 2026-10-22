@@ -1193,7 +1193,7 @@ class ClaudeAskEngineTest {
         assertThat(sent.get(0).system().orElseThrow().asTextBlockParams().getFirst().text())
                 .contains("windowId " + WINDOW);
         assertThat(sent.get(1).system().orElseThrow().asTextBlockParams().getFirst().text())
-                .doesNotContain("looking at").doesNotContain("2026-12-25");
+                .doesNotContain("The reader is looking at").doesNotContain("2026-12-25");
     }
 
     // -- time -------------------------------------------------------------------------------

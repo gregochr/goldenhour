@@ -1386,6 +1386,38 @@ class AskToolsTest {
     }
 
     @Test
+    @DisplayName("on one conversation: the busy-day list_windows first, then look_up_place for a name matching two "
+            + "places in every window with no windowIds, is not cut off by the shared character cap")
+    void lookUpPlace_afterABusyDayListWindowsIsNotCutOff() {
+        List<com.gregochr.goldenhour.model.BriefingDay> days = new ArrayList<>();
+        String[] names = {"Northumberland", "North York Moors & Coast", "Lake District", "Yorkshire Dales"};
+        for (int d = 0; d < 6; d++) {
+            BriefingRegion[] regions = new BriefingRegion[5];
+            for (int r = 0; r < 4; r++) {
+                regions[r] = AskFixtures.bandedRegion(names[r], 1_000L * (d * 4 + r + 1), 2, 8, 20, 25 + r, 6);
+            }
+            regions[4] = AskFixtures.region("Northumberland Coast", false,
+                    AskFixtures.withHeadline(AskFixtures.coastal(1L, "Alnmouth", 4, "HIGH", true,
+                            "T".repeat(160)), "H".repeat(200)),
+                    AskFixtures.withHeadline(AskFixtures.coastal(2L, "St Cuthbert's Cross, Alnmouth", 3, "MID",
+                            false, "T".repeat(160)), "H".repeat(200)));
+            days.add(AskFixtures.sunsetDay(TODAY.plusDays(d), null, regions));
+        }
+        AskTools tools = tools(AskFixtures.snapshotOf(AskFixtures.briefing(days, List.of())));
+
+        AskToolResult listed = tools.listWindows();
+        AskToolResult<AskTools.LookUpPlaceResult> lookup = tools.lookUpPlace(
+                new AskTools.LookUpPlaceArgs("Alnmouth", null));
+
+        assertThat(listed.error()).isFalse();
+        assertThat(listed.content().length()).isLessThan(AskTools.RESULT_CHAR_CAP / 2);
+        assertThat(lookup.error()).as(lookup.content()).isFalse();
+        assertThat(lookup.payload().places()).hasSize(AskTools.MAX_PLACE_ROWS);
+        assertThat(lookup.payload().places()).extracting(AskTools.PlaceInfo::locationId).containsOnly(1L);
+        assertThat(tools.charsUsed()).isLessThan(AskTools.RESULT_CHAR_CAP);
+    }
+
+    @Test
     @DisplayName("the busy-day list_windows (six windows, four regions, every one a pocket) fits well under "
             + "half the cap, and with a five-spot rank_spots still fits the conversation")
     void listWindows_busyDayStaysUnderHalfTheCap() {

@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static com.gregochr.goldenhour.service.ask.AskFixtures.TODAY;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,6 +32,8 @@ class AskToolsLookUpPlaceTest {
 
     private static final String TODAY_SUNSET = "2026-10-05_sunset";
     private static final String TOMORROW_SUNSET = "2026-10-06_sunset";
+    /** Half the conversation's cap, the standard list_windows is held to; one lookup must leave the rest to it. */
+    private static final int WORST_CASE_CHARS = 4_500;
     private static final AskUserContext USER = new AskUserContext(7L, UserRole.PRO_USER, true);
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -142,7 +145,7 @@ class AskToolsLookUpPlaceTest {
     }
 
     @Test
-    @DisplayName("at most four places, each carrying every window it is in, and the rest are counted in the note")
+    @DisplayName("places are capped at four and rows at six, each place's windows in order, both cuts in the note")
     void capAndNote() {
         List<BriefingSlot> slots = new ArrayList<>();
         for (long id = 1; id <= 6; id++) {
@@ -152,11 +155,12 @@ class AskToolsLookUpPlaceTest {
 
         LookUpPlaceResult result = ok(tools(twoDays(coast)).lookUpPlace(name("beach")));
 
-        assertThat(result.places()).extracting(PlaceInfo::locationId).containsExactly(1L, 1L, 2L, 2L, 3L, 3L, 4L, 4L);
+        assertThat(result.places()).extracting(PlaceInfo::locationId).containsExactly(1L, 1L, 2L, 2L, 3L, 3L);
         assertThat(result.places()).extracting(PlaceInfo::windowId)
                 .containsExactly(TODAY_SUNSET, TOMORROW_SUNSET, TODAY_SUNSET, TOMORROW_SUNSET,
-                        TODAY_SUNSET, TOMORROW_SUNSET, TODAY_SUNSET, TOMORROW_SUNSET);
-        assertThat(result.note()).isEqualTo("2 more places match; use a longer name.");
+                        TODAY_SUNSET, TOMORROW_SUNSET);
+        assertThat(result.note()).isEqualTo("2 more places match; use a longer name. "
+                + "Showing 6 of 8 place-windows; pass windowIds to narrow.");
     }
 
     @Test
@@ -213,8 +217,18 @@ class AskToolsLookUpPlaceTest {
 
     // -- status -----------------------------------------------------------------------------
 
+    /** The reasons the last {@link #lookUp} returned, so a test reads a place's reason as the model does. */
+    private Map<String, String> lastReasons;
+
     private PlaceInfo lookUp(BriefingRegion region, String placeName) {
-        return only(ok(tools(snapshotOf(region)).lookUpPlace(name(placeName))));
+        LookUpPlaceResult result = ok(tools(snapshotOf(region)).lookUpPlace(name(placeName)));
+        lastReasons = result.reasons();
+        return only(result);
+    }
+
+    /** The reason said once for the status of {@code info}, from the last {@link #lookUp}; null when it has none. */
+    private String reason(PlaceInfo info) {
+        return lastReasons == null ? null : lastReasons.get(info.status());
     }
 
     @Test
@@ -226,7 +240,7 @@ class AskToolsLookUpPlaceTest {
         PlaceInfo info = lookUp(AskFixtures.region("Coast", true, slot), "Alnmouth");
 
         assertThat(info.status()).isEqualTo("PICK");
-        assertThat(info.statusReason()).isNull();
+        assertThat(reason(info)).isNull();
         assertThat(info.rating()).isEqualTo(4);
         assertThat(info.verdict()).isEqualTo(DisplayVerdict.resolve(4, Verdict.GO).name());
         assertThat(info.headline()).isEqualTo("Clear east, high water");
@@ -256,7 +270,7 @@ class AskToolsLookUpPlaceTest {
 
         assertThat(info.status()).isEqualTo("BELOW_GAME_ON");
         assertThat(info.rating()).isEqualTo(2);
-        assertThat(info.statusReason()).isNull();
+        assertThat(reason(info)).isNull();
     }
 
     @Test
@@ -278,7 +292,7 @@ class AskToolsLookUpPlaceTest {
 
         assertThat(info.status()).isEqualTo("THIN_SAMPLE");
         assertThat(info.rating()).isEqualTo(4);
-        assertThat(info.statusReason()).isEqualTo("Too few places in this region were rated to recommend one.");
+        assertThat(reason(info)).isEqualTo("Too few places in this region were rated to recommend one.");
     }
 
     @Test
@@ -290,7 +304,7 @@ class AskToolsLookUpPlaceTest {
 
         assertThat(info.status()).isEqualTo("NEIGHBOUR_OUTLIER");
         assertThat(info.rating()).isEqualTo(4);
-        assertThat(info.statusReason())
+        assertThat(reason(info))
                 .isEqualTo("Rated well above the places beside it, so PhotoCast is not suggesting it.");
     }
 
@@ -314,7 +328,7 @@ class AskToolsLookUpPlaceTest {
         PlaceInfo thin = lookUp(AskFixtures.region("Wall", false, thinWood), "Cragside Wood");
         assertThat(thin.status()).isEqualTo("CANOPY");
         assertThat(thin.rating()).isEqualTo(5);
-        assertThat(thin.statusReason())
+        assertThat(reason(thin))
                 .isEqualTo("A woodland canopy rating: how good the light under the trees is, not the sky.");
     }
 
@@ -326,7 +340,7 @@ class AskToolsLookUpPlaceTest {
 
         assertThat(info.status()).isEqualTo("UNRATED");
         assertThat(info.rating()).isNull();
-        assertThat(info.statusReason()).isEqualTo("Not rated for this window.");
+        assertThat(reason(info)).isEqualTo("Not rated for this window.");
     }
 
     @Test
@@ -347,12 +361,13 @@ class AskToolsLookUpPlaceTest {
             + "spread uses: stood down for the weather, or not scored")
     void unratedReasonNamesTheCoverage() {
         PlaceInfo stood = lookUp(withCoverage("Coast", CoverageReason.STOOD_DOWN), "Alnmouth");
+        String stoodReason = reason(stood);
         PlaceInfo away = lookUp(withCoverage("Coast", CoverageReason.AWAY), "Alnmouth");
 
         assertThat(stood.status()).isEqualTo("UNRATED");
-        assertThat(stood.statusReason())
+        assertThat(stoodReason)
                 .isEqualTo("Not rated for this window. Its region was stood down for the weather.");
-        assertThat(away.statusReason()).isEqualTo("Not rated for this window. Its region was not scored.");
+        assertThat(reason(away)).isEqualTo("Not rated for this window. Its region was not scored.");
     }
 
     private static BriefingRegion withCoverage(String regionName, CoverageReason reason) {
@@ -520,7 +535,133 @@ class AskToolsLookUpPlaceTest {
         AskToolResult<LookUpPlaceResult> result = tools.lookUpPlace(name("alnmouth"));
 
         assertThat(tools.charsUsed()).isEqualTo(result.content().length()).isPositive();
-        assertThat(result.content()).contains("\"status\":\"PICK\"").doesNotContain("statusReason")
+        assertThat(result.content()).contains("\"status\":\"PICK\"").doesNotContain("reasons")
                 .doesNotContain("\"note\"");
+    }
+
+    // -- the second review: status order and the payload's size -------------------------------
+
+    @Test
+    @DisplayName("a 2-star place is BELOW_GAME_ON whatever its region or mark: the rating is the honest reason")
+    void lowRatingBeatsThinSampleAndOutlier() {
+        assertThat(lookUp(AskFixtures.region("Wall", false, AskFixtures.slot(1L, "Alnmouth", 2)), "Alnmouth")
+                .status()).isEqualTo("BELOW_GAME_ON");
+        assertThat(lookUp(AskFixtures.region("Wall", true,
+                AskFixtures.outlier(AskFixtures.slot(1L, "Alnmouth", 2))), "Alnmouth").status())
+                .isEqualTo("BELOW_GAME_ON");
+        assertThat(lookUp(AskFixtures.region("Wall", false,
+                AskFixtures.outlier(AskFixtures.slot(1L, "Alnmouth", 1))), "Alnmouth").status())
+                .isEqualTo("BELOW_GAME_ON");
+        assertThat(reason(lookUp(AskFixtures.region("Wall", false, AskFixtures.slot(1L, "Alnmouth", 2)),
+                "Alnmouth"))).isNull();
+    }
+
+    @Test
+    @DisplayName("a 3-star outlier in a thin region is NEIGHBOUR_OUTLIER, and a 3-star place in one is THIN_SAMPLE")
+    void floorBoundaryKeepsTheGuardOrder() {
+        assertThat(lookUp(AskFixtures.region("Wall", false,
+                AskFixtures.outlier(AskFixtures.slot(1L, "Alnmouth", 3))), "Alnmouth").status())
+                .isEqualTo("NEIGHBOUR_OUTLIER");
+        assertThat(lookUp(AskFixtures.region("Wall", false, AskFixtures.slot(1L, "Alnmouth", 3)), "Alnmouth")
+                .status()).isEqualTo("THIN_SAMPLE");
+    }
+
+    /** One place per name, in a region with every kind of status in play, long text everywhere. */
+    private static BriefingSlot longSlot(long id, String placeName, Integer rating, boolean wood, boolean outlier) {
+        BriefingSlot base = wood ? AskFixtures.wood(id, placeName, rating)
+                : AskFixtures.coastal(id, placeName, rating, "HIGH", true, "T".repeat(160));
+        BriefingSlot withHeadline = AskFixtures.withHeadline(base, "H".repeat(200));
+        return outlier ? AskFixtures.outlier(withHeadline) : withHeadline;
+    }
+
+    /** The given number of sunsets, each holding four matching places of four different statuses. */
+    private static AskSnapshot worstCaseSnapshot(int windows) {
+        String place = "Alnmouth Estuary And Saltmarsh Nature Reserve Car Park ";
+        List<com.gregochr.goldenhour.model.BriefingDay> days = new ArrayList<>();
+        for (int d = 0; d < windows; d++) {
+            // Four matching places in four differently-statused regions, so every reason can be present.
+            BriefingRegion unrated = AskFixtures.region("The North Yorkshire Moors And Coast Region", true,
+                    longSlot(4L, place + "D", null, false, false));
+            BriefingRegion wood = AskFixtures.region("Northumberland Coast And Tyneside Region", true,
+                    longSlot(3L, place + "C", 5, true, false));
+            BriefingRegion thin = AskFixtures.region("The Lake District National Park Region", false,
+                    longSlot(1L, place + "A", 4, false, false));
+            BriefingRegion held = AskFixtures.region("The Yorkshire Dales National Park Region", true,
+                    longSlot(2L, place + "B", 5, false, true));
+            days.add(AskFixtures.sunsetDay(TODAY.plusDays(d), null, unrated, wood, thin, held));
+        }
+        return AskFixtures.snapshotOf(AskFixtures.briefing(days, List.of()));
+    }
+
+    @Test
+    @DisplayName("worst case: four long-named places over many windows are cut to MAX_PLACE_ROWS rows, say so in "
+            + "the note, and serialise to at most 4,500 characters (half the cap, as list_windows is held)")
+    void worstCasePayloadFitsHalfTheCap() {
+        AskToolResult<LookUpPlaceResult> result = tools(worstCaseSnapshot(6)).lookUpPlace(name("alnmouth estuary"));
+
+        LookUpPlaceResult payload = ok(result);
+        assertThat(AskTools.MAX_PLACE_ROWS).isEqualTo(6);
+        assertThat(payload.places()).hasSize(AskTools.MAX_PLACE_ROWS);
+        assertThat(payload.note()).isEqualTo("Showing 6 of 24 place-windows; pass windowIds to narrow.");
+        assertThat(payload.places()).extracting(PlaceInfo::headline)
+                .allMatch(h -> h.length() == AskTools.HEADLINE_CAP);
+        System.out.println("[look_up_place] worst-case payload chars (6 windows): " + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
+    }
+
+    @Test
+    @DisplayName("worst case with every reason-bearing status present: each reason is said once in 'reasons', "
+            + "not on every row, and the payload still fits half the cap")
+    void reasonsAreSaidOncePerStatus() {
+        AskToolResult<LookUpPlaceResult> result = tools(worstCaseSnapshot(1)).lookUpPlace(name("alnmouth estuary"));
+        LookUpPlaceResult payload = ok(result);
+
+        assertThat(payload.places()).hasSize(4);
+        assertThat(payload.places()).extracting(PlaceInfo::status).containsExactly(
+                "THIN_SAMPLE", "NEIGHBOUR_OUTLIER", "CANOPY", "UNRATED");
+        assertThat(payload.reasons()).containsOnlyKeys("UNRATED", "CANOPY", "THIN_SAMPLE", "NEIGHBOUR_OUTLIER");
+        assertThat(payload.note()).isNull();
+        assertThat(result.content().split("Too few places in this region", -1)).hasSize(2);
+        System.out.println("[look_up_place] worst-case payload chars (all reasons): " + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
+    }
+
+    @Test
+    @DisplayName("rows are cut in order: the exact match's windows first, then the others', each in window order")
+    void rowCapKeepsTheExactMatchFirst() {
+        BriefingRegion coast = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Alnmouth Bay", 4),
+                AskFixtures.slot(2L, "Alnmouth", 4));
+        List<com.gregochr.goldenhour.model.BriefingDay> days = new ArrayList<>();
+        for (int d = 0; d < 6; d++) {
+            days.add(AskFixtures.sunsetDay(TODAY.plusDays(d), null, coast));
+        }
+
+        LookUpPlaceResult payload = ok(tools(AskFixtures.snapshotOf(AskFixtures.briefing(days, List.of())))
+                .lookUpPlace(name("alnmouth")));
+
+        assertThat(payload.places()).extracting(PlaceInfo::locationId)
+                .containsExactly(2L, 2L, 2L, 2L, 2L, 2L);
+        assertThat(payload.places().subList(0, 6)).extracting(PlaceInfo::windowId).isSorted();
+        assertThat(payload.note()).isEqualTo("Showing 6 of 12 place-windows; pass windowIds to narrow.");
+    }
+
+    @Test
+    @DisplayName("both notes together when places and rows are cut")
+    void bothNotesCombine() {
+        List<BriefingSlot> slots = new ArrayList<>();
+        for (long id = 1; id <= 6; id++) {
+            slots.add(AskFixtures.slot(id, "Beach " + (char) ('A' + id - 1), 4));
+        }
+        BriefingRegion coast = AskFixtures.region("Coast", true, slots.toArray(BriefingSlot[]::new));
+        List<com.gregochr.goldenhour.model.BriefingDay> days = new ArrayList<>();
+        for (int d = 0; d < 3; d++) {
+            days.add(AskFixtures.sunsetDay(TODAY.plusDays(d), null, coast));
+        }
+
+        LookUpPlaceResult payload = ok(tools(AskFixtures.snapshotOf(AskFixtures.briefing(days, List.of())))
+                .lookUpPlace(name("beach")));
+
+        assertThat(payload.note()).isEqualTo("2 more places match; use a longer name. "
+                + "Showing 6 of 12 place-windows; pass windowIds to narrow.");
     }
 }

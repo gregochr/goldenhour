@@ -112,6 +112,13 @@ public class AskTools {
     /** The most distinct places {@code look_up_place} returns for one name. */
     static final int MAX_PLACE_MATCHES = 4;
 
+    /**
+     * The most (place, window) rows {@code look_up_place} returns. The conversation's character cap is shared with
+     * {@code list_windows}, which comes first, so one lookup is held to under half of it
+     * ({@code AskToolsLookUpPlaceTest} measures the worst case).
+     */
+    static final int MAX_PLACE_ROWS = 6;
+
     /** What {@code look_up_place} notes when no place in the windows carries the name. */
     static final String NO_SUCH_PLACE_NOTE = "No place by that name is in these windows.";
 
@@ -463,19 +470,21 @@ public class AskTools {
 
     /**
      * Why a looked-up place is, or is not, one PhotoCast recommends. The order here is the order the status is
-     * decided in ({@link #classify}), so a slot that fails several tests reads as the first it fails.
+     * decided in ({@link #classify}), so a slot that fails several tests reads as the first it fails. The rating
+     * tests come before the region and guard ones: a 2-star place is below the floor whatever its region, and
+     * "too few places were rated to recommend one" would wrongly imply it might otherwise be recommended.
      */
     enum PlaceStatus {
         /** No rating on Claude's scale. */
         UNRATED,
         /** A wood: its rating is about the light under the trees. */
         CANOPY,
+        /** Rated below the game-on floor. */
+        BELOW_GAME_ON,
         /** Rated far above the places beside it; never suggested. */
         NEIGHBOUR_OUTLIER,
         /** Its region has too few rated places to recommend one. */
         THIN_SAMPLE,
-        /** Rated below the game-on floor. */
-        BELOW_GAME_ON,
         /** Pick-eligible: the same test {@code rank_spots} applies. */
         PICK
     }
@@ -496,23 +505,34 @@ public class AskTools {
      * @param tideState     the served tide state at the event; null for an inland place
      * @param tideAligned   whether the location's own wanted water is the water at the event; null inland
      * @param tideFitPhrase the served tide-fit sentence, or null
-     * @param status        a {@link PlaceStatus} name
-     * @param statusReason  our fixed words for the status, or null for BELOW_GAME_ON and PICK
+     * @param status        a {@link PlaceStatus} name; its words are in the result's {@code reasons}
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record PlaceInfo(long locationId, String name, String region, String windowId, String day,
             String event, Integer rating, String verdict, String headline, String tideState,
-            Boolean tideAligned, String tideFitPhrase, String status, String statusReason) {
+            Boolean tideAligned, String tideFitPhrase, String status) {
     }
 
     /**
      * The {@code look_up_place} result.
      *
-     * @param places the matching places, one entry per (place, window)
-     * @param note   why the list is empty, or how many more places matched, or null
+     * @param places  the matching places, one entry per (place, window), at most {@value AskTools#MAX_PLACE_ROWS}
+     * @param reasons our fixed words for each status present in {@code places} that has any (not BELOW_GAME_ON or
+     *                PICK), said once here rather than on every row; null when none
+     * @param note    why the list is empty, or what was left out, or null
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record LookUpPlaceResult(List<PlaceInfo> places, String note) {
+    public record LookUpPlaceResult(List<PlaceInfo> places, Map<String, String> reasons, String note) {
+
+        /**
+         * A result with no reasons.
+         *
+         * @param places the places
+         * @param note   the note, or null
+         */
+        public LookUpPlaceResult(List<PlaceInfo> places, String note) {
+            this(places, null, note);
+        }
     }
 
     /**
@@ -804,16 +824,32 @@ public class AskTools {
                         .thenComparing(e -> e.getValue().name, String.CASE_INSENSITIVE_ORDER)
                         .thenComparingLong(Map.Entry::getKey))
                 .toList();
-        List<PlaceInfo> places = new ArrayList<>();
+        // The exact match's rows first, then the others', each place's in window order; then the row cap.
+        List<PlaceInfo> all = new ArrayList<>();
+        Map<String, String> reasons = new LinkedHashMap<>();
         for (Map.Entry<Long, PlaceMatch> entry : ordered.stream().limit(MAX_PLACE_MATCHES).toList()) {
             for (PlaceRow row : entry.getValue().rows) {
-                places.add(placeInfo(entry.getKey(), row));
+                PlaceStatus status = classify(row.region(), row.slot());
+                all.add(placeInfo(entry.getKey(), row, status));
+                String reason = all.size() <= MAX_PLACE_ROWS ? statusReason(status, row.region()) : null;
+                if (reason != null) {
+                    reasons.putIfAbsent(status.name(), reason);
+                }
             }
         }
+        List<PlaceInfo> places = all.stream().limit(MAX_PLACE_ROWS).toList();
+        String note = null;
         int more = ordered.size() - MAX_PLACE_MATCHES;
-        String note = more > 0 ? more + " more places match; use a longer name." : null;
+        if (more > 0) {
+            note = more + " more places match; use a longer name.";
+        }
+        if (all.size() > MAX_PLACE_ROWS) {
+            note = joinNotes(note, "Showing " + MAX_PLACE_ROWS + " of " + all.size()
+                    + " place-windows; pass windowIds to narrow.");
+        }
         // Deliberately nothing recorded as evidence: a looked-up place is explained, never offered as a pick.
-        return finish(LOOK_UP, new LookUpPlaceResult(places, note), () -> { });
+        return finish(LOOK_UP, new LookUpPlaceResult(places, reasons.isEmpty() ? null : reasons, note),
+                () -> { });
     }
 
     /** The places one name matched: whether any spelling was exact, and each (window, region, slot) it sits in. */
@@ -830,15 +866,13 @@ public class AskTools {
     private record PlaceRow(AskSnapshot.Window window, AskSnapshot.Region region, AskSnapshot.Slot slot) {
     }
 
-    private PlaceInfo placeInfo(long locationId, PlaceRow row) {
+    private PlaceInfo placeInfo(long locationId, PlaceRow row, PlaceStatus status) {
         AskSnapshot.Slot s = row.slot();
-        PlaceStatus status = classify(row.region(), s);
         Integer rating = status == PlaceStatus.UNRATED ? null : s.rating();
         return new PlaceInfo(locationId, s.name(), row.region().name(), row.window().id(),
                 dayWord(row.window().date()), row.window().targetType().name().toLowerCase(Locale.ROOT),
                 rating, s.verdict() == null ? null : s.verdict().name(), cap(s.headline(), HEADLINE_CAP),
-                s.tideState(), s.coastal() ? s.tideAligned() : null, s.tideFitPhrase(), status.name(),
-                statusReason(status, row.region()));
+                s.tideState(), s.coastal() ? s.tideAligned() : null, s.tideFitPhrase(), status.name());
     }
 
     /**
@@ -857,14 +891,14 @@ public class AskTools {
         if (slot.canopy()) {
             return PlaceStatus.CANOPY;
         }
+        if (slot.rating() < AskSnapshot.MIN_PICK_RATING) {
+            return PlaceStatus.BELOW_GAME_ON;
+        }
         if (slot.neighbourOutlier()) {
             return PlaceStatus.NEIGHBOUR_OUTLIER;
         }
         if (!region.pickEligible()) {
             return PlaceStatus.THIN_SAMPLE;
-        }
-        if (slot.rating() < AskSnapshot.MIN_PICK_RATING) {
-            return PlaceStatus.BELOW_GAME_ON;
         }
         if (AskSnapshot.isPickEligible(region, slot)) {
             return PlaceStatus.PICK;
