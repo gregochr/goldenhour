@@ -588,13 +588,27 @@ tuning; the owner cuts releases.
 | Phase | PR | State |
 |---|---|---|
 | Plan | — | drafted 2026-10-22; adversarially reviewed (backend + frontend lenses), all findings folded in |
-| B1 | — | after Step 0 (owner prod query) |
+| B1 | — | Step 0 done; ready to brief once this plan merges |
 | B2 | — | after B1 |
 | F1 | — | after B2 |
 | F2 | — | after F1 |
 | F3 | — | ready to brief (Q1 answered); independent of B1–F2 |
 | F4 | — | after F3 |
 
-Step 0 result: _(paste here)_
+Step 0 result (production, 2026-10-22). All seven structure names match exactly, are enabled and
+have a non-empty tide type:
+
+| id | name | tides | solar |
+|---|---|---|---|
+| 21 | Amble | HIGH | SUNRISE,SUNSET |
+| 28 | St. Mary's Lighthouse | HIGH | SUNRISE,SUNSET |
+| 55 | Saltburn-by-the-Sea | HIGH,LOW,MID | SUNRISE,SUNSET |
+| 75 | Whitby Piers | HIGH,LOW,MID | SUNRISE,SUNSET |
+| 243 | Roker Pier & Lighthouse | HIGH | SUNRISE |
+| 244 | Seaham North Pier & Lighthouse | LOW,MID | SUNRISE |
+| 252 | Hartlepool Headland | HIGH | SUNRISE,SUNSET |
+
+Not structures: Whitby Town (62) and Whitby Abbey (76), which have no tide type. Eyemouth is absent.
+The decoy in B1's migration test should be `Whitby Abbey`, a real near-miss name.
 
 Label-obstacle re-measure (F1): _(paste here)_
