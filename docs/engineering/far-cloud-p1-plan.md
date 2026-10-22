@@ -666,3 +666,25 @@ Sonnet 5.5's gos stand on ERA5-blocked horizons less often than Haiku's.
 - It must be sized against the far mid/high dark-hour columns and the pressure levels as well as the single 226 km point. The Angel's own far 300 hPa figure that evening, from the Historical Forecast API, was only 11-27%, so the pressure levels may not see a cirrus lid the layer figures do.
 
 **Tooling note.** The 15 October transect (`case.py --date 2026-10-15`) was attempted and refused by Open-Meteo's daily limit; it resumes from cache on a later day. The free daily limit was reached after about 600 weighted calls, far below `openmeteo.py`'s 8,000 default, so plan one transect per day.
+
+### The 15 October transect (2026-10-22)
+
+**Run.** `case.py --lat 54.914116 --lon -1.5895191 --date 2026-10-15 --type SUNSET` ran on 2026-10-22: 4 live requests and 56 weighted calls, the rest from the previous day's cache. The report is `~/goldenhour-p1/case_2026-10-15.md` on the owner's Mac (not committed). Sunset was 17:09 UTC; in the 17:00 UTC hour the sun was at 0.7°, azimuth 254°.
+
+**What lay on the sun line at 17:00 UTC (ERA5):**
+- High cloud was 91–100% at every point from 0 to 400 km, the same continuous 100% deck from 250 km outward that 13 October showed (§14).
+- Low cloud was 0–18% throughout.
+- Mid cloud was 86–95% from 0 to 125 km, then 75% at 150 km, 42% at 175, 30% at 200, 33% at 225, 17% at 250, 4% at 275 and 2–14% beyond.
+- All four forecast models agree on the high deck (100% from 150–175 km outward) and on the mid canopy to about 225 km.
+
+**The outcomes were opposite under the same far deck.** That evening's sky was rated 4★ by the owner at the Angel and at Copt Hill, and forecast-right at Penshaw (§16 above). So the ray to the Angel passed through a 100% high deck beyond 250 km on both evenings, and the results were opposite. What differed is the local canvas:
+- 15 October: a dense mid-level canopy overhead out to 125 km (ERA5 observer mid 100%), lit from under its thinning western edge.
+- 13 October: mid 0–30% and nothing overhead, the horizon cirrus at 113 km being the only canvas.
+
+**Consequence for the far-lid hypothesis: it is not established as the mechanism.**
+- Cloud-cover percentages cannot distinguish thin cirrus, which transmits red light, from an opaque shield.
+- The far point's pressure-level cloud (300–500 hPa) read under 25% on both evenings, so the capture cannot tell the two apart either.
+- The one robust difference in the data is the local canvas: a mid canopy overhead (good) against horizon cirrus only with a clear sky overhead (poor).
+- The §9 item 7 rule stays open. Its "lid behind" clause is now the least supported part and its "nothing overhead, horizon cirrus only" clause the best supported, with the Angel still its only rated case.
+
+**Next cheap check (owner's).** View the Zoom Earth / Meteosat frame for 2026-10-15 at 17:50 BST (16:50 UTC) and compare the brightness and texture of the Irish Sea sheet with the 13 October frame (§14). A visibly thinner sheet on the 15th would keep the lid alive as an optical-depth question; the same sheet would argue the lid was never the cause.
