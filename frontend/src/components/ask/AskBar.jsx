@@ -22,7 +22,8 @@ import { refShape } from './askShapes.js';
  * down, or Ask itself is unreachable, and a disabled bar must read as one to a screen reader too.
  *
  * @param {object} props
- * @param {string} props.prompt the tab's prompt: "Ask about this weekend…" / "Ask about rare events…"
+ * @param {string} props.prompt the tab's prompt; Plan's follows the windows on the matrix ("this weekend" /
+ *   "the next few days"), Coming up's is "Ask about rare events…"
  * @param {function(): void} props.onOpen opens the sheet
  * @param {boolean} [props.disabled]
  * @param {boolean} [props.expanded] whether the sheet this opens is open
