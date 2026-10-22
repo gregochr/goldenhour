@@ -37,8 +37,10 @@ CONE_LOW_MAX = 20     # weak canvas: cone low below this
 CONE_HIGH_MIN = 60    # weak canvas: cone high at or above this
 CANOPY_MIN = 60       # canopy overhead: observer mid or high at or above this
 MISSED_MAX = 3        # mirror class: rated at or below this
-DECK_FORECAST_MIN = 60
-DECK_ERA5_MAX = 20
+DECK_FORECAST_MIN = 60   # a forecast deck: low cloud at or above this ...
+DECK_ERA5_MAX = 20       # ... where ERA5 reads below this
+CLEAR_FORECAST_MAX = 20  # reverse direction: forecast clear below this ...
+DECK_ERA5_MIN = 60       # ... where ERA5 reads at or above this
 LIST_LIMIT = 200      # slot keys printed in the report; the CSV holds all
 
 WEAK_INPUTS = ('mid_cloud', 'high_cloud', 'solar_low_cloud', 'solar_high_cloud')
@@ -66,7 +68,12 @@ def era5_checks(r: Dict[str, object]) -> Dict[str, Optional[bool]]:
     if r['cv_id'] is None:
         return {'overhead_clear': None, 'cone_high': None, 'cone_low_clear': None, 'all': None}
     mid, high = r['cv_observer_mid_cloud'], r['cv_observer_high_cloud']
-    overhead = None if mid is None or high is None else (mid < OVERHEAD_MAX and high < OVERHEAD_MAX)
+    if (mid is not None and mid >= OVERHEAD_MAX) or (high is not None and high >= OVERHEAD_MAX):
+        overhead: Optional[bool] = False   # one known value already breaks "clear overhead"
+    elif mid is None or high is None:
+        overhead = None
+    else:
+        overhead = True
     cone_high = None if r['cv_horizon_high_cloud'] is None else r['cv_horizon_high_cloud'] >= CONE_HIGH_MIN
     cone_low = None if r['cv_horizon_low_cloud'] is None else r['cv_horizon_low_cloud'] < CONE_LOW_MAX
     parts = (overhead, cone_high, cone_low)
@@ -169,7 +176,8 @@ def era5_values(hits: Sequence[dict]) -> List[List[object]]:
 def mirror(rated: Sequence[dict]) -> Dict[str, object]:
     canopy = [s for s in rated if canopy_overhead(s['row'])]
     missed = [s for s in canopy if s['row']['rating'] <= MISSED_MAX]
-    return {'canopy': canopy, 'missed': missed}
+    higher = [s for s in canopy if s['row']['rating'] > MISSED_MAX]
+    return {'canopy': canopy, 'missed': missed, 'higher': higher}
 
 
 def mirror_by_date_model(canopy: Sequence[dict], missed: Sequence[dict]) -> List[List[object]]:
@@ -189,7 +197,7 @@ def low_deck_rows(missed: Sequence[dict]) -> List[List[object]]:
     for label, fc, cv in pairs:
         both = [s for s in missed if s['row'][fc] is not None and s['row'][cv] is not None]
         over = [s for s in both if s['row'][fc] >= DECK_FORECAST_MIN and s['row'][cv] < DECK_ERA5_MAX]
-        under = [s for s in both if s['row'][fc] < DECK_ERA5_MAX and s['row'][cv] >= DECK_FORECAST_MIN]
+        under = [s for s in both if s['row'][fc] < CLEAR_FORECAST_MAX and s['row'][cv] >= DECK_ERA5_MIN]
         out.append([label, len(both), med([s['row'][fc] for s in both]), med([s['row'][cv] for s in both]),
                     share(len(over), len(both)), share(len(under), len(both))])
     return out
@@ -289,17 +297,21 @@ def render(rows: Sequence[dict], ratings: Optional[Dict[tuple, list]] = None) ->
             for rr in ratings.get((s['row']['location_id'], s['date'], s['event']), []):
                 rated_hits.append(slot_line(s) + [rr.get('rating') or 'not seen', rr.get('seen') or '',
                                                   rr.get('forecast_rating') or ''])
-        L.append('%d weak-canvas gos, %d reader ratings joined (%d rating rows read).'
-                 % (len(hits), len(rated_hits), sum(len(v) for v in ratings.values())))
+        with_rating = len({(s['row']['location_id'], s['date'], s['event']) for s in hits
+                           if (s['row']['location_id'], s['date'], s['event']) in ratings})
+        L.append('%d weak-canvas gos, %d with at least one reader rating (%d gos have none and are not listed), '
+                 '%d reader ratings joined (%d rating rows read; every reader, not only the owner).'
+                 % (len(hits), with_rating, len(hits) - with_rating, len(rated_hits),
+                    sum(len(v) for v in ratings.values())))
         L.append('')
         L += table(['location', 'location_id', 'date', 'event', 'evaluation_id', 'model', 'rating', 'training',
-                    'strict', 'owner rating', 'seen', 'forecast_rating'], rated_hits)
+                    'strict', 'reader rating', 'seen', 'forecast_rating'], rated_hits)
     m = mirror(rated)
     L.append('## 5. Mirror class: canopy overhead, rated <= %d' % MISSED_MAX)
     L.append('')
     L.append('%d rated slots with a canopy overhead; %s rated <= %d. A rating of %d or less is the ordinary outcome for '
-             'most slots, so this class is large by construction; the low-cloud comparison below is the part that '
-             'separates an over-forecast deck from an honest low rating.'
+             'most slots, so this class is large by construction. The low-cloud tables below set the forecast '
+             'against ERA5, which is itself a model.'
              % (len(m['canopy']), share(len(m['missed']), len(m['canopy'])), MISSED_MAX, MISSED_MAX))
     L.append('')
     L.append('### By date and model (dates with at least one)')
@@ -313,10 +325,10 @@ def render(rows: Sequence[dict], ratings: Optional[Dict[tuple, list]] = None) ->
     L.append('')
     L += table(['pair', 'n', 'median forecast', 'median ERA5', 'forecast deck, ERA5 clear',
                 'ERA5 deck, forecast clear'], low_deck_rows(m['missed']))
-    L.append('### Same comparison for ALL canopy slots (rated any), for contrast')
+    L.append('### Same comparison for canopy slots rated > %d, for contrast (disjoint from the table above)' % MISSED_MAX)
     L.append('')
     L += table(['pair', 'n', 'median forecast', 'median ERA5', 'forecast deck, ERA5 clear',
-                'ERA5 deck, forecast clear'], low_deck_rows(m['canopy']))
+                'ERA5 deck, forecast clear'], low_deck_rows(m['higher']))
     return '\n'.join(L) + '\n', hits
 
 

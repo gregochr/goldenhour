@@ -73,6 +73,11 @@ class Era5ChecksTest(unittest.TestCase):
                 cv_horizon_low_cloud=3.0)
         self.assertIsNone(canvas.era5_checks(r2)['all'])
 
+    def test_one_known_value_over_the_limit_makes_overhead_false(self):
+        r = mk(cv_observer_mid_cloud=None, cv_observer_high_cloud=50.0, cv_horizon_high_cloud=80.0,
+               cv_horizon_low_cloud=3.0)
+        self.assertFalse(canvas.era5_checks(r)['overhead_clear'])
+
 
 class PopulationTest(unittest.TestCase):
     def test_selection_matches_premise(self):
@@ -135,6 +140,24 @@ class ReportTest(unittest.TestCase):
         self.assertIn('1 (100.0%)', row[4])                  # forecast deck 99, ERA5 clear 2
         self.assertIn('0 (0.0%)', row[5])
 
+    def test_reverse_direction_and_disjoint_contrast(self):
+        rows = [mk(location_id=1, rating=2, mid_cloud=90, low_cloud=5, cv_observer_low_cloud=80.0),
+                mk(location_id=2, rating=4, mid_cloud=90, low_cloud=95, cv_observer_low_cloud=3.0)]
+        m = canvas.mirror(pop(rows)['rated'])
+        self.assertEqual([s['key'][0] for s in m['missed']], [1])
+        self.assertEqual([s['key'][0] for s in m['higher']], [2])
+        self.assertIn('1 (100.0%)', canvas.low_deck_rows(m['missed'])[0][5])   # ERA5 deck, forecast clear
+        self.assertIn('1 (100.0%)', canvas.low_deck_rows(m['higher'])[0][4])   # forecast deck, ERA5 clear
+
+    def test_era5_view_cells_by_model(self):
+        p = pop(ReportTest().rows())
+        hits = [s for s in p['gos'] if canvas.weak_canvas(s['row'])]
+        rows = {r[0]: r for r in canvas.era5_view(hits)}
+        # columns: test, HAIKU, SONNET_55, all. The Angel row (SONNET_55) has a cirrus cone in ERA5; the
+        # HAIKU row keeps mk's defaults (cone high 5), so it fails the cone-high test and the conjunction.
+        self.assertEqual(rows['all three'][1:], ['0 of 1', '1 of 1', '1 of 2'])
+        self.assertEqual(rows['cone high >= 60 (horizon cirrus)'][1:], ['0 of 1', '1 of 1', '1 of 2'])
+
     def test_render_without_ratings_names_the_second_export(self):
         text, hits = canvas.render(self.rows())
         self.assertEqual(len(hits), 2)
@@ -147,7 +170,7 @@ class ReportTest(unittest.TestCase):
                    (1, '2026-10-13', 'SUNRISE'): [{'rating': '5'}]}   # other event: must not join
         text, _ = canvas.render(self.rows(), ratings)
         self.assertIn('| 2 | FLAT | 4 |', text)
-        self.assertIn('1 reader ratings joined', text)
+        self.assertIn('1 with at least one reader rating (1 gos have none', text)
 
 
 class IoTest(unittest.TestCase):
