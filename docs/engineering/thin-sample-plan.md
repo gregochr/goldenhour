@@ -106,9 +106,15 @@ Spec: `PICK_ELIGIBILITY.md`. In short:
   - `BestBetFallbackService` `:197` (stale pick resurrection) — **pick**.
   - `PipelineRunPickService` / `pipeline_run_pick` — follows from the above; verify it cannot persist a
     forced-only region.
-  - `AskSnapshot` `:469`, `:913`, `AskSnapshotBuilder` `:420` — **pick** (Ask's `isPickEligible` names
-    a place as a recommendation, the same claim as BEST BET). `AskSnapshot.Spread`'s thin-region rule
-    (`!verdictEligible` counted as a region, not in the bands) is a **verdict/count** question — leave it.
+  - Ask: `AskSnapshot.Region` carries ONE `verdictEligible` boolean (set by `AskSnapshotBuilder`
+    `:420`) that two different questions read. `Spread.of` (`:469`, a thin region is counted as a
+    region and kept out of the bands) is a **verdict** question and must keep reading verdict
+    eligibility, or a forced-but-insufficient region drops out of Ask's bands while its verdict stands.
+    `meetsPickRules` (`:913`, a place offered as a pick, the same claim as BEST BET) is a **pick**
+    question. So add a second field, `pickEligible`, to `AskSnapshot.Region`, set from
+    `BriefingRegion.pickEligible()`, and switch `meetsPickRules` alone to it. Do NOT repoint the
+    builder's existing value. Check `AskReadyFreshness`/`ReadyRelevance` and the thread re-join, which
+    reach pick eligibility through `isPickEligible`, so they follow with no change of their own.
   - `BriefingRegionEvaluationRollup` `:225` — read it; expected **verdict**.
 - A window whose top region is forced-only takes no pick; the strip's two picks are a cap, not a quota.
 - Tests per the spec, including the Thu 22 Oct fixture (Today 22 sunrise takes BEST BET; Sat 24 sunrise
