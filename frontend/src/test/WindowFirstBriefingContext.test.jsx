@@ -1246,6 +1246,18 @@ describe('WindowFirstBriefingProvider', () => {
       expect(screen.getByTestId('heat-unrated').textContent).toBe('none');
     });
 
+    it('hatches nothing when the scores response is SUCCESSFUL but EMPTY under a rated briefing', async () => {
+      // Codex P1 on f40067bf: `scoresLoaded` is true, `scoreRows` is empty, the cached briefing still
+      // carries a bestRating — every sky place would read unrated. No evidence, no hatch.
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getAllEvaluationScores.mockResolvedValue([]);
+      renderProviderWithLocations(ROSTER);
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
+      await act(async () => {});
+      expect(getAllEvaluationScores).toHaveBeenCalled();
+      expect(screen.getByTestId('heat-unrated').textContent).toBe(`${TODAY}:SUNSET=-`);
+    });
+
     it('publishes heatUnratedSets: one entry per window, holding the places that window did not rate', async () => {
       // Thin-sample F2. Bamburgh is rated in the SECOND window only, so it is unrated in the first
       // and absent from the second's set; Alnmouth is unrated in both. A typo in the context key
@@ -1259,7 +1271,8 @@ describe('WindowFirstBriefingProvider', () => {
       renderProviderWithLocations(ROSTER);
 
       const expected = payload.renderedEvents
-        .map((e) => `${e.date}:${e.targetType}=${e === scored ? 'Alnmouth' : 'Bamburgh,Alnmouth'}`)
+        // The first window has no rated or stood spot, so no evidence: it hatches nothing.
+        .map((e) => `${e.date}:${e.targetType}=${e === scored ? 'Alnmouth' : '-'}`)
         .join(' ');
       await waitFor(() => expect(screen.getByTestId('heat-unrated').textContent).toBe(expected));
     });
