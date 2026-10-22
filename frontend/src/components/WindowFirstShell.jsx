@@ -181,7 +181,6 @@ const TABS = [
   { id: 'operations', label: 'Operations', glyph: null, slot: 'operationsPane', gated: true },
 ];
 
-
 /**
  * What the view chip says, and what the question is sent with, by tab. Map reads "all regions" here
  * because the shell cannot see the Map's own scope segment or window (they are `MapView` state): the
