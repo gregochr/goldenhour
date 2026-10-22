@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { thinVerdictCount, thinVerdictSpoken } from '../utils/windowFirstThinSample.js';
+import { thinVerdictCount } from '../utils/windowFirstThinSample.js';
 
 const thin = { rated: 6, total: 83 };
 
@@ -33,12 +33,5 @@ describe('thinVerdictCount', () => {
   it('is silent on an away or unscored card', () => {
     expect(thinVerdictCount({ verdict: 'WORTH_IT', away: true, spread: thin })).toBeNull();
     expect(thinVerdictCount({ verdict: 'WORTH_IT', notScored: true, spread: thin })).toBeNull();
-  });
-});
-
-describe('thinVerdictSpoken', () => {
-  it('words the count, singular and plural', () => {
-    expect(thinVerdictSpoken(6)).toBe('6 places rated');
-    expect(thinVerdictSpoken(1)).toBe('1 place rated');
   });
 });

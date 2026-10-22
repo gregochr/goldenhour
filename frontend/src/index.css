@@ -2166,6 +2166,8 @@ button.wf-hc.on:hover {
   font-weight: 400;
   color: #857c70;
 }
+/* Known limit (accepted): on the narrowest phone cards the count is not drawn; the hatch and the
+   Spread row's own `N/M rated` directly below carry it, and the spread clause speaks it. */
 @container wf-card (min-width: 190px) {
   .wf-hc-thin { display: inline; }
 }

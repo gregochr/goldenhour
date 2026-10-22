@@ -28,7 +28,7 @@ import {
   spreadBars, spreadCountLayout, spreadCountLayoutAcross, spreadQualifier, spreadRowState, spreadTitle, unratedBar,
   unratedPhrase,
 } from '../utils/windowFirstSpread.js';
-import { thinVerdictCount, thinVerdictSpoken } from '../utils/windowFirstThinSample.js';
+import { thinVerdictCount } from '../utils/windowFirstThinSample.js';
 import { buildTopicIndex, chipClock, windowTopics } from '../utils/windowFirstTopics.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { leaveBy } from '../utils/leaveBy.js';
@@ -1251,10 +1251,8 @@ export default function WindowFirstHeatStrip({
     const accessibleName = [card.label, card.time, card.verdictLabel]
       .concat(blankedNote ? [BLANKED_STAND_DOWN_SPOKEN] : [])
       .concat(regionMean ? [`${regionMean} star average`] : [])
-      // ⚠️ Said beside the verdict although the pool clause below also says "6 of 83 rated": the
-      // visible `· 6 rated` must be in the name (SC 2.5.3), and the pool clause carries the
-      // denominator and the reach claim, which this one does not.
-      .concat(thinCount != null ? [thinVerdictSpoken(thinCount)] : [])
+      // The verdict line's `· N rated` is not voiced separately: below the gate the pool clause
+      // below already says "N of M rated" in words, the same fact with its denominator.
       .filter(Boolean)
       .concat(notScored ? ['not scored'] : [])
       .concat(card.away || !spokenPool ? [] : [spokenPool])

@@ -37,13 +37,3 @@ export function thinVerdictCount({
   if (rated < 1 || hasSpreadSample(spread)) return null;
   return rated;
 }
-
-/**
- * The count in words for the card's spoken sentence ("6 places rated", "1 place rated").
- *
- * @param {number} count a count from {@link thinVerdictCount}
- * @returns {string} the spoken clause
- */
-export function thinVerdictSpoken(count) {
-  return `${count} ${count === 1 ? 'place' : 'places'} rated`;
-}

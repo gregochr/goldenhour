@@ -405,7 +405,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
       })],
     });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Aurora, King tide',
+      name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Aurora, King tide',
     })).toBeInTheDocument();
   });
 
@@ -882,7 +882,7 @@ describe('WindowFirstHeatStrip — below the minimum-sample gate: text instead o
       expect(screen.getByTestId('wf-heat-spread'))
         .toHaveAttribute('title', '4 locations within reach — 1 rated · 3 not yet rated');
       const button = screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 4 locations within 45 min, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+        name: 'Tonight Sunset, 21:11, Worth it, 4 locations within 45 min, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
       });
       expect(button).toBeInTheDocument();
       // ⚠️ The defect this exact fixture was found with: the accessible name must never contain the
@@ -1211,7 +1211,7 @@ describe('WindowFirstHeatStrip — the Spread row names its pool and prints its 
     it('speaks no band counts below the gate — only the pool clause moves, and "1/4" is still never voiced', async () => {
       await renderStrip({ cards: [ratedCard({ pool: pool(4, null, null, null) })] });
       expect(sentence()).toBe(
-        'Tonight Sunset, 21:11, Worth it, 1 place rated, 4 locations within 45 min, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+        'Tonight Sunset, 21:11, Worth it, 4 locations within 45 min, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
       );
       expect(sentence()).not.toMatch(/\bat \d stars?\b/);
     });
@@ -1315,7 +1315,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
         'Northumberland & Tyneside · 40 min · leave 20:11 · high water — the water it wants',
       );
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, high water, right here',
       })).toBeInTheDocument();
     });
@@ -1332,7 +1332,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
       expect(glyph).toHaveAttribute('data-wide', 'true');
       expect(glyph.querySelector('text')).toHaveTextContent('M');
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, mid tide, right here',
       })).toBeInTheDocument();
     });
@@ -1359,7 +1359,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
       expect(screen.getByTestId('wf-heat-best'))
         .toHaveAttribute('title', 'Northumberland & Tyneside · 40 min · leave 20:11');
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11',
       })).toBeInTheDocument();
     });
@@ -1548,7 +1548,7 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
         hotTopics: [LUNAR_ECLIPSE_TOPIC],
       });
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Lunar eclipse at 05:13',
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Lunar eclipse at 05:13',
       })).toBeInTheDocument();
     });
   });
@@ -1732,7 +1732,7 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
         })],
       });
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 place rated, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, 9 on tide',
       })).toBeInTheDocument();
     });
@@ -4300,15 +4300,12 @@ describe('WindowFirstHeatStrip — the verdict line count (thin-sample F3)', () 
     expect(screen.getByTestId('wf-heat-spread-note').textContent).toBe('1/11 rated');
   });
 
-  it('voices the count in words straight after the mean, singular and plural', async () => {
+  it('is spoken once, by the spread clause: "N of M rated", never a separate "place rated"', async () => {
     await renderStrip({ cards: [ratedCard({ verdictMean: 4, pool: thinPool() })] });
-    expect(nameOf()).toMatch(/4\.0 star average, 1 place rated, /);
-
-    cleanup();
-    await renderStrip({
-      cards: [ratedCard({ verdictMean: 4, pool: pool(4, 4, 4, null, null, null, null, null, null, null) })],
-    });
-    expect(nameOf()).toMatch(/3 places rated/);
+    const name = nameOf();
+    expect(name.match(/1 of 11 rated/g)).toHaveLength(1);
+    expect(name).not.toMatch(/places? rated/);
+    expect(screen.getByTestId('wf-heat-value-grid')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('is absent once the spread draws bars (a well-rated card)', async () => {
