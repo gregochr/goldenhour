@@ -5,7 +5,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.BriefingWindow;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import com.gregochr.goldenhour.util.DayLabels;
 import com.gregochr.goldenhour.util.GeoUtils;
 
@@ -36,8 +38,10 @@ import java.util.TreeSet;
  * model's tool-use input onto the argument records and the result's {@code content} onto a
  * {@code tool_result} block.
  *
- * <p><b>What a tool may return.</b> Only pick-eligible slots ({@link AskSnapshot#isPickEligible}):
- * never a wood, never a slot under 3★, never a region the Plan tab would refuse a verdict. The
+ * <p><b>What a tool may return.</b> Every recommending tool returns only pick-eligible slots
+ * ({@link AskSnapshot#isPickEligible}): never a wood, never a slot under 3★, never a region the Plan tab
+ * would refuse a verdict. The one exception is {@code look_up_place}, which explains one named place's
+ * served rating whatever its eligibility and adds nothing to the evidence, so it can never make a pick. The
  * served tide state and the location's tide preference are separate fields and are never merged.
  * Nothing about home reaches a user-less conversation.
  *
@@ -104,6 +108,17 @@ public class AskTools {
 
     /** What the aurora state reads for a later night with no result rows: the state cache is tonight's only. */
     static final String AURORA_NOT_FORECAST_YET = "not forecast yet";
+
+    /** The most distinct places {@code look_up_place} returns for one name. */
+    static final int MAX_PLACE_MATCHES = 4;
+
+    /** What {@code look_up_place} notes when no place in the windows carries the name. */
+    static final String NO_SUCH_PLACE_NOTE = "No place by that name is in these windows.";
+
+    /** What {@code look_up_place} notes when the name matches only places outside the question's regions. */
+    static final String PLACE_OUT_OF_SCOPE_NOTE = "That place is outside the regions this question is about.";
+
+    private static final String LOOK_UP = AskToolSchemas.LOOK_UP_PLACE;
 
     private static final String RANK_NIGHT = AskToolSchemas.RANK_NIGHT_SPOTS;
 
@@ -438,6 +453,69 @@ public class AskTools {
     }
 
     /**
+     * Arguments of {@code look_up_place}.
+     *
+     * @param name      the place's name, or part of it; required
+     * @param windowIds windows to look in; null or empty means every solar window
+     */
+    public record LookUpPlaceArgs(String name, List<String> windowIds) {
+    }
+
+    /**
+     * Why a looked-up place is, or is not, one PhotoCast recommends. The order here is the order the status is
+     * decided in ({@link #classify}), so a slot that fails several tests reads as the first it fails.
+     */
+    enum PlaceStatus {
+        /** No rating on Claude's scale. */
+        UNRATED,
+        /** A wood: its rating is about the light under the trees. */
+        CANOPY,
+        /** Rated far above the places beside it; never suggested. */
+        NEIGHBOUR_OUTLIER,
+        /** Its region has too few rated places to recommend one. */
+        THIN_SAMPLE,
+        /** Rated below the game-on floor. */
+        BELOW_GAME_ON,
+        /** Pick-eligible: the same test {@code rank_spots} applies. */
+        PICK
+    }
+
+    /**
+     * One place at one window as {@code look_up_place} returns it. The rating, verdict, headline and tide are the
+     * served figures; {@code status} says whether PhotoCast recommends the place.
+     *
+     * @param locationId    the location id
+     * @param name          the location name
+     * @param region        the region name
+     * @param windowId      the window id
+     * @param day           Today, Tomorrow or the weekday
+     * @param event         sunrise or sunset
+     * @param rating        the served rating, or null when it is absent or off the 1-5 scale
+     * @param verdict       the slot's served verdict, or null
+     * @param headline      the served headline, at most {@value AskTools#HEADLINE_CAP} characters, or null
+     * @param tideState     the served tide state at the event; null for an inland place
+     * @param tideAligned   whether the location's own wanted water is the water at the event; null inland
+     * @param tideFitPhrase the served tide-fit sentence, or null
+     * @param status        a {@link PlaceStatus} name
+     * @param statusReason  our fixed words for the status, or null for BELOW_GAME_ON and PICK
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record PlaceInfo(long locationId, String name, String region, String windowId, String day,
+            String event, Integer rating, String verdict, String headline, String tideState,
+            Boolean tideAligned, String tideFitPhrase, String status, String statusReason) {
+    }
+
+    /**
+     * The {@code look_up_place} result.
+     *
+     * @param places the matching places, one entry per (place, window)
+     * @param note   why the list is empty, or how many more places matched, or null
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record LookUpPlaceResult(List<PlaceInfo> places, String note) {
+    }
+
+    /**
      * One entry of a conversation's tool trace.
      *
      * @param tool  the tool name
@@ -659,6 +737,183 @@ public class AskTools {
             return second;
         }
         return second == null ? first : first + " " + second;
+    }
+
+    /**
+     * {@code look_up_place}: one named place's served rating at each requested window, whether or not PhotoCast
+     * would recommend it (look-up plan §4.1). An explanation, never a pick: it adds <em>nothing</em> to the
+     * conversation's evidence pairs, so the validator drops any pick made from it, and a place the model wants
+     * to recommend must come from {@code rank_spots}. It answers only for places in the question's scope.
+     *
+     * @param args the place's name and the optional windows
+     * @return the places, or an error result for a missing name or an unknown window id
+     */
+    public AskToolResult<LookUpPlaceResult> lookUpPlace(LookUpPlaceArgs args) {
+        List<String> wanted = args == null || args.name() == null ? List.of() : placeWords(args.name());
+        if (wanted.isEmpty()) {
+            return fail(LOOK_UP, "name is required.");
+        }
+        List<AskSnapshot.Window> windows = snapshot.windows();
+        if (args.windowIds() != null && !args.windowIds().isEmpty()) {
+            List<AskSnapshot.Window> picked = new ArrayList<>();
+            for (String id : args.windowIds()) {
+                AskSnapshot.Window w = snapshot.window(id).orElse(null);
+                if (w == null) {
+                    return fail(LOOK_UP, "Unknown window id '" + cap(id, 40)
+                            + "'. Call list_windows for the valid ids.");
+                }
+                if (!picked.contains(w)) {
+                    picked.add(w);
+                }
+            }
+            windows = picked;
+        }
+
+        // Matches by location id, in first-seen order; the same place in several windows is one match.
+        Map<Long, PlaceMatch> inScope = new LinkedHashMap<>();
+        boolean outOfScope = false;
+        for (AskSnapshot.Window w : windows) {
+            for (AskSnapshot.Region r : w.regions()) {
+                boolean visible = scope.contains(r.name());
+                for (AskSnapshot.Slot slot : r.slots()) {
+                    if (slot.locationId() == null || slot.name() == null) {
+                        continue;
+                    }
+                    List<String> words = placeWords(slot.name());
+                    if (!containsRun(words, wanted)) {
+                        continue;
+                    }
+                    if (!visible) {
+                        outOfScope = true;
+                        continue;
+                    }
+                    PlaceMatch match = inScope.computeIfAbsent(slot.locationId(),
+                            id -> new PlaceMatch(slot.name()));
+                    match.exact |= words.equals(wanted);
+                    match.rows.add(new PlaceRow(w, r, slot));
+                }
+            }
+        }
+        if (inScope.isEmpty()) {
+            return finish(LOOK_UP, new LookUpPlaceResult(List.of(),
+                    outOfScope ? PLACE_OUT_OF_SCOPE_NOTE : NO_SUCH_PLACE_NOTE), () -> { });
+        }
+
+        List<Map.Entry<Long, PlaceMatch>> ordered = inScope.entrySet().stream()
+                .sorted(Comparator.<Map.Entry<Long, PlaceMatch>>comparingInt(e -> e.getValue().exact ? 0 : 1)
+                        .thenComparing(e -> e.getValue().name, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparingLong(Map.Entry::getKey))
+                .toList();
+        List<PlaceInfo> places = new ArrayList<>();
+        for (Map.Entry<Long, PlaceMatch> entry : ordered.stream().limit(MAX_PLACE_MATCHES).toList()) {
+            for (PlaceRow row : entry.getValue().rows) {
+                places.add(placeInfo(entry.getKey(), row));
+            }
+        }
+        int more = ordered.size() - MAX_PLACE_MATCHES;
+        String note = more > 0 ? more + " more places match; use a longer name." : null;
+        // Deliberately nothing recorded as evidence: a looked-up place is explained, never offered as a pick.
+        return finish(LOOK_UP, new LookUpPlaceResult(places, note), () -> { });
+    }
+
+    /** The places one name matched: whether any spelling was exact, and each (window, region, slot) it sits in. */
+    private static final class PlaceMatch {
+        private final String name;
+        private boolean exact;
+        private final List<PlaceRow> rows = new ArrayList<>();
+
+        PlaceMatch(String name) {
+            this.name = name;
+        }
+    }
+
+    private record PlaceRow(AskSnapshot.Window window, AskSnapshot.Region region, AskSnapshot.Slot slot) {
+    }
+
+    private PlaceInfo placeInfo(long locationId, PlaceRow row) {
+        AskSnapshot.Slot s = row.slot();
+        PlaceStatus status = classify(row.region(), s);
+        Integer rating = status == PlaceStatus.UNRATED ? null : s.rating();
+        return new PlaceInfo(locationId, s.name(), row.region().name(), row.window().id(),
+                dayWord(row.window().date()), row.window().targetType().name().toLowerCase(Locale.ROOT),
+                rating, s.verdict() == null ? null : s.verdict().name(), cap(s.headline(), HEADLINE_CAP),
+                s.tideState(), s.coastal() ? s.tideAligned() : null, s.tideFitPhrase(), status.name(),
+                statusReason(status, row.region()));
+    }
+
+    /**
+     * Why PhotoCast does or does not recommend a slot, decided in the {@link PlaceStatus} order. Ends in a
+     * check against {@link AskSnapshot#isPickEligible} and throws when the two disagree, so a pick rule added
+     * there and missed here fails a test rather than quietly reading as {@code PICK}.
+     *
+     * @param region the slot's region
+     * @param slot   the slot
+     * @return the first status the slot earns
+     */
+    static PlaceStatus classify(AskSnapshot.Region region, AskSnapshot.Slot slot) {
+        if (!RatingValidator.isInRange(slot.rating())) {
+            return PlaceStatus.UNRATED;
+        }
+        if (slot.canopy()) {
+            return PlaceStatus.CANOPY;
+        }
+        if (slot.neighbourOutlier()) {
+            return PlaceStatus.NEIGHBOUR_OUTLIER;
+        }
+        if (!region.pickEligible()) {
+            return PlaceStatus.THIN_SAMPLE;
+        }
+        if (slot.rating() < AskSnapshot.MIN_PICK_RATING) {
+            return PlaceStatus.BELOW_GAME_ON;
+        }
+        if (AskSnapshot.isPickEligible(region, slot)) {
+            return PlaceStatus.PICK;
+        }
+        throw new IllegalStateException("A slot refused by AskSnapshot.isPickEligible has no look_up_place status: "
+                + slot);
+    }
+
+    private static String statusReason(PlaceStatus status, AskSnapshot.Region region) {
+        return switch (status) {
+            case UNRATED -> region.coverageReason() == null ? "Not rated for this window."
+                    : "Not rated for this window. Its region was "
+                            + (region.coverageReason() == CoverageReason.STOOD_DOWN
+                                    ? "stood down for the weather." : "not scored.");
+            case CANOPY -> "A woodland canopy rating: how good the light under the trees is, not the sky.";
+            case NEIGHBOUR_OUTLIER ->
+                    "Rated well above the places beside it, so PhotoCast is not suggesting it.";
+            case THIN_SAMPLE -> "Too few places in this region were rated to recommend one.";
+            case BELOW_GAME_ON, PICK -> null;
+        };
+    }
+
+    /**
+     * A place name as words: lower case, apostrophes removed, every other non-letter-or-digit a gap. Not
+     * {@link AskQuestionSanitiser}'s normaliser, whose filler-word list would drop the "the" of a place name.
+     *
+     * @param text a place name or a query
+     * @return its words, possibly empty
+     */
+    static List<String> placeWords(String text) {
+        String folded = text.toLowerCase(Locale.ROOT).replace("'", "").replace("’", "");
+        StringBuilder spaced = new StringBuilder(folded.length());
+        for (int i = 0; i < folded.length(); i++) {
+            char c = folded.charAt(i);
+            spaced.append(Character.isLetterOrDigit(c) ? c : ' ');
+        }
+        String joined = spaced.toString().strip();
+        return joined.isEmpty() ? List.of() : List.of(joined.split("\\s+"));
+    }
+
+    /**
+     * Whether {@code words} holds {@code run} as a contiguous run of whole words.
+     *
+     * @param words the place's words
+     * @param run   the query's words
+     * @return true when the run appears
+     */
+    static boolean containsRun(List<String> words, List<String> run) {
+        return !run.isEmpty() && Collections.indexOfSubList(words, run) >= 0;
     }
 
     /**

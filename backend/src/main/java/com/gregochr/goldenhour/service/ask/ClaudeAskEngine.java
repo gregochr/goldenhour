@@ -223,7 +223,7 @@ public class ClaudeAskEngine implements AskEngine {
         // Built once: re-joining the thread reads the asker's drive times and, for a place that has left
         // the forecast, one query for names, neither of which should repeat each turn.
         String userMessage = promptBuilder.userMessage(question.sanitised(), thread);
-        List<Tool> toolDefinitions = AskToolSchemas.tools(user.hasUser(), !thread.isEmpty());
+        List<Tool> toolDefinitions = AskToolSchemas.tools(user.hasUser(), !thread.isEmpty(), !ready);
         List<AskTools.ToolCall> trace = new ArrayList<>();
         List<Message> assistantTurns = new ArrayList<>();
         List<List<ContentBlockParam>> toolResults = new ArrayList<>();
@@ -427,13 +427,15 @@ public class ClaudeAskEngine implements AskEngine {
             result = switch (name) {
                 case AskToolSchemas.LIST_WINDOWS -> tools.listWindows();
                 case AskToolSchemas.RANK_SPOTS -> tools.rankSpots(AskToolArguments.rankSpots(input));
+                case AskToolSchemas.LOOK_UP_PLACE -> tools.lookUpPlace(AskToolArguments.lookUpPlace(input));
                 case AskToolSchemas.RANK_NIGHT_SPOTS ->
                         tools.rankNightSpots(AskToolArguments.rankNightSpots(input));
                 case AskToolSchemas.GET_HOT_TOPICS -> tools.getHotTopics(AskToolArguments.hotTopics(input));
                 case AskToolSchemas.GET_COMING_UP -> tools.getComingUp(AskToolArguments.comingUp(input));
                 default -> AskToolResult.error("Unknown tool '" + clip(name) + "'. The tools are "
                         + AskToolSchemas.LIST_WINDOWS + ", " + AskToolSchemas.RANK_SPOTS + ", "
-                        + AskToolSchemas.RANK_NIGHT_SPOTS + ", " + AskToolSchemas.GET_HOT_TOPICS + ", "
+                        + AskToolSchemas.LOOK_UP_PLACE + ", " + AskToolSchemas.RANK_NIGHT_SPOTS + ", "
+                        + AskToolSchemas.GET_HOT_TOPICS + ", "
                         + AskToolSchemas.GET_COMING_UP + " and " + AskToolSchemas.SUBMIT_ANSWER + ".");
             };
         } catch (BadArguments e) {
