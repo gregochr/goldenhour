@@ -163,6 +163,7 @@ class CrosstabTest(unittest.TestCase):
         note = replay_set.crosstab_note(replay_set.basis_crosstab(self.rows(), "stored_rating"))
         self.assertIn("3 of 4", note)
         self.assertIn("1 are gos on the basis star only", note)
+        self.assertIn("Mirror: 1 of 4 basis-3 rows are a 4 or more to a reader", note)
 
     def test_select_prints_the_crosstab(self):
         import contextlib

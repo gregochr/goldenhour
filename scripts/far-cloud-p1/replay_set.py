@@ -152,8 +152,12 @@ def crosstab_note(table):
     n = sum(sum(c.values()) for c in go.values())
     visible = sum(c.get(BANDS[0], 0) for c in go.values())
     below = n - visible
+    three = table.get("three", {})
+    n3 = sum(sum(c.values()) for c in three.values())
+    up = sum(c.get(BANDS[0], 0) for c in three.values())
     return (f"reader-visible gos (basis >= 4 and combined rating also >= 4): {visible} of {n}; "
-            f"{below} are gos on the basis star only (combined below 4 or missing)")
+            f"{below} are gos on the basis star only (combined below 4 or missing). "
+            f"Mirror: {up} of {n3} basis-3 rows are a 4 or more to a reader")
 
 
 def crosstab_text(rows, combined_key):

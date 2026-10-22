@@ -414,6 +414,42 @@ class FixtureCliTest(unittest.TestCase):
         self.assertFalse(by_loc['Fixture Hide']['sky'])
 
 
+
+class BlockRateTest(unittest.TestCase):
+    """premise.block_rate: the date-block interval of a share, over the subset's own days or the study window."""
+
+    def units(self):
+        # a subset concentrated on three consecutive days; one in three is a hit
+        return [{'date': '2026-10-%02d' % d, 'hit': d == 11} for d in (10, 11, 12)]
+
+    def test_own_range_without_a_span(self):
+        ci, dropped = premise.block_rate(self.units(), lambda u: u['hit'], block_days=5, draws=300)
+        self.assertEqual(dropped, 0)              # three days: every resample holds all of them
+        self.assertEqual(ci, (1 / 3, 1 / 3))
+
+    def test_study_span_adds_empty_days_so_the_interval_reflects_concentration(self):
+        us = self.units()
+        with premise.study_span(['2026-10-01', '2026-10-30']):
+            ci, dropped = premise.block_rate(us, lambda u: u['hit'], block_days=5, draws=600)
+        self.assertGreater(dropped, 0)            # many 5-day blocks of a 30-day window hold none of the subset
+        self.assertEqual(ci[0], 0.0)              # the surviving resamples run from no hit ...
+        self.assertGreater(ci[1], 1 / 3)          # ... to more than the observed share: wider than the own-range one
+        ci2, dropped2 = premise.block_rate(us, lambda u: u['hit'], block_days=5, draws=300)
+        self.assertEqual((ci2, dropped2), ((1 / 3, 1 / 3), 0))   # outside the block it is the subset's own range
+
+    def test_span_is_restored_after_the_block_even_on_error(self):
+        try:
+            with premise.study_span(['2026-10-01', '2026-10-30']):
+                raise RuntimeError
+        except RuntimeError:
+            pass
+        self.assertIsNone(premise._STUDY_SPAN)
+
+    def test_block_txt_reports_dropped_draws(self):
+        with premise.study_span(['2026-10-01', '2026-10-30']):
+            self.assertIn('(drop ', premise.block_txt(self.units(), lambda u: u['hit'], draws=300))
+        self.assertEqual(premise.block_txt([], lambda u: True), 'n/a')
+
 if __name__ == '__main__':
     unittest.main()
 

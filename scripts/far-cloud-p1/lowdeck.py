@@ -330,8 +330,8 @@ def headline_rows(prim: Sequence[dict]) -> List[List[object]]:
         add('%s missed deck, of testable' % name,
             test, lambda u, fc=fc, cv=cv: cell(u['row'], fc, cv) == 'missed')
         phs = [u for u in test if ph(u)]
-        add('%s phantoms triaged on low cloud or rated <= 3' % name, phs, lambda u: poor_or_blocked(u['row']))
-        add('%s phantoms rated 4-5' % name, phs, lambda u: outcome(u['row']) == 'rated 4-5')
+        add('%s phantoms triaged on low cloud or rated <= 3, of phantoms' % name, phs, lambda u: poor_or_blocked(u['row']))
+        add('%s phantoms rated 4-5, of phantoms' % name, phs, lambda u: outcome(u['row']) == 'rated 4-5')
         known = [u for u in phs if era5_canopy(u['row']) is not None]
         add('%s phantoms with an ERA5 canopy overhead, of known' % name, known,
             lambda u: era5_canopy(u['row']) is True)
@@ -393,6 +393,13 @@ SLOT_HEADERS = ['location', 'region', 'date', 'event', 'lead', 'model', 'fc obs 
 # ------------------------------------------------------------------ report
 
 def render(rows: Sequence[dict]) -> Tuple[str, List[dict]]:
+    """The report text and the phantom slots. Every date-block interval resamples the calendar days of the
+    T+0/T+1 study window (premise.study_span), subgroups included."""
+    with premise.study_span([s['date'] for s in population(rows)['primary']]):
+        return _render(rows)
+
+
+def _render(rows: Sequence[dict]) -> Tuple[str, List[dict]]:
     p = population(rows)
     prim, ver = p['primary'], p['verified']
     L: List[str] = []
@@ -404,7 +411,8 @@ def render(rows: Sequence[dict]) -> Tuple[str, List[dict]]:
              'a better-informed model", not "the forecast was wrong". Nothing here says whether a sky was good. Wilson intervals (W) treat slots as independent; they are not '
              '(many locations share one weather situation on a date), so the true uncertainty is wider. Beside each, B is a '
              '95%% percentile interval from a date-block bootstrap (5-day moving blocks of calendar days, 2,000 draws, '
-             'seed %d; "drop" is the share of draws with no unit in the denominator). Cells read '
+             'seed %d; resampled over the calendar days of the study window even for a subgroup, so "drop" is the share of '
+             'draws with no unit of the subgroup in the denominator, and the interval is then conditioned on the rest). Cells read '
              '"k (p%%) W[lo, hi] B[lo, hi]".' % stats.DEFAULT_SEED)
     L.append('')
     L.append('## Definitions')

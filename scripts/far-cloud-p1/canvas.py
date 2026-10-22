@@ -281,6 +281,13 @@ def slot_line(s: dict) -> List[object]:
 # ------------------------------------------------------------------ report
 
 def render(rows: Sequence[dict], ratings: Optional[Dict[tuple, list]] = None) -> Tuple[str, List[dict]]:
+    """The report text and the weak-canvas gos. Every date-block interval resamples the calendar days of the go
+    window (premise.study_span), subgroups included."""
+    with premise.study_span([s['date'] for s in population(rows)['gos']]):
+        return _render(rows, ratings)
+
+
+def _render(rows: Sequence[dict], ratings: Optional[Dict[tuple, list]] = None) -> Tuple[str, List[dict]]:
     p = population(rows)
     gos, rated = p['gos'], p['rated']
     test = [s for s in gos if weak_testable(s['row'])]
@@ -302,8 +309,10 @@ def render(rows: Sequence[dict], ratings: Optional[Dict[tuple, list]] = None) ->
              % OVERHEAD_MAX)
     L.append('- **Intervals:** W is the 95%% Wilson interval, which treats slots as independent; they are not (many '
              'locations share one weather day), so beside it B is a 95%% percentile interval from a date-block bootstrap '
-             '(premise.block_rate: 5-day moving blocks of calendar days, %d draws, seed %d; 3 and 7 days as sensitivity '
-             'in the headline table). Cells read "k (p%%) W[lo, hi] B[lo, hi]".'
+             '(premise.block_rate: 5-day moving blocks of calendar days over the go window even for a subgroup, %d draws, '
+             'seed %d; 3 and 7 days as sensitivity '
+             'in the headline table; "drop" is the share of draws holding no unit of the subgroup). '
+             'Cells read "k (p%%) W[lo, hi] B[lo, hi]".'
              % (stats.DEFAULT_DRAWS, stats.DEFAULT_SEED))
     L.append('- **ERA5 view:** `cloud_verification` observer mid/high, cone low/mid/high, far low, where a row exists. '
              'ERA5 is a reanalysis, not an observation.')

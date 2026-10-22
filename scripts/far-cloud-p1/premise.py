@@ -27,6 +27,7 @@ Interpretations of the plan (also printed in the report):
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import os
 import sys
@@ -293,13 +294,36 @@ def prop_cell(units: Sequence[dict], pred: Callable[[dict], Optional[bool]], dra
                                     ci_txt(stats.percentile_interval(bs)), drop), k, n)
 
 
+_STUDY_SPAN: Optional[Tuple[str, str]] = None
+
+
+@contextlib.contextmanager
+def study_span(dates: Sequence[str]):
+    """Within the block, date-block bootstraps resample the calendar days from the first to the last of ``dates``
+    (the study window), not each subset's own first-to-last range. A subgroup concentrated on a few days then
+    keeps its real share of empty days instead of looking better spread than it is; a resample that holds no unit
+    of the subgroup is a dropped draw (reported as 'drop N%'). Outside the block each subset's own range is used."""
+    global _STUDY_SPAN
+    ds = sorted({str(d)[:10] for d in dates})
+    prev = _STUDY_SPAN
+    _STUDY_SPAN = (ds[0], ds[-1]) if ds else None
+    try:
+        yield
+    finally:
+        _STUDY_SPAN = prev
+
+
 def block_rate(units: Sequence[dict], hit: Callable[[dict], bool],
                block_days: int = stats.DEFAULT_BLOCK_DAYS, draws: int = stats.DEFAULT_DRAWS
                ) -> Tuple[Optional[Tuple[float, float]], float]:
     """Date-block bootstrap of the share of ``units`` satisfying ``hit``: (95% percentile interval or None,
     fraction of draws dropped because a resample held no unit). Units carry their date in ``u['date']``;
-    blocks are ``block_days`` consecutive CALENDAR days (stats.bootstrap_counts_ex, as prop_cell uses)."""
+    blocks are ``block_days`` consecutive CALENDAR days (stats.bootstrap_counts_ex, as prop_cell uses) over the
+    subset's own first-to-last date, or over the study window inside ``study_span``."""
     dc = date_counts(units, lambda u: (1 if hit(u) else 0, 1))
+    if dc and _STUDY_SPAN is not None:
+        for d in _STUDY_SPAN:
+            dc.setdefault(d, (0, 0))
     bs, dropped = stats.bootstrap_counts_ex(dc, lambda t: t[0] / t[1] if t[1] else None,
                                             block_days=block_days, draws=draws)
     return stats.percentile_interval(bs), dropped / draws

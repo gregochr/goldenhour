@@ -103,30 +103,32 @@ def call_cost_usd(model: str, in_tok: int, out_tok: int, discount: float = 1.0) 
     return discount * (in_tok * prices[0] + out_tok * prices[1]) / 1_000_000
 
 
-def eligible_runs(rows: Sequence[dict]) -> List[dict]:
-    """Every stored run row the pipeline could have acted on: sky location, T+0/T+1, a run before the event, in an
-    eligible batch state (premise.build_slots' rule, applied to every run rather than the latest)."""
-    out = []
+def released_runs_by_model(rows: Sequence[dict], slots: Sequence[dict]) -> Dict[str, int]:
+    """Every stored run row of one of ``slots`` that the rule would have released (triaged on low cloud, forecast
+    canopy), counted under the model of the SLOT'S latest run, so the count sits in the same era and population as
+    the slot count and the day span. A run is a row before the event in an eligible batch state (premise.build_slots'
+    rule applied to every run, not only the latest); a slot's earlier runs count whatever their own days_ahead."""
+    model_of = {s['key']: s['model'] for s in slots}
+    out: Dict[str, int] = defaultdict(int)
     for r in rows:
         if r['solar_event_time'] is None or r['forecast_run_at'] is None or r['forecast_run_at'] >= r['solar_event_time']:
             continue
         if r['batch_state'] is not None and r['batch_state'] != 'SCORED':
             continue
-        if r['days_ahead'] not in lowdeck.PRIMARY_LEADS or not premise.is_sky_location(r['loc_types']):
-            continue
-        out.append(r)
+        model = model_of.get((r['location_id'], r['target_date'], r['target_type']))
+        if model is not None and released_by_rule(r):
+            out[model] += 1
     return out
 
 
-def era_rows(slots: Sequence[dict], runs: Sequence[dict], in_tok: int, out_tok: int) -> List[List[object]]:
+def era_rows(slots: Sequence[dict], runs_by_model: Dict[str, int], in_tok: int,
+             out_tok: int) -> List[List[object]]:
     """One row per evaluation-model era plus a total: released slots and runs, calendar days, per-day counts and
-    the per-day cost at the era's own price and at the Sonnet 5.5 price (list and batch)."""
+    the per-day cost at the era's own price and at the Sonnet 5.5 price (list and batch). Slots and runs are both
+    attributed to the model of the slot's latest run and share its day span."""
     by_model: Dict[str, List[dict]] = defaultdict(list)
     for s in slots:
         by_model[s['model']].append(s)
-    runs_by_model: Dict[str, int] = defaultdict(int)
-    for r in runs:
-        runs_by_model[r['evaluation_model'] or 'unknown'] += 1
 
     def usd(x: Optional[float]) -> str:
         return '-' if x is None else '$%.2f' % x
@@ -181,6 +183,13 @@ def exposure_table(units: Sequence[dict]) -> List[str]:
 
 def render(rows: Sequence[dict], in_tok: int = replay_set.DEFAULT_INPUT_TOKENS,
            out_tok: int = replay_set.DEFAULT_OUTPUT_TOKENS) -> str:
+    """The report text. Every date-block interval resamples the calendar days of the T+0/T+1 study window
+    (premise.study_span), subgroups included."""
+    with premise.study_span([s['date'] for s in lowdeck.population(rows)['primary']]):
+        return _render(rows, in_tok, out_tok)
+
+
+def _render(rows: Sequence[dict], in_tok: int, out_tok: int) -> str:
     p = lowdeck.population(rows)
     prim = p['primary']
     sky_leads = [s for s in p['sky'] if s['lead'] in lowdeck.PRIMARY_LEADS]
@@ -191,7 +200,9 @@ def render(rows: Sequence[dict], in_tok: int = replay_set.DEFAULT_INPUT_TOKENS,
              'no spend. ERA5 is a reanalysis, not an observation: a ~31 km model field that can disagree with the '
              'forecast in either direction, and it is used below only to DESCRIBE slots, never to select them. '
              'Wilson intervals (W) treat slots as independent; they are not, so B is a 95%% date-block bootstrap interval '
-             '(5-day moving blocks of calendar days, seed %d). Cells read "k (p%%) W[lo, hi] B[lo, hi]".'
+             '(5-day moving blocks of calendar days over the study window even for a subgroup, seed %d; a resample '
+             'holding no unit of the subgroup is dropped and the interval is conditioned on the rest). '
+             'Cells read "k (p%%) W[lo, hi] B[lo, hi]".'
              % stats.DEFAULT_SEED)
     L.append('')
     L.append('## Definitions')
@@ -214,8 +225,9 @@ def render(rows: Sequence[dict], in_tok: int = replay_set.DEFAULT_INPUT_TOKENS,
              'naming low cloud), *triaged, HIGH_CLOUD without a low-cloud message*, *triaged, other reason*, *rated 1-2 / '
              '3 / 4-5* (`rating`, the combined star), *unrated, not triaged*. They sum to the slot count.')
     L.append('- **Released by the rule (count 4):** a slot whose latest run was *triaged on low cloud* and shows a '
-             'forecast canopy. **Runs** are every stored run row of a sky T+0/T+1 slot (eligible state, before the '
-             'event) that is triaged on low cloud and shows a forecast canopy.')
+             'forecast canopy. **Runs** are every stored run row (eligible state, before the event) of those same slots '
+             'that is triaged on low cloud and shows a forecast canopy, counted under the model and day span of the '
+             'slot\'s latest run.')
     L.append('- **Cost assumption (ASSUMED, not measured):** %d input and %d output tokens per call (the replay '
              'harness\'s default: the user message plus the uncached share of the system prompt; thinking tokens and '
              'prompt caching are not modelled). Rates are USD per million tokens from application-example.yml: %s. '
@@ -313,7 +325,7 @@ def render(rows: Sequence[dict], in_tok: int = replay_set.DEFAULT_INPUT_TOKENS,
     L += exposure_table(rel)
 
     # ---- 4
-    runs = [r for r in eligible_runs(rows) if released_by_rule(r)]
+    runs = released_runs_by_model(rows, sky_leads)
     L.append('## 4. The cost: extra Claude evaluations per day')
     L.append('')
     L.append('Sky T+0/T+1 slots whose latest run was triaged on low cloud with a forecast canopy ("released"), and '

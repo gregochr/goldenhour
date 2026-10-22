@@ -81,12 +81,17 @@ class CostTest(unittest.TestCase):
         self.assertEqual(canopydeck.calendar_days(s), 4)
         self.assertEqual(canopydeck.calendar_days([]), 0)
 
-    def test_eligible_runs_counts_every_run_not_only_the_latest(self):
-        rows = [row(**triaged(low_cloud=100, forecast_run_at=datetime(2026, 10, 13, h))) for h in (8, 12, 15)]
-        rows.append(row(**triaged(low_cloud=100, forecast_run_at=datetime(2026, 10, 13, 18))))  # after the event
-        rows.append(row(**triaged(low_cloud=100, forecast_run_at=datetime(2026, 10, 13, 9), batch_state='PENDING')))
-        rows.append(row(**triaged(low_cloud=100, days_ahead=2)))                                # not T+0/T+1
-        self.assertEqual(len(canopydeck.eligible_runs(rows)), 3)
+    def test_runs_are_counted_per_slot_under_the_latest_runs_model_and_include_earlier_leads(self):
+        base = dict(low_cloud=100, mid_cloud=80)
+        rows = [row(**triaged(forecast_run_at=datetime(2026, 10, 13, 8), evaluation_model='HAIKU', days_ahead=2, **base)),
+                row(**triaged(forecast_run_at=datetime(2026, 10, 13, 12), **base)),   # latest run: SONNET_55, T+0
+                row(**triaged(forecast_run_at=datetime(2026, 10, 13, 18), **base)),   # after the event: ignored
+                row(**triaged(forecast_run_at=datetime(2026, 10, 13, 9), batch_state='PENDING', **base)),
+                row(**triaged(location_id=9, days_ahead=3, **base))]                    # a slot not in the T+0/T+1 set
+        slots = [s for s in lowdeck.population(rows)['sky'] if s['lead'] in (0, 1)]
+        self.assertEqual(len(slots), 1)
+        # the HAIKU T+2 run belongs to the SONNET_55 slot's era and counts there, not under HAIKU
+        self.assertEqual(dict(canopydeck.released_runs_by_model(rows, slots)), {'SONNET_55': 2})
 
     def test_era_rows_slots_runs_and_prices(self):
         rows = [row(**triaged(low_cloud=100, mid_cloud=80, location_id=1, forecast_run_at=datetime(2026, 10, 13, 8))),
@@ -95,10 +100,8 @@ class CostTest(unittest.TestCase):
                               target_date='2026-10-12', forecast_run_at=datetime(2026, 10, 12, 8),
                               solar_event_time=datetime(2026, 10, 12, 17))),
                 row(f_low=100, e_low=0, location_id=3, rating=2)]      # rated, not triaged: never released
-        slots = lowdeck.population(rows)['sky']
-        slots = [s for s in slots if s['lead'] in (0, 1)]
-        table = canopydeck.era_rows(slots, [r for r in canopydeck.eligible_runs(rows) if canopydeck.released_by_rule(r)],
-                                    3500, 400)
+        slots = [s for s in lowdeck.population(rows)['sky'] if s['lead'] in (0, 1)]
+        table = canopydeck.era_rows(slots, canopydeck.released_runs_by_model(rows, slots), 3500, 400)
         by = {r[0].split(' ')[0]: r for r in table}
         self.assertEqual((by['HAIKU'][3], by['HAIKU'][5]), (1, 1))                  # slots, runs
         self.assertEqual((by['SONNET_55'][3], by['SONNET_55'][5]), (1, 2))          # two runs of one slot
@@ -113,9 +116,9 @@ class CostTest(unittest.TestCase):
         released = row(**triaged(low_cloud=100, mid_cloud=80, evaluation_model='OPUS'))
         idle = row(f_low=100, e_low=0, location_id=2, rating=2, evaluation_model='OPUS')
         slots = [s for s in lowdeck.population([idle])['sky']]
-        self.assertNotIn('unpriced', canopydeck.era_rows(slots, [], 3500, 400)[-1][0])
+        self.assertNotIn('unpriced', canopydeck.era_rows(slots, {}, 3500, 400)[-1][0])
         slots = [s for s in lowdeck.population([released])['sky']]
-        self.assertIn('unpriced: OPUS', canopydeck.era_rows(slots, [], 3500, 400)[-1][0])
+        self.assertIn('unpriced: OPUS', canopydeck.era_rows(slots, {}, 3500, 400)[-1][0])
 
 
 class CountsTest(unittest.TestCase):
