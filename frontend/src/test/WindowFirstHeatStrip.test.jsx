@@ -4279,3 +4279,73 @@ describe('WindowFirstHeatStrip — "Too few rated" (unrated-verdict-plan.md U2)'
     });
   });
 });
+
+describe('WindowFirstHeatStrip — the verdict line count (thin-sample F3)', () => {
+  const count = () => screen.queryByTestId('wf-heat-thin');
+  const pool = (...ratings) => ratings.map((rating, index) => poolSpot({
+    key: String(index + 1), locationId: index + 1, locationName: `Spot ${index + 1}`, rating,
+  }));
+  const thinPool = () => pool(4, null, null, null, null, null, null, null, null, null, null);
+  const nameOf = () => document.getElementById(
+    screen.getByRole('button').getAttribute('aria-labelledby'),
+  ).textContent;
+
+  it('prints `· N rated` after the word and mean on a rated verdict over a thin pool', async () => {
+    await renderStrip({ cards: [ratedCard({ verdictMean: 4, pool: thinPool() })] });
+
+    expect(count()).toHaveTextContent('· 1 rated');
+    expect(count().parentElement).toBe(screen.getByTestId('wf-heat-verdict').parentElement);
+    expect(count()).toHaveClass('wf-hc-thin');
+    // The same figure the Spread row prints.
+    expect(screen.getByTestId('wf-heat-spread-note').textContent).toBe('1/11 rated');
+  });
+
+  it('is spoken once, by the spread clause: "N of M rated", never a separate "place rated"', async () => {
+    await renderStrip({ cards: [ratedCard({ verdictMean: 4, pool: thinPool() })] });
+    const name = nameOf();
+    expect(name.match(/1 of 11 rated/g)).toHaveLength(1);
+    expect(name).not.toMatch(/places? rated/);
+    expect(screen.getByTestId('wf-heat-value-grid')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('is absent once the spread draws bars (a well-rated card)', async () => {
+    await renderStrip({ cards: [ratedCard({ pool: pool(5, 5, 5, 5, 5, null, null) })] });
+    expect(count()).toBeNull();
+  });
+
+  it.each([
+    ['UNRATED', 'Too few rated'],
+    ['STAND_DOWN', 'Poor'],
+    ['AWAITING', 'Not scored'],
+  ])('is absent on a %s verdict', async (verdict, verdictLabel) => {
+    await renderStrip({ cards: [ratedCard({ verdict, verdictLabel, pool: thinPool() })] });
+    expect(count()).toBeNull();
+  });
+
+  it('is absent on an away cell and on an unscored window', async () => {
+    await renderStrip({
+      cards: [stripCard({ away: true, verdict: null, verdictLabel: 'Not forecast', pool: thinPool() })],
+    });
+    expect(count()).toBeNull();
+
+    cleanup();
+    await renderStrip({ cards: [ratedCard({ bestRating: null, pool: pool(null, null, null) })] });
+    expect(count()).toBeNull();
+  });
+
+  it('is absent with nothing rated in the pool', async () => {
+    await renderStrip({ cards: [ratedCard({ pool: pool(null, null, null, null, null, null) })] });
+    expect(count()).toBeNull();
+  });
+
+  it('⚠️ never wraps: the figure is nowrap, and only drawn where the card is wide enough', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
+    const rule = css.match(/\.wf-hc-thin \{[^}]*\}/)[0];
+    expect(rule).toContain('white-space: nowrap;');
+    expect(rule).toContain('display: none;');
+    expect(css).toMatch(/@container wf-card \(min-width: 190px\) \{\s*\.wf-hc-thin \{ display: inline; \}/);
+    const sep = css.match(/\.wf-hc-thin-sep \{[^}]*\}/)[0];
+    expect(sep).toContain('color: #857c70;');
+    expect(sep).toContain('font-weight: 400;');
+  });
+});
