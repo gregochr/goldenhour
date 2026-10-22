@@ -1,6 +1,6 @@
 # P1: wasted trips, the canvas rule and far decks, measured on the history we already have
 
-**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13). Part A run for the Angel 2026-10-21 (§14): a forecastable far high lid behind the canvas, unread by the prompt. Meteosat agrees (2026-10-21). Part B re-run on the verified Sonnet 5.5 era 2026-10-21 (§15): keeping Sonnet 5.5 is evidence-backed. Far-lid rule sized on the first week of capture (§16): the single far-point reading is not a detector; the Angel shape is n = 1.
+**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13). Part A run for the Angel 2026-10-21 (§14): a forecastable far high lid behind the canvas, unread by the prompt. Meteosat agrees (2026-10-21). Part B re-run on the verified Sonnet 5.5 era 2026-10-21 (§15): keeping Sonnet 5.5 is evidence-backed. Far-lid rule sized on the first week of capture (§16): the single far-point reading is not a detector; the Angel shape is n = 1. The 15 Oct Meteosat frame (2026-10-22) refutes the far lid as the Angel's cause: the fault is a weak local canvas (§16, §9 item 7).
 
 **Parent:** `far-cloud-lid-plan.md` §6 P1, which pre-registered hypotheses H1–H5. This plan builds P1
 and adds the analyses the reviews showed P1 cannot do without. Where it departs from a P1 rule, it
@@ -408,7 +408,7 @@ Everything lives under `scripts/far-cloud-p1/`, plus one test-only Java change. 
 4. Part E's protocol: which locations, and who records.
 5. Whether Part A should also run for the other training cases.
 6. **Open:** whether to buy a narrower R1 arm that fires only on the Angel shape (10 of 513 gos), at about $4 (§13). Not yet decided.
-7. **Open:** a far-lid rule: nothing overhead (mid and high < 20), horizon cirrus canvas (cone high ≥ 60), lid behind (far high ≥ 60) — prompt change + replay on rebuilt prompts, cost unestimated (§14). Revised in §16: the earlier "canvas + far high ≥ 60" form would have withdrawn 128 of a week's 276 gos and is refuted by the first two outcomes; the Angel shape is n = 1, so this waits on more Angel-shaped gos with owner ratings and is sized against the far mid/high dark-hour columns and pressure levels too.
+7. **A weak-canvas rule, not a lid rule** — the shape the Angel establishes is 'clear overhead (observer mid and high < 20%) with cirrus only at the horizon (cone high ≥ 60%, cone low < 20%)': a weak canvas whatever lies behind it, since §16 shows the far deck present under a 4★ sky too. No far-point clause. Open; n = 1 rated (the Angel, 2026-10-13); every input it needs was already in the prompt before V175, so it could be sized on the whole Sonnet 5.5 era and replayed on stored prompts — a prompt-wording change, cost unestimated, not yet proposed. The V175/V176 far capture stays on for H1/H2's prospective test (§12 step 10) but is no longer this rule's input.
 
 ## 10. Review record (2026-10-14)
 
@@ -688,3 +688,17 @@ Sonnet 5.5's gos stand on ERA5-blocked horizons less often than Haiku's.
 - The §9 item 7 rule stays open. Its "lid behind" clause is now the least supported part and its "nothing overhead, horizon cirrus only" clause the best supported, with the Angel still its only rated case.
 
 **Next cheap check (owner's).** View the Zoom Earth / Meteosat frame for 2026-10-15 at 17:50 BST (16:50 UTC) and compare the brightness and texture of the Irish Sea sheet with the 13 October frame (§14). A visibly thinner sheet on the 15th would keep the lid alive as an optical-depth question; the same sheet would argue the lid was never the cause.
+
+### The 15 October Meteosat frame, and the end of the lid (2026-10-22)
+
+The owner viewed the Zoom Earth / Meteosat composite for 2026-10-15 at 17:50 BST (16:50 UTC, nineteen minutes before the 17:09 UTC sunset). The frame is saved on the owner's Mac as `~/goldenhour-p1/meteosat_2026-10-15_1650Z_zoomearth.webp` and is not committed.
+
+**What it shows.** A continuous, mottled, mid-level grey-white sheet over the Irish Sea, Northern Ireland, the Lake District, the Solway and Newcastle itself. It is denser and more uniform than the streaky cirrus of 13 October (§14), not thinner. This was the evening the owner rated 4★ at the Angel and at Copt Hill, and forecast-right at Penshaw.
+
+**Consequence: the far-lid hypothesis is refuted.**
+- The far cloud along the sun line was at least as thick on the good evening as on the bad one, so H1/H2 as the Angel's mechanism fail on the only two rated evenings. The lid was present both times and is not what separated them.
+- What separated them is the local canvas. On the 15th the deck extended overhead and its underside caught the light. On the 13th the only cloud was a cirrus strip at the horizon, with nothing above the Angel to light.
+- The far high-cloud reading, by cover percentage, is identical in both pictures and says nothing on its own.
+- §9 item 7 is rewritten accordingly, as a weak-canvas rule with no far-point clause.
+
+One frame each, read by eye from a dusk composite, not a measurement. A second frame at 18:10 BST (17:10 UTC, the terminator crossing Carlisle) was viewed and shows the same sheet, if anything a shade thinner over Durham and Newcastle than over the Solway; it was not saved.
