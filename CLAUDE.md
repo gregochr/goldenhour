@@ -160,6 +160,8 @@ Read the standards for your side before writing or modifying any test class:
 | Backend (Java, Mockito, JUnit) | `docs/engineering/test-improvement-standards.md` |
 | Frontend (React, Vitest, Testing Library) | `docs/engineering/frontend-test-standards.md` |
 
+⚠️ **When mutating source to prove a test can fail, never restore with `git checkout --` / `git restore`.** It silently deletes uncommitted work in that file. Back up and restore with `cp`, commit first, or mutate in a separate worktree.
+
 ---
 
 ## UI Work — Review Cadence
