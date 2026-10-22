@@ -495,8 +495,7 @@ public class ComingUpConditionsBuilder {
         ComingUpScoringProperties.Dust dustConfig = scoringProperties.getRecurrent().getDust();
         int arrivals = bursts.size();
         boolean dustRateMeasured = arrivals >= scoringProperties.getRecurrent().getEvidentiaryBarArrivals();
-        int evidentiaryBar = scoringProperties.getRecurrent().getEvidentiaryBarArrivals();
-        if (arrivals >= evidentiaryBar) {
+        if (dustRateMeasured) {
             double meanGapDays = (double) windowDays / arrivals;
             rarityBits = SurpriseScore.rarity(meanGapDays);
             rateLabel = arrivals + (arrivals == 1 ? " plume" : " plumes") + " in the last "
