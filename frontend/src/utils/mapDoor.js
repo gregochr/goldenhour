@@ -101,7 +101,8 @@ function solarTimeFor(loc, date, eventType) {
  *
  * <p>⚠️ The single-region branch never NAMES a neighbour outlier, mirroring
  * `PlanWindowProjector.topSlot` (and the client twin `windowFirstCards.bestReachOf`): a marked spot
- * keeps its star but is skipped; if one was skipped and the next rated spot is below
+ * keeps its star but is skipped (the mark alone decides - see the in-body note on why it never depends
+ * on the local rating); if one was skipped and the next rated spot is below
  * {@link NEIGHBOUR_NAMED_FLOOR} (or none is rated) NO spot is named and the door lands on the region
  * alone. The mark must come from the served briefing, not `briefingScores`, which carries no flag.
  * @returns {{title: ?string, subLine: ?string, focus: ?{points: number[][], names?: string[]},
@@ -230,15 +231,24 @@ export function resolveDoor(trigger, ctx) {
   }
 
   // Single region -> focus it and open the top-rated location, unless it is a neighbour outlier.
-  const isOutlier = (r) => r.rating != null && outlierKeys?.has(outlierKey(r.loc.name, date, eventType));
+  // ⚠️ The served mark is AUTHORITATIVE and is tested on its own key, never on the local rating:
+  // `briefingScores` (the scores endpoint) and the served briefing can disagree in time (initial
+  // load, a failed or lagging scores fetch), and a marked place with no local rating must still
+  // not be named. A marked place the scores endpoint has not rated may also be absent from `pool`
+  // (rated spots only), so `skipped` looks at every candidate, not just the pool.
+  const marked = (loc) => !!outlierKeys?.has(outlierKey(loc.name, date, eventType));
   const best = pool.reduce((b, r) => (b == null || (r.rating ?? -1) > (b.rating ?? -1) ? r : b), null);
   const bestUnmarked = pool.reduce(
-    (b, r) => (isOutlier(r) || (b != null && (r.rating ?? -1) <= (b.rating ?? -1)) ? b : r),
+    (b, r) => (marked(r.loc) || (b != null && (r.rating ?? -1) <= (b.rating ?? -1)) ? b : r),
     null,
   );
-  const skipped = best != null && pool.some(
-    (r) => isOutlier(r) && r.rating >= (bestUnmarked?.rating ?? -1),
-  );
+  // An unrated marked place counts as skipped (its served rating was at least the guard's minimum,
+  // so it would have outranked anything the floor rejects); a rated one only when it ties or beats
+  // the best unmarked spot.
+  const skipped = candidates.some((l) => marked(l) && (
+    ratingFor(l, date, eventType, briefingScores) == null
+    || ratingFor(l, date, eventType, briefingScores) >= (bestUnmarked?.rating ?? -1)
+  ));
   const top = skipped && (bestUnmarked?.rating == null || bestUnmarked.rating < NEIGHBOUR_NAMED_FLOOR)
     ? null
     : bestUnmarked;

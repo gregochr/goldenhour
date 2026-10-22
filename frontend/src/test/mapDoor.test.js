@@ -582,9 +582,28 @@ describe('resolveDoor - a neighbour outlier is never the NAMED spot (neighbour g
     expect(ov.handoff.region).toBe('Tyne and Wear');
   });
 
-  it('a marked slot with no rating is not an outlier', () => {
+  it('a marked top spot with no local rating is still skipped (the served mark is authoritative)', () => {
+    const locations = [loc('Marked', 'Tyne and Wear', null), loc('Next', 'Tyne and Wear', 4)];
+    expect(resolveDoor(trigger, withKeys(locations, 'Marked')).handoff.locationName).toBe('Next');
+  });
+
+  it('a marked unrated spot beside only a low-rated one withholds (it cannot drop out of the pool)', () => {
+    const locations = [loc('Marked', 'Tyne and Wear', null), loc('Low', 'Tyne and Wear', 2)];
+    const ov = resolveDoor(trigger, withKeys(locations, 'Marked'));
+    expect(ov.handoff.locationName).toBeUndefined();
+    expect(ov.handoff.region).toBe('Tyne and Wear');
+  });
+
+  it('with every candidate unrated and one marked, names no spot - the region alone', () => {
+    const locations = [loc('Marked', 'Tyne and Wear', null), loc('Other', 'Tyne and Wear', null)];
+    const ov = resolveDoor(trigger, withKeys(locations, 'Marked'));
+    expect(ov.handoff.locationName).toBeUndefined();
+    expect(ov.handoff.region).toBe('Tyne and Wear');
+  });
+
+  it('a lone unrated candidate that is not marked is still named (unchanged)', () => {
     const locations = [loc('Unrated', 'Tyne and Wear', null)];
-    expect(resolveDoor(trigger, withKeys(locations, 'Unrated')).handoff.locationName).toBe('Unrated');
+    expect(resolveDoor(trigger, withKeys(locations)).handoff.locationName).toBe('Unrated');
   });
 
   it('an event trigger titles a withheld door by the best spot\'s region, not by a spot name', () => {
