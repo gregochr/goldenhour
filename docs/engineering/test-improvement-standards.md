@@ -125,6 +125,22 @@ genuinely need the full context (database, HTTP, etc.).
 
 ---
 
+### 6. A fixed `Clock` pinned to a date that could be today
+
+Pin `Clock.fixed(...)` to an instant whose resolved date **cannot** be the real date when the
+suite runs: a past or far-future year. The mutation these tests exist to catch is "the code
+ignores the injected clock" (someone reverts `ForecastHorizon.today(clock)` to
+`LocalDate.now(...)`). That broken code reads the real date, and if the fixture's expected date
+happens to equal it, the test passes. It did, on PR #493: a fixture at `2026-08-11T23:30:00Z`
+resolves to UK 2026-08-12, which was that day's real date, so the mutation survived; re-pinned to
+2027 it was killed at once. Such a test fails to detect on exactly one day, and that day is
+disproportionately likely to be the day you write it.
+
+Check it by running the clock-ignoring mutation itself, not only a mutation inside
+`ForecastHorizon` (which still flows through the injected clock and dies on any instant).
+
+---
+
 ## What good tests look like for each area
 
 ### Triage checks
@@ -284,6 +300,23 @@ Work through these areas in order — highest feature protection value first:
 6. **`BriefingService`** — region verdict aggregation (GO/MARGINAL from
    non-STANDDOWN locations only), gloss field population, best-bet
    integration.
+
+---
+
+## Mutation-checking a test without destroying work
+
+Mutating production source to prove a test can fail is encouraged. Restoring it is where work
+gets lost.
+
+- **Never restore with `git checkout -- <path>`** (or `git restore`, or `git stash` around the
+  mutation). It reverts to HEAD and silently deletes any **uncommitted** change in that file,
+  which is usually the very change being tested. This destroyed work on 2026-08-04 and again in
+  a review agent's cleanup; the suite still passed, so the loss was silent.
+- **Back up with `cp` first and restore with `cp`**, or commit before mutating, or run the
+  mutation in its own worktree (`isolation: 'worktree'` for an agent). Review agents read only.
+- **Confirm the restore**: `git diff` on the file must show exactly the change you started with.
+  An unrestored mutation looks like a flake: one named test fails in a full run and passes in the
+  next.
 
 ---
 
