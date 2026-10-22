@@ -204,6 +204,12 @@ call). It then:
    writer race.
 5. One INFO log per location: `Big-seas samples: {name} {n} daylight HWs`.
 
+**A failed fetch clears, it never keeps** (Codex P1 on #1306). When a structure's marine fetch
+fails, or returns a land cell, the writer still runs for that location. It bulk-deletes the
+location's rows in the date range and inserts nothing. Last cycle's waves must never be served as
+this cycle's. B2 also applies a freshness predicate, covering a briefing refresh that stops running
+altogether.
+
 Never fatal: it shares the existing try/catch around the refresh in `BriefingService`.
 
 **Tests:** `MarineClientTest` (peak inside the window, tie → earlier, fallback to nearest, land cell,
@@ -256,6 +262,10 @@ ServedBriefingAssembler.java:166-167). `WindowTideFactProjector` is pure and is 
   500 `/api/briefing`.
 - **One query.** A JPQL constructor projection joins `marine_high_water` to the location's current
   `coastal_structure`, `structure_faces_deg`, `structure_label`, `lat`/`lon` and `enabled`. Filter
+  on `evaluated_at` within `maxSampleAgeHours` (a new property on `BigSeasProperties`, default
+  **30**). Briefing builds ride the forecast pipeline's cycles (V103 retired the standalone cron), so
+  30 h survives a missed cycle or two but not a stalled job. The builder confirms the cadence in
+  `reference/platform.md` and adjusts the default if it's wrong. Also filter
   on structure and faces non-null and `enabled = true`, so rows for a structure that has since been
   un-set are ignored. No N+1 lazy loads. It runs on every serve, including revalidations, which is
   fine at ~50 rows.
@@ -464,14 +474,21 @@ qualifying day. The table holds every input, so tuning is a SQL query; §6 gets 
   event is not scored yet" line (MapView.jsx:4448-4458) reads `Stood down by the weather — no place
   rated for this event` instead. The ground key's gate (MapView.jsx:6543) and the phone Ground row's
   gate (:6448) also open when `stoodPoints` is non-empty.
-- **Canvas.** `utils/heatField.js` `paintStandDown(ctx, stoodPts, ratedPts, map, clip, opacity)`
-  paints **under the field, like `paintUnknown`**, not after it. A dark 0.66 fill drawn after the
+- **Canvas.** `utils/heatField.js` `paintStandDown(ctx, w, h, stood, rated, opts)` takes **the same
+  projection-independent signature as `paintUnknown`** (points already in CSS px, no Leaflet `map`),
+  so the Plan tab's d3-projected hosts can use it in F4 (Codex P1 on #1306).
+  - Wire it as a `stood` option on **both** `drawTiles` (the Map) and `drawGeo` (the Plan hosts),
+    beside the existing `unrated` option, painted at the same point in each.
+  - Each host supplies the disc radius in px. The Map host passes
+    `radiusFor(map, 6500, 22, 150)`; the geo host derives it from its projection, the way it sizes
+    the unrated hatch.
+  - It paints **under the field, like `paintUnknown`**, not after it. A dark 0.66 fill drawn after the
   field would darken rated places within ~6.5 km of a stood one, because stand-down is per place.
   - Build its mask with `unknownMask`, with stood points in place of unrated, so rated colour wins.
   - Clip it through the **soft path** (`applySoftMask` + `clipGrow`, as `paintUnknown`). A raw hard
     clip erased 7 of 51 coastal places (MapHeatLayer.jsx:114).
   - Fill `rgba(16,15,19,.66)`, then an 8×8 pattern of 1.2px 45° lines in `rgba(184,197,220,.5)`,
-    disc radius `radiusFor(map, 6500, 22, 150)`.
+    disc radius from the host (above).
   - Order: after the unrated hatch, before the field and the coast stroke.
   - `opacity` carries `fade.heat` and Ask's dim.
   - It must stay distinguishable from the thin hatch (7px, 0.6px, bone .18, no fill). Review both on
@@ -520,7 +537,8 @@ Owner, Q9: the Map and Plan hosts must agree on stood ground, as thin-sample pro
 hatch (heatSpots.js:249-253).
 
 - The Plan hosts are the card thumbnails and the row map that thin-sample F2 (#1284) hatched. They
-  call `paintStandDown` with the **same** `buildHeatWindowStates().stood` list as F3.
+  pass the **same** `buildHeatWindowStates().stood` list as F3 through `drawGeo`'s `stood` option,
+  which F3 adds. F4 adds no new renderer.
 - The gates are F3's: solar only, the evidence gate (not `bestRating`), `TIDE_MISALIGNED` excluded,
   the `scoresLoaded` gate, past windows from their forecast rows.
 - Same paint: under the field, rated mask, soft clip.
