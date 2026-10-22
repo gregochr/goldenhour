@@ -174,6 +174,8 @@ public class ComingUpScoringProperties {
          * design's "one or two"). Kept sized past the README's "eclipse ≥ 10 bits" note; revisit
          * with a long-run visibility catalogue, not a 4-gap sample (P5 census, plan §11.13).
          */
+        // Wording: this figure feeds the score only; the note never states it as a frequency
+        // (ComingUpAssembler.markScoreNotes), because it is a guess, not a measured rate.
         private double eclipseMeanGapDays = 1500.0;
 
         /**
