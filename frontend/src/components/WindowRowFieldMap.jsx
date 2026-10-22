@@ -479,12 +479,23 @@ export default function WindowRowFieldMap({
    * {@code heatField.test.js} pins that outcome directly ("is inert when the focus id matches
    * nothing"). The selection is still real — the label plates, the rail cell reads pressed, the band
    * opens and the strip filters — it simply does not dim a field that has nothing to dim.
+   *
+   * <p>⚠️ <b>An UNRATED point counts as carrying the region too</b> (thin-sample F2, Codex P1). A
+   * region whose places are all unrated has no rated point, so the rule above withheld its focus and
+   * every other region's colour and hatch stayed at full strength beside it. With the per-place
+   * hatch that is no longer a blank: the selected region draws its own hatch, so the focus has
+   * something to keep. Only the unrated points actually handed to the kernel count (none on an
+   * unscored window), and a region with no places at all still withholds, so it still cannot blank
+   * the field.
    */
   const focusRegion = useMemo(
-    () => (selectedRegion && points.some((point) => point.rid === selectedRegion)
+    () => (selectedRegion && (
+      points.some((point) => point.rid === selectedRegion)
+      || (!notScored && unrated.some((point) => point.rid === selectedRegion))
+    )
       ? selectedRegion
       : undefined),
-    [selectedRegion, points],
+    [selectedRegion, points, unrated, notScored],
   );
 
   const paint = useCallback(({ width, height, canvases }) => {

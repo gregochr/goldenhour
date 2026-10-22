@@ -205,6 +205,21 @@ describe('WindowRowFieldMap — what it hands the kernel', () => {
     expect(drawGeo.mock.calls.at(-1)[5].focus).toBeUndefined();
   });
 
+  it('passes the focus for a region whose places are all UNRATED, and withholds it for one with no places', async () => {
+    // Thin-sample F2 (Codex P1): the hatch gives the focus something to keep.
+    const unrated = [{ id: 7, name: 'Hawes', lat: 5, lng: 25, rid: 'Dales', r: [0] }];
+    await withMeasuredMap(600, async () => {
+      await renderMap({ selectedRegion: 'Dales', unrated }); // rated points carry only 'Coast'
+    });
+    expect(drawGeo.mock.calls.at(-1)[5].focus).toBe('Dales');
+
+    drawGeo.mockClear();
+    await withMeasuredMap(600, async () => {
+      await renderMap({ selectedRegion: 'Dales', unrated: [] });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5].focus).toBeUndefined();
+  });
+
   it('passes the focus once a point in that region IS scored', async () => {
     await withMeasuredMap(600, async () => {
       await renderMap({
