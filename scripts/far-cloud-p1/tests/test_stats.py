@@ -124,6 +124,24 @@ class BootstrapTest(unittest.TestCase):
                                               return_draws=True)
         self.assertEqual(draws, draws2)
 
+    def test_prefix_sum_path_equals_summing_day_by_day(self):
+        # odd calendar length, gaps, and block lengths that do not divide it (so the last block is trimmed)
+        dc = {"2026-01-%02d" % d: (d % 4, 1, d) for d in (1, 2, 3, 5, 6, 9, 10, 11, 12, 15, 17)}
+        days = stats._calendar_days(dc)
+        for block in (1, 3, 5, 7, 40):
+            got, dropped = stats.bootstrap_counts_ex(dc, lambda t: t[0] / t[1] if t[1] else None,
+                                                     block_days=block, draws=150, seed=11)
+            rng = stats.random.Random(11)
+            want = []
+            for _ in range(150):
+                tot = [0, 0, 0]
+                for d in stats._resample_days(days, block, rng):
+                    c = dc.get(d, (0, 0, 0))
+                    tot = [a + b for a, b in zip(tot, c)]
+                want.append(tot[0] / tot[1] if tot[1] else None)
+            self.assertEqual(got, [w for w in want if w is not None], block)
+            self.assertEqual(dropped, sum(1 for w in want if w is None))
+
     def test_empty_and_undefined(self):
         self.assertIsNone(stats.moving_block_bootstrap([], self.stat, lambda u: u["date"]))
         self.assertIsNone(stats.moving_block_bootstrap(self.units, lambda us: None, lambda u: u["date"], draws=5))

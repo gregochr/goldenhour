@@ -13,9 +13,10 @@ a river corridor, and where it and the forecast model share a bias the compariso
 A disagreement means "the forecast differs from a better-informed model", not "the forecast was wrong".
 Nothing here says whether any sky was good.
 
-The Wilson intervals treat slots as independent. They are not: many locations share one weather situation on a
-date, and the model is a date range, so the intervals understate the real uncertainty (premise.py resamples
-dates for that reason; this tool does not). Read them as a floor on the width.
+The Wilson intervals (W) treat slots as independent. They are not: many locations share one weather situation on a
+date, and the model is a date range, so they understate the real uncertainty. Beside each, B is a date-block
+bootstrap interval (premise.block_rate: 5-day moving blocks of calendar days, stats.bootstrap_counts_ex as
+premise.py uses; 3 and 7 days as sensitivity in the headline table). Read W as a floor on the width.
 
 Population: premise.build_slots (latest eligible run per (location, date, event)), sky locations, with a
 cloud_verification row, SUNRISE/SUNSET, T+0/T+1. Every engine is kept (batch, sync, triage): a phantom deck
@@ -44,8 +45,12 @@ PRIMARY_LEADS = (0, 1)
 VARIABLES = (('observer', 'low_cloud', 'cv_observer_low_cloud'),
              ('cone', 'solar_low_cloud', 'cv_horizon_low_cloud'))
 
-OUTCOMES = ('triaged on low cloud', 'triaged, other reason', 'rated 1-2', 'rated 3', 'rated 4-5',
-            'unrated, not triaged')
+SENSITIVITY_EXCLUDE_DATE = '2026-10-15'   # the Angel/Copt Hill/Penshaw evening, the densest single date
+
+HIGH_CLOUD = 'HIGH_CLOUD'
+LOW_CLOUD_WORDS = 'low cloud'   # what the HIGH_CLOUD message must name (WeatherTriageEvaluator rule 1)
+OUTCOMES = ('triaged on low cloud', 'triaged, HIGH_CLOUD without a low-cloud message', 'triaged, other reason',
+            'rated 1-2', 'rated 3', 'rated 4-5', 'unrated, not triaged')
 
 
 # ------------------------------------------------------------------ definitions
@@ -90,17 +95,30 @@ def era5_canopy(r: Dict[str, object]) -> Optional[bool]:
 
 
 def low_cloud_triage(r: Dict[str, object]) -> bool:
-    """Triaged on low cloud: reason HIGH_CLOUD (the weather triage's 'sun blocked' rule, whose message names low
-    cloud). A HIGH_CLOUD row whose message exists and does not name low cloud counts as another reason."""
-    if r['triage_reason'] != 'HIGH_CLOUD':
+    """Triaged on low cloud: reason HIGH_CLOUD (the weather triage's 'sun blocked' rule) AND a message that names
+    low cloud ("Solar horizon low cloud 94% - sun blocked" / "Low cloud cover 85% - sun blocked"). A HIGH_CLOUD row
+    with no message, or one that does not name low cloud, is NOT folded in here: outcome() reports it as its own
+    category, and high_cloud_message_check() counts it."""
+    if r['triage_reason'] != HIGH_CLOUD:
         return False
     msg = r['triage_message']
-    return msg is None or 'low cloud' in msg.lower()
+    return msg is not None and LOW_CLOUD_WORDS in msg.lower()
+
+
+def high_cloud_message_check(units: Sequence[dict]) -> Tuple[int, int, int, int]:
+    """(HIGH_CLOUD slots, message names low cloud, message missing, message present but not naming low cloud)."""
+    hc = [u for u in units if u['row']['triage_reason'] == HIGH_CLOUD]
+    named = sum(1 for u in hc if low_cloud_triage(u['row']))
+    missing = sum(1 for u in hc if u['row']['triage_message'] is None)
+    return len(hc), named, missing, len(hc) - named - missing
 
 
 def outcome(r: Dict[str, object]) -> str:
     if r['triage_reason']:
-        return 'triaged on low cloud' if low_cloud_triage(r) else 'triaged, other reason'
+        if low_cloud_triage(r):
+            return 'triaged on low cloud'
+        return ('triaged, HIGH_CLOUD without a low-cloud message' if r['triage_reason'] == HIGH_CLOUD
+                else 'triaged, other reason')
     rt = r['rating']
     if rt is None:
         return 'unrated, not triaged'
@@ -159,6 +177,21 @@ def rate(k: int, n: int) -> str:
     return '-' if w is None else '%s %s' % (premise.pct(w[0]), premise.ci_txt((w[1], w[2])))
 
 
+def bshare(units: Sequence[dict], pred: Callable[[dict], bool]) -> str:
+    """'k (p%) W[lo, hi] B[lo, hi]' for the share of ``units`` satisfying ``pred``: Wilson beside the 5-day
+    date-block bootstrap interval."""
+    return premise.wilson_block_txt(sum(1 for u in units if pred(u)), len(units), units, pred)
+
+
+def brate(units: Sequence[dict], pred: Callable[[dict], bool]) -> str:
+    """'p% W[lo, hi] B[lo, hi]' (the count sits in its own column)."""
+    n = len(units)
+    w = stats.wilson(sum(1 for u in units if pred(u)), n)
+    if w is None:
+        return '-'
+    return '%s W%s B%s' % (premise.pct(w[0]), premise.ci_txt((w[1], w[2])), premise.block_txt(units, pred))
+
+
 def cells_of(units: Sequence[dict], fc: str, cv: str) -> Dict[str, int]:
     out: Dict[str, int] = defaultdict(int)
     for u in units:
@@ -187,8 +220,11 @@ def split_row(label: str, units: Sequence[dict], fc: str, cv: str) -> List[objec
     n = c['n']
     decks = c['fc_deck']
     me, mae = errors(units, fc, cv)
-    return [label, n, share(c['phantom'], n), decks, share(c['phantom'], decks), share(c['missed'], n),
-            fmt_err(me), '-' if mae is None else '%.1f' % mae]
+    test = [u for u in units if cell(u['row'], fc, cv) is not None]
+    deck_units = [u for u in test if u['row'][fc] >= DECK_MIN]
+    is_cell = lambda name: (lambda u: cell(u['row'], fc, cv) == name)  # noqa: E731
+    return [label, n, bshare(test, is_cell('phantom')), decks, bshare(deck_units, is_cell('phantom')),
+            bshare(test, is_cell('missed')), fmt_err(me), '-' if mae is None else '%.1f' % mae]
 
 
 SPLIT_HEADERS = ['group', 'n', 'phantom deck', 'forecast decks', 'phantom, of forecast decks', 'missed deck',
@@ -212,7 +248,9 @@ def contingency(units: Sequence[dict], fc: str, cv: str) -> List[str]:
              ('missed deck: forecast < %d, ERA5 >= %d' % (CLEAR_MAX, DECK_MIN), 'missed'),
              ('both >= %d' % DECK_MIN, 'both_high'), ('both < %d' % CLEAR_MAX, 'both_low'),
              ('middle band: any other combination', 'middle'))
-    out = premise.md_table(['cell', 'slots', 'share of testable'], [[lab, c[k], rate(c[k], n)] for lab, k in named])
+    test = [u for u in units if cell(u['row'], fc, cv) is not None]
+    out = premise.md_table(['cell', 'slots', 'share of testable'],
+                           [[lab, c[k], brate(test, lambda u, k=k: cell(u['row'], fc, cv) == k)] for lab, k in named])
     grid: Dict[Tuple[str, str], int] = defaultdict(int)
     for u in units:
         p = pair(u['row'], fc, cv)
@@ -230,11 +268,8 @@ def outcome_table(groups: Sequence[Tuple[str, Sequence[dict]]]) -> List[str]:
     rows = []
     for label, units in groups:
         n = len(units)
-        cnt: Dict[str, int] = defaultdict(int)
-        for u in units:
-            cnt[outcome(u['row'])] += 1
-        rows.append([label, n] + [share(cnt[o], n) for o in OUTCOMES]
-                    + [share(sum(1 for u in units if poor_or_blocked(u['row'])), n)])
+        rows.append([label, n] + [bshare(units, lambda u, o=o: outcome(u['row']) == o) for o in OUTCOMES]
+                    + [bshare(units, lambda u: poor_or_blocked(u['row']))])
     return premise.md_table(heads, rows)
 
 
@@ -253,9 +288,68 @@ def canopy_cooccurrence(groups: Sequence[Tuple[str, Sequence[dict]]]) -> List[st
     rows = []
     for label, units in groups:
         yes, no, unk = canopy_split(units)
-        rows.append([label, len(units), share(len(yes), len(yes) + len(no)), len(yes), len(no), len(unk)])
+        known = yes + no
+        rows.append([label, len(units), bshare(known, lambda u: era5_canopy(u['row']) is True), len(yes), len(no),
+                     len(unk)])
     return premise.md_table(['group', 'slots', 'ERA5 canopy overhead, of known', 'canopy', 'no canopy', 'unknown'],
                             rows)
+
+
+def outcome_counts(units: Sequence[dict]) -> Dict[str, int]:
+    """Count of units per outcome category; every category is present and they sum to len(units)."""
+    cnt = {o: 0 for o in OUTCOMES}
+    for u in units:
+        cnt[outcome(u['row'])] += 1
+    assert sum(cnt.values()) == len(units), 'outcome categories must partition the slots'
+    return cnt
+
+
+def outcome_sentence(label: str, units: Sequence[dict]) -> str:
+    """'<label>: **N**, of which <every outcome category> = N.' (the categories partition the slots)."""
+    cnt = outcome_counts(units)
+    return '%s: **%d** = %s.' % (label, len(units), ' + '.join('%s **%d**' % (o, cnt[o]) for o in OUTCOMES))
+
+
+def headline_rows(prim: Sequence[dict]) -> List[List[object]]:
+    """Headline rates with Wilson, the 5-day date-block interval and the 3- and 7-day sensitivity."""
+    rows: List[List[object]] = []
+
+    def add(label: str, units: Sequence[dict], pred: Callable[[dict], bool]) -> None:
+        k = sum(1 for u in units if pred(u))
+        w = stats.wilson(k, len(units))
+        rows.append([label, k, len(units), '-' if w is None else premise.pct(w[0]),
+                     '-' if w is None else premise.ci_txt((w[1], w[2])),
+                     premise.block_sensitivity_txt(units, pred)])
+
+    for name, fc, cv in VARIABLES:
+        test = [u for u in prim if cell(u['row'], fc, cv) is not None]
+        decks = [u for u in test if u['row'][fc] >= DECK_MIN]
+        ph = lambda u, fc=fc, cv=cv: cell(u['row'], fc, cv) == 'phantom'  # noqa: E731
+        add('%s phantom deck, of testable' % name, test, ph)
+        add('%s phantom deck, of forecast decks' % name, decks, ph)
+        add('%s missed deck, of testable' % name,
+            test, lambda u, fc=fc, cv=cv: cell(u['row'], fc, cv) == 'missed')
+        phs = [u for u in test if ph(u)]
+        add('%s phantoms triaged on low cloud or rated <= 3' % name, phs, lambda u: poor_or_blocked(u['row']))
+        add('%s phantoms rated 4-5' % name, phs, lambda u: outcome(u['row']) == 'rated 4-5')
+        known = [u for u in phs if era5_canopy(u['row']) is not None]
+        add('%s phantoms with an ERA5 canopy overhead, of known' % name, known,
+            lambda u: era5_canopy(u['row']) is True)
+    return rows
+
+
+def sensitivity_line(prim: Sequence[dict], exclude: str = SENSITIVITY_EXCLUDE_DATE) -> str:
+    """The headline rates with and without one date (default 2026-10-15)."""
+    parts = []
+    for name, fc, cv in VARIABLES:
+        both = []
+        for tag, units in (('all dates', prim), ('without %s' % exclude, [u for u in prim if u['date'] != exclude])):
+            test = [u for u in units if cell(u['row'], fc, cv) is not None]
+            pred = lambda u, fc=fc, cv=cv: cell(u['row'], fc, cv) == 'phantom'  # noqa: E731
+            both.append('%s %s' % (tag, bshare(test, pred) if test else '-'))
+        parts.append('%s phantom deck, of testable: %s' % (name, '; '.join(both)))
+    n_out = sum(1 for u in prim if u['date'] == exclude)
+    return 'Sensitivity (%d of the T+0/T+1 slots are dated %s): %s.' % (n_out, exclude, '. '.join(parts))
 
 
 # ------------------------------------------------------------------ worst list
@@ -304,11 +398,14 @@ def render(rows: Sequence[dict]) -> Tuple[str, List[dict]]:
     L: List[str] = []
     L.append('# Over-forecast low deck (far-cloud-p1-plan.md section 18)')
     L.append('')
-    L.append('**Measurement, not a decision.** Counts, rates and 95% Wilson intervals on stored forecast rows against '
+    L.append('**Measurement, not a decision.** Counts, rates and 95%% Wilson intervals on stored forecast rows against '
              'ERA5. No network, no spend. ERA5 is a reanalysis, not an observation: a ~31 km model field that can '
              'disagree with the forecast model in either direction. Read a disagreement as "the forecast differs from '
-             'a better-informed model", not "the forecast was wrong". Nothing here says whether a sky was good. The Wilson intervals treat slots as independent; they are not '
-             '(many locations share one weather situation on a date), so the true uncertainty is wider.')
+             'a better-informed model", not "the forecast was wrong". Nothing here says whether a sky was good. Wilson intervals (W) treat slots as independent; they are not '
+             '(many locations share one weather situation on a date), so the true uncertainty is wider. Beside each, B is a '
+             '95%% percentile interval from a date-block bootstrap (5-day moving blocks of calendar days, 2,000 draws, '
+             'seed %d; "drop" is the share of draws with no unit in the denominator). Cells read '
+             '"k (p%%) W[lo, hi] B[lo, hi]".' % stats.DEFAULT_SEED)
     L.append('')
     L.append('## Definitions')
     L.append('')
@@ -325,9 +422,10 @@ def render(rows: Sequence[dict]) -> Tuple[str, List[dict]]:
              'whatever ERA5 reads (phantom, both high, and forecast-high with ERA5 in the middle band).'
              % (DECK_MIN, CLEAR_MAX, CLEAR_MAX, DECK_MIN, DECK_MIN, CLEAR_MAX, CLEAR_MAX, DECK_MIN - 1, DECK_MIN))
     L.append('- **Error:** forecast minus ERA5, percentage points; MAE is the mean absolute error.')
-    L.append('- **Outcome of a slot** (its latest run): *triaged on low cloud* (`triage_reason` HIGH_CLOUD, the weather '
-             'triage "sun blocked" rule, whose message names low cloud; the rule fires on a cone reading above 80%, so a cone phantom '
-             '(>= 60) can only be triaged on it above 80, and no slot with a cone reading below 20 can be), *triaged, other '
+    L.append('- **Outcome of a slot** (its latest run): *triaged on low cloud* (`triage_reason` HIGH_CLOUD AND a '
+             '`triage_message` naming low cloud: the weather triage "sun blocked" rule; it fires on a cone reading above 80%, so a cone phantom '
+             '(>= 60) can only be triaged on it above 80, and no slot with a cone reading below 20 can be), *triaged, HIGH_CLOUD '
+             'without a low-cloud message* (HIGH_CLOUD with a null or other message: never folded into low-cloud triage), *triaged, other '
              'reason*, *rated 1-2 / 3 / 4-5* (`rating`, the combined star, not the sky-only star), *unrated, not '
              'triaged*.')
     L.append('- **ERA5 canopy overhead:** `cv_observer_mid_cloud` >= %d or `cv_observer_high_cloud` >= %d.'
@@ -347,8 +445,17 @@ def render(rows: Sequence[dict]) -> Tuple[str, List[dict]]:
     L.append('- Dates %s to %s (%d). Testable: observer %d, cone %d.'
              % (dates[0] if dates else '-', dates[-1] if dates else '-', len(dates),
                 cells_of(prim, *VARIABLES[0][1:])['n'], cells_of(prim, *VARIABLES[1][1:])['n']))
+    hc, named, missing, other = high_cloud_message_check(prim)
+    L.append('- HIGH_CLOUD triage check (T+0/T+1 slots): %d slots with reason HIGH_CLOUD; message names low cloud %d, '
+             'message missing %d, message present but not naming low cloud %d (the last two are reported as their own '
+             'outcome category, not as low-cloud triage).' % (hc, named, missing, other))
     L.append('')
-    sec = 1
+    L.append('## Headline rates with date-block intervals')
+    L.append('')
+    L += premise.md_table(['rate', 'k', 'n', 'p', 'Wilson', 'date-block bootstrap (5-day first; 3 and 7 sensitivity)'],
+                          headline_rows(prim))
+    L.append(sensitivity_line(prim))
+    L.append('')
     L.append('## 1. Forecast against ERA5 low cloud, contingency')
     L.append('')
     for name, fc, cv in VARIABLES:
@@ -418,12 +525,7 @@ def render(rows: Sequence[dict]) -> Tuple[str, List[dict]]:
         L.append('')
         L += outcome_table([('phantom deck, ERA5 canopy overhead', yes), ('phantom deck, no ERA5 canopy', no),
                             ('phantom deck, canopy unknown', unk), ('both clear, ERA5 canopy overhead', byes)])
-        L.append('Phantom-deck slots with an ERA5 canopy overhead: **%d**, of which triaged on low cloud **%d**, '
-                 'rated 3 or lower **%d**, either **%d**, rated 4-5 **%d**.'
-                 % (len(yes), sum(1 for u in yes if outcome(u['row']) == 'triaged on low cloud'),
-                    sum(1 for u in yes if outcome(u['row']) in ('rated 1-2', 'rated 3')),
-                    sum(1 for u in yes if poor_or_blocked(u['row'])),
-                    sum(1 for u in yes if outcome(u['row']) == 'rated 4-5')))
+        L.append(outcome_sentence('Phantom-deck slots with an ERA5 canopy overhead', yes))
         L.append('')
         yes_m = sorted({u['model'] for u in yes})
         if yes_m:

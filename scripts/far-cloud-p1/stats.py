@@ -130,15 +130,29 @@ def bootstrap_counts_ex(date_counts: Dict[str, Tuple[int, ...]],
     days = _calendar_days(date_counts)
     width = len(next(iter(date_counts.values())))
     zero = (0,) * width
+    n = len(days)
+    # Prefix sums turn "sum the counters of a block of consecutive days" into two lookups. The random
+    # draws are exactly _resample_days' (one randrange per block, the last block trimmed), so the
+    # result is identical to summing day by day.
+    prefix = [[0] * (n + 1) for _ in range(width)]
+    for k, d in enumerate(days):
+        c = date_counts.get(d, zero)
+        for i in range(width):
+            prefix[i][k + 1] = prefix[i][k] + c[i]
+    b = max(1, min(block_days, n))
+    starts = n - b + 1
     rng = random.Random(seed)
     out: List[float] = []
     dropped = 0
     for _ in range(draws):
         tot = [0] * width
-        for d in _resample_days(days, block_days, rng):
-            c = date_counts.get(d, zero)
+        got = 0
+        while got < n:
+            s = rng.randrange(starts)
+            take = min(b, n - got)
             for i in range(width):
-                tot[i] += c[i]
+                tot[i] += prefix[i][s + take] - prefix[i][s]
+            got += take
         v = stat_fn(tuple(tot))
         if v is None:
             dropped += 1

@@ -293,6 +293,42 @@ def prop_cell(units: Sequence[dict], pred: Callable[[dict], Optional[bool]], dra
                                     ci_txt(stats.percentile_interval(bs)), drop), k, n)
 
 
+def block_rate(units: Sequence[dict], hit: Callable[[dict], bool],
+               block_days: int = stats.DEFAULT_BLOCK_DAYS, draws: int = stats.DEFAULT_DRAWS
+               ) -> Tuple[Optional[Tuple[float, float]], float]:
+    """Date-block bootstrap of the share of ``units`` satisfying ``hit``: (95% percentile interval or None,
+    fraction of draws dropped because a resample held no unit). Units carry their date in ``u['date']``;
+    blocks are ``block_days`` consecutive CALENDAR days (stats.bootstrap_counts_ex, as prop_cell uses)."""
+    dc = date_counts(units, lambda u: (1 if hit(u) else 0, 1))
+    bs, dropped = stats.bootstrap_counts_ex(dc, lambda t: t[0] / t[1] if t[1] else None,
+                                            block_days=block_days, draws=draws)
+    return stats.percentile_interval(bs), dropped / draws
+
+
+def block_txt(units: Sequence[dict], hit: Callable[[dict], bool], block_days: int = stats.DEFAULT_BLOCK_DAYS,
+              draws: int = stats.DEFAULT_DRAWS) -> str:
+    """'[lo, hi]' of block_rate, with ' (drop N%)' when any draw was dropped; 'n/a' for no units."""
+    ci, dropped = block_rate(units, hit, block_days, draws)
+    return ci_txt(ci) + (' (drop %s)' % pct(dropped) if dropped else '')
+
+
+def block_sensitivity_txt(units: Sequence[dict], hit: Callable[[dict], bool],
+                          draws: int = stats.DEFAULT_DRAWS) -> str:
+    """'5-day [..]; 3-day [..]; 7-day [..]' (the plan's block lengths, 5 first)."""
+    order = [stats.DEFAULT_BLOCK_DAYS] + [b for b in stats.SENSITIVITY_BLOCKS if b != stats.DEFAULT_BLOCK_DAYS]
+    return '; '.join('%d-day %s' % (b, block_txt(units, hit, b, draws)) for b in order)
+
+
+def wilson_block_txt(k: int, n: int, units: Sequence[dict], hit: Callable[[dict], bool],
+                     draws: int = stats.DEFAULT_DRAWS) -> str:
+    """'k (p%) W[lo, hi] B[lo, hi]': Wilson beside the 5-day date-block interval, for ``units`` as the
+    denominator and ``hit`` as the numerator (k and n are passed so the caller's own counts print)."""
+    w = stats.wilson(k, n)
+    if w is None:
+        return '-'
+    return '%d (%s) W%s B%s' % (k, pct(w[0]), ci_txt((w[1], w[2])), block_txt(units, hit, draws=draws))
+
+
 PREMISE_NAMES = (('low', 'P-low (cone mean low >= 60)'),
                  ('far', 'P-far (diagnostic only, used in no decision)'),
                  ('canvas', 'P-canvas (UPPER BOUND on "no canvas": ERA5 has no antisolar point)'))

@@ -140,6 +140,50 @@ class CostTest(unittest.TestCase):
         self.assertIn("caching", text)
 
 
+class CrosstabTest(unittest.TestCase):
+    def rows(self):
+        mk = lambda group, basis, combined: {"group": group, "basis": basis, "stored_rating": combined,  # noqa: E731
+                                              "rating": combined}
+        return [mk("go", "sky_rating", "4"), mk("go", "sky_rating", "5"), mk("go", "sky_rating", "3"),
+                mk("go", "rating", "4"), mk("three", "sky_rating", "4"), mk("three", "sky_rating", "3"),
+                mk("three", "sky_rating", "2"), mk("three", "sky_rating", ""), {"group": "training:x", "basis": "rating"}]
+
+    def test_bands_and_totals(self):
+        table = replay_set.basis_crosstab(self.rows(), "stored_rating")
+        self.assertEqual(table["go"]["sky_rating"], {"combined >= 4": 2, "combined 3": 1})
+        self.assertEqual(table["go"]["rating"], {"combined >= 4": 1})
+        self.assertEqual(table["three"]["sky_rating"],
+                         {"combined >= 4": 1, "combined 3": 1, "combined < 3": 1, "combined missing": 1})
+        self.assertNotIn("training:x", table)
+        flat = {(r[0], r[1]): r for r in replay_set.crosstab_rows(table)}
+        self.assertEqual(flat[("go", "all")][2:], [4, 3, 1, 0, 0])
+        self.assertEqual(flat[("three", "all")][2:], [4, 1, 1, 1, 1])
+
+    def test_note_counts_reader_visible_gos(self):
+        note = replay_set.crosstab_note(replay_set.basis_crosstab(self.rows(), "stored_rating"))
+        self.assertIn("3 of 4", note)
+        self.assertIn("1 are gos on the basis star only", note)
+
+    def test_select_prints_the_crosstab(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            run_select()
+        text = buf.getvalue()
+        self.assertIn("basis x combined rating", text)
+        self.assertIn("go | all | 1 | 1 | 0 | 0 | 0", text)
+        self.assertIn("reader-visible gos", text)
+
+    def test_compare_header_repeats_it_and_excludes_training(self):
+        manifest = make_set(Path(tempfile.mkdtemp()))
+        text = replay_set.compare(manifest, {})
+        self.assertIn("| group | basis | n | combined >= 4 | combined 3 | combined < 3 | combined missing |", text)
+        self.assertIn("| go | all | 3 | 3 | 0 | 0 | 0 |", text)
+        self.assertIn("| three | all | 7 | 0 | 7 | 0 | 0 |", text)   # the training row (training=1) is not counted
+        self.assertIn("reader-visible gos (basis >= 4 and combined rating also >= 4): 3 of 3", text)
+
+
 class PatchTest(unittest.TestCase):
     def test_patch_parses_six_replacements(self):
         self.assertEqual([k for k, _, _ in replay_set.parse_patch(PATCH.read_text())],
