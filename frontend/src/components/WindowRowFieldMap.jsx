@@ -301,9 +301,9 @@ function fits(box, placed, frameWidth, frameHeight) {
  * nobody had. The rail directly below this map reads the same field for its All cell, so the two
  * cannot disagree.
  *
- * <p>The chip is the strip's vocabulary, not its wording: there the footer says
- * {@code unshaded — not scored} because it decodes six tiles at once, and here there is one map
- * whose whole plate is hatched, so "unshaded" would name nothing.
+ * <p>The chip is the strip's vocabulary, not its wording: there the footer's standing swatches say
+ * {@code not rated yet} / {@code no places} because it decodes six tiles at once, and here there is
+ * one map whose whole plate is hatched, so a legend would name nothing.
  *
  * <h2>Framing, focus, and the one thing the planning area may decide</h2>
  *
@@ -1048,8 +1048,8 @@ export default function WindowRowFieldMap({
             {selectedRegion ? 'Select it again to clear' : 'Select a region'}
           </span>
         )}
-        {/* A chip on the thing it describes, rather than the strip's footer clause — there is one
-            map here and the whole of it is hatched, so "unshaded" would name nothing.
+        {/* A chip on the thing it describes, rather than the strip's footer legend — there is one
+            map here and the whole of it is hatched, so a legend would name nothing.
 
             `aria-hidden` with the canvas and the labels it sits among, and that is this
             component's own doctrine rather than an omission: the picture does not exist for a

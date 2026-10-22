@@ -617,13 +617,14 @@ function areaLabel(regionName, tiny) {
  * which is almanac and true whether or not a forecast ran. It draws none of the card's derived rows
  * — there is no pool behind them.
  *
- * <p>An unscored window takes {@code drawGeo}'s hatch, and the question is answered by
+ * <p>An unscored window takes {@code drawGeo}'s whole-plate hatch (and no per-place layer), and the question is answered by
  * {@code card.bestRating} rather than by the point set. That distinction cost a production defect:
  * an empty point set is a fact about the JOIN behind the picture, while {@code bestRating} is the
  * payload's own "is anything in this window rated" — on 2026-08-19 the two disagreed for three of
  * six windows and a hatched plate reading "not scored" sat directly above a card reading
- * {@code best spot 5 stars}. One predicate, read by the plate, the footer note and the hidden
- * sentence.
+ * {@code best spot 5 stars}. One predicate, read by the plate, the per-place layer and the hidden
+ * sentence. The footer no longer carries a conditional note for it: its standing swatches (hatch =
+ * {@code not rated yet}, plain = {@code no places}) name the ground for every window.
  *
  * <h2>Movement is the change line's alone</h2>
  *
@@ -1843,7 +1844,10 @@ export default function WindowFirstHeatStrip({
             place nobody rated for this window, plain plate is no place at all. ALWAYS drawn — the
             per-place hatch appears on any window with unrated places, so the key can no longer be
             conditional the way the old "unshaded — not scored" note was (that note named only the
-            whole-plate hatch of an unscored window, which is "not rated yet" too). */}
+            whole-plate hatch of an unscored window, which is "not rated yet" too).
+
+            The right-hand line below stays desktop-only (`.wf-hstrip-sp`) on purpose: the phone bar
+            has no room for it, and the two swatches carry the meaning there. */}
         <span className="wf-hstrip-key" data-testid="wf-heat-key-hatch">
           <span className="wf-hstrip-sw wf-hstrip-sw-hatch" aria-hidden="true" />
           not rated yet

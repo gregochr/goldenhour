@@ -28,6 +28,17 @@ vi.mock('../components/WindowFirstDoors.jsx', () => ({
   default: () => <div data-testid="stub-doors" />,
 }));
 
+// Thin-sample F2: the row map is stubbed to print the unrated set the shell hands the open card, so
+// "the OPEN window's own set" is observable without a canvas.
+vi.mock('../components/WindowRowFieldMap.jsx', async (importOriginal) => ({
+  ...(await importOriginal()),
+  default: ({ windowKey, unrated }) => (
+    <div data-testid="stub-row-map" data-window={windowKey}>
+      {(unrated || []).map((p) => p.name).join(',') || '-'}
+    </div>
+  ),
+}));
+
 const TODAY = '2026-08-08';
 
 function spot(overrides = {}) {
@@ -809,5 +820,30 @@ describe('WindowFirstShell — the drill-down', () => {
     await openSheet();
     expect(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0])
       .toHaveTextContent('Open on map');
+  });
+});
+
+describe('WindowFirstShell — the open window\'s own unrated set reaches the row map', () => {
+  it('hands the opened card its set, not another window\'s and not an empty one', async () => {
+    const other = card({ key: '2026-08-09:SUNRISE', date: '2026-08-09', targetType: 'SUNRISE' });
+    const mine = card();
+    const point = (name) => ({ id: name, name, lat: 55, lng: -1, rid: 'R', r: [0] });
+    renderShell({
+      windowCards: [mine, other],
+      heatUnratedSets: new Map([
+        [mine.key, [point('Alnmouth')]],
+        [other.key, [point('Wastwater')]],
+      ]),
+    });
+    await openPopup();
+    const stub = await screen.findByTestId('stub-row-map');
+    // Whichever window the matrix put first is the one opened; the stub must carry THAT window's
+    // set and never the other's.
+    const sets = new Map([[mine.key, 'Alnmouth'], [other.key, 'Wastwater']]);
+    const opened = stub.getAttribute('data-window');
+    expect(sets.has(opened)).toBe(true);
+    expect(stub).toHaveTextContent(sets.get(opened));
+    sets.delete(opened);
+    expect(stub).not.toHaveTextContent([...sets.values()][0]);
   });
 });

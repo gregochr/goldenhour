@@ -1389,3 +1389,14 @@ describe('WindowSheetDialog — the neighbour guard (neighbour-guard-plan.md §4
     expect(within(race).queryByText(new RegExp(OUTLIER.locationName))).toBeNull();
   });
 });
+
+describe('WindowSheetDialog — hands its row map the OPEN window\'s unrated places', () => {
+  it('forwards field.unrated to the kernel', () => {
+    const mine = [{ id: 7, name: 'Alnmouth', lat: 5, lng: 5, rid: 'Coast', r: [0] }];
+    drawGeo.mockClear();
+    withMeasured(() => {
+      renderDialog({ field: field({ unrated: mine }) });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5].unrated).toBe(mine);
+  });
+});

@@ -164,7 +164,7 @@ const heatPointIdentities = [];
 function Consumer() {
   const {
     briefing, loading, heatStripCards, windowCards, evaluationScores, reachLens: lens, ratingLens,
-    homePlace, heatSpots, heatPointSets,
+    homePlace, heatSpots, heatPointSets, heatUnratedSets,
     origin, setOrigin, regions, effectiveReachById,
   } = useWindowFirstBriefing();
   // Identity, not content: plan §5.4 requires the join to be memoised on its real inputs, and a
@@ -228,6 +228,11 @@ function Consumer() {
       <span data-testid="heat-regions">{heatSpots.map((s) => s.regionName).join('|') || 'none'}</span>
       <span data-testid="heat-points">
         {[...heatPointSets.entries()]
+          .map(([key, set]) => `${key}=${set.map((p) => p.name).join(',') || '-'}`)
+          .join(' ') || 'none'}
+      </span>
+      <span data-testid="heat-unrated">
+        {[...heatUnratedSets.entries()]
           .map(([key, set]) => `${key}=${set.map((p) => p.name).join(',') || '-'}`)
           .join(' ') || 'none'}
       </span>
@@ -1221,6 +1226,24 @@ describe('WindowFirstBriefingProvider', () => {
       await waitFor(() => expect(screen.getByTestId('heat-points').textContent).toBe(expected));
       // The fixture really does have more than one window, or none of the above discriminates.
       expect(payload.renderedEvents.length).toBeGreaterThan(1);
+    });
+
+    it('publishes heatUnratedSets: one entry per window, holding the places that window did not rate', async () => {
+      // Thin-sample F2. Bamburgh is rated in the SECOND window only, so it is unrated in the first
+      // and absent from the second's set; Alnmouth is unrated in both. A typo in the context key
+      // would leave the Consumer with `undefined.entries()`.
+      const payload = multiDayPayload(TODAY, 2);
+      const scored = payload.renderedEvents[1];
+      getDailyBriefing.mockResolvedValue(payload);
+      getAllEvaluationScores.mockResolvedValue([{
+        ...scoreRow(7, 'Bamburgh', 4), date: scored.date, targetType: scored.targetType,
+      }]);
+      renderProviderWithLocations(ROSTER);
+
+      const expected = payload.renderedEvents
+        .map((e) => `${e.date}:${e.targetType}=${e === scored ? 'Alnmouth' : 'Bamburgh,Alnmouth'}`)
+        .join(' ');
+      await waitFor(() => expect(screen.getByTestId('heat-unrated').textContent).toBe(expected));
     });
 
     it('does not rebuild the catalogue when an unrelated provider state changes', async () => {

@@ -2819,6 +2819,20 @@ button.wf-hc.also.on:hover {
 .wf-hstrip-sw-hatch {
   background-image: repeating-linear-gradient(-45deg, rgba(242, 231, 211, 0.32) 0 0.8px, transparent 0.8px 5px);
 }
+/* Forced colours drop background colours and box-shadows, so the plain swatch would vanish and the
+   hatch could not be told from it. Both get a real CanvasText border; the hatch swatch keeps its
+   gradient (`forced-color-adjust: none`) in CanvasText ink so the two stay distinguishable. */
+@media (forced-colors: active) {
+  .wf-hstrip-sw {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+  .wf-hstrip-sw-hatch {
+    forced-color-adjust: none;
+    background-color: Canvas;
+    background-image: repeating-linear-gradient(-45deg, CanvasText 0 1px, transparent 1px 5px);
+  }
+}
 /* ── Movement (heat-field plan §4.7, narrowed by plan-matrix M1) ──────────────────────────────
    ONE rendering now, not two. P6 put a per-card delta chip on each thumbnail's top row beside this
    line; the v3 card face deletes it (deletion ledger, M1) because it earned nothing — a magnitude
