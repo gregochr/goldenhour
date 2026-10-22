@@ -203,3 +203,42 @@ to report anything in the spec that the code contradicts rather than guessing.
 | Q2 | Woods and hides take no part in the layer | Owner, 2026-10-22 |
 | Q3 | Forced samples set the verdict but take no pick | Owner, 2026-10-22 |
 | Q4 | Map count = scope pool, Plan count = reach pool | Owner, 2026-10-22 |
+
+---
+
+## §6 As built
+
+| Phase | PR | Notes |
+|---|---|---|
+| Plan | #1280 | This document and the design handoff. |
+| F1 | #1283 | Per-window place states, `unratedPointsFor`, the unknown-ground mask in `heatField.js`; the kernel's bucket walk is shared with `field()`. |
+| B1 | #1282 | `BriefingRegion.pickEligible()`; every pick decision moved onto it. |
+| F4 | #1285 | Map hatch, legend and peek `Ground` key, the pill's `· N rated`. |
+| F2 | #1284 | Plan thumbnails and row map hatch, the two-swatch legend. |
+| F3 | #1289 | The Plan card's `· N rated`. |
+| F5 | this | Docs sweep. |
+
+Where the build departs from §3 or adds to it:
+
+- **`scoresLoaded` gate (F2/F4, found in review).** Neither surface hatches until the scores response has loaded successfully (`scoresLoaded` is set on success only). A failed or in-flight fetch is not evidence that places are unrated; without the gate the whole map hatched under a card claiming a rating.
+- **No-evidence gate (F2, Codex P1, lives in `unratedPointsFor`).** A window with no `rated` and no `stood` place at all yields no unrated points, for both hosts. §1 #5's "unscored window" predicate (`bestRating`) still skips the layer too; the two are separate.
+- **Row-map focus (F2).** Region focus on the open row's field map now also applies to a region that holds only unrated places (it used to need a rated place to focus on).
+- **Legend (F2).** The right-hand line is desktop-only; the phone bar carries the two swatches alone. The swatches are always drawn. On the Map tab (F4) the key is in the legend panel and, on a phone, a `Ground` row in the peek sheet's Layers section; solar, rated windows only.
+- **Map hatch (F4).** Solar windows only (past included), not on Pins, not on astro/aurora, not on an unscored window; it follows the dark-sky pool and a door's spot-set lens but NOT the rating floor, chips, drive or scope; it fades with the field at the zoom handover and under Ask's dim.
+- **Counts.** The Map pill's `· N rated` is over the SCOPE pool, is not shown on a past row, and hides with the region line on a phone (still in the accessible name). The Plan card's (F3) is over the REACH pool, `WORTH_IT`/`MAYBE` only, drawn only where the card container is at least 190px (`@container wf-card`), so absent on the narrowest phone cards, and NOT voiced on its own: §1 #6 is met by the spread clause ("N of M rated") already in the card's spoken sentence, not by a new phrase.
+- **Pick eligibility (B1).** A window whose top region is forced-only takes no pick even if a lower region is pick-eligible (the strip's two picks are a cap, not a quota); Ask's spread bands still read `verdictEligible()` via the untouched `AskSnapshot.Region` field, `meetsPickRules` alone reads the new `pickEligible` field.
+
+---
+
+## §7 Owner's browser checklist
+
+Nothing in this series has been seen in the signed-in app. With the app open:
+
+1. **A thin window beside a well-rated one**, Plan and Map: the thin one shows a small warm patch in a large hatched area and `Worth it 4.0★ · 6 rated`; the well-rated one has no `· N rated` and little hatch. On the Map, the pill reads `· N rated` (a different number from the Plan card is expected: scope pool, not reach pool).
+2. **A wet morning with many stand-downs.** Stood-down places are plain ground, not hatched.
+3. **A region with woods and hides.** They are never hatched, on either tab.
+4. **The phone card at 320px and a wide phone**: the 320px card has no `· N rated` (the Spread row's `N/M rated` carries it), a wider card has it on one line and the verdict row does not wrap; the legend shows the two swatches and no right-hand line.
+5. **The Map zoomed in**: the hatch and the colour hand over together at the zoom handover; with Ask answering, both dim together; the phone Layers section shows `Ground`.
+6. **An aurora night and an astro night**: no hatch, no ground key (the aurora key unchanged).
+7. **Forced colours**: the hatch, the swatches and the legend remain distinguishable.
+8. **Sat-like forced-only windows no longer wear BEST BET.** Run the P0 console snippet in §3 for the window in question: a region with `forced: true` and `sufficient` absent must not carry BEST BET or ALSO GOOD, and the window keeps its verdict word and star mean. Also check a failed scores request (offline the scores call) draws no hatch at all.
