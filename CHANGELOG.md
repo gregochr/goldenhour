@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.30.3] - 2026-10-22
+
+### Fixed — a region door on the Map tab never opens a neighbour outlier's callout
+
+A "Show {region} on map" door (and the Regional planner's single-region map button) chose the region's top spot from the batch scores endpoint, which carries no `neighbourOutlier` flag, so it could open the very spot every Plan surface refuses to name. The shell now hands the door the served briefing's outlier marks and `resolveDoor` applies the Plan tab's own rule: a marked spot is skipped, and if the next rated spot is below 3 stars (or none is rated) the door lands on the region alone with no callout. Also corrected two stale comments that said a map-sourced door is "a window change only".
+
+Two accepted behaviours: an outlier tied with the best unmarked spot counts as skipped, so a tie below 3 stars names no spot (the safe side). And an `inPlace` press of a region door on the Map tab now selects nothing when the region's top spot is an outlier; no Map-tab producer of a region trigger was found, so this is believed unreachable today.
+
+### Docs — far-cloud P1: findings summary for peer review (2026-10-22)
+
+- `docs/engineering/far-cloud-p1-findings-2026-10-22.md` states the investigation's ten findings (F1–F10)
+  with their evidence, numbers, sources and weakest points, the decisions taken and not taken, what a
+  reviewer should attack, and the open candidates — written for a reviewer who has not read the plan.
+- Nothing in production scoring changed as a result of the investigation; the document says why.
+
+### Added — far-cloud P1: Codex follow-ups and the forecast-canopy sizing (plan §19)
+
+- `scripts/far-cloud-p1/canopydeck.py` sizes the candidate triage relaxation "do not stand down on low cloud alone when
+  the forecast also shows a mid/high canopy >= 60" offline: phantom decks with a forecast canopy, what the latest run
+  did on them, the ERA5-obstructed exposure among all forecast-deck-plus-canopy slots, and the extra Claude
+  evaluations a day by model era at the `application-example.yml` rates (with an assumed token count). No network,
+  no spend, no verdict; recorded in plan §19.
+- Measurement-quality fixes from the peer review: `replay_set.py select` and `compare` print the basis-against-combined
+  rating cross-tabulation (how many gos a reader would also see as a go); `lowdeck.py` reports HIGH_CLOUD triage
+  without a low-cloud message as its own outcome category and lists every category in its headline so they sum to
+  the total; `canvas.py` and `lowdeck.py` print a 5-day date-block bootstrap interval (3 and 7 days as sensitivity)
+  beside each Wilson interval and a sensitivity line without 2026-10-15; `canvas.py` reports the strict Angel shape
+  beside the broad one. `stats.bootstrap_counts_ex` now sums blocks by prefix sums (the same draws, the same results).
+- Production scoring is unchanged.
+
+### Docs — CLAUDE.md records that the Far-Term batch bucket runs on Sonnet 5.5
+
+Two passages still said only Batch Near-Term had moved to Sonnet 5.5 and that the Gate 4 FAR bucket
+(T+2, T+3 when SETTLED) was Haiku. The owner switched Far-Term on the Models screen on 2026-10-20,
+on the same-cell rating spread measurement (`docs/engineering/same-cell-rating-spread-plan.md`), so
+both now name the date of each switch and say the `model_selection` row, not the code, decides the
+model per bucket. No code change.
+
 ## [v2.30.2] - 2026-10-22
 
 ### Added — the Map tab shows where nobody has rated yet (thin-sample F4)
