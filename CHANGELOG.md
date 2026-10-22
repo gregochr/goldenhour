@@ -5,6 +5,107 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.30.2] - 2026-10-22
+
+### Added — the Map tab shows where nobody has rated yet (thin-sample F4)
+
+The heat field now hatches the ground around every sky place that has no rating and no weather
+stand-down for the window on screen, under the colour, so a thinly-rated window reads as a small warm
+patch inside a large hatched area instead of looking as confident as a well-rated one. It applies to
+sunrise and sunset windows, past ones included, and never to Pins mode, an astro or aurora night, a wood, a
+wildlife hide, a stood-down place, or a window with no rating at all (which keeps its existing
+"not scored yet" key). Like the Plan tab's, a served window's hatch waits for the scores to load (a past window's comes from its own forecast rows and does not) and is skipped when the window has no rated or stood-down place at all. The hatch follows the colour's own narrowing (the dark-sky filter and a door's
+named spot set), so a filter never makes it claim a place as unrated.
+
+The Legend panel gains `not rated yet` and `no places` swatches on solar windows (the aurora key is
+unchanged), and the window pill gains `· N rated` beside a rated verdict word when the rated sky places
+in the reader's scope fail the Plan spread's own two floors. The count is its own population (scope,
+not the Plan card's reach pool), is spoken in words in the pill's accessible name, and hides with the
+region line on a phone (a known limit: the count is still in the pill's accessible name, and the Layers
+section's ground key states the hatch). The hatch fades with the field at the zoom handover and under
+Ask's dim. Stars, verdict words and every rated place's colour are unchanged. Seen in a
+throwaway canvas harness only, not the signed-in app.
+
+### Added — the Plan card's verdict line counts how many places were rated (thin-sample F3)
+
+A card whose verdict rests on a thin sample now reads `Worth it 4.0★ · 6 rated`, the same figure as
+the `6/83 rated` in its Spread row (the card's reach pool). It shows only for a rated verdict
+(`Worth it`, `Maybe`) when the Spread row's own minimum-sample gate fails and at least one place is
+rated; never beside `Too few rated`, `Poor`, `Not scored`, an away cell or an unscored window. The
+card's spoken sentence already says it ("6 of 83 rated", from the Spread row's clause). The figure is drawn only where the card
+is at least 190px wide inside its padding, so the verdict row never wraps and pushes the Spread and
+Best rows out of line; on narrower cards (the narrowest phones) it is not drawn, a known limit: the hatch and the Spread
+row's own `N/M rated` directly below carry it.
+
+### Changed — Plan tab: places nobody rated are hatched, and the legend names the three grounds
+
+Second phase of the thin-sample field (`docs/engineering/thin-sample-plan.md`, F2). The Plan strip's
+thumbnails and the open row's field map now hatch the ground around every place the window has not
+rated, under the colour, so a window crowned on a handful of ratings reads as a small warm patch in a
+large hatched area instead of looking as confident as a well-rated one. The layer is skipped on an
+unscored window (its whole plate is already hatched, decided by the same `bestRating` predicate, never
+an empty point set) and on an away cell; a focused region fades its hatch with its colour (and the row map's focus now also lands on a region whose places are all unrated). Nothing is hatched until the scores have loaded successfully (the Plan tab has no past windows), and a window with no rated and no stood-down place at all gets no hatch (there is no evidence which places are unrated). The legend
+under the strip replaces `unshaded — not scored` with two standing swatches, `not rated yet` (hatch)
+and `no places` (plain plate), and its right-hand line now reads "Colour and hatch cover every place
+in the forecast — the cards allow for your drive". The old conditional note and its test ids are gone
+(an intended change; the tests that pinned the old wording were updated). The aurora thumbnail and the
+Map tab are untouched.
+
+### Added — heat field: a per-window state for every place, and an unknown-ground layer (no visible change yet)
+
+First phase of the thin-sample field (`docs/engineering/thin-sample-plan.md`, F1). `buildHeatSpots` now
+carries a `states` array beside each place's `scores`: `rated`, `stood` (a score row with no rating
+and a triage reason, so the place was looked at and stood down), `unrated` (a sky place with neither
+a rating nor a triage reason, including one with no row at all) and `na` (a wood or wildlife hide,
+which is never rated by design and is never hatched). `unratedPointsFor` returns the unrated places in
+`heatPointsFor`'s shape, and `forecastScoreRows` now passes a forecast row's `triageReason` through so
+a past window tells a stand-down from a gap.
+
+`heatField.js` gains the layer itself: `drawGeo` and `drawTiles` take an optional `unrated` point list
+and hatch the ground around those places, above the plate and under the field, so colour wins where a
+rated place is near. The mask is the spec's (a 4px grid over the field's own radius and bucket walk,
+which `field()` now shares rather than copies), feathered with the field's own blur and honouring the
+region focus. Nothing passes the option yet, so no host draws any differently.
+
+### Changed — a forced sample sets a verdict but can no longer take a pick
+
+A region whose ratings cleared the sample gate only through the force-evaluation exemption
+(`forcedSample`, a handful of far-out ratings in a large region) still keeps its verdict word,
+stars, confidence and ordering, but it can no longer wear BEST BET or ALSO GOOD, be named in the
+advisor's `bestBets` or `pipeline_run_pick`, be resurrected by the stale-pick fallback, or be offered
+as an Ask pick. `BriefingRegion.pickEligible()` (a sufficient sample alone) is the new shared pick
+test; `verdictEligible()` is unchanged. A window whose top region is not pick-eligible takes no pick,
+so the strip's two picks are a cap rather than a quota. Ask's spread bands still read verdict
+eligibility, so a forced-only region keeps counting there. No prompt change, no migration.
+
+### Added — far-cloud P1 sizes the weak-canvas forecast shape (scripts only)
+
+`scripts/far-cloud-p1/canvas.py` counts how often a go has clear overhead and cirrus only at the horizon
+(the Angel's 13 October shape) and its mirror, a mid/high canopy overhead rated 3 or lower, from the
+stored forecast export, with ERA5's view where a verification row exists. It makes no network calls and
+recommends nothing; `export_outcome_ratings.sql` and `--ratings` join owner ratings once exported. The
+headline counts are in `far-cloud-p1-plan.md` §17. No app, API or database change.
+
+### Docs — far-cloud P1: the far lid refuted, the weak-canvas rule (2026-10-22)
+
+- `far-cloud-p1-plan.md` §16 records the 15 October Meteosat frame: a continuous mid-level sheet over the Irish Sea and Newcastle, at least as thick as 13 October's, under the evening the owner rated 4★.
+- The far-lid hypothesis (H1/H2) is refuted as the Angel's mechanism: the lid was present on both rated evenings, and what separated them was the local canvas.
+- §9 item 7 is rewritten as a weak-canvas rule (clear overhead, cirrus only at the horizon) with no far-point clause; the status line notes the refutation.
+
+### Docs — far-cloud P1: the 15 October transect (2026-10-22)
+
+- The Angel's 15 October sun line showed the same continuous 100% high-cloud deck beyond 250 km as 13 October, yet the sky was good (4★ at the Angel and Copt Hill) where 13 October was poor, so the far-lid hypothesis is recorded as not established as the mechanism.
+- The local canvas (a mid canopy overhead against horizon cirrus only) is now the best-supported difference; the next check is the owner's Meteosat frame for 15 October at 16:50 UTC.
+
+### Added — far-cloud P1 measures the over-forecast low deck (scripts only)
+
+`scripts/far-cloud-p1/lowdeck.py` counts how often the forecast puts a low-cloud deck where ERA5 reads
+clear (and the reverse), for observer and cone low cloud, across the whole verified history, with
+Wilson intervals by model, event, month, days ahead, region and coastal/inland. It also reports what
+the rating or triage did on those slots and whether an ERA5 mid/high canopy overhead co-occurred, and
+lists the 20 largest. It makes no network calls and recommends nothing; the headline figures are in
+`far-cloud-p1-plan.md` §18. No app, API or database change.
+
 ## [v2.30.1] - 2026-10-22
 
 ### Fixed — Coming up rows show the observed recent rate, not a guess
