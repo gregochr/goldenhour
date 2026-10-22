@@ -61,12 +61,23 @@ public final class AskQuestionSanitiser {
 
     /**
      * The punctuation a typed question may contain (plan §2.5 step 2), besides letters, digits and
-     * spaces: {@code ? ! ' ’ , . - : / & ( )}. The apostrophe's typographic twin is U+2019.
+     * spaces: {@code ? ! ' ’ , . - : / & ( ) * ★ ☆}. The apostrophe's typographic twin is U+2019. The
+     * stars are there because PhotoCast rates in stars and readers ask about them ("why is Alnmouth
+     * 4* on Saturday?"): {@code *} is how a keyboard types one, and ★ (U+2605) and ☆ (U+2606) are what
+     * the app itself shows and a reader pastes back. They are text symbols, not emoji. The
+     * {@linkplain #normalise normalised} form reads a run of them as the rating it draws ("★★★★☆" is
+     * "4star"), unless a digit stands just before it ("4*"), when the run is a plain word break.
      */
-    static final String ALLOWED_PUNCTUATION = "?!'’,.-:/&()";
+    static final String ALLOWED_PUNCTUATION = "?!'’,.-:/&()*★☆";
 
     /** The typographic apostrophe, which the normalised form treats as the plain one. */
     private static final char RIGHT_SINGLE_QUOTE = '’';
+
+    /** The filled star the app draws a rating with. */
+    private static final char FILLED_STAR = '★';
+
+    /** The hollow star that pads a glyph rating to five ("★★★★☆"); it counts for nothing. */
+    private static final char HOLLOW_STAR = '☆';
 
     /**
      * The words the normalised (cache-key) form drops: politeness and filler that carries no part of
@@ -130,7 +141,7 @@ public final class AskQuestionSanitiser {
      * collapses whitespace, caps at {@value #MAX_LENGTH} code points, and <em>refuses</em> — never
      * strips — any control or format character (zero-width space and joiner, bidi overrides, the
      * byte-order mark) and anything but letters (accented included), digits, spaces and
-     * {@code ? ! ' ’ , . - : / & ( )}. Emoji, symbols and combining marks are therefore refused. The
+     * {@code ? ! ' ’ , . - : / & ( ) * ★ ☆}. Emoji, other symbols and combining marks are therefore refused. The
      * text is composed to NFC first, so an accent typed as two code points is the same visible
      * letter as one typed as one. The result carries the {@linkplain #normalise normalised} form.
      *
@@ -275,7 +286,8 @@ public final class AskQuestionSanitiser {
 
     /**
      * The cache-key form of an already-cleaned question: lower-cased (root locale), apostrophes
-     * removed ("what's" and "whats" agree), every other piece of punctuation a word break, the
+     * removed ("what's" and "whats" agree), a run of stars not after a digit one word naming its filled
+     * stars ("★★★★☆" and "****" are "4star"), every other piece of punctuation a word break, the
      * {@linkplain #FILLER_WORDS filler words} dropped and the rest joined by single spaces. A question
      * made of nothing but filler keeps its filler (so two such questions still differ from "").
      *
@@ -284,12 +296,29 @@ public final class AskQuestionSanitiser {
      */
     public static String normalise(String sanitised) {
         StringBuilder spaced = new StringBuilder(sanitised.length());
-        sanitised.toLowerCase(Locale.ROOT).codePoints().forEach(cp -> {
+        int[] cps = sanitised.toLowerCase(Locale.ROOT).codePoints().toArray();
+        for (int i = 0; i < cps.length; i++) {
+            int cp = cps[i];
             if (cp == '\'' || cp == RIGHT_SINGLE_QUOTE) {
-                return;
+                continue;
+            }
+            if (isStar(cp)) {
+                // A run of stars carries the rating itself when no digit stands before it ("★★★★☆", "****"):
+                // it becomes one word, "4star", so two different glyph ratings never share a cache key. After a
+                // digit ("4*", "4★") the digit already says it, and the run is a plain break, as before.
+                int filled = 0;
+                int start = i;
+                while (i < cps.length && isStar(cps[i])) {
+                    filled += cps[i] == HOLLOW_STAR ? 0 : 1;
+                    i++;
+                }
+                i--;
+                boolean afterDigit = start > 0 && isDigit(cps[start - 1]);
+                spaced.append(afterDigit ? " " : " " + filled + "star ");
+                continue;
             }
             spaced.appendCodePoint(Character.isLetter(cp) || isDigit(cp) ? cp : ' ');
-        });
+        }
         StringBuilder kept = new StringBuilder();
         StringBuilder everything = new StringBuilder();
         for (String word : spaced.toString().split(" +")) {
@@ -313,6 +342,11 @@ public final class AskQuestionSanitiser {
 
     private static String tooLong() {
         return "The question must be at most " + MAX_LENGTH + " characters.";
+    }
+
+    /** Whether a code point is one of the star characters: {@code *}, ★ or ☆. */
+    private static boolean isStar(int cp) {
+        return cp == '*' || cp == FILLED_STAR || cp == HOLLOW_STAR;
     }
 
     private static boolean isDigit(int cp) {
@@ -346,7 +380,7 @@ public final class AskQuestionSanitiser {
             }
             if (strict && (invisible || !allowed(cp))) {
                 return new Result(null, "Questions can only use letters, numbers and ordinary "
-                        + "punctuation (? ! ' , . - : / & and brackets).");
+                        + "punctuation (? ! ' , . - : / & * ★ and brackets).");
             }
             if (pendingSpace) {
                 cleaned.append(' ');
