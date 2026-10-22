@@ -220,7 +220,7 @@ to report anything in the spec that the code contradicts rather than guessing.
 
 Where the build departs from §3 or adds to it:
 
-- **`scoresLoaded` gate (F2/F4, found in review).** Neither surface hatches until the scores response has loaded successfully (`scoresLoaded` is set on success only). A failed or in-flight fetch is not evidence that places are unrated; without the gate the whole map hatched under a card claiming a rating.
+- **`scoresLoaded` gate (F2/F4, found in review).** Served windows, on both surfaces, hatch only once the scores response has loaded successfully (`scoresLoaded` is set on success only). A past Map window is NOT gated: its states are built from its own forecast rows alone. A failed or in-flight fetch is not evidence that places are unrated; without the gate the whole map hatched under a card claiming a rating.
 - **No-evidence gate (F2, Codex P1, lives in `unratedPointsFor`).** A window with no `rated` and no `stood` place at all yields no unrated points, for both hosts. §1 #5's "unscored window" predicate (`bestRating`) still skips the layer too; the two are separate.
 - **Row-map focus (F2).** Region focus on the open row's field map now also applies to a region that holds only unrated places (it used to need a rated place to focus on).
 - **Legend (F2).** The right-hand line is desktop-only; the phone bar carries the two swatches alone. The swatches are always drawn. On the Map tab (F4) the key is in the legend panel and, on a phone, a `Ground` row in the peek sheet's Layers section; solar, rated windows only.
@@ -241,4 +241,4 @@ Nothing in this series has been seen in the signed-in app. With the app open:
 5. **The Map zoomed in**: the hatch and the colour hand over together at the zoom handover; with Ask answering, both dim together; the phone Layers section shows `Ground`.
 6. **An aurora night and an astro night**: no hatch, no ground key (the aurora key unchanged).
 7. **Forced colours**: the hatch, the swatches and the legend remain distinguishable.
-8. **Sat-like forced-only windows no longer wear BEST BET.** Run the P0 console snippet in §3 for the window in question: a region with `forced: true` and `sufficient` absent must not carry BEST BET or ALSO GOOD, and the window keeps its verdict word and star mean. Also check a failed scores request (offline the scores call) draws no hatch at all.
+8. **Sat-like forced-only windows no longer wear BEST BET.** Run the P0 console snippet in §3 for the window in question: a region with `forced: true` and `sufficient` absent must not carry BEST BET or ALSO GOOD, and the window keeps its verdict word and star mean. Also check that a failed scores request (offline the scores call) draws no hatch on any served window; a past Map window still hatches, from its forecast rows.

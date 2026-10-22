@@ -5,7 +5,7 @@ stand-down for the window on screen, under the colour, so a thinly-rated window 
 patch inside a large hatched area instead of looking as confident as a well-rated one. It applies to
 sunrise and sunset windows, past ones included, and never to Pins mode, an astro or aurora night, a wood, a
 wildlife hide, a stood-down place, or a window with no rating at all (which keeps its existing
-"not scored yet" key). Like the Plan tab's, it waits for the scores to load and is skipped when the window has no rated or stood-down place at all. The hatch follows the colour's own narrowing (the dark-sky filter and a door's
+"not scored yet" key). Like the Plan tab's, a served window's hatch waits for the scores to load (a past window's comes from its own forecast rows and does not) and is skipped when the window has no rated or stood-down place at all. The hatch follows the colour's own narrowing (the dark-sky filter and a door's
 named spot set), so a filter never makes it claim a place as unrated.
 
 The Legend panel gains `not rated yet` and `no places` swatches on solar windows (the aurora key is
