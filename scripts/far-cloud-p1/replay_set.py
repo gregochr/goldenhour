@@ -105,6 +105,73 @@ def basis_of(row):
     return "rating", to_int(row.get("rating"))
 
 
+BANDS = ("combined >= 4", "combined 3", "combined < 3", "combined missing")
+
+
+def band_of(combined):
+    """Band of the combined (reader-visible) star: the star the app shows, tide averaged in for coastal rows."""
+    c = to_int(combined)
+    if c is None:
+        return BANDS[3]
+    return BANDS[0] if c >= 4 else (BANDS[1] if c == 3 else BANDS[2])
+
+
+def basis_crosstab(rows, combined_key):
+    """{group: {basis: {band: count}}} for the go and three groups (every row passed: in `compare` that is the whole
+    manifest, not only the prompts with results). `basis` is what selected the prompt (the
+    sky-only star where stored, else the combined one); `combined_key` names the combined rating in each row
+    ('rating' in a forecast row, 'stored_rating' in a manifest row). A 'go' whose basis is the sky star can
+    be a 3 or less to a reader, because the combined star averages the tide score in for a coastal row."""
+    out = {}
+    for r in rows:
+        group = r.get("group")
+        if group not in ("go", "three"):
+            continue
+        cell = out.setdefault(group, {}).setdefault(r.get("basis") or "unknown", {})
+        band = band_of(r.get(combined_key))
+        cell[band] = cell.get(band, 0) + 1
+    return out
+
+
+def crosstab_rows(table):
+    """Flat rows [group, basis, n, *band counts] in a fixed order, plus a per-group total row."""
+    rows = []
+    for group in ("go", "three"):
+        bases = table.get(group, {})
+        for basis in sorted(bases):
+            cell = bases[basis]
+            rows.append([group, basis, sum(cell.values())] + [cell.get(b, 0) for b in BANDS])
+        if bases:
+            tot = [sum(c.get(b, 0) for c in bases.values()) for b in BANDS]
+            rows.append([group, "all", sum(tot)] + tot)
+    return rows
+
+
+def crosstab_note(table):
+    """One sentence on how many gos a reader would also see as a go."""
+    go = table.get("go", {})
+    n = sum(sum(c.values()) for c in go.values())
+    visible = sum(c.get(BANDS[0], 0) for c in go.values())
+    below = n - visible
+    three = table.get("three", {})
+    n3 = sum(sum(c.values()) for c in three.values())
+    up = sum(c.get(BANDS[0], 0) for c in three.values())
+    return (f"reader-visible gos (basis >= 4 and the stored combined rating also >= 4; the combined star is "
+            f"forecast_evaluation.rating, which can differ from the cached star the app serves): {visible} of {n}; "
+            f"{below} are gos on the basis star only (combined below 4 or missing). "
+            f"Mirror: {up} of {n3} basis-3 rows are a 4 or more to a reader")
+
+
+def crosstab_text(rows, combined_key):
+    """Plain-text lines for `select`."""
+    table = basis_crosstab(rows, combined_key)
+    lines = ["basis x combined rating (the combined star is what a reader sees; the basis is what selected the prompt):",
+             "  " + " | ".join(["group", "basis", "n"] + list(BANDS))]
+    lines += ["  " + " | ".join(str(c) for c in r) for r in crosstab_rows(table)]
+    lines.append("  " + crosstab_note(table))
+    return lines
+
+
 def latest_run_per_slot(forecasts):
     """The latest run strictly before the solar event per (location, date, type): the same rule as
     size.py and premise.py (batch_state NULL or SCORED, across the whole run history). Returns
@@ -252,6 +319,9 @@ def cmd_select(args):
     print(f"gos (basis rating >= 4, latest run per slot, sky_rating where stored): {len(gos)}")
     print(f"3-star sample (seed {args.seed}, from {counts['three_star_candidates']} candidates): {len(sample)}")
     print(f"written to {out}: {n} prompts ({kinds['inland']} inland, {kinds['coastal']} coastal)")
+    labelled = ([dict(r, group="go") for r in gos] + [dict(r, group="three") for r in sample])
+    for line in crosstab_text(labelled, "rating"):
+        print(line)
     print(f"training cases (in {out / 'training'}, not in the set): {len(training)}")
     print(f"manifest: {out / 'manifest.csv'}")
     print(f"COST ESTIMATE: {n} prompts x N={args.runs} x {len(arms)} arms "
@@ -843,6 +913,11 @@ def compare(manifest, arms, premises=None):
          "Replay value per prompt = median of the successful attempts. A go is basis >= 4; a "
          "'fall' is a replay median below 4; a 'rise' is a 3-star whose median reaches 4. Training "
          "rows are never pooled.", ""]
+    table = basis_crosstab([m for m in manifest if m.get("training") != "1"], "stored_rating")
+    L += ["Basis against the combined rating the reader sees (training rows excluded; a manifest row's "
+          "`stored_rating` is the combined star, `basis_rating` the one that selected it):", ""]
+    L += md_table(["group", "basis", "n"] + list(BANDS), crosstab_rows(table))
+    L += [crosstab_note(table), ""]
     arms = with_stored_arms(manifest, arms)
     control = control_stats(manifest, arms)
     for arm in sorted(arms):

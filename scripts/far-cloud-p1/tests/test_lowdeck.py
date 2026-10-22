@@ -70,9 +70,10 @@ class OutcomeTest(unittest.TestCase):
                          'triaged on low cloud')
         self.assertEqual(o(triage_reason='HIGH_CLOUD', triage_message='Low cloud cover 90% — sun blocked'),
                          'triaged on low cloud')
-        self.assertEqual(o(triage_reason='HIGH_CLOUD'), 'triaged on low cloud')   # no message: reason decides
+        # HIGH_CLOUD with no message, or one that does not name low cloud, is its own category, never low-cloud triage
+        self.assertEqual(o(triage_reason='HIGH_CLOUD'), 'triaged, HIGH_CLOUD without a low-cloud message')
         self.assertEqual(o(triage_reason='HIGH_CLOUD', triage_message='something about mid cloud'),
-                         'triaged, other reason')
+                         'triaged, HIGH_CLOUD without a low-cloud message')
         self.assertEqual(o(triage_reason='PRECIPITATION', triage_message='low cloud'), 'triaged, other reason')
         self.assertEqual(o(rating=1), 'rated 1-2')
         self.assertEqual(o(rating=2), 'rated 1-2')
@@ -84,7 +85,8 @@ class OutcomeTest(unittest.TestCase):
     def test_poor_or_blocked(self):
         p = lambda **kw: lowdeck.poor_or_blocked(mk(**dict(dict(triage_reason=None, rating=None), **kw)))  # noqa
         self.assertTrue(p(rating=3))
-        self.assertTrue(p(triage_reason='HIGH_CLOUD'))
+        self.assertTrue(p(triage_reason='HIGH_CLOUD', triage_message='Low cloud cover 90% — sun blocked'))
+        self.assertFalse(p(triage_reason='HIGH_CLOUD'))             # no message: not folded into low-cloud triage
         self.assertFalse(p(rating=4))
         self.assertFalse(p(triage_reason='LOW_VISIBILITY'))
         self.assertFalse(p())
@@ -157,6 +159,17 @@ class MeasureTest(unittest.TestCase):
         self.assertEqual(lowdeck.rate(0, 0), '-')
         self.assertEqual(lowdeck.rate(2, 5), '40.0% [11.8%, 76.9%]')
 
+    def test_date_block_interval_sits_beside_every_wilson(self):
+        units = slots(self.rows())
+        cell = lowdeck.bshare(units, lambda u: lowdeck.cell(u['row'], *OBS) == 'phantom')
+        self.assertTrue(cell.startswith('2 (33.3%) W[') and ' B[' in cell, cell)
+        self.assertEqual(lowdeck.bshare([], lambda u: True), '-')
+        self.assertIn(' B[', lowdeck.brate(units, lambda u: True))
+        for c in lowdeck.split_row('all', units, *OBS)[2:6:2]:
+            self.assertIn(' B[', c)
+        for line in lowdeck.contingency(units, *OBS)[2:7]:
+            self.assertIn(' B[', line)
+
 
 class ReportTest(unittest.TestCase):
     def rows(self):
@@ -179,8 +192,9 @@ class ReportTest(unittest.TestCase):
                   'reanalysis, not an observation'):
             self.assertIn(h, text)
         self.assertEqual(sorted(u['row']['loc_name'] for u in phantom), ['Alpha', 'Bravo', 'Charlie'])
-        self.assertIn('Phantom-deck slots with an ERA5 canopy overhead: **2**, of which triaged on low cloud **1**, '
-                      'rated 3 or lower **1**, either **2**, rated 4-5 **0**.', text)
+        self.assertIn('Phantom-deck slots with an ERA5 canopy overhead: **2** = triaged on low cloud **1** + '
+                      'triaged, HIGH_CLOUD without a low-cloud message **0** + triaged, other reason **0** + '
+                      'rated 1-2 **1** + rated 3 **0** + rated 4-5 **0** + unrated, not triaged **0**.', text)
 
     def test_worst_is_ordered_by_gap_then_newest_date(self):
         rows = [row(f_obs=70, e_obs=0, location_id=1, loc_name='A'),
@@ -209,11 +223,49 @@ class ReportTest(unittest.TestCase):
 
     def test_report_states_its_caveats_and_no_verdict(self):
         text, _ = lowdeck.render(self.rows())
-        self.assertIn('Wilson intervals treat slots as independent', text)
+        self.assertIn('Wilson intervals (W) treat slots as independent', text)
+        self.assertIn('date-block bootstrap', text)
         self.assertIn('Training cases', text)
         self.assertIn('share the largest gap', text)
         for word in ('should', 'recommend', 'we propose', 'conclude'):
             self.assertNotIn(word, text.lower().replace('recommends nothing', ''))
+
+    def test_headline_table_has_all_three_block_lengths_and_a_sensitivity_line(self):
+        text, _ = lowdeck.render(self.rows())
+        self.assertIn('## Headline rates with date-block intervals', text)
+        head = text.split('## Headline rates')[1].split('## 1.')[0]
+        for tag in ('5-day [', '3-day [', '7-day ['):
+            self.assertIn(tag, head)
+        self.assertIn('observer phantom deck, of testable', head)
+        self.assertIn('Sensitivity (0 of the T+0/T+1 slots are dated 2026-10-15)', head)
+
+    def test_sensitivity_removes_the_named_date(self):
+        rows = self.rows() + [row(f_obs=100, e_obs=0, location_id=9, loc_name='Echo', rating=2,
+                                  target_date='2026-10-15',
+                                  forecast_run_at=datetime(2026, 10, 15, 10), solar_event_time=datetime(2026, 10, 15, 17))]
+        line = lowdeck.sensitivity_line(slots(rows))
+        self.assertIn('(1 of the T+0/T+1 slots are dated 2026-10-15)', line)
+        self.assertIn('all dates 4 (', line.split('cone')[0])
+        self.assertIn('without 2026-10-15 3 (', line.split('cone')[0])
+
+    def test_outcome_categories_partition_the_slots(self):
+        us = slots(self.rows())
+        cnt = lowdeck.outcome_counts(us)
+        self.assertEqual(sum(cnt.values()), len(us))
+        self.assertEqual(set(cnt), set(lowdeck.OUTCOMES))
+        text, _ = lowdeck.render(self.rows())
+        self.assertIn('HIGH_CLOUD triage check (T+0/T+1 slots): 1 slots with reason HIGH_CLOUD; message names low '
+                      'cloud 1, message missing 0, message present but not naming low cloud 0', text)
+
+    def test_high_cloud_message_check_counts_missing_and_other_messages(self):
+        mk_ = lambda **kw: {'row': mk(**dict(dict(triage_reason='HIGH_CLOUD'), **kw))}  # noqa: E731
+        units = [mk_(triage_message='Low cloud cover 90% — sun blocked'), mk_(triage_message=None),
+                 mk_(triage_message='mid cloud'), {'row': mk(triage_reason='PRECIPITATION')}]
+        self.assertEqual(lowdeck.high_cloud_message_check(units), (3, 1, 1, 1))
+        # the report headline lists every category, so the HIGH_CLOUD oddities are visible, not folded
+        cnt = lowdeck.outcome_counts(units)
+        self.assertEqual((cnt['triaged on low cloud'], cnt['triaged, HIGH_CLOUD without a low-cloud message'],
+                          cnt['triaged, other reason']), (1, 2, 1))
 
     def test_empty_population_renders(self):
         text, phantom = lowdeck.render([])

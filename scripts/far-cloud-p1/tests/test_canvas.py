@@ -155,8 +155,51 @@ class ReportTest(unittest.TestCase):
         rows = {r[0]: r for r in canvas.era5_view(hits)}
         # columns: test, HAIKU, SONNET_55, all. The Angel row (SONNET_55) has a cirrus cone in ERA5; the
         # HAIKU row keeps mk's defaults (cone high 5), so it fails the cone-high test and the conjunction.
-        self.assertEqual(rows['all three'][1:], ['0 of 1', '1 of 1', '1 of 2'])
-        self.assertEqual(rows['cone high >= 60 (horizon cirrus)'][1:], ['0 of 1', '1 of 1', '1 of 2'])
+        counts = lambda key: [c.split(' (')[0] for c in rows[key][1:]]  # noqa: E731
+        self.assertEqual(counts('all three'), ['0 of 1', '1 of 1', '1 of 2'])
+        self.assertEqual(counts('cone high >= 60 (horizon cirrus)'), ['0 of 1', '1 of 1', '1 of 2'])
+        self.assertIn(' W[', rows['all three'][3])
+        self.assertIn(' B[', rows['all three'][3])
+
+    def test_date_block_interval_beside_wilson_everywhere_a_rate_is_printed(self):
+        p = pop(self.rows())
+        g = {(r[0], r[1]): r for r in canvas.by_model_event(p['gos'])}
+        self.assertIn(' W[', g[('SONNET_55', 'all')][4])
+        self.assertIn(' B[', g[('SONNET_55', 'all')][4])
+        m = canvas.mirror(p['rated'])
+        for cell in canvas.low_deck_rows(m['missed'])[0][4:]:
+            self.assertIn(' B[', cell)
+        text, _ = canvas.render(self.rows())
+        self.assertIn('5-day [', text)
+        self.assertIn('3-day [', text)
+        self.assertIn('7-day [', text)
+
+    def test_headline_reports_strict_beside_broad(self):
+        gos = pop(self.rows())['gos']
+        rows = canvas.headline_rows(gos)
+        self.assertEqual([r[0].split(' (')[0] for r in rows],
+                         ['weak canvas', 'strict Angel shape', 'weak canvas'])
+        # three gos (locations 1 to 3); 1 and 2 are weak canvases and, with a clear antisolar side, strict ones
+        broad, strict = rows[0], rows[1]
+        self.assertEqual((broad[1], broad[2]), (2, 3))
+        self.assertEqual((strict[1], strict[2]), (2, 3))
+        text, _ = canvas.render(self.rows())
+        self.assertIn('strict Angel shape (antisolar mid/high < 20 too)', text)
+
+    def test_strict_is_a_subset_of_broad_when_the_antisolar_side_is_not_clear(self):
+        rows = [mk(location_id=1, **WEAK), mk(location_id=2, **dict(WEAK, antisolar_mid_cloud=60))]
+        r = canvas.headline_rows(pop(rows)['gos'])
+        self.assertEqual((r[0][1], r[1][1]), (2, 1))
+
+    def test_sensitivity_without_one_date(self):
+        other = dict(forecast_run_at=datetime(2026, 10, 15, 10), solar_event_time=datetime(2026, 10, 15, 17, 10),
+                     target_date='2026-10-15')
+        rows = [mk(location_id=1, **WEAK), mk(location_id=2, **dict(WEAK, **other)),
+                mk(location_id=3, **dict(WEAK, **other))]
+        line = canvas.sensitivity_line(pop(rows)['gos'])
+        self.assertIn('(2 of the gos are dated 2026-10-15)', line)
+        self.assertIn('broad: all dates 3 (100.0%)', line)
+        self.assertIn('without 2026-10-15 1 (100.0%)', line)
 
     def test_render_without_ratings_names_the_second_export(self):
         text, hits = canvas.render(self.rows())

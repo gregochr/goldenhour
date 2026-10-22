@@ -397,8 +397,10 @@ and its mirror, over the whole `cloud_verification` history. It prints the forec
 observer and cone low cloud, the phantom-deck rate with Wilson intervals by model, event, month, days_ahead, region
 and coastal/inland, signed error and MAE, what the rating or triage did on phantom-deck slots, whether an ERA5
 mid/high canopy overhead co-occurred, and the 20 largest phantom decks. Definitions are at the top of `out/lowdeck.md`
-and in plan section 18. Measurement only: it recommends nothing. ERA5 is a reanalysis, not an observation. About 30
-seconds on the full export.
+and in plan section 18. Measurement only: it recommends nothing. ERA5 is a reanalysis, not an observation. Every Wilson
+interval (W) has a 5-day date-block bootstrap interval (B) beside it, the headline table adds the 3- and 7-day
+sensitivity, and a sensitivity line removes 2026-10-15. HIGH_CLOUD triage rows with no message, or one that does not
+name low cloud, are their own outcome category. About 80 seconds on the full export (`canvas.py`: about 75).
 
 ```
 python3 lowdeck.py p1_forecasts.csv --out out/
@@ -407,7 +409,21 @@ python3 lowdeck.py p1_forecasts.csv --out out/
 Writes `out/lowdeck.md` and `out/lowdeck_phantom.csv` (every T+0/T+1 slot that is a phantom deck on either variable,
 with its ERA5 values and outcome). Tests: `python3 -m unittest tests.test_lowdeck` from this directory.
 
+## 8b. Phantom deck under a forecast canopy (offline sizing, no network)
+
+Sizes the candidate rule "do not stand down on low cloud alone when the forecast also shows a mid/high canopy >= 60"
+on stored data (plan section 19): how many observer phantom decks had a forecast canopy, what the latest run did on
+them, how many of ALL forecast-deck-plus-canopy slots ERA5 reads as obstructed, and the extra Claude evaluations per
+day the rule would have caused by model era (with an ASSUMED token count per call; `--input-tokens` and
+`--output-tokens` change it). The rule keys on forecast inputs only. Measurement only: it recommends nothing.
+
+```
+python3 canopydeck.py p1_forecasts.csv --out out/
+```
+
+Writes `out/canopydeck.md` (definitions at the top). About 30 seconds. Tests: `python3 -m unittest tests.test_canopydeck`.
+
 ## 9. Send back to Claude
 
 `out/part_b.md`, `out/part_d.md`, `out/case_2026-10-13.md` (plus what you saw on Meteosat), `out/pilot.md`,
-`out/part_c.md`, `out/canvas.md`, `out/lowdeck.md`, and `p1_summary.csv`. Not the prompt or forecast CSVs, and never the API key.
+`out/part_c.md`, `out/canvas.md`, `out/lowdeck.md`, `out/canopydeck.md`, and `p1_summary.csv`. Not the prompt or forecast CSVs, and never the API key.
