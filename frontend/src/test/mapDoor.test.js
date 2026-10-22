@@ -558,10 +558,57 @@ describe('resolveDoor - a neighbour outlier is never the NAMED spot (neighbour g
     expect(resolveDoor(trigger, withKeys(locations)).handoff.locationName).toBe('Top');
   });
 
-  it('ignores a mark for a different window', () => {
+  it('ignores a mark for a different date', () => {
     const locations = [loc('Top', 'Tyne and Wear', 5), loc('Low', 'Tyne and Wear', 2)];
-    const other = { ...ctx(locations), outlierKeys: new Set([`Top|${DATE}|SUNRISE`, 'Top|2026-07-05|SUNSET']) };
+    const other = { ...ctx(locations), outlierKeys: new Set(['Top|2026-07-05|SUNSET']) };
     expect(resolveDoor(trigger, other).handoff.locationName).toBe('Top');
+  });
+
+  it('ignores a mark for a different event type', () => {
+    const locations = [loc('Top', 'Tyne and Wear', 5), loc('Low', 'Tyne and Wear', 2)];
+    const other = { ...ctx(locations), outlierKeys: new Set([`Top|${DATE}|SUNRISE`]) };
+    expect(resolveDoor(trigger, other).handoff.locationName).toBe('Top');
+  });
+
+  it('with two spots tied at the top and one marked, names the unmarked one', () => {
+    const locations = [loc('Marked', 'Tyne and Wear', 4), loc('Clean', 'Tyne and Wear', 4)];
+    expect(resolveDoor(trigger, withKeys(locations, 'Marked')).handoff.locationName).toBe('Clean');
+  });
+
+  it('treats a tie below the floor as skipped: names nothing (the safe side)', () => {
+    const locations = [loc('Marked', 'Tyne and Wear', 2), loc('Clean', 'Tyne and Wear', 2)];
+    const ov = resolveDoor(trigger, withKeys(locations, 'Marked'));
+    expect(ov.handoff.locationName).toBeUndefined();
+    expect(ov.handoff.region).toBe('Tyne and Wear');
+  });
+
+  it('a marked slot with no rating is not an outlier', () => {
+    const locations = [loc('Unrated', 'Tyne and Wear', null)];
+    expect(resolveDoor(trigger, withKeys(locations, 'Unrated')).handoff.locationName).toBe('Unrated');
+  });
+
+  it('an event trigger titles a withheld door by the best spot\'s region, not by a spot name', () => {
+    // Two regions would be a multi-region fit, so use one region but a title that would read as the
+    // OUTLIER'S NAME if the fallback used the (null) named spot.
+    const locations = [loc('Outlier', 'Tyne and Wear', 5), loc('Low', 'Tyne and Wear', 1)];
+    const ov = resolveDoor({ kind: 'event', date: DATE, eventType: 'SUNSET' }, withKeys(locations, 'Outlier'));
+    expect(ov.title).toBe('Tyne and Wear');
+    expect(ov.title).not.toBe('On the map');
+  });
+
+  it('feeds outlierKeysOf\'s OUTPUT (not hand-built keys) into the door', () => {
+    const briefing = {
+      days: [{
+        date: DATE,
+        eventSummaries: [{ targetType: 'SUNSET', regions: [{ slots: [
+          { locationName: 'Outlier', neighbourOutlier: true },
+        ] }] }],
+      }],
+    };
+    const locations = [loc('Outlier', 'Tyne and Wear', 5), loc('Low', 'Tyne and Wear', 2)];
+    const ov = resolveDoor(trigger, { ...ctx(locations), outlierKeys: outlierKeysOf(briefing) });
+    expect(ov.handoff.locationName).toBeUndefined();
+    expect(ov.handoff.region).toBe('Tyne and Wear');
   });
 
   it('reads a ctx without outlierKeys as none marked', () => {
@@ -590,6 +637,20 @@ describe('outlierKeysOf', () => {
       }],
     };
     expect([...outlierKeysOf(briefing)]).toEqual([`A|${DATE}|SUNSET`]);
+  });
+
+  it('ignores a slot with no locationName and a flag that is not exactly true', () => {
+    const briefing = {
+      days: [{
+        date: DATE,
+        eventSummaries: [{ targetType: 'SUNSET', regions: [{ slots: [
+          { neighbourOutlier: true },
+          { locationName: 'A', neighbourOutlier: 'true' },
+          { locationName: 'B', neighbourOutlier: 1 },
+        ] }] }],
+      }],
+    };
+    expect(outlierKeysOf(briefing).size).toBe(0);
   });
 
   it('is empty for a missing briefing', () => {

@@ -360,6 +360,17 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
     expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'map' });
   });
 
+  it('a region trigger whose top spot is a marked neighbour outlier lands on the region with NO spot', async () => {
+    const handoff = await press({
+      kind: 'region', region: 'Northumberland', date: TOMORROW, eventType: 'SUNSET',
+      locationNames: null, label: null, filterAction: null,
+      minRating: 3, limitMinutes: 45, inPlace: false,
+      outlierKeys: new Set([`Bamburgh|${TOMORROW}|SUNSET`]),
+    });
+    expect(handoff).toMatchObject({ source: 'plan', region: 'Northumberland', locationName: null });
+    expect(handoff).not.toHaveProperty('outlierKeys');
+  });
+
   it('C4: a kind:\'event\' trigger (the planner\'s drill-down pin) names its window and the Plan lens', async () => {
     const handoff = await press({
       kind: 'event', date: TOMORROW, eventType: 'SUNRISE', minRating: 4, limitMinutes: 90, inPlace: false,

@@ -1001,7 +1001,7 @@ export default function WindowFirstShell({
    * @param {?string} eventType     SUNRISE/SUNSET for the plain-date call shapes
    * @param {?string} locationName  a specific location, for the location call shape
    */
-  const outlierKeys = useMemo(() => outlierKeysOf(briefing), [briefing]);
+  const outlierKeys = useMemo(() => outlierKeysOf({ days: briefing?.days }), [briefing?.days]);
   const showOnMap = useMemo(() => (onOpenMapTab
     ? (dateOrHandoff, eventType, locationName = null) => openMapTab({
       ...normalizeMapTrigger(dateOrHandoff, eventType, locationName),
