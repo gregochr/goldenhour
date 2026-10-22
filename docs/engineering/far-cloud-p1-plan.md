@@ -701,4 +701,4 @@ The owner viewed the Zoom Earth / Meteosat composite for 2026-10-15 at 17:50 BST
 - The far high-cloud reading, by cover percentage, is identical in both pictures and says nothing on its own.
 - §9 item 7 is rewritten accordingly, as a weak-canvas rule with no far-point clause.
 
-One frame each, read by eye from a dusk composite, not a measurement.
+One frame each, read by eye from a dusk composite, not a measurement. A second frame at 18:10 BST (17:10 UTC, the terminator crossing Carlisle) was viewed and shows the same sheet, if anything a shade thinner over Durham and Newcastle than over the Solway; it was not saved.
