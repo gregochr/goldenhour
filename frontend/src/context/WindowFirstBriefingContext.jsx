@@ -17,7 +17,7 @@ import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
 import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
-import { buildHeatPointSets, buildHeatSpots } from '../utils/heatSpots.js';
+import { buildHeatPointSets, buildHeatSpots, buildUnratedPointSets } from '../utils/heatSpots.js';
 import { buildRegionSeries } from '../utils/windowFirstRegions.js';
 import { AWAY_TIER_ID, originReachMap, toOrigin } from '../utils/planOrigin.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
@@ -81,6 +81,7 @@ const WindowFirstBriefingContext = createContext({
   evaluationScores: EMPTY_SCORES,
   heatSpots: EMPTY_ARRAY,
   heatPointSets: EMPTY_POINT_SETS,
+  heatUnratedSets: EMPTY_POINT_SETS,
   regionSeries: EMPTY_REGION_SERIES,
   reachById: EMPTY_REACH,
   effectiveReachById: EMPTY_REACH,
@@ -709,6 +710,15 @@ export function WindowFirstBriefingProvider({
   );
 
   /**
+   * The unrated places per window, keyed like {@link heatPointSets} — what the Plan thumbnails and
+   * the open row's field hatch as "not rated yet" (thin-sample plan F2).
+   */
+  const heatUnratedSets = useMemo(
+    () => buildUnratedPointSets(heatSpotList, upcomingEvents),
+    [heatSpotList, upcomingEvents],
+  );
+
+  /**
    * Each region's served mean across every rendered window, for the open row's six-dot strip.
    *
    * <p>Built here rather than per card because it is a CROSS-window quantity: a card holds one
@@ -729,7 +739,7 @@ export function WindowFirstBriefingProvider({
       briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
       heatSpots: heatSpotList,
-      heatPointSets,
+      heatPointSets, heatUnratedSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro,
@@ -742,7 +752,7 @@ export function WindowFirstBriefingProvider({
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
-      heatSpotList, heatPointSets,
+      heatSpotList, heatPointSets, heatUnratedSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro,

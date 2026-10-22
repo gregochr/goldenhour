@@ -298,6 +298,25 @@ export function buildHeatPointSets(spots, renderedEvents) {
 }
 
 /**
+ * The unrated places for every rendered window, keyed {@code date:targetType} — the twin of
+ * {@link buildHeatPointSets} for the "not rated yet" hatch, built over the same windows by the
+ * same index so a window's hatch and its field can never come from different rows.
+ *
+ * @param {Array<object>} spots spots from {@link buildHeatSpots}
+ * @param {Array<{date: string, targetType: string}>} renderedEvents the windows, in render order
+ * @returns {Map<string, Array<object>>} window key → its unrated points
+ */
+export function buildUnratedPointSets(spots, renderedEvents) {
+  const sets = new Map();
+  const events = Array.isArray(renderedEvents) ? renderedEvents : [];
+  events.forEach((event, index) => {
+    if (!event || !event.date || !event.targetType) return;
+    sets.set(windowKey(event.date, event.targetType), unratedPointsFor(spots, index));
+  });
+  return sets;
+}
+
+/**
  * Score rows for a set of windows, drawn from the locations' own forecast rows
  * ({@code forecastsByDate}) and from nothing else — the shape {@link buildHeatSpots} takes, built
  * for the Map tab's PAST windows (outcome-rating-plan.md §2 #3, O3c).

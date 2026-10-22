@@ -136,6 +136,29 @@ describe('WindowRowFieldMap — what it hands the kernel', () => {
     expect(opts.radius).toBeCloseTo(43.2, 5);
   });
 
+  it('hands the window its unrated places, and none when it is unscored or the set is empty', async () => {
+    // Thin-sample F2. The focus is passed beside it, so the hatch fades with the colour.
+    const unrated = [{ id: 7, name: 'Alnmouth', lat: 5, lng: 5, rid: 'Coast', r: [0] }];
+    await withMeasuredMap(600, async () => {
+      await renderMap({ unrated, selectedRegion: 'Coast' });
+    });
+    const opts = drawGeo.mock.calls.at(-1)[5];
+    expect(opts.unrated).toBe(unrated);
+    expect(opts.focus).toBe('Coast');
+
+    drawGeo.mockClear();
+    await withMeasuredMap(600, async () => {
+      await renderMap({ unrated, bestRating: null });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('unrated');
+
+    drawGeo.mockClear();
+    await withMeasuredMap(600, async () => {
+      await renderMap({ unrated: [] });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('unrated');
+  });
+
   it('holds the radius at its floor on a narrow map', async () => {
     await withMeasuredMap(100, async () => {
       await renderMap();

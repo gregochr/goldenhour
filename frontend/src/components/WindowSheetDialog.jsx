@@ -628,6 +628,7 @@ export default function WindowSheetDialog({
               confidence={card.confidence}
               spots={field.spots}
               points={field.points}
+              unrated={field.unrated}
               bestRating={card.bestRating}
               regionNames={scopedRegionNames}
               chips={chips}
