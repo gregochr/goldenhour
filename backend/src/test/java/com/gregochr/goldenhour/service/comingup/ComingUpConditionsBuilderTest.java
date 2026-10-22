@@ -342,8 +342,8 @@ class ComingUpConditionsBuilderTest {
 
         double expectedFallback = SurpriseScore.rarity(new ComingUpScoringProperties().getRecurrent()
                 .getDust().getFallbackMeanGapDays());
-        assertThat(dust.quantLabel())
-                .startsWith(ComingUpConditionsBuilder.frequencyPhrase(expectedFallback, "most days"));
+        assertThat(dust.quantLabel()).startsWith("no frequency measured yet").doesNotContain("about one");
+        assertThat(dust.rateLabel()).isEqualTo("1 plume in the last 60 days");
         // ⚠️ The RARITY VALUE is asserted on the occurrence's own `bits`, not on a figure inside the
         // label — the label carries the phrase alone now, computed independently here via the same
         // `frequencyPhrase` the production code calls, rather than a hard-coded literal that
@@ -370,6 +370,7 @@ class ComingUpConditionsBuilderTest {
         double expectedObserved = SurpriseScore.rarity(60.0 / 5);
         assertThat(dust.quantLabel())
                 .startsWith(ComingUpConditionsBuilder.frequencyPhrase(expectedObserved, "most days"));
+        assertThat(dust.rateLabel()).startsWith("5 plumes in the last 60 days · about ");
         // The observed rate, pinned as a number — see the fallback test for why the phrase alone
         // cannot carry this assertion.
         assertThat(dust.occurrences().getFirst().bits())
@@ -571,8 +572,8 @@ class ComingUpConditionsBuilderTest {
 
         double expectedFallback = SurpriseScore.rarity(new ComingUpScoringProperties().getRecurrent()
                 .getInversion().getFallbackMeanGapDays());
-        assertThat(inversion.quantLabel())
-                .startsWith(ComingUpConditionsBuilder.frequencyPhrase(expectedFallback, "most mornings"));
+        assertThat(inversion.quantLabel()).startsWith("no frequency measured yet").doesNotContain("about one");
+        assertThat(inversion.rateLabel()).isEqualTo("6 strong mornings in the last 60 days");
         // ⚠️ The RARITY TERM is what this test is about, and `bits` is the only place it survives
         // now that the label carries the phrase alone — computed here from the same
         // `frequencyPhrase` call the production code makes, rather than a literal that would
@@ -640,9 +641,69 @@ class ComingUpConditionsBuilderTest {
                 .containsOnly("heldBack");
         assertThat(mist.occurrences().getFirst().valueLabel()).isEqualTo("7/10");
         assertThat(mist.name()).isEqualTo("Valley mist");
-        assertThat(mist.rateLabel()).startsWith("2 likely days since ");
+        assertThat(mist.rateLabel()).isEqualTo("2 likely days in the last 60 days");
         assertThat(mist.interim()).isTrue();
         assertThat(mist.cadence()).isEqualTo("recurrent");
+    }
+
+    @Test
+    @DisplayName("mist with no likely day on record reads 'new' and states no frequency")
+    void buildMist_noLikelyDay_isNewWithNoFrequency() {
+        ComingUpCondition mist = mist();
+
+        assertThat(mist.cadence()).isEqualTo("new");
+        assertThat(mist.quantLabel()).startsWith("no frequency measured yet")
+                .doesNotContain("about one")
+                .endsWith("counts as a standout above 8/10 (early threshold)");
+        assertThat(mist.rateLabel()).startsWith("none in the last ");
+    }
+
+    @Test
+    @DisplayName("mist with exactly one likely day is still 'new'")
+    void buildMist_oneLikelyDay_isStillNew() {
+        LocationEntity river = LocationEntity.builder().id(4L).name("River").lat(1.0).lon(1.0).build();
+        serve(List.of(mistReading(river, TODAY.minusDays(4), TargetType.SUNRISE, 7.0, "LIKELY")));
+
+        ComingUpCondition mist = mist();
+
+        assertThat(mist.rateLabel()).isEqualTo("1 likely day in the last 60 days");
+        assertThat(mist.cadence()).isEqualTo("new");
+    }
+
+    @Test
+    @DisplayName("mist with two likely days takes the configured cadence, still with no frequency stated")
+    void buildMist_twoLikelyDays_takesConfiguredCadence() {
+        LocationEntity river = LocationEntity.builder().id(4L).name("River").lat(1.0).lon(1.0).build();
+        serve(List.of(
+                mistReading(river, TODAY.minusDays(4), TargetType.SUNRISE, 7.0, "LIKELY"),
+                mistReading(river, TODAY.minusDays(3), TargetType.SUNSET, 7.0, "LIKELY")));
+
+        ComingUpCondition mist = mist();
+
+        assertThat(mist.cadence()).isEqualTo("recurrent");
+        assertThat(mist.quantLabel()).startsWith("no frequency measured yet");
+    }
+
+    @Test
+    @DisplayName("a failed trailing mist read counts as nothing observed: 'new'")
+    void buildMist_failedTrailingRead_isNew() {
+        when(slotAtmosphereRepository.findInDateRange(any(), any()))
+                .thenThrow(new IllegalStateException("db down"));
+
+        ComingUpCondition mist = mist();
+
+        assertThat(mist.cadence()).isEqualTo("new");
+        assertThat(mist.occurrences()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the dust and inversion rows keep their configured cadence; the tide row states a frequency")
+    void build_otherConditions_keepConfiguredCadence() {
+        List<ComingUpCondition> conditions = builder.build(TODAY, List.of(), List.of());
+
+        assertThat(conditions.get(1).cadence()).isEqualTo("recurrent");
+        assertThat(conditions.get(2).cadence()).isEqualTo("persistent");
+        assertThat(conditions.get(0).quantLabel()).doesNotStartWith("no frequency measured yet");
     }
 
     @Test
@@ -664,7 +725,7 @@ class ComingUpConditionsBuilderTest {
                 .containsExactly(oldestIn, yesterday, TODAY);
         assertThat(mist.occurrences().stream().filter(o -> o.status().equals("heldBack")).count())
                 .isEqualTo(2);
-        assertThat(mist.rateLabel()).startsWith("2 likely days since ");
+        assertThat(mist.rateLabel()).isEqualTo("2 likely days in the last 60 days");
     }
 
     /** A forecast_score MIST row, Claude's echo: the band on the summary. */
@@ -777,8 +838,7 @@ class ComingUpConditionsBuilderTest {
 
         ComingUpScoringProperties.Mist config = new ComingUpScoringProperties().getRecurrent().getMist();
         double rarity = SurpriseScore.rarity(config.getFallbackMeanGapDays());
-        assertThat(mist.quantLabel())
-                .startsWith(ComingUpConditionsBuilder.frequencyPhrase(rarity, "most mornings"));
+        assertThat(mist.quantLabel()).startsWith("no frequency measured yet");
         assertThat(mist.occurrences()).hasSize(13);
         // A standout (8/10) gets the magnitude bits, the plain 6/10 day only the default.
         assertThat(mist.occurrences().stream()

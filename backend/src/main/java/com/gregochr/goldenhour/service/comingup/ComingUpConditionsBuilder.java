@@ -108,6 +108,15 @@ public class ComingUpConditionsBuilder {
 
     private static final List<TargetType> EVENT_TARGET_TYPES = List.of(TargetType.SUNRISE, TargetType.SUNSET);
 
+    /** Likely days the trailing window must hold before valley mist may be called by its configured cadence. */
+    static final int MIST_RECURRENT_MIN_DAYS = 2;
+
+    /** Opens a quant line whose rarity is still a configured guess rather than a measured rate. */
+    private static final String NO_FREQUENCY_YET = "no frequency measured yet";
+
+    /** Cadence word for a condition with too short a record to be called recurrent. */
+    private static final String CADENCE_NEW = "new";
+
     static final String STATUS_PROMOTED = "promoted";
     static final String STATUS_INSIDE_PLAN = "insidePlan";
     static final String STATUS_HELD_BACK = "heldBack";
@@ -485,12 +494,13 @@ public class ComingUpConditionsBuilder {
         String rateLabel;
         ComingUpScoringProperties.Dust dustConfig = scoringProperties.getRecurrent().getDust();
         int arrivals = bursts.size();
+        boolean dustRateMeasured = arrivals >= scoringProperties.getRecurrent().getEvidentiaryBarArrivals();
         int evidentiaryBar = scoringProperties.getRecurrent().getEvidentiaryBarArrivals();
         if (arrivals >= evidentiaryBar) {
             double meanGapDays = (double) windowDays / arrivals;
             rarityBits = SurpriseScore.rarity(meanGapDays);
-            rateLabel = arrivals + (arrivals == 1 ? " plume" : " plumes") + " since "
-                    + DATE_LABEL.format(bursts.getFirst().start()) + " · about " + describeGap(meanGapDays);
+            rateLabel = arrivals + (arrivals == 1 ? " plume" : " plumes") + " in the last "
+                    + windowDays + " days · about " + describeGap(meanGapDays);
         } else {
             rarityBits = SurpriseScore.rarity(dustConfig.getFallbackMeanGapDays());
             if (trailingReadFailed) {
@@ -498,8 +508,8 @@ public class ComingUpConditionsBuilder {
             } else {
                 rateLabel = arrivals == 0
                         ? "none in the last " + windowDays + " days"
-                        : arrivals + (arrivals == 1 ? " plume" : " plumes") + " since "
-                                + DATE_LABEL.format(bursts.getFirst().start());
+                        : arrivals + (arrivals == 1 ? " plume" : " plumes") + " in the last "
+                                + windowDays + " days";
             }
         }
 
@@ -533,7 +543,8 @@ public class ComingUpConditionsBuilder {
                     "AOD " + fmt2(aod), null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = frequencyPhrase(rarityBits, "most days")
+        // A frequency is stated only when the rarity was measured; the config guess is not a rate.
+        String quantLabel = (dustRateMeasured ? frequencyPhrase(rarityBits, "most days") : NO_FREQUENCY_YET)
                 + " · counts as a plume above a haze reading of "
                 + fmt2(BigDecimal.valueOf(dustConfig.getMagnitudeThresholdAod())) + " (early threshold)";
         return new ComingUpCondition("DUST", "Saharan dust", scoringProperties.getCadence().getDust(), true,
@@ -616,8 +627,8 @@ public class ComingUpConditionsBuilder {
         List<LocalDate> dates = maxScoreByDate.keySet().stream().sorted().toList();
         String rateLabel = dates.isEmpty()
                 ? "none in the last " + windowDays + " days"
-                : dates.size() + (dates.size() == 1 ? " strong morning" : " strong mornings") + " since "
-                        + DATE_LABEL.format(dates.getFirst());
+                : dates.size() + (dates.size() == 1 ? " strong morning" : " strong mornings") + " in the last "
+                        + windowDays + " days";
 
         List<ComingUpConditionOccurrence> occurrences = new ArrayList<>();
         for (LocalDate date : dates) {
@@ -649,7 +660,8 @@ public class ComingUpConditionsBuilder {
                     valueLabel, null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = frequencyPhrase(rarityBits, "most mornings") + " · counts as strong above "
+        // Inversion rarity is pinned to the config fallback by design, so no frequency is stated.
+        String quantLabel = NO_FREQUENCY_YET + " · counts as strong above "
                 + fmt0(inversionConfig.getMagnitudeThresholdScore()) + "/10 (early threshold)";
         return new ComingUpCondition("VALLEY_INVERSIONS", "Valley inversions",
                 scoringProperties.getCadence().getInversion(), true, rateLabel, quantLabel, peak, occurrences);
@@ -716,8 +728,8 @@ public class ComingUpConditionsBuilder {
         List<LocalDate> dates = maxScoreByDate.keySet().stream().sorted().toList();
         String rateLabel = dates.isEmpty()
                 ? "none in the last " + windowDays + " days"
-                : dates.size() + (dates.size() == 1 ? " likely day" : " likely days") + " since "
-                        + DATE_LABEL.format(dates.getFirst());
+                : dates.size() + (dates.size() == 1 ? " likely day" : " likely days") + " in the last "
+                        + windowDays + " days";
 
         List<ComingUpConditionOccurrence> occurrences = new ArrayList<>();
         for (LocalDate date : dates) {
@@ -748,10 +760,14 @@ public class ComingUpConditionsBuilder {
                     valueLabel, null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = frequencyPhrase(rarityBits, "most mornings") + " · counts as a standout above "
+        // The rarity is still the config's first guess, so no frequency is stated, and a feature with
+        // fewer than two likely days on record is "new", not whatever the config would call it later.
+        String quantLabel = NO_FREQUENCY_YET + " · counts as a standout above "
                 + fmt0(mistConfig.getMagnitudeThresholdScore()) + "/10 (early threshold)";
+        String cadence = dates.size() >= MIST_RECURRENT_MIN_DAYS
+                ? scoringProperties.getCadence().getMist() : CADENCE_NEW;
         return new ComingUpCondition("VALLEY_MIST", "Valley mist",
-                scoringProperties.getCadence().getMist(), true, rateLabel, quantLabel, peak, occurrences);
+                cadence, true, rateLabel, quantLabel, peak, occurrences);
     }
 
     private static boolean isMistEvent(TargetType eventType) {

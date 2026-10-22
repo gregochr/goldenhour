@@ -215,7 +215,7 @@ coming-up:
       coastal-tides: "deterministic"
       dust: "recurrent"
       inversion: "persistent"
-      mist: "recurrent"
+      mist: "recurrent"                         # used only once two likely days are on record; "new" before
     peak-light-window-minutes: 90               # the peak gate's own bound (plan D4/D5) — not read
                             # arithmetically yet (v1 proxy is SUNRISE/SUNSET typing); routed
                             # through config rather than hardcoded, ready for P7
