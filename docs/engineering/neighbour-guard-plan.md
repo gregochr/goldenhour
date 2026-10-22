@@ -179,6 +179,10 @@ the guard.
 
 ### G2 — Ask (after G1b merges)
 
+> **Narrowed 2026-10-22:** decision D2 of `ask-place-lookup-plan.md` narrows this section's "no name or star of a
+> held-back place" rule for one route: when the reader names the place, `look_up_place` gives its star and says it
+> is rated well above the places beside it. `rank_spots` and every pick rule below are unchanged.
+
 - `AskSnapshot.Slot` gains `boolean neighbourOutlier` (a 9-argument constructor stays, passing
   false); `AskSnapshotBuilder.toSlot` reads `Boolean.TRUE.equals(slot.neighbourOutlier())`.
 - `isPickEligible` adds `!slot.neighbourOutlier()`.

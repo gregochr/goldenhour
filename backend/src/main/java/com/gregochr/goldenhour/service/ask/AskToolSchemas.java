@@ -26,6 +26,8 @@ public final class AskToolSchemas {
     public static final String LIST_WINDOWS = "list_windows";
     /** {@code rank_spots}. */
     public static final String RANK_SPOTS = "rank_spots";
+    /** {@code look_up_place}. */
+    public static final String LOOK_UP_PLACE = "look_up_place";
     /** {@code rank_night_spots}. */
     public static final String RANK_NIGHT_SPOTS = "rank_night_spots";
     /** {@code get_hot_topics}. */
@@ -59,8 +61,32 @@ public final class AskToolSchemas {
      * @return the tools, {@code submit_answer} last
      */
     public static List<Tool> tools(boolean withUser, boolean withThread) {
-        return List.of(listWindows(), rankSpots(withUser), rankNightSpots(withUser), getHotTopics(),
-                getComingUp(), submitAnswer(withThread));
+        return tools(withUser, withThread, false);
+    }
+
+    /**
+     * Every tool of a conversation, with or without {@code look_up_place}.
+     *
+     * @param withUser        true when the conversation has a user, so {@code rank_spots} may take
+     *                        {@code maxDriveMinutes} and {@code nearHome}
+     * @param withThread      true for a follow-up: {@code submit_answer} then allows
+     *                        {@link AskAnswerValidator#MAX_RANKED_PICKS} picks
+     * @param withPlaceLookup true for a typed question, which may ask about one named place; false for the
+     *                        Ready precompute, whose tool list (and prompt bytes) stay as they were
+     * @return the tools, {@code look_up_place} after {@code rank_spots}, {@code submit_answer} last
+     */
+    public static List<Tool> tools(boolean withUser, boolean withThread, boolean withPlaceLookup) {
+        List<Tool> tools = new ArrayList<>();
+        tools.add(listWindows());
+        tools.add(rankSpots(withUser));
+        if (withPlaceLookup) {
+            tools.add(lookUpPlace());
+        }
+        tools.add(rankNightSpots(withUser));
+        tools.add(getHotTopics());
+        tools.add(getComingUp());
+        tools.add(submitAnswer(withThread));
+        return List.copyOf(tools);
     }
 
     private static Tool listWindows() {
@@ -101,6 +127,18 @@ public final class AskToolSchemas {
                         + "wood. Every pick in your answer must be a locationId and windowId this "
                         + "tool returned.",
                 props, List.of());
+    }
+
+    private static Tool lookUpPlace() {
+        Map<String, Object> props = new LinkedHashMap<>();
+        props.put("name", m("type", "string", "description", "The place's name, or part of it."));
+        props.put("windowIds", array(string(), "Only these window ids (from list_windows). Default: every window."));
+        return tool(LOOK_UP_PLACE,
+                "Looks up one place by name and returns its served rating, verdict, headline, tide fit and "
+                        + "whether PhotoCast recommends it (status), for each window. Use it when the reader "
+                        + "asks about a specific place, e.g. why it is rated as it is. It never makes the place "
+                        + "a pick.",
+                props, List.of("name"));
     }
 
     private static Tool rankNightSpots(boolean withUser) {

@@ -1116,6 +1116,79 @@ class AskAnswerValidatorTest {
                         org.assertj.core.groups.Tuple.tuple("Whitby", 2));
     }
 
+    // -- look_up_place: an explanation, never a pick ------------------------------------------
+
+    /** A thin-sample region holding Alnmouth 4 stars, and a sound region holding Bamburgh 5 stars. */
+    private static AskSnapshot lookUpSnapshot() {
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, null,
+                AskFixtures.region("Northumberland", false, AskFixtures.slot(1L, "Alnmouth", 4)),
+                AskFixtures.region("Coast", true, AskFixtures.slot(2L, "Bamburgh", 5)))), List.of()));
+    }
+
+    private static AskTools lookUpTools(AskSnapshot snapshot) {
+        return new AskTools(snapshot, new AskUserContext(7L, com.gregochr.goldenhour.entity.UserRole.PRO_USER, true),
+                AskScope.ALL, org.mockito.Mockito.mock(com.gregochr.goldenhour.service.DriveTimeResolver.class),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+    }
+
+    @Test
+    @DisplayName("an answerable answer with no pick and no event survives when its only tool call was "
+            + "look_up_place: an explanation is an answer")
+    void lookUpPlace_explanationAnswerSurvives() {
+        AskSnapshot snapshot = lookUpSnapshot();
+        AskTools tools = lookUpTools(snapshot);
+        tools.lookUpPlace(new AskTools.LookUpPlaceArgs("alnmouth", null));
+
+        Result result = validate(answer("Alnmouth is rated 4 for Tuesday sunset."), snapshot, tools.evidence());
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().answerable()).isTrue();
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("without any tool call the same no-pick answer is still discarded: look_up_place is what "
+            + "makes it an investigated answer")
+    void lookUpPlace_noToolCallStillDiscarded() {
+        Result result = validate(answer("Alnmouth is rated 4 for Tuesday sunset."), lookUpSnapshot(),
+                new AskEvidence(Set.of(), Set.of(), 0));
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.reason()).contains("no pick, no event and no tool call");
+    }
+
+    @Test
+    @DisplayName("a pick naming a looked-up thin-sample place is dropped, and the answer stands without it")
+    void lookUpPlace_pickOnAThinSamplePlaceIsDropped() {
+        AskSnapshot snapshot = lookUpSnapshot();
+        AskTools tools = lookUpTools(snapshot);
+        tools.lookUpPlace(new AskTools.LookUpPlaceArgs("alnmouth", null));
+
+        Result result = validate(answer("Alnmouth is rated 4.", rawPick(1L, "Looks good")), snapshot,
+                tools.evidence());
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a pick naming a looked-up PICK place that rank_spots never returned is dropped too")
+    void lookUpPlace_pickOnAPickEligiblePlaceRankSpotsNeverReturnedIsDropped() {
+        AskSnapshot snapshot = lookUpSnapshot();
+        AskTools tools = lookUpTools(snapshot);
+        tools.lookUpPlace(new AskTools.LookUpPlaceArgs("bamburgh", null));
+
+        Result result = validate(answer("Bamburgh is rated 5.", rawPick(2L, "Looks good")), snapshot,
+                tools.evidence());
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().picks()).isEmpty();
+        // The same pick survives once rank_spots has returned it: the lookup is what could not offer it.
+        tools.rankSpots(new AskTools.RankSpotsArgs(null, null, null, null, null, null));
+        assertThat(validate(answer("Bamburgh is rated 5.", rawPick(2L, "Looks good")), snapshot,
+                tools.evidence()).answer().picks()).extracting(AskPick::locationName).containsExactly("Bamburgh");
+    }
+
     // -- the two pick rules: fresh (3, distinct locations) and ranking follow-up (4, distinct pairs) --
 
     private static AskEvidence.Pair at(long id, String windowId) {
