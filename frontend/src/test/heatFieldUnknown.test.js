@@ -312,6 +312,24 @@ describe('paintUnknown', () => {
     expect(paintUnknown(ctx, 100, 40, [{ x: 50, y: 20, rid: 'A' }], [], { radius: 20 })).toBe(true);
   });
 
+  it('draws the finished hatch at the opacity it is given, full strength when none is', () => {
+    const alphaAtFinalDraw = (opacity) => {
+      const { cv, ctx } = canvasWithContext();
+      cv.width = 100;
+      cv.height = 40;
+      let alpha = null;
+      const draw = ctx.drawImage;
+      ctx.drawImage = (...args) => {
+        alpha = ctx.globalAlpha;
+        return draw(...args);
+      };
+      paintUnknown(ctx, 100, 40, [{ x: 50, y: 20, rid: 'A' }], [], { radius: 20, opacity });
+      return alpha;
+    };
+    expect(alphaAtFinalDraw(undefined)).toBe(1);
+    expect(alphaAtFinalDraw(0.35)).toBeCloseTo(0.35, 5);
+  });
+
   it('upscales the mask with the field\'s own blur, widened by (1 - conf) * 2.6', () => {
     const blurs = (conf) => {
       const { cv, ctx } = canvasWithContext();

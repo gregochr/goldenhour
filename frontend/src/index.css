@@ -4249,6 +4249,7 @@ button.wf-hc.also.on:hover {
      re-setting `right: 8px` eight lines later, which was dead CSS whose own comment described the
      rule above it as a different block. */
   .wf-map-tab .wf-win-verdict-region { display: none; }
+  .wf-map-tab .wf-win-verdict-count { display: none; }
   .wf-map-tab .wf-win-pick { padding: 3px 5px; }
   .wf-map-tab .wf-win-pick-glyph { font-size: 11px; }
   /* The group fills the bar here; the 504px cap is a desktop/tablet concern. */
@@ -5183,6 +5184,25 @@ button.wf-hc.also.on:hover {
    (map-tab-v2-plan.md O-4). ⚠️ A px cap on 9px text does not scale with a browser minimum-font-size
    setting or Firefox's text-only zoom; at raised text scale the sentence clips. Stated rather than
    defended against — the text stays in the accessible name either way. */
+.wf-win-verdict-line {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+/* The thin-sample count (thin-sample plan F4): separator in ink-3 400, count in ink 500, solid
+   colours, no opacity muting. Hidden with the region line at phone width; it stays in the name. */
+.wf-win-verdict-count {
+  margin-left: 4px;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--color-plex-text);
+}
+.wf-win-verdict-count-sep {
+  margin-right: 4px;
+  font-weight: 400;
+  color: #857c70;
+}
 .wf-win-verdict-region {
   display: block;
   max-width: 112px;
@@ -7208,6 +7228,46 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text);
   font-weight: 600;
   font-size: 10.5px;
+}
+.wf-legend-ground {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-legend-ground-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* The swatches from the thin-sample spec: 26x13, radius 2, the map plate's fill with the coastline
+   ink inset; the hatch swatch rules the same 45 degree mark, brighter than the map's own .18 so it
+   survives at 13px. Fixed values, mirrored from `heatField.js`'s plate colour. */
+.wf-legend-swatch {
+  flex: none;
+  width: 26px;
+  height: 13px;
+  border-radius: 2px;
+  background: #241d18;
+  box-shadow: inset 0 0 0 1px rgba(242, 231, 211, 0.3);
+}
+.wf-legend-swatch-hatch {
+  background:
+    repeating-linear-gradient(-45deg, rgba(242, 231, 211, 0.32) 0 0.8px, transparent 0.8px 5px),
+    #241d18;
+}
+/* Forced colours drop backgrounds and box-shadows, so both swatches would vanish: a CanvasText border
+   on each, and the hatch swatch keeps its own colours so it stays distinguishable from the plain one. */
+@media (forced-colors: active) {
+  .wf-legend-swatch {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+  .wf-legend-swatch-hatch {
+    forced-color-adjust: none;
+    border-style: dashed;
+  }
 }
 .wf-legend-ring-toggle {
   display: flex;

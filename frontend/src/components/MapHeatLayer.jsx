@@ -355,6 +355,10 @@ function restoreMarkerPanes(map) {
  * @param {object}   props
  * @param {Array}    props.points the kernel points for the selected window, already filtered to
  *        the places the map's own controls say count (see {@code MapView}'s `heatPoints`)
+ * @param {Array}    [props.unrated] the window's "not rated yet" places ({@code unratedPointsFor}'s
+ *        shape), already narrowed as {@code points} is; the ground around them is hatched UNDER the
+ *        field (thin-sample plan F4). Null or empty draws nothing, so a night, an unscored window
+ *        and every existing caller paint exactly what they did.
  * @param {?number}  props.conf   the window's confidence as a 0–1 scalar; the kernel desaturates
  *        and thins with it, so a day-4 guess cannot look as authoritative as tonight
  * @param {?{lat: number, lon: number}} [props.homeCoords] the saved home postcode's coordinates,
@@ -386,7 +390,7 @@ function restoreMarkerPanes(map) {
  *        colour-scale preference is (plan D3); null leaves the temperature-only rule.
  */
 export default function MapHeatLayer({
-  points, conf = null, colourMode = null, homeCoords = null, rings = false,
+  points, unrated = null, conf = null, colourMode = null, homeCoords = null, rings = false,
   fieldEnabled = true, dim = 1, ramp = null, bloom = null,
 }) {
   const map = useMap();
@@ -546,6 +550,10 @@ export default function MapHeatLayer({
           ? { bloom: FIELD_BLOOM, bloomFrom: bloom.from, bloomA: bloom.a, bloomRGB: bloom.rgb }
           : getMode() === 'temp' ? { bloom: FIELD_BLOOM } : null),
         ...(ramp ? { ramp } : null),
+        // Absence, not an empty array: `drawTiles` then sees today's exact options object.
+        // `opacity` above is the hatch's too: `paintUnknown` reads it from these same options, so the
+        // hatch fades with the field at the handover and under Ask's dim.
+        ...(unrated?.length ? { unrated } : null),
         // Same rule as the bloom above: below LAND_CLIP_MAX_ZOOM this spreads all five clip keys
         // (clipPath may still be null); at/above it, none at all — absence, not a falsy value.
         ...(clipOpts || null),
@@ -602,7 +610,7 @@ export default function MapHeatLayer({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [map, points, conf, colourMode, landMask, rings, homeCoords, fieldEnabled, dim, ramp, bloom]);
+  }, [map, points, unrated, conf, colourMode, landMask, rings, homeCoords, fieldEnabled, dim, ramp, bloom]);
 
   const {
     attachFrame, canvasRef, geoFailed, repaint, repaintNow,
@@ -751,6 +759,11 @@ MapHeatLayer.propTypes = {
     rid: PropTypes.string,
     r: PropTypes.arrayOf(PropTypes.number),
   })).isRequired,
+  unrated: PropTypes.arrayOf(PropTypes.shape({
+    lat: PropTypes.number,
+    lng: PropTypes.number,
+    rid: PropTypes.string,
+  })),
   conf: PropTypes.number,
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   rings: PropTypes.bool,

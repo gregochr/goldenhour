@@ -298,6 +298,46 @@ export function buildHeatPointSets(spots, renderedEvents) {
 }
 
 /**
+ * The key a spot is joined on across the Map tab's own lists: the id when there is one, the name
+ * otherwise, with a sigil so an id 5 and a name "5" never meet.
+ *
+ * @param {{id: *, name: ?string}} spot a spot or a point
+ * @returns {string} the join key
+ */
+export function heatSpotKey(spot) {
+  return spot.id != null ? `#${spot.id}` : `@${spot.name}`;
+}
+
+/**
+ * What each window knows about every place, keyed {@code date:targetType}: the unrated points the
+ * "not rated yet" hatch is drawn around, and each place's state by {@link heatSpotKey}. Built beside
+ * {@link buildHeatPointSets} (same keys, same events) for the Map tab (thin-sample plan F4): the
+ * hatch reads {@code unrated}, the pill's rated count reads {@code states} over the reader's scope
+ * pool. A filter/map over the states {@link buildHeatSpots} already set; nothing is rated here.
+ *
+ * @param {Array<object>} spots spots from {@link buildHeatSpots}
+ * @param {Array<{date: string, targetType: string}>} renderedEvents the windows, in render order
+ * @returns {Map<string, {unrated: Array<object>, states: Map<string, string>}>} window key to entry
+ */
+export function buildHeatWindowStates(spots, renderedEvents) {
+  const out = new Map();
+  const events = Array.isArray(renderedEvents) ? renderedEvents : [];
+  events.forEach((event, index) => {
+    if (!event || !event.date || !event.targetType) return;
+    const states = new Map();
+    for (const spot of Array.isArray(spots) ? spots : []) {
+      const state = spot?.states?.[index];
+      if (state) states.set(heatSpotKey(spot), state);
+    }
+    out.set(windowKey(event.date, event.targetType), {
+      unrated: unratedPointsFor(spots, index),
+      states,
+    });
+  });
+  return out;
+}
+
+/**
  * Score rows for a set of windows, drawn from the locations' own forecast rows
  * ({@code forecastsByDate}) and from nothing else — the shape {@link buildHeatSpots} takes, built
  * for the Map tab's PAST windows (outcome-rating-plan.md §2 #3, O3c).

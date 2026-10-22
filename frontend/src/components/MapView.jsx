@@ -45,6 +45,8 @@ import {
 import { myRatingOf } from '../utils/outcomeRatingJoin.js';
 import { dowDayLabel, pastDayLabel } from '../utils/windowFirstCards.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
+import { heatSpotKey } from '../utils/heatSpots.js';
+import { buildThinCounts } from '../utils/mapThinSample.js';
 import { withScopedSolarTimes } from '../utils/mapScopedTime.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
@@ -294,16 +296,6 @@ HeatBoundsController.propTypes = {
   padding: PropTypes.arrayOf(PropTypes.number),
 };
 
-/**
- * A spot's identity for the field's own filtering, id-first with a name fallback.
- *
- * <p>The same precedence `heatSpots.buildHeatSpots` joins on, for the same reason: ids are stable
- * and names are what exists when they are not. The sigils keep the two spaces apart — without them
- * a location whose id is 5 and one whose name is "5" are the same key.
- */
-function heatSpotKey(spot) {
-  return spot.id != null ? `#${spot.id}` : `@${spot.name}`;
-}
 
 /**
  * One empty point array, shared.
@@ -2839,6 +2831,31 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   ), [heatPointsUnlensed, focusLensNames]);
 
   /**
+   * The "not rated yet" places the field hatches around (thin-sample plan F4) — SOLAR windows only,
+   * past ones included, never an astro or aurora night, and none while the window has no rating at
+   * all (`windowUnscored`, declared below, is the existing predicate; its inputs are repeated here
+   * because the hooks must precede it).
+   *
+   * <p>⚠️ <b>Narrowed exactly as the colour is.</b> The field is deliberately not narrowed by the
+   * rating floor, subject chips, drive or scope (see `heatSpotPool`), so neither is the hatch; the
+   * two narrowings that DO reach the colour, the dark-sky pool and a door's named spot-set lens, reach
+   * the hatch through the same joins. Otherwise a place the colour layer excludes by a filter would be
+   * claimed as "not rated yet", which is a claim about the forecast the filter has no standing to make.
+   */
+  const unratedPoints = useMemo(() => {
+    if (isAstroMode || isAuroraMode || !heatOn || !heatWindow || heatWindow.bestRating == null) {
+      return EMPTY_POINTS;
+    }
+    let points = heat.windowStates?.get(heatWindow.key)?.unrated || EMPTY_POINTS;
+    if (heatSpotPool) {
+      const allowed = new Set(heatSpotPool.map(heatSpotKey));
+      points = points.filter((p) => allowed.has(heatSpotKey(p)));
+    }
+    if (focusLensNames) points = points.filter((p) => focusLensNames.has(p.name));
+    return points;
+  }, [isAstroMode, isAuroraMode, heatOn, heatWindow, heat, heatSpotPool, focusLensNames]);
+
+  /**
    * Whether the payload says nothing in the selected window is rated — the Plan tab's mark, adapted
    * to a host with no plate to hatch.
    *
@@ -3542,6 +3559,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const evVerdicts = buildEvVerdicts({
     events: mapEvents, index: regionVerdictIndex, regionsInScope,
   });
+
+  /**
+   * The pill's `· N rated` per solar row — rated sky places in the SCOPE pool, shown only on a thin
+   * sample (thin-sample plan F4; `utils/mapThinSample.js` states the population and the gate).
+   */
+  const thinCounts = useMemo(() => buildThinCounts({
+    events: mapEvents,
+    verdicts: evVerdicts,
+    windowStates: heat?.windowStates,
+    scopePool: verdictScopePool,
+  // `mapEvents` and `evVerdicts` are new objects every render (see `evVerdicts`), so this recomputes
+  // each render by construction; the memo is for the one object identity the pill reads.
+  }), [mapEvents, evVerdicts, heat, verdictScopePool]);
 
   /**
    * Everything the landing card draws (map-landing-plan.md §3 L4) — one call into the pure
@@ -5382,6 +5412,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       olderDayLoadingLabel={olderDayLoadingLabel}
       onLoadOlderDay={startOlderLoad}
       ratedCounts={ratedCounts}
+      thinCounts={thinCounts}
       // Phone only (map-mobile-sheet-plan.md §3 M2 task 4) — the pill body toggles the peek
       // sheet's Windows section instead of this control's own dropdown, which stays permanently
       // closed there (`open` is `openMapMenu === 'window'`, a value the phone never sets). See
@@ -5659,6 +5690,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               <MapHeatLayer
                 colourMode={mapColourScale}
                 points={heatPoints}
+                unrated={unratedPoints}
                 // ASTRO has no `heat.windows` entry to read a scalar off (adversarial review,
                 // real #3) — `astroConfidenceScalar` is this mode's own capped-inference figure.
                 // AURORA likewise (aurora-heat-plan.md D2): its own capped-inference scalar.
@@ -6411,6 +6443,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       </span>
                     </div>
                   )}
+                  {/* The ground key (thin-sample plan F4), solar and rated windows only: the hatch is
+                      not drawn on a night or an unscored window, so neither is its key. */}
+                  {heatOffered && heatOn && !windowUnscored && !isAstroMode && !isAuroraMode && (
+                    <div data-testid="wf-map-peek-ground" className="wf-map-peek-lay-row">
+                      <span className="wf-map-peek-lay-label">Ground</span>
+                      <span className="wf-legend-ground">
+                        <span className="wf-legend-ground-item">
+                          <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-hatch" />
+                          not rated yet
+                        </span>
+                        <span className="wf-legend-ground-item">
+                          <i aria-hidden="true" className="wf-legend-swatch" />
+                          no places
+                        </span>
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             />
@@ -6490,6 +6539,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 reachMeasured={mapReachMeasured}
                 variant={isAuroraMode ? 'aurora' : 'solar'}
                 viewlineShown={viewlineShown}
+                groundKey={!isAstroMode && !isAuroraMode && !windowUnscored}
               />
             )}
             {!isMobile && (
@@ -6674,6 +6724,7 @@ MapView.propTypes = {
     spots: PropTypes.array,
     areaSpots: PropTypes.array,
     pointsByKey: PropTypes.instanceOf(Map),
+    windowStates: PropTypes.instanceOf(Map),
     tideByWindow: PropTypes.instanceOf(Map),
     windows: PropTypes.arrayOf(PropTypes.shape({
       key: PropTypes.string,
