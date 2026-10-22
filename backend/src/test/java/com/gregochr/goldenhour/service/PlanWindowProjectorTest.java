@@ -1741,9 +1741,9 @@ class PlanWindowProjectorTest {
         }
 
         @Test
-        @DisplayName("a forced-exempt region (insufficient by the raw test) CAN be a pick "
-                + "candidate and outranks a plain insufficient region")
-        void forcedExemptRegionCanBeAPick() {
+        @DisplayName("a forced-exempt region keeps its verdict and outranks a plain insufficient "
+                + "one, but is NOT pick-eligible (2026-10-22)")
+        void forcedExemptRegionSetsVerdictButCannotBeAPick() {
             BriefingRegion forcedExempt = region("Forced", 4, 4, 4)
                     .withSampleSufficient(false).withForcedSample(true);
             BriefingRegion plainInsufficient = region("Insufficient", 5, 5, 5)
@@ -1751,8 +1751,38 @@ class PlanWindowProjectorTest {
 
             BriefingWindow w = projectOne(plainInsufficient, forcedExempt);
 
-            assertThat(w.pick()).isNotNull();
-            assertThat(w.pick().regionName()).isEqualTo("Forced");
+            assertThat(w.pick()).isNull();
+            assertThat(w.verdict()).isEqualTo(forcedExempt.displayVerdict());
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        }
+
+        @Test
+        @DisplayName("a sufficient region that also carries a forced slot is still a pick")
+        void sufficientRegionWithForcedSlotIsStillAPick() {
+            BriefingRegion both = region("Both", 4, 4, 4)
+                    .withSampleSufficient(true).withForcedSample(true);
+
+            assertThat(projectOne(both).pick()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("Thu 22 Oct shape: a well-rated sufficient window takes BEST BET; a forced-only "
+                + "4.0 window takes no pick and keeps its Worth it verdict and 4.0 mean")
+        void forcedOnlyWindowTakesNoPickAndKeepsItsVerdict() {
+            BriefingRegion wellRated = region("Wide", 4, 4, 3).withSampleSufficient(true);
+            BriefingRegion forcedOnly = region("Thin", 4, 4, 4)
+                    .withSampleSufficient(false).withForcedSample(true);
+
+            DailyBriefingResponse out = projectDays(dayOf(TODAY, wellRated),
+                    dayOf(TODAY.plusDays(2), forcedOnly));
+
+            BriefingWindow today = firstWindow(out, 0);
+            BriefingWindow sat = firstWindow(out, 1);
+            assertThat(today.pick()).isNotNull();
+            assertThat(today.pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
+            assertThat(sat.pick()).isNull();
+            assertThat(sat.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(sat.bestRating()).isEqualTo(4);
         }
 
         @Test

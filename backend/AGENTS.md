@@ -134,7 +134,7 @@ Checkstyle and SpotBugs gate those in CI.
       an Ask surface drop that note is a P0.
     - **The window set is the served `renderedEvents`**, not "events with a non-null
       `window()`" (every summary carries a window; only six are rendered), minus passed windows
-      and travel days. Pick-eligible means non-canopy, rated 3–5, in a `verdictEligible()` region:
+      and travel days. Pick-eligible means non-canopy, rated 3–5, in a `pickEligible()` region (sufficient sample only, 2026-10-22):
       no rating exempts an ineligible region (the 2026-09-29 shape).
     - **`engine_calls` is never refunded**; `used` is, on the RESERVED date. The refund is what
       makes the ceiling necessary. The rate limit runs in an interceptor BEFORE the body is

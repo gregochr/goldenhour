@@ -554,14 +554,14 @@ public final class BriefingRollupBuilder {
 
         // Built from the same two numbers the JSON node carries, in the same order, so
         // reconstructRollup's replay of a stored rollup reproduces this exactly — plus the
-        // region's own verdictEligible() (round 10, P1-B), read straight off the BriefingRegion
+        // region's own pickEligible() (round 10, P1-B), read straight off the BriefingRegion
         // already enriched by BriefingRegionEvaluationRollup before this method ever runs, never
         // serialized into regionNode itself.
         return new CandidateCoverage(
                 stats.coverage() == null ? 0 : stats.coverage().count(),
                 daysAhead,
                 stats.sky() == null ? 0.0 : stats.sky().averageRating(),
-                region.verdictEligible());
+                region.pickEligible());
     }
 
     /**
@@ -766,7 +766,7 @@ public final class BriefingRollupBuilder {
                     }
                     int ratedCount = region.path("claudeRatedCount").asInt(0);
                     double avgRating = region.path("claudeAverageRating").asDouble(0.0);
-                    // verdictEligible is never captured in the stored rollup JSON (it is an
+                    // pickEligible is never captured in the stored rollup JSON (it is an
                     // internal fact about the region, never sent to Claude), and neither
                     // replayWithPrompt nor the model-comparison path calls dropIneligiblePicks —
                     // both stop at applyCoverageAwareRanking, which never reads this field. false
