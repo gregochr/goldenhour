@@ -937,9 +937,10 @@ public class AskTools {
         HotTopicsArgs a = args == null ? new HotTopicsArgs(null, null) : args;
         int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_EVENTS);
         Set<String> types = typeKeys(a.types());
-        List<AskSnapshot.Topic> kept = snapshot.hotTopics().stream()
+        List<AskSnapshot.Topic> kept = AskSnapshot.onePerKindAndDay(snapshot.hotTopics().stream()
                 .filter(t -> types.isEmpty() || types.contains(AskEventType.key(t.type())))
                 .filter(t -> t.inScope(scope))
+                .toList()).stream()
                 .limit(limit)
                 .toList();
         List<TopicInfo> infos = kept.stream()

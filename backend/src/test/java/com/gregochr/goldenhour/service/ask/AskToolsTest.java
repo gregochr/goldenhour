@@ -29,6 +29,7 @@ import java.util.Map;
 
 import static com.gregochr.goldenhour.service.ask.AskFixtures.TODAY;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -823,6 +824,67 @@ class AskToolsTest {
 
         assertThat(result.topics()).extracting(AskTools.TopicInfo::type)
                 .containsExactly("AURORA", "SNOW");
+    }
+
+    /**
+     * Three days of a surge at sunrise and at sunset, as {@code StormSurgeHotTopicStrategy} emits
+     * them since #1300 (one topic per date and event), plus an aurora after them.
+     */
+    private static AskSnapshot splitSurgeSnapshot() {
+        List<com.gregochr.goldenhour.model.HotTopic> topics = new ArrayList<>();
+        for (int day = 0; day < 3; day++) {
+            topics.add(AskFixtures.topic("STORM_SURGE", "Storm surge", "dawn tide", TODAY.plusDays(day),
+                    List.of()).withEvent("SUNRISE", null));
+            topics.add(AskFixtures.topic("STORM_SURGE", "Storm surge", "evening tide", TODAY.plusDays(day),
+                    List.of()).withEvent("SUNSET", null));
+        }
+        topics.add(AskFixtures.topic("AURORA", "Aurora", "Kp 6", TODAY.plusDays(2), List.of()));
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), topics));
+    }
+
+    @Test
+    @DisplayName("get_hot_topics: a kind split by event is listed once per day, so it cannot crowd out the rest")
+    void getHotTopics_onePerKindAndDay() {
+        AskTools tools = tools(splitSurgeSnapshot());
+
+        HotTopicsResult result = (HotTopicsResult) tools.getHotTopics(null).payload();
+
+        assertThat(result.topics()).extracting(AskTools.TopicInfo::type, AskTools.TopicInfo::date)
+                .containsExactlyInAnyOrder(
+                        tuple("STORM_SURGE", TODAY.toString()),
+                        tuple("STORM_SURGE", TODAY.plusDays(1).toString()),
+                        tuple("STORM_SURGE", TODAY.plusDays(2).toString()),
+                        tuple("AURORA", TODAY.plusDays(2).toString()));
+        assertThat(result.topics()).filteredOn(t -> t.type().equals("STORM_SURGE"))
+                .extracting(AskTools.TopicInfo::detail).containsOnly("dawn tide");
+    }
+
+    @Test
+    @DisplayName("get_hot_topics: the kept topic of a split pair is one in scope")
+    void getHotTopics_onePerKindAndDay_keepsTheInScopeHalf() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("STORM_SURGE", "Storm surge", "dawn tide", TODAY, List.of("Cornwall"))
+                        .withEvent("SUNRISE", null),
+                AskFixtures.topic("STORM_SURGE", "Storm surge", "evening tide", TODAY, List.of("Coast"))
+                        .withEvent("SUNSET", null))));
+
+        HotTopicsResult result = (HotTopicsResult) tools(snapshot, USER, TestScopes.of("coast"))
+                .getHotTopics(null).payload();
+
+        assertThat(result.topics()).extracting(AskTools.TopicInfo::detail).containsExactly("evening tide");
+    }
+
+    @Test
+    @DisplayName("get_coming_up: a kind split by event stands in the timeline once per day")
+    void getComingUp_onePerKindAndDay() {
+        List<AskTools.ComingUpInfo> served = tools(splitSurgeSnapshot()).getComingUp(null).payload().entries();
+
+        assertThat(served).extracting(AskTools.ComingUpInfo::type, AskTools.ComingUpInfo::start)
+                .containsExactly(
+                        tuple("STORM_SURGE", TODAY.toString()),
+                        tuple("STORM_SURGE", TODAY.plusDays(1).toString()),
+                        tuple("AURORA", TODAY.plusDays(2).toString()),
+                        tuple("STORM_SURGE", TODAY.plusDays(2).toString()));
     }
 
     @Test

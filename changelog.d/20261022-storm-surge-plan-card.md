@@ -9,3 +9,7 @@ high water after its event, so the badge means a surge on the tide following tha
 
 A new roster test, `HotTopicWindowAnchorRosterTest`, fails if any hot-topic type with a live strategy has no
 window to land on. `CLEARANCE` is the one rostered type with no strategy at all and is named as the exception.
+
+Ask lists a kind of topic once per day: `get_hot_topics` and `get_coming_up` keep the first of a valley mist
+or storm surge pair split by event, so a run of such days can no longer fill the five result slots and hide
+everything else (`AskSnapshot.onePerKindAndDay`, after the scope filter and before the limit).
