@@ -328,7 +328,9 @@ describe('WindowFirstMapPane — the heat prop', () => {
   });
 
   describe('window states (thin-sample F4) wait for the scores', () => {
-    const STATE_SPOTS = SPOTS.map((s) => ({ ...s, skySubject: true, states: ['unrated', 'rated'] }));
+    const STATE_SPOTS = SPOTS.map((s, i) => ({
+      ...s, skySubject: true, states: [i === 0 ? 'rated' : 'unrated', 'rated'],
+    }));
     const EVENTS = [
       { date: TODAY, targetType: 'SUNSET' },
       { date: '2026-08-14', targetType: 'SUNRISE' },
@@ -351,7 +353,15 @@ describe('WindowFirstMapPane — the heat prop', () => {
     it('offers them once the scores have loaded', () => {
       renderPane(withScores(true));
       const entry = MapStub.lastProps.heat.windowStates.get(`${TODAY}:SUNSET`);
-      expect(entry.unrated.map((p) => p.name)).toEqual(['Bamburgh', 'Wastwater', 'Kelso']);
+      // One rated spot is evidence for the window, so its unrated neighbours are hatched.
+      expect(entry.unrated.map((p) => p.name)).toEqual(['Wastwater', 'Kelso']);
+    });
+
+    it('offers no unrated points for a window with no rated or stood spot (empty scores response)', () => {
+      const none = STATE_SPOTS.map((s) => ({ ...s, states: ['unrated', 'unrated'] }));
+      renderPane(context({ heatSpots: none, upcomingEvents: EVENTS, scoresLoaded: true }));
+      const entry = MapStub.lastProps.heat.windowStates.get(`${TODAY}:SUNSET`);
+      expect(entry.unrated).toEqual([]);
     });
   });
 

@@ -161,6 +161,7 @@ const HINT_BOX = { width: 118, height: 24 };
 
 /** One frozen array, so a caller that draws no chips does not hand over a fresh prop each render. */
 const EMPTY_CHIPS = Object.freeze([]);
+const EMPTY_UNRATED = Object.freeze([]);
 
 /**
  * Reach ring tiers — {@code RING_TIERS}/{@code RING_MIN_PX} moved to {@code utils/reachRings.js}
@@ -300,9 +301,9 @@ function fits(box, placed, frameWidth, frameHeight) {
  * nobody had. The rail directly below this map reads the same field for its All cell, so the two
  * cannot disagree.
  *
- * <p>The chip is the strip's vocabulary, not its wording: there the footer says
- * {@code unshaded — not scored} because it decodes six tiles at once, and here there is one map
- * whose whole plate is hatched, so "unshaded" would name nothing.
+ * <p>The chip is the strip's vocabulary, not its wording: there the footer's standing swatches say
+ * {@code not rated yet} / {@code no places} because it decodes six tiles at once, and here there is
+ * one map whose whole plate is hatched, so a legend would name nothing.
  *
  * <h2>Framing, focus, and the one thing the planning area may decide</h2>
  *
@@ -336,6 +337,9 @@ function fits(box, placed, frameWidth, frameHeight) {
  * @param {Array}    props.spots      the whole heat catalogue
  * @param {?object}  [props.origin]   the away origin, or null for home — framing only
  * @param {Array}    props.points     this window's kernel points, from {@code buildHeatPointSets}
+ * @param {Array}    [props.unrated]  this window's unrated places, from {@code buildUnratedPointSets}
+ *                                    — hatched as "not rated yet" (thin-sample plan F2); never
+ *                                    drawn on an unscored window
  * @param {?number}  [props.bestRating] the window's served best rating — null when the payload
  *   says nothing in this window is rated, which is the one thing that draws the unscored mark.
  *   Absent is treated as "not rated" only in the sense that a caller passing nothing gets no mark:
@@ -364,7 +368,7 @@ function fits(box, placed, frameWidth, frameHeight) {
  *   label rather than a duration claim nothing measured.
  */
 export default function WindowRowFieldMap({
-  windowKey, date, confidence, spots, points, bestRating = null, regionNames, selectedRegion,
+  windowKey, date, confidence, spots, points, unrated = EMPTY_UNRATED, bestRating = null, regionNames, selectedRegion,
   origin = null, chips = EMPTY_CHIPS,
   reachById, todayStr, onSelectRegion, onOpenLocation = null, onOpenInMap = null, homePoint = null,
   reachMeasured = false, colourMode = null,
@@ -475,12 +479,23 @@ export default function WindowRowFieldMap({
    * {@code heatField.test.js} pins that outcome directly ("is inert when the focus id matches
    * nothing"). The selection is still real — the label plates, the rail cell reads pressed, the band
    * opens and the strip filters — it simply does not dim a field that has nothing to dim.
+   *
+   * <p>⚠️ <b>An UNRATED point counts as carrying the region too</b> (thin-sample F2, Codex P1). A
+   * region whose places are all unrated has no rated point, so the rule above withheld its focus and
+   * every other region's colour and hatch stayed at full strength beside it. With the per-place
+   * hatch that is no longer a blank: the selected region draws its own hatch, so the focus has
+   * something to keep. Only the unrated points actually handed to the kernel count (none on an
+   * unscored window), and a region with no places at all still withholds, so it still cannot blank
+   * the field.
    */
   const focusRegion = useMemo(
-    () => (selectedRegion && points.some((point) => point.rid === selectedRegion)
+    () => (selectedRegion && (
+      points.some((point) => point.rid === selectedRegion)
+      || (!notScored && unrated.some((point) => point.rid === selectedRegion))
+    )
       ? selectedRegion
       : undefined),
-    [selectedRegion, points],
+    [selectedRegion, points, unrated, notScored],
   );
 
   const paint = useCallback(({ width, height, canvases }) => {
@@ -496,6 +511,9 @@ export default function WindowRowFieldMap({
       // The hatch is the caller's claim, never inferred from an empty field — `drawGeo`'s own note
       // says why (a null field also answers a framing question).
       hatch: notScored,
+      // The per-place "not rated yet" layer: skipped when the whole plate is hatched (the window's
+      // own unscored predicate, never an empty set). `focus` is passed above and fades it too.
+      ...(notScored || !unrated.length ? null : { unrated }),
       fit: fitTo,
       // The kernel raises its own alpha to 238 when a focus is set, so a focused field reads as
       // deliberate rather than as a dimmer version of the unfocused one. Byte-identical, never
@@ -579,7 +597,7 @@ export default function WindowRowFieldMap({
     // that this callback's colours (and now its bloom options) come from `scoreRamp`'s module
     // state. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [windowKey, date, confidence, points, notScored, fitTo, framed, regionNames, focusRegion,
+  }, [windowKey, date, confidence, points, unrated, notScored, fitTo, framed, regionNames, focusRegion,
     selectedRegion, todayStr, chips, geoByKey, chipCap, hasHomeGeo, homePoint, colourMode]);
 
   const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
@@ -1041,8 +1059,8 @@ export default function WindowRowFieldMap({
             {selectedRegion ? 'Select it again to clear' : 'Select a region'}
           </span>
         )}
-        {/* A chip on the thing it describes, rather than the strip's footer clause — there is one
-            map here and the whole of it is hatched, so "unshaded" would name nothing.
+        {/* A chip on the thing it describes, rather than the strip's footer legend — there is one
+            map here and the whole of it is hatched, so a legend would name nothing.
 
             `aria-hidden` with the canvas and the labels it sits among, and that is this
             component's own doctrine rather than an omission: the picture does not exist for a
@@ -1068,6 +1086,7 @@ WindowRowFieldMap.propTypes = {
   /** The away origin ({@code {name}}), or null for home. Framing only. */
   origin: PropTypes.shape({ name: PropTypes.string.isRequired }),
   points: PropTypes.array.isRequired,
+  unrated: PropTypes.array,
   bestRating: PropTypes.number,
   /**
    * The locations the field may name, in the order they deserve the space — focused region first,

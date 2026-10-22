@@ -246,6 +246,12 @@ export function heatPointsFor(spots, windowIndex) {
  * the mask), for a spot whose state in that window is exactly {@code unrated}: a stood-down place
  * was looked at, a wood or hide takes no part, a rated place is the field's.
  *
+ * <p>⚠️ <b>A window for which NO spot is {@code rated} or {@code stood} yields nothing.</b> Without a
+ * single piece of evidence for the window (an empty or failed scores response under a briefing that
+ * still rates it) every sky place reads unrated, and the hatch would cover the whole map beneath a
+ * card claiming a rating. We cannot say which places are unrated when we hold no evidence either
+ * way. Every producer of unrated points goes through here, so the Plan and Map hosts agree.
+ *
  * @param {Array<object>} spots spots from {@link buildHeatSpots}
  * @param {number} windowIndex which of the rendered windows to build points for
  * @returns {Array<{id: *, name: string, lat: number, lng: number, rid: string, r: number[]}>}
@@ -253,7 +259,13 @@ export function heatPointsFor(spots, windowIndex) {
  */
 export function unratedPointsFor(spots, windowIndex) {
   const points = [];
-  for (const spot of Array.isArray(spots) ? spots : []) {
+  const list = Array.isArray(spots) ? spots : [];
+  const hasEvidence = list.some((spot) => {
+    const state = spot?.states?.[windowIndex];
+    return state === 'rated' || state === 'stood';
+  });
+  if (!hasEvidence) return points;
+  for (const spot of list) {
     if (spot?.states?.[windowIndex] !== 'unrated') continue;
     points.push({
       id: spot.id,
@@ -293,6 +305,25 @@ export function buildHeatPointSets(spots, renderedEvents) {
   events.forEach((event, index) => {
     if (!event || !event.date || !event.targetType) return;
     sets.set(windowKey(event.date, event.targetType), heatPointsFor(spots, index));
+  });
+  return sets;
+}
+
+/**
+ * The unrated places for every rendered window, keyed {@code date:targetType} — the twin of
+ * {@link buildHeatPointSets} for the "not rated yet" hatch, built over the same windows by the
+ * same index so a window's hatch and its field can never come from different rows.
+ *
+ * @param {Array<object>} spots spots from {@link buildHeatSpots}
+ * @param {Array<{date: string, targetType: string}>} renderedEvents the windows, in render order
+ * @returns {Map<string, Array<object>>} window key → its unrated points
+ */
+export function buildUnratedPointSets(spots, renderedEvents) {
+  const sets = new Map();
+  const events = Array.isArray(renderedEvents) ? renderedEvents : [];
+  events.forEach((event, index) => {
+    if (!event || !event.date || !event.targetType) return;
+    sets.set(windowKey(event.date, event.targetType), unratedPointsFor(spots, index));
   });
   return sets;
 }

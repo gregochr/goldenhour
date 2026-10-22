@@ -708,7 +708,6 @@ describe('WindowFirstHeatStrip — the spread histogram (bars mode, above the mi
       // anything about the map plate, and vice versa.
       await renderStrip({ cards: [ratedCard({ pool: pool(5, 5, 5, 5, 5, null) })] });
       expect(screen.getByTestId('wf-heat-spread-unrated-note')).toBeInTheDocument();
-      expect(screen.queryByTestId('wf-heat-unscored-note')).toBeNull();
     });
 
     it('⚠️ the REVERSE also holds — an unscored map plate never brings up the hatch note', async () => {
@@ -717,7 +716,6 @@ describe('WindowFirstHeatStrip — the spread histogram (bars mode, above the mi
       // hatch fires) but whose pool is EMPTY (bars: true, no sixth bar — the below-the-gate branch
       // never runs) must show the map's own note and nothing about a "hatched bar".
       await renderStrip({ cards: [stripCard({ bestRating: null, verdict: 'AWAITING', verdictLabel: 'Not scored' })] });
-      expect(screen.getByTestId('wf-heat-unscored-note')).toBeInTheDocument();
       expect(screen.queryByTestId('wf-heat-spread-unrated-note')).toBeNull();
     });
 
@@ -2307,13 +2305,62 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
       .toBeInTheDocument();
   });
 
-  it('names the convention in the footer only while a hatched plate is on screen', async () => {
+  it('names the three grounds in the footer, always — and no longer says "unshaded"', async () => {
+    // Thin-sample F2: the old conditional "unshaded — not scored" note is replaced by two standing
+    // swatches (hatch = not rated yet, plain = no places), which hold with or without a hatched plate.
     await renderStrip({ cards: BOTH });
-    expect(screen.getByTestId('wf-heat-foot')).toHaveTextContent('unshaded — not scored');
+    const foot = screen.getByTestId('wf-heat-foot');
+    expect(foot).not.toHaveTextContent('unshaded');
+    expect(screen.getByTestId('wf-heat-key-hatch')).toHaveTextContent('not rated yet');
+    expect(screen.getByTestId('wf-heat-key-plain')).toHaveTextContent('no places');
 
     cleanup();
     await renderStrip({ cards: [SCORED] });
-    expect(screen.queryByTestId('wf-heat-unscored-note')).toBeNull();
+    expect(screen.getByTestId('wf-heat-key-hatch')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-heat-key-plain')).toBeInTheDocument();
+  });
+
+  describe('the per-place "not rated yet" layer (thin-sample F2)', () => {
+    const UNRATED = [{ id: 9, name: 'Alnmouth', lat: 55.4, lng: -1.6, rid: 'R', r: [0] }];
+
+    it('hands a rated window its unrated places', async () => {
+      await withMeasuredThumbs(160, async () => {
+        await renderStrip({
+          cards: [stripCard({ bestRating: 4 })],
+          unratedSets: new Map([[`${TODAY}:SUNSET`, UNRATED]]),
+        });
+      });
+      expect(drawGeo.mock.calls.at(-1)[5].unrated).toBe(UNRATED);
+    });
+
+    it('passes none on an unscored window, nor when the set is empty, nor on an away cell', async () => {
+      await withMeasuredThumbs(160, async () => {
+        await renderStrip({
+          cards: [UNSCORED],
+          unratedSets: new Map([[UNSCORED.key, UNRATED]]),
+        });
+      });
+      expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('unrated');
+
+      drawGeo.mockClear();
+      await withMeasuredThumbs(160, async () => {
+        await renderStrip({
+          cards: [stripCard({ bestRating: 4 })],
+          unratedSets: new Map([[`${TODAY}:SUNSET`, []]]),
+        });
+      });
+      expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('unrated');
+
+      drawGeo.mockClear();
+      const away = stripCard({
+        key: '2026-08-06:SUNSET', date: '2026-08-06', bestRating: null, away: true,
+        verdict: null, verdictLabel: 'Not forecast',
+      });
+      await withMeasuredThumbs(160, async () => {
+        await renderStrip({ cards: [away], unratedSets: new Map([[away.key, UNRATED]]) });
+      });
+      drawGeo.mock.calls.forEach((c) => expect(c[5]).not.toHaveProperty('unrated'));
+    });
   });
 
   it('leaves a RATED window alone even when its field has no points to paint', async () => {
@@ -2328,7 +2375,6 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
 
     expect(drawGeo.mock.calls.at(-1)[5].hatch).toBe(false);
     expect(screen.getByTestId('wf-heat-card')).not.toHaveAttribute('data-unscored');
-    expect(screen.queryByTestId('wf-heat-unscored-note')).toBeNull();
   });
 
   it('marks a window with no served rating even when its field DOES have points', async () => {
@@ -2366,7 +2412,6 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
     const cells = screen.getAllByTestId('wf-heat-card');
     expect(cells[1]).toHaveAttribute('data-away', 'true');
     expect(cells[1]).not.toHaveAttribute('data-unscored');
-    expect(screen.queryByTestId('wf-heat-unscored-note')).toBeNull();
   });
 });
 
@@ -2406,7 +2451,7 @@ describe('WindowFirstHeatStrip — the header, footer and beyond line', () => {
     // The one clause that says what the field is NOT — the lens filters the cards, never the field
     // (plan §3). Dropping it would leave a picture a reader could reasonably read as their own
     // reachable options.
-    expect(foot).toHaveTextContent('Colour shows the whole forecast — the cards allow for your drive');
+    expect(foot).toHaveTextContent('Colour and hatch cover every place in the forecast — the cards allow for your drive');
   });
 
   it('names the regions beyond the planning area, and only the measured ones', async () => {

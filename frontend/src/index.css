@@ -2800,6 +2800,39 @@ button.wf-hc.also.on:hover {
 .wf-hstrip-sp {
   margin-left: auto;
 }
+/* Legend swatches (thin-sample plan F2): plate fill, coastline ink inset, 26x13. The hatch ink is
+   brighter than the map's .18 so it survives at 13px. */
+.wf-hstrip-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.wf-hstrip-sw {
+  display: inline-block;
+  width: 26px;
+  height: 13px;
+  flex: none;
+  border-radius: 2px;
+  background-color: #241d18;
+  box-shadow: inset 0 0 0 1px rgba(242, 231, 211, 0.3);
+}
+.wf-hstrip-sw-hatch {
+  background-image: repeating-linear-gradient(-45deg, rgba(242, 231, 211, 0.32) 0 0.8px, transparent 0.8px 5px);
+}
+/* Forced colours drop background colours and box-shadows, so the plain swatch would vanish and the
+   hatch could not be told from it. Both get a real CanvasText border; the hatch swatch keeps its
+   gradient (`forced-color-adjust: none`) in CanvasText ink so the two stay distinguishable. */
+@media (forced-colors: active) {
+  .wf-hstrip-sw {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+  .wf-hstrip-sw-hatch {
+    forced-color-adjust: none;
+    background-color: Canvas;
+    background-image: repeating-linear-gradient(-45deg, CanvasText 0 1px, transparent 1px 5px);
+  }
+}
 /* ── Movement (heat-field plan §4.7, narrowed by plan-matrix M1) ──────────────────────────────
    ONE rendering now, not two. P6 put a per-card delta chip on each thumbnail's top row beside this
    line; the v3 card face deletes it (deletion ledger, M1) because it earned nothing — a magnitude

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  POINT_SCORE_INDEX, buildHeatPointSets, buildHeatSpots, forecastScoreRows, heatPointsFor,
+  POINT_SCORE_INDEX, buildHeatPointSets, buildHeatSpots, buildUnratedPointSets, forecastScoreRows, heatPointsFor, unratedPointsFor,
 } from '../utils/heatSpots.js';
 import { windowKey } from '../utils/windowKeys.js';
 
@@ -390,5 +390,46 @@ describe('forecastScoreRows — score rows from the forecast rows alone', () => 
     const [spot] = buildHeatSpots(locations, forecastScoreRows(locations, windows), windows);
 
     expect(spot.scores).toEqual([4, null]);
+  });
+});
+
+describe('buildUnratedPointSets (thin-sample F2)', () => {
+  const locations = [
+    location({ id: 1, name: 'Rated' }),
+    location({ id: 2, name: 'Unrated', lat: 55.7 }),
+    location({ id: 3, name: 'Stood', lat: 55.8 }),
+    location({ id: 4, name: 'Wood', lat: 55.9, locationType: ['WOODLAND'] }),
+  ];
+  const rows = [
+    row({ locationId: 1, locationName: 'Rated', rating: 4 }),
+    row({ locationId: 3, locationName: 'Stood', rating: null, triageReason: 'Heavy cloud' }),
+  ];
+  const spots = buildHeatSpots(locations, rows, EVENTS);
+
+  it('keys by the same window key and holds only places the window did not rate', () => {
+    const sets = buildUnratedPointSets(spots, EVENTS);
+    expect([...sets.keys()]).toEqual(['2026-08-19:SUNSET', '2026-08-20:SUNRISE']);
+    // A rated place, a stood-down place and a wood never appear.
+    expect(sets.get('2026-08-19:SUNSET').map((p) => p.name)).toEqual(['Unrated']);
+  });
+
+  it('is empty for no windows and skips a malformed event', () => {
+    expect(buildUnratedPointSets(spots, null).size).toBe(0);
+    expect([...buildUnratedPointSets(spots, [{}]).keys()]).toEqual([]);
+  });
+});
+
+describe('unratedPointsFor — no evidence, no hatch', () => {
+  it('yields nothing for a window where no spot is rated or stood down', () => {
+    const spots = buildHeatSpots([location(), location({ id: 2, name: 'Alnmouth' })], [], EVENTS);
+    expect(unratedPointsFor(spots, 0)).toEqual([]);
+    expect(buildUnratedPointSets(spots, EVENTS).get('2026-08-19:SUNSET')).toEqual([]);
+  });
+
+  it('still hatches the unrated neighbours of one rated spot', () => {
+    const spots = buildHeatSpots(
+      [location(), location({ id: 2, name: 'Alnmouth' })], [row({ rating: 4 })], EVENTS,
+    );
+    expect(unratedPointsFor(spots, 0).map((p) => p.name)).toEqual(['Alnmouth']);
   });
 });

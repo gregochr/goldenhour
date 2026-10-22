@@ -617,13 +617,14 @@ function areaLabel(regionName, tiny) {
  * which is almanac and true whether or not a forecast ran. It draws none of the card's derived rows
  * — there is no pool behind them.
  *
- * <p>An unscored window takes {@code drawGeo}'s hatch, and the question is answered by
+ * <p>An unscored window takes {@code drawGeo}'s whole-plate hatch (and no per-place layer), and the question is answered by
  * {@code card.bestRating} rather than by the point set. That distinction cost a production defect:
  * an empty point set is a fact about the JOIN behind the picture, while {@code bestRating} is the
  * payload's own "is anything in this window rated" — on 2026-08-19 the two disagreed for three of
  * six windows and a hatched plate reading "not scored" sat directly above a card reading
- * {@code best spot 5 stars}. One predicate, read by the plate, the footer note and the hidden
- * sentence.
+ * {@code best spot 5 stars}. One predicate, read by the plate, the per-place layer and the hidden
+ * sentence. The footer no longer carries a conditional note for it: its standing swatches (hatch =
+ * {@code not rated yet}, plain = {@code no places}) name the ground for every window.
  *
  * <h2>Movement is the change line's alone</h2>
  *
@@ -637,6 +638,8 @@ function areaLabel(regionName, tiny) {
  * @param {object}   props
  * @param {Array}    props.cards      descriptors from {@code buildHeatStripCards}, chronological
  * @param {Map}      props.pointSets  window key to kernel points, from {@code buildHeatPointSets}
+ * @param {?Map}     [props.unratedSets] window key to unrated points, from
+ *                                    {@code buildUnratedPointSets} — the "not rated yet" hatch
  * @param {Array}    props.spots      the whole heat catalogue, for framing and the beyond line
  * @param {?Map}     [props.reachById] per-user reach, keyed by location id — framing only
  * @param {Array}    [props.hotTopics] the served {@code briefing.hotTopics}, for the scope filter
@@ -664,7 +667,7 @@ function areaLabel(regionName, tiny) {
  *                                    drawn under an away origin, even when set.
  */
 export default function WindowFirstHeatStrip({
-  cards, pointSets, spots, reachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
+  cards, pointSets, unratedSets, spots, reachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
   origin = null, onSearchRegion, colourMode = null, homeCoords = null, highlightKeys = null,
 }) {
   // Framing is the ONE thing scope is allowed to decide about the field: which regions are in shot.
@@ -917,6 +920,10 @@ export default function WindowFirstHeatStrip({
         // Off the same Set the markup reads, rather than off `points.length` here: one predicate,
         // so a hatched plate and an unmarked cell can never describe the same window.
         hatch: unscored.has(card.key),
+        // "Not rated yet" ground (thin-sample plan F2): never on an unscored window (its whole
+        // plate is already hatched — the same predicate, not an empty set) nor an away cell.
+        ...(card.away || unscored.has(card.key) || !unratedSets?.get?.(card.key)?.length
+          ? null : { unrated: unratedSets.get(card.key) }),
         fit: fitTo,
         // Bloom only in TEMPERATURE mode (map-tab-v2-plan.md §3 P2, decision D-1): the bloom's
         // whole rationale is the temp ramp's luminance inversion, and the verdict ramp has none —
@@ -969,7 +976,7 @@ export default function WindowFirstHeatStrip({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [cards, pointSets, unscored, fitTo, todayStr, frameAspect, colourMode, framed, scopeNames,
+  }, [cards, pointSets, unratedSets, unscored, fitTo, todayStr, frameAspect, colourMode, framed, scopeNames,
     origin, homeCoords]);
 
   /**
@@ -1833,20 +1840,22 @@ export default function WindowFirstHeatStrip({
         />
         <span>poor → worth it</span>
         <span>later days look hazier — lower confidence</span>
-        {/* Named in words because a texture is not vocabulary, and named HERE rather than on each
-            card because a card's own rows are already full — the same call the haze clause beside
-            it makes about the same picture.
+        {/* The picture's three grounds, named (thin-sample plan F2): colour is a rating, hatch is a
+            place nobody rated for this window, plain plate is no place at all. ALWAYS drawn — the
+            per-place hatch appears on any window with unrated places, so the key can no longer be
+            conditional the way the old "unshaded — not scored" note was (that note named only the
+            whole-plate hatch of an unscored window, which is "not rated yet" too).
 
-            ⚠️ NOT `.wf-hstrip-sp`, so it survives the phone. The desktop-only rule next to it is
-            about a PERMANENT third clause competing for a narrow bar; this one appears only while
-            a hatched plate is actually on screen, and the phone is where the misreading was
-            reported. It says nothing about WHY — "at this range" was drafted and dropped, because
-            the horizon is the usual cause and not the only one (a failed batch leaves T+0
-            unscored), and this note cannot tell those apart; the served verdict word and region
-            wording carry the reason (the backend folds the pipeline's own record into it). */}
-        {unscored.size > 0 && (
-          <span data-testid="wf-heat-unscored-note">unshaded — not scored</span>
-        )}
+            The right-hand line below stays desktop-only (`.wf-hstrip-sp`) on purpose: the phone bar
+            has no room for it, and the two swatches carry the meaning there. */}
+        <span className="wf-hstrip-key" data-testid="wf-heat-key-hatch">
+          <span className="wf-hstrip-sw wf-hstrip-sw-hatch" aria-hidden="true" />
+          not rated yet
+        </span>
+        <span className="wf-hstrip-key" data-testid="wf-heat-key-plain">
+          <span className="wf-hstrip-sw" aria-hidden="true" />
+          no places
+        </span>
         {/* The histogram's own hatch (the minimum-sample rule's Part 2) gets the SAME treatment as
             the map plate's note above, for the same reason: a texture is not vocabulary and a
             card's own rows have no room for it. ⚠️ NOT rare in practice — a catalogue with any
@@ -1864,7 +1873,7 @@ export default function WindowFirstHeatStrip({
         {/* Desktop only, as the design has it — the phone bar has no room for a third clause and
             the first two are the ones that decode the picture. */}
         <span className="wf-hstrip-sp">
-          Colour shows the whole forecast — the cards allow for your drive
+          Colour and hatch cover every place in the forecast — the cards allow for your drive
         </span>
       </div>
 
@@ -2045,6 +2054,7 @@ WindowFirstHeatStrip.propTypes = {
     reachMeasured: PropTypes.bool,
   })).isRequired,
   pointSets: PropTypes.instanceOf(Map),
+  unratedSets: PropTypes.instanceOf(Map),
   spots: PropTypes.array.isRequired,
   reachById: PropTypes.instanceOf(Map),
   /** The served hot topics, for the scope filter. Absent means nothing is scope-filtered. */
