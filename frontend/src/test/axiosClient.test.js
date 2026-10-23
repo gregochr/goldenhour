@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as AuthApi from '../api/authApi.js';
-import apiClient, { REWIND_HEADER } from '../api/axiosClient.js';
+import apiClient, { REWIND_HEADER, SKIP_AUTH_REFRESH } from '../api/axiosClient.js';
 import { setRewind } from '../utils/rewind.js';
 
 vi.mock('../api/authApi.js');
@@ -99,11 +99,11 @@ describe('axiosClient interceptors', () => {
         config: { headers: {}, _retried: false },
       });
 
-      try {
-        await apiClient.get('/api/test', { adapter });
-      } catch {
-        // Expected to throw
-      }
+      // The original request rejects with its own 401 and is not retried with an empty token.
+      await expect(apiClient.get('/api/test', { adapter })).rejects.toMatchObject({
+        response: { status: 401 },
+      });
+      expect(adapter).toHaveBeenCalledTimes(1);
 
       // Should have dispatched the session-expired event
       const expiredEvents = dispatchSpy.mock.calls.filter(
@@ -151,6 +151,23 @@ describe('axiosClient interceptors', () => {
 
       // The retry carried the fresh token.
       expect(adapter.mock.calls[1][0].headers['Authorization']).toBe('Bearer fresh-jwt');
+    });
+
+    it('rejects a 401 on a request flagged skipAuthRefresh without calling refreshAccessToken', async () => {
+      localStorage.setItem(TOKEN_KEY, 'jwt');
+      localStorage.setItem(REFRESH_KEY, 'refresh');
+
+      const adapter = vi.fn((config) => Promise.reject({ response: { status: 401 }, config }));
+
+      await expect(apiClient.post('/api/auth/login', {}, { adapter, [SKIP_AUTH_REFRESH]: true }))
+        .rejects.toMatchObject({ response: { status: 401 } });
+
+      expect(AuthApi.refreshAccessToken).not.toHaveBeenCalled();
+      expect(adapter).toHaveBeenCalledTimes(1);
+      const expiredEvents = dispatchSpy.mock.calls.filter(
+        ([event]) => event.type === 'goldenhour:session-expired'
+      );
+      expect(expiredEvents.length).toBe(0);
     });
 
     it('does not dispatch session-expired for non-401 errors', async () => {
