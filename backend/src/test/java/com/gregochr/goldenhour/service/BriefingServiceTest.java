@@ -102,6 +102,8 @@ class BriefingServiceTest {
      */
     @Mock
     private WindowTideRollupBuilder windowTideRollupBuilder;
+    @Mock
+    private BigSeasBuilder bigSeasBuilder;
     /**
      * The movement sink. Unstubbed it answers {@code Optional.empty()} for the previous build
      * stamp, which is the no-basis case — no deltas, the response passes through unchanged. That is
@@ -242,7 +244,8 @@ class BriefingServiceTest {
     private ServedBriefingAssembler assembler(java.time.Clock clock) {
         return new ServedBriefingAssembler(bestBetFallbackService, snapshots(),
                 windowTideRollupBuilder, evaluationViewService, clock, rollup(clock),
-                locationPointProvider, guardProperties, new NeighbourGuardLog(line -> { }));
+                locationPointProvider, guardProperties, new NeighbourGuardLog(line -> { }),
+                bigSeasBuilder);
     }
 
     /**

@@ -69,6 +69,12 @@ import java.util.List;
  *                           the shell already renders; this field is the delta's basis, published
  *                           so a client or an operator can tell what the movement was measured
  *                           from.
+ * @param bigSeas            the big-seas days (docs/engineering/big-seas-plan.md), attached as the
+ *                           last step of the serve path by {@code ServedBriefingAssembler}.
+ *                           Serve-path only: null on every internal path and every stored payload,
+ *                           so it never reaches {@code daily_briefing_cache}; omitted from the JSON
+ *                           when null. It carries no personal data, so it is safe on the
+ *                           ETag-shared payload.
  */
 public record DailyBriefingResponse(
         LocalDateTime generatedAt,
@@ -86,7 +92,8 @@ public record DailyBriefingResponse(
         BestBetStatus bestBetStatus,
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean bestBetsWithdrawn,
         @JsonInclude(JsonInclude.Include.NON_NULL) List<PlanRenderedEvent> renderedEvents,
-        @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime previousGeneratedAt) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime previousGeneratedAt,
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<BigSeasDay> bigSeas) {
 
     /**
      * Null-safe compact constructor — defensive copies for list fields only.
@@ -103,6 +110,53 @@ public record DailyBriefingResponse(
         hotTopics = hotTopics == null ? List.of() : List.copyOf(hotTopics);
         seasonalFeatures = seasonalFeatures == null ? List.of() : List.copyOf(seasonalFeatures);
         renderedEvents = renderedEvents == null ? null : List.copyOf(renderedEvents);
+        bigSeas = bigSeas == null ? null : List.copyOf(bigSeas);
+    }
+
+    /**
+     * Sixteen-component form, defaulting {@code bigSeas} to null.
+     *
+     * <p>The previous canonical signature. No producer of a response knows the big-seas days: only
+     * the serve-time step does, and it publishes through {@link #withBigSeas}.
+     *
+     * @param generatedAt         UTC generation timestamp
+     * @param headline            one-line summary
+     * @param days                per-day briefing data
+     * @param bestBets            best-bet picks
+     * @param auroraTonight       tonight's aurora summary or null
+     * @param auroraTomorrow      tomorrow's aurora summary or null
+     * @param stale               last-known-good flag
+     * @param partialFailure      partial-failure flag
+     * @param failedLocationCount failed location count
+     * @param bestBetModel        best-bet model display name
+     * @param hotTopics           hot topics
+     * @param seasonalFeatures    active seasonal feature keys
+     * @param bestBetStatus       whether the advisor produced picks, found none, or failed
+     * @param bestBetsWithdrawn   whether the honesty filter withdrew a pick at serve time
+     * @param renderedEvents      the events the Plan tab draws, or null
+     * @param previousGeneratedAt the build the movement deltas were measured against, or null
+     */
+    public DailyBriefingResponse(
+            LocalDateTime generatedAt,
+            String headline,
+            List<BriefingDay> days,
+            List<BestBet> bestBets,
+            AuroraTonightSummary auroraTonight,
+            AuroraTomorrowSummary auroraTomorrow,
+            boolean stale,
+            boolean partialFailure,
+            int failedLocationCount,
+            String bestBetModel,
+            List<HotTopic> hotTopics,
+            List<String> seasonalFeatures,
+            BestBetStatus bestBetStatus,
+            Boolean bestBetsWithdrawn,
+            List<PlanRenderedEvent> renderedEvents,
+            LocalDateTime previousGeneratedAt) {
+        this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
+                stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
+                seasonalFeatures, bestBetStatus, bestBetsWithdrawn, renderedEvents,
+                previousGeneratedAt, null);
     }
 
     /**
@@ -285,7 +339,7 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                renderedEvents, previousGeneratedAt);
+                renderedEvents, previousGeneratedAt, bigSeas);
     }
 
     /**
@@ -307,7 +361,7 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                renderedEvents, newPreviousGeneratedAt);
+                renderedEvents, newPreviousGeneratedAt, bigSeas);
     }
 
     /**
@@ -327,7 +381,7 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                newRenderedEvents, previousGeneratedAt);
+                newRenderedEvents, previousGeneratedAt, bigSeas);
     }
 
     /**
@@ -349,7 +403,7 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, days, newBestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, newBestBetsWithdrawn,
-                renderedEvents, previousGeneratedAt);
+                renderedEvents, previousGeneratedAt, bigSeas);
     }
 
     /**
@@ -371,6 +425,19 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
                 newAuroraTonight, newAuroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, newHotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                renderedEvents, previousGeneratedAt);
+                renderedEvents, previousGeneratedAt, bigSeas);
+    }
+
+    /**
+     * Returns a copy carrying the big-seas days. Every other component is preserved.
+     *
+     * @param newBigSeas the big-seas days, or null for none
+     * @return a copy carrying {@code newBigSeas}
+     */
+    public DailyBriefingResponse withBigSeas(List<BigSeasDay> newBigSeas) {
+        return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
+                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                renderedEvents, previousGeneratedAt, newBigSeas);
     }
 }

@@ -50,9 +50,6 @@ public class MarineWaveRefreshService {
 
     private static final Logger LOG = LoggerFactory.getLogger(MarineWaveRefreshService.class);
 
-    /** Half-width of the window sampled around a high water (B2 moves this onto configuration). */
-    private static final long HALF_WINDOW_MINUTES = 90;
-
     private final MarineClient marineClient;
     private final MarineWaveRepository marineWaveRepository;
     private final SolarService solarService;
@@ -60,6 +57,7 @@ public class MarineWaveRefreshService {
     private final MarineHighWaterWriter highWaterWriter;
     private final JobRunService jobRunService;
     private final Clock clock;
+    private final BigSeasProperties bigSeasProperties;
 
     /**
      * Constructs a {@code MarineWaveRefreshService}.
@@ -71,11 +69,13 @@ public class MarineWaveRefreshService {
      * @param highWaterWriter       replaces a structure location's high-water rows in one transaction
      * @param jobRunService         logs the marine API calls for metrics/cost
      * @param clock                 injectable clock for {@code evaluated_at = now()}
+     * @param bigSeasProperties    supplies the high-water half-window
      */
     public MarineWaveRefreshService(MarineClient marineClient,
             MarineWaveRepository marineWaveRepository, SolarService solarService,
             TideExtremeRepository tideExtremeRepository, MarineHighWaterWriter highWaterWriter,
-            JobRunService jobRunService, Clock clock) {
+            JobRunService jobRunService, Clock clock,
+            BigSeasProperties bigSeasProperties) {
         this.marineClient = marineClient;
         this.marineWaveRepository = marineWaveRepository;
         this.solarService = solarService;
@@ -83,6 +83,7 @@ public class MarineWaveRefreshService {
         this.highWaterWriter = highWaterWriter;
         this.jobRunService = jobRunService;
         this.clock = clock;
+        this.bigSeasProperties = bigSeasProperties;
     }
 
     /**
@@ -180,9 +181,9 @@ public class MarineWaveRefreshService {
         if (!dates.contains(date)) {
             return Optional.empty();
         }
-        LocalDateTime windowStart = later(hwTime.minusMinutes(HALF_WINDOW_MINUTES),
+        LocalDateTime windowStart = later(hwTime.minusMinutes(bigSeasProperties.getHalfWindowMinutes()),
                 solarService.civilDawnUtc(loc.getLat(), loc.getLon(), date));
-        LocalDateTime windowEnd = earlier(hwTime.plusMinutes(HALF_WINDOW_MINUTES),
+        LocalDateTime windowEnd = earlier(hwTime.plusMinutes(bigSeasProperties.getHalfWindowMinutes()),
                 solarService.civilDuskUtc(loc.getLat(), loc.getLon(), date));
         if (!windowStart.isBefore(windowEnd)) {
             return Optional.empty();

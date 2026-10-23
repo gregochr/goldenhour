@@ -94,7 +94,8 @@ class MarineWaveRefreshServiceBigSeasTest {
     @BeforeEach
     void setUp() {
         service = new MarineWaveRefreshService(marineClient, marineWaveRepository, solarService,
-                tideExtremeRepository, highWaterWriter, jobRunService, Clock.fixed(NOW, ZoneOffset.UTC));
+                tideExtremeRepository, highWaterWriter, jobRunService, Clock.fixed(NOW, ZoneOffset.UTC),
+                new BigSeasProperties());
     }
 
     private static LocationEntity structure(long id, String name) {
