@@ -134,7 +134,8 @@ public class BigSeasBuilder {
     }
 
     /** One qualifying (structure, high water), with its alignment resolved. */
-    private record Member(BigSeasCandidate c, AlignedEvent event, LocalDateTime eventTime) {
+    private record Member(BigSeasCandidate c, AlignedEvent event, LocalDateTime eventTime,
+            LocalDateTime sunriseUtc, LocalDateTime sunsetUtc) {
 
         boolean aligned() {
             return event != null;
@@ -153,12 +154,12 @@ public class BigSeasBuilder {
         LocalDateTime sunrise = solarService.sunriseUtc(c.lat(), c.lon(), date);
         LocalDateTime sunset = solarService.sunsetUtc(c.lat(), c.lon(), date);
         if (within(c, sunrise)) {
-            return new Member(c, AlignedEvent.SUNRISE, sunrise);
+            return new Member(c, AlignedEvent.SUNRISE, sunrise, sunrise, sunset);
         }
         if (within(c, sunset)) {
-            return new Member(c, AlignedEvent.SUNSET, sunset);
+            return new Member(c, AlignedEvent.SUNSET, sunset, sunrise, sunset);
         }
-        return new Member(c, null, null);
+        return new Member(c, null, null, sunrise, sunset);
     }
 
     private static boolean within(BigSeasCandidate c, LocalDateTime event) {
@@ -175,9 +176,7 @@ public class BigSeasBuilder {
         List<List<Member>> groups = group(members);
         List<Member> lead = groups.stream().min(LEAD_ORDER).orElseThrow();
         Member maxWave = lead.stream().min(BY_WAVE).orElseThrow();
-        Member anchor = lead.stream().filter(Member::aligned)
-                .min(Comparator.comparingLong(Member::gapSeconds).thenComparing(BY_WAVE))
-                .orElse(maxWave);
+        Member anchor = anchorOf(lead);
         LocalDateTime start = lead.stream().map(m -> m.c().windowStart()).min(Comparator.naturalOrder()).orElseThrow();
         LocalDateTime end = lead.stream().map(m -> m.c().windowEnd()).max(Comparator.naturalOrder()).orElseThrow();
         Long gapMinutes = null;
@@ -187,15 +186,55 @@ public class BigSeasBuilder {
             side = anchor.c().hwTime().isBefore(anchor.eventTime()) ? GapSide.BEFORE : GapSide.AFTER;
         }
         List<BigSeasStructure> structures = lead.stream().sorted(BY_WAVE).map(BigSeasBuilder::structure).toList();
+        boolean daylight = isDaylightGroup(lead);
         return new BigSeasDay(date, start, end, anchor.c().hwTime(), anchor.event(), gapMinutes, side,
                 maxWave.wave(), maxWave.c().waveDirectionDeg(), maxWave.c().wavePeriodS(), structures,
-                groups.size() - 1);
+                groups.size() - 1, daylight, daylight ? anchor.sunriseUtc() : null,
+                daylight ? anchor.sunsetUtc() : null);
+    }
+
+    /** The anchor: the aligned member with the smallest gap, else the maximum-wave member. */
+    private static Member anchorOf(List<Member> group) {
+        Member maxWave = group.stream().min(BY_WAVE).orElseThrow();
+        return group.stream().filter(Member::aligned)
+                .min(Comparator.comparingLong(Member::gapSeconds).thenComparing(BY_WAVE))
+                .orElse(maxWave);
+    }
+
+    /**
+     * Whether the group's high water falls in daylight: no aligned member, the group's union window
+     * starts after the latest member sunrise and ends before the earliest member sunset (so a member
+     * window that starts before a neighbour's sunrise does not count), and the anchor's high water is
+     * strictly between its own sunrise and sunset. Sunrise and sunset, not civil dawn and dusk, as for
+     * alignment (hot-topics-by-day-plan.md section 3 B1).
+     */
+    private static boolean isDaylightGroup(List<Member> group) {
+        if (group.stream().anyMatch(m -> m.aligned() || m.sunriseUtc() == null || m.sunsetUtc() == null)) {
+            return false;
+        }
+        LocalDateTime latestSunrise = group.stream().map(Member::sunriseUtc).max(Comparator.naturalOrder())
+                .orElseThrow();
+        LocalDateTime earliestSunset = group.stream().map(Member::sunsetUtc).min(Comparator.naturalOrder())
+                .orElseThrow();
+        LocalDateTime start = group.stream().map(m -> m.c().windowStart()).min(Comparator.naturalOrder())
+                .orElseThrow();
+        LocalDateTime end = group.stream().map(m -> m.c().windowEnd()).max(Comparator.naturalOrder())
+                .orElseThrow();
+        Member anchor = anchorOf(group);
+        LocalDateTime hw = anchor.c().hwTime();
+        return start.isAfter(latestSunrise) && end.isBefore(earliestSunset)
+                && hw.isAfter(anchor.sunriseUtc()) && hw.isBefore(anchor.sunsetUtc());
     }
 
     // The last key is effectively redundant: groups are disjoint windows, so no two share a start.
-    /** The lead group: any aligned member, then most structures, then highest wave, then earliest start. */
+    /**
+     * The lead group: any aligned member, then a daylight group (on an unaligned day the night group
+     * often led and hid the daylight high water), then most structures, then highest wave, then
+     * earliest start.
+     */
     private static final Comparator<List<Member>> LEAD_ORDER = Comparator
             .<List<Member>, Boolean>comparing(g -> g.stream().noneMatch(Member::aligned))
+            .thenComparing(g -> !isDaylightGroup(g))
             .thenComparing(g -> -g.size())
             .thenComparing(g -> -g.stream().mapToDouble(Member::wave).max().orElse(0))
             .thenComparing(g -> g.stream().map(m -> m.c().windowStart()).min(Comparator.naturalOrder()).orElseThrow());

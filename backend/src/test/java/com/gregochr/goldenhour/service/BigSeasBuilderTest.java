@@ -97,6 +97,17 @@ class BigSeasBuilderTest {
         return LocalDateTime.of(2026, 12, 11, 11, 0).plusMinutes(plusMinutes);
     }
 
+    /** 19:00 UTC on 11 Dec: well after sunset (about 15:40), so a night high water with a night window. */
+    private static LocalDateTime night(int plusMinutes) {
+        return LocalDateTime.of(2026, 12, 11, 19, 0).plusMinutes(plusMinutes);
+    }
+
+    private static BigSeasCandidate candAt(long id, String name, double lon, LocalDateTime hw, LocalDateTime start,
+            LocalDateTime end, double wave) {
+        return new BigSeasCandidate(id, name, CoastalStructure.PIER, name + " Pier", 90, LAT, lon, hw, start,
+                end, wave, 10.0, 90);
+    }
+
     @Test
     @DisplayName("sanity: the midday fixtures are really clear of sunrise and sunset")
     void middayFixturesAreUnaligned() {
@@ -234,18 +245,19 @@ class BigSeasBuilderTest {
     @DisplayName("lead order among unaligned groups: most structures, then highest wave, then earliest")
     void unalignedLeadOrder() {
         // Two structures at 3.5 m beat one at 6 m.
-        rows(cand(1, "Solo", midday(0), 6.0),
-                cand(2, "PairA", midday(400), 3.5), cand(3, "PairB", midday(410), 3.5));
+        // All night groups here (after sunset): the daylight key sits above these three, see daylight tests.
+        rows(cand(1, "Solo", night(0), 6.0),
+                cand(2, "PairA", night(200), 3.5), cand(3, "PairB", night(210), 3.5));
         assertThat(builder.build(fiveDays()).getFirst().structures())
                 .extracting(BigSeasStructure::locationId).containsExactlyInAnyOrder(2L, 3L);
 
         // Equal counts: the higher wave leads.
-        rows(cand(1, "Low", midday(0), 4.0), cand(2, "High", midday(400), 5.0));
+        rows(cand(1, "Low", night(0), 4.0), cand(2, "High", night(200), 5.0));
         assertThat(builder.build(fiveDays()).getFirst().structures())
                 .extracting(BigSeasStructure::locationId).containsExactly(2L);
 
         // Equal counts and waves: the earlier window leads.
-        rows(cand(1, "Late", midday(400), 4.0), cand(2, "Early", midday(0), 4.0));
+        rows(cand(1, "Late", night(200), 4.0), cand(2, "Early", night(0), 4.0));
         BigSeasDay day = builder.build(fiveDays()).getFirst();
         assertThat(day.structures()).extracting(BigSeasStructure::locationId).containsExactly(2L);
         assertThat(day.otherWindows()).isEqualTo(1);
@@ -511,5 +523,185 @@ class BigSeasBuilderTest {
 
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().date()).isEqualTo(LocalDate.of(2026, 10, 24));
+    }
+
+    @Test
+    @DisplayName("an unaligned midday group is a daylight high water, with the anchor's own sunrise and sunset")
+    void unalignedMiddayGroupIsDaylightHighWater() {
+        rows(cand(1, "Roker", midday(0), 4.0));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.alignedEvent()).isNull();
+        assertThat(day.daylightHighWater()).isTrue();
+        assertThat(day.daylightStart()).isEqualTo(sunrise(D11));
+        assertThat(day.daylightEnd()).isEqualTo(sunset(D11));
+    }
+
+    @Test
+    @DisplayName("an aligned day is not a daylight high water and serves no daylight bounds")
+    void alignedDayIsNotDaylightHighWater() {
+        rows(cand(1, "Roker", sunrise(D11).plusMinutes(20), 4.0));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.alignedEvent()).isEqualTo(AlignedEvent.SUNRISE);
+        assertThat(day.daylightHighWater()).isFalse();
+        assertThat(day.daylightStart()).isNull();
+        assertThat(day.daylightEnd()).isNull();
+    }
+
+    @Test
+    @DisplayName("a night group is not a daylight high water and serves no daylight bounds")
+    void nightGroupIsNotDaylightHighWater() {
+        rows(cand(1, "Roker", night(0), 4.0));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.alignedEvent()).isNull();
+        assertThat(day.daylightHighWater()).isFalse();
+        assertThat(day.daylightStart()).isNull();
+        assertThat(day.daylightEnd()).isNull();
+    }
+
+    @Test
+    @DisplayName("lead order: a daylight group now beats a night group with MORE structures and a bigger wave")
+    void daylightGroupLeadsAheadOfLargerNightGroup() {
+        rows(cand(1, "NightA", night(0), 6.0), cand(2, "NightB", night(10), 6.5),
+                cand(3, "Day", midday(0), 3.2));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.structures()).extracting(BigSeasStructure::locationId).containsExactly(3L);
+        assertThat(day.daylightHighWater()).isTrue();
+        assertThat(day.waveHeightM()).isEqualTo(3.2);
+        assertThat(day.otherWindows()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("lead order: an aligned group still beats a daylight group")
+    void alignedGroupStillBeatsDaylightGroup() {
+        rows(cand(1, "Aligned", sunset(D11).minusMinutes(20), 3.1), cand(2, "Day", midday(0), 6.0));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.structures()).extracting(BigSeasStructure::locationId).containsExactly(1L);
+        assertThat(day.daylightHighWater()).isFalse();
+    }
+
+    @Test
+    @DisplayName("straddle: a member window starting before a neighbour's sunrise is not between the lights")
+    void straddlingMemberWindowIsNotDaylight() {
+        LocalDateTime eastSunrise = solar.sunriseUtc(LAT, LON, D11);
+        LocalDateTime westSunrise = solar.sunriseUtc(LAT, -6.0, D11);
+        assertThat(westSunrise).as("sanity: the western structure's sun rises later")
+                .isAfter(eastSunrise.plusMinutes(10));
+        // East's window opens after its own sunrise but before West's; West is the bigger wave and anchors.
+        rows(candAt(1, "East", LON, eastSunrise.plusMinutes(100), eastSunrise.plusMinutes(10),
+                        eastSunrise.plusMinutes(190), 4.0),
+                candAt(2, "West", -6.0, westSunrise.plusMinutes(150), westSunrise.plusMinutes(30),
+                        westSunrise.plusMinutes(270), 5.0));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.structures()).hasSize(2);
+        assertThat(day.alignedEvent()).isNull();
+        assertThat(day.daylightHighWater()).isFalse();
+        assertThat(day.daylightStart()).isNull();
+        assertThat(day.daylightEnd()).isNull();
+    }
+
+    @Test
+    @DisplayName("the same pair with East's window opening after West's sunrise is daylight, bounds from the anchor")
+    void pairInsideBothSunrisesIsDaylightWithTheAnchorsBounds() {
+        LocalDateTime eastSunrise = solar.sunriseUtc(LAT, LON, D11);
+        LocalDateTime westSunrise = solar.sunriseUtc(LAT, -6.0, D11);
+        rows(candAt(1, "East", LON, westSunrise.plusMinutes(100), westSunrise.plusMinutes(10),
+                        westSunrise.plusMinutes(190), 4.0),
+                candAt(2, "West", -6.0, westSunrise.plusMinutes(150), westSunrise.plusMinutes(30),
+                        westSunrise.plusMinutes(270), 5.0));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.daylightHighWater()).isTrue();
+        assertThat(day.daylightStart()).as("the anchor (West, max wave) supplies the bounds")
+                .isEqualTo(westSunrise).isNotEqualTo(eastSunrise);
+        assertThat(day.daylightEnd()).isEqualTo(solar.sunsetUtc(LAT, -6.0, D11));
+    }
+
+    @Test
+    @DisplayName("straddle at the sunset side: a member window ending after a neighbour's sunset is not daylight")
+    void straddlingAtSunsetIsNotDaylight() {
+        LocalDateTime eastSunset = solar.sunsetUtc(LAT, LON, D11);
+        LocalDateTime westSunset = solar.sunsetUtc(LAT, -6.0, D11);
+        assertThat(westSunset).isAfter(eastSunset.plusMinutes(10));
+        // East's window closes before its own sunset but West's runs past East's sunset: union end is fine for
+        // West's sun, not for East's - the earliest sunset governs.
+        rows(candAt(1, "East", LON, eastSunset.minusMinutes(100), eastSunset.minusMinutes(190),
+                        eastSunset.minusMinutes(10), 4.0),
+                candAt(2, "West", -6.0, eastSunset.minusMinutes(20), eastSunset.minusMinutes(60),
+                        eastSunset.plusMinutes(5), 5.0));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.structures()).hasSize(2);
+        assertThat(day.alignedEvent()).as("West's window ends before West's own later sunset").isNull();
+        assertThat(day.daylightHighWater()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a high water one minute inside each light is a daylight high water")
+    void highWaterOneMinuteInsideEachLight() {
+        LocalDateTime sr = sunrise(D11);
+        rows(candAt(1, "Dawn", LON, sr.plusMinutes(1), sr.plusSeconds(1), sr.plusMinutes(120), 4.0));
+        BigSeasDay dawn = builder.build(fiveDays()).getFirst();
+        assertThat(dawn.alignedEvent()).isNull();
+        assertThat(dawn.daylightHighWater()).isTrue();
+        assertThat(dawn.daylightStart()).isEqualTo(sr);
+
+        LocalDateTime ss = sunset(D11);
+        rows(candAt(1, "Dusk", LON, ss.minusMinutes(1), ss.minusMinutes(120), ss.minusSeconds(1), 4.0));
+        BigSeasDay dusk = builder.build(fiveDays()).getFirst();
+        assertThat(dusk.alignedEvent()).isNull();
+        assertThat(dusk.daylightHighWater()).isTrue();
+        assertThat(dusk.daylightEnd()).isEqualTo(ss);
+    }
+
+    @Test
+    @DisplayName("a window touching a light is aligned (inclusive), so it is never also a daylight high water")
+    void windowTouchingALightIsAlignedNotDaylight() {
+        LocalDateTime sr = sunrise(D11);
+        rows(candAt(1, "Dawn", LON, sr.plusMinutes(1), sr, sr.plusMinutes(120), 4.0));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.alignedEvent()).isEqualTo(AlignedEvent.SUNRISE);
+        assertThat(day.daylightHighWater()).isFalse();
+        assertThat(day.daylightStart()).isNull();
+    }
+
+    @Test
+    @DisplayName("Sat 24 / Sun 25 Oct 2026 across the clock change: both midday high waters are daylight, "
+            + "with UTC bounds (no BST shift)")
+    void clockChangePairKeepsUtcDaylightBounds() {
+        Clock bst = Clock.fixed(Instant.parse("2026-10-24T09:00:00Z"), ZoneOffset.UTC);
+        LocalDate sat = LocalDate.of(2026, 10, 24);
+        LocalDate sun = LocalDate.of(2026, 10, 25);
+        LocalDateTime satHw = LocalDateTime.of(2026, 10, 24, 12, 0);
+        LocalDateTime sunHw = LocalDateTime.of(2026, 10, 25, 12, 0);
+        when(repository.findBigSeasCandidates(bst.instant().minus(30, ChronoUnit.HOURS),
+                ForecastHorizon.ukDayStartUtc(sat), ForecastHorizon.ukDayStartUtc(LocalDate.of(2026, 10, 29))))
+                .thenReturn(List.of(cand(1, "Sat", satHw, 4.0), cand(2, "Sun", sunHw, 4.0)));
+
+        List<BigSeasDay> result = new BigSeasBuilder(repository, solar, properties, bst).build(octDays());
+
+        assertThat(result).extracting(BigSeasDay::date).containsExactly(sat, sun);
+        assertThat(result).allSatisfy(d -> assertThat(d.daylightHighWater()).isTrue());
+        assertThat(result.get(0).daylightStart()).isEqualTo(solar.sunriseUtc(LAT, LON, sat));
+        assertThat(result.get(0).daylightEnd()).isEqualTo(solar.sunsetUtc(LAT, LON, sat));
+        assertThat(result.get(1).daylightStart()).isEqualTo(solar.sunriseUtc(LAT, LON, sun));
+        assertThat(result.get(1).daylightEnd()).isEqualTo(solar.sunsetUtc(LAT, LON, sun));
+        assertThat(result.get(1).daylightStart()).as("GMT day: sunrise about 06:5x UTC, not BST-shifted")
+                .isAfter(LocalDateTime.of(2026, 10, 25, 6, 0)).isBefore(LocalDateTime.of(2026, 10, 25, 8, 0));
     }
 }

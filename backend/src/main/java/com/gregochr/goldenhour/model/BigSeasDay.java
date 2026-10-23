@@ -24,6 +24,13 @@ import java.util.List;
  * @param wavePeriodS      period of the maximum-wave member, seconds
  * @param structures       the lead group's structures
  * @param otherWindows     further qualifying groups that day (served, not yet drawn)
+ * @param daylightHighWater true when the lead group is unaligned and its whole union window, with the
+ *                         anchor's high water, lies strictly between the lights (sunrise and sunset);
+ *                         omitted from the wire when false
+ * @param daylightStart    the anchor structure's own sunrise (UTC, no zone); set only when
+ *                         {@code daylightHighWater} is true
+ * @param daylightEnd      the anchor structure's own sunset (UTC, no zone); set only when
+ *                         {@code daylightHighWater} is true
  */
 public record BigSeasDay(
         LocalDate date,
@@ -37,7 +44,10 @@ public record BigSeasDay(
         int waveDirectionDeg,
         double wavePeriodS,
         List<BigSeasStructure> structures,
-        int otherWindows) {
+        int otherWindows,
+        @JsonInclude(JsonInclude.Include.NON_DEFAULT) boolean daylightHighWater,
+        @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime daylightStart,
+        @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime daylightEnd) {
 
     /** The solar event a big-seas window can be aligned with. */
     public enum AlignedEvent {

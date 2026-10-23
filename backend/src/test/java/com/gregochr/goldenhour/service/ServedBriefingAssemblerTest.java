@@ -162,7 +162,7 @@ class ServedBriefingAssemblerTest {
         return new BigSeasDay(D, hw.minusMinutes(90), hw.plusMinutes(90), hw, BigSeasDay.AlignedEvent.SUNRISE,
                 12L, BigSeasDay.GapSide.AFTER, 4.2, 80, 9.5,
                 List.of(new BigSeasStructure(243L, "Roker Pier", CoastalStructure.PIER, 4.2, 80, 9.5, 90, hw, true)),
-                0);
+                0, false, null, null);
     }
 
     @Test

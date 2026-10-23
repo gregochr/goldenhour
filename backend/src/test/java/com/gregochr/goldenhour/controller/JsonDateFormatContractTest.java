@@ -168,9 +168,11 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
         BigSeasStructure roker = new BigSeasStructure(243L, "Roker Pier", CoastalStructure.PIER, 4.2, 80, 9.5, 90,
                 hw, true);
         BigSeasDay aligned = new BigSeasDay(LocalDate.of(2026, 12, 11), hw.minusMinutes(90), hw.plusMinutes(90), hw,
-                BigSeasDay.AlignedEvent.SUNRISE, 12L, BigSeasDay.GapSide.AFTER, 4.2, 80, 9.5, List.of(roker), 1);
+                BigSeasDay.AlignedEvent.SUNRISE, 12L, BigSeasDay.GapSide.AFTER, 4.2, 80, 9.5, List.of(roker), 1,
+                false, null, null);
         BigSeasDay unaligned = new BigSeasDay(LocalDate.of(2026, 12, 12), hw.plusDays(1), hw.plusDays(1).plusHours(3),
-                hw.plusDays(1).plusHours(1), null, null, null, 3.5, 90, 8.5, List.of(), 0);
+                hw.plusDays(1).plusHours(1), null, null, null, 3.5, 90, 8.5, List.of(), 0, true,
+                LocalDateTime.of(2026, 12, 12, 8, 5), LocalDateTime.of(2026, 12, 12, 15, 40));
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.of(2026, 12, 10, 6, 0), "Big seas", List.of(), List.of(), null, null, false, false, 0,
                 "Opus", List.of(), List.of()).withBigSeas(List.of(aligned, unaligned));
@@ -192,7 +194,13 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.bigSeas[1].windowStart").value("2026-12-12T07:30:00"))
                 .andExpect(jsonPath("$.bigSeas[1].alignedEvent").doesNotExist())
                 .andExpect(jsonPath("$.bigSeas[1].gapMinutes").doesNotExist())
-                .andExpect(jsonPath("$.bigSeas[1].gapSide").doesNotExist());
+                .andExpect(jsonPath("$.bigSeas[1].gapSide").doesNotExist())
+                .andExpect(jsonPath("$.bigSeas[0].daylightHighWater").doesNotExist())
+                .andExpect(jsonPath("$.bigSeas[0].daylightStart").doesNotExist())
+                .andExpect(jsonPath("$.bigSeas[0].daylightEnd").doesNotExist())
+                .andExpect(jsonPath("$.bigSeas[1].daylightHighWater").value(true))
+                .andExpect(jsonPath("$.bigSeas[1].daylightStart").value("2026-12-12T08:05:00"))
+                .andExpect(jsonPath("$.bigSeas[1].daylightEnd").value("2026-12-12T15:40:00"));
     }
 
     @Test

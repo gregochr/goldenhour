@@ -16,7 +16,8 @@ class DailyBriefingResponseBigSeasTest {
     private static final LocalDateTime HW = LocalDateTime.of(2026, 12, 11, 8, 0);
     private static final BigSeasDay DAY = new BigSeasDay(LocalDate.of(2026, 12, 11), HW.minusMinutes(90),
             HW.plusMinutes(90), HW, BigSeasDay.AlignedEvent.SUNRISE, 5L, BigSeasDay.GapSide.BEFORE, 4.1, 85, 9.0,
-            List.of(new BigSeasStructure(1L, "Roker Pier", CoastalStructure.PIER, 4.1, 85, 9.0, 90, HW, true)), 1);
+            List.of(new BigSeasStructure(1L, "Roker Pier", CoastalStructure.PIER, 4.1, 85, 9.0, 90, HW, true)), 1,
+            false, null, null);
 
     private static DailyBriefingResponse withBigSeas() {
         return new DailyBriefingResponse(LocalDateTime.of(2026, 12, 10, 6, 0), "h", List.of(), List.of(),

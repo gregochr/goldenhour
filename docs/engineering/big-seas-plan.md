@@ -280,7 +280,19 @@ ServedBriefingAssembler.java:166-167). `WindowTideFactProjector` is pure and is 
   ignored (§1.4a).
 - **Grouping:** sort a day's qualifying (structure, HW) pairs by `window_start`. Sweep transitively,
   starting a new group when a window starts after the group's running max end. Pick the **lead
-  group** by: any aligned member, then most structures, then highest wave, then earliest start.
+  group** by: any aligned member, then **a daylight group** (added by hot-topics-by-day B1), then
+  most structures, then highest wave, then earliest start. A daylight group is unaligned and lies
+  wholly between the lights (see `daylightHighWater` below). Why: high waters are about 12h25m
+  apart and winter days about 8h long, so on an unaligned day the night group often led (more
+  structures, bigger wave) and hid the daylight high water in `otherWindows`. This changes which
+  group F1's line shows on such days; intended (hot-topics-by-day-plan Q12).
+- **`daylightHighWater`** (`@JsonInclude(NON_DEFAULT)`; absent when false): true when no lead-group
+  member is aligned, the group's union `windowStart` is after the **latest** member sunrise, its
+  `windowEnd` is before the **earliest** member sunset, and the anchor's `hwTime` is strictly
+  between its own sunrise and sunset. The union is tested so a member window that starts before a
+  neighbour's sunrise is not called "between the lights". Sunrise/sunset, not civil dawn/dusk, as
+  for alignment. `daylightStart` / `daylightEnd` (UTC, no zone, absent unless the flag is true) are
+  the anchor structure's own sunrise and sunset.
 - **Lead group fields:**
   - `windowStart` / `windowEnd`: the union of its members' windows (earliest start, latest end;
     the handoff's day summary, now bounded to one group).
@@ -306,6 +318,8 @@ BigSeasDay {
   structures: [ { locationId, label, structure, waveHeightM, waveDirectionDeg, wavePeriodS,
                   facesDeg, hwTime, aligned } ]   // lead group only
   otherWindows                 // count of further qualifying groups that day (Q6; unused by F1)
+  daylightHighWater            // true only when set (omitted when false); hot-topics-by-day B1
+  daylightStart, daylightEnd   // LocalDateTime UTC; only when daylightHighWater
 }
 ```
 
