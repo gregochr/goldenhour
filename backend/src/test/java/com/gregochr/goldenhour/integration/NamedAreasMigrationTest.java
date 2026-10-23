@@ -71,6 +71,7 @@ class NamedAreasMigrationTest {
                     + "('Walltown Crags', 55.0, -2.5), "
                     + "('Cuddy’s Crags', 55.0, -2.4), "
                     + "('Steel Rigg & Winshield Crags', 55.0, -2.3), "
+                    + "('Houseteads Fort', 55.0, -2.33), "
                     + "('Allen Banks', 54.95, -2.3)");
         }
 
@@ -82,10 +83,10 @@ class NamedAreasMigrationTest {
                     + "WHERE a.name = 'Hadrian''s Wall'"))
                     .containsExactlyInAnyOrder("Hadrian Wall", "Roman Wall");
             assertThat(strings(st, "SELECT l.name FROM area_location al JOIN locations l ON l.id = al.location_id"))
-                    .as("the three planted Wall spellings joined, plus Irthing Gorge, which V169 inserts on a "
+                    .as("the four planted Wall spellings joined, plus Irthing Gorge, which V169 inserts on a "
                             + "fresh database; Allen Banks did not")
                     .containsExactlyInAnyOrder("Walltown Crags", "Cuddy’s Crags",
-                            "Steel Rigg & Winshield Crags", "Irthing Gorge")
+                            "Steel Rigg & Winshield Crags", "Houseteads Fort", "Irthing Gorge")
                     .doesNotContain("Allen Banks");
             assertThat(strings(st, "SELECT la.alias FROM location_alias la JOIN locations l "
                     + "ON l.id = la.location_id WHERE l.name = 'Hartlepool Headland'"))

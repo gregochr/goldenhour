@@ -45,8 +45,9 @@ WHERE name = 'Hadrian''s Wall';
 -- Membership is seeded BY NAME because ids differ between environments, and the Wall's production
 -- locations were added through the admin UI, not by migration. The list is candidate spellings: a
 -- spelling that matches no location inserts nothing, by design. The owner checks the result and
--- corrects it in the admin UI (A3). Production's Wall locations are ids 41–49 (named in V86's comments);
--- the list covers those names plus variants. The replace() folds a curly apostrophe to a straight one.
+-- corrects it in the admin UI (A3). Production's Wall roster (application-prod.yml's
+-- locations list, ids 41–50 in V86) is the source, including the misspelt "Houseteads Fort" (sic); the
+-- list covers those names plus variants. The replace() folds a curly apostrophe to a straight one.
 INSERT INTO area_location (area_id, location_id)
 SELECT a.id, l.id
 FROM area a
@@ -54,7 +55,8 @@ JOIN locations l
   ON lower(replace(l.name, '’', '''')) IN (
        'walltown crags', 'walltown', 'cawfields', 'caw gap', 'steel rigg', 'peel craggs', 'peel crags',
        'hotbank crags', 'hotbank', 'cuddy''s crags', 'housesteads', 'sycamore gap', 'irthing gorge',
-       'crammel linn', 'crammel linn waterfall', 'steel rigg & winshield crags', 'highshield crags')
+       'crammel linn', 'crammel linn waterfall', 'steel rigg & winshield crags', 'highshield crags',
+       'houseteads fort', 'housesteads fort')
 WHERE a.name = 'Hadrian''s Wall';
 
 -- Hartlepool Headland (V138) is locally "the Heugh", after the lighthouse and the battery.
