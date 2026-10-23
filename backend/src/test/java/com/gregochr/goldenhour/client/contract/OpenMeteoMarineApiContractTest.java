@@ -57,7 +57,8 @@ class OpenMeteoMarineApiContractTest {
     private static final double LON = -1.7099;
 
     /** Hourly variables and horizon as passed by {@code MarineClient.fetchMarine}. */
-    private static final String HOURLY_PARAMS = "wave_height,swell_wave_height,wave_direction";
+    private static final String HOURLY_PARAMS =
+            "wave_height,swell_wave_height,wave_direction,wave_period,swell_wave_period";
     private static final int FORECAST_DAYS = 7;
 
     private MockRestServiceServer server;
@@ -138,6 +139,9 @@ class OpenMeteoMarineApiContractTest {
         assertThat(response.getHourly().getWaveHeight()).containsExactly(1.24, 1.31);
         assertThat(response.getHourly().getSwellWaveHeight()).containsExactly(0.82, 0.87);
         assertThat(response.getHourly().getWaveDirection()).containsExactly(48, 52);
+        // Seconds: the period variables big seas samples at high water.
+        assertThat(response.getHourly().getWavePeriod()).containsExactly(6.5, 6.8);
+        assertThat(response.getHourly().getSwellWavePeriod()).containsExactly(9.1, 9.4);
     }
 
     private static String readFixture(String name) {

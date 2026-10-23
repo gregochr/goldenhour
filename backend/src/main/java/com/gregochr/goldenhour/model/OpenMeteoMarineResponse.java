@@ -44,5 +44,13 @@ public class OpenMeteoMarineResponse {
         /** Mean wave direction of origin, in degrees (meteorological convention). */
         @JsonProperty("wave_direction")
         private List<Integer> waveDirection;
+
+        /** Mean wave period, in seconds (what separates breaking swell from short wind chop). */
+        @JsonProperty("wave_period")
+        private List<Double> wavePeriod;
+
+        /** Swell wave period, in seconds. */
+        @JsonProperty("swell_wave_period")
+        private List<Double> swellWavePeriod;
     }
 }

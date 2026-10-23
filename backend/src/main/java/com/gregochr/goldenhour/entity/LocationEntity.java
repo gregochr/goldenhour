@@ -171,6 +171,22 @@ public class LocationEntity {
     @Column(name = "shore_normal_bearing_degrees")
     private Double shoreNormalBearingDegrees;
 
+    /**
+     * The kind of wave-breaking structure this location is (pier, breakwater, lighthouse), or null.
+     * Marks a big-seas location (V188); migration-written only, no admin UI.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "coastal_structure", length = 20)
+    private CoastalStructure coastalStructure;
+
+    /** Compass bearing (0-359) the structure faces: the direction the sea must come from to break on it. */
+    @Column(name = "structure_faces_deg")
+    private Integer structureFacesDeg;
+
+    /** The big-seas chip's short name for the structure (e.g. "Roker Pier"). */
+    @Column(name = "structure_label", length = 40)
+    private String structureLabel;
+
     /** Open-water fetch distance for dominant storm winds (metres). */
     @Column(name = "effective_fetch_metres")
     private Double effectiveFetchMetres;
