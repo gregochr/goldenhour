@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import apiClient from '../api/axiosClient.js';
 import { setPasswordForNewUser, register, requestPasswordReset, resetPassword } from '../api/authApi.js';
 
-vi.mock('../api/axiosClient.js', () => ({ default: { post: vi.fn() } }));
+vi.mock('../api/axiosClient.js', () => ({ default: { post: vi.fn() }, SKIP_AUTH_REFRESH: 'skipAuthRefresh' }));
+
+const SKIP = { skipAuthRefresh: true };
 
 describe('authApi request bodies', () => {
   beforeEach(() => {
@@ -16,7 +18,7 @@ describe('authApi request bodies', () => {
     expect(apiClient.post).toHaveBeenCalledWith('/api/auth/set-password', {
       token: 'verify-token',
       password: 'Abcdef1!',
-    });
+    }, SKIP);
     expect(Object.keys(apiClient.post.mock.calls[0][1])).toEqual(['token', 'password']);
     expect(data).toEqual({ ok: true });
   });
@@ -36,7 +38,7 @@ describe('authApi request bodies', () => {
       turnstileToken: 'tok',
       marketingEmailOptIn: 'false',
       termsAccepted: 'true',
-    });
+    }, SKIP);
   });
 
   it('requestPasswordReset posts {email, turnstileToken} to /forgot-password and returns the body', async () => {
@@ -47,7 +49,7 @@ describe('authApi request bodies', () => {
     expect(apiClient.post).toHaveBeenCalledWith('/api/auth/forgot-password', {
       email: 'a@example.com',
       turnstileToken: 'tok',
-    });
+    }, SKIP);
     expect(data).toEqual({ message: 'sent' });
   });
 
@@ -57,7 +59,7 @@ describe('authApi request bodies', () => {
     expect(apiClient.post).toHaveBeenCalledWith('/api/auth/reset-password', {
       token: 'reset-token',
       password: 'Abcdef1!',
-    });
+    }, SKIP);
     expect(Object.keys(apiClient.post.mock.calls[0][1])).toEqual(['token', 'password']);
     expect(data).toEqual({ ok: true });
   });

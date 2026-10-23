@@ -170,6 +170,83 @@ describe('axiosClient interceptors', () => {
       expect(expiredEvents.length).toBe(0);
     });
 
+    describe('a 401 with no refresh token stored', () => {
+      const reject401 = (config) => Promise.reject({ response: { status: 401 }, config });
+      const expired = () => dispatchSpy.mock.calls.filter(
+        ([event]) => event.type === 'goldenhour:session-expired'
+      );
+
+      it('A1: signs the dead session out when the request carried the stored token', async () => {
+        localStorage.setItem(TOKEN_KEY, 'old');
+        localStorage.setItem('goldenhour_role', 'PRO_USER');
+        const adapter = vi.fn(reject401);
+
+        await expect(apiClient.get('/api/test', { adapter })).rejects.toMatchObject({
+          response: { status: 401 },
+        });
+
+        expect(adapter).toHaveBeenCalledTimes(1);
+        expect(AuthApi.refreshAccessToken).not.toHaveBeenCalled();
+        expect(expired()).toHaveLength(1);
+        expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+        expect(localStorage.getItem('goldenhour_role')).toBeNull();
+      });
+
+      it('A2: two concurrent such 401s raise exactly one session-expired', async () => {
+        localStorage.setItem(TOKEN_KEY, 'old');
+        const adapter = vi.fn(reject401);
+
+        const results = await Promise.allSettled([
+          apiClient.get('/api/a', { adapter }),
+          apiClient.get('/api/b', { adapter }),
+        ]);
+
+        expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+        expect(expired()).toHaveLength(1);
+      });
+
+      it('A3: does nothing when the request carried no Authorization header', async () => {
+        localStorage.setItem('goldenhour_role', 'PRO_USER');
+        const adapter = vi.fn(reject401);
+
+        await expect(apiClient.get('/api/test', { adapter })).rejects.toMatchObject({
+          response: { status: 401 },
+        });
+
+        expect(expired()).toHaveLength(0);
+        expect(localStorage.getItem('goldenhour_role')).toBe('PRO_USER');
+      });
+
+      it('A4: leaves a newer stored token alone when the failed request carried an older one', async () => {
+        localStorage.setItem(TOKEN_KEY, 'old');
+        // The request goes out with `old`; meanwhile a fresh sign-in stores `newer`.
+        const adapter = vi.fn((config) => {
+          localStorage.setItem(TOKEN_KEY, 'newer');
+          return reject401(config);
+        });
+
+        await expect(apiClient.get('/api/test', { adapter })).rejects.toMatchObject({
+          response: { status: 401 },
+        });
+
+        expect(expired()).toHaveLength(0);
+        expect(localStorage.getItem(TOKEN_KEY)).toBe('newer');
+      });
+
+      it('A5: a skipAuthRefresh 401 or an already-retried 401 does not expire the session', async () => {
+        localStorage.setItem(TOKEN_KEY, 'old');
+        const adapter = vi.fn(reject401);
+
+        await expect(apiClient.post('/api/auth/reset-password', {}, { adapter, [SKIP_AUTH_REFRESH]: true }))
+          .rejects.toMatchObject({ response: { status: 401 } });
+        await expect(apiClient.get('/api/test', { adapter, _retried: true }))
+          .rejects.toMatchObject({ response: { status: 401 } });
+
+        expect(expired()).toHaveLength(0);
+        expect(localStorage.getItem(TOKEN_KEY)).toBe('old');
+      });
+    });
+
     it('does not dispatch session-expired for non-401 errors', async () => {
       localStorage.setItem(TOKEN_KEY, 'my-jwt');
 
