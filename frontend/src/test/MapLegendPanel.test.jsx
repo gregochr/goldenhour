@@ -48,6 +48,50 @@ describe('MapLegendPanel — the ground key (thin-sample plan F4)', () => {
   });
 });
 
+describe('MapLegendPanel — the stand-down key (big-seas plan F3)', () => {
+  it('names the hatch with a 20x9 swatch while a stand-down is drawn', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} stoodKey />);
+    const key = screen.getByTestId('wf-legend-standdown');
+    expect(key).toHaveTextContent('ruled out by the weather, cause named on the ground');
+    expect(key.querySelectorAll('.wf-legend-swatch-standdown')).toHaveLength(1);
+    // Beside, not instead of, the thin-sample ground key.
+    expect(screen.getByTestId('wf-legend-ground')).toBeInTheDocument();
+  });
+
+  it('is absent without a stand-down, and on an aurora night', () => {
+    const { rerender } = render(<MapLegendPanel {...baseProps({ open: true })} />);
+    expect(screen.queryByTestId('wf-legend-standdown')).toBeNull();
+    rerender(<MapLegendPanel {...baseProps({ open: true })} variant="aurora" stoodKey />);
+    expect(screen.queryByTestId('wf-legend-standdown')).toBeNull();
+  });
+
+  it('opens on a whole-window stand-down: the stood key without the unrated ground key', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} groundKey={false} stoodKey />);
+    expect(screen.getByTestId('wf-legend-standdown')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-legend-ground')).toBeNull();
+  });
+
+  describe('the Pins variant', () => {
+    it('renders only the stand-down key: no ramp, handover, rings toggle, note or ground key', () => {
+      render(<MapLegendPanel {...baseProps({ open: true })} variant="pins" stoodKey />);
+      expect(screen.getByTestId('wf-legend-chip')).toBeInTheDocument();
+      expect(screen.getByTestId('wf-legend-standdown')).toBeInTheDocument();
+      for (const id of ['wf-legend-ramp', 'wf-legend-hand', 'wf-legend-rings-toggle',
+        'wf-legend-note', 'wf-legend-ground']) {
+        expect(screen.queryByTestId(id)).toBeNull();
+      }
+    });
+
+    it('stays a labelled dialog that closes on Escape like the Heat panel', () => {
+      const onOpenChange = vi.fn();
+      render(<MapLegendPanel {...baseProps({ open: true, onOpenChange })} variant="pins" stoodKey />);
+      expect(screen.getByRole('dialog', { name: 'Map legend' })).toBeInTheDocument();
+      fireEvent.keyDown(screen.getByTestId('wf-legend'), { key: 'Escape' });
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+});
+
 describe('MapLegendPanel — the chip', () => {
   it('mounts the panel only while open — not merely CSS-hidden', () => {
     const { rerender } = render(<MapLegendPanel {...baseProps({ open: false })} />);

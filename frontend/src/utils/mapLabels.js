@@ -132,6 +132,53 @@ export function regionLabelItems(spots, project, zoom) {
   return items;
 }
 
+/**
+ * The "stood down · cause" region labels (big-seas plan F3): one per qualified region, at the
+ * projected centroid of its STOOD places, tier and zoom gate those of {@link regionLabelItems}.
+ * Each carries the ordinary region label's key, so {@link withStandDownLabels} can replace it.
+ *
+ * @param {Array<{rid: string, cause: string, points: Array<object>}>} regions the qualified regions
+ *        ({@code utils/mapStandDown.js standDownRegions})
+ * @param {Function} project {@code (spot) => [x, y]} — a projected point in frame px
+ * @param {number} zoom the map's current zoom
+ * @returns {Array<{key: string, rid: string, x: number, y: number, hot: boolean, standDown: string}>}
+ */
+export function standDownRegionItems(regions, project, zoom) {
+  if (zoom >= REGION_LABEL_MAX_ZOOM) return [];
+  const items = [];
+  for (const region of Array.isArray(regions) ? regions : []) {
+    const at = centroid(region.points, region.rid, project);
+    if (!at || !Number.isFinite(at[0]) || !Number.isFinite(at[1])) continue;
+    items.push({
+      key: `region:${region.rid}`, rid: region.rid, x: at[0], y: at[1], hot: false, standDown: region.cause,
+    });
+  }
+  return items;
+}
+
+/**
+ * The region label list with each stood-down region's label REPLACING that region's ordinary one.
+ *
+ * @param {Array<{key: string}>} ordinary {@link regionLabelItems}' output
+ * @param {Array<{key: string}>} standDown {@link standDownRegionItems}' output
+ * @returns {Array<object>} the combined list
+ */
+export function withStandDownLabels(ordinary, standDown) {
+  if (!standDown.length) return ordinary;
+  // In place by key: the stood label takes the ordinary label's slot, so the greedy pass meets it at
+  // the same priority and the region order is unchanged. Only a stood label with no ordinary
+  // counterpart (every place of its region stood down) is appended.
+  const byKey = new Map(standDown.map((it) => [it.key, it]));
+  const used = new Set();
+  const merged = ordinary.map((it) => {
+    const swap = byKey.get(it.key);
+    if (!swap) return it;
+    used.add(it.key);
+    return swap;
+  });
+  return [...merged, ...standDown.filter((it) => !used.has(it.key))];
+}
+
 // ── Home marker ──────────────────────────────────────────────────────────────────────────────────
 
 /**
