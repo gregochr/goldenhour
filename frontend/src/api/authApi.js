@@ -1,4 +1,4 @@
-import apiClient from './axiosClient.js';
+import apiClient, { SKIP_AUTH_REFRESH } from './axiosClient.js';
 
 const BASE_URL = '/api/auth';
 
@@ -11,7 +11,8 @@ const BASE_URL = '/api/auth';
  * @returns {Promise<{accessToken: string, refreshToken: string, role: string, expiresAt: string}>}
  */
 export async function login(username, password, turnstileToken) {
-  const response = await apiClient.post(`${BASE_URL}/login`, { username, password, turnstileToken });
+  const response = await apiClient.post(`${BASE_URL}/login`, { username, password, turnstileToken },
+    { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }
 
@@ -22,7 +23,7 @@ export async function login(username, password, turnstileToken) {
  * @returns {Promise<{accessToken: string, expiresAt: string}>}
  */
 export async function refreshAccessToken(refreshToken) {
-  const response = await apiClient.post(`${BASE_URL}/refresh`, { refreshToken });
+  const response = await apiClient.post(`${BASE_URL}/refresh`, { refreshToken }, { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }
 
@@ -33,7 +34,7 @@ export async function refreshAccessToken(refreshToken) {
  * @returns {Promise<void>}
  */
 export async function logout(refreshToken) {
-  await apiClient.post(`${BASE_URL}/logout`, { refreshToken });
+  await apiClient.post(`${BASE_URL}/logout`, { refreshToken }, { [SKIP_AUTH_REFRESH]: true });
 }
 
 /**
