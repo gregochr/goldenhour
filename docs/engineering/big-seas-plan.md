@@ -75,7 +75,9 @@ The handoff was written against the prototype. Against the code, these hold:
       stand-down.
     - The footer's cause word (`· storm`). The cause is named on the ground; the footer says
       ` · N stood down`.
-    - The **phone** week-menu ⚡. The phone's window list (peek sheet) has no topics column.
+    - The **phone** week-menu ⚡. On a phone the pill opens the peek sheet's window list
+      (`MapPeekWindowsSection`), not the `WindowControl` dropdown, and it has no topics column. The big-seas
+      **line** does show on a phone; only the menu marker stays out (owner Q11).
     - The stand-down hatch draws **under** the field, not after it as the handoff says (§3 F3,
       rated colour must win).
     - The big-seas line is **504px**, not 580 (the label-obstacle budget).
@@ -399,8 +401,8 @@ qualifying day. The table holds every input, so tuning is a SQL query; §6 gets 
 - **Week menu:** `buildMapEvents` stamps `bigSeasAligned: true` on the EV row matching a day's
   `alignedEvent` (filter/select). `WindowRow` renders `⚡` in the `aria-hidden`
   `.wf-win-row-topics` cell **and** an sr-only ", big seas" clause in the row's main cell (the
-  verdict-count pattern at WindowControl.jsx:807). The phone peek sheet's window list has no topics
-  column, so there's no ⚡ on phone (§1.13).
+  verdict-count pattern at WindowControl.jsx:807). The ⚡ is in the desktop and tablet dropdown only: on a phone the pill opens the peek sheet's window list, which
+  has no topics column and is unchanged (§1.13, owner Q11).
 - **Tests** (`docs/engineering/frontend-test-standards.md`):
   - `bigSeas.test.js`: full on the day; full on that day's night row; compact before; null after
     the last day; null on past rows; an elapsed today switching to the next day's compact under a
@@ -613,7 +615,7 @@ tuning; the owner cuts releases.
 | Plan | — | drafted 2026-10-22; adversarially reviewed (backend + frontend lenses), all findings folded in |
 | B1 | — | Step 0 done; ready to brief once this plan merges |
 | B2 | — | after B1 |
-| F1 | — | after B2 |
+| F1 | — | built 2026-10-23 on `feature/big-seas-f1` (frontend only, against B2's served contract); label-obstacle re-measure below |
 | F2 | — | after F1 |
 | F3 | — | ready to brief (Q1 answered); independent of B1–F2 |
 | F4 | — | after F3 |
@@ -637,4 +639,25 @@ The decoy in B1's migration test should be `Whitby Abbey`, a real near-miss name
 Tide check (production, 2026-10-22): all seven have stored future high waters, 178–180 each,
 running to 23 Jan 2027. B1 needs no tide fix.
 
-Label-obstacle re-measure (F1): _(paste here)_
+Label-obstacle re-measure (F1, 2026-10-23, headless Chromium, no backend or sign-in; the dev-seed roster of 210
+locations in 4 regions, `measure.mjs` then `analyse.mjs`; re-run after the review round, with the SVG bolt and
+`line-height: 1.35`). The harness gained a `seas` surface (the real `BigSeasLine`, full form with its action and six
+structures, mounted inside the real `.wf-map-chrome-tl`, the clock rewound to the fixture's morning) and a
+`tl-504 → tl+seas` pair; `classify` now counts only the strip a box grew DOWNWARD by as new geometry. Measured chrome
+group, without → with the line: 504×36 → 504×97 at 1280 and 1024, 480×36 → 480×110 at 820, 374×40 → 374×141 on the
+phone (the line wraps to two or three text lines; width is unchanged, so the bound still holds).
+
+- **Opening framing** (labels placed out of 11-12 offered, the 8 measured frames): **unchanged on seven of the
+  eight**; **2 of 11 lost** at 1024@175 (11→9), the wide frame shortened by the app shell. For comparison, at the same
+  framing the window panel loses 3-8 labels and the landing card 0-6.
+- **Sweep** (5 centres × 7 zooms, 4 axes of drive/grid/centres/selection, all 8 frames): worst case **18 collateral**
+  drops (`drv:none`, grid b, dense centres, selection on; 2 within 5px of the line, 9 beyond 30px; 15 distinct labels,
+  2 named: Saltburn Pier, Ashness Bridge), against 29-37 for the window and region panels and 30 for the landing card.
+  Most cells are covered drops (the line doing its job): 157-217 covered per 280 pairs against 6-14 collateral.
+- **Magnitude** (share of the placed set removed): −6.3% to −12.1% on desktop and tablet frames, −16.7% (phone @0) and
+  −21.0% (phone @175). The phone figure is the line's real cost: it is taller there (141px against 40px) and runs
+  the full width, and it shows only on days with big seas.
+- Verdict: the line is **cheap on desktop and not free**. It costs labels at the shorter wide frames and on the phone,
+  never more than the drilldown panels do, and only on a big-seas day. Not measured: `PinsLayer`'s duplicate obstacle
+  list, as before; the line's compact form (one line shorter); and the dropdown open on top of the line.
+

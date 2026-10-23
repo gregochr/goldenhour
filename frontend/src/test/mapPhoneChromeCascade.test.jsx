@@ -435,7 +435,8 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     const cleanup = inject(slice);
     try {
       const style = computedStyleFor('wf-map-scored-legend', ['wf-map-tab']);
-      expect(style.top).toBe('62px');
+      // 62px when `--wf-chrome-tl-h` is unset (40px control + 22); `bigSeasCascade.test.js` evaluates it.
+      expect(style.top).toBe('calc(var(--wf-chrome-tl-h, 40px) + 22px)');
       expect(style.left).toBe('50%');
       expect(style.bottom).toBe('auto');
       expect(style.right).toBe('auto');

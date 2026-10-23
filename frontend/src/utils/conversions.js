@@ -5,6 +5,9 @@ import { ukDateStr, ukDateStrOffset, ukDayOffset, UK_ZONE } from './mapDates.js'
 import { appNow } from './rewind.js';
 
 const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+const COMPASS_POINTS_16 = [
+  'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW',
+];
 const MS_TO_MPH = 2.23694;
 
 /**
@@ -50,6 +53,19 @@ export function mpsToMph(mps) {
 export function degreesToCompass(degrees) {
   const index = Math.round(parseFloat(degrees) / 45) % 8;
   return COMPASS_POINTS[(index + 8) % 8];
+}
+
+/**
+ * Converts a direction in degrees to a 16-point compass word ("NNE"), the sibling of the 8-point
+ * {@link degreesToCompass} for copy that wants the finer word (the Map's big-seas line: "from NNE").
+ * The 8-point helper is left alone: other surfaces print its words.
+ *
+ * @param {number} degrees - Direction in degrees (any value; wrapped into 0-359).
+ * @returns {string} Compass point (e.g. "NNE", "WSW").
+ */
+export function degreesToCompass16(degrees) {
+  const index = Math.round(parseFloat(degrees) / 22.5) % 16;
+  return COMPASS_POINTS_16[(index + 16) % 16];
 }
 
 /**

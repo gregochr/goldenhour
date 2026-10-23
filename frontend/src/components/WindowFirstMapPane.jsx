@@ -861,6 +861,9 @@ export default function WindowFirstMapPane({
         // that granularity is the intended one and not a bug to sharpen.
         runId={briefing?.generatedAt ?? null}
         tideAlignmentIndex={tideAlignmentIndex}
+        // The served big-seas days (big-seas plan F1) — `undefined` when none qualifies, so
+        // `MapView`'s stable empty default applies.
+        bigSeas={briefing?.bigSeas}
         eclipseIndex={eclipseIndex}
         reachById={reachById}
         onOpenLocationSheet={onOpenLocationSheet}

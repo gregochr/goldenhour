@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   ASK_BASE_PADDING, ASK_FIT_MAX_ZOOM, ASK_HEAT_DIM, ASK_PADDING_MAX_FRACTION, ASK_SELECT_ZOOM,
-  clampPadding, fitPadding, NO_INSET, prefersReducedMotion, selectOffset,
+  ASK_CHROME_CLEARANCE, chromeHeightOf, clampPadding, fitPadding, NO_INSET, prefersReducedMotion, selectOffset,
 } from '../utils/askCamera.js';
 
 /**
@@ -137,5 +137,31 @@ describe('prefersReducedMotion', () => {
   it('is false where matchMedia does not exist', () => {
     window.matchMedia = undefined;
     expect(prefersReducedMotion()).toBe(false);
+  });
+});
+
+describe('the chrome height the big-seas line publishes', () => {
+  it('leaves the top clearance at 80 when nothing is published, or the group is no taller than its control', () => {
+    expect(fitPadding({ x: 800, y: 900 }, NO_INSET, null).top).toBe(ASK_BASE_PADDING.top);
+    expect(fitPadding({ x: 800, y: 900 }, NO_INSET, 36).top).toBe(80);
+    expect(fitPadding({ x: 800, y: 900 }).top).toBe(80);
+  });
+
+  it('grows the top clearance to the published height plus 44, and adds a covering inset on top', () => {
+    expect(ASK_CHROME_CLEARANCE).toBe(44);
+    expect(fitPadding({ x: 800, y: 900 }, NO_INSET, 101).top).toBe(145);
+    expect(fitPadding({ x: 800, y: 900 }, { ...NO_INSET, top: 10 }, 101).top).toBe(155);
+  });
+
+  it('reads the variable off the nearest ancestor that carries it, and null when none does', () => {
+    const frame = document.createElement('div');
+    const inner = document.createElement('div');
+    frame.appendChild(inner);
+    expect(chromeHeightOf(inner)).toBeNull();
+    frame.style.setProperty('--wf-chrome-tl-h', '94px');
+    expect(chromeHeightOf(inner)).toBe(94);
+    inner.style.setProperty('--wf-chrome-tl-h', '120px');
+    expect(chromeHeightOf(inner)).toBe(120);
+    expect(chromeHeightOf(null)).toBeNull();
   });
 });
