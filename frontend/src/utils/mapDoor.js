@@ -88,6 +88,24 @@ function solarTimeFor(loc, date, eventType) {
 }
 
 /**
+ * The spots of a roster whose {@code name} is in {@code names} — the one name-to-spot join the
+ * Map's doors and the topic chips' rings share (hot-topics-by-day-plan §1.1: M1 extends this
+ * joiner rather than writing a second). Names are compared byte-identically, never normalised
+ * ({@code heatSpots.js} records why); a name with no spot in the roster (a disabled place) simply
+ * does not join.
+ *
+ * @param {?Array<{name: string}>} spots the roster to join against
+ * @param {?Array<string>} names the served {@code locationNames}
+ * @returns {Array<object>} the roster's spots named in {@code names}, in roster order; empty when
+ *          {@code names} is empty
+ */
+export function spotsNamed(spots, names) {
+  const wanted = new Set(Array.isArray(names) ? names : []);
+  if (wanted.size === 0) return [];
+  return (Array.isArray(spots) ? spots : []).filter((spot) => wanted.has(spot?.name));
+}
+
+/**
  * Resolves a normalised trigger into what the door needs: a headline (`title`, `subLine`), the
  * window and spot it lands on (`handoff`), and the spot set it narrows to (`focus`). Derived from
  * data already on the client (locations, forecasts, briefing scores); no new data.
@@ -194,7 +212,7 @@ export function resolveDoor(trigger, ctx) {
     ? new Set(trigger.locationNames)
     : null;
   if (qualifying) {
-    const restricted = candidates.filter((l) => qualifying.has(l.name));
+    const restricted = spotsNamed(candidates, trigger.locationNames);
     if (restricted.length > 0) candidates = restricted;
   }
 

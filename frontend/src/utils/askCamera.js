@@ -86,14 +86,15 @@ export function clampPadding(size, padding, maxFraction = ASK_PADDING_MAX_FRACTI
  */
 export const ASK_CHROME_CLEARANCE = 44;
 
-/** The custom property {@code BigSeasLine} keeps current: the top-left chrome group's height, px. */
+/** The custom property {@code useChromeTlHeight} keeps current: the top-left chrome group's height, px. */
 export const CHROME_HEIGHT_VAR = '--wf-chrome-tl-h';
 
 /**
  * The published chrome-group height above {@code el}, in px, or null when none is published.
  *
- * <p>{@code BigSeasLine} sets {@link CHROME_HEIGHT_VAR} on the map frame only while the line shows
- * (the group is taller then). Read off the INLINE style of each ancestor, nearest first, so it needs
+ * <p>{@code useChromeTlHeight} (in {@code MapView}) sets {@link CHROME_HEIGHT_VAR} on the map frame
+ * on every day: the group is taller than its 36px control whenever the big-seas line or the topic
+ * chips row shows. Read off the INLINE style of each ancestor, nearest first, so it needs
  * no layout and no computed-style inheritance.
  *
  * @param {?Element} el any element inside the frame, such as the Leaflet container

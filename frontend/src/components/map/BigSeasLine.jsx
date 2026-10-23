@@ -1,17 +1,8 @@
-import React, { useLayoutEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import PropTypes from 'prop-types';
 import { appNow } from '../../utils/rewind.js';
 import { bigSeasCopy, bigSeasFor } from '../../utils/bigSeas.js';
 import BoltIcon from './BoltIcon.jsx';
-
-/**
- * The CSS custom property this line keeps current: the height of the window-control group
- * ({@code .wf-map-chrome-tl}), set on the group's parent (the map frame), where the two frame-level
- * blocks that hang under the control ({@code .wf-win-panel}, {@code .wf-land}) can read it. Their
- * offsets fall back to the old 36px-control constants when it is unset, so with no line on screen
- * nothing moves.
- */
-const CHROME_HEIGHT_VAR = '--wf-chrome-tl-h';
 
 /**
  * The Map tab's big-seas line (big-seas plan F1; handoff "Big-seas line").
@@ -28,9 +19,10 @@ const CHROME_HEIGHT_VAR = '--wf-chrome-tl-h';
  * mounted while the action disappears. The root is a labelled group, not {@code role="status"}: it
  * is not a live announcement, and a status region would speak on every window change.
  *
- * <p>The group's height is published as {@code --wf-chrome-tl-h} through a {@code ResizeObserver},
- * so the window panel and the landing card sit below the line when it shows. Phone: the line runs
- * the control's full width and wraps; the badge never does.
+ * <p>The group's height is published as {@code --wf-chrome-tl-h} by {@code useChromeTlHeight} in
+ * {@code MapView} (it moved out of this component with the topic chips, which grow the group on days
+ * with no big seas too). Phone: the line runs the control's full width and wraps; the badge never
+ * does.
  *
  * @param {object} props
  * @param {?Array<object>} props.bigSeas the served {@code briefing.bigSeas}
@@ -47,31 +39,6 @@ export default function BigSeasLine({ bigSeas, evRow, events, onSelectEv = undef
   const selection = bigSeasFor(bigSeas, evRow, events, now);
   const copy = bigSeasCopy(selection);
   const shown = copy != null;
-
-  // A layout effect: the first measure lands before paint, so the landing card and panel do not jump.
-  useLayoutEffect(() => {
-    const root = rootRef.current;
-    const chrome = root?.parentElement;
-    const frame = chrome?.parentElement;
-    if (!shown || !chrome || !frame) return undefined;
-    const publish = () => {
-      // A hidden pane (display: none) measures 0: publish nothing rather than a height of zero, so the
-      // old constants stand until the pane is visible and the observer fires again.
-      const h = chrome.offsetHeight;
-      if (h > 0) frame.style.setProperty(CHROME_HEIGHT_VAR, `${h}px`);
-      else frame.style.removeProperty(CHROME_HEIGHT_VAR);
-    };
-    publish();
-    let observer = null;
-    if (typeof ResizeObserver === 'function') {
-      observer = new ResizeObserver(publish);
-      observer.observe(chrome);
-    }
-    return () => {
-      observer?.disconnect();
-      frame.style.removeProperty(CHROME_HEIGHT_VAR);
-    };
-  }, [shown]);
 
   if (!shown) return null;
   const jumpRow = selection.jumpRow;

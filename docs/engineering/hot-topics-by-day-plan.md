@@ -872,6 +872,7 @@ changes".
 | Q10 | Should Big seas be in the Coming up lanes? | **No.** It stays Map-only, as big-seas Q7 |
 | Q11 | Should the Map show "No hot topics on this window"? | **Yes on desktop and tablet; nothing on the phone**, where the row costs labels |
 | Q12 | B1 changes which big-seas window leads on an unaligned day (daylight over night). OK? | **Yes.** Otherwise the daylight high water is usually hidden |
+| Q13 | M1 tripped the phone stop rule: chips plus the big-seas line cost −23% / −30% of labels on a phone. What should happen? (asked 2026-10-23) | **On a phone, hide the chips row while the big-seas line shows.** Big seas is already the line, and other topics reach the phone through M4's strip. A selection made before the row hides keeps its rings, and Escape still clears it |
 
 ---
 
@@ -881,8 +882,35 @@ changes".
 |---|---|---|
 | Plan | — | drafted 2026-10-23; adversarially reviewed (four lenses); every finding folded in; owner answered Q1–Q12 |
 | B1 | #1320 | ✅ merged 2026-10-23 (`3bed1f56`); Codex 👍 first round |
-| C1 | — | built 2026-10-23 by Sonnet. Four review lenses; one fix round, including the §1.10 tide-run correction. Headless screenshots at 1280 and 390 match the design's layout (the harness had no web fonts). Not seen with a screen reader, in forced colours, or in the real app behind sign-in |
-| M1 | — | after C1 |
+| C1 | #1322 | ✅ merged 2026-10-23 (`8661a732`) and released in v2.31.0. One Codex round: the tide continuation now reads the tide's own span. Not seen in the real app behind sign-in |
+| M1 | — | built 2026-10-23 by Sonnet. Four review lenses, then two fix rounds; Q13 applied. The label-obstacle numbers are below |
 | M2 | — | after M1 |
 | M3 | — | after B1 and M2 |
 | M4 | — | after M2, if Q5 |
+
+**M1 label-obstacle measurement** (2026-10-23):
+- Method: headless Chromium, the dev-seed roster, `scripts/measurements/label-obstacle/` with the
+  new `topics`, `topicsEmpty` and `seasTopics` surfaces. The real `MapTopicChips` was mounted inside
+  the real `.wf-map-chrome-tl` with three chips and none selected.
+- Each figure is labels removed from the placed set, against the window control alone.
+- The phone rows apply Q13 (no chips while the big-seas line shows) and pass `isMobile`, so the
+  phone empty state draws nothing.
+
+| Frame | topics | big seas | big seas + topics |
+|---|---|---|---|
+| desktop-1280 @0 / @175 | −3.6% / −1.8% | −7.6% / −6.3% | −11.9% / −11.2% |
+| laptop-1024 @0 / @175 | −6.1% / −6.3% | −9.8% / −12.1% | −12.2% / −18.4% |
+| tablet-820 @0 / @175 | −1.7% / −4.8% | −8.0% / −11.5% | −11.4% / −15.5% |
+| phone-390 @0 / @175 | 0.0% / 0.0% | −16.7% / −21.0% | −16.7% / −21.0% (Q13) |
+
+Before Q13, the phone big-seas + topics figures were −23.2% / −29.8%.
+
+Not measured:
+- a selected chip;
+- the sky-wide line's extra row;
+- `PinsLayer`'s own obstacle list.
+
+**Known gap, recorded rather than fixed:** a topic with no solar anchor sits on no window, so it gets
+no Map chip. That covers STORM_SURGE when its `eventType` is null, and CLEARANCE, which only the
+simulation produces. Plan cards behave the same way (`keysFor`), but the Coming up lanes still list
+such a topic by its date (§1.3).

@@ -184,11 +184,13 @@ function glowShadow(hex) {
  *   order) and on top by z-index, has no tooltip, and every other pin steps back. Without this prop
  *   it falls back to {@code onSelect}
  * @param {string} [props.eventLabel] the active EV row's label+time, for the hover tooltip
+ * @param {number|string} [props.chromeKey] the top-left chrome group's repaint nonce (see
+ *   {@code MapLabels}); a change re-runs the placement pass
  */
 export default function PinsLayer({
   spots: allSpots, homeCoords = null, selectedName = null, onSelect = null, onSelectAskPick = null,
   eventLabel = '', rampHex = sharedRampHex, glow = false, omitUnrated = false,
-  bigSeasChips = NO_BIG_SEAS_CHIPS,
+  bigSeasChips = NO_BIG_SEAS_CHIPS, chromeKey = '',
 }) {
   const map = useMap();
 
@@ -323,7 +325,7 @@ export default function PinsLayer({
 
   // Repaints whenever an input the map's own events cannot see changes (the pool, home) — mirrors
   // `MapLabels.jsx`'s identical effect.
-  useEffect(() => { repaintNow(); }, [paint, repaintNow]);
+  useEffect(() => { repaintNow(); }, [paint, repaintNow, chromeKey]);
 
   /**
    * The measure-then-place pass: the home label and, in a big-seas window, the big-seas chips — the
@@ -673,6 +675,8 @@ export default function PinsLayer({
 }
 
 PinsLayer.propTypes = {
+  /** A key for the top-left chrome group's content; a change re-runs placement (see the prop doc). */
+  chromeKey: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   /**
    * The big-seas chips to draw (big-seas plan F2, owner Q11): the same items, tier and suppression
    * rules as {@code MapLabels}; the pins themselves are untouched. Default none.

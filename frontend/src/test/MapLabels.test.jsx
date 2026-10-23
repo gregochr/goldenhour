@@ -1309,6 +1309,27 @@ describe('MapLabels — re-paints on the same rAF-guarded cadence as the field',
     expect(projectSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('⚠️ repaints when `chromeKey` changes: the chrome group changed height under labels that were already placed', async () => {
+    // The key is the MapView's `useChromeTlHeight` nonce. Nothing else here changes (stable `spots` and
+    // `homeCoords`), so a repaint on the key alone can only come from the key being in the repaint
+    // effect's dependencies. The same-key rerender is the control: it must NOT repaint.
+    restoreMeasure = withMeasuredLabels(30, 14);
+    currentMap = makeFullMap({ zoom: 9 });
+    const projectSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const none = [];
+    const { rerender } = await mount({ spots: none, homeCoords: HOME, chromeKey: 0 });
+    await act(async () => { runFrames(); });
+    projectSpy.mockClear();
+
+    await act(async () => { rerender(<MapLabels spots={none} homeCoords={HOME} chromeKey={0} />); });
+    await act(async () => { runFrames(); });
+    expect(projectSpy).not.toHaveBeenCalled();
+
+    await act(async () => { rerender(<MapLabels spots={none} homeCoords={HOME} chromeKey={1} />); });
+    await act(async () => { runFrames(); });
+    expect(projectSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('stops listening on unmount', async () => {
     restoreMeasure = withMeasuredLabels(30, 14);
     currentMap = makeFullMap({ zoom: 9 });

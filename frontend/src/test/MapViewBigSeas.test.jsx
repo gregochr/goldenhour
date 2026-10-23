@@ -227,10 +227,10 @@ describe('MapView — the chrome height reaches the frame blocks that hang under
     expect(frame.contains(screen.getByTestId('wf-land'))).toBe(true);
   });
 
-  it('publishes nothing when no big-seas day is served', async () => {
+  it('publishes it on a day with no big seas too (the hook is unconditional since the topic chips)', async () => {
     await renderMap({ bigSeas: undefined });
     const frame = screen.getByTestId('wf-map-chrome-tl').parentElement;
-    expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('');
+    expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('101px');
   });
 });
 

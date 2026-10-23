@@ -28,6 +28,12 @@ import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
 import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import WindowControl from './map/WindowControl.jsx';
 import BigSeasLine from './map/BigSeasLine.jsx';
+import MapTopicChips from './map/MapTopicChips.jsx';
+import MapTopicRings from './map/MapTopicRings.jsx';
+import { useChromeTlHeight } from '../hooks/useChromeTlHeight.js';
+import { mapScopeNames, topicAnnouncement, topicsOnRow } from '../utils/mapTopics.js';
+import { buildTopicIndex } from '../utils/windowFirstTopics.js';
+import { scopeRegions } from '../utils/planOrigin.js';
 import BoltIcon from './map/BoltIcon.jsx';
 import { bigSeasFor } from '../utils/bigSeas.js';
 import {
@@ -348,6 +354,13 @@ const EMPTY_DATES = [];
  * for the reason {@link EMPTY_DATES} gives: a fresh {@code []} per render would defeat the memo.
  */
 const NO_BIG_SEAS = [];
+/**
+ * Stable empty list: no hot topics served. The {@code hotTopics} prop's default, for the reason
+ * {@link EMPTY_DATES} gives.
+ */
+const NO_HOT_TOPICS = [];
+/** How long a topic announcement stays in the status region before it is cleared (one-shot). */
+const TOPIC_ANNOUNCE_MS = 6000;
 /** Stable empty list: no Ask answer on screen. A fresh `[]` per render would defeat `MapView`'s memo. */
 const NO_ASK_PICKS = [];
 /**
@@ -1237,7 +1250,7 @@ CentreOnHomeControl.propTypes = {
  *       and {@code PinsLayer} draw as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1334,6 +1347,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [date]);
   const [selectedLocationName, setSelectedLocationName] = useState(null);
   const [zoom, setZoom] = useState(9);
+  // The hot-topic chip the reader has toggled on (hot-topics-by-day-plan §3 M1): a topic TYPE, or null.
+  // It persists across window changes while the type is on the new window and clears when it is not
+  // (the effect beside `topicChips`). It is the chips' own state: it never touches the star floor,
+  // `showStandDown` or any persisted filter.
+  const [selectedTopic, setSelectedTopic] = useState(null);
+  // What the tab's status region says about the last toggle — see `statusLine`.
+  const [topicAnnounce, setTopicAnnounce] = useState('');
+  // Publishes the chrome-tl group's height on EVERY day (not only big-seas days) - §1.12.
+  // The nonce is the label layers' repaint key: it moves when that published height does.
+  const [chromeTlRef, chromeTlNonce] = useChromeTlHeight();
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
   // Minimum-quality threshold (1–5). It's a true "this and above" control, so it
   // always holds a value; persisted to localStorage as 'mapFilterMinStars', and
@@ -1874,6 +1897,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       if (paneIsOffScreen(mapPaneRef.current)) return;
       if (foreignModalOver(mapPaneRef.current)) return;
       if (openMapMenu != null || selectedLocationName != null) return;
+      if (selectedTopic != null) {
+        // A selected hot topic is the layer ABOVE this card. With the key pressed inside the pane the
+        // pane handler clears it on this very press, so this defers (one Escape never closes two
+        // levels). With focus on <body> (Safari does not focus a clicked button) the pane handler never
+        // hears the key, so this clears the topic ITSELF - exactly one level - and the NEXT press
+        // dismisses the card as it always did. Deferring unconditionally left Escape doing nothing.
+        if (!mapPaneRef.current?.contains(e.target)) {
+          setSelectedTopic(null);
+          setTopicAnnounce('Topic selection cleared.');
+        }
+        return;
+      }
       dismissLanding();
     }
     document.addEventListener('keydown', onDocKeyDown);
@@ -1882,7 +1917,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // would re-subscribe on every render, and the effect only ever calls the version captured with
     // the same `runId` this render read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [landingOpen, openMapMenu, selectedLocationName, runId]);
+  }, [landingOpen, openMapMenu, selectedLocationName, selectedTopic, runId]);
   // `colourScaleDefaulted` alone is not quite enough: it says the STORED preference was null, but
   // the notice's own words ("cold to hot") only make sense while the live ramp is actually temp.
   // Cheap and correct to check both rather than assume the one implies the other forever — if
@@ -4217,6 +4252,72 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [bigSeasDay, bigSeasRoster, zoom, bigSeasEvKind, bigSeasEvType, bigSeasEvPast, askPickNames]);
   /** Whether chips are drawn: the one condition the chip mounts and the legend key share. */
   const bigSeasShown = heatOffered && (heatOn || heatPinsOn) && bigSeasChips.length > 0;
+  // ── The hot-topic chips (hot-topics-by-day-plan §3 M1) ────────────────────────────────────────────
+  // Topics come from the served `hotTopics` through the window index, never from `row.badges` (a filler
+  // or past row has none). The scope is the area's region names (§1.5), the roster the rings join to is
+  // the SCOPED catalogue - not `labelSpots`, which drops stood-down and star-floored places - and Big
+  // seas joins the FULL roster by id.
+  const topicIndex = useMemo(() => buildTopicIndex(hotTopics), [hotTopics]);
+  // The scope is the Plan tab's own list (`scopeRegions`, the heat strip's source), NOT the unique regions of
+  // `heat.areaSpots`: away from home an origin region with no heat spots empties `areaSpots`, which would read
+  // as "no filter" where Plan filters to that region. Empty (no filter) only while the area scope is off.
+  const topicScopeNames = useMemo(
+    () => mapScopeNames(
+      heat?.enabled ? scopeRegions(heat.spots, reachById, origin) : null,
+      heatArea,
+    ),
+    [heat?.enabled, heat?.spots, reachById, origin, heatArea],
+  );
+  const topicRoster = heat?.enabled ? ((heatArea ? heat.areaSpots : heat.spots) || EMPTY_POINTS) : locations;
+  const locationsById = useMemo(() => new Map(locations.map((loc) => [loc.id, loc])), [locations]);
+  const topicChips = useMemo(() => topicsOnRow({
+    row: activeMapEvent,
+    topicIndex,
+    hotTopics,
+    scopeNames: topicScopeNames,
+    bigSeasDay,
+    roster: topicRoster,
+    locationsById,
+  }), [activeMapEvent, topicIndex, hotTopics, topicScopeNames, bigSeasDay, topicRoster, locationsById]);
+  const activeTopicChip = topicChips.find((chip) => chip.type === selectedTopic) ?? null;
+  const topicRowId = activeMapEvent?.id ?? null;
+  // ⚠️ The announcement is ONE-SHOT. A live region speaks what is in it whenever it is re-shown, so text
+  // left in it was re-spoken on every pane re-show, foreign-modal close and retry-line drop. It is
+  // cleared when the window row changes, when the pane is hidden, when the retry line takes the region,
+  // and after a few seconds. The row-change clear is declared BEFORE the auto-clear below, so on a row
+  // change that ends the selection the auto-clear's sentence (set after) is the one that is spoken -
+  // once, and then timed out like any other.
+  /* eslint-disable react-hooks/set-state-in-effect -- one-shot reconciliations, each ending the condition that fired it */
+  useEffect(() => { setTopicAnnounce(''); }, [topicRowId]);
+  useEffect(() => { if (!paneVisible) setTopicAnnounce(''); }, [paneVisible]);
+  useEffect(() => { if (ratingRetrying) setTopicAnnounce(''); }, [ratingRetrying]);
+  useEffect(() => {
+    if (selectedTopic == null || activeTopicChip != null) return;
+    // The selected type is not on this window (or not any more): the selection ends with it.
+    setSelectedTopic(null);
+    setTopicAnnounce('Topic selection cleared: it is not on this window.');
+  }, [selectedTopic, activeTopicChip]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!topicAnnounce) return undefined;
+    const timer = setTimeout(() => setTopicAnnounce(''), TOPIC_ANNOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [topicAnnounce]);
+  // Rings can only be drawn on a Heat or Pins map; a whole-sky or place-less topic draws none.
+  const ringsAvailable = heatOffered && (heatOn || heatPinsOn);
+  const topicRingPlaces = ringsAvailable ? (activeTopicChip?.places ?? null) : null;
+  const topicRingsDrawn = (topicRingPlaces?.length ?? 0) > 0;
+  /** Toggles a chip: pressing the selected one clears it. The outcome goes to the status region. */
+  function toggleTopic(type) {
+    const chip = topicChips.find((c) => c.type === type);
+    const next = selectedTopic === type ? null : type;
+    setSelectedTopic(next);
+    setTopicAnnounce(topicAnnouncement(chip, next != null, ringsAvailable && (chip?.places?.length ?? 0) > 0));
+  }
+  // On a phone, while the big-seas line shows, the chips row is not drawn (owner, 2026-10-23): Big seas
+  // is already the line there and the row cost labels. A selection made before that stays (the rings
+  // still draw) and Escape still clears it. Desktop and tablet are untouched.
+  const topicsSuppressed = isMobile && bigSeasSelection.form != null;
   // Whether a desktop Legend panel is mounted at all. The Pins legend mounts only while one of its keys
   // is shown, so a zoom that retires the chips can unmount it under an open menu.
   const legendMounted = heatOffered && !isMobile
@@ -4604,6 +4705,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * the callout (a selected place with no rating, on a night whose own request has failed) or in
    * Heat view's key slot ({@code unscoredLineText}) — and nothing otherwise (review C1).
    *
+   * <p>⚠️ <b>It also carries ONE hot-topic sentence at a time</b> (hot-topics-by-day M1: a chip toggled,
+   * cleared by Escape, or ended by a window the topic is not on), and that sentence is ONE-SHOT:
+   * {@code topicAnnounce} is cleared when the window row changes, when the pane is hidden, when the
+   * retry line takes the region, and after {@code TOPIC_ANNOUNCE_MS}. A region that kept the text
+   * re-spoke it on every pane re-show, foreign-modal close and retry-line drop. The retry line, a
+   * failure the reader must hear, outranks it. Silenced by {@code paneVisible} like the rest.
+   *
    * <p>⚠️ <b>Owned here, not by the callout</b> (Codex, #848). A live region announces a CHANGE, and
    * only one it was already in the tree for. The callout mounts when a place is selected, so in the
    * commonest order — the night fails, then the reader picks a place — a region inside the callout
@@ -4631,7 +4739,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     : (paneVisible && ratingRetrying && (
       unscoredLineShown
       || (selectedLoc != null && activeMapEvent != null && getRatingForLocation(selectedLoc) == null)
-    ) ? NIGHT_RETRY_LINE : '');
+    ) ? NIGHT_RETRY_LINE : (paneVisible ? topicAnnounce : ''));
 
   /**
    * "No forecast to show." — the Map tab's own empty state, in the Plan screen's exact words
@@ -5671,7 +5779,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       setOpenMapMenu(null);
       return;
     }
-    if (selectedLocationName != null) setSelectedLocationName(null);
+    if (selectedLocationName != null) {
+      setSelectedLocationName(null);
+      return;
+    }
+    // A selected hot topic is the LAST layer to go, after the callout: one press, one level.
+    if (selectedTopic != null) {
+      setSelectedTopic(null);
+      setTopicAnnounce('Topic selection cleared.');
+    }
   }
 
   return (
@@ -5691,6 +5807,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // query needs to hide Leaflet's OWN zoom control (a real `.leaflet-control-zoom` DOM node
       // this component never renders itself, so there is no React-owned element to gate).
       className="flex flex-col flex-1 min-h-0 wf-map-tab"
+      // While a hot topic is selected the ordinary name chips and pin labels step back (index.css).
+      data-topic-selected={topicRingsDrawn ? 'true' : undefined}
       // It exists so a test can pin that `MAP_PANE_SELECTOR`'s class sits on THIS element, the one
       // carrying `mapPaneRef` and the pane's key handler, rather than merely existing somewhere in
       // the tree.
@@ -5881,6 +5999,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 rampHex={isAuroraMode ? AURORA_RAMP.hex : rampHex}
                 omitUnrated={isAuroraMode}
                 bigSeasChips={bigSeasChips}
+                chromeKey={chromeTlNonce}
                 // The phone's peek sheet is an obstacle while an answer's picks are on the map (F4),
                 // from its TARGET height; with no answer it is not one, as it never was.
                 bottomInset={isMobile && askActive ? peekTarget : 0}
@@ -5900,6 +6019,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 glow={isAuroraMode}
                 omitUnrated={isAuroraMode}
                 bigSeasChips={bigSeasChips}
+                chromeKey={chromeTlNonce}
               />
             </Suspense>
           )}
@@ -5919,6 +6039,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               `heat` prop, which does not vary with the active event type, so a region jump made
               during an aurora window still resolves and fits that region's own location bounds
               exactly as it does for a solar one. */}
+          {/* The selected topic's rings (hot-topics-by-day-plan M1): non-interactive, in a pane under the
+              labels, Heat and Pins alike. A whole-sky topic has no places and draws none. */}
+          {topicRingsDrawn && (
+            <MapTopicRings places={topicRingPlaces} colour={activeTopicChip.colour} inPins={heatPinsOn} />
+          )}
           <HeatBoundsController bounds={heatBounds} nonce={heatBoundsNonce} padding={heatBoundsPadding} />
           {/* CARTO's basemaps.cartocdn.com dark_all tiles now require a registered API key
               (https://carto.com/basemaps/apikey) — anonymous requests render an
@@ -6223,7 +6348,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           </div>
         )}
 
-        <div className="wf-map-chrome-tl" data-testid="wf-map-chrome-tl">
+        <div ref={chromeTlRef} className="wf-map-chrome-tl" data-testid="wf-map-chrome-tl">
           {windowControl}
           {/* The big-seas line (big-seas plan F1): its own row under the control, inside the
               group so it shares the control's 504px bound and the label obstacle. All roles. */}
@@ -6232,6 +6357,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             evRow={activeMapEvent}
             events={mapEvents}
             onSelectEv={selectEvRow}
+          />
+          {/* The hot-topic chips (hot-topics-by-day-plan M1): the row under the big-seas line, so it
+              shares the control's 504px bound and the group's label obstacle. */}
+          <MapTopicChips
+            chips={topicChips}
+            selectedType={activeTopicChip?.type ?? null}
+            onToggle={toggleTopic}
+            isMobile={isMobile}
+            hasWindow={activeMapEvent != null}
+            suppressed={topicsSuppressed}
+            fallbackFocus={() => mapPaneRef.current?.focus({ preventScroll: true })}
           />
         </div>
 
@@ -7095,6 +7231,11 @@ MapView.propTypes = {
    * (big-seas plan F1). Read by {@code BigSeasLine} and the week menu's ⚡ via {@code buildMapEvents}.
    */
   bigSeas: PropTypes.arrayOf(PropTypes.object),
+  /**
+   * The served {@code briefing.hotTopics}: what the topic chips and rings are made of
+   * (hot-topics-by-day-plan M1). Absent when none is served.
+   */
+  hotTopics: PropTypes.arrayOf(PropTypes.object),
   /**
    * The per-user HOME reach map (`{driveMinutes, distanceMiles}`). Originally read ONLY for the
    * callout's straight-line miles fact; since D1 (plan-to-map-doors-plan.md) also the tab's home

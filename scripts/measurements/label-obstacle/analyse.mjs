@@ -96,6 +96,11 @@ function configsFor(vpName) {
     // The chrome group with the big-seas line under the control (big-seas plan F1): the SAME box,
     // measured taller. Its own rect replaces `tl` rather than joining it.
     'tl+seas': [s.seas.obstacles['wf-map-chrome-tl'], ...chrome],
+    // The hot-topic chips row (hot-topics-by-day-plan M1): three chips, the empty-state text, and the
+    // worst case - the big-seas line AND three chips. Again the SAME box measured taller.
+    'tl+topics': [s.topics.obstacles['wf-map-chrome-tl'], ...chrome],
+    'tl+topicsEmpty': [s.topicsEmpty.obstacles['wf-map-chrome-tl'], ...chrome],
+    'tl+seas+topics': [s.seasTopics.obstacles['wf-map-chrome-tl'], ...chrome],
   };
 }
 
@@ -320,6 +325,7 @@ for (const fk of FRAMES) {
 const PAIRS = [
   ['tl-334', 'tl-504'], ['tl-504', 'tl+land'],
   ['tl-504', 'tl+win'], ['tl-504', 'tl+win9'], ['tl-504', 'tl+reg'], ['tl-504', 'tl+seas'],
+  ['tl-504', 'tl+topics'], ['tl-504', 'tl+topicsEmpty'], ['tl-504', 'tl+seas+topics'],
 ];
 
 /**
@@ -425,7 +431,7 @@ for (const fk of FRAMES) {
   const base = tot['tl-504'];
   console.log(
     `   ${fk.padEnd(17)} tl-504=${String(base).padStart(3)}  `
-    + ['tl+land', 'tl+win', 'tl+reg', 'tl+seas']
+    + ['tl+land', 'tl+win', 'tl+reg', 'tl+seas', 'tl+topics', 'tl+topicsEmpty', 'tl+seas+topics']
       .map((n) => `${n} ${(((tot[n] - base) / base) * 100).toFixed(1)}%`).join('  '),
   );
 }
