@@ -21,7 +21,7 @@ import java.util.Optional;
  * Resilient wrapper around the Open-Meteo Marine Weather API, plus the sea-state selection helper.
  *
  * <p>Fetches a 7-day hourly sea-state series for a coastal location and picks the significant wave
- * height at a specific event time (typically the aligned high water). Called from the briefing
+ * height at a specific event time (the sunrise or sunset the briefing samples). Called from the briefing
  * triage pipeline — never from a {@code HotTopicStrategy}, which must stay API-call-free. Uses the
  * isolated {@code open-meteo-briefing} circuit breaker so a marine outage cannot trip the
  * forecast-run breaker (and vice versa), sharing the {@code open-meteo} rate limiter.
@@ -71,7 +71,7 @@ public class MarineClient {
      * hour is outside the fetched window, or the grid cell returned no wave value (a land point).
      *
      * @param response    a response from {@link #fetchMarine(double, double)}, or null
-     * @param eventTimeUtc the UTC event time to sample at (e.g. high water), or null
+     * @param eventTimeUtc the UTC event time to sample at (e.g. sunrise or sunset), or null
      * @return the sea-state sample at that hour, or empty when unavailable
      */
     public Optional<MarineWaveSample> sampleAt(OpenMeteoMarineResponse response, LocalDateTime eventTimeUtc) {

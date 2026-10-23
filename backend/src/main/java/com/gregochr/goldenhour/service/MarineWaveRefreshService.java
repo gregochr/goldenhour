@@ -131,9 +131,9 @@ public class MarineWaveRefreshService {
         if (dates.isEmpty()) {
             return;
         }
+        LocalDateTime from = ForecastHorizon.ukDayStartUtc(Collections.min(dates));
+        LocalDateTime to = ForecastHorizon.ukDayStartUtc(Collections.max(dates).plusDays(1));
         try {
-            LocalDateTime from = ForecastHorizon.ukDayStartUtc(Collections.min(dates));
-            LocalDateTime to = ForecastHorizon.ukDayStartUtc(Collections.max(dates).plusDays(1));
             List<MarineHighWaterEntity> rows = new ArrayList<>();
             if (response != null) {
                 for (TideHighWater hw : tideExtremeRepository.findHighWatersInWindow(
@@ -145,6 +145,16 @@ public class MarineWaveRefreshService {
             LOG.info("Big-seas samples: {} {} daylight HWs", loc.getName(), rows.size());
         } catch (RuntimeException e) {
             LOG.warn("Big-seas high-water refresh failed for {}: {}", loc.getName(), e.getMessage());
+            clearAfterFailure(loc, from, to);
+        }
+    }
+
+    /** Best effort: a failed cycle must never leave last cycle's rows to be served as this cycle's. */
+    private void clearAfterFailure(LocationEntity loc, LocalDateTime from, LocalDateTime to) {
+        try {
+            highWaterWriter.replace(loc.getId(), from, to, List.of());
+        } catch (RuntimeException e) {
+            LOG.warn("Big-seas high-water clear also failed for {}: {}", loc.getName(), e.getMessage());
         }
     }
 

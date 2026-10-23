@@ -157,6 +157,35 @@ class MarineClientTest {
     }
 
     @Test
+    @DisplayName("the fallback rounds the midpoint to the NEAREST hour: 12:45 reaches 13:00, not 12:00")
+    void peakInWindow_fallbackRoundsUp() {
+        OpenMeteoMarineResponse response = withPeriods(FIVE_HOURS,
+                List.of(1.0, 2.0, 3.0, 4.0, 5.0), List.of(10, 20, 30, 40, 50),
+                List.of(5.0, 8.0, 11.0, 9.0, 5.0), List.of(6.0, 9.0, 12.0, 10.0, 6.0));
+
+        Optional<MarineWavePeak> peak = client.peakInWindow(response,
+                LocalDateTime.of(2026, 12, 10, 12, 35), LocalDateTime.of(2026, 12, 10, 12, 55));
+
+        assertThat(peak).isPresent();
+        assertThat(peak.get().peakTime()).isEqualTo(LocalDateTime.of(2026, 12, 10, 13, 0));
+    }
+
+    @Test
+    @DisplayName("a peak exactly on the window's start stamp is inside it (the bounds are inclusive)")
+    void peakInWindow_peakOnFromStamp() {
+        OpenMeteoMarineResponse response = withPeriods(FIVE_HOURS,
+                List.of(9.0, 9.5, 3.0, 2.0, 1.0), List.of(10, 20, 30, 40, 50),
+                List.of(5.0, 8.0, 11.0, 9.0, 5.0), List.of(6.0, 9.0, 12.0, 10.0, 6.0));
+
+        Optional<MarineWavePeak> peak = client.peakInWindow(response,
+                LocalDateTime.of(2026, 12, 10, 11, 0), LocalDateTime.of(2026, 12, 10, 13, 0));
+
+        assertThat(peak).isPresent();
+        assertThat(peak.get().peakTime()).isEqualTo(LocalDateTime.of(2026, 12, 10, 11, 0));
+        assertThat(peak.get().waveHeight()).isEqualTo(9.5);
+    }
+
+    @Test
     @DisplayName("the fallback is empty when the nearest hour is outside the fetched series")
     void peakInWindow_fallbackOutsideSeriesIsEmpty() {
         OpenMeteoMarineResponse response = withPeriods(FIVE_HOURS,

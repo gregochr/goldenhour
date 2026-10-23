@@ -33,12 +33,12 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -50,7 +50,9 @@ import static org.mockito.Mockito.when;
  * <p>The BST to GMT fixtures matter: Sunday 25 Oct 2026 is a 25-hour UK day, so a morning high
  * water on Saturday 24 Oct (BST) and one on Sunday 25 Oct (GMT) must each be clipped against their
  * own date's dawn, and the day range must be bounded by {@link ForecastHorizon#ukDayStartUtc}.
- * Every mock argument is the exact value the code produces; unexpected calls fail under strict stubs.
+ * Every mock argument is the exact value the code produces. The refresh swallows runtime exceptions per
+ * location, so an unexpected call under strict stubs is caught there and surfaces as a missing or wrong
+ * row in the assertions, not as a stubbing error of its own.
  */
 @ExtendWith(MockitoExtension.class)
 class MarineWaveRefreshServiceBigSeasTest {
@@ -178,6 +180,7 @@ class MarineWaveRefreshServiceBigSeasTest {
         service.refresh(List.of(roker), List.of(DAY), JOB_RUN_ID);
 
         assertThat(writtenRows(STRUCTURE_ID, DAY_START, DAY_END)).isEmpty();
+        verify(marineClient, never()).peakInWindow(response, DAWN, DAWN);
     }
 
     @Test
@@ -238,6 +241,8 @@ class MarineWaveRefreshServiceBigSeasTest {
         assertThat(rows).extracting(MarineHighWaterEntity::getHwTime).containsExactly(saturdayHw, sundayHw);
         assertThat(rows).extracting(MarineHighWaterEntity::getWindowStart)
                 .containsExactly(saturdayDawn, sundayDawn);
+        // Sunday's night HW (23:30Z Saturday) and Sunday's morning HW both bucket to Sunday's civil date.
+        verify(solarService, times(2)).civilDawnUtc(LAT, LON, sunday);
     }
 
     @Test
@@ -353,6 +358,35 @@ class MarineWaveRefreshServiceBigSeasTest {
     }
 
     @Test
+    @DisplayName("a failure while reading or windowing clears the location's rows, best effort")
+    void readFailure_clearsRows() {
+        LocationEntity roker = structure(STRUCTURE_ID, "Roker");
+        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
+                .thenThrow(new IllegalStateException("db down"));
+
+        service.refresh(List.of(roker), List.of(DAY), JOB_RUN_ID);
+
+        assertThat(writtenRows(STRUCTURE_ID, DAY_START, DAY_END)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a high water on a date outside the requested dates is ignored without a solar lookup")
+    void highWaterOutsideDates_ignored() {
+        LocalDate twelfth = LocalDate.of(2026, 12, 12);
+        LocalDateTime to = LocalDateTime.of(2026, 12, 13, 0, 0);
+        LocationEntity roker = structure(STRUCTURE_ID, "Roker");
+        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, to))
+                .thenReturn(List.of(hw(STRUCTURE_ID, LocalDateTime.of(2026, 12, 11, 12, 0))));
+
+        service.refresh(List.of(roker), List.of(DAY, twelfth), JOB_RUN_ID);
+
+        assertThat(writtenRows(STRUCTURE_ID, DAY_START, to)).isEmpty();
+        verify(solarService, never()).civilDawnUtc(LAT, LON, LocalDate.of(2026, 12, 11));
+    }
+
+    @Test
     @DisplayName("no dates, no high-water work")
     void noDates_nothingToDo() {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
@@ -360,6 +394,6 @@ class MarineWaveRefreshServiceBigSeasTest {
 
         service.refresh(List.of(roker), List.of(), JOB_RUN_ID);
 
-        verify(highWaterWriter, never()).replace(eq(STRUCTURE_ID), any(), any(), any());
+        verifyNoInteractions(highWaterWriter, tideExtremeRepository);
     }
 }

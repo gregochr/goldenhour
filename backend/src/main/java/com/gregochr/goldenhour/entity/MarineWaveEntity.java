@@ -55,7 +55,7 @@ public class MarineWaveEntity {
     @Column(name = "evaluation_date", nullable = false)
     private LocalDate evaluationDate;
 
-    /** SUNRISE or SUNSET — the aligned high-water event. */
+    /** SUNRISE or SUNSET — the solar event the sample is taken at. */
     @Enumerated(EnumType.STRING)
     @Column(name = "event_type", nullable = false, length = 20)
     private TargetType eventType;
