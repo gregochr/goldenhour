@@ -391,6 +391,17 @@ is no business logic in controllers; a service owns every rule and write.
   - an area name or alias may not be a contiguous run inside any location name or location alias;
   - a location alias may not contain an area name or alias as a run.
   - Report the clashing name.
+- **Location names are in the namespace too (Codex P1).** `LocationService.add` and the rename branch of
+  `LocationService.update` today check only `existsByName`. Put the rules above in one shared component
+  (e.g. `NameNamespaceGuard`, a service over the area, alias and location repositories), called by the
+  area service, the location-alias service **and** both `LocationService` paths. For a location's name:
+  - it may not equal any location alias, area name or area alias;
+  - it may not contain an area name or area alias as a run.
+  - Otherwise an admin could rename a place "Hadrian's Wall" and, by D10, hide the named area.
+  - Keep each path's existing exception type and status code. Add tests to `LocationServiceTest` for a
+    create and a rename that clash, and for a rename to a name with no clash.
+  - Before building, check that no current location name breaks the rule: grep the migrations and
+    `application-prod.yml`'s roster for "hadrian" and "roman wall". Report what you find.
 
 Then:
 - Fix the existing drift in `docs/engineering/reference/api-endpoints.md` (it documents `PUT
