@@ -93,6 +93,9 @@ function configsFor(vpName) {
     'tl+win': [tl, s.win.obstacles['wf-win-panel'], ...chrome],
     'tl+win9': [tl, s.win9.obstacles['wf-win-panel'], ...chrome],
     'tl+reg': [tl, s.reg.obstacles['wf-reg-panel'], ...chrome],
+    // The chrome group with the big-seas line under the control (big-seas plan F1): the SAME box,
+    // measured taller. Its own rect replaces `tl` rather than joining it.
+    'tl+seas': [s.seas.obstacles['wf-map-chrome-tl'], ...chrome],
   };
 }
 
@@ -201,6 +204,9 @@ function classify(a, b, fromRects, toRects) {
     const g = grewFrom.get(`${r.left},${r.top}`);
     if (g && r.width > g.width && r.height === g.height) {
       realAdded.push({ x: g.left + g.width, y: g.top, w: r.width - g.width, h: g.height });
+    } else if (g && r.height > g.height && r.width >= g.width) {
+      // Grew DOWNWARD (the big-seas line): only the strip below the old bottom edge is new.
+      realAdded.push({ x: r.left, y: g.top + g.height, w: r.width, h: r.height - g.height });
     } else {
       realAdded.push({ x: r.left, y: r.top, w: r.width, h: r.height });
     }
@@ -313,7 +319,7 @@ for (const fk of FRAMES) {
 // ── 2. The sweep ─────────────────────────────────────────────────────────────────────────────────
 const PAIRS = [
   ['tl-334', 'tl-504'], ['tl-504', 'tl+land'],
-  ['tl-504', 'tl+win'], ['tl-504', 'tl+win9'], ['tl-504', 'tl+reg'],
+  ['tl-504', 'tl+win'], ['tl-504', 'tl+win9'], ['tl-504', 'tl+reg'], ['tl-504', 'tl+seas'],
 ];
 
 /**
@@ -419,7 +425,7 @@ for (const fk of FRAMES) {
   const base = tot['tl-504'];
   console.log(
     `   ${fk.padEnd(17)} tl-504=${String(base).padStart(3)}  `
-    + ['tl+land', 'tl+win', 'tl+reg']
+    + ['tl+land', 'tl+win', 'tl+reg', 'tl+seas']
       .map((n) => `${n} ${(((tot[n] - base) / base) * 100).toFixed(1)}%`).join('  '),
   );
 }

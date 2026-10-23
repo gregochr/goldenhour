@@ -613,7 +613,7 @@ tuning; the owner cuts releases.
 | Plan | — | drafted 2026-10-22; adversarially reviewed (backend + frontend lenses), all findings folded in |
 | B1 | — | Step 0 done; ready to brief once this plan merges |
 | B2 | — | after B1 |
-| F1 | — | after B2 |
+| F1 | — | built 2026-10-23 on `feature/big-seas-f1` (frontend only, against B2's served contract); label-obstacle re-measure below |
 | F2 | — | after F1 |
 | F3 | — | ready to brief (Q1 answered); independent of B1–F2 |
 | F4 | — | after F3 |
@@ -637,4 +637,26 @@ The decoy in B1's migration test should be `Whitby Abbey`, a real near-miss name
 Tide check (production, 2026-10-22): all seven have stored future high waters, 178–180 each,
 running to 23 Jan 2027. B1 needs no tide fix.
 
-Label-obstacle re-measure (F1): _(paste here)_
+Label-obstacle re-measure (F1, 2026-10-23, headless Chromium, no backend or sign-in; the dev-seed roster of 210
+locations in 4 regions, `measure.mjs` then `analyse.mjs`). The harness gained a `seas` surface (the real
+`BigSeasLine`, full form with its action and six structures, mounted inside the real `.wf-map-chrome-tl`, the clock
+rewound to the fixture's morning) and a `tl-504 → tl+seas` pair; `classify` now counts only the strip a box grew
+DOWNWARD by as new geometry. Measured chrome group, without → with the line: 504×36 → 504×101 at 1280 and 1024,
+480×36 → 480×116 at 820, 374×40 → 374×150 on the phone (the line wraps to two or three text lines; width is
+unchanged on desktop, so the bound still holds).
+
+- **Opening framing** (labels placed out of 11-12 offered, the 8 measured frames): **unchanged on six of the eight**
+  (1280@0, 1024@0, both 820 frames and both phone frames); **2 of 11 lost** at 1280@175 and 1024@175 (11→9), the two
+  wide frames shortened by the app shell. For comparison, at the same framing the window panel loses 3-8 labels and
+  the landing card 0-6.
+- **Sweep** (5 centres × 7 zooms, 4 axes of drive/grid/centres/selection, all 8 frames): worst case **21 collateral**
+  drops (`drv:none`, grid b, dense centres, selection on; 4 within 5px of the line, 9 beyond 30px; 17 distinct labels,
+  2 named: Saltburn Pier, Ashness Bridge), against 29-37 for the window and region panels and 30 for the landing card.
+  Most cells are covered drops (the line doing its job): 167-230 covered per 280 pairs against 4-21 collateral.
+- **Magnitude** (share of the placed set removed): −6.3% to −12.6% on desktop and tablet frames, −19.0% (phone @0) and
+  −25.0% (phone @175). The phone figure is the line's real cost: it is taller there (150px against 40px) and runs
+  the full width, and it shows only on days with big seas.
+- Verdict: the line is **cheap on desktop and not free**. It costs labels at the shorter wide frames and on the phone,
+  never more than the drilldown panels do, and only on a big-seas day. Not measured: `PinsLayer`'s duplicate obstacle
+  list, as before; the line's compact form (one line shorter); and the dropdown open on top of the line.
+

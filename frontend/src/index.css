@@ -43,6 +43,10 @@
 
   /* Tide facts (objective, independent of the sky verdict). */
   --color-tide: #6FA8B0;
+  /* Big seas on the Map (big-seas plan F1): the badge fill, the ringed chip rule and the height text
+     on the dark plate. The same teal family as --color-tide; never the storm-surge amber on the map. */
+  --color-tide-light: #8FC0C7;
+  --color-tide-pale: #A9D6DC;
 
   /* Stood-down ground on the Map (big-seas plan F3). A cool grey-blue, deliberately OFF the red-amber-
      green ramp so it cannot be read as a score: the region label's name, its cause line, and the
@@ -5480,7 +5484,9 @@ button.wf-hc.also.on:hover {
    */
 .wf-land {
   position: absolute;
-  top: 60px;
+  /* 36px control + `top: 8` + 16px of air; `--wf-chrome-tl-h` is the chrome group's height while the
+     big-seas line shows (big-seas plan F1), the 36px fallback gives the old 60px exactly. */
+  top: calc(var(--wf-chrome-tl-h, 36px) + 24px);
   left: 12px;
   z-index: 1050;
   width: 376px;
@@ -5494,7 +5500,7 @@ button.wf-hc.also.on:hover {
      edge, which put a capped card's bottom edge 16px up, INSIDE `.wf-map-chrome-bl`'s band (the
      Legend chip, `bottom: 8px` × ~36px tall) and the counts footer's. 112 = `top: 60` + `bottom: 8`
      + a 44px chip. Measured overlaps before the fix: 4px at a 340px frame, 30px at 260px. */
-  max-height: calc(100% - 112px);
+  max-height: calc(100% - var(--wf-chrome-tl-h, 36px) - 76px);
   overflow: hidden auto;
   border-radius: 12px;
   /* The same plate `.wf-callout` uses, so the two cards over one map read as one family. */
@@ -5821,8 +5827,10 @@ button.wf-hc.also.on:hover {
    it, below the callout (1350) and the tooltip (1400). The landing card is 1050. */
 .wf-win-panel {
   position: absolute;
-  /* Under the control: chrome `top: 8` + a 36px control + the 6px the dropdown also uses. */
-  top: 50px;
+  /* Under the control: chrome `top: 8` + a 36px control + the 6px the dropdown also uses.
+     `--wf-chrome-tl-h` is the chrome group's height, published by `BigSeasLine` while it shows
+     (big-seas plan F1); unset, the 36px fallback gives the old 50px exactly. */
+  top: calc(var(--wf-chrome-tl-h, 36px) + 14px);
   left: 60px;
   z-index: 1150;
   /* The control's own box, so the panel and the dropdown it replaces share both edges — including
@@ -5831,7 +5839,7 @@ button.wf-hc.also.on:hover {
   max-width: calc(100% - 308px);
   /* 102 = this panel's own `top: 50` + the bottom band the landing card's 112 also clears
      (`bottom: 8` + a ~44px Legend chip). A percentage of the FRAME, which is the point. */
-  max-height: calc(100% - 102px);
+  max-height: calc(100% - var(--wf-chrome-tl-h, 36px) - 66px);
   overflow: hidden auto;
   border: 1px solid var(--color-plex-border-light);
   border-radius: 10px;
@@ -6181,12 +6189,14 @@ button.wf-hc.also.on:hover {
    the lifted-stack reckoning the landing card's own phone rule derives (top 54 + 140). */
 @media (max-width: 639px) {
   .wf-win-panel {
-    top: 54px;
+    /* The phone control is 40px tall: 8 + 40 + 6. `--wf-chrome-tl-h` replaces the 40 while the
+       big-seas line shows (big-seas plan F1); `max-height` keeps its 140px bottom reckoning. */
+    top: calc(var(--wf-chrome-tl-h, 40px) + 14px);
     left: 8px;
     right: 8px;
     width: auto;
     max-width: none;
-    max-height: calc(100% - 194px);
+    max-height: calc(100% - var(--wf-chrome-tl-h, 40px) - 154px);
   }
 }
 
@@ -6195,7 +6205,8 @@ button.wf-hc.also.on:hover {
    `top: 56px` clears the full-width window control the ≤639px chrome rule puts across the top. */
 @media (max-width: 639px) {
   .wf-land {
-    top: 56px;
+    /* The phone control is 40px tall: 8 + 40 + 8 = the old 56px, which the 40px fallback keeps. */
+    top: calc(var(--wf-chrome-tl-h, 40px) + 16px);
     left: 8px;
     right: 8px;
     width: auto;
@@ -6205,7 +6216,7 @@ button.wf-hc.also.on:hover {
        scored legend, LITE viewline chip), and a card allowed to reach 74px from the bottom passes
        through it. 196 = `top: 56` + 140, clearing the bar and the two rows a reader always has. The
        cap engages only below a ~540px frame; the card's natural height is ~341px. */
-    max-height: calc(100% - 196px);
+    max-height: calc(100% - var(--wf-chrome-tl-h, 40px) - 156px);
   }
 }
 
@@ -6386,6 +6397,84 @@ button.wf-hc.also.on:hover {
   font-size: 11px;
   min-width: 14px;
   text-align: right;
+}
+/* The week menu's big-seas marker on the row whose event the high water lands on (big-seas plan F1).
+   Teal, not the storm-surge amber: that colour is banned on the map. */
+.wf-win-row-bigseas {
+  color: var(--color-tide);
+}
+
+/* ── The big-seas line (big-seas plan F1; docs/design/big-seas/README.md "Big-seas line") ───────────
+   Its own row INSIDE `.wf-map-chrome-tl`, under the window control. Bounded at the control's 504px,
+   not the handoff's 580: the chrome group is the first label-placement obstacle (the note on
+   `.wf-map-chrome-tl`), so the group must not widen. It does grow TALLER, which the label-obstacle
+   measurement in the plan's §6 covers. On a phone the group's own bound is released, so the line
+   runs the control's full width and wraps; the badge never wraps. */
+.wf-big-seas {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 504px;
+  min-height: 36px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(24, 18, 15, 0.94);
+  border: 1px solid color-mix(in srgb, var(--color-tide) 50%, transparent);
+  border-radius: 9px;
+  backdrop-filter: blur(7px);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text);
+}
+.wf-big-seas:focus-visible {
+  outline: 2px solid var(--color-tide-light);
+  outline-offset: 2px;
+}
+.wf-big-seas-badge {
+  flex: none;
+  white-space: nowrap;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--color-tide-light);
+  color: #12100E;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+.wf-big-seas-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.wf-big-seas-l1 { font-weight: 600; }
+.wf-big-seas-l2 {
+  font-size: 9.5px;
+  color: var(--color-plex-text-secondary);
+  text-wrap: pretty;
+}
+.wf-big-seas-go {
+  flex: none;
+  white-space: nowrap;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--color-tide);
+  cursor: pointer;
+}
+.wf-big-seas-go:hover { color: #8FC4CC; }
+.wf-big-seas-go:focus-visible {
+  outline: 2px solid var(--color-tide-light);
+  outline-offset: 2px;
+}
+@media (max-width: 639px) {
+  .wf-big-seas { max-width: none; }
 }
 
 /* ── The EARLIER group (outcome-rating-plan.md §2 #2, O3b) ──────────────────────────────────────

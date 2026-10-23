@@ -952,6 +952,10 @@ function WindowRow({ row, active, onSelect, ratedCount = null }) {
               that do not. */}
           <Medallion kind={row.pickKind} />
         </span>
+        {/* big-seas plan F1: the sr-only twin of the ⚡ in the topics cell below, which is
+            aria-hidden like every topic icon — the row's name must carry the fact itself (the
+            verdict-count pattern above). */}
+        {row.bigSeasAligned && <span className="sr-only">, big seas</span>}
       </span>
       <span className="wf-win-row-score">
         {row.scored ? (
@@ -964,6 +968,7 @@ function WindowRow({ row, active, onSelect, ratedCount = null }) {
         )}
       </span>
       <span className="wf-win-row-topics" aria-hidden="true">
+        {row.bigSeasAligned && <span className="wf-win-row-bigseas" data-testid="wf-win-row-bigseas">{'\u26A1'}</span>}
         {icons.join('')}
       </span>
     </button>
@@ -1050,6 +1055,8 @@ WindowRow.propTypes = {
     rosterNote: PropTypes.string,
     /** `'best'` / `'also'` when this window is one of the forecast's two served picks. */
     pickKind: PropTypes.oneOf(['best', 'also']),
+    /** The served big-seas high water lands on this event (big-seas plan F1): draws the ⚡. */
+    bigSeasAligned: PropTypes.bool,
   }).isRequired,
   active: PropTypes.bool.isRequired,
   onSelect: PropTypes.func.isRequired,

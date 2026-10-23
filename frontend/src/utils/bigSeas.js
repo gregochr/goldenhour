@@ -1,0 +1,125 @@
+/**
+ * The Map tab's big-seas line: which served {@code BigSeasDay} the line speaks of for the window on
+ * screen, and the words it prints (docs/engineering/big-seas-plan.md §3 F1).
+ *
+ * <p><b>Filter and select only.</b> The backend decides what a big-seas day is (height, direction,
+ * period, daylight, the lead window); this module never tests a wave, never averages and never
+ * re-derives a window. It reads {@code briefing.bigSeas} as served: a list of days, absent when no
+ * day qualifies. Times are naive UTC strings like {@code solarEventTime}, so they go through the
+ * existing UK formatter and parser, and {@code now} is {@code appNow()} so an admin's Rewind moves
+ * the line with every other clock read.
+ */
+import { degreesToCompass16, formatEventTimeUk, parseUtcInstant } from './conversions.js';
+import { findEvIndex } from './mapEvents.js';
+import { appNow } from './rewind.js';
+
+/** Stable result for "no line": a fresh object per call would defeat memo comparisons downstream. */
+const NO_LINE = Object.freeze({ form: null, day: null, aligned: false, jumpRow: null });
+
+/** Whether a day's window is still ahead of {@code now}: an unparseable end reads as not ahead. */
+function windowEndsAfter(day, now) {
+  const end = parseUtcInstant(day?.windowEnd);
+  return end != null && end.getTime() > now.getTime();
+}
+
+/**
+ * Chooses the big-seas line for the window the reader is looking at.
+ *
+ * <ul>
+ *   <li>{@code 'full'}: the row's UK date has a served day whose window has not yet ended. Any row
+ *       of that date counts, solar or night.</li>
+ *   <li>{@code 'compact'}: otherwise, the first LATER served day whose window has not yet ended.</li>
+ *   <li>{@code null}: nothing served, nothing ahead, no row, or a past row.</li>
+ * </ul>
+ *
+ * <p>{@code aligned} is true on the full form when the reader is already on the day's aligned solar
+ * event (the gap clause is printed there). {@code jumpRow} is the EV row that event sits on, and is
+ * null when the day is not aligned, the list has no such row (today+3 and +4 may have none), or the
+ * reader is already on it.
+ *
+ * @param {?Array<object>} bigSeas the served {@code briefing.bigSeas}, or nullish
+ * @param {?object} evRow the EV row on screen
+ * @param {Array<object>} events the built EV list ({@code buildMapEvents})
+ * @param {Date} [now] the app clock, {@code appNow()} by default
+ * @returns {{form: ?('full'|'compact'), day: ?object, aligned: boolean, jumpRow: ?object}}
+ */
+export function bigSeasFor(bigSeas, evRow, events, now = appNow()) {
+  if (!Array.isArray(bigSeas) || bigSeas.length === 0 || !evRow || evRow.past) return NO_LINE;
+  const days = bigSeas
+    .filter((d) => d?.date && windowEndsAfter(d, now))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const today = days.find((d) => d.date === evRow.date);
+  const day = today ?? days.find((d) => d.date > evRow.date);
+  if (!day) return NO_LINE;
+  const form = today ? 'full' : 'compact';
+  const aligned = form === 'full' && evRow.kind === 'solar' && day.alignedEvent === evRow.eventType;
+  let jumpRow = null;
+  if (day.alignedEvent && !aligned) {
+    const list = Array.isArray(events) ? events : [];
+    const idx = findEvIndex(list, day.alignedEvent, day.date);
+    jumpRow = idx >= 0 ? list[idx] : null;
+  }
+  return { form, day, aligned, jumpRow };
+}
+
+/** "Saturday" for a calendar date string; the date has no zone, so UTC noon names it exactly. */
+export function bigSeasDayName(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
+}
+
+/** {@code 'sunset'} or {@code 'sunrise'} from the served enum, or null. */
+function eventWord(alignedEvent) {
+  return alignedEvent ? alignedEvent.toLowerCase() : null;
+}
+
+/** "15:30–18:15" on the UK clock. */
+function windowText(day) {
+  return `${formatEventTimeUk(day.windowStart)}–${formatEventTimeUk(day.windowEnd)}`;
+}
+
+/** "onto Roker Pier" for one structure, "onto 6 piers and lighthouses" otherwise, "" for none. */
+function ontoText(day) {
+  const structures = day.structures ?? [];
+  if (structures.length === 0) return '';
+  if (structures.length === 1) return ` onto ${structures[0].label}`;
+  return ` onto ${structures.length} piers and lighthouses`;
+}
+
+/** "Waves 4.1 m from NNE onto 6 piers and lighthouses". */
+function wavesText(day) {
+  return `Waves ${Number(day.waveHeightM).toFixed(1)} m from ${degreesToCompass16(day.waveDirectionDeg)}`
+    + ontoText(day);
+}
+
+/**
+ * The line's words, verbatim from the handoff's {@code paintWarn}.
+ *
+ * @param {{form: ?string, day: ?object, aligned: boolean, jumpRow: ?object}} selection
+ *   {@link bigSeasFor}'s result
+ * @returns {?{line1: string, line2: string, action: ?string}} null when there is no line
+ */
+export function bigSeasCopy(selection) {
+  const { form, day, aligned, jumpRow } = selection ?? {};
+  if (!form || !day) return null;
+  const event = eventWord(day.alignedEvent);
+  if (form === 'full') {
+    let line1 = `${windowText(day)} · high water ${formatEventTimeUk(day.hwTime)}`;
+    if (aligned && event && day.gapMinutes != null && day.gapSide) {
+      line1 += `, ${day.gapMinutes} min ${day.gapSide === 'BEFORE' ? 'before' : 'after'} ${event}`;
+    }
+    return {
+      line1,
+      line2: `${wavesText(day)} · watch from high ground, not the pier`,
+      action: jumpRow ? `On the ${event} ›` : null,
+    };
+  }
+  const dayName = bigSeasDayName(day.date);
+  const hw = event ? `high water near ${event}` : `high water ${formatEventTimeUk(day.hwTime)}`;
+  return {
+    line1: `${dayName} ${windowText(day)} · ${hw}`,
+    line2: wavesText(day),
+    action: jumpRow ? `See ${dayName} ›` : null,
+  };
+}

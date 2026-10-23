@@ -146,15 +146,16 @@ describe('the landing card sits in the right place in the ladder', () => {
   it('clears the bottom chrome band rather than the frame edge', () => {
     // 112 = the card's own `top: 60` + the Legend chip's `bottom: 8` + its ~44px height. The 76px
     // this shipped with was `top + 16`, which put a capped card 16px up — inside that chip's band.
-    expect(decl(ruleFor('.wf-land'), 'max-height')).toBe('calc(100% - 112px)');
+    expect(decl(ruleFor('.wf-land'), 'max-height')).toBe('calc(100% - var(--wf-chrome-tl-h, 36px) - 76px)');
     expect(decl(ruleFor('.wf-land', { inQuery: 'max-width: 639px' }), 'max-height'))
-      .toBe('calc(100% - 196px)');
+      .toBe('calc(100% - var(--wf-chrome-tl-h, 40px) - 156px)');
   });
 
   it('insets to the frame on a phone rather than becoming a sheet', () => {
     const body = ruleFor('.wf-land', { inQuery: 'max-width: 639px' });
 
-    expect(decl(body, 'top')).toBe('56px');
+    // 36px fallback + 20px = the old 56px; `bigSeasOffsetsCascade.test.js` evaluates it both ways.
+    expect(decl(body, 'top')).toBe('calc(var(--wf-chrome-tl-h, 40px) + 16px)');
     expect(decl(body, 'left')).toBe('8px');
     expect(decl(body, 'right')).toBe('8px');
     // ⚠️ Both releases are load-bearing: the desktop rule sets a fixed 376px AND a

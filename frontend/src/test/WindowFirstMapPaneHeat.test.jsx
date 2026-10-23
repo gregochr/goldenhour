@@ -668,3 +668,18 @@ describe('WindowFirstMapPane — the heat field on a past window', () => {
     expect(MapStub.lastProps.heat).toBe(first);
   });
 });
+
+describe('WindowFirstMapPane — the bigSeas prop (big-seas plan F1)', () => {
+  const DAYS = [{ date: '2026-08-12', windowStart: '2026-08-12T10:00:00', windowEnd: '2026-08-12T12:00:00' }];
+
+  it('hands the map the briefing\'s served bigSeas, by identity', () => {
+    renderPane(context({ briefing: { days: [], bigSeas: DAYS } }));
+    expect(MapStub.lastProps.bigSeas).toBe(DAYS);
+  });
+
+  it('hands undefined when the briefing serves none, so MapView\'s stable empty default applies', () => {
+    renderPane(context({ briefing: { days: [] } }));
+    expect(MapStub.lastProps.bigSeas).toBeUndefined();
+  });
+});
+

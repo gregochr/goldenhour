@@ -26,6 +26,8 @@ import MapLandingCard from '../../../../frontend/src/components/map/MapLandingCa
 import MapWindowPanel from '../../../../frontend/src/components/map/MapWindowPanel.jsx';
 import MapRegionPanel from '../../../../frontend/src/components/map/MapRegionPanel.jsx';
 import WindowControl from '../../../../frontend/src/components/map/WindowControl.jsx';
+import BigSeasLine from '../../../../frontend/src/components/map/BigSeasLine.jsx';
+import { setRewind } from '../../../../frontend/src/utils/rewind.js';
 import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import TideWave from '../../../../frontend/src/components/map/TideWave.jsx';
@@ -76,6 +78,9 @@ function BottomRightCorner() {
   return null;
 }
 import { rampHex } from '../../../../frontend/src/utils/scoreRamp.js';
+
+// Before any render: the line reads `appNow()`, and the fixture's day is in the past by the wall clock.
+setRewind('2026-09-06T04:00:00Z');
 
 const roster = window.__R5_ROSTER__ || [];
 const spots = window.__R5_SPOTS__ || [];
@@ -159,6 +164,38 @@ const LANDING_MODEL = {
 };
 
 const noop = () => {};
+
+/**
+ * The big-seas line's measurement fixture (big-seas plan F1): a day on `EV_ROWS[0]`'s own date, with
+ * its high water on the SUNRISE so the sunset row on screen reads the FULL form WITH its action and
+ * the longest line 2 (six structures). `BigSeasLine` reads `appNow()`, so the clock is rewound to
+ * that morning rather than left on the wall clock, which would put the fixture in the past.
+ */
+const SEAS_DAY = {
+  date: '2026-09-06',
+  windowStart: '2026-09-06T05:30:00',
+  windowEnd: '2026-09-06T08:15:00',
+  hwTime: '2026-09-06T06:58:00',
+  alignedEvent: 'SUNRISE',
+  gapMinutes: 49,
+  gapSide: 'BEFORE',
+  waveHeightM: 4.1,
+  waveDirectionDeg: 15,
+  wavePeriodS: 11,
+  structures: Array.from({ length: 6 }, (_, i) => ({
+    locationId: i + 1, label: `Pier ${i + 1}`, structure: 'PIER', waveHeightM: 4, waveDirectionDeg: 15,
+    wavePeriodS: 11, facesDeg: 45, hwTime: '2026-09-06T06:58:00', aligned: true,
+  })),
+  otherWindows: 0,
+};
+// The sunrise row the line jumps to, so the action ("On the sunrise ›") is drawn as it ships.
+const SEAS_EVENTS = [
+  { ...EV_ROWS[0] },
+  {
+    id: 'ev-0', kind: 'solar', eventType: 'SUNRISE', label: 'Today’s sunrise', time: '06:20',
+    date: '2026-09-06', dayLabel: 'Today', served: true, bestRating: 3, scored: true, badges: [],
+  },
+];
 
 function Chips() {
   return (
@@ -364,6 +401,14 @@ function Harness() {
                 onReopenLanding={noop}
                 onOpenWindowPanel={noop}
               />
+              {which === 'seas' && (
+                <BigSeasLine
+                  bigSeas={[SEAS_DAY]}
+                  evRow={EV_ROWS[0]}
+                  events={SEAS_EVENTS}
+                  onSelectEv={noop}
+                />
+              )}
             </div>
             {which === 'land' && (
               <MapLandingCard

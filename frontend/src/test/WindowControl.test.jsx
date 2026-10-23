@@ -969,3 +969,46 @@ describe('WindowControl — the verdict cell, medallion and ticks (map-landing-p
     expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Today');
   });
 });
+
+describe('WindowControl — the week menu\'s big-seas marker (big-seas plan F1)', () => {
+  const marked = [
+    EVENTS[0],
+    { ...EVENTS[1], bigSeasAligned: true },
+    EVENTS[2],
+    EVENTS[3],
+  ];
+
+  function openMenu(events = marked) {
+    render(<WindowControl events={events} activeIndex={0} onSelect={vi.fn()} verdicts={new Map()} />);
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    return screen.getAllByTestId('wf-win-row');
+  }
+
+  it('draws the bolt in the aria-hidden topics cell of the aligned row only', () => {
+    const rows = openMenu();
+    const bolts = rows.map((r) => r.querySelector('[data-testid="wf-win-row-bigseas"]'));
+    expect(bolts.map((b) => b !== null)).toEqual([false, true, false, false]);
+    expect(bolts[1].textContent).toBe('\u26A1');
+    const cell = bolts[1].closest('.wf-win-row-topics');
+    expect(cell.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('says ", big seas" in words on that row alone, so the accessible name carries the fact', () => {
+    const rows = openMenu();
+    const clauses = rows.map((r) => r.querySelector('.wf-win-row-main .sr-only'));
+    expect(clauses[1].textContent).toBe(', big seas');
+    expect(clauses[0]).toBeNull();
+    expect(clauses[2]).toBeNull();
+    expect(clauses[3]).toBeNull();
+    // The clause is in the main cell, not the aria-hidden one, so a screen reader reaches it.
+    expect(clauses[1].closest('[aria-hidden="true"]')).toBeNull();
+    expect(screen.getByRole('option', { name: /Tonight.*big seas/ })).toBe(rows[1]);
+  });
+
+  it('draws nothing at all when no row is stamped', () => {
+    const rows = openMenu(EVENTS);
+    expect(screen.queryByTestId('wf-win-row-bigseas')).toBeNull();
+    expect(rows.every((r) => !/big seas/.test(r.textContent))).toBe(true);
+  });
+});
+

@@ -27,6 +27,7 @@ import { viewlineDrawable } from '../utils/viewlineDrawable.js';
 import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
 import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import WindowControl from './map/WindowControl.jsx';
+import BigSeasLine from './map/BigSeasLine.jsx';
 import FiltersPopover from './map/FiltersPopover.jsx';
 import MapCallout from './map/MapCallout.jsx';
 import MapLegendPanel from './map/MapLegendPanel.jsx';
@@ -337,6 +338,11 @@ const EMPTY_ROWS = [];
  * dodge it.
  */
 const EMPTY_DATES = [];
+/**
+ * Stable empty list: no big-seas day served (big-seas plan F1). The {@code bigSeas} prop's default,
+ * for the reason {@link EMPTY_DATES} gives: a fresh {@code []} per render would defeat the memo.
+ */
+const NO_BIG_SEAS = [];
 /** Stable empty list: no Ask answer on screen. A fresh `[]` per render would defeat `MapView`'s memo. */
 const NO_ASK_PICKS = [];
 /**
@@ -1226,7 +1232,7 @@ CentreOnHomeControl.propTypes = {
  *       and {@code PinsLayer} draw as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -3564,6 +3570,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     auroraResultsByDate: auroraNightRows,
     isLite: role === 'LITE_USER',
     formatTimeUk: formatEventTimeUk,
+    bigSeas,
   });
   /**
    * The same rows, each solar row's clock time taken over the places in SCOPE rather than the
@@ -6153,6 +6160,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
         <div className="wf-map-chrome-tl" data-testid="wf-map-chrome-tl">
           {windowControl}
+          {/* The big-seas line (big-seas plan F1): its own row under the control, inside the
+              group so it shares the control's 504px bound and the label obstacle. All roles. */}
+          <BigSeasLine
+            bigSeas={bigSeas}
+            evRow={activeMapEvent}
+            events={mapEvents}
+            onSelectEv={selectEvRow}
+          />
         </div>
 
         {/* The landing card (map-landing-plan.md §3 L4) — a sibling of the chrome corners, not
@@ -6994,6 +7009,11 @@ MapView.propTypes = {
    * `docs/engineering/lunar-eclipse-plan.md` §3 L7).
    */
   eclipseIndex: PropTypes.object,
+  /**
+   * The served {@code briefing.bigSeas}: one summary per qualifying day, absent when none does
+   * (big-seas plan F1). Read by {@code BigSeasLine} and the week menu's ⚡ via {@code buildMapEvents}.
+   */
+  bigSeas: PropTypes.arrayOf(PropTypes.object),
   /**
    * The per-user HOME reach map (`{driveMinutes, distanceMiles}`). Originally read ONLY for the
    * callout's straight-line miles fact; since D1 (plan-to-map-doors-plan.md) also the tab's home

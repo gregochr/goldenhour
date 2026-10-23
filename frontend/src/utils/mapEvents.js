@@ -755,6 +755,10 @@ export function isNightOffered(eventType, date, { todayStr, currentNightDate = n
  * @param {(v: ?string) => ?string} [args.formatTimeUk] UTC-naive → UK 'HH:MM' formatter, injected
  *   so this module makes no `Intl`/timezone assumption of its own (defaults to a passthrough that
  *   renders no clock time, which is a safe empty state rather than a wrong one)
+ * @param {?Array<{date: string, alignedEvent: ?('SUNRISE'|'SUNSET')}>} [args.bigSeas] the served
+ *   {@code briefing.bigSeas} (big-seas plan F1). Filter/select only: the solar row a day's
+ *   {@code alignedEvent} names is stamped {@code bigSeasAligned: true} (the week menu's ⚡); nothing
+ *   is computed from the sea state
  * @returns {Array<object>} the EV rows, chronological, night-after-sunset
  */
 export function buildMapEvents({
@@ -773,6 +777,7 @@ export function buildMapEvents({
   tideByWindow = new Map(),
   isEventTimePast = () => false,
   pastSolarWindows = [],
+  bigSeas = null,
 }) {
   const forecastDateSet = new Set(forecastDates);
   const pastByKey = new Map();
@@ -872,7 +877,27 @@ export function buildMapEvents({
       rows.push(row);
     }
   }
+  stampBigSeasAligned(rows, bigSeas);
   return rows;
+}
+
+/**
+ * Stamps {@code bigSeasAligned: true} on the solar row each served big-seas day's
+ * {@code alignedEvent} names (big-seas plan F1). A PAST row is never stamped: its window is over.
+ *
+ * @param {Array<object>} rows the EV rows, mutated in place (they are this call's own fresh objects)
+ * @param {?Array<object>} bigSeas the served days, or nullish
+ */
+function stampBigSeasAligned(rows, bigSeas) {
+  if (!Array.isArray(bigSeas) || bigSeas.length === 0) return;
+  const keys = new Set(bigSeas
+    .filter((d) => d?.date && d?.alignedEvent)
+    .map((d) => windowKey(d.date, d.alignedEvent)));
+  for (const row of rows) {
+    if (row.kind === EVENT_KIND.SOLAR && !row.past && keys.has(windowKey(row.date, row.eventType))) {
+      row.bigSeasAligned = true;
+    }
+  }
 }
 
 /**
