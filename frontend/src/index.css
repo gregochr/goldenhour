@@ -4136,6 +4136,178 @@ button.wf-hc.also.on:hover {
   bottom: calc(var(--tsh, 120px) + 16px);
 }
 
+/* ── The four-day hot-topics strip (hot-topics-by-day-plan §3 M2; docs/design/hot-topics-by-day/README.md §2C) ──
+   A plain flex child of `.wf-map-chrome-bl`, BEFORE the tide strip (never separately positioned), 440px,
+   desktop and tablet only (the component is not mounted at <= 639px; M4 owns the phone).
+
+   While it is mounted `MapView` writes `data-topic-strip` on `.wf-map-tab` and publishes the WHOLE
+   bottom-left stack's height as `--wf-chrome-bl-h` (`hooks/useChromeBlHeight.js`). The landing card reads
+   it: its `max-height` assumed a 36px legend chip at the bottom (the strip is collapsed to its header
+   while that card is open, but the stack is then the legend chip plus that header), and the 36px
+   fallback makes an unset variable give back the old `- 76px` exactly (24 + 36 + 16).
+
+   The counts footer is NOT lifted from here: it moves only where its span meets the strip's, which is a
+   measurement `MapView` makes and writes as an inline `bottom` on the footer. */
+@media (min-width: 640px) {
+  .wf-map-tab[data-topic-strip] .wf-land {
+    max-height: calc(100% - var(--wf-chrome-tl-h, 36px) - 24px - var(--wf-chrome-bl-h, 36px) - 16px);
+  }
+}
+.wf-topic-strip {
+  position: relative;
+  z-index: 1100;
+  /* A fixed 440px, with no `max-width`: `.wf-map-chrome-bl` is shrink-to-fit, so a `100% - 24px` here
+     resolves against a box this very child sized (the strip measured 416px in the browser), and a
+     viewport cap never binds at the >= 640px this is mounted at. */
+  width: 440px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: rgba(20, 15, 12, 0.94);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(7px);
+  font-family: var(--font-mono);
+  overflow: hidden;
+}
+.wf-topic-strip:focus-visible {
+  outline: 2px solid var(--color-tide-light);
+  outline-offset: 2px;
+}
+.wf-tl-head {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 8px 11px;
+  background: none;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-tl-head[aria-disabled='true'] { cursor: default; }
+.wf-tl-head:focus-visible,
+.wf-tl-n:focus-visible,
+.wf-tl-b:focus-visible {
+  outline: 2px solid var(--color-tide-light);
+  outline-offset: 1px;
+}
+.wf-tl-cv { margin-left: auto; }
+/* Every item is placed with an inline `grid-area`; the two header rows size to content and every topic
+   row after them is 24px. 92 + 8 x 41 = the 420px the 440px panel leaves inside its padding. */
+.wf-tl-grid {
+  display: grid;
+  grid-template-columns: 92px repeat(8, minmax(0, 1fr));
+  grid-template-rows: auto auto;
+  grid-auto-rows: 24px;
+  row-gap: 4px;
+  padding: 0 10px 10px;
+  position: relative;
+}
+.wf-tl-now {
+  background: rgba(242, 231, 211, 0.07);
+  border-radius: 5px;
+  margin: 0 1px;
+  pointer-events: none;
+}
+/* A past column of today: drawn, but there is no window to open, so it steps back. */
+.wf-tl-past {
+  background: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.28) 0 3px, transparent 3px 6px);
+  border-radius: 5px;
+  margin: 0 1px;
+  pointer-events: none;
+}
+.wf-tl-d {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 0 2px;
+  padding: 2px 0 3px;
+  text-align: center;
+  line-height: 1.15;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.wf-tl-d i {
+  font-style: normal;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+}
+.wf-tl-d b {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--color-plex-text);
+}
+.wf-tl-d[data-today='true'] { border-color: var(--color-plex-text-muted); }
+.wf-tl-x {
+  position: relative;
+  text-align: center;
+  font-size: 9px;
+  color: var(--color-plex-text-muted);
+}
+.wf-tl-n {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wf-tl-n[aria-disabled='true'] { cursor: default; opacity: 0.6; }
+.wf-tl-n[data-selected='true'] { color: var(--wf-tc); }
+.wf-tl-g { font-size: 11px; }
+/* A bar is blank by design (its name is on its row's label); a 1px border is always drawn so the shape
+   survives forced colours, which drop the background. */
+.wf-tl-b {
+  position: relative;
+  box-sizing: border-box;
+  margin: 3px 2px;
+  padding: 0;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--wf-tc) 26%, transparent);
+  border: 1px solid color-mix(in srgb, var(--wf-tc) 50%, transparent);
+  cursor: pointer;
+}
+span.wf-tl-b { cursor: default; }
+button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transparent); }
+.wf-tl-b[data-current='true'] { border-color: var(--wf-tc); }
+.wf-tl-b[data-selected='true'] {
+  background: var(--wf-tc);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--wf-tc) 55%, transparent);
+}
+/* Forced colours drop background and box-shadow: the current and selected bars keep a real outline. */
+@media (forced-colors: active) {
+  .wf-tl-b { border: 1px solid CanvasText; }
+  .wf-tl-b[data-current='true'] { outline: 2px solid Highlight; outline-offset: 0; }
+  .wf-tl-b[data-selected='true'] { outline: 3px double Highlight; outline-offset: 1px; }
+  .wf-tl-n[data-selected='true'] { outline: 2px solid Highlight; }
+  /* The focus ring on those same states, which the outlines above would otherwise replace (equal
+     specificity, later wins): a heavier, offset ring in a different system colour. */
+  .wf-tl-b[data-current='true']:focus-visible,
+  .wf-tl-b[data-selected='true']:focus-visible,
+  .wf-tl-n[data-selected='true']:focus-visible { outline: 3px solid CanvasText; outline-offset: 3px; }
+  .wf-tl-now { border-left: 1px dashed CanvasText; border-right: 1px dashed CanvasText; }
+}
+
 /* ── The counts footer (README "§9 Count footer") ──────────────────────────────────────────────
    Bottom-centre, matching `.wf-map-key`'s pill treatment so the new chrome reads as one family
    with the old. `--color-plex-panel` opaque for the same reason every map-floating chip is: a

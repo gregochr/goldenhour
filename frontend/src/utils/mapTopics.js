@@ -14,7 +14,10 @@
  * two-question rule broken (hot topics are never silenced) and would make the Map contradict the
  * Coming up lanes. Topics come from the index.
  */
+import { bigSeasWindowAhead } from './bigSeasWindow.js';
+import { isNightOver, shiftDateStr } from './mapDates.js';
 import { spotsNamed } from './mapDoor.js';
+import { appNow } from './rewind.js';
 import { topicStyle } from './topicPalette.js';
 import { isWholeSkyTopic, topicInScope } from './windowFirstTopics.js';
 import { windowKey } from './windowKeys.js';
@@ -248,4 +251,224 @@ export function skyWideNotice(chip) {
   if (!chip?.wholeSky) return null;
   const subject = chip.type === 'AURORA' ? `${chip.name} possible` : chip.name;
   return `${subject} \u00B7 sky-wide \u2014 every location in range sees it or none does`;
+}
+
+// \u2500\u2500 The four-day strip (hot-topics-by-day-plan \u00A73 M2) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+/** Days the strip shows: today and the next three, the Plan horizon. */
+export const GRID_DAYS = 4;
+
+/** Columns: {@link GRID_DAYS} days times (sunrise, sunset). */
+export const GRID_COLUMNS = GRID_DAYS * 2;
+
+const DOW_FORMAT = new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: 'UTC' });
+
+/** "Friday" for a calendar date string: the date has no zone, so UTC noon names it exactly. */
+function weekdayOf(dateStr) {
+  return DOW_FORMAT.format(new Date(`${dateStr}T12:00:00Z`));
+}
+
+/** The column a solar window sits in, by date, or -1 when its date is not one of the strip's days. */
+function solarColumn(dates, date, eventType) {
+  const day = dates.indexOf(date);
+  if (day < 0) return -1;
+  return day * 2 + (eventType === 'SUNRISE' ? 0 : 1);
+}
+
+/**
+ * The column of the window on screen.
+ *
+ * <p>A solar row sits in its own date's column. A night row sits under its date's sunset (down), the
+ * evening it starts on: EXCEPT the night in progress before dawn, which D-14 dates as YESTERDAY, so a
+ * date before {@code todayStr}. That night's NIGHT topic also sits under today's sunrise (up), and the
+ * reader is in the small hours of it, so it maps to column 0 (Codex P1 on #1319).
+ *
+ * @param {?object} activeRow the EV row on screen
+ * @param {string[]} dates the strip's four dates
+ * @param {string} todayStr the UK civil today
+ * @param {?string} [nightDate] the night in progress ({@code resolveAuroraNight}), if known
+ * @returns {number} 0 to 7, or -1 when the row is outside the strip
+ */
+export function currentColumnOf(activeRow, dates, todayStr, nightDate = null) {
+  if (!activeRow?.date) return -1;
+  if (activeRow.kind === 'solar') return solarColumn(dates, activeRow.date, activeRow.eventType);
+  if (!NIGHT_ROW_KINDS.has(activeRow.kind)) return -1;
+  if (activeRow.date < todayStr) {
+    // Only YESTERDAY's night, and only while it is still running (before dawn: `nightDate` says so, the
+    // calendar cannot). An ended night, or any older one, is not under today's sunrise.
+    return activeRow.date === shiftDateStr(todayStr, -1) && !isNightOver(activeRow.date, { todayStr, nightDate })
+      ? 0 : -1;
+  }
+  return solarColumn(dates, activeRow.date, 'SUNSET');
+}
+
+/** Contiguous runs of true in {@code on} as {@code [{start, end}]} (inclusive column indexes). */
+function runsOf(on) {
+  const runs = [];
+  let c = 0;
+  while (c < on.length) {
+    if (!on[c]) {
+      c += 1;
+    } else {
+      let end = c;
+      while (end + 1 < on.length && on[end + 1]) end += 1;
+      runs.push({ start: c, end });
+      c = end + 1;
+    }
+  }
+  return runs;
+}
+
+/**
+ * The model of the four-day strip: eight columns (today to +3, each a sunrise and a sunset, BY DATE),
+ * and one row per hot topic type that is on any of them.
+ *
+ * <ul>
+ *   <li><b>Columns</b> carry their EV row when the list has one; a column without a row is drawn but
+ *       not interactive. A PAST row (today's elapsed window) is drawn but not interactive either.</li>
+ *   <li><b>Rows</b> are the union, over the eight windows, of the per-window topics from
+ *       {@code topicIndex} (never {@code row.badges}: a filler or day-4 row carries none), scoped
+ *       through {@link topicInScope}, in the served order. Big seas leads, "on" in both columns of
+ *       each served big-seas day whose window is still ahead.</li>
+ *   <li><b>Bars</b>: contiguous "on" columns of a row merge into one bar, so a NIGHT topic (that
+ *       evening's sunset and the next sunrise) is one bar.</li>
+ *   <li><b>Current column</b>: {@link currentColumnOf}.</li>
+ * </ul>
+ *
+ * A filter/map over served facts: nothing here tests weather or re-derives a verdict.
+ *
+ * @param {object} args
+ * @param {?Array<object>} args.events the built EV list ({@code buildMapEvents})
+ * @param {?Map<string, Array<object>>} args.topicIndex {@code buildTopicIndex(hotTopics)}
+ * @param {?Array<object>} args.hotTopics the served {@code briefing.hotTopics} (for the order)
+ * @param {?Array<string>} args.scopeNames the region scope ({@link mapScopeNames})
+ * @param {?Array<object>} [args.bigSeas] the served {@code briefing.bigSeas}
+ * @param {string} args.todayStr the UK civil today
+ * @param {?object} [args.activeRow] the EV row on screen
+ * @param {?string} [args.nightDate] the night in progress, for the pre-dawn night's column
+ * @param {Date} [args.now] the app clock
+ * @returns {{days: Array<{date: string, dow: string, dayNum: string, today: boolean}>,
+ *   columns: Array<{index: number, date: string, eventType: string, row: ?object,
+ *   interactive: boolean, current: boolean}>, currentColumn: number,
+ *   rows: Array<{type: string, name: string, shortName: string, glyph: ?string, colour: string,
+ *   bigSeas: boolean, on: boolean[], bars: Array<{start: number, end: number}>}>}}
+ */
+export function fourDayGrid({
+  events, topicIndex, hotTopics, scopeNames, bigSeas = null, todayStr, activeRow = null,
+  nightDate = null, now = appNow(),
+}) {
+  const dates = Array.from({ length: GRID_DAYS }, (_, i) => shiftDateStr(todayStr, i));
+  const days = dates.map((date, i) => ({
+    date, dow: weekdayOf(date), dayNum: date.slice(8).replace(/^0/, ''), today: i === 0,
+  }));
+  const rowByColumn = new Array(GRID_COLUMNS).fill(null);
+  for (const ev of Array.isArray(events) ? events : []) {
+    if (ev?.kind !== 'solar') continue;
+    const c = solarColumn(dates, ev.date, ev.eventType);
+    if (c >= 0 && !rowByColumn[c]) rowByColumn[c] = ev;
+  }
+  const currentColumn = currentColumnOf(activeRow, dates, todayStr, nightDate);
+  const columns = rowByColumn.map((row, index) => ({
+    index,
+    date: dates[Math.floor(index / 2)],
+    eventType: index % 2 === 0 ? 'SUNRISE' : 'SUNSET',
+    row,
+    interactive: row != null && row.past !== true,
+    current: index === currentColumn,
+  }));
+
+  // type -> { on: boolean[], label } over the eight windows, from the index, scoped.
+  const byType = new Map();
+  columns.forEach((col) => {
+    const topics = topicIndex?.get?.(windowKey(col.date, col.eventType)) ?? [];
+    for (const topic of topics) {
+      if (!topic || !topicInScope(topic, scopeNames)) continue;
+      const type = String(topic.type || '').toUpperCase();
+      let entry = byType.get(type);
+      if (!entry) {
+        entry = { on: new Array(GRID_COLUMNS).fill(false), label: topic.label };
+        byType.set(type, entry);
+      }
+      entry.on[col.index] = true;
+    }
+  });
+  // Served order: the first appearance of each type in `hotTopics`.
+  const order = [];
+  for (const topic of Array.isArray(hotTopics) ? hotTopics : []) {
+    const type = String(topic?.type || '').toUpperCase();
+    if (byType.has(type) && !order.includes(type)) order.push(type);
+  }
+  const rows = [];
+  const seasOn = new Array(GRID_COLUMNS).fill(false);
+  for (const day of Array.isArray(bigSeas) ? bigSeas : []) {
+    const d = dates.indexOf(day?.date);
+    if (d >= 0 && bigSeasWindowAhead(day, now)) {
+      seasOn[d * 2] = true;
+      seasOn[d * 2 + 1] = true;
+    }
+  }
+  if (seasOn.some(Boolean)) {
+    rows.push({
+      type: BIG_SEAS_TYPE, ...BIG_SEAS_STYLE, bigSeas: true, on: seasOn, bars: runsOf(seasOn),
+    });
+  }
+  for (const type of order) {
+    const { on, label } = byType.get(type);
+    const style = topicStyle(type, label);
+    rows.push({
+      type,
+      name: style.name,
+      shortName: style.shortName,
+      glyph: style.glyph,
+      colour: style.colour,
+      bigSeas: false,
+      on,
+      bars: runsOf(on),
+    });
+  }
+  return { days, columns, currentColumn, rows };
+}
+
+/**
+ * Where a press on a bar goes. A bar that covers the current column AND whose topic is on the
+ * current row selects the topic where the reader already is ({@code stay}); otherwise the target is
+ * the current column's window if the bar covers it and it has a row, else the bar's first column
+ * that has one. {@code null} when the bar covers no window that can be opened.
+ *
+ * @param {{columns: Array, currentColumn: number}} grid {@link fourDayGrid}'s result
+ * @param {{start: number, end: number}} bar
+ * @param {boolean} onCurrentRow whether the bar's topic is a chip on the window on screen
+ * @returns {?{stay: boolean, column: number}} what to do
+ */
+export function barTarget(grid, bar, onCurrentRow) {
+  const cur = grid.currentColumn;
+  const covers = cur >= bar.start && cur <= bar.end;
+  if (covers && onCurrentRow) return { stay: true, column: cur };
+  if (covers && grid.columns[cur]?.interactive) return { stay: false, column: cur };
+  for (let c = bar.start; c <= bar.end; c += 1) {
+    if (grid.columns[c]?.interactive) return { stay: false, column: c };
+  }
+  return null;
+}
+
+/**
+ * Where a press on a row's label goes: a toggle when the topic is on the current row, else a jump to
+ * the row's first column that has a window to open. {@code null} when it has none.
+ *
+ * @param {{columns: Array}} grid {@link fourDayGrid}'s result
+ * @param {{on: boolean[]}} topicRow the strip row
+ * @param {boolean} onCurrentRow whether the topic is a chip on the window on screen
+ * @returns {?({toggle: true}|{toggle: false, column: number})}
+ */
+export function labelTarget(grid, topicRow, onCurrentRow) {
+  if (onCurrentRow) return { toggle: true };
+  const column = topicRow.on.findIndex((on, c) => on && grid.columns[c]?.interactive);
+  return column < 0 ? null : { toggle: false, column };
+}
+
+/** "Friday sunrise" / "Saturday sunset" for a column, from the strip's day names. */
+export function columnWord(grid, column) {
+  const c = grid.columns[column];
+  const day = grid.days[Math.floor(column / 2)];
+  return `${day.dow} ${c.eventType === 'SUNRISE' ? 'sunrise' : 'sunset'}`;
 }

@@ -118,15 +118,28 @@ describe('Legend panel — opens UP, fitted to the frame top', () => {
     rects.pane = { top: 100, bottom: 900 };
     rects['wf-legend-panel'] = { top: 300, bottom: 560 };
     render(inPane('wf-map-chrome-bl', legend));
-    // 560 (panel bottom, fixed above its chip) − 100 (frame top) − 8.
-    expect(room('wf-legend-panel')).toBe('452px');
+    // 560 (panel bottom, fixed above its chip) − 100 (frame top) − 52 (the 36px control + 16px of air,
+    // while --wf-chrome-tl-h is unpublished) − 8.
+    expect(room('wf-legend-panel')).toBe('400px');
+  });
+
+  it('stops under the top-left chrome group, so a tall bottom-left stack cannot push it over the pill and chips', () => {
+    rects.pane = { top: 100, bottom: 900 };
+    rects['wf-legend-panel'] = { top: 108, bottom: 560 };
+    const { container } = render(inPane('wf-map-chrome-bl', legend));
+    // Unclamped the room would be 560 - 100 - 8 = 452 and the panel top would sit at the frame top + 8.
+    // The group is published 96px tall: the room is 560 - (100 + 96 + 16) - 8 = 340.
+    container.querySelector('.wf-map-tab').style.setProperty('--wf-chrome-tl-h', '96px');
+    act(() => { window.dispatchEvent(new Event('resize')); });
+    expect(room('wf-legend-panel')).toBe('340px');
   });
 
   it('is bounded by the viewport top when the frame starts above it', () => {
     rects.pane = { top: -200, bottom: 900 };
     rects['wf-legend-panel'] = { top: 300, bottom: 560 };
     render(inPane('wf-map-chrome-bl', legend));
-    expect(room('wf-legend-panel')).toBe('552px');
+    // Bounded by the viewport top (0), then 36 + 16 for the control, then 8.
+    expect(room('wf-legend-panel')).toBe('500px');
   });
 
   it('gives a cramped frame only what it has, and never a negative figure', () => {

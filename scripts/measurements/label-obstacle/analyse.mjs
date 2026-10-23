@@ -86,6 +86,9 @@ function configsFor(vpName) {
   const chrome = ALWAYS_ON.map((t) => s.none.obstacles[t])
     .filter((r) => r && r.width > 0 && r.height > 0);
   const at = (width) => ({ ...tl, width });
+  // The always-on rects as measured on ANOTHER surface (the bottom-left stack and the footer it lifts differ).
+  const chromeIn = (surface) => ALWAYS_ON.map((t) => s[surface].obstacles[t])
+    .filter((r) => r && r.width > 0 && r.height > 0);
   return {
     'tl-334': [at(HISTORIC_WIDTH), ...chrome],
     'tl-504': [tl, ...chrome],
@@ -101,6 +104,15 @@ function configsFor(vpName) {
     'tl+topics': [s.topics.obstacles['wf-map-chrome-tl'], ...chrome],
     'tl+topicsEmpty': [s.topicsEmpty.obstacles['wf-map-chrome-tl'], ...chrome],
     'tl+seas+topics': [s.seasTopics.obstacles['wf-map-chrome-tl'], ...chrome],
+    // The four-day strip (hot-topics-by-day-plan M2): the SAME always-on chrome with the bottom-left stack
+    // and the counts footer (which it lifts) measured in each state. `bl+tide` is the tide strip alone,
+    // the baseline for the last two; `bl+tide+closed` is what the app draws when the tide strip shows
+    // (Q8), `bl+tide+open` is the unreachable ceiling that rule avoids.
+    'bl+open': [tl, ...chromeIn('stripOpen')],
+    'bl+closed': [tl, ...chromeIn('stripClosed')],
+    'bl+tide': [tl, ...chromeIn('tideOnly')],
+    'bl+tide+closed': [tl, ...chromeIn('tideStripClosed')],
+    'bl+tide+open': [tl, ...chromeIn('tideStripOpen')],
   };
 }
 
@@ -326,6 +338,8 @@ const PAIRS = [
   ['tl-334', 'tl-504'], ['tl-504', 'tl+land'],
   ['tl-504', 'tl+win'], ['tl-504', 'tl+win9'], ['tl-504', 'tl+reg'], ['tl-504', 'tl+seas'],
   ['tl-504', 'tl+topics'], ['tl-504', 'tl+topicsEmpty'], ['tl-504', 'tl+seas+topics'],
+  ['tl-504', 'bl+open'], ['tl-504', 'bl+closed'], ['tl-504', 'bl+tide'],
+  ['bl+tide', 'bl+tide+closed'], ['bl+tide', 'bl+tide+open'],
 ];
 
 /**
@@ -431,8 +445,11 @@ for (const fk of FRAMES) {
   const base = tot['tl-504'];
   console.log(
     `   ${fk.padEnd(17)} tl-504=${String(base).padStart(3)}  `
-    + ['tl+land', 'tl+win', 'tl+reg', 'tl+seas', 'tl+topics', 'tl+topicsEmpty', 'tl+seas+topics']
-      .map((n) => `${n} ${(((tot[n] - base) / base) * 100).toFixed(1)}%`).join('  '),
+    + ['tl+land', 'tl+win', 'tl+reg', 'tl+seas', 'tl+topics', 'tl+topicsEmpty', 'tl+seas+topics',
+      'bl+open', 'bl+closed', 'bl+tide']
+      .map((n) => `${n} ${(((tot[n] - base) / base) * 100).toFixed(1)}%`).join('  ')
+    + `  | vs bl+tide: tide+closed ${(((tot['bl+tide+closed'] - tot['bl+tide']) / tot['bl+tide']) * 100).toFixed(1)}%`
+    + `  tide+open ${(((tot['bl+tide+open'] - tot['bl+tide']) / tot['bl+tide']) * 100).toFixed(1)}%`,
   );
 }
 

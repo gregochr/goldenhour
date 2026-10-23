@@ -883,8 +883,8 @@ changes".
 | Plan | — | drafted 2026-10-23; adversarially reviewed (four lenses); every finding folded in; owner answered Q1–Q12 |
 | B1 | #1320 | ✅ merged 2026-10-23 (`3bed1f56`); Codex 👍 first round |
 | C1 | #1322 | ✅ merged 2026-10-23 (`8661a732`) and released in v2.31.0. One Codex round: the tide continuation now reads the tide's own span. Not seen in the real app behind sign-in |
-| M1 | — | built 2026-10-23 by Sonnet. Four review lenses, then two fix rounds; Q13 applied. The label-obstacle numbers are below |
-| M2 | — | after M1 |
+| M1 | #1328 | ✅ merged 2026-10-23 (`ebf1be9e`); Codex 👍 on the first round. Q13 applied; the label-obstacle numbers are below |
+| M2 | — | built 2026-10-24 by Sonnet; four review lenses, one fix round. The label-obstacle numbers are below |
 | M3 | — | after B1 and M2 |
 | M4 | — | after M2, if Q5 |
 
@@ -914,3 +914,23 @@ Not measured:
 no Map chip. That covers STORM_SURGE when its `eventType` is null, and CLEARANCE, which only the
 simulation produces. Plan cards behave the same way (`keysFor`), but the Coming up lanes still list
 such a topic by its date (§1.3).
+
+**M2 label-obstacle measurement** (2026-10-24):
+- Same harness as M1. The fixture has five rows: Big seas, Dust, Aurora, King tide and Inversion.
+- The footer is lifted only when it overlaps, as the app does it.
+- The open/closed state is forced per surface. In the app, a frame shorter than 720px starts collapsed when no preference is stored.
+- Each figure is labels removed, against the window control alone. The last two columns are against the tide strip alone.
+
+| Frame @0 / @175 | strip open | strip closed | tide strip alone | tide + collapsed header | tide + open (unreachable) |
+|---|---|---|---|---|---|
+| desktop-1280 | −14.4 / −19.2 | −2.9 / −3.6 | −11.9 / −14.3 | −2.9 / −2.6 | −13.5 / −25.0 |
+| laptop-1024 | −19.1 / −24.2 | −5.3 / −9.2 | −16.3 / −19.3 | −1.5 / −4.2 | −17.0 / −37.1 |
+| tablet-820 | −10.7 / −14.7 | −1.7 / −2.4 | −8.0 / −8.7 | −2.6 / −6.5 | −12.4 / −16.1 |
+| phone-390 | not mounted (M4) | — | — | — | — |
+
+The default state decides which column applies to each frame:
+- desktop-1280@175 (625px) and laptop-1024@175 (545px) start collapsed, so the closed column
+  applies.
+- Frames 720px or taller start open: −10.7% to −19.1%.
+- Q8's forced collapse holds the tide-strip case to between −1.5% and −6.5% on top of the tide strip
+  alone. An open strip there would cost up to −37.1%.

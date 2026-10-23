@@ -85,14 +85,27 @@ const BAND_EDGE_PAD = 8;
  * @param {Array<{top: number, bottom: number, width: number, height: number, always: ?boolean}>}
  *        args.bars live chrome rects, already relative to the container's own top-left corner.
  *        {@code always} skips the width test for that bar alone
+ * @param {?{left: number, right: number}} [args.cardSpan] the card's own horizontal span (container-
+ *        relative): lets a bar flagged {@code overlapOnly} (with {@code left}/{@code right}) count even
+ *        when narrower than half the frame, but only where the card would actually sit over it
  * @returns {{top: number, bot: number}} the band, in the same container-relative px space
  */
-export function calloutBand({ frameWidth, frameHeight, bars }) {
+export function calloutBand({
+  frameWidth, frameHeight, bars, cardSpan = null,
+}) {
   let top = BAND_EDGE_PAD;
   let bot = frameHeight - BAND_EDGE_PAD;
   for (const bar of Array.isArray(bars) ? bars : []) {
     if (!bar || !(bar.width > 1) || !(bar.height > 1)) continue;
-    if (!bar.always && bar.width < frameWidth * 0.5) continue;
+    if (!bar.always && bar.width < frameWidth * 0.5) {
+      // A narrow bar flagged `overlapOnly` (the four-day topic strip, hot-topics-by-day M2) is a floor
+      // exactly when the card's own horizontal span meets it: the width test would otherwise let a
+      // 440px strip on a 1280px frame sit under a card that is placed right over it.
+      const meets = bar.overlapOnly === true && cardSpan != null
+        && Number.isFinite(bar.left) && Number.isFinite(bar.right)
+        && bar.left < cardSpan.right && bar.right > cardSpan.left;
+      if (!meets) continue;
+    }
     if (bar.bottom < frameHeight * 0.5) {
       top = Math.max(top, bar.bottom + BAND_EDGE_PAD);
     } else {
