@@ -329,4 +329,44 @@ class KeywordAskIntentMatcherTest {
 
         assertThat(match("Best spot this weekend?", friday())).isEmpty();
     }
+
+    private static AskSnapshot withAreaNamed(AskSnapshot live, String name, String alias) {
+        return live.withNames(List.of(new AskSnapshot.Area(name, alias == null ? List.of() : List.of(alias),
+                Set.of(1L))), java.util.Map.of());
+    }
+
+    @Test
+    @DisplayName("a named area whose name is made only of Ready-accepted words declines the question, as a place "
+            + "name does; by its name, by one of its aliases, and by a location's other name")
+    void aNamedAreaStopsTheMatch() {
+        assertThat(match("Best spot this weekend?", friday())).isPresent();
+
+        assertThat(match("Best spot this weekend?", withAreaNamed(friday(), "Best Spot", null))).isEmpty();
+        assertThat(match("Best spot this weekend?", withAreaNamed(friday(), "High Tops", "Best Spot"))).isEmpty();
+        assertThat(match("Best spot this weekend?", friday().withNames(List.of(),
+                java.util.Map.of(1L, List.of("The Best Spot"))))).isEmpty();
+        assertThat(match("Best spot this weekend?", withAreaNamed(friday(), "High Tops", null))).isPresent();
+    }
+
+    @Test
+    @DisplayName("a question about Hadrian's Wall or the Heugh is already declined by the word rules, today")
+    void areaNamesAreAlreadyOutsideTheAcceptedVocabulary() {
+        assertThat(ReadyIntentRules.couldMatchAny(PhraseAskPreFilter.words(
+                AskQuestionSanitiser.normalise("best spot on hadrians wall this weekend")))).isFalse();
+        assertThat(ReadyIntentRules.couldMatchAny(PhraseAskPreFilter.words(
+                AskQuestionSanitiser.normalise("How's the Heugh looking this weekend?")))).isFalse();
+    }
+
+    @Test
+    @DisplayName("'The Heugh' survives the sanitiser's normalise on both sides of the place-name test")
+    void theHeughSurvivesNormalise() {
+        AskSnapshot live = friday().withNames(List.of(), java.util.Map.of(1L, List.of("The Heugh")));
+
+        assertThat(KeywordAskIntentMatcher.namesAPlace(AskQuestionSanitiser.normalise("How's the Heugh looking?"),
+                live)).isTrue();
+        assertThat(KeywordAskIntentMatcher.namesAPlace(AskQuestionSanitiser.normalise("How is Hadrian’s Wall?"),
+                withAreaNamed(friday(), "Hadrian's Wall", null))).isTrue();
+        assertThat(KeywordAskIntentMatcher.namesAPlace(AskQuestionSanitiser.normalise("How's the weather?"),
+                live)).isFalse();
+    }
 }

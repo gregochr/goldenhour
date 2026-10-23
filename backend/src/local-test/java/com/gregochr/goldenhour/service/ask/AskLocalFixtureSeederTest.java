@@ -12,6 +12,8 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.repository.AreaRepository;
+import com.gregochr.goldenhour.repository.LocationAliasRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
@@ -75,6 +77,10 @@ class AskLocalFixtureSeederTest {
     private TideExtremeRepository tides;
     @Autowired
     private DataSource dataSource;
+    @Autowired
+    private AreaRepository areas;
+    @Autowired
+    private LocationAliasRepository aliases;
 
     private final BriefingEvaluationService evaluation = mock(BriefingEvaluationService.class);
     private final BriefingService briefing = mock(BriefingService.class);
@@ -93,6 +99,44 @@ class AskLocalFixtureSeederTest {
         local.setActiveProfiles("local");
         return new AskLocalFixtureSeeder(regions, locations, tides, evaluation, briefing, snapshots,
                 new SolarEventFreshness(new SolarService(), clock), dataSource, local, clock);
+    }
+
+    // -- the named area and alias -------------------------------------------------------------
+
+    @Test
+    @DisplayName("with the area repositories it also writes one named area over two fixture locations and one "
+            + "location alias, once however often it runs")
+    void seedsANamedAreaAndAnAlias() {
+        StandardEnvironment local = new StandardEnvironment();
+        local.setActiveProfiles("local");
+        AskLocalFixtureSeeder withNames = new AskLocalFixtureSeeder(regions, locations, tides, evaluation, briefing,
+                snapshots, new SolarEventFreshness(new SolarService(), clock), dataSource, local, clock, areas,
+                aliases);
+
+        withNames.seed();
+        withNames.seed();
+
+        assertThat(areas.findAll()).hasSize(1);
+        var area = areas.findAll().getFirst();
+        assertThat(area.getName()).isEqualTo(AskLocalFixtureSeeder.FIXTURE_AREA);
+        assertThat(area.getAliases()).containsExactly("Roman Wall");
+        assertThat(area.getLocationIds()).containsExactlyInAnyOrder(
+                locations.findByName("Hadrian's Wall Crags (fixture)").orElseThrow().getId(),
+                locations.findByName("Kielder Water (fixture)").orElseThrow().getId());
+        assertThat(aliases.findAll()).singleElement().satisfies(a -> {
+            assertThat(a.getAlias()).isEqualTo(AskLocalFixtureSeeder.FIXTURE_ALIAS);
+            assertThat(a.getLocationId()).isEqualTo(
+                    locations.findByName("Bamburgh Beach (fixture)").orElseThrow().getId());
+        });
+    }
+
+    @Test
+    @DisplayName("without the area repositories (the ten-argument seeder) it writes no area and no alias")
+    void tenArgumentSeederWritesNoNames() {
+        seeder.seed();
+
+        assertThat(areas.findAll()).isEmpty();
+        assertThat(aliases.findAll()).isEmpty();
     }
 
     // -- regions and locations --------------------------------------------------------------

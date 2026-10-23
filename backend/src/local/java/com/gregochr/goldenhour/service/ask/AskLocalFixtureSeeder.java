@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.gregochr.goldenhour.entity.AreaEntity;
+import com.gregochr.goldenhour.entity.LocationAliasEntity;
+import com.gregochr.goldenhour.entity.LocationAliasId;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
@@ -10,6 +13,8 @@ import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
+import com.gregochr.goldenhour.repository.AreaRepository;
+import com.gregochr.goldenhour.repository.LocationAliasRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
@@ -22,6 +27,7 @@ import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Profile;
@@ -132,6 +138,12 @@ public class AskLocalFixtureSeeder {
     /** The suffix every fixture location name carries: how the seeder recognises its own. */
     static final String LOCATION_SUFFIX = " (fixture)";
 
+    /** The fixture's named area (local H2 only), over Hadrian's Wall Crags and Kielder Water. */
+    static final String FIXTURE_AREA = "Hadrian's Wall";
+
+    /** The fixture's other name for Bamburgh Beach. */
+    static final String FIXTURE_ALIAS = "The Sands";
+
     /** The prefix every fixture region name carries. */
     static final String REGION_PREFIX = "Fixture ";
 
@@ -160,9 +172,11 @@ public class AskLocalFixtureSeeder {
     private final DataSource dataSource;
     private final Environment environment;
     private final Clock clock;
+    private final AreaRepository areaRepository;
+    private final LocationAliasRepository aliasRepository;
 
     /**
-     * Creates the seeder.
+     * Creates the seeder, with no named area or location alias.
      *
      * @param regionRepository      regions
      * @param locationRepository    locations
@@ -180,6 +194,35 @@ public class AskLocalFixtureSeeder {
             BriefingEvaluationService evaluationService, BriefingService briefingService,
             AskSnapshotBuilder snapshotBuilder, SolarEventFreshness freshness,
             DataSource dataSource, Environment environment, Clock clock) {
+        this(regionRepository, locationRepository, tideExtremeRepository, evaluationService, briefingService,
+                snapshotBuilder, freshness, dataSource, environment, clock, null, null);
+    }
+
+    /**
+     * Creates the seeder, which also writes the fixture's named area and location alias.
+     *
+     * @param regionRepository      regions
+     * @param locationRepository    locations
+     * @param tideExtremeRepository stored tide extremes
+     * @param evaluationService     the service the batch pipeline writes {@code cached_evaluation} through
+     * @param briefingService       builds the briefing
+     * @param snapshotBuilder       reads back what Ask now sees, for the summary line
+     * @param freshness             the project's one answer to "now" and to solar event times
+     * @param dataSource            the datasource, checked to be H2 before anything is written
+     * @param environment           the environment, checked for the {@code local} profile
+     * @param clock                 the application clock
+     * @param areaRepository        named areas; null skips them
+     * @param aliasRepository       location aliases; null skips them
+     */
+    @Autowired
+    public AskLocalFixtureSeeder(RegionRepository regionRepository,
+            LocationRepository locationRepository, TideExtremeRepository tideExtremeRepository,
+            BriefingEvaluationService evaluationService, BriefingService briefingService,
+            AskSnapshotBuilder snapshotBuilder, SolarEventFreshness freshness,
+            DataSource dataSource, Environment environment, Clock clock,
+            AreaRepository areaRepository, LocationAliasRepository aliasRepository) {
+        this.areaRepository = areaRepository;
+        this.aliasRepository = aliasRepository;
         this.regionRepository = regionRepository;
         this.locationRepository = locationRepository;
         this.tideExtremeRepository = tideExtremeRepository;
@@ -249,6 +292,7 @@ public class AskLocalFixtureSeeder {
         for (Fixture.Spot spot : Fixture.SPOTS) {
             locations.put(spot.name(), ensureLocation(spot, regions.get(spot.region())));
         }
+        seedNames(locations);
         List<Window> windows = upcomingWindows(locations.values().iterator().next());
         if (windows.isEmpty()) {
             LOG.warn("[ASK FIXTURE] No upcoming solar window to rate; nothing seeded beyond regions/locations");
@@ -297,6 +341,36 @@ public class AskLocalFixtureSeeder {
                     .build();
             return locationRepository.save(entity);
         });
+    }
+
+    // -- named area and alias -----------------------------------------------------------------
+
+    /**
+     * Writes one named area over two fixture locations and one location alias, so look_up_place and
+     * rank_spots with {@code areaName} can be tried locally. Idempotent: an area of that name, or an alias
+     * already present, is left alone. Asking about it in the browser needs {@code photocast.ask.stub: false}
+     * (the stub engine never calls a tool), which bills the real Anthropic key.
+     */
+    void seedNames(Map<String, LocationEntity> locations) {
+        if (areaRepository == null || aliasRepository == null) {
+            return;
+        }
+        LocationEntity crags = locations.get("Hadrian's Wall Crags" + LOCATION_SUFFIX);
+        LocationEntity kielder = locations.get("Kielder Water" + LOCATION_SUFFIX);
+        LocationEntity beach = locations.get("Bamburgh Beach" + LOCATION_SUFFIX);
+        if (crags == null || kielder == null || beach == null) {
+            return;
+        }
+        if (areaRepository.findAll().stream().noneMatch(a -> FIXTURE_AREA.equals(a.getName()))) {
+            AreaEntity area = new AreaEntity();
+            area.setName(FIXTURE_AREA);
+            area.setAliases(new HashSet<>(Set.of("Roman Wall")));
+            area.setLocationIds(new HashSet<>(Set.of(crags.getId(), kielder.getId())));
+            areaRepository.save(area);
+        }
+        if (!aliasRepository.existsById(new LocationAliasId(beach.getId(), FIXTURE_ALIAS))) {
+            aliasRepository.save(new LocationAliasEntity(beach.getId(), FIXTURE_ALIAS));
+        }
     }
 
     // -- windows ------------------------------------------------------------------------------

@@ -84,11 +84,37 @@ class AskToolSchemasTest {
     }
 
     @Test
+    @DisplayName("areaName is on the typed rank_spots; the Ready list never has it, and look_up_place's "
+            + "description names the named area")
+    void namedAreaIsATypedQuestionArgument() {
+        Tool typed = tool(AskToolSchemas.tools(true, false, true), AskToolSchemas.RANK_SPOTS);
+
+        assertThat(properties(typed)).contains("areaName");
+        assertThat(property(typed, "areaName").get("type").asText()).isEqualTo("string");
+        assertThat(property(typed, "areaName").get("description").asText()).contains("named area");
+        assertThat(properties(tool(AskToolSchemas.tools(true, true, true), AskToolSchemas.RANK_SPOTS)))
+                .contains("areaName");
+        assertThat(properties(tool(AskToolSchemas.tools(false, false, false), AskToolSchemas.RANK_SPOTS)))
+                .doesNotContain("areaName");
+        assertThat(properties(tool(AskToolSchemas.tools(false), AskToolSchemas.RANK_SPOTS)))
+                .doesNotContain("areaName");
+        assertThat(AskToolSchemas.tools(false, false, false).toString()).doesNotContain("areaName")
+                .doesNotContain("named area");
+        assertThat(tool(AskToolSchemas.tools(true, false, true), AskToolSchemas.LOOK_UP_PLACE).description()
+                .orElseThrow()).contains("The name may also be a named area, such as a landmark, or another name "
+                + "for a place");
+    }
+
+    @Test
     @DisplayName("each lookup tool's schema properties are exactly its argument record's fields")
     void lookupSchemasMatchArgumentRecords() {
         List<Tool> tools = AskToolSchemas.tools(true);
 
-        assertThat(properties(tool(tools, AskToolSchemas.RANK_SPOTS)))
+        // areaName is the typed conversation's (see namedAreaIsATypedQuestionArgument); Ready's list is as before.
+        Set<String> withoutArea = components(AskTools.RankSpotsArgs.class);
+        withoutArea.remove("areaName");
+        assertThat(properties(tool(tools, AskToolSchemas.RANK_SPOTS))).isEqualTo(withoutArea);
+        assertThat(properties(tool(AskToolSchemas.tools(true, false, true), AskToolSchemas.RANK_SPOTS)))
                 .isEqualTo(components(AskTools.RankSpotsArgs.class));
         assertThat(properties(tool(tools, AskToolSchemas.RANK_NIGHT_SPOTS)))
                 .isEqualTo(components(AskTools.RankNightSpotsArgs.class));

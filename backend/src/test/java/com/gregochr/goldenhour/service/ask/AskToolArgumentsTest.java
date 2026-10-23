@@ -59,6 +59,13 @@ class AskToolArgumentsTest {
         assertThat(a.nearHome()).isTrue();
         assertThat(a.limit()).isEqualTo(3);
 
+        assertThat(a.areaName()).isNull();
+        assertThat(AskToolArguments.rankSpots(json("{\"areaName\": \"Hadrian's Wall\"}")).areaName())
+                .isEqualTo("Hadrian's Wall");
+        assertThat(AskToolArguments.rankSpots(json("{\"areaName\": null}")).areaName()).isNull();
+        assertThatThrownBy(() -> AskToolArguments.rankSpots(json("{\"areaName\": 7}")))
+                .isInstanceOf(BadArguments.class).hasMessage("'areaName' must be text.");
+
         RankSpotsArgs nulls = AskToolArguments.rankSpots(json("{\"limit\": null, \"tideState\": null}"));
         assertThat(nulls.limit()).isNull();
         assertThat(nulls.nearHome()).isNull();
