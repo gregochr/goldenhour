@@ -33,6 +33,16 @@ import { MAYBE_THRESHOLD, WORTH_IT_THRESHOLD, verdictWord } from './verdictWord.
  */
 export { MAYBE_THRESHOLD, WORTH_IT_THRESHOLD, verdictWord };
 
+/**
+ * The big-seas chips (big-seas plan F2) live in the leaf `utils/bigSeasChips.js` for the same reason:
+ * `MapView` needs the chip list for the legend key without reaching `d3-geo`. Re-exported here so the
+ * label pass's vocabulary stays in one place, including the collision tier order.
+ */
+export {
+  BIG_SEAS_CHIP_MAX_ZOOM, NO_BIG_SEAS_CHIPS, bigSeasChipAriaLabel, bigSeasChipItems,
+  bigSeasChipTipLines, dropProtectedBigSeasChips, labelTierOrder, withoutBigSeasDuplicates,
+} from './bigSeasChips.js';
+
 // ── Zoom thresholds (README "Zoom thresholds") ──────────────────────────────────────────────────
 
 /** The home marker is placed below this zoom — README §6 priority order item 1. */

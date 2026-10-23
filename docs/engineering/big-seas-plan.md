@@ -615,7 +615,7 @@ tuning; the owner cuts releases.
 | B1 | — | Step 0 done; ready to brief once this plan merges |
 | B2 | — | after B1 |
 | F1 | — | built 2026-10-23 on `feature/big-seas-f1` (frontend only, against B2's served contract); label-obstacle re-measure below |
-| F2 | — | after F1 |
+| F2 | — | built 2026-10-23 on `feature/big-seas-f2` (frontend only, on F1): chips in Heat and Pins, tooltip, legend key in Heat, Pins and the phone Layers row |
 | F3 | — | ready to brief (Q1 answered); independent of B1–F2 |
 | F4 | — | after F3 |
 

@@ -6852,6 +6852,97 @@ button.wf-hc.also.on:hover {
   padding-left: 5px;
   border-left: 1px solid var(--color-plex-border);
 }
+/* The big-seas chip (big-seas plan F2; docs/design/big-seas/README.md "Big-seas chip (.bsc)"): a
+   `.wf-maplab-chip` in the teal family, so every shared behaviour (placement, the Ask fade, focus, the
+   selected-chip lookup) is the ordinary chip's. Plate `rgba(14,22,24,.92)`, a 1px teal ring, the bolt
+   (`BoltIcon`, never the U+26A1 emoji), the name in the ink and the height behind a left rule in
+   `--color-tide-pale`. IBM Plex Mono 9.5px, 10px on a phone. Every teal is a `--color-tide*` token.
+   ALIGNED (high water on the light, `data-aligned`) takes the 1.5px lighter ring plus a 3px halo.
+   ⚠️ Written at (0,2,0) AFTER `.wf-maplab-chip:hover` and `[data-selected]` (same specificity), so these
+   override their gold ring: the teal ring is this chip's identity, and hover only lifts the plate. */
+.wf-maplab-chip.wf-bsc {
+  gap: 5px;
+  padding: 2px 6px 2px 4px;
+  background: rgba(14, 22, 24, 0.92);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-tide) 70%, transparent),
+    0 2px 8px rgba(0, 0, 0, 0.55);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
+.wf-maplab-chip.wf-bsc:hover,
+.wf-maplab-chip.wf-bsc[data-selected='true'] {
+  background: rgba(14, 22, 24, 0.98);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-tide) 70%, transparent),
+    0 2px 8px rgba(0, 0, 0, 0.55);
+}
+.wf-maplab-chip.wf-bsc[data-aligned='true'],
+.wf-maplab-chip.wf-bsc[data-aligned='true']:hover,
+.wf-maplab-chip.wf-bsc[data-aligned='true'][data-selected='true'] {
+  box-shadow:
+    inset 0 0 0 1.5px var(--color-tide-light),
+    0 0 0 3px color-mix(in srgb, var(--color-tide) 18%, transparent),
+    0 2px 10px rgba(0, 0, 0, 0.6);
+}
+.wf-bsc-bolt {
+  flex: none;
+  font-size: 10px;
+  color: var(--color-tide);
+}
+.wf-bsc-n {
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-bsc-h {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--color-tide-pale);
+  padding-left: 5px;
+  border-left: 1px solid color-mix(in srgb, var(--color-tide) 45%, transparent);
+}
+@media (max-width: 639px) {
+  .wf-maplab-chip.wf-bsc {
+    font-size: 10px;
+  }
+}
+/* Forced colours drop box-shadow, which is all that draws the ring: the chip takes a 1px border, and
+   the aligned ring becomes a 2px outline (outside the border, so the two read apart). */
+@media (forced-colors: active) {
+  .wf-maplab-chip.wf-bsc {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+  .wf-maplab-chip.wf-bsc[data-aligned='true'] {
+    box-shadow: none;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+  .wf-maplab-chip.wf-bsc:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+/* The legend's big-seas swatch: the chip's own plate and ring around the bolt. */
+.wf-legend-swatch-seas {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 14px;
+  border-radius: 4px;
+  background: rgba(14, 22, 24, 0.92);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-tide) 70%, transparent);
+  color: var(--color-tide);
+  font-size: 10px;
+}
+@media (forced-colors: active) {
+  .wf-legend-swatch-seas {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+}
 /* The desktop hover tooltip — README §6/"Interactions": name, event, N★ verdict,
    region · drive · sky Bortle. z-index 1400, the P7 chrome comment's own reserved "tooltip" slot;
    mouse-only by construction (`onMouseEnter`/`onMouseMove`/`onMouseLeave`, which a touch tap never

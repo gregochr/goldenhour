@@ -9,9 +9,11 @@ import { pxPerKmAtHome, RING_MIN_PX, RING_TIERS } from '../../utils/reachRings.j
 import { seedObstacles } from '../../utils/labelPlacement.js';
 import {
   chipBoxWithinBadgedBox, chipCandidates, hasRatedBadge, homeLabelItems, placeLabelPass,
-  regionLabelItems, ringLabelItems, standDownRegionItems, verdictWord, withBadgeOverhang,
-  withStandDownLabels, REGION_TINY_FRAME_WIDTH,
+  labelTierOrder, regionLabelItems, ringLabelItems, standDownRegionItems, verdictWord,
+  withBadgeOverhang, withoutBigSeasDuplicates, withStandDownLabels, NO_BIG_SEAS_CHIPS,
+  REGION_TINY_FRAME_WIDTH,
 } from '../../utils/mapLabels.js';
+import BigSeasChip, { BigSeasTipLines } from './BigSeasChip.jsx';
 import { badgeAccessibleClause } from '../../utils/outcomeRatingJoin.js';
 import RatedBadge from './RatedBadge.jsx';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
@@ -283,7 +285,7 @@ const TOOLTIP_WIDTH_FALLBACK = 240;
 export default function MapLabels({
   spots: allSpots, standRegions = NO_STAND_REGIONS, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
   onSelect = null, onSelectAskPick = null, eventLabel = '', bottomInset = 0, rampHex = defaultRampHex,
-  omitUnrated = false,
+  omitUnrated = false, bigSeasChips = NO_BIG_SEAS_CHIPS,
 }) {
   const map = useMap();
 
@@ -324,6 +326,8 @@ export default function MapLabels({
    * node gets no {@code mouseleave} either.
    */
   const [hoverName, setHoverName] = useState(null);
+  /** The hovered big-seas chip's location id (its own card, same rule as {@code hoverName}). */
+  const [hoverSeasId, setHoverSeasId] = useState(null);
   const [tipPos, setTipPos] = useState({ x: 0, y: 0 });
 
   const rootRef = useRef(null);
@@ -354,6 +358,7 @@ export default function MapLabels({
   const ringRefs = useRef(new Map());
   const regionRefs = useRef(new Map());
   const chipRefs = useRef(new Map());
+  const seasRefs = useRef(new Map());
   const tipRef = useRef(null);
 
   /**
@@ -394,16 +399,20 @@ export default function MapLabels({
         .filter((ring) => ring.r >= RING_MIN_PX && ring.r <= Math.max(width, height) * RING_OFFFRAME_FACTOR)
       : [];
 
+    // On a full big-seas day the structure's ordinary chip is not offered at all (the big-seas chip
+    // stands for the place), so it does not spend the density budget either. `bigSeasChips` arrives
+    // already without the Ask picks and the selection, whose ordinary chips are never suppressed.
+    const pool = withoutBigSeasDuplicates(spots, bigSeasChips);
     let inViewNames = null;
     if (typeof map.getBounds === 'function') {
       const bounds = map.getBounds();
       inViewNames = new Set(
-        spots.filter((s) => bounds.contains([s.lat, s.lng])).map((s) => s.name),
+        pool.filter((s) => bounds.contains([s.lat, s.lng])).map((s) => s.name),
       );
     }
 
     const chips = chipCandidates({
-      spots, inViewNames, zoom, selectedName,
+      spots: pool, inViewNames, zoom, selectedName,
     }).map((spot) => {
       const [x, y] = project(spot);
       return { spot, x, y };
@@ -425,9 +434,13 @@ export default function MapLabels({
       }) : [],
       homeItems: home ? homeLabelItems(home, zoom) : [],
       chips,
+      bigSeasItems: bigSeasChips.map((it) => {
+        const [x, y] = project(it);
+        return { ...it, x, y };
+      }),
       tiny: width < REGION_TINY_FRAME_WIDTH,
     });
-  }, [map, spots, standRegions, homeCoords, rings, reachMeasured, selectedName]);
+  }, [map, spots, standRegions, homeCoords, rings, reachMeasured, selectedName, bigSeasChips]);
 
   /**
    * The rAF-guarded throttle/settle pair, mirroring `MapHeatLayer.jsx`'s own — "never their own
@@ -480,20 +493,15 @@ export default function MapLabels({
    */
   useLayoutEffect(() => {
     if (!frame || placement?.frame === frame) return;
-    const items = [];
-
-    for (const it of frame.homeItems) {
-      const node = homeRef.current;
+    const measure = (it, node) => {
       const w = node?.offsetWidth ?? 0;
       const h = node?.offsetHeight ?? 0;
-      if (w > 0 && h > 0) items.push({ ...it, w, h });
-    }
-    for (const it of frame.ringItems) {
-      const node = ringRefs.current.get(it.key);
-      const w = node?.offsetWidth ?? 0;
-      const h = node?.offsetHeight ?? 0;
-      if (w > 0 && h > 0) items.push({ ...it, w, h });
-    }
+      return w > 0 && h > 0 ? { ...it, w, h } : null;
+    };
+    const home = frame.homeItems
+      .map((it) => measure(it, homeRef.current)).filter(Boolean);
+    const rings = frame.ringItems
+      .map((it) => measure(it, ringRefs.current.get(it.key))).filter(Boolean);
     // Ask PhotoCast's picks are placed BEFORE the region names (F3): they are the answer, and a
     // region name is the first thing the pass may do without. `chipCandidates` already put them first
     // among the chips; this lifts them over the regions too. Every other order is unchanged.
@@ -508,20 +516,22 @@ export default function MapLabels({
       // cannot be placed under it. The chip itself is drawn back at its own place below.
       return hasRatedBadge(spot) ? withBadgeOverhang(item) : item;
     };
-    for (const chip of frame.chips) {
-      const item = chip.spot.askPick ? measuredChip(chip) : null;
-      if (item) items.push(item);
-    }
-    for (const it of frame.regionItems) {
-      const node = regionRefs.current.get(it.key);
-      const w = node?.offsetWidth ?? 0;
-      const h = node?.offsetHeight ?? 0;
-      if (w > 0 && h > 0) items.push({ ...it, w, h });
-    }
-    for (const chip of frame.chips) {
-      const item = chip.spot.askPick ? null : measuredChip(chip);
-      if (item) items.push(item);
-    }
+    const picks = frame.chips
+      .map((chip) => (chip.spot.askPick ? measuredChip(chip) : null)).filter(Boolean);
+    const regions = frame.regionItems
+      .map((it) => measure(it, regionRefs.current.get(it.key))).filter(Boolean);
+    // The big-seas chips (F2) sit between the regions and the ordinary chips: they win space over
+    // every ordinary chip, but a region name or an Ask pick still keeps its own.
+    const bigSeas = frame.bigSeasItems
+      .map((it) => measure(
+        { key: it.key, x: it.x, y: it.y },
+        seasRefs.current.get(it.locationId),
+      )).filter(Boolean);
+    const chips = frame.chips
+      .map((chip) => (chip.spot.askPick ? null : measuredChip(chip))).filter(Boolean);
+    const items = labelTierOrder({
+      home, rings, picks, regions, bigSeas, chips,
+    });
 
     let obstacles = [];
     const containerEl = map?.getContainer?.();
@@ -588,7 +598,6 @@ export default function MapLabels({
     // cannot be computed from props — the DOM has to be laid out and read first. The write is
     // idempotent and bounded by the guard above (once per genuinely new `frame`), and it is a
     // LAYOUT effect so the off-screen measuring pass is never painted.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPlacement({ frame, placed, compact });
     // `placement` is read only as the guard on its own write (above) — listing it here would make
     // this effect re-run on the write it just made. `frame` is the identity that actually decides
@@ -649,13 +658,23 @@ export default function MapLabels({
   // events say what the pointer is, so touch never reaches the tooltip at all.
   const showTip = useCallback((name, event) => {
     if (event.pointerType !== 'mouse') return;
+    setHoverSeasId(null);
     setHoverName(name);
+    positionTip(event);
+  }, [positionTip]);
+  const showSeasTip = useCallback((locationId, event) => {
+    if (event.pointerType !== 'mouse') return;
+    setHoverName(null);
+    setHoverSeasId(locationId);
     positionTip(event);
   }, [positionTip]);
   const moveTip = useCallback((event) => {
     if (event.pointerType === 'mouse') positionTip(event);
   }, [positionTip]);
-  const hideTip = useCallback(() => setHoverName(null), []);
+  const hideTip = useCallback(() => {
+    setHoverName(null);
+    setHoverSeasId(null);
+  }, []);
 
   /**
    * The spot the tooltip describes, resolved from {@code hoverName} on every render: read off the
@@ -690,6 +709,12 @@ export default function MapLabels({
     : null;
   const hover = hoverSpot?.askPick ? null : hoverSpot;
   if (hoverName != null && hover == null) setHoverName(null);
+  // A big-seas chip's card, resolved off the LIVE chips the layer mounts and forgotten once its chip
+  // has gone (zoomed out of range, window stepped), by the same guarded-setState idiom.
+  const hoverSeas = hoverSeasId == null
+    ? null
+    : (frame?.bigSeasItems.find((it) => it.locationId === hoverSeasId) ?? null);
+  if (hoverSeasId != null && hoverSeas == null) setHoverSeasId(null);
 
   if (!pane || !frame) return null;
 
@@ -867,6 +892,24 @@ export default function MapLabels({
           </button>
         );
       })}
+
+      {frame.bigSeasItems.map((it) => (
+        <BigSeasChip
+          key={it.key}
+          item={it}
+          style={styleFor(it.key)}
+          selected={selectedName === it.name}
+          fade={askActive}
+          refCallback={(node) => {
+            if (node) seasRefs.current.set(it.locationId, node);
+            else seasRefs.current.delete(it.locationId);
+          }}
+          onSelect={onSelect}
+          onTipEnter={(e) => showSeasTip(it.locationId, e)}
+          onTipMove={moveTip}
+          onTipLeave={hideTip}
+        />
+      ))}
     </div>,
     pane,
   );
@@ -922,15 +965,44 @@ export default function MapLabels({
     chromeRoot,
   );
 
+  const seasTooltip = hoverSeas && chromeRoot && createPortal(
+    <div
+      ref={tipRef}
+      className="wf-maplab-tip"
+      data-testid="map-label-tip"
+      data-kind="big-seas"
+      style={{ left: `${tipPos.x}px`, top: `${tipPos.y}px` }}
+    >
+      <BigSeasTipLines item={hoverSeas} />
+    </div>,
+    chromeRoot,
+  );
+
   return (
     <>
       {labelLayer}
       {tooltip}
+      {seasTooltip}
     </>
   );
 }
 
 MapLabels.propTypes = {
+  /**
+   * The big-seas chips to draw (big-seas plan F2, {@code bigSeasChipItems} minus the Ask picks and the
+   * selection): placed between the regions and the ordinary chips, each REPLACING that place's
+   * ordinary chip. Default none.
+   */
+  bigSeasChips: PropTypes.arrayOf(PropTypes.shape({
+    key: PropTypes.string.isRequired,
+    locationId: PropTypes.number.isRequired,
+    name: PropTypes.string.isRequired,
+    label: PropTypes.string.isRequired,
+    lat: PropTypes.number.isRequired,
+    lng: PropTypes.number.isRequired,
+    heightM: PropTypes.number.isRequired,
+    ringed: PropTypes.bool,
+  })),
   /**
    * The regions whose label reads "stood down · cause" (big-seas plan F3, `standDownRegions`'
    * output): each replaces that region's ordinary label. Default none.
