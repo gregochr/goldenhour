@@ -606,7 +606,9 @@ lives in `mapTopics.js`.
 - **Bars:** contiguous "on" columns merge into one bar. A NIGHT topic is Fri ↓ + Sat ↑, so it
   merges.
 - **Current column:** the active row's column.
-  - A night row maps to its date's ↓.
+  - A night row maps to its date's ↓. The exception is the **night in progress before dawn**, which
+    D-14 dates as yesterday, and therefore before `todayStr`. That night maps to **today's ↑
+    column**, where its NIGHT topic also sits (Codex P1 on #1319).
   - An HW row (M3) shades its whole day.
   - Past columns of today are drawn but not interactive, matching `row.past`.
 
@@ -660,7 +662,7 @@ tide strip. Record the results in §6.
   - columns by date with a missing row;
   - day-4 columns filled from `topicIndex` while their rows have no badges;
   - merging, including a night merge;
-  - current-column mapping.
+  - current-column mapping, including a yesterday-dated night row before dawn landing on today's ↑.
 - `MapTopicStrip.test.jsx`:
   - placement;
   - collapse, and a storage failure being tolerated;
@@ -736,9 +738,18 @@ Known items:
 - **`BigSeasLine` / `bigSeas.js`:** on an HW day the full form's action becomes
   `At high water 12:40 ›`, with `jumpRow` set to the HW row. There is no action on the HW row itself.
   The first clause is described in §1.15.
-- **Expiry:** when the reader is on the HW row as its `windowEnd` passes, selection moves to the next
-  row. This is the existing past-row rule: `followWindowRow` and `isForwardableRow` gain HW handling.
-  The behaviour is tested.
+- **Expiry needs its own transition** (Codex P1 on #1319). Once `windowEnd` passes, the existing
+  helpers only stop `buildMapEvents` from emitting the HW row. Neither `followWindowRow` nor
+  `isForwardableRow` changes the stored `eventType`. `MapView` would keep `HIGH_WATER`, derive
+  `activeEvIndex === -1`, and show no active window. M3 adds:
+  - **A deadline timer** armed at the selected HW row's `windowEnd`, measured against `appNow()` so
+    that Rewind works. It must survive a hidden tab: re-check on `visibilitychange`, and never trust
+    one long `setTimeout` (see the wall-clock-deadline lessons). When it fires, it bumps a render
+    key so that `buildMapEvents` re-runs.
+  - **An effect** that sees `eventType === 'HIGH_WATER'` with no matching row. It calls
+    `selectEvRow` on the first row after the HW's date and time (normally that date's sunset). If
+    there is none, it calls it on the first row of the list. It goes through the same
+    `typeChanged` exemption, so the reader's filters survive.
 
 **Strip tick.**
 
@@ -769,7 +780,12 @@ Known items:
 - `BigSeasLine.test.jsx` / `bigSeas.test.js`: the HW action and copy, and no action on the HW row.
 - `MapTopicStrip.test.jsx`: tick position, the clamp, no tick without bounds, the tap, the
   hit-area size.
-- Expiry while selected; the auto-selection clears when leaving the row.
+- Expiry while selected, using fake timers and a Rewound `appNow`:
+  - the selection moves to that date's sunset, or to the first row when there is none;
+  - `activeEvIndex` is never −1 after the timer fires;
+  - a hidden tab that becomes visible past `windowEnd` advances too;
+  - the star filter survives.
+- The auto-selection clears when leaving the row.
 
 **Docs.** `reference/map-tab.md`, and `big-seas-plan.md` §6 (a pointer).
 
