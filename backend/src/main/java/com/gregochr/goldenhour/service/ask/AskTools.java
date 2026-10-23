@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import com.gregochr.goldenhour.util.DayLabels;
 import com.gregochr.goldenhour.util.GeoUtils;
+import com.gregochr.goldenhour.util.PlaceNames;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
@@ -1242,14 +1243,7 @@ public class AskTools {
      * @return its words, possibly empty
      */
     static List<String> placeWords(String text) {
-        String folded = text.toLowerCase(Locale.ROOT).replace("'", "").replace("’", "");
-        StringBuilder spaced = new StringBuilder(folded.length());
-        for (int i = 0; i < folded.length(); i++) {
-            char c = folded.charAt(i);
-            spaced.append(Character.isLetterOrDigit(c) ? c : ' ');
-        }
-        String joined = spaced.toString().strip();
-        return joined.isEmpty() ? List.of() : List.of(joined.split("\\s+"));
+        return PlaceNames.words(text);
     }
 
     /**
@@ -1260,7 +1254,7 @@ public class AskTools {
      * @return true when the run appears
      */
     static boolean containsRun(List<String> words, List<String> run) {
-        return !run.isEmpty() && Collections.indexOfSubList(words, run) >= 0;
+        return PlaceNames.containsRun(words, run);
     }
 
     /**
