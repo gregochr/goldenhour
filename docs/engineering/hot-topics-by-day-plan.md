@@ -680,7 +680,12 @@ tide strip. Record the results in §6.
 - `buildMapEvents` inserts one row per served `BigSeasDay` that has `daylightHighWater` and passes
   `bigSeasWindowAhead`. The row goes between that date's sunrise and sunset rows.
 - Row shape: `{ id: 'hw:{date}:HIGH_WATER', kind: 'hw', eventType: 'HIGH_WATER', date, time:
-  formatEventTimeUk(hwTime), label/dayLabel as solar rows, badges: [] }`.
+  formatEventTimeUk(hwTime), label/dayLabel as solar rows, badges: [], inForecastDomain }`.
+- **`inForecastDomain` is required** (Codex P1 on #1319). `isForwardableRow` (`mapEvents.js:932-939`)
+  rejects any row that lacks it, so `selectEvRow` would skip `onSelectDate` and take the local-night
+  fallback, leaving the parent date and the Map pane out of sync. The HW row inherits the value from
+  the same date's solar rows. A date that has no solar row is computed exactly as `solarRow` computes
+  it, never defaulted.
 - `findEvIndex(list, 'HIGH_WATER', date)` must resolve it.
 
 **⚠️ The sweep.** A grep for `eventType ===` misses most of the hazards. The builder works through
@@ -723,7 +728,9 @@ Known items:
   variant in `--color-tide-light` (16% background, 34% inset border). The verdict cell is the neutral
   word `Big seas`.
 - The lead copy comes from `bigSeasCopy`: "High water at 12:40 with 3.4 m waves from NNE. Not a light
-  window: this is for spray over the piers in flat midday light."
+  window: this is for spray over the piers, not for colour." The handoff's "in flat midday light" is
+  dropped (Codex P1 on #1319). B1's flag covers any high water strictly between the lights, so a
+  09:10 high water would be told it was midday. That is the same reason as Q4b.
 - The week menu and the phone peek-sheet list show the kind chip, `—` for the score, and `⚡`
   (aria-hidden), with an sr-only ", big seas, high water" clause.
 - **`BigSeasLine` / `bigSeas.js`:** on an HW day the full form's action becomes
@@ -748,7 +755,10 @@ Known items:
 - `mapEvents.test.js`:
   - the row is inserted only with the flag, in order;
   - it is gone once `windowEnd` passes under a Rewound `appNow`;
-  - an aligned day gets no row.
+  - an aligned day gets no row;
+  - the row carries its date's `inForecastDomain`, and `isForwardableRow` accepts it.
+- Selecting a **future** HW row from the strip and from the week menu calls `onSelectDate` with
+  its date, and the parent date and the Map pane stay in sync.
 - **`hwEventSweep.test.jsx`**, one assertion per swept path. It must include:
   - **no stars** through `getRatingForLocation`;
   - the persisted star filter survives sunrise → HW → sunset;
