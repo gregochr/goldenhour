@@ -1390,6 +1390,17 @@ describe('WindowSheetDialog — the neighbour guard (neighbour-guard-plan.md §4
   });
 });
 
+describe('WindowSheetDialog — hands its row map the OPEN window\'s stood places (big-seas F4)', () => {
+  it('forwards field.stood to the kernel', () => {
+    const mine = [{ lat: 5, lng: 5, reason: 'HIGH_CLOUD', rid: 'Coast', key: '#7' }];
+    drawGeo.mockClear();
+    withMeasured(() => {
+      renderDialog({ field: field({ stood: mine }) });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5].stood).toBe(mine);
+  });
+});
+
 describe('WindowSheetDialog — hands its row map the OPEN window\'s unrated places', () => {
   it('forwards field.unrated to the kernel', () => {
     const mine = [{ id: 7, name: 'Alnmouth', lat: 5, lng: 5, rid: 'Coast', r: [0] }];

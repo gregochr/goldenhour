@@ -461,6 +461,9 @@ export default function WindowRowFieldMap({
    * <p>Simpler than the strip's Set because this component is handed ONE window rather than six.
    */
   const notScored = bestRating == null;
+  // The whole-plate "not rated yet" hatch is withdrawn where places stood down (big-seas F4): the
+  // plate would lie over ground that was looked at. The per-place layers say it instead.
+  const plateHatched = notScored && stood.length === 0;
 
   // Fewer than two regions and there is nothing to choose between: the rail withdraws (§4.4) and so
   // does the click. Normally a P7 origin case; mechanically reachable now on a one-region payload.
@@ -496,11 +499,12 @@ export default function WindowRowFieldMap({
   const focusRegion = useMemo(
     () => (selectedRegion && (
       points.some((point) => point.rid === selectedRegion)
-      || (!notScored && unrated.some((point) => point.rid === selectedRegion))
+      || (!plateHatched && unrated.some((point) => point.rid === selectedRegion))
+      || stood.some((point) => point.rid === selectedRegion)
     )
       ? selectedRegion
       : undefined),
-    [selectedRegion, points, unrated, notScored],
+    [selectedRegion, points, unrated, stood, plateHatched],
   );
 
   const paint = useCallback(({ width, height, canvases }) => {
@@ -515,10 +519,10 @@ export default function WindowRowFieldMap({
       conf: confidenceScalar(tier),
       // The hatch is the caller's claim, never inferred from an empty field — `drawGeo`'s own note
       // says why (a null field also answers a framing question).
-      hatch: notScored,
+      hatch: plateHatched,
       // The per-place "not rated yet" layer: skipped when the whole plate is hatched (the window's
       // own unscored predicate, never an empty set). `focus` is passed above and fades it too.
-      ...(notScored || !unrated.length ? null : { unrated }),
+      ...(plateHatched || !unrated.length ? null : { unrated }),
       // Stood-down ground (big-seas plan F4): the same list the Map hatches. Not withheld on an
       // unscored window, whose absence of a rating is the stand-down. The disc radius is the
       // field's own (`radius` above), the way the unrated hatch is sized.
@@ -606,7 +610,7 @@ export default function WindowRowFieldMap({
     // that this callback's colours (and now its bloom options) come from `scoreRamp`'s module
     // state. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [windowKey, date, confidence, points, unrated, stood, notScored, fitTo, framed, regionNames, focusRegion,
+  }, [windowKey, date, confidence, points, unrated, stood, plateHatched, fitTo, framed, regionNames, focusRegion,
     selectedRegion, todayStr, chips, geoByKey, chipCap, hasHomeGeo, homePoint, colourMode]);
 
   const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
@@ -1079,7 +1083,7 @@ export default function WindowRowFieldMap({
             channel. */}
         {notScored && (
           <span data-testid="wf-row-map-unscored" className="wf-mnote" aria-hidden="true">
-            Not scored
+            {stood.length ? 'Stood down by the weather' : 'Not scored'}
           </span>
         )}
       </div>

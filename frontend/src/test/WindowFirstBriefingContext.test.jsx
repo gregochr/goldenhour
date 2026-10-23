@@ -1301,7 +1301,7 @@ describe('WindowFirstBriefingProvider', () => {
       expect(screen.getByTestId('heat-stood').textContent).toBe('none');
     });
 
-    it('publishes no stood ground until the scores have loaded, nor when they failed', async () => {
+    it('documents a DEFENSIVE gate: no stood ground while scores are in flight or failed (equivalent to the evidence gate by construction)', async () => {
       getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getAllEvaluationScores.mockReturnValue(new Promise(() => {}));
       renderProviderWithLocations(ROSTER);

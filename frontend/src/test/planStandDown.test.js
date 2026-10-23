@@ -74,8 +74,8 @@ describe('stoodPointSetsOf — the Plan tab\'s stood ground', () => {
 
 describe('stoodPhrase — the thumbnail\'s spoken clause', () => {
   it('says N places, singular for one, nothing for none or nonsense', () => {
-    expect(stoodPhrase(3)).toEqual(['3 places stood down by the weather']);
-    expect(stoodPhrase(1)).toEqual(['1 place stood down by the weather']);
+    expect(stoodPhrase(3)).toEqual(['3 locations stood down by the weather']);
+    expect(stoodPhrase(1)).toEqual(['1 location stood down by the weather']);
     expect(stoodPhrase(0)).toEqual([]);
     expect(stoodPhrase(undefined)).toEqual([]);
     expect(stoodPhrase(-2)).toEqual([]);

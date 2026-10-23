@@ -32,8 +32,12 @@ vi.mock('../components/WindowFirstDoors.jsx', () => ({
 // "the OPEN window's own set" is observable without a canvas.
 vi.mock('../components/WindowRowFieldMap.jsx', async (importOriginal) => ({
   ...(await importOriginal()),
-  default: ({ windowKey, unrated }) => (
-    <div data-testid="stub-row-map" data-window={windowKey}>
+  default: ({ windowKey, unrated, stood }) => (
+    <div
+      data-testid="stub-row-map"
+      data-window={windowKey}
+      data-stood={(stood || []).map((p) => p.key).join(',') || '-'}
+    >
       {(unrated || []).map((p) => p.name).join(',') || '-'}
     </div>
   ),
@@ -845,5 +849,36 @@ describe('WindowFirstShell — the open window\'s own unrated set reaches the ro
     expect(stub).toHaveTextContent(sets.get(opened));
     sets.delete(opened);
     expect(stub).not.toHaveTextContent([...sets.values()][0]);
+  });
+});
+
+describe('WindowFirstShell — the open window\'s own stood set reaches the row map and the strip (big-seas F4)', () => {
+  const stoodPoint = (key) => ({
+    lat: 55, lng: -1, reason: 'HIGH_CLOUD', rid: 'Northumberland & Tyneside', key,
+  });
+
+  it('hands the opened card its stood set, not another window\'s', async () => {
+    const other = card({ key: '2026-08-09:SUNRISE', date: '2026-08-09', targetType: 'SUNRISE' });
+    const mine = card();
+    renderShell({
+      windowCards: [mine, other],
+      heatStoodSets: new Map([
+        [mine.key, [stoodPoint('#1')]],
+        [other.key, [stoodPoint('#2')]],
+      ]),
+    });
+    await openPopup();
+    const stub = await screen.findByTestId('stub-row-map');
+    const keys = new Map([[mine.key, '#1'], [other.key, '#2']]);
+    const opened = stub.getAttribute('data-window');
+    expect(stub.getAttribute('data-stood')).toBe(keys.get(opened));
+  });
+
+  it('hands the strip heatStoodSets: a thumbnail\'s hidden sentence says places stood down', async () => {
+    renderShell({
+      heatStoodSets: new Map([[card().key, [stoodPoint('#1'), stoodPoint('#2')]]]),
+    });
+    const cardEl = await screen.findByTestId('wf-heat-card');
+    expect(cardEl.textContent).toContain('2 locations stood down by the weather');
   });
 });

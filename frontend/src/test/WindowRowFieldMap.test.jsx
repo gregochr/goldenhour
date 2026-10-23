@@ -179,7 +179,9 @@ describe('WindowRowFieldMap — what it hands the kernel', () => {
       await renderMap({ stood, bestRating: null, points: [] });
     });
     expect(drawGeo.mock.calls.at(-1)[5].stood).toBe(stood);
-    expect(drawGeo.mock.calls.at(-1)[5].hatch).toBe(true);
+    // The plate's "not rated yet" is withdrawn where places stood down: it would lie over them.
+    expect(drawGeo.mock.calls.at(-1)[5].hatch).toBe(false);
+    expect(screen.getByTestId('wf-row-map-unscored')).toHaveTextContent('Stood down by the weather');
 
     drawGeo.mockClear();
     await withMeasuredMap(600, async () => {
@@ -192,6 +194,42 @@ describe('WindowRowFieldMap — what it hands the kernel', () => {
       await renderMap();
     });
     expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('stood');
+  });
+
+  it('keeps the plate hatch with no stood places, and still hatches still-unrated places beside stood ones', async () => {
+    const unrated = [{ id: 7, name: 'Alnmouth', lat: 5, lng: 5, rid: 'Coast', r: [0] }];
+    await withMeasuredMap(600, async () => {
+      await renderMap({ bestRating: null, points: [], unrated });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5].hatch).toBe(true);
+    expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('unrated');
+    expect(screen.getByTestId('wf-row-map-unscored')).toHaveTextContent('Not scored');
+
+    drawGeo.mockClear();
+    cleanup();
+    const stood = [{ lat: 7, lng: 5, reason: 'HIGH_CLOUD', rid: 'Coast', key: '#9' }];
+    await withMeasuredMap(600, async () => {
+      await renderMap({ bestRating: null, points: [], unrated, stood });
+    });
+    const opts = drawGeo.mock.calls.at(-1)[5];
+    expect(opts.hatch).toBe(false);
+    expect(opts.stood).toBe(stood);
+    expect(opts.unrated).toBe(unrated);
+  });
+
+  it('keeps a selected region\'s focus when only a STOOD place carries it', async () => {
+    const stood = [{ lat: 7, lng: 5, reason: 'HIGH_CLOUD', rid: 'Dales', key: '#9' }];
+    await withMeasuredMap(600, async () => {
+      await renderMap({ selectedRegion: 'Dales', stood });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5].focus).toBe('Dales');
+
+    drawGeo.mockClear();
+    cleanup();
+    await withMeasuredMap(600, async () => {
+      await renderMap({ selectedRegion: 'Dales', stood: [] });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5].focus).toBeUndefined();
   });
 
   it('holds the radius at its floor on a narrow map', async () => {

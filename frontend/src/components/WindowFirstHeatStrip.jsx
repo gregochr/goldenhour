@@ -815,13 +815,28 @@ export default function WindowFirstHeatStrip({
   }, [cards]);
 
   /**
+   * A window's stood places inside the thumbnail's frame: the thumbnails crop to the scope regions,
+   * so a stand-down in a region cropped out is painted (the list is handed over whole) but is
+   * neither counted, spoken, nor named by the legend. Everything that DESCRIBES the picture reads
+   * this; only the canvas reads the full list.
+   */
+  const stoodInFrame = useCallback(
+    (key) => (stoodSets?.get?.(key) ?? []).filter((p) => scopeNames.includes(p.rid)),
+    [stoodSets, scopeNames],
+  );
+
+  /**
    * Whether ANY card on screen has stood-down ground drawn on its thumbnail (big-seas plan F4): the
    * legend's third swatch shows only then. The same predicate the paint pass uses (a non-away card
    * with a non-empty stood list), so the key never names a mark that is not on screen.
    */
+  const plateHatched = useCallback(
+    (card) => unscored.has(card.key) && stoodInFrame(card.key).length === 0,
+    [unscored, stoodInFrame],
+  );
   const stoodShown = useMemo(
-    () => cards.some((card) => !card.away && (stoodSets?.get?.(card.key)?.length ?? 0) > 0),
-    [cards, stoodSets],
+    () => cards.some((card) => !card.away && stoodInFrame(card.key).length > 0),
+    [cards, stoodInFrame],
   );
 
   /**
@@ -933,10 +948,13 @@ export default function WindowFirstHeatStrip({
         conf: confidenceScalar(tier),
         // Off the same Set the markup reads, rather than off `points.length` here: one predicate,
         // so a hatched plate and an unmarked cell can never describe the same window.
-        hatch: unscored.has(card.key),
-        // "Not rated yet" ground (thin-sample plan F2): never on an unscored window (its whole
-        // plate is already hatched — the same predicate, not an empty set) nor an away cell.
-        ...(card.away || unscored.has(card.key) || !unratedSets?.get?.(card.key)?.length
+        // ...except where the window stood places down: the plate's "not rated yet" would then lie
+        // over ground that was looked at, so the plate hatch is withdrawn and the per-place layers
+        // (stood, and any still-unrated places) say it instead (big-seas F4, Map parity).
+        hatch: plateHatched(card),
+        // "Not rated yet" ground (thin-sample plan F2): not under a whole-plate hatch (it is
+        // already hatched — the same predicate, not an empty set), nor on an away cell.
+        ...(card.away || plateHatched(card) || !unratedSets?.get?.(card.key)?.length
           ? null : { unrated: unratedSets.get(card.key) }),
         // Stood-down ground (big-seas plan F4): the Map's list, never on an away cell. Unlike the
         // unrated layer it is NOT withheld on an unscored window: a window where every place stood
@@ -995,7 +1013,7 @@ export default function WindowFirstHeatStrip({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [cards, pointSets, unratedSets, stoodSets, unscored, fitTo, todayStr, frameAspect, colourMode, framed, scopeNames,
+  }, [cards, pointSets, unratedSets, stoodSets, plateHatched, fitTo, todayStr, frameAspect, colourMode, framed, scopeNames,
     origin, homeCoords]);
 
   /**
@@ -1266,16 +1284,22 @@ export default function WindowFirstHeatStrip({
     const thinCount = thinVerdictCount({
       verdict: card.verdict, away: card.away, notScored, spread: facts.spread,
     });
+    // A stood-down window is not "not scored": it was looked at (the Map's wording).
+    const stoodHere = card.away ? [] : stoodInFrame(card.key);
+    const notScoredWords = stoodHere.length === 0 ? 'not scored'
+      : ((unratedSets?.get?.(card.key)?.length ?? 0) > 0
+        ? 'some places stood down by the weather — none rated yet'
+        : 'stood down by the weather — no place rated');
     const accessibleName = [card.label, card.time, card.verdictLabel]
       .concat(blankedNote ? [BLANKED_STAND_DOWN_SPOKEN] : [])
       .concat(regionMean ? [`${regionMean} star average`] : [])
       // The verdict line's `· N rated` is not voiced separately: below the gate the pool clause
       // below already says "N of M rated" in words, the same fact with its denominator.
       .filter(Boolean)
-      .concat(notScored ? ['not scored'] : [])
+      .concat(notScored ? [notScoredWords] : [])
       .concat(card.away || !spokenPool ? [] : [spokenPool])
       // Big-seas plan F4: the hatch is a picture, so its count is said too (same list the canvas gets).
-      .concat(card.away ? [] : stoodPhrase(stoodSets?.get?.(card.key)?.length ?? 0))
+      .concat(card.away ? [] : stoodPhrase(stoodHere.length))
       // ⚠️ Suppressed when the window carries no rating anywhere — the pool then has no rated spot
       // either, so "not scored" and "best, not scored yet" would be one fact said twice in a
       // sentence that has to stay scannable across six cards. NOT suppressed on an empty pool: the

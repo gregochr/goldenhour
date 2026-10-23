@@ -141,7 +141,7 @@ export function standDownFooterCount(scopePool, stood) {
 }
 
 /**
- * The Plan thumbnail's spoken clause for its stood-down ground (big-seas plan F4): "N places stood
+ * The Plan thumbnail's spoken clause for its stood-down ground (big-seas plan F4): "N locations stood
  * down by the weather", singular for one, and nothing at all for none.
  *
  * @param {number} count how many places the thumbnail hatches as stood down
@@ -149,5 +149,5 @@ export function standDownFooterCount(scopePool, stood) {
  */
 export function stoodPhrase(count) {
   if (!Number.isInteger(count) || count <= 0) return [];
-  return [count === 1 ? '1 place stood down by the weather' : `${count} places stood down by the weather`];
+  return [count === 1 ? '1 location stood down by the weather' : `${count} locations stood down by the weather`];
 }
