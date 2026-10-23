@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
+import com.gregochr.goldenhour.model.BigSeasDay;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.Confidence;
@@ -2423,6 +2424,26 @@ class BriefingServiceTest {
             assertThat(slot.fierySkyPotential()).isEqualTo(78);
             assertThat(slot.goldenHourPotential()).isEqualTo(52);
             assertThat(slot.claudeSummary()).isEqualTo("Dramatic light expected.");
+        }
+
+        @Test
+        @DisplayName("big seas is serve-time only: the persisted daily_briefing_cache payload never carries "
+                + "it, and the served read does")
+        void bigSeasIsServeTimeOnly() {
+            LocalDateTime hw = LocalDateTime.of(2026, 12, 11, 8, 0);
+            BigSeasDay day = new BigSeasDay(LocalDate.of(2026, 12, 11), hw.minusMinutes(90),
+                    hw.plusMinutes(90), hw, null, null, null, 4.2, 80, 9.5, List.of(), 0);
+            when(bigSeasBuilder.build(org.mockito.ArgumentMatchers.anyList())).thenReturn(List.of(day));
+            stubFullRefresh(locationWithRegion("Bamburgh", "North East"));
+
+            briefingService.refreshBriefing();
+
+            ArgumentCaptor<DailyBriefingCacheEntity> captor =
+                    ArgumentCaptor.forClass(DailyBriefingCacheEntity.class);
+            verify(briefingCacheRepository).save(captor.capture());
+            assertThat(captor.getValue().getPayload()).contains("Bamburgh").doesNotContain("bigSeas");
+            assertThat(briefingService.getCachedBriefing().bigSeas()).isNull();
+            assertThat(briefingService.getCachedBriefingForApi().bigSeas()).containsExactly(day);
         }
 
         @Test

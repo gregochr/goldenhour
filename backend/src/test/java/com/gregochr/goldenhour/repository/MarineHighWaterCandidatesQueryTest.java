@@ -67,6 +67,7 @@ class MarineHighWaterCandidatesQueryTest {
         assertThat(c.label()).isEqualTo("Roker label");
         assertThat(c.facesDeg()).isEqualTo(90);
         assertThat(c.lat()).isEqualTo(54.9);
+        assertThat(c.lon()).isEqualTo(-1.3);
         assertThat(c.hwTime()).isEqualTo(HW);
         assertThat(c.windowStart()).isEqualTo(HW.minusMinutes(90));
         assertThat(c.windowEnd()).isEqualTo(HW.plusMinutes(90));

@@ -40,9 +40,6 @@ public class BigSeasBuilder {
 
     private static final Logger LOG = LoggerFactory.getLogger(BigSeasBuilder.class);
 
-    /** The block covers the briefing's five days: today plus this many. */
-    private static final int HORIZON_DAYS_AHEAD = 4;
-
     private static final double SECONDS_PER_MINUTE = 60.0;
 
     private final MarineHighWaterRepository repository;
@@ -90,7 +87,7 @@ public class BigSeasBuilder {
 
     private List<BigSeasDay> buildOrThrow(List<BriefingDay> days) {
         LocalDate today = ForecastHorizon.today(clock);
-        LocalDate last = today.plusDays(HORIZON_DAYS_AHEAD);
+        LocalDate last = today.plusDays(ForecastHorizon.BRIEFING_WINDOW_DAYS - 1);
         TreeSet<LocalDate> served = new TreeSet<>();
         for (BriefingDay day : days) {
             LocalDate date = day.date();
@@ -128,7 +125,7 @@ public class BigSeasBuilder {
         List<BigSeasDay> result = new ArrayList<>();
         for (Map.Entry<LocalDate, List<Member>> entry : byDate.entrySet()) {
             BigSeasDay day = leadDay(entry.getKey(), entry.getValue());
-            LOG.info("[BIG SEAS] {} qualifies: {}m from {}deg, {} structure(s), aligned={}, {} other window(s)",
+            LOG.debug("[BIG SEAS] {} qualifies: {}m from {}deg, {} structure(s), aligned={}, {} other window(s)",
                     day.date(), day.waveHeightM(), day.waveDirectionDeg(), day.structures().size(),
                     day.alignedEvent(), day.otherWindows());
             result.add(day);
@@ -195,6 +192,7 @@ public class BigSeasBuilder {
                 groups.size() - 1);
     }
 
+    // The last key is effectively redundant: groups are disjoint windows, so no two share a start.
     /** The lead group: any aligned member, then most structures, then highest wave, then earliest start. */
     private static final Comparator<List<Member>> LEAD_ORDER = Comparator
             .<List<Member>, Boolean>comparing(g -> g.stream().noneMatch(Member::aligned))

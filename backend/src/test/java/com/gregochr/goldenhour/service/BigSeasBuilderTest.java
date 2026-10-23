@@ -20,6 +20,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -359,6 +360,13 @@ class BigSeasBuilderTest {
 
         assertThat(builder.build(fiveDays()).getFirst().structures().getFirst().label())
                 .isEqualTo("Hartlepool Headland");
+
+        rows(new BigSeasCandidate(5L, "Hartlepool Headland", CoastalStructure.BREAKWATER, "  ", 90, LAT, LON,
+                midday(0), midday(-90), midday(90), 4.0, 10.0, 90));
+
+        assertThat(builder.build(fiveDays()).getFirst().structures().getFirst().label())
+                .as("a blank label is no label")
+                .isEqualTo("Hartlepool Headland");
     }
 
     @Test
@@ -380,5 +388,128 @@ class BigSeasBuilderTest {
                 .thenThrow(new IllegalStateException("db down"));
 
         assertThat(builder.build(fiveDays())).isNull();
+    }
+
+    @Test
+    @DisplayName("nested windows (A -60..+200 holds B 0..+60 and C +100..+160) are one group of three")
+    void nestedWindowsAreOneGroup() {
+        rows(cand(1, "A", midday(70), midday(-60), midday(200), 3.2),
+                cand(2, "B", midday(30), midday(0), midday(60), 3.3),
+                cand(3, "C", midday(130), midday(100), midday(160), 3.4));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.structures()).hasSize(3);
+        assertThat(day.otherWindows()).isZero();
+        assertThat(day.windowEnd()).isEqualTo(midday(200));
+    }
+
+    @Test
+    @DisplayName("alignment is inclusive at both edges: a window starting at sunrise and one ending at sunset")
+    void alignmentEdgesAreInclusive() {
+        LocalDateTime sr = sunrise(D11);
+        LocalDateTime ss = sunset(D12);
+        rows(cand(1, "Dawn", sr.plusMinutes(90), sr, sr.plusMinutes(180), 4.0),
+                cand(2, "Dusk", ss.minusMinutes(90), ss.minusMinutes(180), ss, 4.0));
+
+        List<BigSeasDay> result = builder.build(fiveDays());
+
+        assertThat(result.get(0).alignedEvent()).isEqualTo(AlignedEvent.SUNRISE);
+        assertThat(result.get(1).alignedEvent()).isEqualTo(AlignedEvent.SUNSET);
+    }
+
+    @Test
+    @DisplayName("lead order uses the group's MAXIMUM wave: (3.1, 6.0) later in the day beats (4.0, 4.5)")
+    void leadOrderUsesGroupMaxWave() {
+        // The last key (earliest start) is effectively redundant: groups are disjoint, so no two share a start.
+        rows(cand(1, "LowA", midday(-60), 4.0), cand(2, "LowB", midday(-50), 4.5),
+                cand(3, "HighA", midday(150), 3.1), cand(4, "HighB", midday(160), 6.0));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.structures()).extracting(BigSeasStructure::locationId).containsExactly(4L, 3L);
+        assertThat(day.otherWindows()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("two aligned members at equal gap (sunrise +-10 min): the bigger wave anchors")
+    void equalAlignedGapBiggerWaveAnchors() {
+        LocalDateTime sr = sunrise(D11);
+        rows(cand(1, "Before", sr.minusMinutes(10), 3.5), cand(2, "After", sr.plusMinutes(10), 5.0));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.hwTime()).isEqualTo(sr.plusMinutes(10));
+        assertThat(day.gapSide()).isEqualTo(GapSide.AFTER);
+    }
+
+    @Test
+    @DisplayName("equal waves: the earlier high water is the max-wave member and is listed first")
+    void equalWavesEarlierHighWaterWins() {
+        BigSeasCandidate late = new BigSeasCandidate(1L, "Late", CoastalStructure.PIER, "Late", 90, LAT, LON,
+                midday(30), midday(-60), midday(120), 4.0, 10.0, 80);
+        BigSeasCandidate early = new BigSeasCandidate(9L, "Early", CoastalStructure.PIER, "Early", 90, LAT, LON,
+                midday(0), midday(-90), midday(90), 4.0, 11.0, 100);
+        rows(late, early);
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.structures()).extracting(BigSeasStructure::locationId).containsExactly(9L, 1L);
+        assertThat(day.waveDirectionDeg()).isEqualTo(100);
+        assertThat(day.wavePeriodS()).isEqualTo(11.0);
+        assertThat(day.hwTime()).isEqualTo(midday(0));
+    }
+
+    @Test
+    @DisplayName("a gap of exactly zero is served as 0 minutes, AFTER")
+    void zeroGapIsAfter() {
+        LocalDateTime sr = sunrise(D11);
+        rows(cand(1, "On", sr, 4.0));
+
+        BigSeasDay day = builder.build(fiveDays()).getFirst();
+
+        assertThat(day.gapMinutes()).isZero();
+        assertThat(day.gapSide()).isEqualTo(GapSide.AFTER);
+    }
+
+    private void stubOct(Clock c, BigSeasCandidate... candidates) {
+        when(repository.findBigSeasCandidates(c.instant().minus(30, ChronoUnit.HOURS),
+                ForecastHorizon.ukDayStartUtc(LocalDate.of(2026, 10, 24)),
+                ForecastHorizon.ukDayStartUtc(LocalDate.of(2026, 10, 29)))).thenReturn(List.of(candidates));
+    }
+
+    private static List<BriefingDay> octDays() {
+        return days(LocalDate.of(2026, 10, 24), LocalDate.of(2026, 10, 25), LocalDate.of(2026, 10, 26),
+                LocalDate.of(2026, 10, 27), LocalDate.of(2026, 10, 28));
+    }
+
+    @Test
+    @DisplayName("UK date across the clock change: 23:30Z on 24 Oct (BST) is 25 Oct, and 23:30Z on 25 Oct (GMT) "
+            + "is still 25 Oct")
+    void ukDateAcrossTheClockChange() {
+        Clock bst = Clock.fixed(Instant.parse("2026-10-24T12:00:00Z"), ZoneOffset.UTC);
+        LocalDateTime saturdayNight = LocalDateTime.of(2026, 10, 24, 23, 30);
+        LocalDateTime sundayNight = LocalDateTime.of(2026, 10, 25, 23, 30);
+        stubOct(bst, cand(1, "Sat", saturdayNight, 4.0), cand(2, "Sun", sundayNight, 5.0));
+
+        List<BigSeasDay> result = new BigSeasBuilder(repository, solar, properties, bst).build(octDays());
+
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().date()).isEqualTo(LocalDate.of(2026, 10, 25));
+        assertThat(result.getFirst().otherWindows()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("'now' is compared in UTC even when the clock's zone is Europe/London in BST")
+    void nowIsComparedInUtc() {
+        Clock london = Clock.fixed(Instant.parse("2026-10-24T22:30:00Z"), ZoneId.of("Europe/London"));
+        // Still running at 22:30Z, but already over by the London wall clock (23:30).
+        stubOct(london, cand(1, "Ongoing", LocalDateTime.of(2026, 10, 24, 22, 0),
+                LocalDateTime.of(2026, 10, 24, 21, 0), LocalDateTime.of(2026, 10, 24, 22, 45), 4.0));
+
+        List<BigSeasDay> result = new BigSeasBuilder(repository, solar, properties, london).build(octDays());
+
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().date()).isEqualTo(LocalDate.of(2026, 10, 24));
     }
 }

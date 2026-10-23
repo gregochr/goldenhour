@@ -148,6 +148,9 @@ public final class ForecastHorizon {
      */
     public static final int SERVE_PAST_DAYS = 2;
 
+    /** Dates the daily briefing covers: today plus four. Shared by the briefing build and big seas. */
+    public static final int BRIEFING_WINDOW_DAYS = 5;
+
     /**
      * How many UK civil days before today a single stored day can still be fetched with
      * {@code GET /api/forecast?date=}: the oldest day the Map tab's "rate how it turned out" flow can
