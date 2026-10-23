@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import createEventSource from '../utils/createEventSource.js';
+import { getSettings } from '../api/settingsApi.js';
 
 /**
  * Grace period before a dropped SSE connection is reported as DOWN. A brief drop
@@ -38,6 +39,8 @@ export function useHealthStatus(enabled = true) {
     if (!token || !enabled) return;
 
     let downTimer = null;
+    // At most one session probe per stream lifetime; a healthy status event re-arms it.
+    let probed = false;
     const clearDownTimer = () => {
       if (downTimer) {
         clearTimeout(downTimer);
@@ -51,6 +54,7 @@ export function useHealthStatus(enabled = true) {
       {
         status: (data) => {
           clearDownTimer();
+          probed = false;
           setHealth({
             status: data.status,
             degraded: data.degraded || [],
@@ -75,6 +79,14 @@ export function useHealthStatus(enabled = true) {
         onError: () => {
           // Debounce: don't flash DOWN on a transient drop that reconnects quickly.
           if (downTimer) return;
+          // EventSource cannot see a 401, so an expired access token looks exactly like an
+          // outage. One authenticated request routes through the axios 401 interceptor: it
+          // refreshes the token (re-keying this effect and reconnecting the stream) or
+          // expires the session. Fire-and-forget; DOWN semantics are unchanged.
+          if (!probed) {
+            probed = true;
+            getSettings().catch(() => {});
+          }
           downTimer = setTimeout(() => {
             downTimer = null;
             setHealth((prev) => ({
