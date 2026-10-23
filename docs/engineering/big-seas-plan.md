@@ -456,7 +456,8 @@ qualifying day. The table holds every input, so tuning is a SQL query; §6 gets 
 - **Keep the reason.** `buildHeatSpots` keeps only `{rating, stood}` (heatSpots.js:162). Add a
   per-window `reasons` array, read through the same normaliser `hasTriageReason` uses: a string, or
   an object's name/`reason` field (heatSpots.js:69-74). `buildHeatWindowStates` gains a `stood` list
-  `{lat, lng, reason, regionId, key}` beside `unrated`, built inside the same `scoresLoaded` gate.
+  `{lat, lng, reason, rid, key}` beside `unrated`. `rid` is the spot's region **name**
+  (`buildHeatSpots` sets `rid: regionName`), not an id; `BriefingRegion` has no id (Codex P1 on #1306), built inside the same `scoresLoaded` gate.
   Past windows get it from their forecast rows.
 - **Point set** `stoodPoints` (MapView, beside `unratedPoints`) is that list minus
   `TIDE_MISALIGNED` (not "ruled out by the weather"; Q2).
@@ -497,7 +498,10 @@ qualifying day. The table holds every input, so tuning is a SQL query; §6 gets 
   narrowed only by dark sky and the door lens (not `labelSpots`, not the star floor, not scope),
   **both** hold:
   - it has ≥ 1 stood place and 0 rated places;
-  - for a served window, the served region (`regionVerdictIndex`) has **no finite `meanRating`**.
+  - for a served window, the served region has **no finite `meanRating`**. Look it up in
+    `regionVerdictIndex` by `keyOf(date, targetType, rid)`, the index's own key
+    (`mapVerdict.js` `buildRegionVerdictIndex`, keyed by region **name**). The index holds
+    eligible regions only, so an absent entry counts as no served mean.
     This guard means the label can never contradict a served rating.
   - Its position, zoom and tier: the centroid of its stood places, zoom < 11.2, the regions tier.
     It **replaces** that region's ordinary label.
