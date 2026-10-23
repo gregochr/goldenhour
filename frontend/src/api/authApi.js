@@ -22,7 +22,8 @@ export async function login(username, password, turnstileToken) {
  * @returns {Promise<{accessToken: string, expiresAt: string}>}
  */
 export async function refreshAccessToken(refreshToken) {
-  const response = await apiClient.post(`${BASE_URL}/refresh`, { refreshToken });
+  // `_skipAuthRefresh` tells the axiosClient 401 interceptor not to try to refresh this request's own failure.
+  const response = await apiClient.post(`${BASE_URL}/refresh`, { refreshToken }, { _skipAuthRefresh: true });
   return response.data;
 }
 

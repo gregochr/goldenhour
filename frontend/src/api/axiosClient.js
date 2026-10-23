@@ -56,7 +56,8 @@ apiClient.interceptors.response.use(
     const original = error.config;
     const storedRefresh = localStorage.getItem(REFRESH_KEY);
 
-    if (error.response?.status !== 401 || original._retried || !storedRefresh) {
+    // The refresh call itself must reject here: its own 401 would otherwise await `refreshPromise`, which IS that refresh.
+    if (error.response?.status !== 401 || original?._skipAuthRefresh || original._retried || !storedRefresh) {
       return Promise.reject(error);
     }
 
