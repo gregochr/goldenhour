@@ -248,7 +248,9 @@ class AskToolsNamedAreaTest {
         LookUpPlaceResult payload = ok(tools(snapshot).lookUpPlace(new LookUpPlaceArgs("Roman Wall", null)));
 
         assertThat(payload.area()).isNull();
-        assertThat(payload.places()).extracting(PlaceInfo::name).containsExactly("Roman Wall Viewpoint");
+        // The exact match's rows first, then the partial match's, as for any place lookup.
+        assertThat(payload.places()).extracting(PlaceInfo::name)
+                .containsExactly("Roman Wall Viewpoint", "Roman Wall Cafe Car Park");
         // The place's own name contains the words too, so no alias is reported.
         assertThat(payload.places().getFirst().matchedAlias()).isNull();
     }
