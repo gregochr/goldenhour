@@ -75,6 +75,7 @@ class RecordWitherPreservationTest {
             Wither.of(DailyBriefingResponse.class, "withBestBets", "bestBets", "bestBetsWithdrawn"),
             Wither.of(DailyBriefingResponse.class, "withLiveOverlays",
                     "auroraTonight", "auroraTomorrow", "hotTopics"),
+            Wither.of(DailyBriefingResponse.class, "withBigSeas", "bigSeas"),
             Wither.of(BriefingRegion.class, "withMeanRating", "meanRating"),
             Wither.of(BriefingRegion.class, "withBestRating", "bestRating"),
             Wither.of(BriefingRegion.class, "withMeanRatingDelta", "meanRatingDelta"),

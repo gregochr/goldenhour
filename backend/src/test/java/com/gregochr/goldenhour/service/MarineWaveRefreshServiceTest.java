@@ -81,7 +81,7 @@ class MarineWaveRefreshServiceTest {
     void setUp() {
         service = new MarineWaveRefreshService(
                 marineClient, marineWaveRepository, solarService, tideExtremeRepository, highWaterWriter,
-                jobRunService, clock);
+                jobRunService, clock, new BigSeasProperties());
     }
 
     private static LocationEntity coastal() {

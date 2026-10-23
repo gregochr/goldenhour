@@ -26,6 +26,7 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.service.evaluation.BluebellGlossService;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -110,7 +111,7 @@ public class BriefingService {
      * region × event round of briefing gloss. It exists purely so the window still
      * reaches T+3 after ageing overnight.
      */
-    private static final int BRIEFING_WINDOW_DAYS = 5;
+    private static final int BRIEFING_WINDOW_DAYS = ForecastHorizon.BRIEFING_WINDOW_DAYS;
 
     private final AtomicReference<DailyBriefingResponse> cache = new AtomicReference<>();
     private final AtomicReference<DailyBriefingResponse> lastKnownGood = new AtomicReference<>();
