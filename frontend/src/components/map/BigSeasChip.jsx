@@ -41,7 +41,10 @@ export default function BigSeasChip({
       data-ask={fade ? 'fade' : undefined}
       style={style}
       aria-label={bigSeasChipAriaLabel(item)}
-      onClick={() => {
+      onClick={(pressEvent) => {
+        // Focuses itself first (macOS and iOS Safari do not focus a tapped button), as a pick chip
+        // does: the selected chip stays mounted, so focus stays on it and Escape still reaches the pane.
+        pressEvent.currentTarget.focus({ preventScroll: true });
         onTipLeave?.();
         onSelect?.(item.name);
       }}

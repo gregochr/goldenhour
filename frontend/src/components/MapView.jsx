@@ -4211,13 +4211,28 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       zoom,
       { kind: bigSeasEvKind, eventType: bigSeasEvType, past: bigSeasEvPast },
     );
-    return dropProtectedBigSeasChips(items, {
-      selectedName: selectedLocationName, askNames: askPickNames,
-    });
-  }, [bigSeasDay, bigSeasRoster, zoom, bigSeasEvKind, bigSeasEvType, bigSeasEvPast,
-    selectedLocationName, askPickNames]);
+    // The selected place KEEPS its big-seas chip (it is the button just pressed; unmounting it would
+    // drop focus to <body>); only an Ask pick displaces one.
+    return dropProtectedBigSeasChips(items, { askNames: askPickNames });
+  }, [bigSeasDay, bigSeasRoster, zoom, bigSeasEvKind, bigSeasEvType, bigSeasEvPast, askPickNames]);
   /** Whether chips are drawn: the one condition the chip mounts and the legend key share. */
   const bigSeasShown = heatOffered && (heatOn || heatPinsOn) && bigSeasChips.length > 0;
+  // Whether a desktop Legend panel is mounted at all. The Pins legend mounts only while one of its keys
+  // is shown, so a zoom that retires the chips can unmount it under an open menu.
+  const legendMounted = heatOffered && !isMobile
+    && (heatView === 'heat' || (heatView === 'pins' && (stoodPoints.length > 0 || bigSeasShown)));
+  useEffect(() => {
+    if (openMapMenu !== 'legend' || legendMounted) return;
+    // The panel that held the open menu is gone, and with it the focus (to <body>, where the pane's
+    // Escape rule cannot hear): park focus on the pane, then close the menu so it does not reopen
+    // on a later mount.
+    const active = document.activeElement;
+    if (!active || active === document.body) mapPaneRef.current?.focus({ preventScroll: true });
+    // A one-shot reconciliation of a menu with the panel that vanished under it; it ends the
+    // condition that fired it, so it cannot cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOpenMapMenu(null);
+  }, [openMapMenu, legendMounted]);
 
   /** The chosen pick, as the camera flies to it: `askWindow.nonce` is new on every choice. */
   const askSelectedSpot = askPickSpots.find((spot) => spot.askPick.selected) ?? null;

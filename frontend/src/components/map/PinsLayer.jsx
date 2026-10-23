@@ -7,7 +7,7 @@ import L from 'leaflet';
 import { useMap } from 'react-leaflet';
 import { seedObstacles } from '../../utils/labelPlacement.js';
 import {
-  hasRatedBadge, homeLabelItems, labelTierOrder, placeLabelPass, verdictWord, NO_BIG_SEAS_CHIPS,
+  hasRatedBadge, homeLabelItems, labelTierOrder, placeLabelPass, selectedBigSeasFirst, verdictWord, NO_BIG_SEAS_CHIPS,
 } from '../../utils/mapLabels.js';
 import BigSeasChip, { BigSeasTipLines } from './BigSeasChip.jsx';
 import { badgeAccessibleClause } from '../../utils/outcomeRatingJoin.js';
@@ -282,12 +282,12 @@ export default function PinsLayer({
       home,
       homeItems: home ? homeLabelItems(home, zoom) : [],
       pins,
-      bigSeasItems: bigSeasChips.map((it) => {
+      bigSeasItems: selectedBigSeasFirst(bigSeasChips, selectedName).map((it) => {
         const p = map.latLngToContainerPoint([it.lat, it.lng]);
         return { ...it, x: p.x, y: p.y };
       }),
     });
-  }, [map, spots, homeCoords, bigSeasChips]);
+  }, [map, spots, homeCoords, bigSeasChips, selectedName]);
 
   const paintRef = useRef(paint);
   useLayoutEffect(() => { paintRef.current = paint; }, [paint]);

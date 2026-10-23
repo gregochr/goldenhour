@@ -9,8 +9,9 @@ import { pxPerKmAtHome, RING_MIN_PX, RING_TIERS } from '../../utils/reachRings.j
 import { seedObstacles } from '../../utils/labelPlacement.js';
 import {
   chipBoxWithinBadgedBox, chipCandidates, hasRatedBadge, homeLabelItems, placeLabelPass,
-  labelTierOrder, regionLabelItems, ringLabelItems, standDownRegionItems, verdictWord,
-  withBadgeOverhang, withoutBigSeasDuplicates, withStandDownLabels, NO_BIG_SEAS_CHIPS,
+  fallbackChipSpots, labelTierOrder, regionLabelItems, ringLabelItems, standDownRegionItems, verdictWord,
+  selectedBigSeasFirst, withBadgeOverhang, withFallbackChips, withoutBigSeasDuplicates,
+  withStandDownLabels, NO_BIG_SEAS_CHIPS,
   REGION_TINY_FRAME_WIDTH,
 } from '../../utils/mapLabels.js';
 import BigSeasChip, { BigSeasTipLines } from './BigSeasChip.jsx';
@@ -174,11 +175,16 @@ const PICK_DOT_PX = 25;
  * @param {Array<{spot: object}>} chips `frame.chips`, in placement order
  * @returns {Array<{spot: object}>} the same entries, in DOM order
  */
-function inDomOrder(chips) {
-  if (!chips.some(({ spot }) => spot.askPick)) return chips;
+function inDomOrder(chips, seas = []) {
   const picks = chips.filter(({ spot }) => spot.askPick)
     .sort((a, b) => a.spot.askPick.rank - b.spot.askPick.rank);
-  return [...picks, ...chips.filter(({ spot }) => !spot.askPick)];
+  // Big-seas chips (F2) follow the picks and precede the ordinary chips: keyboard order matches
+  // placement priority.
+  return [
+    ...picks,
+    ...seas.map((item) => ({ seas: item })),
+    ...chips.filter(({ spot }) => !spot.askPick),
+  ];
 }
 
 /**
@@ -404,10 +410,14 @@ export default function MapLabels({
     // already without the Ask picks and the selection, whose ordinary chips are never suppressed.
     const pool = withoutBigSeasDuplicates(spots, bigSeasChips);
     let inViewNames = null;
+    let inViewAll = null;
     if (typeof map.getBounds === 'function') {
       const bounds = map.getBounds();
       inViewNames = new Set(
         pool.filter((s) => bounds.contains([s.lat, s.lng])).map((s) => s.name),
+      );
+      inViewAll = new Set(
+        spots.filter((s) => bounds.contains([s.lat, s.lng])).map((s) => s.name),
       );
     }
 
@@ -436,11 +446,17 @@ export default function MapLabels({
       chips,
       // The places a big-seas chip stands for. Their ordinary chips are drawn only if that big-seas
       // chip cannot be placed (see the placement effect), so a place never loses both labels.
-      fallbackChips: spots.filter((s) => !pool.includes(s)).map((spot) => {
+      fallbackChips: fallbackChipSpots({
+        spots,
+        suppressedNames: new Set(bigSeasChips.map((it) => it.name)),
+        inViewNames: inViewAll,
+        zoom,
+        selectedName,
+      }).map((spot) => {
         const [x, y] = project(spot);
         return { spot, x, y };
       }),
-      bigSeasItems: bigSeasChips.map((it) => {
+      bigSeasItems: selectedBigSeasFirst(bigSeasChips, selectedName).map((it) => {
         const [x, y] = project(it);
         return { ...it, x, y };
       }),
@@ -581,7 +597,12 @@ export default function MapLabels({
       .filter(({ spot }) => failedNames.has(spot.name))
       .map(measuredChip).filter(Boolean);
     const items = labelTierOrder({
-      home, rings, picks, regions, bigSeas, chips: [...fallbacks, ...chips],
+      home,
+      rings,
+      picks,
+      regions,
+      bigSeas,
+      chips: withFallbackChips(chips, fallbacks, selectedName == null ? null : `chip:${selectedName}`),
     });
 
     const obstacles = seedFor();
@@ -800,7 +821,28 @@ export default function MapLabels({
         </span>
       ))}
 
-      {inDomOrder([...frame.chips, ...frame.fallbackChips]).map(({ spot }) => {
+      {inDomOrder([...frame.chips, ...frame.fallbackChips], frame.bigSeasItems).map((entry) => {
+        if (entry.seas) {
+          const it = entry.seas;
+          return (
+            <BigSeasChip
+              key={it.key}
+              item={it}
+              style={styleFor(it.key)}
+              selected={selectedName === it.name}
+              fade={askActive}
+              refCallback={(node) => {
+                if (node) seasRefs.current.set(it.locationId, node);
+                else seasRefs.current.delete(it.locationId);
+              }}
+              onSelect={onSelect}
+              onTipEnter={(e) => showSeasTip(it.locationId, e)}
+              onTipMove={moveTip}
+              onTipLeave={hideTip}
+            />
+          );
+        }
+        const { spot } = entry;
         const key = `chip:${spot.name}`;
         const pick = spot.askPick ?? null;
         if (pick) {
@@ -919,23 +961,6 @@ export default function MapLabels({
         );
       })}
 
-      {frame.bigSeasItems.map((it) => (
-        <BigSeasChip
-          key={it.key}
-          item={it}
-          style={styleFor(it.key)}
-          selected={selectedName === it.name}
-          fade={askActive}
-          refCallback={(node) => {
-            if (node) seasRefs.current.set(it.locationId, node);
-            else seasRefs.current.delete(it.locationId);
-          }}
-          onSelect={onSelect}
-          onTipEnter={(e) => showSeasTip(it.locationId, e)}
-          onTipMove={moveTip}
-          onTipLeave={hideTip}
-        />
-      ))}
     </div>,
     pane,
   );

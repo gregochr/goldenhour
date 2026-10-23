@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  fallbackChipSpots, selectedBigSeasFirst, withFallbackChips,
   BIG_SEAS_CHIP_MAX_ZOOM, bigSeasChipAriaLabel, bigSeasChipItems, bigSeasChipTipLines,
   dropProtectedBigSeasChips, labelTierOrder, placeLabelPass, withoutBigSeasDuplicates,
 } from '../utils/mapLabels.js';
@@ -42,12 +43,9 @@ describe('bigSeasChipItems', () => {
     expect(items.map((i) => i.key)).toEqual(['bs:243', 'bs:28', 'bs:21']);
   });
 
-  it('a stood-down or below-floor place still gets a chip: the join reads the roster, never the label pool', () => {
-    // The pool `labelSpots` is built from has dropped Roker (stood down) and Amble (under the floor);
-    // the roster still holds them, and the chip list is a function of the roster alone.
-    const pool = [{ name: "St. Mary's Lighthouse", rating: 4 }];
+  it('a stood-down or below-floor place still gets a chip: the roster carries no rating at all', () => {
+    // The roster entries have no rating, stand-down or score; the chip list is a function of them alone.
     const items = bigSeasChipItems(SATURDAY, ROSTER, 9, SUNSET);
-    expect(pool.map((p) => p.name)).not.toContain('Roker Pier & Lighthouse');
     expect(items.map((i) => i.locationId)).toEqual([243, 28, 21]);
   });
 
@@ -155,11 +153,23 @@ describe('suppressing the ordinary chip', () => {
     expect(withoutBigSeasDuplicates(pool, [])).toBe(pool);
   });
 
-  it('never withholds the selected place\'s or an Ask pick\'s ordinary chip: the big-seas chip goes instead', () => {
-    const kept = dropProtectedBigSeasChips(items, { selectedName: 'Roker', askNames: new Set(['Amble']) });
-    expect(kept.map((i) => i.name)).toEqual(['St Marys']);
-    // And so the protected places keep their ordinary chip through the suppression pass.
-    expect(withoutBigSeasDuplicates(pool, kept).map((s) => s.name)).toEqual(['Roker', 'Amble', 'Bamburgh']);
+  it('never withholds an Ask pick\'s ordinary chip: the big-seas chip goes instead', () => {
+    const kept = dropProtectedBigSeasChips(items, { askNames: new Set(['Amble']) });
+    expect(kept.map((i) => i.name)).toEqual(['Roker', 'St Marys']);
+    expect(withoutBigSeasDuplicates(pool, kept).map((s) => s.name)).toEqual(['Amble', 'Bamburgh']);
+  });
+
+  it('the SELECTED place keeps its big-seas chip (and so its ordinary chip stays withheld)', () => {
+    // The pressed button must stay mounted: unmounting it dropped focus to <body>.
+    const kept = dropProtectedBigSeasChips(items, { selectedName: 'Roker', askNames: new Set() });
+    expect(kept.map((i) => i.name)).toEqual(['Roker', 'St Marys', 'Amble']);
+    expect(withoutBigSeasDuplicates(pool, kept).map((s) => s.name)).toEqual(['Bamburgh']);
+  });
+
+  it('places the selected place\'s chip first within the tier, and changes nothing otherwise', () => {
+    expect(selectedBigSeasFirst(items, 'Amble').map((i) => i.name)).toEqual(['Amble', 'Roker', 'St Marys']);
+    expect(selectedBigSeasFirst(items, null)).toBe(items);
+    expect(selectedBigSeasFirst(items, 'Nowhere').map((i) => i.name)).toEqual(['Roker', 'St Marys', 'Amble']);
   });
 
   it('changes nothing when nothing is protected', () => {
@@ -192,5 +202,80 @@ describe('the collision tiers', () => {
     expect(winner({ bigSeas: [at('bs:1')], chips: [at('chip:a')] })).toEqual(['bs:1']);
     expect(winner({ picks: [at('chip:pick')], regions: [at('region:r')] })).toEqual(['chip:pick']);
     expect(winner({ chips: [at('chip:a')] })).toEqual(['chip:a']);
+  });
+});
+
+describe('per-structure high-water facts', () => {
+  // Sunset-aligned group where St Mary's high water is NOT on the light and falls at a different time.
+  const MIXED = {
+    ...SATURDAY,
+    structures: [
+      SATURDAY.structures[0],
+      { ...SATURDAY.structures[1], aligned: false, hwTime: '2026-10-24T18:20:00' },
+      { ...SATURDAY.structures[2], hwTime: '2026-10-24T15:40:00' },
+    ],
+  };
+  const items = bigSeasChipItems(MIXED, ROSTER, 9, SUNSET);
+
+  it('rings only the structures whose own high water is aligned', () => {
+    expect(items.map((i) => i.ringed)).toEqual([true, false, true]);
+  });
+
+  it('an unaligned structure has no "high water on the sunset" clause and no high-water line', () => {
+    expect(bigSeasChipAriaLabel(items[1])).toBe("St Mary's, big seas, waves 4.1 metres, 15:30 to 18:15");
+    expect(bigSeasChipTipLines(items[1]).some((l) => l.startsWith('High water'))).toBe(false);
+    expect(bigSeasChipAriaLabel(items[0])).toContain('high water on the sunset');
+  });
+
+  it('prints each structure\'s OWN high water, and the gap only for the anchor', () => {
+    expect(bigSeasChipTipLines(items[0])).toContain('High water 16:58 · 49 min before sunset');
+    // Aligned but not the anchor: its own time, no gap (the gap is the lead high water's).
+    expect(bigSeasChipTipLines(items[2])).toContain('High water 16:40');
+  });
+
+  it('prints a whole-metre height with one decimal (4.0 m)', () => {
+    const four = { ...SATURDAY, structures: [{ ...SATURDAY.structures[0], waveHeightM: 4 }] };
+    const [item] = bigSeasChipItems(four, ROSTER, 9, SUNSET);
+    expect(bigSeasChipAriaLabel(item)).toContain('waves 4.0 metres');
+    expect(bigSeasChipTipLines(item)).toContain('Waves 4.0 m from NNE, 11 s · faces NE, onshore');
+  });
+});
+
+describe('the fallback ordinary chips', () => {
+  const seven = Array.from({ length: 7 }, (_, i) => ({
+    name: `Rated ${i}`, rid: 'R', rating: 5, lat: 55 + i / 100, lng: -1.5, driveMinutes: 30 + i,
+  }));
+  const structure = {
+    name: 'Stood', rid: 'R', rating: 1, lat: 55.2, lng: -1.5, driveMinutes: 60,
+  };
+  const suppressedNames = new Set(['Stood']);
+
+  it('keeps the density budget and ranking: a 1-star structure at a low zoom gets no fallback', () => {
+    expect(fallbackChipSpots({
+      spots: [...seven, structure], suppressedNames, zoom: 8.6,
+    })).toEqual([]);
+  });
+
+  it('offers it where the budget reaches, and when it is the region\'s best', () => {
+    expect(fallbackChipSpots({
+      spots: [...seven, structure], suppressedNames, zoom: 12,
+    }).map((s) => s.name)).toEqual(['Stood']);
+    expect(fallbackChipSpots({
+      spots: [structure], suppressedNames, zoom: 8.6,
+    }).map((s) => s.name)).toEqual(['Stood']);
+  });
+
+  it('offers none when nothing is suppressed', () => {
+    expect(fallbackChipSpots({ spots: seven, suppressedNames: new Set(), zoom: 12 })).toEqual([]);
+  });
+
+  it('never goes ahead of the selected chip', () => {
+    const chips = [{ key: 'chip:Sel' }, { key: 'chip:A' }];
+    const fallbacks = [{ key: 'chip:Stood' }];
+    expect(withFallbackChips(chips, fallbacks, 'chip:Sel').map((c) => c.key))
+      .toEqual(['chip:Sel', 'chip:Stood', 'chip:A']);
+    expect(withFallbackChips(chips, fallbacks, null).map((c) => c.key))
+      .toEqual(['chip:Stood', 'chip:Sel', 'chip:A']);
+    expect(withFallbackChips(chips, [], 'chip:Sel')).toBe(chips);
   });
 });

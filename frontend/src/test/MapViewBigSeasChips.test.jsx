@@ -1,12 +1,12 @@
 /**
  * `MapView` + the real chip list, legend and phone Layers row for the big-seas chips (big-seas plan
  * F2): the one chip list both label layers draw, the key that shares its condition, and the rule that
- * withholds a selected or Ask-picked place's chip.
+ * withholds an Ask-picked place's chip (the selected place keeps its own).
  *
  * <p>`MapLabels` and `PinsLayer` are probes that record the props `MapView` hands them (their own
  * pixels are `MapLabelsBigSeas.test.jsx`'s and `PinsLayerBigSeas.test.jsx`'s). Not mocked: `MapView`,
  * `MapLegendPanel`, `buildMapEvents`, `bigSeasFor`. Saturday 24 Oct 2026 is still BST; the wall clock
- * is frozen on Friday so both Saturday events are ahead.
+ * is frozen on Thursday 22 Oct, so both Saturday events are ahead.
  */
 import React from 'react';
 import {
@@ -26,6 +26,7 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 
 const VIEWPORT = { pad: () => ({ contains: () => true }) };
 let mockZoom = 9;
+const zoomHandlers = [];
 const mockMapInstance = { getZoom: () => mockZoom };
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div>{children}</div>,
@@ -36,7 +37,10 @@ vi.mock('react-leaflet', () => ({
   }),
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
-  useMapEvents: () => mockMapInstance,
+  useMapEvents: (handlers) => {
+    zoomHandlers.push(handlers);
+    return mockMapInstance;
+  },
   useMap: () => ({
     eachLayer: () => {},
     getContainer: () => ({ clientHeight: 500 }),
@@ -88,6 +92,7 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
 import MapView from '../components/MapView.jsx';
+import { getAstroAvailableDates } from '../api/astroApi.js';
 import { windowKey } from '../utils/windowKeys.js';
 import { SATURDAY } from './bigSeasFixtures.js';
 
@@ -135,9 +140,15 @@ function makeLocations() {
       name: SPOT.name,
       lat: SPOT.lat,
       lon: SPOT.lng,
-      forecastsByDate: new Map([[TODAY, {
-        sunset: { rating: 5, solarEventTime: `${TODAY}T17:12:00`, fierySkyPotential: 70, goldenHourPotential: 60 },
-      }]]),
+      forecastsByDate: new Map([
+        [TODAY, {
+          sunset: { rating: 5, solarEventTime: `${TODAY}T17:12:00`, fierySkyPotential: 70, goldenHourPotential: 60 },
+        }],
+        [SAT, {
+          sunrise: { rating: 4, solarEventTime: `${SAT}T06:20:00`, fierySkyPotential: 60, goldenHourPotential: 60 },
+          sunset: { rating: 4, solarEventTime: `${SAT}T16:47:00`, fierySkyPotential: 60, goldenHourPotential: 60 },
+        }],
+      ]),
     },
     {
       ...base, id: 243, name: 'Roker Pier & Lighthouse', lat: 54.92, lon: -1.36, forecastsByDate: new Map(),
@@ -188,6 +199,10 @@ async function chooseSaturdaySunrise() {
   await act(async () => { fireEvent.click(row); });
 }
 
+const openLegendIfAny = () => {
+  const chip = screen.queryByTestId('wf-legend-chip');
+  if (chip) fireEvent.click(chip);
+};
 const openLegend = () => fireEvent.click(screen.getByTestId('wf-legend-chip'));
 const showPins = () => fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
 const chipNames = (probe) => (probe.last?.bigSeasChips ?? []).map((c) => c.name);
@@ -197,6 +212,8 @@ beforeEach(() => {
   mockRole = 'PRO_USER';
   mockIsMobile = false;
   mockZoom = 9;
+  zoomHandlers.length = 0;
+  getAstroAvailableDates.mockResolvedValue([]);
   labelProps.last = null;
   pinsProps.last = null;
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -239,12 +256,23 @@ describe('MapView — the big-seas chips', () => {
     expect(labelProps.last.bigSeasChips).toHaveLength(0);
   });
 
-  it('withholds the SELECTED place\'s chip: its ordinary chip stays, the big-seas chip is the one dropped', async () => {
+  it('the SELECTED place KEEPS its chip (the pressed button stays mounted; only an Ask pick displaces one)', async () => {
     await renderMap();
     await act(async () => { labelProps.last.onSelect('Roker Pier & Lighthouse'); });
-    expect(chipNames(labelProps)).toEqual(["St. Mary's Lighthouse", 'Amble']);
-    await act(async () => { labelProps.last.onSelect(null); });
-    expect(chipNames(labelProps)).toHaveLength(3);
+    expect(chipNames(labelProps)).toEqual(['Roker Pier & Lighthouse', "St. Mary's Lighthouse", 'Amble']);
+    expect(labelProps.last.selectedName).toBe('Roker Pier & Lighthouse');
+  });
+
+  it('hands none on a night row of the same Saturday', async () => {
+    getAstroAvailableDates.mockResolvedValue([SAT]);
+    await renderMap();
+    expect(labelProps.last.bigSeasChips).toHaveLength(3);
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
+    const row = screen.getAllByTestId('wf-win-row').find((r) => r.getAttribute('data-ev-id') === `astro:${SAT}:ASTRO`);
+    await act(async () => { fireEvent.click(row); });
+    expect(labelProps.last.bigSeasChips).toHaveLength(0);
+    openLegendIfAny();
+    expect(screen.queryByTestId('wf-legend-bigseas')).toBeNull();
   });
 
   it('withholds an ASK PICK\'s chip', async () => {
@@ -283,11 +311,54 @@ describe('MapView — the big-seas legend key', () => {
     expect(screen.queryByTestId('wf-legend-bigseas')).toBeNull();
   });
 
-  it('Heat: no key once the only chips are the selected place\'s (the chip list is the key\'s condition)', async () => {
-    await renderMap({ bigSeas: [{ ...SATURDAY, structures: [SATURDAY.structures[0]] }] });
-    await act(async () => { labelProps.last.onSelect('Roker Pier & Lighthouse'); });
+  it('Heat: no key once the only chip is an Ask pick\'s (the chip list is the key\'s condition)', async () => {
+    await renderMap({
+      bigSeas: [{ ...SATURDAY, structures: [SATURDAY.structures[0]] }],
+      askPicks: [{
+        rank: 1, locationId: 243, name: 'Roker Pier & Lighthouse', shortWindow: 'x', rating: 4, verdict: 'MAYBE', label: 'p',
+      }],
+    });
+    expect(labelProps.last.bigSeasChips).toHaveLength(0);
     openLegend();
     expect(screen.queryByTestId('wf-legend-bigseas')).toBeNull();
+  });
+
+  it('no key without the heat layer offered, on a full day (desktop and phone)', async () => {
+    const { unmount } = await renderMap({ heat: { ...heatProp(), enabled: false } });
+    expect(labelProps.last).toBeNull();
+    expect(screen.queryByTestId('wf-legend-chip')).toBeNull();
+    unmount();
+    mockIsMobile = true;
+    await renderMap({ heat: { ...heatProp(), enabled: false } });
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
+    expect(screen.queryByTestId('wf-map-peek-bigseas')).toBeNull();
+  });
+
+  it('phone: no Layers row at street level, where the day is served but no chip is drawn', async () => {
+    mockIsMobile = true;
+    mockZoom = 13;
+    await renderMap();
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
+    expect(screen.queryByTestId('wf-map-peek-bigseas')).toBeNull();
+  });
+
+  it('Pins: a zoom that retires the chips under an open legend closes it and keeps focus in the pane', async () => {
+    await renderMap();
+    showPins();
+    openLegend();
+    expect(screen.getByTestId('wf-legend-panel')).toBeInTheDocument();
+    mockZoom = 13;
+    await act(async () => {
+      for (const h of zoomHandlers) h.zoomend?.({ target: { getZoom: () => 13, getBounds: () => VIEWPORT } });
+    });
+    expect(screen.queryByTestId('wf-legend-chip')).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+    // Back in range: the legend returns CLOSED, not reopened on its own.
+    mockZoom = 9;
+    await act(async () => {
+      for (const h of zoomHandlers) h.zoomend?.({ target: { getZoom: () => 9, getBounds: () => VIEWPORT } });
+    });
+    expect(screen.getByTestId('wf-legend-chip')).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('Pins: mounts the pins-variant legend for the key alone, with no stand-down to name', async () => {

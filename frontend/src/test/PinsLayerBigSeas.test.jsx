@@ -205,6 +205,30 @@ describe('PinsLayer — big-seas chips', () => {
     expect(seasChips()[0].style.display).toBe('none');
   });
 
+  it('a touch pointerenter shows no tooltip (a tap must not leave one stuck over the callout)', async () => {
+    await mountPins();
+    fireEvent.pointerEnter(seasChips()[0], { pointerType: 'touch' });
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('pressing a chip keeps it mounted, focused and selected, and first in the tier', async () => {
+    function Selecting() {
+      const [selected, setSelected] = React.useState(null);
+      return <PinsLayer spots={SPOTS} bigSeasChips={chipsFor()} selectedName={selected} onSelect={setSelected} />;
+    }
+    restoreMeasure = withMeasuredLabels(70, 17);
+    currentMap = makeFullMap();
+    await act(async () => { render(<Selecting />); });
+    await act(async () => { runFrames(); });
+    const chip = seasChips()[2];
+    await act(async () => { fireEvent.click(chip); });
+    await act(async () => { runFrames(); });
+    expect(seasChips()[0]).toBe(chip);
+    expect(chip).toHaveAttribute('data-selected', 'true');
+    expect(document.activeElement).toBe(chip);
+    expect(document.querySelector('[data-testid="map-label-chip"][data-selected="true"]')).toBe(chip);
+  });
+
   it('draws nothing without chips', async () => {
     await mountPins({ bigSeasChips: undefined });
     expect(seasChips()).toHaveLength(0);

@@ -255,19 +255,117 @@ describe('MapLabels — big-seas chips', () => {
     expect(names).toEqual(expect.arrayContaining(['Bamburgh, 5 star', 'Whitby, 3 star']));
   });
 
-  it('keeps the ordinary chip of a place whose big-seas chip was withheld (the selection, an Ask pick)', async () => {
-    // `MapView` withholds those chips from the list; the layer then draws the place as ever.
+  it('keeps the ordinary (pick) chip of a place whose big-seas chip was withheld for an Ask pick', async () => {
+    // `MapView` withholds an Ask pick's chip from the list; the layer then draws the place as ever.
     await mountSeas({
       bigSeasChips: chipsFor().filter((c) => c.name !== 'Roker Pier & Lighthouse'),
       spots: [
         ...SPOTS,
-        { name: 'Roker Pier & Lighthouse', lat: 54.92, lng: -1.36, rid: 'North East', rating: 2 },
+        {
+          name: 'Roker Pier & Lighthouse',
+          lat: 54.92,
+          lng: -1.36,
+          rid: 'North East',
+          rating: 2,
+          askPick: { rank: 1, shortWindow: 'Sat 17:47', rating: 4, verdict: 'MAYBE', label: 'Pick 1 Roker' },
+        },
       ],
-      selectedName: 'Roker Pier & Lighthouse',
     });
     expect(seasChips()).toHaveLength(2);
-    const selected = document.querySelector('[data-testid="map-label-chip"][data-selected="true"]');
-    expect(selected.getAttribute('aria-label')).toBe('Roker Pier & Lighthouse, 2 star');
+    expect(document.querySelector('[data-ask="pick"]').getAttribute('aria-label')).toBe('Pick 1 Roker');
+  });
+
+  /** The selection lives in the caller: pressing a chip selects its place, as `MapView` does. */
+  function Selecting(props) {
+    const [selected, setSelected] = React.useState(null);
+    return <MapLabels spots={SPOTS} selectedName={selected} onSelect={setSelected} {...props} />;
+  }
+
+  it('pressing a big-seas chip keeps it mounted and focused, selected, and Escape\'s focus target finds it', async () => {
+    restoreMeasure = withMeasuredLabels(70, 17);
+    currentMap = spreadMap();
+    await act(async () => { render(<Selecting bigSeasChips={chipsFor()} />); });
+    await act(async () => { runFrames(); });
+    const chip = seasChips()[0];
+    await act(async () => { fireEvent.click(chip); });
+    await act(async () => { runFrames(); });
+    // The same node: it was not unmounted and remounted under the reader's focus.
+    expect(seasChips()[0]).toBe(chip);
+    expect(chip).toHaveAttribute('data-selected', 'true');
+    expect(document.activeElement).toBe(chip);
+    // closeCallout's lookup finds it, so the Escape rule still has a focused element in the pane.
+    expect(document.querySelector('[data-testid="map-label-chip"][data-selected="true"]')).toBe(chip);
+    // The place's ordinary chip stays withheld: one label for the place.
+    expect(document.querySelectorAll('[data-selected="true"]')).toHaveLength(1);
+  });
+
+  it('places the selected big-seas chip first in its tier, and first in the DOM', async () => {
+    await mountSeas({ selectedName: 'Amble' });
+    expect(seasChips().map((c) => c.getAttribute('aria-label').split(',')[0])).toEqual([
+      'Amble piers', 'Roker Pier', "St Mary's",
+    ]);
+  });
+
+  it('tab order: picks, then big-seas chips, then ordinary chips', async () => {
+    await mountSeas({
+      spots: [
+        { ...SPOTS[0], askPick: { rank: 1, shortWindow: 'x', rating: 4, verdict: 'MAYBE', label: 'Pick 1' } },
+        SPOTS[1],
+      ],
+    });
+    const kinds = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .map((c) => c.dataset.kind ?? (c.dataset.ask === 'pick' ? 'pick' : 'ordinary'));
+    expect(kinds.indexOf('pick')).toBe(0);
+    expect(kinds.lastIndexOf('big-seas')).toBeLessThan(kinds.indexOf('ordinary'));
+    expect(kinds.indexOf('big-seas')).toBe(1);
+  });
+
+  it('hovering an ordinary chip after a big-seas chip leaves one tooltip, not two', async () => {
+    await mountSeas({ spots: [{ ...SPOTS[0], lat: 55.05, lng: -1.2 }] });
+    fireEvent.pointerEnter(seasChips()[0], MOUSE);
+    expect(screen.getAllByTestId('map-label-tip')).toHaveLength(1);
+    const ordinary = [...document.querySelectorAll('[data-testid="map-label-chip"]:not([data-kind])')]
+      .find((c) => c.style.display !== 'none');
+    fireEvent.pointerEnter(ordinary, MOUSE);
+    const tips = screen.getAllByTestId('map-label-tip');
+    expect(tips).toHaveLength(1);
+    expect(tips[0].dataset.kind).toBeUndefined();
+  });
+
+  it('seeds the prediction pass with the same chrome obstacles: a chrome box over the anchor gives the ordinary chip back', async () => {
+    // The chrome covers the left of the frame; the big-seas chip (300 wide) cannot clear it, the
+    // ordinary chip (40 wide) can. A prediction pass blind to the chrome would call the big-seas chip
+    // placed and withhold the ordinary one, leaving the place with no label.
+    const widths = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+    const heights = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get() { return this.className.includes('wf-bsc') ? 300 : 40; },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 17 });
+    restoreMeasure = () => {
+      if (widths) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', widths);
+      else delete HTMLElement.prototype.offsetWidth;
+      if (heights) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', heights);
+      else delete HTMLElement.prototype.offsetHeight;
+    };
+    currentMap = makeFullMap({ zoom: 11.5, size: { x: 320, y: 24 } });
+    currentMap.latLngToContainerPoint = () => ({ x: 160, y: 12 });
+    const chrome = document.createElement('div');
+    chrome.setAttribute('data-testid', 'wf-map-chrome-tl');
+    currentMap.getContainer().parentElement.appendChild(chrome);
+    chrome.getBoundingClientRect = () => ({
+      left: 0, top: 0, width: 100, height: 24, right: 100, bottom: 24,
+    });
+    await mount({
+      spots: [{ name: 'Stood', lat: 55, lng: -1.5, rid: 'R', rating: 3 }],
+      bigSeasChips: [{ ...chipsFor()[0], lat: 55, lng: -1.5, name: 'Stood' }],
+    });
+    await act(async () => { runFrames(); });
+    expect(seasChips().filter((c) => c.style.display !== 'none')).toHaveLength(0);
+    const ordinary = [...document.querySelectorAll('[data-testid="map-label-chip"]:not([data-kind])')]
+      .filter((c) => c.style.display !== 'none').map((c) => c.getAttribute('aria-label'));
+    expect(ordinary).toEqual(['Stood, 3 star']);
   });
 
   /** A frame with room for exactly one 300px box: every candidate is anchored on its one point. */

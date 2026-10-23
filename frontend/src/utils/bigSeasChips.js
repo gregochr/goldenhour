@@ -44,7 +44,7 @@ export function bigSeasChipItems(day, locationsById, zoom, evRow) {
   if (!day || !evRow || evRow.kind !== 'solar' || evRow.past) return NO_BIG_SEAS_CHIPS;
   if (!(zoom < BIG_SEAS_CHIP_MAX_ZOOM)) return NO_BIG_SEAS_CHIPS;
   const structures = Array.isArray(day.structures) ? day.structures : [];
-  const ringed = Boolean(day.alignedEvent) && evRow.eventType === day.alignedEvent;
+  const onAlignedEvent = Boolean(day.alignedEvent) && evRow.eventType === day.alignedEvent;
   const items = [];
   for (const structure of structures) {
     const loc = locationsById?.get(structure.locationId);
@@ -57,7 +57,9 @@ export function bigSeasChipItems(day, locationsById, zoom, evRow) {
       lat: loc.lat,
       lng: loc.lon,
       heightM: Number(structure.waveHeightM),
-      ringed,
+      // Ringed only when the row on screen is the day's aligned event AND this structure's OWN high
+      // water is the one that lands on the light (the served per-structure `aligned`).
+      ringed: onAlignedEvent && structure.aligned === true,
       day,
       structure,
       regionName: loc.regionName || '',
@@ -68,17 +70,18 @@ export function bigSeasChipItems(day, locationsById, zoom, evRow) {
 }
 
 /**
- * The chips with the protected places taken out. An Ask pick's chip and the selected place's chip are
- * never suppressed in favour of a big-seas chip (the pick is the answer; the selection is the ring
- * and callout's anchor), so in that case the big-seas chip is the one dropped.
+ * The chips with the Ask picks' places taken out. An Ask pick's ordinary chip is never suppressed in
+ * favour of a big-seas chip (the pick is the answer), so that place's big-seas chip is the one
+ * dropped. The SELECTED place keeps its big-seas chip: it is the button the reader just pressed, and
+ * unmounting it would drop focus to the body (and Escape with it).
  *
  * @param {Array<{name: string}>} items {@link bigSeasChipItems}' output
- * @param {{selectedName: ?string, askNames: ?Set<string>}} protectedNames
+ * @param {{askNames: ?Set<string>}} protectedNames
  * @returns {Array<object>} the chips that stay
  */
-export function dropProtectedBigSeasChips(items, { selectedName = null, askNames = null } = {}) {
+export function dropProtectedBigSeasChips(items, { askNames = null } = {}) {
   if (items.length === 0) return items;
-  const kept = items.filter((it) => it.name !== selectedName && !askNames?.has(it.name));
+  const kept = items.filter((it) => !askNames?.has(it.name));
   return kept.length === items.length ? items : kept;
 }
 
@@ -109,6 +112,35 @@ export function labelTierOrder({
   home = [], rings = [], picks = [], regions = [], bigSeas = [], chips = [],
 }) {
   return [...home, ...rings, ...picks, ...regions, ...bigSeas, ...chips];
+}
+
+/**
+ * The big-seas chips in placement and DOM order: the selected place's first, so it keeps its space
+ * (and a keyboard reader meets it first) within the tier.
+ *
+ * @param {Array<{name: string}>} items
+ * @param {?string} selectedName
+ * @returns {Array<object>}
+ */
+export function selectedBigSeasFirst(items, selectedName) {
+  if (selectedName == null || items.length < 2) return items;
+  return [...items].sort((a, b) => Number(b.name === selectedName) - Number(a.name === selectedName));
+}
+
+/**
+ * The ordinary-chip tier with the fallback chips (the places whose big-seas chip failed to place)
+ * slotted in AFTER the selected chip: a fallback never takes the selection's space. The caller
+ * builds the fallbacks through {@code chipCandidates}, so they keep its budget and ranking.
+ *
+ * @param {Array<{key: string}>} chips the ordinary tier, selected first when there is one
+ * @param {Array<{key: string}>} fallbacks the fallback chips, in ranking order
+ * @param {?string} selectedKey the selected ordinary chip's placer key, or null
+ * @returns {Array<object>}
+ */
+export function withFallbackChips(chips, fallbacks, selectedKey) {
+  if (fallbacks.length === 0) return chips;
+  const at = selectedKey != null && chips[0]?.key === selectedKey ? 1 : 0;
+  return [...chips.slice(0, at), ...fallbacks, ...chips.slice(at)];
 }
 
 /** "15:30–18:15" on the UK clock. */
@@ -160,8 +192,11 @@ export function bigSeasChipTipLines(item) {
   const lines = [item.name, `Big seas · ${windowText(day)}`];
   const event = eventWord(day);
   if (item.ringed) {
-    let hw = `High water ${formatEventTimeUk(day.hwTime)}`;
-    if (event && day.gapMinutes != null && day.gapSide) {
+    // This structure's OWN high water; the served gap belongs to the day's lead high water, so it is
+    // printed only for the anchor (the aligned structure whose high water IS the day's).
+    let hw = `High water ${formatEventTimeUk(structure.hwTime)}`;
+    const anchor = structure.hwTime === day.hwTime;
+    if (anchor && event && day.gapMinutes != null && day.gapSide) {
       hw += ` · ${day.gapMinutes} min ${day.gapSide === 'BEFORE' ? 'before' : 'after'} ${event}`;
     }
     lines.push(hw);

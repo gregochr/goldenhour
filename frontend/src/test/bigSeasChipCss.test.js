@@ -74,6 +74,15 @@ describe('the big-seas chip stylesheet', () => {
     expect(forced).toMatch(/\.wf-maplab-chip\.wf-bsc\[data-aligned='true'\] \{[^}]*outline: 2px solid Highlight/);
   });
 
+  it('the legend swatch takes a CanvasText border in forced colours, where its box-shadow vanishes', () => {
+    const swatchStart = CSS.indexOf('.wf-legend-swatch-seas {');
+    expect(swatchStart).toBeGreaterThan(-1);
+    expect(ruleBody('.wf-legend-swatch-seas', swatchStart)).toContain('box-shadow: inset 0 0 0 1px');
+    const forced = mediaBlock('(forced-colors: active)', swatchStart);
+    expect(forced).toMatch(/\.wf-legend-swatch-seas \{[^}]*border: 1px solid CanvasText/);
+    expect(forced).toMatch(/\.wf-legend-swatch-seas \{[^}]*box-shadow: none/);
+  });
+
   it('uses no raw hex for the teals the design names (they are tokens)', () => {
     const block = CSS.slice(chipStart, CSS.indexOf('.wf-legend-swatch-seas {', chipStart));
     expect(block).not.toMatch(/#6FA8B0|#8FC0C7|#A9D6DC|111,\s*168,\s*176/i);
