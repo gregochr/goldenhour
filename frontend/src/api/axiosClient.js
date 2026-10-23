@@ -25,6 +25,11 @@ const TOKEN_KEY = 'goldenhour_token';
 const REFRESH_KEY = 'goldenhour_refresh';
 /** The backend's rewind header (`RewindFilter.HEADER`). */
 export const REWIND_HEADER = 'X-Rewind-To';
+/**
+ * Per-request config flag: a 401 on this request must never trigger refresh-and-retry. Set by the
+ * auth calls (login, refresh, logout), which the access token does not authenticate.
+ */
+export const SKIP_AUTH_REFRESH = 'skipAuthRefresh';
 
 // Attach the JWT access token to every outgoing request — and, while an admin has the app rewound
 // (`utils/rewind.js`), the instant it is rendering as of. On GETs only: the backend honours the
@@ -54,6 +59,12 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config;
+    // The refresh request goes through this same client, so its own 401 (an expired refresh
+    // token) must never re-enter the refresh path below, or it would await itself and hang
+    // every request. Login and logout opt out too: a refresh cannot fix their 401.
+    if (original?.[SKIP_AUTH_REFRESH]) {
+      return Promise.reject(error);
+    }
     const storedRefresh = localStorage.getItem(REFRESH_KEY);
 
     if (error.response?.status !== 401 || original._retried || !storedRefresh) {
@@ -64,7 +75,10 @@ apiClient.interceptors.response.use(
 
     // If a refresh is already in flight, wait for it then retry with the new token.
     if (refreshPromise) {
-      await refreshPromise;
+      const refreshed = await refreshPromise;
+      // A failed refresh already cleared the tokens and raised session-expired; retrying would
+      // only send `Bearer null`, so surface the original 401.
+      if (!refreshed) return Promise.reject(error);
       original.headers['Authorization'] = `Bearer ${localStorage.getItem(TOKEN_KEY)}`;
       return apiClient(original);
     }
@@ -88,18 +102,21 @@ apiClient.interceptors.response.use(
         // Long-lived consumers keyed on the AuthContext token (e.g. the health SSE
         // stream) otherwise stay bound to the now-expired token until a page reload.
         window.dispatchEvent(new Event('goldenhour:token-refreshed'));
+        return true;
       })
       .catch(() => {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(REFRESH_KEY);
         localStorage.removeItem('goldenhour_role');
         window.dispatchEvent(new Event('goldenhour:session-expired'));
+        return false;
       })
       .finally(() => {
         refreshPromise = null;
       });
 
-    await refreshPromise;
+    const refreshed = await refreshPromise;
+    if (!refreshed) return Promise.reject(error);
     original.headers['Authorization'] = `Bearer ${localStorage.getItem(TOKEN_KEY)}`;
     return apiClient(original);
   }
