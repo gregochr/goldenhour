@@ -434,6 +434,12 @@ export default function MapLabels({
       }) : [],
       homeItems: home ? homeLabelItems(home, zoom) : [],
       chips,
+      // The places a big-seas chip stands for. Their ordinary chips are drawn only if that big-seas
+      // chip cannot be placed (see the placement effect), so a place never loses both labels.
+      fallbackChips: spots.filter((s) => !pool.includes(s)).map((spot) => {
+        const [x, y] = project(spot);
+        return { spot, x, y };
+      }),
       bigSeasItems: bigSeasChips.map((it) => {
         const [x, y] = project(it);
         return { ...it, x, y };
@@ -529,36 +535,56 @@ export default function MapLabels({
       )).filter(Boolean);
     const chips = frame.chips
       .map((chip) => (chip.spot.askPick ? null : measuredChip(chip))).filter(Boolean);
+    const seedFor = () => {
+      let obstacles = [];
+      const containerEl = map?.getContainer?.();
+      if (containerEl) {
+        const containerRect = containerEl.getBoundingClientRect();
+        // Two roots, because the two kinds of chrome sit on opposite sides of the container: the
+        // React-rendered pieces are its SIBLINGS (queried from its parent), while Leaflet's own
+        // bottom-right corner (zoom + ⌂) is a CHILD of the container itself.
+        const siblingChrome = containerEl.parentElement
+          ? [...containerEl.parentElement.querySelectorAll(OBSTACLE_SELECTOR)]
+          : [];
+        const leafletChrome = [...containerEl.querySelectorAll(LEAFLET_CORNER_SELECTOR)];
+        const rects = [...siblingChrome, ...leafletChrome].map((el) => el.getBoundingClientRect());
+        // Clamped as the sheet's own CSS is (`calc(100% - 64px)`): it never covers the window pill.
+        const covered = Math.min(bottomInset, Math.max(containerRect.height - PEEK_PILL_CLEARANCE, 0));
+        if (covered > 0) {
+          // A box standing on the frame's bottom edge, in the page's coordinates like the rects above.
+          rects.push({
+            left: containerRect.left,
+            top: containerRect.top + containerRect.height - covered,
+            width: containerRect.width,
+            height: covered,
+          });
+        }
+        obstacles = seedObstacles(rects, containerRect, 5);
+      }
+      return obstacles;
+    };
+    // A big-seas chip the pass cannot fit leaves its place with no label at all (its ordinary chip
+    // was withheld), so the place's ordinary chip comes back as a candidate in the ordinary tier. The
+    // greedy pass is deterministic and the big-seas tier precedes the ordinary one, so a first pass
+    // over the tiers up to the big-seas chips says exactly which of them will fail.
+    const bigPlaced = placeLabelPass(
+      labelTierOrder({
+        home, rings, picks, regions, bigSeas,
+      }),
+      frame.width,
+      frame.height,
+      seedFor(),
+    );
+    const failedNames = new Set(frame.bigSeasItems
+      .filter((it) => !bigPlaced.has(it.key)).map((it) => it.name));
+    const fallbacks = frame.fallbackChips
+      .filter(({ spot }) => failedNames.has(spot.name))
+      .map(measuredChip).filter(Boolean);
     const items = labelTierOrder({
-      home, rings, picks, regions, bigSeas, chips,
+      home, rings, picks, regions, bigSeas, chips: [...fallbacks, ...chips],
     });
 
-    let obstacles = [];
-    const containerEl = map?.getContainer?.();
-    if (containerEl) {
-      const containerRect = containerEl.getBoundingClientRect();
-      // Two roots, because the two kinds of chrome sit on opposite sides of the container: the
-      // React-rendered pieces are its SIBLINGS (queried from its parent), while Leaflet's own
-      // bottom-right corner (zoom + ⌂) is a CHILD of the container itself.
-      const siblingChrome = containerEl.parentElement
-        ? [...containerEl.parentElement.querySelectorAll(OBSTACLE_SELECTOR)]
-        : [];
-      const leafletChrome = [...containerEl.querySelectorAll(LEAFLET_CORNER_SELECTOR)];
-      const rects = [...siblingChrome, ...leafletChrome].map((el) => el.getBoundingClientRect());
-      // Clamped as the sheet's own CSS is (`calc(100% - 64px)`): it never covers the window pill.
-      const covered = Math.min(bottomInset, Math.max(containerRect.height - PEEK_PILL_CLEARANCE, 0));
-      if (covered > 0) {
-        // A box standing on the frame's bottom edge, in the page's coordinates like the rects above.
-        rects.push({
-          left: containerRect.left,
-          top: containerRect.top + containerRect.height - covered,
-          width: containerRect.width,
-          height: covered,
-        });
-      }
-      obstacles = seedObstacles(rects, containerRect, 5);
-    }
-
+    const obstacles = seedFor();
     const placed = placeLabelPass(items, frame.width, frame.height, obstacles);
 
     // ⚠️ No pick is ever unmarked. A pick chip the greedy pass could not fit falls back to its BARE
@@ -585,7 +611,7 @@ export default function MapLabels({
     }
     // A badged chip was placed as its badge-inclusive box (above); the chip is DRAWN inside it. Done
     // last, so every later pass above saw the whole reserved box and only the style reads this one.
-    for (const { spot } of frame.chips) {
+    for (const { spot } of [...frame.chips, ...frame.fallbackChips]) {
       const key = `chip:${spot.name}`;
       const box = placed.get(key);
       if (box && hasRatedBadge(spot)) {
@@ -704,7 +730,7 @@ export default function MapLabels({
    */
   // A pick has no tooltip (it would speak for the window on screen): a chip that BECOMES one under a
   // resting pointer — an answer landing — is forgotten like one that unmounted.
-  const hoverSpot = (hoverName != null && frame?.chips.some(({ spot }) => spot.name === hoverName))
+  const hoverSpot = (hoverName != null && frame && [...frame.chips, ...frame.fallbackChips].some(({ spot }) => spot.name === hoverName))
     ? (spots.find((spot) => spot.name === hoverName) ?? null)
     : null;
   const hover = hoverSpot?.askPick ? null : hoverSpot;
@@ -774,7 +800,7 @@ export default function MapLabels({
         </span>
       ))}
 
-      {inDomOrder(frame.chips).map(({ spot }) => {
+      {inDomOrder([...frame.chips, ...frame.fallbackChips]).map(({ spot }) => {
         const key = `chip:${spot.name}`;
         const pick = spot.askPick ?? null;
         if (pick) {

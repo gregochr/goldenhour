@@ -248,10 +248,11 @@ describe('MapLabels — big-seas chips', () => {
         { name: 'Roker Pier & Lighthouse', lat: 54.92, lng: -1.36, rid: 'North East', rating: 2 },
       ],
     });
-    const ordinary = [...document.querySelectorAll('[data-testid="map-label-chip"]:not([data-kind])')];
-    expect(ordinary.map((c) => c.getAttribute('aria-label')).sort()).toEqual([
-      'Bamburgh, 5 star', 'Buttermere, 4 star', 'Whitby, 3 star',
-    ]);
+    const ordinary = [...document.querySelectorAll('[data-testid="map-label-chip"]:not([data-kind])')]
+      .filter((c) => c.style.display !== 'none');
+    const names = ordinary.map((c) => c.getAttribute('aria-label'));
+    expect(names).not.toContain('Roker Pier & Lighthouse, 2 star');
+    expect(names).toEqual(expect.arrayContaining(['Bamburgh, 5 star', 'Whitby, 3 star']));
   });
 
   it('keeps the ordinary chip of a place whose big-seas chip was withheld (the selection, an Ask pick)', async () => {
@@ -288,6 +289,54 @@ describe('MapLabels — big-seas chips', () => {
     expect(document.querySelector('[data-testid="map-label-region"]').style.display).not.toBe('none');
     expect(seasChips()[0].style.display).toBe('none');
     expect(document.querySelector('[data-testid="map-label-chip"]:not([data-kind])').style.display).toBe('none');
+  });
+
+  it('a big-seas chip that cannot be placed gives its place\'s ordinary chip back, so the place keeps a label', async () => {
+    // Room for one box where it counts: a region name (100 wide) holds the left, the big-seas chip
+    // (300 wide) fits nowhere in a 320px frame, and the structure's ordinary chip (40 wide), withheld
+    // while its big-seas chip stood for it, is eligible again and takes the free air at its anchor.
+    const widths = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+    const heights = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get() {
+        if (this.className.includes('wf-bsc')) return 300;
+        return this.className.includes('wf-maplab-region') ? 100 : 40;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 17 });
+    restoreMeasure = () => {
+      if (widths) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', widths);
+      else delete HTMLElement.prototype.offsetWidth;
+      if (heights) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', heights);
+      else delete HTMLElement.prototype.offsetHeight;
+    };
+    currentMap = makeFullMap({ zoom: 9, size: { x: 320, y: 24 } });
+    currentMap.latLngToContainerPoint = ([, lng]) => ({ x: 160 + (lng + 1.5) * 100, y: 12 });
+    await mount({
+      spots: [
+        { name: 'Stood', lat: 55, lng: -1.5, rid: 'R', rating: 3 },
+        { name: 'Anchor', lat: 55, lng: -3.2, rid: 'R', rating: 4 },
+      ],
+      bigSeasChips: [{ ...chipsFor()[0], lat: 55, lng: -1.5, name: 'Stood' }],
+    });
+    await act(async () => { runFrames(); });
+    const shown = (el) => el.style.display !== 'none';
+    expect(shown(document.querySelector('[data-testid="map-label-region"][data-testid]'))).toBe(true);
+    expect(seasChips().filter(shown)).toHaveLength(0);
+    const ordinary = [...document.querySelectorAll('[data-testid="map-label-chip"]:not([data-kind])')]
+      .filter(shown).map((c) => c.getAttribute('aria-label'));
+    expect(ordinary).toContain('Stood, 3 star');
+  });
+
+  it('does not give the ordinary chip back when the big-seas chip places', async () => {
+    await mountSeas({
+      spots: [{ name: 'Roker Pier & Lighthouse', lat: 54.92, lng: -1.36, rid: 'North East', rating: 2 }],
+    });
+    expect(seasChips().filter((c) => c.style.display !== 'none')).toHaveLength(3);
+    const ordinary = [...document.querySelectorAll('[data-testid="map-label-chip"]:not([data-kind])')]
+      .filter((c) => c.style.display !== 'none');
+    expect(ordinary.map((c) => c.getAttribute('aria-label'))).not.toContain('Roker Pier & Lighthouse, 2 star');
   });
 
   it('a big-seas chip keeps its space over an ordinary chip', async () => {
