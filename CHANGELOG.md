@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.31.0] - 2026-10-23
+
+### Changed — frontend dev dependency zod bumped past GHSA-mrhx-c7xc-m3w5
+
+The transitive dev dependency `zod` (pulled in by `eslint-plugin-react-hooks`) moves from 4.4.3 to
+4.6.6 in the lockfile, clearing the high-severity memory-exhaustion advisory that was failing
+`npm audit` in the frontend CI job. No runtime code is affected.
+
+### Added — named areas and location aliases (data)
+
+V189 adds the tables for named areas ("Hadrian's Wall") and location aliases ("the Heugh" for Hartlepool Headland): `area`, `area_alias`, `area_location` and `location_alias`, with the matching `AreaEntity`, `LocationAliasEntity` and repositories. Hadrian's Wall is seeded with its aliases and, by name, the Wall locations that exist; Hartlepool Headland gets its three Heugh aliases. Data only: Ask does not read them until the next phase (`docs/engineering/ask-named-areas-plan.md`, A1).
+
+### Added — admin editing of named areas and location aliases
+
+The Operations tab's location management view gets an "Areas" section (create, rename, other names, a filterable member picker, delete with a confirm) and an "Also known as" field on the location edit form, so an admin can teach Ask "Hadrian's Wall" or "the Heugh" without a migration. Endpoints are ADMIN-only: `GET|POST /api/areas`, `PUT|DELETE /api/areas/{id}`, `PUT /api/areas/{id}/locations`, `GET /api/locations/aliases`, `PUT /api/locations/{id}/aliases`. A rename never touches an area's members, and a location's aliases are saved by their own request after the location itself, so saving a location can never rewrite them. Location names, location aliases, area names and area aliases are now one normalised namespace (`NameNamespaceGuard`): no two may be equal, an area name or alias may not sit inside a place's name or alias, and a place may not be renamed to hide a named area (clashes answer 409 for areas and aliases, and the existing 400 for a location add or rename). (`docs/engineering/ask-named-areas-plan.md`, A3).
+
+### Added — Coming up "Next four days" lanes, and a tap-through to the Plan window
+
+The dashed one-line handoff row at the top of Coming up is replaced by a small grid: one row per hot topic, four day columns, a bar for a topic that spans days and a dot for a single window. A tide run that goes on past the fourth day ends in a dashed edge and a jump button that scrolls to its entry in the list below,, and a tide run that ends inside the four days is labelled with its biggest day and the light it falls in. Tapping a bar or dot now opens that window's popup on Plan with the topic's row outlined and scrolled into view (or plain Plan when Plan has no card for that window, which the button's name says). The lanes still read only the live briefing, so they appear before the 90-day list has loaded. Topic colours, glyphs and names now come from one palette module that later Map phases will share too, and the scope filter the Plan popup applies to topics is factored out so other surfaces can call the same rule.
+
+### Changed — big seas leads with the daylight high water, and serves its bounds
+
+On a day when no big-sea high water lines up with sunrise or sunset, the big-seas block used to lead with whichever group had the most structures, and with high waters about twelve and a half hours apart that was often the night one, burying the daylight high water. The lead order is now aligned first, then a daylight group, then most structures, highest wave and earliest start. `BigSeasDay` also serves `daylightHighWater` (omitted when false: the group's whole window and its high water lie between the lights), and `daylightStart` / `daylightEnd`, the anchor structure's own sunrise and sunset (UTC, no zone), only when the flag is true. Backend only; the Map reads them in a later phase (`docs/engineering/hot-topics-by-day-plan.md`, B1).
+
+### Added — Ask understands named areas such as Hadrian's Wall and other names such as the Heugh
+
+Ask can now answer "Does Hadrian's Wall look good this weekend?" and "How's the Heugh looking?". `look_up_place` matches a named area (by its name or an alias) as well as a place, and a place by its other names; an area answer lists how its places rate in each window, as an explanation that can never become a pick. `rank_spots` takes an optional `areaName` (typed questions only), so "where on the Wall should I go?" gets real picks. An exact place match always beats a named area. The typed prompt's "no places" rule now reads "no places and no named area", which was the defect: an area result has no `places`. Ready answers, their tool list and prompt bytes are unchanged (`docs/engineering/ask-named-areas-plan.md`, A2).
+
+### Docs — api-endpoints.md lists the real location routes
+
+`docs/engineering/reference/api-endpoints.md` documented `PUT /api/locations/{name}/reset-failures` where the code maps `PUT /api/locations/reset-failures?name=`, and omitted several `LocationController` routes (`PUT /{id}`, `PUT /{id}/enabled`, `GET /grid-cells`, `GET /enrich`); it now lists them all, with the new named-area and alias endpoints and their status codes.
+
 ## [v2.30.5] - 2026-10-23
 
 ### Fixed — an expired sign-in froze the app behind a false "service unavailable" banner
