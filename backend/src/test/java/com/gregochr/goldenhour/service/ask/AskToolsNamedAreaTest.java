@@ -73,6 +73,23 @@ class AskToolsNamedAreaTest {
         return window.places().stream().map(AreaPlace::name).toList();
     }
 
+    @Test
+    @DisplayName("the older constructors stay: PlaceInfo without an alias, the result without an area or reasons, "
+            + "and RankSpotsArgs with seven or six arguments")
+    void olderConstructorsStay() {
+        PlaceInfo place = new PlaceInfo(1L, "Alnmouth", "Coast", TODAY_SUNSET, "Today", "sunset", 4, null, null,
+                null, null, null, "PICK");
+        LookUpPlaceResult plain = new LookUpPlaceResult(List.of(place), "a note");
+        LookUpPlaceResult withReasons = new LookUpPlaceResult(List.of(place), Map.of("X", "y"), null);
+
+        assertThat(place.matchedAlias()).isNull();
+        assertThat(plain.area()).isNull();
+        assertThat(plain.reasons()).isNull();
+        assertThat(withReasons.area()).isNull();
+        assertThat(new RankSpotsArgs(null, null, null, null, null, null, 3).areaName()).isNull();
+        assertThat(new RankSpotsArgs(null, null, null, null, null, 3).areaName()).isNull();
+    }
+
     // -- the place matcher: aliases ---------------------------------------------------------
 
     private static final List<String> HEUGH_ALIASES = List.of("Heugh Lighthouse", "The Heugh", "Heugh Battery");
