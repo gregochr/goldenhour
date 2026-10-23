@@ -49,12 +49,78 @@ class LocationServiceTest {
     @Mock
     private LocationEnrichmentService locationEnrichmentService;
 
+    @Mock
+    private NameNamespaceGuard nameGuard;
+
     private LocationService locationService;
 
     @BeforeEach
     void setUp() {
         locationService = new LocationService(locationRepository, regionRepository,
-                tideService, locationEnrichmentService);
+                tideService, locationEnrichmentService, nameGuard);
+    }
+
+    @Test
+    @DisplayName("add() refuses a name that clashes with a named area, as a 400, and saves nothing")
+    void add_nameClashesWithNamespace_throwsIllegalArgumentException() {
+        when(locationRepository.existsByName("Hadrian's Wall")).thenReturn(false);
+        when(nameGuard.locationNameClash("Hadrian's Wall"))
+                .thenReturn(Optional.of("'Hadrian's Wall' contains the named area 'Hadrian's Wall'"));
+        AddLocationRequest request = new AddLocationRequest(
+                "Hadrian's Wall", 55.0, -2.0,
+                null, null, null, null, null, null, null, null, null, null, null);
+
+        assertThatThrownBy(() -> locationService.add(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("named area");
+
+        verify(locationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("update() refuses a rename that clashes with a named area, as a 400, and saves nothing")
+    void update_renameClashesWithNamespace_throwsIllegalArgumentException() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.existsByName("Roman Wall Viewpoint")).thenReturn(false);
+        when(nameGuard.locationNameClash("Roman Wall Viewpoint"))
+                .thenReturn(Optional.of("'Roman Wall Viewpoint' contains 'Roman Wall'"));
+
+        assertThatThrownBy(() -> locationService.update(1L, new UpdateLocationRequest(
+                "Roman Wall Viewpoint", null, null, null, null, null, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Roman Wall");
+
+        assertThat(existing.getName()).isEqualTo("Durham UK");
+        verify(locationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("update() renames to a name with no clash, and asks the guard about the trimmed name")
+    void update_renameWithNoClash_renames() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.existsByName("Durham Cathedral")).thenReturn(false);
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.update(1L, new UpdateLocationRequest(
+                " Durham Cathedral ", null, null, null, null, null, null));
+
+        verify(nameGuard).locationNameClash("Durham Cathedral");
+        assertThat(existing.getName()).isEqualTo("Durham Cathedral");
+    }
+
+    @Test
+    @DisplayName("update() does not consult the guard when the name is unchanged")
+    void update_nameUnchanged_doesNotConsultGuard() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.update(1L, new UpdateLocationRequest(
+                "Durham UK", null, null, null, null, null, null));
+
+        verifyNoInteractions(nameGuard);
     }
 
     // --- findByName ---

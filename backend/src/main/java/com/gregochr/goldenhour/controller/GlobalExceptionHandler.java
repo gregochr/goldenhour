@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.client.PostcodeLookupException;
 import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
+import com.gregochr.goldenhour.exception.NameClashException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
@@ -64,6 +65,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AskRefusal.class)
     public ResponseEntity<Map<String, String>> handleAskRefusal(AskRefusal ex) {
         return ResponseEntity.status(ex.code().status()).body(ex.body());
+    }
+
+    /**
+     * Maps {@link NameClashException} to HTTP 409: the admin's area or alias name clashes with another name.
+     *
+     * @param ex the exception, whose message names the clash
+     * @return an error response body
+     */
+    @ExceptionHandler(NameClashException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ErrorResponse handleNameClash(NameClashException ex) {
+        return new ErrorResponse(ex.getMessage());
     }
 
     /**
