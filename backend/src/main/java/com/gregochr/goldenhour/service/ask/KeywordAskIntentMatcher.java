@@ -109,6 +109,20 @@ public class KeywordAskIntentMatcher implements AskIntentMatcher {
                 }
             }
         }
+        // A named area's name and aliases, and a location's other names ("the Heugh"), name a place as much as
+        // the location's own name does. Today the Ready word rules already decline them (their words are not
+        // accepted vocabulary); this keeps a future name made only of accepted words out of a Ready answer.
+        for (AskSnapshot.Area area : snapshot.areas()) {
+            addName(names, area.name());
+            area.aliases().forEach(alias -> addName(names, alias));
+        }
+        snapshot.locationAliases().values().forEach(aliases -> aliases.forEach(alias -> addName(names, alias)));
         return names;
+    }
+
+    private static void addName(Set<String> names, String name) {
+        if (name != null && !name.isBlank()) {
+            names.add(name);
+        }
     }
 }

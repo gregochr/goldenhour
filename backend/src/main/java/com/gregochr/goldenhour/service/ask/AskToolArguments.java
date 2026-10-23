@@ -46,7 +46,7 @@ final class AskToolArguments {
         JsonNode in = object(input);
         return new RankSpotsArgs(strings(in, "windowIds"), strings(in, "regionNames"),
                 bool(in, "coastalOnly"), text(in, "tideState"), whole(in, "maxDriveMinutes"),
-                bool(in, "nearHome"), whole(in, "limit"));
+                bool(in, "nearHome"), whole(in, "limit"), text(in, "areaName"));
     }
 
     /**

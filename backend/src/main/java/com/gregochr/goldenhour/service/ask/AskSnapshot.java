@@ -50,10 +50,14 @@ import java.util.function.Predicate;
  * @param nights      tonight's and tomorrow night's astro and aurora forecasts (ask-night plan §2.1);
  *                    {@link Nights#NONE} when there are none. User-less like the rest of the snapshot:
  *                    aurora figures are in it and are withheld by role where an asker is known
+ * @param areas       the named areas ("Hadrian's Wall") look_up_place and rank_spots understand; empty when
+ *                    there are none or they could not be read
+ * @param locationAliases other names for a location, by location id, each list in the deterministic order of
+ *                    {@link AskAreas#sortAliases}; empty when there are none
  */
 public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
         List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp,
-        boolean briefingStale, Nights nights) {
+        boolean briefingStale, Nights nights, List<Area> areas, Map<Long, List<String>> locationAliases) {
 
     /** The least served rating a slot may carry and still be offered as a pick. */
     public static final int MIN_PICK_RATING = 3;
@@ -77,6 +81,61 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
         hotTopics = hotTopics == null ? List.of() : List.copyOf(hotTopics);
         comingUp = comingUp == null ? List.of() : List.copyOf(comingUp);
         nights = nights == null ? Nights.NONE : nights;
+        areas = areas == null ? List.of() : List.copyOf(areas);
+        locationAliases = locationAliases == null ? Map.of() : copyAliases(locationAliases);
+    }
+
+    /**
+     * A snapshot with no named areas and no location aliases.
+     *
+     * @param generatedAt   when the briefing was built (UTC), or null
+     * @param runLabel      {@code HH:mm} Europe/London of {@code generatedAt}, or null
+     * @param today         today on the UK civil calendar
+     * @param windows       the window set
+     * @param hotTopics     the served hot topics
+     * @param comingUp      the almanac entries
+     * @param briefingStale whether the served briefing is the last-known-good one
+     * @param nights        the night forecasts
+     */
+    public AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
+            List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp,
+            boolean briefingStale, Nights nights) {
+        this(generatedAt, runLabel, today, windows, hotTopics, comingUp, briefingStale, nights, List.of(),
+                Map.of());
+    }
+
+    /**
+     * This snapshot with these named areas and location aliases.
+     *
+     * @param newAreas   the named areas
+     * @param newAliases other names by location id
+     * @return the snapshot, otherwise unchanged
+     */
+    public AskSnapshot withNames(List<Area> newAreas, Map<Long, List<String>> newAliases) {
+        return new AskSnapshot(generatedAt, runLabel, today, windows, hotTopics, comingUp, briefingStale, nights,
+                newAreas, newAliases);
+    }
+
+    private static Map<Long, List<String>> copyAliases(Map<Long, List<String>> aliases) {
+        Map<Long, List<String>> out = new java.util.LinkedHashMap<>();
+        aliases.forEach((id, names) -> out.put(id, names == null ? List.of() : List.copyOf(names)));
+        return java.util.Collections.unmodifiableMap(out);
+    }
+
+    /**
+     * A named area: a landmark or district such as "Hadrian's Wall" that groups places.
+     *
+     * @param name        the area's name
+     * @param aliases     other names for it, in the deterministic order of {@link AskAreas#sortAliases}
+     * @param locationIds the member locations' ids
+     */
+    public record Area(String name, List<String> aliases, Set<Long> locationIds) {
+
+        /** Canonical constructor: takes immutable copies; null reads as empty. */
+        public Area {
+            aliases = aliases == null ? List.of() : List.copyOf(aliases);
+            locationIds = locationIds == null ? Set.of() : Set.copyOf(locationIds);
+        }
     }
 
     /**
