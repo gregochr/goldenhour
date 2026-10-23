@@ -28,6 +28,11 @@ import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
 import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import WindowControl from './map/WindowControl.jsx';
 import BigSeasLine from './map/BigSeasLine.jsx';
+import BoltIcon from './map/BoltIcon.jsx';
+import { bigSeasFor } from '../utils/bigSeas.js';
+import {
+  bigSeasChipItems, dropProtectedBigSeasChips, NO_BIG_SEAS_CHIPS,
+} from '../utils/bigSeasChips.js';
 import FiltersPopover from './map/FiltersPopover.jsx';
 import MapCallout from './map/MapCallout.jsx';
 import MapLegendPanel from './map/MapLegendPanel.jsx';
@@ -4173,6 +4178,62 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The pick spots that actually reached the map — what dims the rest and what the camera frames. */
   const askPickSpots = labelSpots.filter((spot) => spot.askPick);
   const askActive = askPickSpots.length > 0;
+  // ── The big-seas chips (big-seas plan F2) ─────────────────────────────────────────────────────────
+  // ONE list, which both label layers draw and the legend key's condition reads, so the key can never
+  // name chips that are not there. Joined to the FULL roster by id, never to `labelSpots`, which drops
+  // stood-down places and anything under the star floor (the storm-day case). Imported from the leaf
+  // `bigSeasChips.js`, not `mapLabels.js`, so this file keeps clear of `d3-geo` (the lazy chunks').
+  const bigSeasSelection = bigSeasFor(bigSeas, activeMapEvent, mapEvents, appNow());
+  const bigSeasDay = bigSeasSelection.form === 'full' ? bigSeasSelection.day : null;
+  const bigSeasRoster = useMemo(() => {
+    if (!bigSeasDay) return null;
+    return new Map(locations.map((loc) => [loc.id, {
+      name: loc.name,
+      lat: loc.lat,
+      lon: loc.lon,
+      regionName: loc.regionName,
+      driveMinutes: driveMinutesFor(loc.id),
+    }]));
+  }, [bigSeasDay, locations, driveMinutesFor]);
+  const bigSeasEvKind = activeMapEvent?.kind ?? null;
+  const bigSeasEvType = activeMapEvent?.eventType ?? null;
+  const bigSeasEvPast = Boolean(activeMapEvent?.past);
+  // The Ask picks' places, so their ordinary chips are never suppressed for a big-seas chip.
+  const askPickNames = useMemo(
+    () => new Set(labelSpots.filter((spot) => spot.askPick).map((spot) => spot.name)),
+    [labelSpots],
+  );
+  const bigSeasChips = useMemo(() => {
+    if (!bigSeasDay || !bigSeasRoster) return NO_BIG_SEAS_CHIPS;
+    const items = bigSeasChipItems(
+      bigSeasDay,
+      bigSeasRoster,
+      zoom,
+      { kind: bigSeasEvKind, eventType: bigSeasEvType, past: bigSeasEvPast },
+    );
+    // The selected place KEEPS its big-seas chip (it is the button just pressed; unmounting it would
+    // drop focus to <body>); only an Ask pick displaces one.
+    return dropProtectedBigSeasChips(items, { askNames: askPickNames });
+  }, [bigSeasDay, bigSeasRoster, zoom, bigSeasEvKind, bigSeasEvType, bigSeasEvPast, askPickNames]);
+  /** Whether chips are drawn: the one condition the chip mounts and the legend key share. */
+  const bigSeasShown = heatOffered && (heatOn || heatPinsOn) && bigSeasChips.length > 0;
+  // Whether a desktop Legend panel is mounted at all. The Pins legend mounts only while one of its keys
+  // is shown, so a zoom that retires the chips can unmount it under an open menu.
+  const legendMounted = heatOffered && !isMobile
+    && (heatView === 'heat' || (heatView === 'pins' && (stoodPoints.length > 0 || bigSeasShown)));
+  useEffect(() => {
+    if (openMapMenu !== 'legend' || legendMounted) return;
+    // The panel that held the open menu is gone, and with it the focus (to <body>, where the pane's
+    // Escape rule cannot hear): park focus on the pane, then close the menu so it does not reopen
+    // on a later mount.
+    const active = document.activeElement;
+    if (!active || active === document.body) mapPaneRef.current?.focus({ preventScroll: true });
+    // A one-shot reconciliation of a menu with the panel that vanished under it; it ends the
+    // condition that fired it, so it cannot cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOpenMapMenu(null);
+  }, [openMapMenu, legendMounted]);
+
   /** The chosen pick, as the camera flies to it: `askWindow.nonce` is new on every choice. */
   const askSelectedSpot = askPickSpots.find((spot) => spot.askPick.selected) ?? null;
   const askSelection = askWindow && askSelectedSpot
@@ -5166,9 +5227,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * ✕ was not the focused control.
    */
   function closeCallout() {
-    const origin = mapPaneRef.current?.querySelector(
+    // Only a VISIBLE match: a label the placer has hidden (`display: none`, or still off-screen
+    // measuring) is not focusable, and focusing it would drop focus to <body>.
+    const origin = [...(mapPaneRef.current?.querySelectorAll(
       '[data-testid="map-label-chip"][data-selected="true"], [data-testid="map-pin"][data-selected="true"]',
-    );
+    ) ?? [])].find((el) => el.style.display !== 'none' && el.style.visibility !== 'hidden');
     const target = origin instanceof HTMLElement && origin.isConnected ? origin : mapPaneRef.current;
     target?.focus({ preventScroll: true });
     setSelectedLocationName(null);
@@ -5817,6 +5880,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 eventLabel={mapEventLabel}
                 rampHex={isAuroraMode ? AURORA_RAMP.hex : rampHex}
                 omitUnrated={isAuroraMode}
+                bigSeasChips={bigSeasChips}
                 // The phone's peek sheet is an obstacle while an answer's picks are on the map (F4),
                 // from its TARGET height; with no answer it is not one, as it never was.
                 bottomInset={isMobile && askActive ? peekTarget : 0}
@@ -5835,6 +5899,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 rampHex={isAuroraMode ? AURORA_RAMP.hex : rampHex}
                 glow={isAuroraMode}
                 omitUnrated={isAuroraMode}
+                bigSeasChips={bigSeasChips}
               />
             </Suspense>
           )}
@@ -6539,6 +6604,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       </span>
                     </div>
                   )}
+                  {/* The big-seas key (big-seas plan F2), while chips are drawn: Heat and Pins alike. */}
+                  {bigSeasShown && (
+                    <div data-testid="wf-map-peek-bigseas" className="wf-map-peek-lay-row">
+                      <span className="wf-map-peek-lay-label">Big seas</span>
+                      <span className="wf-legend-ground">
+                        <span className="wf-legend-ground-item">
+                          <i aria-hidden="true" className="wf-legend-swatch-seas">
+                            <BoltIcon />
+                          </i>
+                          waves onto a pier or lighthouse at high water &middot; ringed when high water is on the light
+                        </span>
+                      </span>
+                    </div>
+                  )}
                   {/* The ground key (thin-sample plan F4), solar and rated windows only: the hatch is
                       not drawn on a night or an unscored window, so neither is its key. */}
                   {/* Big-seas plan F3: the row also opens for a stand-down hatch, in Heat AND Pins and
@@ -6619,7 +6698,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             `!isMobile` because the phone gets its OWN mount below (T7, full width, above the bar,
             never nested in this column). */}
         {(showViewlineUpsell || (heatOffered && heatView === 'heat' && !isMobile)
-          || (heatOffered && heatView === 'pins' && !isMobile && stoodPoints.length > 0)
+          || (heatOffered && heatView === 'pins' && !isMobile && (stoodPoints.length > 0 || bigSeasShown))
           || (!isMobile && tideStripModel.visible)) && (
           <div className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
             {showViewlineUpsell && (
@@ -6653,12 +6732,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 viewlineShown={viewlineShown}
                 groundKey={!isAstroMode && !isAuroraMode && !windowUnscored}
                 stoodKey={stoodPoints.length > 0}
+                seasKey={bigSeasShown}
               />
             )}
             {/* Pins view's legend (big-seas plan F3): a variant that renders only the keys of the
                 layers Pins draws, mounted on desktop while one of them is shown. The big-seas key
                 (F2) joins the stand-down key here. */}
-            {heatOffered && heatView === 'pins' && !isMobile && stoodPoints.length > 0 && (
+            {heatOffered && heatView === 'pins' && !isMobile && (stoodPoints.length > 0 || bigSeasShown) && (
               <MapLegendPanel
                 open={openMapMenu === 'legend'}
                 onOpenChange={(next) => setOpenMapMenu(next ? 'legend' : null)}
@@ -6666,7 +6746,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 ringsEnabled={ringsEnabled}
                 onToggleRings={() => setRingsEnabled((v) => !v)}
                 variant="pins"
-                stoodKey
+                stoodKey={stoodPoints.length > 0}
+                seasKey={bigSeasShown}
               />
             )}
             {!isMobile && (

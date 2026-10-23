@@ -7,6 +7,7 @@ import { rampGradientCss } from '../../utils/scoreRamp.js';
 import { AURORA_RAMP } from '../../utils/auroraRamp.js';
 import { RING_TIERS } from '../../utils/reachRings.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
+import BoltIcon from './BoltIcon.jsx';
 
 /** Below this handover fraction the field is still whole — README §8's first zoom state. */
 const HANDOVER_FIELD_MAX = 0.05;
@@ -90,7 +91,7 @@ export function handoverPhase(t) {
 export default function MapLegendPanel({
   open, onOpenChange, handoverFraction, ringsEnabled, onToggleRings,
   hasHome = false, reachMeasured = false, variant = 'solar', viewlineShown = false,
-  groundKey = true, stoodKey = false,
+  groundKey = true, stoodKey = false, seasKey = false,
 }) {
   const aurora = variant === 'aurora';
   // The Pins view's legend (big-seas plan F3): no field is painted there, so there is no ramp, no
@@ -212,6 +213,23 @@ export default function MapLegendPanel({
             </div>
           )}
 
+          {/* Big-seas plan F2: the chip's key, while chips are drawn (one condition with the chip mount,
+              the `viewlineShown` pattern). The swatch is the chip's own plate and bolt, so the key
+              reads as the thing it names; "ringed" is the aligned chip's second ring. */}
+          {seasKey && !aurora && (
+            <div data-testid="wf-legend-bigseas">
+              <div className="wf-legend-ramp-label">Big seas</div>
+              <div className="wf-legend-ground">
+                <span className="wf-legend-ground-item">
+                  <i aria-hidden="true" className="wf-legend-swatch-seas">
+                    <BoltIcon />
+                  </i>
+                  waves onto a pier or lighthouse at high water &middot; ringed when high water is on the light
+                </span>
+              </div>
+            </div>
+          )}
+
           {!pins && (
             <div data-testid="wf-legend-hand" className="wf-legend-hand">
               <span className="wf-legend-hand-bar">
@@ -269,4 +287,6 @@ MapLegendPanel.propTypes = {
   groundKey: PropTypes.bool,
   /** Whether the stand-down hatch is drawn for this window (big-seas plan F3). */
   stoodKey: PropTypes.bool,
+  /** Whether big-seas chips are drawn (big-seas plan F2); the key is withheld otherwise. */
+  seasKey: PropTypes.bool,
 };

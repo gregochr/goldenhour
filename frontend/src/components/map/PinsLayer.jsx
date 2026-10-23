@@ -7,8 +7,9 @@ import L from 'leaflet';
 import { useMap } from 'react-leaflet';
 import { seedObstacles } from '../../utils/labelPlacement.js';
 import {
-  hasRatedBadge, homeLabelItems, placeLabelPass, verdictWord,
+  hasRatedBadge, homeLabelItems, labelTierOrder, placeLabelPass, selectedBigSeasFirst, verdictWord, NO_BIG_SEAS_CHIPS,
 } from '../../utils/mapLabels.js';
+import BigSeasChip, { BigSeasTipLines } from './BigSeasChip.jsx';
 import { badgeAccessibleClause } from '../../utils/outcomeRatingJoin.js';
 import RatedBadge from './RatedBadge.jsx';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
@@ -187,6 +188,7 @@ function glowShadow(hex) {
 export default function PinsLayer({
   spots: allSpots, homeCoords = null, selectedName = null, onSelect = null, onSelectAskPick = null,
   eventLabel = '', rampHex = sharedRampHex, glow = false, omitUnrated = false,
+  bigSeasChips = NO_BIG_SEAS_CHIPS,
 }) {
   const map = useMap();
 
@@ -221,6 +223,8 @@ export default function PinsLayer({
    * after a keyboard step, and outlived its own pin when the location left the pool.
    */
   const [hoverName, setHoverName] = useState(null);
+  /** The hovered big-seas chip's location id (its own card, same rule as {@code hoverName}). */
+  const [hoverSeasId, setHoverSeasId] = useState(null);
   const [tipPos, setTipPos] = useState({ x: 0, y: 0 });
 
   const rootRef = useRef(null);
@@ -235,6 +239,7 @@ export default function PinsLayer({
     if (node && L?.DomEvent?.disableClickPropagation) L.DomEvent.disableClickPropagation(node);
   }, []);
   const homeRef = useRef(null);
+  const seasRefs = useRef(new Map());
   const tipRef = useRef(null);
 
   const paint = useCallback(() => {
@@ -277,8 +282,12 @@ export default function PinsLayer({
       home,
       homeItems: home ? homeLabelItems(home, zoom) : [],
       pins,
+      bigSeasItems: selectedBigSeasFirst(bigSeasChips, selectedName).map((it) => {
+        const p = map.latLngToContainerPoint([it.lat, it.lng]);
+        return { ...it, x: p.x, y: p.y };
+      }),
     });
-  }, [map, spots, homeCoords]);
+  }, [map, spots, homeCoords, bigSeasChips, selectedName]);
 
   const paintRef = useRef(paint);
   useLayoutEffect(() => { paintRef.current = paint; }, [paint]);
@@ -317,19 +326,27 @@ export default function PinsLayer({
   useEffect(() => { repaintNow(); }, [paint, repaintNow]);
 
   /**
-   * The home label's own measure-then-place pass — the ONLY item this layer places by collision
-   * avoidance (see the class doc). Keyed on the `frame` object's identity, same guard
+   * The measure-then-place pass: the home label and, in a big-seas window, the big-seas chips — the
+   * only items this layer places by collision avoidance (see the class doc). Keyed on the `frame` object's identity, same guard
    * `MapLabels.jsx`/`WindowRowFieldMap` both use.
    */
   useLayoutEffect(() => {
     if (!frame || placement?.frame === frame) return;
-    const items = [];
-    for (const it of frame.homeItems) {
-      const node = homeRef.current;
+    const measure = (it, node) => {
       const w = node?.offsetWidth ?? 0;
       const h = node?.offsetHeight ?? 0;
-      if (w > 0 && h > 0) items.push({ ...it, w, h });
-    }
+      return w > 0 && h > 0 ? { ...it, w, h } : null;
+    };
+    const home = frame.homeItems.map((it) => measure(it, homeRef.current)).filter(Boolean);
+    // The big-seas chips (F2) are the Pins view's only other collision-placed label: the same
+    // tier as in Heat (after the home marker, before any ordinary label, and Pins has none), so a
+    // pier reads identically in both views. The pins themselves stay unplaced, as ever.
+    const bigSeas = frame.bigSeasItems
+      .map((it) => measure(
+        { key: it.key, x: it.x, y: it.y },
+        seasRefs.current.get(it.locationId),
+      )).filter(Boolean);
+    const items = labelTierOrder({ home, bigSeas });
 
     let obstacles = [];
     const containerEl = map?.getContainer?.();
@@ -347,7 +364,6 @@ export default function PinsLayer({
     }
 
     const placed = placeLabelPass(items, frame.width, frame.height, obstacles);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPlacement({ frame, placed });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frame, map]);
@@ -384,13 +400,23 @@ export default function PinsLayer({
   // events say what the pointer is, so touch never reaches the tooltip at all.
   const showTip = useCallback((name, event) => {
     if (event.pointerType !== 'mouse') return;
+    setHoverSeasId(null);
     setHoverName(name);
+    positionTip(event);
+  }, [positionTip]);
+  const showSeasTip = useCallback((locationId, event) => {
+    if (event.pointerType !== 'mouse') return;
+    setHoverName(null);
+    setHoverSeasId(locationId);
     positionTip(event);
   }, [positionTip]);
   const moveTip = useCallback((event) => {
     if (event.pointerType === 'mouse') positionTip(event);
   }, [positionTip]);
-  const hideTip = useCallback(() => setHoverName(null), []);
+  const hideTip = useCallback(() => {
+    setHoverName(null);
+    setHoverSeasId(null);
+  }, []);
 
   // Resolved off the LIVE pool on every render, and forgotten once its location has left it — see
   // `MapLabels.jsx`'s `hover` for the reasoning. The pool alone decides here, where it does not
@@ -400,6 +426,11 @@ export default function PinsLayer({
   const hoverSpot = hoverName == null ? null : (spots.find((spot) => spot.name === hoverName) ?? null);
   const hover = hoverSpot?.askPick ? null : hoverSpot;
   if (hoverName != null && hover == null) setHoverName(null);
+  // A big-seas chip's card, forgotten once its chip has gone (see `MapLabels.jsx`'s identical block).
+  const hoverSeas = hoverSeasId == null
+    ? null
+    : (frame?.bigSeasItems.find((it) => it.locationId === hoverSeasId) ?? null);
+  if (hoverSeasId != null && hoverSeas == null) setHoverSeasId(null);
   /** An answer's picks are on this map: every pin that is not one steps back. */
   const askActive = spots.some((spot) => spot.askPick);
 
@@ -421,7 +452,42 @@ export default function PinsLayer({
         </span>
       ))}
 
-      {frame.pins.map(({ spot, x, y }) => {
+      {/* DOM (= tab) order: Ask picks, then the big-seas chips, then every other pin, so a keyboard
+          reader reaches the chips before a catalogue's worth of pins. Paint order is the stylesheet's
+          (`.wf-bsc` carries a z-index in this layer), so the chips still sit above the pins. */}
+      {[
+        ...frame.pins.filter(({ spot }) => spot.askPick),
+        ...frame.bigSeasItems.map((it) => ({ seas: it })),
+        ...frame.pins.filter(({ spot }) => !spot.askPick),
+      ].map((entry) => {
+        if (entry.seas) {
+          const it = entry.seas;
+          const box = isMeasured ? placement.placed.get(it.key) : undefined;
+          let style;
+          if (box) style = { left: `${box.x}px`, top: `${box.y}px` };
+          else if (isMeasured) style = { display: 'none' };
+          else style = { left: '-9999px', top: '0px', visibility: 'hidden' };
+          return (
+            <BigSeasChip
+              key={it.key}
+              item={it}
+              style={style}
+              // Only a PLACED chip carries the selected mark (see `MapLabels.jsx`); the place's pin,
+              // always visible, carries it otherwise.
+              selected={selectedName === it.name && box != null}
+              fade={askActive}
+              refCallback={(node) => {
+                if (node) seasRefs.current.set(it.locationId, node);
+                else seasRefs.current.delete(it.locationId);
+              }}
+              onSelect={onSelect}
+              onTipEnter={(e) => showSeasTip(it.locationId, e)}
+              onTipMove={moveTip}
+              onTipLeave={hideTip}
+            />
+          );
+        }
+        const { spot, x, y } = entry;
         const pick = spot.askPick ?? null;
         if (pick) {
           // Ask PhotoCast's pick (F3): the PICK'S window's colour, its RANK where the star would be,
@@ -584,15 +650,43 @@ export default function PinsLayer({
     chromeRoot,
   );
 
+  const seasTooltip = hoverSeas && chromeRoot && createPortal(
+    <div
+      ref={tipRef}
+      className="wf-maplab-tip"
+      data-testid="map-label-tip"
+      data-kind="big-seas"
+      style={{ left: `${tipPos.x}px`, top: `${tipPos.y}px` }}
+    >
+      <BigSeasTipLines item={hoverSeas} />
+    </div>,
+    chromeRoot,
+  );
+
   return (
     <>
       {pinsLayer}
       {tooltip}
+      {seasTooltip}
     </>
   );
 }
 
 PinsLayer.propTypes = {
+  /**
+   * The big-seas chips to draw (big-seas plan F2, owner Q11): the same items, tier and suppression
+   * rules as {@code MapLabels}; the pins themselves are untouched. Default none.
+   */
+  bigSeasChips: PropTypes.arrayOf(PropTypes.shape({
+    key: PropTypes.string.isRequired,
+    locationId: PropTypes.number.isRequired,
+    name: PropTypes.string.isRequired,
+    label: PropTypes.string.isRequired,
+    lat: PropTypes.number.isRequired,
+    lng: PropTypes.number.isRequired,
+    heightM: PropTypes.number.isRequired,
+    ringed: PropTypes.bool,
+  })),
   spots: PropTypes.arrayOf(PropTypes.shape({
     name: PropTypes.string.isRequired,
     lat: PropTypes.number.isRequired,

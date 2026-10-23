@@ -418,13 +418,17 @@ qualifying day. The table holds every input, so tuning is a SQL query; §6 gets 
   `structures[].locationId` to `locations` by id, **not** `labelSpots`. `labelSpots` drops stood-down
   places (unless `showStandDown`) and anything under the star floor, which is exactly the storm-day
   case. Chips show when `bigSeasFor(...).form === 'full'`, the EV row is **solar**, and zoom < 13.
-  They're ringed when `evRow.eventType === day.alignedEvent`. Selection works for a filtered place
+  They're ringed when `evRow.eventType === day.alignedEvent` AND the structure's own served `aligned` is true; the tooltip prints the structure's own `hwTime`, with the day's gap clause only for the anchor structure. Selection works for a filtered place
   already (`selectedLoc` reads `locations`).
 - **Tier** in `MapLabels`' measure-then-place pass: home → rings → Ask picks → regions (and F3's
   stand-down labels) → **big-seas chips** → ordinary chips. This matches the prototype.
 - **Suppression:** on a full day, drop the ordinary chip for a structure with a big-seas chip,
-  **except** an `askPick` chip or the selected chip. Those are never suppressed; in that case the
-  big-seas chip is dropped instead.
+  **except** an `askPick` chip, which is never suppressed (the big-seas chip is dropped instead).
+  **The selected place keeps its big-seas chip** (its ordinary chip stays withheld, and its big-seas
+  chip is placed first in the tier): it is the button the reader just pressed, and unmounting it
+  dropped focus to `<body>` and with it Escape. Only an Ask pick displaces a big-seas chip. When a
+  big-seas chip cannot be placed, its place's ordinary chip returns as a candidate through
+  `chipCandidates` (budget and ranking apply) and never ahead of the selected chip.
 - **Contracts:** big-seas chips carry `data-ask="fade"` while Ask is active. They carry
   `data-testid="map-label-chip"` with a `data-kind="big-seas"` attribute, and `data-selected`, so
   `closeCallout`'s focus target (MapView.jsx:5087) finds them. A click selects the place as an
@@ -616,7 +620,7 @@ tuning; the owner cuts releases.
 | B1 | — | Step 0 done; ready to brief once this plan merges |
 | B2 | — | after B1 |
 | F1 | — | built 2026-10-23 on `feature/big-seas-f1` (frontend only, against B2's served contract); label-obstacle re-measure below |
-| F2 | — | after F1 |
+| F2 | — | built 2026-10-23 on `feature/big-seas-f2` (frontend only, on F1): chips in Heat and Pins, tooltip, legend key in Heat, Pins and the phone Layers row |
 | F3 | — | ready to brief (Q1 answered); independent of B1–F2 |
 | F4 | — | after F3 |
 

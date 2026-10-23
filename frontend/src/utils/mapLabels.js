@@ -33,6 +33,17 @@ import { MAYBE_THRESHOLD, WORTH_IT_THRESHOLD, verdictWord } from './verdictWord.
  */
 export { MAYBE_THRESHOLD, WORTH_IT_THRESHOLD, verdictWord };
 
+/**
+ * The big-seas chips (big-seas plan F2) live in the leaf `utils/bigSeasChips.js` for the same reason:
+ * `MapView` needs the chip list for the legend key without reaching `d3-geo`. Re-exported here so the
+ * label pass's vocabulary stays in one place, including the collision tier order.
+ */
+export {
+  BIG_SEAS_CHIP_MAX_ZOOM, NO_BIG_SEAS_CHIPS, bigSeasChipAriaLabel, bigSeasChipItems,
+  bigSeasChipTipLines, dropProtectedBigSeasChips, labelTierOrder, selectedBigSeasFirst,
+  withFallbackChips, withoutBigSeasDuplicates,
+} from './bigSeasChips.js';
+
 // ── Zoom thresholds (README "Zoom thresholds") ──────────────────────────────────────────────────
 
 /** The home marker is placed below this zoom — README §6 priority order item 1. */
@@ -341,6 +352,21 @@ export function chipCandidates({
     || (a.askPick.rank - b.askPick.rank));
   const pickNames = new Set(picks.map((s) => s.name));
   return [...picks, ...shown.filter((s) => !pickNames.has(s.name))];
+}
+
+/**
+ * The ordinary chips to offer a place whose big-seas chip failed to place: {@link chipCandidates}
+ * over the FULL pool (so the density budget, the in-view filter and the ranking apply exactly as for
+ * any ordinary chip), restricted to the suppressed places. A low-ranked structure at a low zoom gets
+ * none, as it would not have had a chip without the big-seas chip either.
+ *
+ * @param {object} args {@link chipCandidates}' arguments, over the unsuppressed pool
+ * @param {Set<string>} args.suppressedNames the places a big-seas chip stands for
+ * @returns {Array<object>} the candidate spots, in ranking order
+ */
+export function fallbackChipSpots({ suppressedNames, ...rest }) {
+  if (suppressedNames.size === 0) return [];
+  return chipCandidates(rest).filter((spot) => suppressedNames.has(spot.name));
 }
 
 // ── The placement pass ───────────────────────────────────────────────────────────────────────────

@@ -375,3 +375,34 @@ describe('MapLegendPanel — the aurora variant (aurora heat, A3)', () => {
     expect(screen.queryByTestId('wf-legend-rings-toggle')).toBeNull();
   });
 });
+
+describe('MapLegendPanel — the big-seas key (big-seas plan F2)', () => {
+  const KEY_TEXT = 'waves onto a pier or lighthouse at high water · ringed when high water is on the light';
+
+  it('names the bolt chip while chips are drawn', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} seasKey />);
+    const key = screen.getByTestId('wf-legend-bigseas');
+    expect(key).toHaveTextContent(KEY_TEXT);
+    expect(key.querySelector('.wf-legend-swatch-seas [data-testid="wf-bolt"]')).not.toBeNull();
+  });
+
+  it('is withheld unless chips are drawn: no key, no chips', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} />);
+    expect(screen.queryByTestId('wf-legend-bigseas')).toBeNull();
+  });
+
+  it('shows in the Pins variant, alone or beside the stand-down key', () => {
+    const { rerender } = render(<MapLegendPanel {...baseProps({ open: true })} variant="pins" seasKey />);
+    expect(screen.getByTestId('wf-legend-bigseas')).toHaveTextContent(KEY_TEXT);
+    expect(screen.queryByTestId('wf-legend-standdown')).toBeNull();
+    expect(screen.queryByTestId('wf-legend-ramp')).toBeNull();
+    rerender(<MapLegendPanel {...baseProps({ open: true })} variant="pins" seasKey stoodKey />);
+    expect(screen.getByTestId('wf-legend-bigseas')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-legend-standdown')).toBeInTheDocument();
+  });
+
+  it('is not drawn on an aurora night, which has no chips', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} variant="aurora" seasKey />);
+    expect(screen.queryByTestId('wf-legend-bigseas')).toBeNull();
+  });
+});
