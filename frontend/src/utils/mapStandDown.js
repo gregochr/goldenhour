@@ -25,8 +25,12 @@ export function weatherStoodOf(stood) {
 
 /**
  * Whether a window holds any evidence at all: at least one {@code rated} or {@code stood} place
- * (the {@code unratedPointsFor} test). Without it an empty scores response would read as a window
- * that stood everything down.
+ * (the {@code unratedPointsFor} test). The pane's own guard against a pending or failed scores
+ * response is withholding a served window's states until {@code scoresLoaded} (then this sees no
+ * entry at all); this is the second line, for a response that loaded but named no place either way.
+ *
+ * <p>An entry whose states are all unrated or not applicable yields nothing, so a stood list can
+ * never draw on a window that is not evidenced.
  *
  * @param {?Map<string, string>} states the window's place states
  * @returns {boolean} true when some place is rated or stood

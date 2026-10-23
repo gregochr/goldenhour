@@ -165,8 +165,18 @@ export function standDownRegionItems(regions, project, zoom) {
  */
 export function withStandDownLabels(ordinary, standDown) {
   if (!standDown.length) return ordinary;
-  const replaced = new Set(standDown.map((it) => it.key));
-  return [...ordinary.filter((it) => !replaced.has(it.key)), ...standDown];
+  // In place by key: the stood label takes the ordinary label's slot, so the greedy pass meets it at
+  // the same priority and the region order is unchanged. Only a stood label with no ordinary
+  // counterpart (every place of its region stood down) is appended.
+  const byKey = new Map(standDown.map((it) => [it.key, it]));
+  const used = new Set();
+  const merged = ordinary.map((it) => {
+    const swap = byKey.get(it.key);
+    if (!swap) return it;
+    used.add(it.key);
+    return swap;
+  });
+  return [...merged, ...standDown.filter((it) => !used.has(it.key))];
 }
 
 // ── Home marker ──────────────────────────────────────────────────────────────────────────────────

@@ -315,6 +315,8 @@ const NO_STAND_GROUND = Object.freeze({
 
 /** The Heat view's key-slot line for a window where every place stood down (big-seas plan F3). */
 const STOOD_DOWN_UNSCORED_LINE = 'Stood down by the weather — no place rated for this event';
+/** The same line when the window still has places nobody has looked at. */
+const STOOD_DOWN_SOME_UNRATED_LINE = 'Some places stood down by the weather — none rated yet';
 /** Stable empty rows — the window panel's fallback while it is closed (map-landing-plan.md §3 L5). */
 const EMPTY_ROWS = [];
 
@@ -4519,9 +4521,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   // A window every place of which stood down is not "unscored": the pipeline looked and ruled it out
   // (big-seas plan F3), and the ground beside the line is hatched to say so.
-  const unscoredLineText = ratingRetrying
-    ? NIGHT_RETRY_LINE
-    : (stoodPoints.length > 0 ? STOOD_DOWN_UNSCORED_LINE : 'This event is not scored yet');
+  // The wording is chosen from the UNNARROWED weather-stood list, so the dark-sky toggle or a door's
+  // lens cannot turn it back into "not scored yet"; a tide-only window keeps the old wording.
+  let unscoredLineText = 'This event is not scored yet';
+  if (ratingRetrying) {
+    unscoredLineText = NIGHT_RETRY_LINE;
+  } else if (weatherStoodOf(standGround.entry?.stood).length > 0) {
+    unscoredLineText = (standGround.entry.unrated?.length ?? 0) > 0
+      ? STOOD_DOWN_SOME_UNRATED_LINE : STOOD_DOWN_UNSCORED_LINE;
+  }
 
   /**
    * What the tab's status region says: {@code NIGHT_RETRY_LINE} whenever the tab is SHOWING it — in
@@ -6540,6 +6548,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                         {stoodPoints.length > 0 && (
                           <span data-testid="wf-map-peek-standdown" className="wf-legend-ground-item">
                             <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-standdown" />
+                            <b>Stood down</b>
+                            {' '}
                             ruled out by the weather, cause named on the ground
                           </span>
                         )}

@@ -38,11 +38,11 @@ import TideWave from './TideWave.jsx';
  * pane (600) while staying below its popup pane (700) and every chrome chip (1100+) — the P7 chrome
  * comment in index.css records the ladder with this correction.
  */
-/** No stood-down region labels: one stable identity, so the default never repaints the pass. */
-const NO_STAND_REGIONS = [];
-
 const LABEL_PANE = 'wf-labels';
 const LABEL_PANE_Z = 650;
+
+/** No stood-down region labels: one stable identity, so the default never repaints the pass. */
+const NO_STAND_REGIONS = [];
 
 /**
  * Live chrome to seed as obstacles (README §6: "the window bar, Regions/Heat/Pins/Filters bar,

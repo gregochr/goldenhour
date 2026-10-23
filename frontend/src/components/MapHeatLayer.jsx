@@ -116,6 +116,8 @@ const LAND_CLIP_SOFT_PX = 4;
  * fixes (docs/design/map-tab-v2/README.md, "The heat field").
  */
 const COAST_ERROR_METRES = 4200;
+const COAST_ERROR_MIN_PX = 3;
+const COAST_ERROR_MAX_PX = 120;
 
 /**
  * The stand-down hatch's disc radius (big-seas plan F3): the design's `radiusFor(map, 6500, 22, 150)`.
@@ -124,8 +126,6 @@ const COAST_ERROR_METRES = 4200;
 const STAND_RADIUS_METRES = 6500;
 const STAND_RADIUS_MIN_PX = 22;
 const STAND_RADIUS_MAX_PX = 150;
-const COAST_ERROR_MIN_PX = 3;
-const COAST_ERROR_MAX_PX = 120;
 
 /**
  * The coastline stroke's own fade-out, independent of the land clip's own threshold above: the
@@ -583,6 +583,10 @@ export default function MapHeatLayer({
         drawStandDownTiles(canvas, map, stoodRated ?? points, POINT_SCORE_INDEX, {
           stood,
           standRadius: standRadius(),
+          // The same dials the Heat view's draw takes, so the hatch reads identically in both views.
+          grid: GRID,
+          blur: BLUR,
+          conf,
           opacity: HEAT_OPACITY * fade.heat * dim,
           ...(clipOpts || null),
         });

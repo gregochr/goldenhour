@@ -201,11 +201,14 @@ export default function MapLegendPanel({
           {/* Big-seas plan F3: the stand-down hatch's key, while the hatch is drawn (solar, with a
               weather stand-down in the window) — in Heat beside the ground key, in Pins on its own. */}
           {stoodKey && !aurora && (
-            <div data-testid="wf-legend-standdown" className="wf-legend-ground">
-              <span className="wf-legend-ground-item">
-                <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-standdown" />
-                ruled out by the weather, cause named on the ground
-              </span>
+            <div data-testid="wf-legend-standdown">
+              <div className="wf-legend-ramp-label">Stood down</div>
+              <div className="wf-legend-ground">
+                <span className="wf-legend-ground-item">
+                  <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-standdown" />
+                  ruled out by the weather, cause named on the ground
+                </span>
+              </div>
             </div>
           )}
 

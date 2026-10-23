@@ -64,7 +64,8 @@ vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => <div data-tes
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
 let mockIsMobile = false;
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mockIsMobile }));
-vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));
+let auroraStatus = null;
+vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: auroraStatus }) }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null, source: null }) }));
 vi.mock('../api/auroraApi.js', () => ({
   getAuroraLocations: vi.fn().mockResolvedValue([]),
@@ -85,6 +86,7 @@ vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null 
 import MapView from '../components/MapView.jsx';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 import { buildPastSolarWindows } from '../utils/mapEvents.js';
+import { getAuroraLocations } from '../api/auroraApi.js';
 
 const TODAY = '2026-01-15';
 const YESTERDAY = '2026-01-14';
@@ -193,6 +195,7 @@ beforeEach(() => {
   labelProps.last = null;
   mapEventHandlers = [];
   mockIsMobile = false;
+  auroraStatus = null;
   nonce += 1;
 });
 afterEach(() => {
@@ -553,5 +556,105 @@ describe('MapView stand-down — the regions that earn a label', () => {
       );
     });
     expect(regionsOf()).toEqual([['The Lakes', 'cloud']]);
+  });
+});
+
+describe('MapView stand-down — review corrections', () => {
+  const regionsOf = () => labelProps.last.standRegions.map((r) => [r.rid, r.cause]);
+  const darkSky = () => {
+    openFilters();
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+  };
+
+  it('the unscored line says "Some places" while unrated places remain in the window', async () => {
+    const heat = heatFor({ stood: { 3: 'HIGH_CLOUD' } });
+    heat.windowStates.get(KEY).unrated = [pointOf(SPOTS[0], 0)];
+    await renderMap({ heat });
+    expect(screen.getByTestId('wf-map-heat-unscored'))
+      .toHaveTextContent('Some places stood down by the weather — none rated yet');
+  });
+
+  it('dark sky cannot turn the stood wording back into "not scored yet"', async () => {
+    // Tynemouth (Bortle 6) is the only stood place; dark sky narrows it out of the hatch.
+    await renderMap({ heat: heatFor({ stood: { 2: 'HIGH_CLOUD' } }) });
+    expect(screen.getByTestId('wf-map-heat-unscored')).toHaveTextContent('Stood down by the weather');
+    darkSky();
+    expect(heatLayerProps.last.stood).toEqual([]);
+    expect(screen.getByTestId('wf-map-heat-unscored')).toHaveTextContent('Stood down by the weather');
+  });
+
+  it('a tide-only window still reads "not scored yet", with no stand-down key and no footer count', async () => {
+    await renderMap({ heat: heatFor({ stood: { 3: 'TIDE_MISALIGNED' } }) });
+    expect(screen.getByTestId('wf-map-heat-unscored')).toHaveTextContent('This event is not scored yet');
+    expect(screen.queryByTestId('wf-map-counts-standdown')).toBeNull();
+    openLegend();
+    expect(screen.queryByTestId('wf-legend-standdown')).toBeNull();
+    expect(screen.queryByTestId('wf-legend-ground')).toBeNull();
+  });
+
+  it('the legend key carries a "Stood down" heading, in Heat, Pins and on the phone', async () => {
+    const heat = heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 });
+    const { unmount } = await renderMap({ heat });
+    openLegend();
+    expect(within(screen.getByTestId('wf-legend-standdown')).getByText('Stood down'))
+      .toHaveClass('wf-legend-ramp-label');
+    showPins();
+    expect(within(screen.getByTestId('wf-legend-standdown')).getByText('Stood down')).toBeInTheDocument();
+    unmount();
+    mockIsMobile = true;
+    await renderMap({ heat });
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
+    expect(screen.getByTestId('wf-map-peek-standdown')).toHaveTextContent(/Stood down\s+ruled out/);
+  });
+
+  it('the region label\'s rated side is narrowed too: a rated place dark sky hides cannot block it', async () => {
+    // Tynemouth (Bortle 6) is rated, Bamburgh (Bortle 4) stood, same region.
+    await renderMap({ heat: heatFor({ rated: [2], stood: { 1: 'PRECIPITATION' }, bestRating: 4 }) });
+    expect(regionsOf()).toEqual([]);
+    darkSky();
+    expect(regionsOf()).toEqual([['North East', 'rain']]);
+  });
+
+  it('Pins: the rated points the mask yields to are narrowed by dark sky, as the field\'s are', async () => {
+    await renderMap({ heat: heatFor({ rated: [1, 2], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 }) });
+    showPins();
+    expect(heatLayerProps.last.stoodRated.map((p) => p.name).sort()).toEqual(['Bamburgh', 'Tynemouth']);
+    darkSky();
+    expect(heatLayerProps.last.stoodRated.map((p) => p.name)).toEqual(['Bamburgh']);
+  });
+
+  it('the footer count is the scope pool\'s, not the narrowed list: dark sky leaves it at 2', async () => {
+    await renderMap({
+      heat: heatFor({ rated: [1], stood: { 2: 'HIGH_CLOUD', 3: 'HIGH_CLOUD' }, bestRating: 4 }),
+    });
+    expect(screen.getByTestId('wf-map-counts-standdown')).toHaveTextContent('· 2 stood down');
+    darkSky();
+    expect(heatLayerProps.last.stood.map((p) => p.key)).toEqual(['#3']);
+    expect(screen.getByTestId('wf-map-counts-standdown')).toHaveTextContent('· 2 stood down');
+  });
+
+  it('is NOT narrowed by the rating floor: a floor of 5 leaves the hatch and the labels as they were', async () => {
+    const heat = heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD', 4: 'PRECIPITATION' }, bestRating: 4 });
+    const { unmount } = await renderMap({ heat });
+    const before = [heatLayerProps.last.stood.map((p) => p.key), regionsOf()];
+    expect(before[0]).toEqual(['#3', '#4']);
+    unmount();
+    localStorage.setItem('mapFilterMinStars', '5');
+    await renderMap({ heat });
+    expect([heatLayerProps.last.stood.map((p) => p.key), regionsOf()]).toEqual(before);
+  });
+
+  it('an aurora night has no hatch, no labels, no key and no footer count', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TODAY };
+    getAuroraLocations.mockResolvedValue([{ location: { name: SPOTS[0].name }, stars: 4 }]);
+    await renderMap({
+      heat: heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 }), autoEventType: 'AURORA',
+    });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.stood).toEqual([]);
+    expect(labelProps.last.standRegions).toEqual([]);
+    expect(screen.queryByTestId('wf-map-counts-standdown')).toBeNull();
+    openLegend();
+    expect(screen.queryByTestId('wf-legend-standdown')).toBeNull();
   });
 });

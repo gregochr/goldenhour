@@ -6,7 +6,7 @@ import { STAND_DOWN_CAUSE_WORD, standDownCauseWord } from '../utils/standDown.js
 import {
   standDownFooterCount, standDownRegions, weatherStoodOf, windowHasEvidence,
 } from '../utils/mapStandDown.js';
-import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
+import { buildRegionVerdictIndex, keyOf } from '../utils/mapVerdict.js';
 
 /**
  * The Map's stand-down ground (big-seas-plan.md F3): the reason a stood place keeps, the list a
@@ -189,6 +189,17 @@ describe('standDownRegions — when a region earns its label', () => {
     });
     expect(nullMean).toHaveLength(1);
     expect(absent).toHaveLength(1);
+  });
+
+  it.each([[NaN], ['2.5'], [null], [undefined], [Infinity]])('a non-finite or non-numeric mean (%j) counts as no mean', (mean) => {
+    const out = standDownRegions({
+      ...base,
+      stood: stood('North', 'HIGH_CLOUD'),
+      spots: [],
+      states: new Map(),
+      regionVerdictIndex: new Map([[keyOf(DATE, 'SUNSET', 'North'), { meanRating: mean }]]),
+    });
+    expect(out).toHaveLength(1);
   });
 
   it('a PAST window has no served mean to consult', () => {

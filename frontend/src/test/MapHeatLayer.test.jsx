@@ -1501,6 +1501,41 @@ describe('MapHeatLayer — the stand-down hatch (big-seas plan F3)', () => {
     expect(opts.opacity).toBeGreaterThan(0);
   });
 
+  it('Pins: carries the soft land clip, the field\'s grid, blur and confidence, and its opacity', async () => {
+    const stubPath = { __stub: 'land' };
+    landMaskGet.mockReturnValue(stubPath);
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({
+      fieldEnabled: false, stood: STOOD, stoodRated: RATED, conf: 0.8, dim: 1,
+    });
+    const opts = drawStandDownTiles.mock.calls.at(-1)[4];
+    expect(opts.clipPath).toBe(stubPath);
+    expect(opts.clipSoft).toBe(4);
+    expect(opts.clipGrow).toBe(120); // `radiusFor` is stubbed
+    expect(opts.grid).toBe(6);
+    expect(opts.blur).toBe(4);
+    expect(opts.conf).toBe(0.8);
+    expect(opts.opacity).toBeCloseTo(0.92 * fadeAt(9).heat, 5);
+  });
+
+  it('Pins: drops the clip keys altogether at or above the land-clip zoom', async () => {
+    landMaskGet.mockReturnValue({ __stub: 'land' });
+    currentMap = makeMap({ zoom: 12, panes: markerPanes() });
+    await mount({ fieldEnabled: false, stood: STOOD, stoodRated: RATED });
+    const opts = drawStandDownTiles.mock.calls.at(-1)[4];
+    expect('clipPath' in opts).toBe(false);
+    expect('clipSoft' in opts).toBe(false);
+    expect(opts.opacity).toBeCloseTo(0.92 * fadeAt(12).heat, 5);
+  });
+
+  it('Pins: Ask\'s dim halves the hatch exactly as it halves the field', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ fieldEnabled: false, stood: STOOD, dim: 1 });
+    const full = drawStandDownTiles.mock.calls.at(-1)[4].opacity;
+    await mount({ fieldEnabled: false, stood: STOOD, dim: 0.5 });
+    expect(drawStandDownTiles.mock.calls.at(-1)[4].opacity / full).toBeCloseTo(0.5, 5);
+  });
+
   it('Pins: falls back to the layer\'s own points when no rated list is handed in', async () => {
     currentMap = makeMap({ zoom: 9, panes: markerPanes() });
     await mount({ fieldEnabled: false, stood: STOOD });

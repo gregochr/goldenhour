@@ -605,6 +605,14 @@ describe('mapLabels — the stood-down region labels (big-seas plan F3)', () => 
     expect(merged.find((m) => m.key === 'region:South').standDown).toBeUndefined();
   });
 
+  it('substitutes IN PLACE by key, so the region order (and the pass\'s priority) is unchanged', () => {
+    const ordinary = [{ key: 'region:A' }, { key: 'region:B' }, { key: 'region:C' }];
+    const stood = [{ key: 'region:B', standDown: 'rain' }, { key: 'region:Z', standDown: 'murk' }];
+    const merged = withStandDownLabels(ordinary, stood);
+    expect(merged.map((m) => m.key)).toEqual(['region:A', 'region:B', 'region:C', 'region:Z']);
+    expect(merged[1].standDown).toBe('rain');
+  });
+
   it('adds the label for a region with no ordinary one (every place stood down)', () => {
     const merged = withStandDownLabels([], standDownRegionItems([region('North', 'murk', [54, 2])], project, 9));
     expect(merged).toHaveLength(1);
