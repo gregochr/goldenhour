@@ -132,7 +132,7 @@ public class LocationService {
         if (locationRepository.existsByName(request.name())) {
             throw new IllegalArgumentException("A location named '" + request.name() + "' already exists");
         }
-        nameGuard.locationNameClash(request.name().trim()).ifPresent(clash -> {
+        nameGuard.locationNameClash(request.name().trim(), null).ifPresent(clash -> {
             throw new IllegalArgumentException(clash);
         });
 
@@ -214,7 +214,7 @@ public class LocationService {
                 throw new IllegalArgumentException(
                         "A location named '" + newName + "' already exists.");
             }
-            nameGuard.locationNameClash(newName).ifPresent(clash -> {
+            nameGuard.locationNameClash(newName, location.getId()).ifPresent(clash -> {
                 throw new IllegalArgumentException(clash);
             });
             String oldName = location.getName();

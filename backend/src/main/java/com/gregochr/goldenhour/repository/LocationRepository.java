@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.model.LocationNameRow;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -24,6 +25,14 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
      * @return {@code true} if a matching row exists
      */
     boolean existsByName(String name);
+
+    /**
+     * Returns every location's id and name only (no collections, no region).
+     *
+     * @return the id and name of every location
+     */
+    @Query("SELECT new com.gregochr.goldenhour.model.LocationNameRow(l.id, l.name) FROM LocationEntity l")
+    List<LocationNameRow> findAllNames();
 
     /**
      * Finds a location by its exact name.

@@ -64,7 +64,7 @@ class LocationServiceTest {
     @DisplayName("add() refuses a name that clashes with a named area, as a 400, and saves nothing")
     void add_nameClashesWithNamespace_throwsIllegalArgumentException() {
         when(locationRepository.existsByName("Hadrian's Wall")).thenReturn(false);
-        when(nameGuard.locationNameClash("Hadrian's Wall"))
+        when(nameGuard.locationNameClash("Hadrian's Wall", null))
                 .thenReturn(Optional.of("'Hadrian's Wall' contains the named area 'Hadrian's Wall'"));
         AddLocationRequest request = new AddLocationRequest(
                 "Hadrian's Wall", 55.0, -2.0,
@@ -83,7 +83,7 @@ class LocationServiceTest {
         LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
         when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
         when(locationRepository.existsByName("Roman Wall Viewpoint")).thenReturn(false);
-        when(nameGuard.locationNameClash("Roman Wall Viewpoint"))
+        when(nameGuard.locationNameClash("Roman Wall Viewpoint", 1L))
                 .thenReturn(Optional.of("'Roman Wall Viewpoint' contains 'Roman Wall'"));
 
         assertThatThrownBy(() -> locationService.update(1L, new UpdateLocationRequest(
@@ -106,7 +106,7 @@ class LocationServiceTest {
         locationService.update(1L, new UpdateLocationRequest(
                 " Durham Cathedral ", null, null, null, null, null, null));
 
-        verify(nameGuard).locationNameClash("Durham Cathedral");
+        verify(nameGuard).locationNameClash("Durham Cathedral", 1L);
         assertThat(existing.getName()).isEqualTo("Durham Cathedral");
     }
 

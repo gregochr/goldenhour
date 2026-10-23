@@ -17,7 +17,7 @@ public interface LocationAliasRepository extends JpaRepository<LocationAliasEnti
      *
      * @param locationId the location primary key
      */
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM LocationAliasEntity a WHERE a.locationId = :locationId")
     void deleteByLocationId(@Param("locationId") Long locationId);
 }

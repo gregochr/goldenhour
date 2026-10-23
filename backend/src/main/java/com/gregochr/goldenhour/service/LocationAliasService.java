@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.repository.LocationAliasRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -75,6 +76,10 @@ public class LocationAliasService {
         if (!locationRepository.existsById(locationId)) {
             throw new NoSuchElementException("No location with id " + locationId);
         }
+        if (aliases == null) {
+            // A missing list must not read as "no aliases": only an explicit [] clears them.
+            throw new IllegalArgumentException("aliases is required (send [] to clear the names)");
+        }
         List<String> clean = NameNamespaceGuard.cleanAliases(aliases, 1, "A location alias");
         for (String alias : clean) {
             Optional<String> clash = nameGuard.locationAliasClash(alias, locationId);
@@ -83,8 +88,12 @@ public class LocationAliasService {
             }
         }
         aliasRepository.deleteByLocationId(locationId);
-        aliasRepository.flush();
-        aliasRepository.saveAll(clean.stream().map(a -> new LocationAliasEntity(locationId, a)).toList());
+        try {
+            aliasRepository.saveAll(clean.stream().map(a -> new LocationAliasEntity(locationId, a)).toList());
+            aliasRepository.flush();
+        } catch (DataIntegrityViolationException e) {
+            throw new NameClashException("One of those names is already taken by another location");
+        }
         LOG.info("Location {} now has {} aliases", locationId, clean.size());
         return clean.stream().sorted(String.CASE_INSENSITIVE_ORDER).toList();
     }

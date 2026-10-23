@@ -2,7 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.AreaEntity;
 import com.gregochr.goldenhour.entity.LocationAliasEntity;
-import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.model.LocationNameRow;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationAliasRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -124,9 +124,9 @@ public class NameNamespaceGuard {
                 }
             }
         }
-        for (LocationEntity location : locationRepository.findAll()) {
-            if (PlaceNames.containsRun(PlaceNames.words(location.getName()), words)) {
-                return Optional.of("'" + candidate + "' is part of the location name '" + location.getName() + "'");
+        for (LocationNameRow location : locationRepository.findAllNames()) {
+            if (PlaceNames.containsRun(PlaceNames.words(location.name()), words)) {
+                return Optional.of("'" + candidate + "' is part of the location name '" + location.name() + "'");
             }
         }
         for (LocationAliasEntity alias : locationAliasRepository.findAll()) {
@@ -152,10 +152,10 @@ public class NameNamespaceGuard {
         if (words.isEmpty()) {
             return Optional.empty();
         }
-        for (LocationEntity location : locationRepository.findAll()) {
-            if (!Objects.equals(location.getId(), locationId)
-                    && words.equals(PlaceNames.words(location.getName()))) {
-                return Optional.of("'" + candidate + "' is already the location '" + location.getName() + "'");
+        for (LocationNameRow location : locationRepository.findAllNames()) {
+            if (!Objects.equals(location.id(), locationId)
+                    && words.equals(PlaceNames.words(location.name()))) {
+                return Optional.of("'" + candidate + "' is already the location '" + location.name() + "'");
             }
         }
         for (LocationAliasEntity alias : locationAliasRepository.findAll()) {
@@ -173,17 +173,28 @@ public class NameNamespaceGuard {
      * contain an area name or alias as a run of whole words, or a place called "Hadrian's Wall" would hide the
      * named area.
      *
-     * @param candidate the location name
+     * <p>It also may not equal another location's name in its normalised form ("Cuddys Crags" beside "Cuddy's
+     * Crags"). The location's own aliases and own name are not a clash.
+     *
+     * @param candidate         the location name
+     * @param excludeLocationId the location being renamed; null for a new location
      * @return the clash, or empty
      */
     @Transactional(readOnly = true)
-    public Optional<String> locationNameClash(String candidate) {
+    public Optional<String> locationNameClash(String candidate, Long excludeLocationId) {
         List<String> words = PlaceNames.words(candidate);
         if (words.isEmpty()) {
             return Optional.empty();
         }
+        for (LocationNameRow location : locationRepository.findAllNames()) {
+            if (!Objects.equals(location.id(), excludeLocationId)
+                    && words.equals(PlaceNames.words(location.name()))) {
+                return Optional.of("'" + candidate + "' is already the location '" + location.name() + "'");
+            }
+        }
         for (LocationAliasEntity alias : locationAliasRepository.findAll()) {
-            if (words.equals(PlaceNames.words(alias.getAlias()))) {
+            if (!Objects.equals(alias.getLocationId(), excludeLocationId)
+                    && words.equals(PlaceNames.words(alias.getAlias()))) {
                 return Optional.of("'" + candidate + "' is already another name for a location ('"
                         + alias.getAlias() + "')");
             }

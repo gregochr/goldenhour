@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.util.PlaceNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -80,7 +81,7 @@ public class AreaService {
         AreaEntity area = new AreaEntity();
         area.setName(name);
         area.getAliases().addAll(aliases);
-        AreaEntity saved = areaRepository.save(area);
+        AreaEntity saved = saveOrClash(area);
         LOG.info("Created named area '{}' with {} aliases", name, aliases.size());
         return toDto(saved);
     }
@@ -104,7 +105,7 @@ public class AreaService {
         area.setName(name);
         area.getAliases().clear();
         area.getAliases().addAll(aliases);
-        AreaEntity saved = areaRepository.save(area);
+        AreaEntity saved = saveOrClash(area);
         LOG.info("Updated named area {} to '{}' with {} aliases", id, name, aliases.size());
         return toDto(saved);
     }
@@ -121,14 +122,16 @@ public class AreaService {
     @Transactional
     public AreaDto setLocations(Long id, AreaLocationsRequest request) {
         AreaEntity area = load(id);
+        if (request.locationIds() == null) {
+            // A missing list must not read as "no members": only an explicit [] clears the area.
+            throw new IllegalArgumentException("locationIds is required (send [] to clear the members)");
+        }
         Set<Long> wanted = new HashSet<>();
-        if (request.locationIds() != null) {
-            for (Long locationId : request.locationIds()) {
-                if (locationId == null) {
-                    throw new IllegalArgumentException("A location id must not be null");
-                }
-                wanted.add(locationId);
+        for (Long locationId : request.locationIds()) {
+            if (locationId == null) {
+                throw new IllegalArgumentException("A location id must not be null");
             }
+            wanted.add(locationId);
         }
         Set<Long> found = new HashSet<>();
         locationRepository.findAllById(wanted).forEach(l -> found.add(l.getId()));
@@ -140,7 +143,7 @@ public class AreaService {
         }
         area.getLocationIds().clear();
         area.getLocationIds().addAll(wanted);
-        AreaEntity saved = areaRepository.save(area);
+        AreaEntity saved = saveOrClash(area);
         LOG.info("Named area '{}' now has {} members", saved.getName(), wanted.size());
         return toDto(saved);
     }
@@ -156,6 +159,18 @@ public class AreaService {
         AreaEntity area = load(id);
         areaRepository.delete(area);
         LOG.info("Deleted named area '{}'", area.getName());
+    }
+
+    /**
+     * Saves and flushes inside the transaction, so a unique or primary-key violation (two admins creating the
+     * same name at once) is caught here and answered as a 409, not left to surface at commit as a 500.
+     */
+    private AreaEntity saveOrClash(AreaEntity area) {
+        try {
+            return areaRepository.saveAndFlush(area);
+        } catch (DataIntegrityViolationException e) {
+            throw new NameClashException("That name is already taken by another named area");
+        }
     }
 
     private AreaEntity load(Long id) {

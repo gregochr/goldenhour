@@ -249,7 +249,7 @@ class NamedAreasAdminJpaTest {
                 .containsExactly("Heugh Lighthouse");
         assertThat(aliasService.findAll()).isEqualTo(Map.of(headland, List.of("Heugh Lighthouse")));
 
-        aliasService.replace(headland, null);
+        aliasService.replace(headland, List.of());
         reload();
         assertThat(aliasService.findAll()).isEmpty();
     }
@@ -308,13 +308,59 @@ class NamedAreasAdminJpaTest {
         aliasService.replace(headland, List.of("The Heugh"));
         reload();
 
-        assertThat(guard.locationNameClash("the heugh")).isPresent();
-        assertThat(guard.locationNameClash("Hadrians Wall")).isPresent();
-        assertThat(guard.locationNameClash("Roman Wall Viewpoint")).hasValueSatisfying(
+        assertThat(guard.locationNameClash("the heugh", null)).isPresent();
+        assertThat(guard.locationNameClash("Hadrians Wall", null)).isPresent();
+        assertThat(guard.locationNameClash("Roman Wall Viewpoint", null)).hasValueSatisfying(
                 m -> assertThat(m).contains("Roman Wall"));
-        assertThat(guard.locationNameClash("Wall Viewpoint")).isEmpty();
-        assertThat(guard.locationNameClash("Bamburgh Castle")).isEmpty();
-        assertThat(guard.locationNameClash("!!")).isEmpty();
+        assertThat(guard.locationNameClash("Wall Viewpoint", null)).isEmpty();
+        assertThat(guard.locationNameClash("Bamburgh Castle", null)).isEmpty();
+        assertThat(guard.locationNameClash("!!", null)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a location may be renamed to one of ITS OWN aliases, but not to another location's alias")
+    void locationName_ownAliasIsNotAClash() {
+        aliasService.replace(headland, List.of("The Heugh"));
+        reload();
+
+        assertThat(guard.locationNameClash("The Heugh", headland)).isEmpty();
+        assertThat(guard.locationNameClash("The Heugh", walltown)).isPresent();
+        assertThat(guard.locationNameClash("The Heugh", null)).isPresent();
+    }
+
+    @Test
+    @DisplayName("a location name equal to ANOTHER location's name in normalised form is a clash; its own is not")
+    void locationName_normalisedOtherLocationName() {
+        Long cuddys = location("Cuddy's Crags");
+
+        assertThat(guard.locationNameClash("Cuddys Crags", null)).hasValueSatisfying(
+                m -> assertThat(m).contains("Cuddy's Crags"));
+        assertThat(guard.locationNameClash("CUDDYS  CRAGS", walltown)).isPresent();
+        assertThat(guard.locationNameClash("Cuddys Crags", cuddys)).isEmpty();
+        assertThat(guard.locationNameClash("cuddy's crags", cuddys)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a missing aliases list or locationIds list is a 400, never a silent clear; [] still clears")
+    void nullListsAreRejected() {
+        AreaDto created = wall();
+        areaService.setLocations(created.id(), new AreaLocationsRequest(List.of(walltown)));
+        aliasService.replace(headland, List.of("The Heugh"));
+        reload();
+
+        assertThatThrownBy(() -> areaService.setLocations(created.id(), new AreaLocationsRequest(null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("locationIds");
+        assertThatThrownBy(() -> aliasService.replace(headland, null))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("aliases");
+        reload();
+        assertThat(areaRepository.findById(created.id()).orElseThrow().getLocationIds()).containsExactly(walltown);
+        assertThat(aliasService.findAll()).containsKey(headland);
+
+        areaService.setLocations(created.id(), new AreaLocationsRequest(List.of()));
+        aliasService.replace(headland, List.of());
+        reload();
+        assertThat(areaRepository.findById(created.id()).orElseThrow().getLocationIds()).isEmpty();
+        assertThat(aliasService.findAll()).isEmpty();
     }
 
     @Test
