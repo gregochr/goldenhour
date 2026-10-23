@@ -274,6 +274,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
   // Other names per location id; null until loaded, and stays null if the load fails so the field is
   // disabled rather than offering to overwrite names it never saw.
   const [aliasesByLocation, setAliasesByLocation] = useState(null);
+  const [aliasesFailed, setAliasesFailed] = useState(false);
   const [aliasDetail, setAliasDetail] = useState('');
 
   // Add form state
@@ -341,8 +342,18 @@ export default function LocationManagementView({ onLocationsChanged }) {
       .then(([locs, regs]) => { setLocations(locs); setRegions(regs); })
       .finally(() => setLoading(false));
     fetchLocationAliases()
-      .then((aliases) => setAliasesByLocation(aliases ?? {}))
-      .catch(() => { /* the "Also known as" field stays disabled */ });
+      .then((aliases) => {
+        const map = aliases ?? {};
+        setAliasesByLocation(map);
+        // An editor opened before the names landed starts the field (and its baseline) now; it was disabled,
+        // so nothing the admin typed can be lost.
+        setEditValues((prev) => {
+          if (!prev || prev.aliasesLoaded) return prev;
+          const text = formatAliases(map[prev.locId]);
+          return { ...prev, aliases: text, aliasesBaseline: text, aliasesLoaded: true };
+        });
+      })
+      .catch(() => { setAliasesFailed(true); });
   }, []);
 
   // Cancel inline edit when page changes (edited row may no longer be visible)
@@ -390,7 +401,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
       tideTypes: Array.isArray(loc.tideType) ? [...loc.tideType] : [],
       regionId: loc.region?.id ? String(loc.region.id) : '',
       mistProne: loc.mistProne === true,
+      locId: loc.id,
       aliases: formatAliases(aliasesByLocation?.[loc.id]),
+      aliasesBaseline: formatAliases(aliasesByLocation?.[loc.id]),
+      aliasesLoaded: aliasesByLocation !== null,
     });
     setEditError('');
     setAliasDetail('');
@@ -456,7 +470,6 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setEditSaving(true);
     setEditError('');
     setAliasDetail('');
-    let locationSaved = false;
     try {
       await updateLocation(editingRowId, {
         name: editValues.name.trim(),
@@ -468,11 +481,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
         regionId: editValues.regionId ? Number(editValues.regionId) : null,
         mistProne: editValues.mistProne === true,
       });
-      locationSaved = true;
       // Other names are a separate write, AFTER the location's own save succeeds, and only when the field
       // was edited: an unedited field must never overwrite names it may not have seen.
-      const previousAliases = formatAliases(aliasesByLocation?.[editingRowId]);
-      if (aliasesByLocation && editValues.aliases !== previousAliases) {
+      // The comparison is against the text the field STARTED with (recorded when the editor opened, or when
+      // the names landed), never the live map: an editor opened before the load must not read as "cleared".
+      if (editValues.aliasesLoaded && editValues.aliases !== editValues.aliasesBaseline) {
         try {
           const savedAliases = await setLocationAliases(editingRowId, parseAliases(editValues.aliases));
           setAliasesByLocation((prev) => ({ ...prev, [editingRowId]: savedAliases }));
@@ -480,7 +493,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
           await refreshLocations();
           onLocationsChanged();
           setEditError('Location saved; its other names were not');
-          setAliasDetail(aliasErr?.response?.data?.error ?? aliasErr?.message ?? '');
+          setAliasDetail(aliasErr?.response?.data?.error ?? '');
           return;
         }
       }
@@ -488,9 +501,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
       handleEditCancel();
       onLocationsChanged();
     } catch (err) {
-      setEditError(locationSaved
-        ? 'Location saved; its other names were not'
-        : (err?.response?.data?.error ?? err.message ?? 'Failed to save location.'));
+      setEditError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
     } finally {
       setEditSaving(false);
     }
@@ -1021,9 +1032,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   className={inlineInputClass}
                                   value={editValues.aliases}
                                   onChange={(e) => handleEditChange('aliases', e.target.value)}
-                                  disabled={aliasesByLocation === null}
-                                  placeholder={aliasesByLocation === null
-                                    ? 'Other names could not be loaded'
+                                  disabled={!editValues.aliasesLoaded}
+                                  placeholder={!editValues.aliasesLoaded
+                                    ? (aliasesFailed ? 'Other names could not be loaded' : 'Loading other names...')
                                     : 'Other names, comma-separated (e.g. The Heugh)'}
                                   data-testid="inline-edit-aliases"
                                 />

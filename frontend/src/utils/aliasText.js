@@ -23,12 +23,13 @@ export function formatAliases(aliases) {
 }
 
 /**
- * The message to show for a failed admin request: the server's own text (it names a clash) or a fallback.
+ * The message to show for a failed admin request: the server's own text (it names a clash), else the friendly
+ * fallback. Never the transport's "Request failed with status code 500" or "Network Error".
  *
  * @param {unknown} err
  * @param {string} fallback
  * @returns {string}
  */
 export function errorText(err, fallback) {
-  return err?.response?.data?.error ?? err?.message ?? fallback;
+  return err?.response?.data?.error ?? fallback;
 }

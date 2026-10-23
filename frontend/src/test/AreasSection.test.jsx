@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import AreasSection from '../components/AreasSection.jsx';
 
 vi.mock('../api/areaApi', () => ({
@@ -15,6 +15,15 @@ vi.mock('../api/areaApi', () => ({
 import {
   fetchAreas, createArea, updateArea, setAreaLocations, deleteArea,
 } from '../api/areaApi';
+
+const KIELDER = { id: 8, name: 'Kielder', aliases: [], locationIds: [3] };
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
 
 const LOCATIONS = [
   { id: 1, name: 'Walltown Crags', enabled: true },
@@ -54,6 +63,7 @@ describe('AreasSection', () => {
     render(<AreasSection locations={LOCATIONS} />);
     expect(await screen.findByTestId('areas-load-error')).toHaveTextContent('Could not load areas.');
     expect(screen.queryByTestId('areas-empty')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('add-area-btn')).not.toBeInTheDocument();
   });
 
   it('creates an area from a name and comma-separated aliases, then lists it', async () => {
@@ -185,7 +195,81 @@ describe('AreasSection', () => {
     fireEvent.click(await screen.findByTestId('area-delete-7'));
     fireEvent.click(screen.getByTestId('area-delete-yes-7'));
 
-    expect(await screen.findByTestId('area-error')).toHaveTextContent('Network Error');
+    expect(await screen.findByTestId('area-error')).toHaveTextContent('Failed to delete the area.');
     expect(screen.getByTestId('area-row-7')).toBeInTheDocument();
+  });
+
+  it('ticks a box while the picker is filtered, clears the filter, and sends the full set', async () => {
+    setAreaLocations.mockResolvedValue(WALL);
+    render(<AreasSection locations={LOCATIONS} />);
+
+    fireEvent.click(await screen.findByTestId('area-edit-7'));
+    fireEvent.change(screen.getByTestId('area-member-filter'), { target: { value: 'allen' } });
+    fireEvent.click(screen.getByTestId('area-member-3'));
+    fireEvent.change(screen.getByTestId('area-member-filter'), { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('area-save-members'));
+
+    await screen.findByTestId('area-saved');
+    expect(setAreaLocations).toHaveBeenCalledWith(7, [1, 2, 3]);
+  });
+
+  it('shows a short "Saved" line after saving names and after saving members', async () => {
+    updateArea.mockResolvedValue(WALL);
+    setAreaLocations.mockResolvedValue(WALL);
+    render(<AreasSection locations={LOCATIONS} />);
+
+    fireEvent.click(await screen.findByTestId('area-edit-7'));
+    expect(screen.queryByTestId('area-saved')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('area-save-names'));
+    expect(await screen.findByTestId('area-saved')).toHaveTextContent('Saved');
+    fireEvent.click(screen.getByTestId('area-save-members'));
+    await waitFor(() => expect(setAreaLocations).toHaveBeenCalled());
+    expect(await screen.findByTestId('area-saved')).toHaveTextContent('Saved');
+  });
+
+  it('labels the filter "Filter places" and puts the selected count on the group, not the filter', async () => {
+    render(<AreasSection locations={LOCATIONS} />);
+
+    fireEvent.click(await screen.findByTestId('area-edit-7'));
+
+    expect(screen.getByLabelText('Filter places')).toBe(screen.getByTestId('area-member-filter'));
+    expect(screen.getByRole('group', { name: 'Places in this area (2 selected)' })).toBeInTheDocument();
+  });
+
+  it('disables every other Edit, Delete and Add while a save is in flight, and the late 409 stays on its own area', async () => {
+    fetchAreas.mockResolvedValue([WALL, KIELDER]);
+    const slow = deferred();
+    updateArea.mockReturnValue(slow.promise);
+    render(<AreasSection locations={LOCATIONS} />);
+
+    fireEvent.click(await screen.findByTestId('area-edit-7'));
+    fireEvent.click(screen.getByTestId('area-save-names'));
+
+    expect(screen.getByTestId('add-area-btn')).toBeDisabled();
+    expect(screen.getByTestId('area-edit-8')).toBeDisabled();
+    expect(screen.getByTestId('area-delete-7')).toBeDisabled();
+    expect(screen.getByTestId('area-delete-8')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('area-edit-8'));
+    expect(screen.queryByTestId('area-editor-8')).not.toBeInTheDocument();
+
+    slow.reject(clash("'Kielder' is already the named area 'Kielder'"));
+    const editor7 = screen.getByTestId('area-editor-7');
+    expect(await within(editor7).findByTestId('area-error')).toHaveTextContent('already the named area');
+    expect(screen.getByTestId('add-area-btn')).not.toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('area-edit-8'));
+    expect(within(screen.getByTestId('area-editor-8')).queryByTestId('area-error')).not.toBeInTheDocument();
+  });
+
+  it('opening a delete confirm on one row leaves another row\'s unsaved editor alone', async () => {
+    fetchAreas.mockResolvedValue([WALL, KIELDER]);
+    render(<AreasSection locations={LOCATIONS} />);
+
+    fireEvent.click(await screen.findByTestId('area-edit-7'));
+    fireEvent.change(screen.getByTestId('area-name-input'), { target: { value: 'Typed but unsaved' } });
+    fireEvent.click(screen.getByTestId('area-delete-8'));
+
+    expect(screen.getByTestId('area-delete-confirm-8')).toBeInTheDocument();
+    expect(screen.getByTestId('area-name-input')).toHaveValue('Typed but unsaved');
   });
 });

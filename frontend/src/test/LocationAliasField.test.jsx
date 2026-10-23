@@ -158,4 +158,55 @@ describe('LocationManagementView — "Also known as"', () => {
     await waitFor(() => expect(updateLocation).toHaveBeenCalled());
     expect(setLocationAliases).not.toHaveBeenCalled();
   });
+
+  it('an editor opened BEFORE the names load starts disabled, then fills in, and an unrelated edit never wipes them', async () => {
+    let land;
+    fetchLocationAliases.mockReturnValue(new Promise((resolve) => { land = resolve; }));
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    const field = await openEditor();
+    expect(field).toBeDisabled();
+    expect(field).toHaveAttribute('placeholder', 'Loading other names...');
+    fireEvent.change(screen.getByTestId('inline-edit-lat'), { target: { value: '54.7' } });
+
+    land({ 1: ['The Heugh', 'Heugh Battery'] });
+    await waitFor(() => expect(screen.getByTestId('inline-edit-aliases')).toHaveValue('The Heugh, Heugh Battery'));
+    expect(screen.getByTestId('inline-edit-aliases')).not.toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('inline-edit-save'));
+
+    await waitFor(() => expect(updateLocation).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByTestId('inline-edit-save')).not.toBeInTheDocument());
+    expect(setLocationAliases).not.toHaveBeenCalled();
+  });
+
+  it('an editor opened before the names load can then edit them, against the landed baseline', async () => {
+    let land;
+    fetchLocationAliases.mockReturnValue(new Promise((resolve) => { land = resolve; }));
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await openEditor();
+    land({ 1: ['The Heugh'] });
+    await waitFor(() => expect(screen.getByTestId('inline-edit-aliases')).toHaveValue('The Heugh'));
+    fireEvent.change(screen.getByTestId('inline-edit-aliases'), { target: { value: 'The Heugh, Heugh Battery' } });
+    fireEvent.click(screen.getByTestId('inline-edit-save'));
+
+    await waitFor(() => expect(setLocationAliases).toHaveBeenCalledWith(1, ['The Heugh', 'Heugh Battery']));
+  });
+
+  it('shows no transport text for an alias failure with no server message', async () => {
+    setLocationAliases.mockRejectedValue(new Error('Request failed with status code 500'));
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => expect(fetchLocationAliases).toHaveBeenCalled());
+    const field = await openEditor();
+    await waitFor(() => expect(field).toHaveValue('The Heugh, Heugh Battery'));
+    fireEvent.change(field, { target: { value: 'Heugh Lighthouse' } });
+    fireEvent.click(screen.getByTestId('inline-edit-save'));
+
+    const message = await screen.findByTestId('inline-edit-error');
+    expect(message).toHaveTextContent('Location saved; its other names were not');
+    expect(message).not.toHaveTextContent('status code');
+    expect(screen.queryByTestId('inline-edit-alias-detail')).not.toBeInTheDocument();
+  });
 });

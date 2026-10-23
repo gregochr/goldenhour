@@ -22,7 +22,10 @@ export default function AreasSection({ locations }) {
   const [areas, setAreas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [error, setError] = useState('');
+  // The failure message and WHICH form it belongs to ('new', 'edit-<id>', 'delete-<id>'), so a late result can
+  // never show inside a different area's editor.
+  const [failure, setFailure] = useState(null);
+  const [saved, setSaved] = useState(null);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -60,7 +63,8 @@ export default function AreasSection({ locations }) {
     setCreating(false);
     setEditingId(null);
     setConfirmDeleteId(null);
-    setError('');
+    setFailure(null);
+    setSaved(null);
     setMemberFilter('');
   }
 
@@ -81,37 +85,43 @@ export default function AreasSection({ locations }) {
 
   async function handleCreate() {
     setBusy(true);
-    setError('');
+    setFailure(null);
     try {
-      const saved = await createArea({ name: nameText, aliases: parseAliases(aliasText) });
-      setAreas((prev) => [...prev, saved]);
+      const created = await createArea({ name: nameText, aliases: parseAliases(aliasText) });
+      setAreas((prev) => [...prev, created]);
       setCreating(false);
     } catch (err) {
-      setError(errorText(err, 'Failed to create the area.'));
+      setFailure({ key: 'new', message: errorText(err, 'Failed to create the area.') });
     } finally {
       setBusy(false);
     }
   }
 
   async function handleSaveNames() {
+    const id = editingId;
     setBusy(true);
-    setError('');
+    setFailure(null);
+    setSaved(null);
     try {
-      replaceArea(await updateArea(editingId, { name: nameText, aliases: parseAliases(aliasText) }));
+      replaceArea(await updateArea(id, { name: nameText, aliases: parseAliases(aliasText) }));
+      setSaved(`names-${id}`);
     } catch (err) {
-      setError(errorText(err, 'Failed to save the names.'));
+      setFailure({ key: `edit-${id}`, message: errorText(err, 'Failed to save the names.') });
     } finally {
       setBusy(false);
     }
   }
 
   async function handleSaveMembers() {
+    const id = editingId;
     setBusy(true);
-    setError('');
+    setFailure(null);
+    setSaved(null);
     try {
-      replaceArea(await setAreaLocations(editingId, [...members]));
+      replaceArea(await setAreaLocations(id, [...members]));
+      setSaved(`members-${id}`);
     } catch (err) {
-      setError(errorText(err, 'Failed to save the members.'));
+      setFailure({ key: `edit-${id}`, message: errorText(err, 'Failed to save the members.') });
     } finally {
       setBusy(false);
     }
@@ -119,14 +129,14 @@ export default function AreasSection({ locations }) {
 
   async function handleDelete(id) {
     setBusy(true);
-    setError('');
+    setFailure(null);
     try {
       await deleteArea(id);
       setAreas((prev) => prev.filter((a) => a.id !== id));
       setConfirmDeleteId(null);
       if (editingId === id) setEditingId(null);
     } catch (err) {
-      setError(errorText(err, 'Failed to delete the area.'));
+      setFailure({ key: `delete-${id}`, message: errorText(err, 'Failed to delete the area.') });
     } finally {
       setBusy(false);
     }
@@ -183,14 +193,17 @@ export default function AreasSection({ locations }) {
             Named groups of places, such as a landmark, that Ask can answer about.
           </p>
         </div>
+        {!loadError && (
         <button
           type="button"
           className="btn-secondary text-xs shrink-0"
           onClick={startCreate}
+          disabled={busy}
           data-testid="add-area-btn"
         >
           + Add Area
         </button>
+        )}
       </div>
 
       {loading && <p className="text-sm text-plex-text-muted animate-pulse">Loading areas...</p>}
@@ -199,7 +212,7 @@ export default function AreasSection({ locations }) {
       {creating && (
         <div className="border border-plex-border rounded p-3 flex flex-col gap-2" data-testid="area-create-form">
           {renderNameFields('area-new')}
-          {error && <p className="text-xs text-red-400" data-testid="area-error">{error}</p>}
+          {failure?.key === 'new' && <p className="text-xs text-red-400" data-testid="area-error">{failure.message}</p>}
           <div className="flex gap-2 justify-end">
             <button type="button" className="btn-secondary text-xs" onClick={closeForms} disabled={busy}>
               Cancel
@@ -245,6 +258,7 @@ export default function AreasSection({ locations }) {
                     type="button"
                     className="btn-secondary text-xs"
                     onClick={() => (editing ? closeForms() : startEdit(area))}
+                    disabled={busy}
                     data-testid={`area-edit-${area.id}`}
                   >
                     {editing ? 'Close' : 'Edit'}
@@ -252,7 +266,8 @@ export default function AreasSection({ locations }) {
                   <button
                     type="button"
                     className="btn-secondary text-xs"
-                    onClick={() => { closeForms(); setConfirmDeleteId(area.id); }}
+                    onClick={() => { setFailure(null); setConfirmDeleteId(area.id); }}
+                    disabled={busy}
                     data-testid={`area-delete-${area.id}`}
                   >
                     Delete
@@ -265,7 +280,12 @@ export default function AreasSection({ locations }) {
                   <span className="text-plex-text">
                     Delete {area.name}? Its places stay; only the area goes.
                   </span>
-                  <button type="button" className="btn-secondary text-xs" onClick={() => setConfirmDeleteId(null)}>
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs"
+                    onClick={() => setConfirmDeleteId(null)}
+                    disabled={busy}
+                  >
                     Keep
                   </button>
                   <button
@@ -277,6 +297,9 @@ export default function AreasSection({ locations }) {
                   >
                     Delete area
                   </button>
+                  {failure?.key === `delete-${area.id}` && (
+                    <span className="text-red-400" data-testid="area-error">{failure.message}</span>
+                  )}
                 </div>
               )}
 
@@ -294,10 +317,16 @@ export default function AreasSection({ locations }) {
                       Save names
                     </button>
                   </div>
+                  {saved === `names-${area.id}` && (
+                    <p className="text-xs text-plex-text-secondary" data-testid="area-saved">Saved</p>
+                  )}
 
-                  <div className="flex flex-col gap-1">
-                    <label htmlFor={`area-${area.id}-filter`} className="block text-xs text-plex-text-secondary">
+                  <fieldset className="flex flex-col gap-1">
+                    <legend className="text-xs text-plex-text-secondary">
                       Places in this area ({members.size} selected)
+                    </legend>
+                    <label htmlFor={`area-${area.id}-filter`} className="block text-xs text-plex-text-secondary">
+                      Filter places
                     </label>
                     <input
                       id={`area-${area.id}-filter`}
@@ -326,7 +355,7 @@ export default function AreasSection({ locations }) {
                         <li className="text-xs text-plex-text-muted p-1">No places match.</li>
                       )}
                     </ul>
-                  </div>
+                  </fieldset>
                   <div className="flex justify-end">
                     <button
                       type="button"
@@ -338,16 +367,18 @@ export default function AreasSection({ locations }) {
                       Save members
                     </button>
                   </div>
-                  {error && <p className="text-xs text-red-400" data-testid="area-error">{error}</p>}
+                  {saved === `members-${area.id}` && (
+                    <p className="text-xs text-plex-text-secondary" data-testid="area-saved">Saved</p>
+                  )}
+                  {failure?.key === `edit-${area.id}` && (
+                    <p className="text-xs text-red-400" data-testid="area-error">{failure.message}</p>
+                  )}
                 </div>
               )}
             </li>
           );
         })}
       </ul>
-      {error && !creating && editingId === null && (
-        <p className="text-xs text-red-400" data-testid="area-error">{error}</p>
-      )}
     </section>
   );
 }
