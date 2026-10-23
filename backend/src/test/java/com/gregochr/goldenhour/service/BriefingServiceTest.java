@@ -2432,7 +2432,7 @@ class BriefingServiceTest {
         void bigSeasIsServeTimeOnly() {
             LocalDateTime hw = LocalDateTime.of(2026, 12, 11, 8, 0);
             BigSeasDay day = new BigSeasDay(LocalDate.of(2026, 12, 11), hw.minusMinutes(90),
-                    hw.plusMinutes(90), hw, null, null, null, 4.2, 80, 9.5, List.of(), 0);
+                    hw.plusMinutes(90), hw, null, null, null, 4.2, 80, 9.5, List.of(), 0, false, null, null);
             when(bigSeasBuilder.build(org.mockito.ArgumentMatchers.anyList())).thenReturn(List.of(day));
             stubFullRefresh(locationWithRegion("Bamburgh", "North East"));
 
