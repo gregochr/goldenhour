@@ -94,7 +94,8 @@ class MarineWaveRefreshServiceBigSeasTest {
     @BeforeEach
     void setUp() {
         service = new MarineWaveRefreshService(marineClient, marineWaveRepository, solarService,
-                tideExtremeRepository, highWaterWriter, jobRunService, Clock.fixed(NOW, ZoneOffset.UTC));
+                tideExtremeRepository, highWaterWriter, jobRunService, Clock.fixed(NOW, ZoneOffset.UTC),
+                new BigSeasProperties());
     }
 
     private static LocationEntity structure(long id, String name) {
@@ -121,6 +122,30 @@ class MarineWaveRefreshServiceBigSeasTest {
         ArgumentCaptor<List<MarineHighWaterEntity>> captor = ArgumentCaptor.forClass(List.class);
         verify(highWaterWriter).replace(eq(locationId), eq(from), eq(to), captor.capture());
         return captor.getValue();
+    }
+
+    @Test
+    @DisplayName("the half-window is configurable: 30 minutes writes HW +-30, unclipped mid-day")
+    void halfWindowIsConfigurable() {
+        BigSeasProperties thirty = new BigSeasProperties();
+        thirty.setHalfWindowMinutes(30);
+        service = new MarineWaveRefreshService(marineClient, marineWaveRepository, solarService,
+                tideExtremeRepository, highWaterWriter, jobRunService, Clock.fixed(NOW, ZoneOffset.UTC), thirty);
+        LocationEntity roker = structure(STRUCTURE_ID, "Roker");
+        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        stubDaylight(DAY, DAWN, DUSK);
+        LocalDateTime noon = LocalDateTime.of(2026, 12, 10, 12, 0);
+        when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
+                .thenReturn(List.of(hw(STRUCTURE_ID, noon)));
+        when(marineClient.peakInWindow(response, LocalDateTime.of(2026, 12, 10, 11, 30),
+                LocalDateTime.of(2026, 12, 10, 12, 30)))
+                .thenReturn(Optional.of(peak(noon, 4.0)));
+
+        service.refresh(List.of(roker), List.of(DAY), JOB_RUN_ID);
+
+        MarineHighWaterEntity row = writtenRows(STRUCTURE_ID, DAY_START, DAY_END).getFirst();
+        assertThat(row.getWindowStart()).isEqualTo(noon.minusMinutes(30));
+        assertThat(row.getWindowEnd()).isEqualTo(noon.plusMinutes(30));
     }
 
     @Test

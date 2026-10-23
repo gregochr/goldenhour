@@ -57,6 +57,8 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     @Mock
     private WindowTideRollupBuilder windowTideRollupBuilder;
     @Mock
+    private BigSeasBuilder bigSeasBuilder;
+    @Mock
     private EvaluationViewService evaluationViewService;
     @Mock
     private LocationPointProvider locationPointProvider;
@@ -76,7 +78,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
         assembler = new ServedBriefingAssembler(bestBetFallbackService, regionSnapshotService,
                 windowTideRollupBuilder, evaluationViewService, CLOCK,
                 (days, resolver, triaged) -> days, locationPointProvider, properties,
-                new NeighbourGuardLog(logLines::add));
+                new NeighbourGuardLog(logLines::add), bigSeasBuilder);
     }
 
     /** The four places the fixtures use: 1 at the origin, 2 and 3 within 2 km of it, 4 eight kilometres north. */
@@ -128,7 +130,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
         ServedBriefingAssembler defaulted = new ServedBriefingAssembler(bestBetFallbackService,
                 regionSnapshotService, windowTideRollupBuilder, evaluationViewService, CLOCK,
                 (days, resolver, triaged) -> days, locationPointProvider, new NeighbourGuardProperties(),
-                new NeighbourGuardLog(logLines::add));
+                new NeighbourGuardLog(logLines::add), bigSeasBuilder);
 
         DailyBriefingResponse served = defaulted.assembleForPlan(caw(), 0.5);
 

@@ -1,6 +1,9 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.CoastalStructure;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BigSeasDay;
+import com.gregochr.goldenhour.model.BigSeasStructure;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
@@ -154,5 +157,55 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
                 .andExpect(jsonPath(slotPath + ".eclipse.umbraEnd").value("2026-08-28T06:52:00"))
                 .andExpect(jsonPath(slotPath + ".eclipse.moonset").value("2026-08-28T06:18:00"))
                 .andExpect(jsonPath(slotPath + ".eclipse.stops[0].time").value("2026-08-28T03:10:00"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing renders the bigSeas block's LocalDate and LocalDateTime fields in the "
+            + "pinned wire format, with enums as names and the unaligned nulls omitted")
+    void getBriefing_pinsBigSeasFormat() throws Exception {
+        LocalDateTime hw = LocalDateTime.of(2026, 12, 11, 7, 30);
+        BigSeasStructure roker = new BigSeasStructure(243L, "Roker Pier", CoastalStructure.PIER, 4.2, 80, 9.5, 90,
+                hw, true);
+        BigSeasDay aligned = new BigSeasDay(LocalDate.of(2026, 12, 11), hw.minusMinutes(90), hw.plusMinutes(90), hw,
+                BigSeasDay.AlignedEvent.SUNRISE, 12L, BigSeasDay.GapSide.AFTER, 4.2, 80, 9.5, List.of(roker), 1);
+        BigSeasDay unaligned = new BigSeasDay(LocalDate.of(2026, 12, 12), hw.plusDays(1), hw.plusDays(1).plusHours(3),
+                hw.plusDays(1).plusHours(1), null, null, null, 3.5, 90, 8.5, List.of(), 0);
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                LocalDateTime.of(2026, 12, 10, 6, 0), "Big seas", List.of(), List.of(), null, null, false, false, 0,
+                "Opus", List.of(), List.of()).withBigSeas(List.of(aligned, unaligned));
+        when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bigSeas[0].date").value("2026-12-11"))
+                .andExpect(jsonPath("$.bigSeas[0].windowStart").value("2026-12-11T06:00:00"))
+                .andExpect(jsonPath("$.bigSeas[0].windowEnd").value("2026-12-11T09:00:00"))
+                .andExpect(jsonPath("$.bigSeas[0].hwTime").value("2026-12-11T07:30:00"))
+                .andExpect(jsonPath("$.bigSeas[0].alignedEvent").value("SUNRISE"))
+                .andExpect(jsonPath("$.bigSeas[0].gapMinutes").value(12))
+                .andExpect(jsonPath("$.bigSeas[0].gapSide").value("AFTER"))
+                .andExpect(jsonPath("$.bigSeas[0].structures[0].structure").value("PIER"))
+                .andExpect(jsonPath("$.bigSeas[0].structures[0].hwTime").value("2026-12-11T07:30:00"))
+                .andExpect(jsonPath("$.bigSeas[0].structures[0].aligned").value(true))
+                .andExpect(jsonPath("$.bigSeas[0].otherWindows").value(1))
+                .andExpect(jsonPath("$.bigSeas[1].windowStart").value("2026-12-12T07:30:00"))
+                .andExpect(jsonPath("$.bigSeas[1].alignedEvent").doesNotExist())
+                .andExpect(jsonPath("$.bigSeas[1].gapMinutes").doesNotExist())
+                .andExpect(jsonPath("$.bigSeas[1].gapSide").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing omits bigSeas entirely when there is none")
+    void getBriefing_omitsBigSeasWhenNull() throws Exception {
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                LocalDateTime.of(2026, 12, 10, 6, 0), "Calm", List.of(), List.of(), null, null, false, false, 0,
+                "Opus", List.of(), List.of());
+        when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bigSeas").doesNotExist());
     }
 }
