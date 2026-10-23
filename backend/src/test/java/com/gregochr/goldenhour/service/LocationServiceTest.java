@@ -101,7 +101,7 @@ class LocationServiceTest {
         LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
         when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
         when(locationRepository.existsByName("Durham Cathedral")).thenReturn(false);
-        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(locationRepository.save(existing)).thenAnswer(inv -> inv.getArgument(0));
 
         locationService.update(1L, new UpdateLocationRequest(
                 " Durham Cathedral ", null, null, null, null, null, null));
@@ -115,7 +115,7 @@ class LocationServiceTest {
     void update_nameUnchanged_doesNotConsultGuard() {
         LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
         when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
-        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(locationRepository.save(existing)).thenAnswer(inv -> inv.getArgument(0));
 
         locationService.update(1L, new UpdateLocationRequest(
                 "Durham UK", null, null, null, null, null, null));

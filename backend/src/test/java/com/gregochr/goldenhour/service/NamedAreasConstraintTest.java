@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.AreaEntity;
+import com.gregochr.goldenhour.entity.LocationAliasEntity;
 import com.gregochr.goldenhour.exception.NameClashException;
 import com.gregochr.goldenhour.model.AreaLocationsRequest;
 import com.gregochr.goldenhour.model.AreaRequest;
@@ -17,8 +18,11 @@ import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.when;
 
 /**
@@ -51,18 +55,21 @@ class NamedAreasConstraintTest {
     @Test
     @DisplayName("create() turns a unique-index violation at flush into a NameClashException (409)")
     void create_uniqueViolation_isAClash() {
-        when(areaRepository.saveAndFlush(org.mockito.ArgumentMatchers.any(AreaEntity.class)))
+        when(areaRepository.saveAndFlush(argThat(a -> a != null && a.getId() == null
+                && "Kielder".equals(a.getName()) && a.getAliases().equals(Set.of("Kielder Forest"))
+                && a.getLocationIds().isEmpty())))
                 .thenThrow(new DataIntegrityViolationException("uq_area_name_lower"));
 
-        assertThatThrownBy(() -> areaService.create(new AreaRequest("Kielder", List.of())))
+        assertThatThrownBy(() -> areaService.create(new AreaRequest("Kielder", List.of("Kielder Forest"))))
                 .isInstanceOf(NameClashException.class);
     }
 
     @Test
     @DisplayName("update() turns a violation at flush into a NameClashException (409)")
     void update_violation_isAClash() {
-        when(areaRepository.findById(3L)).thenReturn(Optional.of(new AreaEntity()));
-        when(areaRepository.saveAndFlush(org.mockito.ArgumentMatchers.any(AreaEntity.class)))
+        AreaEntity loaded = new AreaEntity();
+        when(areaRepository.findById(3L)).thenReturn(Optional.of(loaded));
+        when(areaRepository.saveAndFlush(same(loaded)))
                 .thenThrow(new DataIntegrityViolationException("area_alias_pkey"));
 
         assertThatThrownBy(() -> areaService.update(3L, new AreaRequest("Kielder", List.of("Kielder Forest"))))
@@ -72,8 +79,9 @@ class NamedAreasConstraintTest {
     @Test
     @DisplayName("setLocations() turns a violation at flush into a NameClashException (409)")
     void setLocations_violation_isAClash() {
-        when(areaRepository.findById(3L)).thenReturn(Optional.of(new AreaEntity()));
-        when(areaRepository.saveAndFlush(org.mockito.ArgumentMatchers.any(AreaEntity.class)))
+        AreaEntity loaded = new AreaEntity();
+        when(areaRepository.findById(3L)).thenReturn(Optional.of(loaded));
+        when(areaRepository.saveAndFlush(same(loaded)))
                 .thenThrow(new DataIntegrityViolationException("area_location_pkey"));
 
         assertThatThrownBy(() -> areaService.setLocations(3L, new AreaLocationsRequest(List.of())))
@@ -84,7 +92,9 @@ class NamedAreasConstraintTest {
     @DisplayName("replace() turns a violation while saving aliases into a NameClashException (409)")
     void replaceAliases_violation_isAClash() {
         when(locationRepository.existsById(5L)).thenReturn(true);
-        when(aliasRepository.saveAll(org.mockito.ArgumentMatchers.anyList()))
+        when(aliasRepository.saveAll(argThat((List<LocationAliasEntity> rows) -> rows != null && rows.size() == 1
+                && Long.valueOf(5L).equals(rows.get(0).getLocationId())
+                && "The Heugh".equals(rows.get(0).getAlias()))))
                 .thenThrow(new DataIntegrityViolationException("location_alias_pkey"));
 
         assertThatThrownBy(() -> aliasService.replace(5L, List.of("The Heugh")))

@@ -16,7 +16,6 @@ import java.util.List;
 import java.util.NoSuchElementException;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -36,6 +35,8 @@ class AreaControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    private static final AreaRequest WALL_REQUEST = new AreaRequest("Hadrian's Wall", List.of("Roman Wall"));
 
     private static AreaDto wall() {
         return new AreaDto(7L, "Hadrian's Wall", List.of("Roman Wall"), List.of(1L, 2L));
@@ -59,7 +60,7 @@ class AreaControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/areas returns 201 with the new area and hands the service the typed request")
     void createArea_asAdmin_returns201() throws Exception {
-        when(areaService.create(any(AreaRequest.class))).thenReturn(wall());
+        when(areaService.create(WALL_REQUEST)).thenReturn(wall());
 
         mockMvc.perform(post("/api/areas").contentType(MediaType.APPLICATION_JSON).content(WALL))
                 .andExpect(status().isCreated())
@@ -75,7 +76,7 @@ class AreaControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/areas returns 409 with the clash named when a name clashes")
     void createArea_nameClash_returns409() throws Exception {
-        when(areaService.create(any(AreaRequest.class)))
+        when(areaService.create(WALL_REQUEST))
                 .thenThrow(new NameClashException("'Roman Wall' is already a name for the named area 'X'"));
 
         mockMvc.perform(post("/api/areas").contentType(MediaType.APPLICATION_JSON).content(WALL))
@@ -87,7 +88,7 @@ class AreaControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/areas returns 400 when the shape is wrong")
     void createArea_badShape_returns400() throws Exception {
-        when(areaService.create(any(AreaRequest.class)))
+        when(areaService.create(new AreaRequest("", List.of())))
                 .thenThrow(new IllegalArgumentException("An area name must be 2 to 80 characters"));
 
         mockMvc.perform(post("/api/areas").contentType(MediaType.APPLICATION_JSON)
@@ -99,19 +100,19 @@ class AreaControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/areas/{id} returns 200 with the renamed area")
     void updateArea_asAdmin_returns200() throws Exception {
-        when(areaService.update(any(Long.class), any(AreaRequest.class))).thenReturn(wall());
+        when(areaService.update(7L, WALL_REQUEST)).thenReturn(wall());
 
         mockMvc.perform(put("/api/areas/7").contentType(MediaType.APPLICATION_JSON).content(WALL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.locationIds.length()").value(2));
-        verify(areaService).update(any(Long.class), any(AreaRequest.class));
+        verify(areaService).update(7L, WALL_REQUEST);
     }
 
     @Test
     @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/areas/{id} returns 404 for an unknown area")
     void updateArea_unknown_returns404() throws Exception {
-        when(areaService.update(any(Long.class), any(AreaRequest.class)))
+        when(areaService.update(9L, WALL_REQUEST))
                 .thenThrow(new NoSuchElementException("No named area with id 9"));
 
         mockMvc.perform(put("/api/areas/9").contentType(MediaType.APPLICATION_JSON).content(WALL))
@@ -122,12 +123,12 @@ class AreaControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/areas/{id}/locations returns 200, and 400 for an unknown location id")
     void setAreaLocations_statuses() throws Exception {
-        when(areaService.setLocations(any(Long.class), any(AreaLocationsRequest.class))).thenReturn(wall());
+        when(areaService.setLocations(7L, new AreaLocationsRequest(List.of(1L, 2L)))).thenReturn(wall());
         mockMvc.perform(put("/api/areas/7/locations").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"locationIds\":[1,2]}"))
                 .andExpect(status().isOk());
 
-        when(areaService.setLocations(any(Long.class), any(AreaLocationsRequest.class)))
+        when(areaService.setLocations(7L, new AreaLocationsRequest(List.of(99L))))
                 .thenThrow(new IllegalArgumentException("No location with id 99"));
         mockMvc.perform(put("/api/areas/7/locations").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"locationIds\":[99]}"))
