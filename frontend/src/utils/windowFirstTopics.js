@@ -259,6 +259,58 @@ function topicForBadge(badge, candidates) {
 }
 
 /**
+ * The scope rule, once (Rule 2 above): whether a topic survives the region intersection, and the
+ * count and names that survived it.
+ *
+ * <p>⚠️ <b>The NAMES as well as the count, and they are the same array.</b> The popup's scope note
+ * states the count and offers the list as its tooltip; publishing the un-intersected
+ * {@code topic.regions} there put a nine-region list under a label reading "1 region in scope" —
+ * the intersection stated in the text and the roster stated in the tooltip, from one element. One
+ * filter, one answer, and the caller cannot re-derive it differently because it is handed both.
+ *
+ * @param {?object} topic the joined {@code HotTopic}, or null when the join found none (kept)
+ * @param {?string} type  the type to test for the whole-sky exemption — the badge's own for the
+ *                        popup, the topic's for a direct caller
+ * @param {Set<string>} scope the scope names; empty means "not known yet" and nothing is filtered
+ * @returns {{keep: boolean, regionsInScope: ?number, scopedRegions: string[]}} the verdict
+ */
+function scopeVerdict(topic, type, scope) {
+  let regionsInScope = null;
+  let scopedRegions = [];
+  if (!isWholeSkyTopic(type) && scope.size > 0) {
+    const regions = Array.isArray(topic?.regions) ? topic.regions : [];
+    // Byte-identical membership, never normalised — `heatSpots.js` records why.
+    if (regions.length > 0) {
+      scopedRegions = regions.filter((name) => scope.has(name));
+      regionsInScope = scopedRegions.length;
+      if (regionsInScope === 0) return { keep: false, regionsInScope, scopedRegions };
+    }
+  }
+  return { keep: true, regionsInScope, scopedRegions };
+}
+
+/**
+ * Whether a served topic is in the reader's region scope — the filter {@link windowTopics} applies,
+ * factored out so the Map's chips can call the same rule (hot-topics-by-day-plan §1.4).
+ *
+ * <p>⚠️ <b>Its first DIRECT caller arrives with the Map chips (phase M1).</b> Nothing in C1 calls it
+ * outside this module's own tests: the shell's tap-through check ("is the tapped topic in the
+ * popup?") goes through {@link windowTopics}, which shares the one {@code scopeVerdict} underneath,
+ * so both routes still answer from one rule.
+ *
+ * <p>Exempt by type through {@link isWholeSkyTopic} (fail-open); an empty {@code regions} is kept;
+ * an empty or non-array {@code scopeNames} filters nothing; names are compared byte-identically.
+ *
+ * @param {?{type?: string, regions?: string[]}} topic a served {@code HotTopic}
+ * @param {?Array<string>} scopeNames the region names the page is scoped to
+ * @returns {boolean} true when the topic should be shown
+ */
+export function topicInScope(topic, scopeNames) {
+  if (!topic) return true;
+  return scopeVerdict(topic, topic.type, new Set(Array.isArray(scopeNames) ? scopeNames : [])).keep;
+}
+
+/**
  * The badges a card may show for one window, joined to their topics, scope-filtered, rarest first.
  *
  * <p>A badge with no matching topic is <b>kept</b> and carries {@code topic: null}: the backend put
@@ -286,23 +338,12 @@ export function windowTopics(key, badges, topicIndex, scopeNames) {
     if (!badge) continue;
     const topic = topicForBadge(badge, candidates);
     const wholeSky = isWholeSkyTopic(badge.type);
-    let regionsInScope = null;
-    // ⚠️ The NAMES as well as the count, and they are the same array. The popup's scope note states
-    // the count and offers the list as its tooltip; publishing the un-intersected `topic.regions`
-    // there put a nine-region list under a label reading "1 region in scope" — the intersection
-    // stated in the text and the roster stated in the tooltip, from one element. One filter, one
-    // answer, and the caller cannot re-derive it differently because it is handed both.
-    let scopedRegions = [];
-    if (!wholeSky && scope.size > 0) {
-      const regions = Array.isArray(topic?.regions) ? topic.regions : [];
-      // Byte-identical membership, never normalised — `heatSpots.js` records why.
-      if (regions.length > 0) {
-        scopedRegions = regions.filter((name) => scope.has(name));
-        regionsInScope = scopedRegions.length;
-        if (regionsInScope === 0) continue;
-      }
-    }
-    rows.push({ badge, topic, wholeSky, regionsInScope, scopedRegions });
+    const verdict = scopeVerdict(topic, badge.type, scope);
+    if (!verdict.keep) continue;
+    rows.push({
+      badge, topic, wholeSky,
+      regionsInScope: verdict.regionsInScope, scopedRegions: verdict.scopedRegions,
+    });
   }
   // Rarest first — the payload's own `rarityRank` (1 = rarest), an absent rank sorting last.
   //

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import InfoTip from './InfoTip.jsx';
 import { badgeChannel } from '../utils/windowFirstCards.js';
 import { topicFacts } from '../utils/windowFirstRows.js';
+import { topicStyle } from '../utils/topicPalette.js';
 
 /**
  * The popup's topic rows — every topic landing on this window, with the science behind it.
@@ -67,15 +68,42 @@ import { topicFacts } from '../utils/windowFirstRows.js';
  * dismissible and no {@code localStorage} — the app has no per-topic dismissal pattern for a note,
  * and adding one here would be furniture the spec never asked for (§4 #9).
  *
+ * <h2>Emphasis — a Coming up lane's tap-through</h2>
+ *
+ * <p>{@code emphasisTopic} is a HotTopic type. Every row of that type gets {@code data-emphasis}
+ * and the topic's colour as {@code --c}, and the first is scrolled into view inside the dialog
+ * ({@code block: 'nearest'}, so a row already visible does not move). The outline is a 1.6 s CSS
+ * animation that ends at zero width in every mode, so the attribute can stay for as long as the
+ * shell holds the emphasis without leaving a permanent ring. Focus is deliberately untouched — the
+ * dialog's own initial target keeps it.
+ *
  * @param {object}   props
  * @param {Array}    props.rows the rows from {@code windowTopics} — badge, topic, wholeSky,
  *                              regionsInScope
+ * @param {?string}  [props.emphasisTopic] the HotTopic type to emphasise, or null
  */
-export default function WindowTopicRows({ rows }) {
+export default function WindowTopicRows({ rows, emphasisTopic = null }) {
+  const containerRef = useRef(null);
+  // Once per emphasis, NOT per render of `rows`: the briefing polls every ten minutes and rebuilds
+  // `rows`, and a re-scroll then would yank a reader who had since scrolled elsewhere. The shell
+  // clears the emphasis whenever the open window changes, so `emphasisTopic` going null → type is
+  // exactly "a new tap-through".
+  useEffect(() => {
+    if (!emphasisTopic) return;
+    containerRef.current?.querySelector('[data-emphasis="true"]')
+      ?.scrollIntoView?.({ block: 'nearest' });
+  }, [emphasisTopic]);
+
   if (!rows || rows.length === 0) return null;
+  const wantedType = emphasisTopic ? String(emphasisTopic).toUpperCase() : null;
 
   return (
-    <div data-testid="wf-topic-rows" className="wf-trows">
+    <div
+      data-testid="wf-topic-rows"
+      className="wf-trows"
+      ref={containerRef}
+      data-emphasis-topic={wantedType ?? undefined}
+    >
       {rows.map(({ badge, topic, wholeSky, regionsInScope, scopedRegions }) => {
         const channel = badgeChannel(badge.type);
         // ⚠️ The BADGE's line first, the topic's as the fallback — and the order is load-bearing.
@@ -94,12 +122,16 @@ export default function WindowTopicRows({ rows }) {
         const science = topic?.description || null;
         // From the BADGE, which is where the served facts ride — the joined topic carries none.
         const facts = (badge.facts || []).length > 0 ? topicFacts(badge) : [];
+        const emphasised = wantedType != null && String(badge.type || '').toUpperCase() === wantedType;
         return (
           <div
             key={`${badge.type}:${badge.label}`}
             data-testid="wf-topic-row"
             data-channel={channel}
+            data-topic-type={badge.type}
             data-whole-sky={wholeSky ? 'true' : undefined}
+            data-emphasis={emphasised ? 'true' : undefined}
+            style={emphasised ? { '--c': topicStyle(badge.type).colour } : undefined}
             className="wf-trow"
           >
             <span data-testid="wf-topic-row-name" className="wf-trow-n">{badge.label}</span>
@@ -170,6 +202,7 @@ export default function WindowTopicRows({ rows }) {
 }
 
 WindowTopicRows.propTypes = {
+  emphasisTopic: PropTypes.string,
   rows: PropTypes.arrayOf(PropTypes.shape({
     badge: PropTypes.shape({
       type: PropTypes.string,

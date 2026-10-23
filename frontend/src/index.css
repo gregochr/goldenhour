@@ -268,7 +268,7 @@
 
   /* map-tab-v2-plan.md §3 P6 — the window control's night (astro/aurora) kind-chip colour, from
      docs/design/map-tab-v2/README.md's kind-colours table (`--astro #8E86D6`). Not a fresh mint:
-     `utils/comingUpHandoff.js`'s `NIGHTGLOW_VIOLET` constant is this exact hex already, so this
+     `utils/topicPalette.js`'s `NIGHTGLOW_VIOLET` constant is this exact hex already, so this
      names the app's existing "night" accent as a token rather than inventing a second one.
      `-bright` is the chip-TEXT-safe lift, the same relationship `--color-plex-coral-bright` has to
      `--color-plex-coral` two lines up. */
@@ -9746,54 +9746,31 @@ button.wf-hc.also.on:hover {
   background: var(--color-plex-panel);
   overflow: hidden;
 }
-/* The handoff row (design README §1, plan D14) — states Plan's boundary out loud, above the
-   head rather than inside it, so it reads before the chronology's own subtitle rather than
-   competing with it. A `<button>`, so the dashed-border/hover treatment below is `:hover` on a
-   real interactive element rather than a `:hover` that has to be paired with a click handler on
-   a `<div>` to mean anything to a keyboard or screen-reader user. */
-.wf-cu-handoff {
-  /* One source for the side inset, because it has to appear in BOTH the margin and the width.
-     When it did not, this row overran the panel: `width: 100%` resolves against the containing
-     block and the horizontal margins are ADDED to it, so the button's margin box came out 28px
-     wider than `.wf-cu` — whose `overflow: hidden` then clipped the dashed border's right edge
-     away entirely, leaving a row that reads as running off the right of the screen.
-     ⚠️ `width: auto` is NOT the fix: a `<button>` shrink-wraps even as a block-level flex
-     container (measured 39.6px against a 388px panel), which is why the width was pinned here in
-     the first place. The design of record needs no width at all — its `.pane` carries the padding
-     and `.hoff` has only a `margin-top` (`docs/design/coming-up/Coming Up.html`) — but the port
-     gives each child of the bordered `.wf-cu` its own inset, so this row has to fund its own. */
-  --wf-cu-handoff-inset: 14px;
+/* The "Next four days" lanes (hot-topics-by-day-plan C1; design README §1) — one row per hot topic,
+   four day columns, a bar for a topic spanning days and a dot for a single window. It replaced the
+   dashed handoff row (plan D14) and still states Plan's boundary out loud. A block-level `<section>`,
+   not a button, so it fills the panel width without the shrink-wrap trap the old row had to pin
+   around; it funds its own side inset with a margin, since `.wf-cu` carries no padding.
+   `--c` is the topic's colour, set per item from `utils/topicPalette.js` — never a literal here.
+   ⚠️ EVERY grid item is explicitly placed (row and column, inline from the component): auto-
+   placement broke the design's own prototype twice. */
+.wf-cu-fd {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 13px;
-  /* Subtracted twice rather than multiplied by 2: `calc(a - var() - var())` is the exact shape
-     four sticky rules in this file already ship (`.wf-dhrow`, `.wf-rail`, and two
-     `scroll-margin-top`s), so this adds no compatibility surface beyond what already runs on
-     every reader's device. A `var()` under multiplication would have been the only such
-     construct in the stylesheet, and WebKit cannot be exercised from the dev environment. */
-  width: calc(100% - var(--wf-cu-handoff-inset) - var(--wf-cu-handoff-inset));
-  min-height: 40px;
-  margin: 12px var(--wf-cu-handoff-inset) 0;
-  padding: 9px 13px;
-  border: 1px dashed var(--color-plex-border-light);
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 14px 0;
+  padding: 10px 13px 12px;
+  border: 1px solid var(--color-plex-border-light);
   border-radius: 9px;
   background: rgba(0, 0, 0, 0.12);
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.14s, background 0.14s;
 }
-.wf-cu-handoff:hover,
-.wf-cu-handoff:focus-visible {
-  border-color: var(--color-close-to-home);
-  background: rgba(201, 162, 75, 0.05);
+.wf-cu-fd-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
 }
-.wf-cu-handoff:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-}
-.wf-cu-handoff-when {
+.wf-cu-fd-label {
   font-family: var(--font-mono);
   font-size: 9.5px;
   font-weight: 600;
@@ -9802,32 +9779,214 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text-muted);
   white-space: nowrap;
 }
-.wf-cu-handoff-summary {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-plex-text-secondary);
-}
-.wf-cu-handoff-topic {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.wf-cu-handoff-swatch {
-  width: 6px;
-  height: 6px;
-  border-radius: 2px;
-  flex: none;
-}
-.wf-cu-handoff-link {
-  margin-left: auto;
+.wf-cu-fd-plan {
+  padding: 0;
+  border: 0;
+  background: none;
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--color-close-to-home);
   white-space: nowrap;
+  cursor: pointer;
+}
+.wf-cu-fd-plan:hover { text-decoration: underline; }
+.wf-cu-fd-empty {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-fd-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: 118px repeat(4, minmax(0, 1fr)) 24px;
+  row-gap: 6px;
+  align-items: center;
+}
+/* Today's column shade — under everything, never an event target. */
+.wf-cu-fd-now {
+  grid-column: 2;
+  align-self: stretch;
+  margin: 0 3px;
+  border-radius: 7px;
+  background: rgba(242, 231, 211, 0.05);
+  pointer-events: none;
+}
+/* Static placement lives here; only the row of a topic's items, and a bar's column span, are inline. */
+.wf-cu-fd-day { grid-row: 1; }
+.wf-cu-fd-day[data-col='0'] { grid-column: 2; }
+.wf-cu-fd-day[data-col='1'] { grid-column: 3; }
+.wf-cu-fd-day[data-col='2'] { grid-column: 4; }
+.wf-cu-fd-day[data-col='3'] { grid-column: 5; }
+.wf-cu-fd-day {
+  display: flex;
+  flex-direction: column;
+  margin: 0 3px 3px;
+  padding: 3px 0 4px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.2);
+  font-family: var(--font-mono);
+  text-align: center;
+  line-height: 1.15;
+}
+.wf-cu-fd-day[data-today='true'] { border-color: var(--color-plex-text-muted); }
+.wf-cu-fd-day i {
+  font-style: normal;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+}
+.wf-cu-fd-day b {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--color-plex-text);
+}
+.wf-cu-fd-n {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+  white-space: nowrap;
+}
+.wf-cu-fd-i { font-size: 12px; flex: none; }
+.wf-cu-fd-nl,
+.wf-cu-fd-ns {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-cu-fd-ns { display: none; }
+.wf-cu-fd-seg {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.wf-cu-fd-bar {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 24px;
+  margin: 0 3px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--c) 45%, transparent);
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--c) 22%, transparent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wf-cu-fd-bar:hover {
+  border-color: var(--c);
+  background: color-mix(in oklch, var(--c) 32%, transparent);
+}
+/* A run that continues past the fourth day: dashed right edge, squared off, butting the jump button. */
+.wf-cu-fd-bar[data-open='true'] {
+  margin-right: 0;
+  border-right-style: dashed;
+  border-radius: 5px 0 0 5px;
+}
+/* The left text gives way before the peak: it shrinks and ellipsises, the peak never does. */
+.wf-cu-fd-bt {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-cu-fd-pk {
+  flex: none;
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--c);
+}
+/* The dot's button is a 24px target; the 16px disc inside is what is drawn. */
+.wf-cu-fd-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.wf-cu-fd-dv {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--c) 18%, transparent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-plex-bg);
+}
+.wf-cu-fd-dot:hover .wf-cu-fd-dv {
+  box-shadow: 0 0 0 5px color-mix(in oklch, var(--c) 32%, transparent);
+}
+/* An open dot (the run goes on past the fourth day) gets a dashed outer ring. */
+.wf-cu-fd-dot[data-open='true'] .wf-cu-fd-dv {
+  outline: 1px dashed var(--c);
+  outline-offset: 5px;
+}
+.wf-cu-fd-jump {
+  grid-column: 6;
+  height: 24px;
+  width: 24px;
+  padding: 0;
+  border: 1px dashed color-mix(in oklch, var(--c) 45%, transparent);
+  border-left: none;
+  border-radius: 0 5px 5px 0;
+  background: color-mix(in oklch, var(--c) 10%, transparent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--c);
+  cursor: pointer;
+}
+.wf-cu-fd-jump:hover { background: color-mix(in oklch, var(--c) 26%, transparent); }
+.wf-cu-fd-plan:focus-visible,
+.wf-cu-fd-bar:focus-visible,
+.wf-cu-fd-dot:focus-visible,
+.wf-cu-fd-jump:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+@media (forced-colors: active) {
+  .wf-cu-fd-bar,
+  .wf-cu-fd-jump { border-color: CanvasText; }
+  .wf-cu-fd-dv { border: 1px solid CanvasText; }
+  .wf-cu-fd-day[data-today='true'] { border-width: 2px; }
+}
+/* Phone only: label column 76px, jump column still 24px (a 24px target), the short name, and the bar's own text hidden so
+   only the peak label shows. Desktop and tablet are untouched. */
+@media (max-width: 639px) {
+  .wf-cu-fd-grid { grid-template-columns: 76px repeat(4, minmax(0, 1fr)) 24px; }
+  .wf-cu-fd-n { font-size: 11.5px; }
+  .wf-cu-fd-nl { display: none; }
+  .wf-cu-fd-ns { display: inline; }
+  .wf-cu-fd-day { margin: 0 2px 3px; }
+  .wf-cu-fd-bar { padding: 0 5px; }
+  .wf-cu-fd-bt { display: none; }
+  .wf-cu-fd-pk { font-size: 9px; }
 }
 .wf-cu-head {
   display: flex;
@@ -12357,6 +12516,19 @@ button.wf-mchip:hover {
   border-left: 2px solid var(--trow-accent, var(--color-plex-border-light));
   border-radius: 8px;
   padding: 7px 11px;
+}
+/* A Coming up lane's tap-through (hot-topics-by-day-plan C1): the row the reader tapped is outlined
+   in its topic colour for 1.6 s. The animation ENDS at zero width, in every mode including forced
+   colours, so the attribute can stay on the row while the shell holds the emphasis without leaving a
+   permanent ring. */
+.wf-trow[data-emphasis='true'] {
+  outline: 2px solid var(--c);
+  outline-offset: -2px;
+  animation: wf-trow-emphasis 1.6s ease-out forwards;
+}
+@keyframes wf-trow-emphasis {
+  0%, 70% { outline-width: 2px; }
+  100% { outline-width: 0; }
 }
 /* ⚠️ The CHANNEL tokens on the stripe, never the `--color-badge-*` family: `@theme static`'s own
    note says "never use a `--color-badge-*` as a fill or a border". ⚠️ The matrix card's own topic

@@ -418,64 +418,122 @@ describe('WindowFirstComingUp — the footer never states a count it does not ha
   });
 });
 
-describe('WindowFirstComingUp — the handoff row (plan D14)', () => {
-  it('renders above the chronology, stating the boundary with Plan', () => {
-    renderPane({ hotTopics: [{ type: 'DUST', label: 'Saharan dust', date: TODAY }] });
-    const handoff = screen.getByTestId('coming-up-handoff');
-    expect(handoff).toHaveTextContent('Now —');
-    expect(handoff).toHaveTextContent('One topic on those four days');
-    expect(handoff).toHaveTextContent('Saharan dust');
-    expect(handoff).toHaveTextContent('On Plan →');
+describe('WindowFirstComingUp — the "Next four days" lanes (plan D14, hot-topics-by-day C1)', () => {
+  // TODAY is Sun 9 Aug 2026, so the four days are Sun 9, Mon 10, Tue 11 and Wed 12.
+  const DUST = { type: 'DUST', label: 'Saharan dust', date: '2026-08-10', eventType: 'SUNSET' };
+  const SPRING = (date, over = {}) => ({
+    type: 'SPRING_TIDE', label: 'Spring tide', date, eventType: null,
+    tideRun: { dayNumber: 1, dayCount: 3, peak: false },
+    ...over,
   });
 
-  it('gives each phrase its own word boundary in the accessible name, rather than gluing them '
-      + 'into one run-on string', () => {
-    // JSX drops whitespace-only text that contains a line break — it does not collapse it to a
-    // space — so without an explicit `{' '}` between every span the name this assertion
-    // computes reads "...four daysSaharan dustAurora possibleOn Plan" with no boundaries. This pins
-    // `WindowFirstComingUpHandoff` itself through the ROLE this pane renders it with, so a future
-    // edit to either file cannot silently drop the separators.
-    //
-    // ⚠️ Name the instrument: that glued reading is what jsdom's `dom-accessibility-api` computes
-    // here, NOT what a browser announces. The polyfill applies the browsers' own rule, but to
-    // jsdom's `display`, and jsdom computes no layout: it never blockifies a flex item (and this
-    // suite loads no stylesheet anyway), so every span is `display: inline` to it. In a browser
-    // `.wf-cu-handoff` is `display: flex`, so removing these text nodes changes no accessible name
-    // (measured — see the component's class doc). This test therefore guards the DOM's stated
-    // intent, not a user-facing regression; treat a failure here as "the separators went away",
-    // not as "a11y broke in production".
+  it('renders the header and one row per topic, after the recurring-conditions strip and before '
+      + 'the chronology', () => {
     renderPane({
-      hotTopics: [
-        { type: 'DUST', label: 'Saharan dust', date: TODAY },
-        { type: 'AURORA', label: 'Aurora possible', date: TODAY },
-      ],
+      hotTopics: [DUST],
+      events: {
+        entries: ENTRIES,
+        counts: COUNTS,
+        conditions: [{
+          type: 'COASTAL_TIDES', name: 'Coastal tides', cadence: 'deterministic', interim: false,
+          rateLabel: 'a run every 14.8 days', quantLabel: 'about one a fortnight', peak: null,
+          occurrences: [],
+        }],
+      },
     });
-
-    const handoff = screen.getByRole('button', {
-      name: 'Now — Wed 12 Two topics on those four days Saharan dust Aurora possible '
-        + 'On Plan →',
-    });
-    expect(handoff).toBeInTheDocument();
+    const lanes = screen.getByTestId('coming-up-fourdays');
+    expect(screen.getByTestId('coming-up-conditions').compareDocumentPosition(lanes))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(lanes).toHaveTextContent('Next four days');
+    expect(screen.getAllByTestId('coming-up-fourdays-label')).toHaveLength(1);
+    expect(screen.getByTestId('coming-up-fourdays-label')).toHaveTextContent('Dust');
+    expect(screen.getAllByTestId('coming-up-fourdays-day')).toHaveLength(4);
+    expect(lanes.compareDocumentPosition(screen.getAllByTestId('coming-up-entry')[0]))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it('calls onGoToPlan when clicked', () => {
-    const { onGoToPlan } = renderPane();
-    fireEvent.click(screen.getByTestId('coming-up-handoff'));
+  it('"On Plan" is its own button and calls onGoToPlan with no date', () => {
+    const { onGoToPlan } = renderPane({ hotTopics: [DUST] });
+    const button = screen.getByRole('button', { name: 'On Plan' });
+    fireEvent.click(button);
     expect(onGoToPlan).toHaveBeenCalledTimes(1);
+    expect(onGoToPlan).toHaveBeenCalledWith();
   });
 
-  it('degrades to the label-only row when the briefing has not supplied hotTopics yet', () => {
-    renderPane({ hotTopics: undefined });
-    const handoff = screen.getByTestId('coming-up-handoff');
-    expect(handoff).toHaveTextContent('Now —');
-    expect(handoff).toHaveTextContent('On Plan →');
-    expect(screen.queryByTestId('coming-up-handoff-summary')).toBeNull();
+  it('a tap on a lane with a Plan window card opens that window, with the topic', () => {
+    const onGoToPlanWindow = vi.fn();
+    const { onGoToPlan } = renderPane({
+      hotTopics: [DUST],
+      openableKeys: new Set(['2026-08-10:SUNSET']),
+      onGoToPlanWindow,
+    });
+    fireEvent.click(screen.getByTestId('coming-up-fourdays-dot'));
+    expect(onGoToPlanWindow).toHaveBeenCalledWith('2026-08-10:SUNSET', 'DUST');
+    expect(onGoToPlan).not.toHaveBeenCalled();
   });
+
+  it('a tap on a lane with no Plan window card is plain goToPlan', () => {
+    const onGoToPlanWindow = vi.fn();
+    const { onGoToPlan } = renderPane({
+      hotTopics: [DUST], openableKeys: new Set(), onGoToPlanWindow,
+    });
+    fireEvent.click(screen.getByTestId('coming-up-fourdays-dot'));
+    expect(onGoToPlan).toHaveBeenCalledTimes(1);
+    expect(onGoToPlanWindow).not.toHaveBeenCalled();
+  });
+
+  it('degrades to the header and the day headers when the briefing has not supplied hotTopics',
+    () => {
+      renderPane({ hotTopics: undefined });
+      expect(screen.getByTestId('coming-up-fourdays')).toHaveTextContent('Next four days');
+      expect(screen.getByRole('button', { name: 'On Plan' })).toBeInTheDocument();
+      expect(screen.getAllByTestId('coming-up-fourdays-day')).toHaveLength(4);
+      expect(screen.queryByTestId('coming-up-fourdays-label')).toBeNull();
+      expect(screen.queryByTestId('coming-up-fourdays-empty')).toBeNull();
+    });
 
   it('says explicitly that nothing is live once hotTopics has arrived empty', () => {
     renderPane({ hotTopics: [] });
-    expect(screen.getByTestId('coming-up-handoff-summary'))
+    expect(screen.getByTestId('coming-up-fourdays-empty'))
       .toHaveTextContent('Nothing on those four days');
+    expect(screen.queryByTestId('coming-up-fourdays-day')).toBeNull();
+  });
+
+  it('offers a jump to the list entry for a run that continues, and only while that entry is '
+      + 'in the rendered list', () => {
+    renderPane({ hotTopics: [SPRING('2026-08-12')] });
+    const jump = screen.getByTestId('coming-up-fourdays-jump');
+    expect(jump).toHaveAccessibleName('Spring tide: show the run in the list, 12–13 Aug');
+
+    // The coastal chip keeps the spring-tide card; the other chip hides it, and a jump must never
+    // aim at a card the filter has removed.
+    const chip = (label) => screen.getAllByTestId('coming-up-chip')
+      .find((c) => within(c).queryByText(label));
+    fireEvent.click(chip('Coastal'));
+    expect(screen.getByTestId('coming-up-fourdays-jump')).toBeInTheDocument();
+    fireEvent.click(chip('Night sky'));
+    expect(screen.queryByTestId('coming-up-fourdays-jump')).toBeNull();
+  });
+});
+
+describe('WindowFirstComingUp — the lanes\' jump never aims at a list that is not on screen', () => {
+  it('draws no jump button while a retry is loading, even with stale events still held', () => {
+    const run = [{
+      type: 'SPRING_TIDE', label: 'Spring tide', date: '2026-08-12', eventType: null,
+      tideRun: { dayNumber: 1, dayCount: 1, peak: false },
+    }];
+    // The same props, once ready: the button is there ...
+    const ready = renderPane({ hotTopics: run, status: 'ready' });
+    expect(screen.getByTestId('coming-up-fourdays-jump')).toBeInTheDocument();
+    ready.unmount();
+    // ... and gone while loading or failed, because the month list is not rendered and the card
+    // the button would scroll to is not in the DOM.
+    for (const status of ['loading', 'error']) {
+      const { unmount } = renderPane({ hotTopics: run, status });
+      expect(screen.queryByTestId('coming-up-entry')).toBeNull();
+      expect(screen.queryByTestId('coming-up-fourdays-jump')).toBeNull();
+      unmount();
+    }
   });
 });
 
@@ -512,13 +570,13 @@ describe('WindowFirstComingUp — recurring conditions strip (plan §7 P4)', () 
     occurrences: [],
   };
 
-  it('renders the strip from events.conditions, between the chips and the handoff row — the '
+  it('renders the strip from events.conditions, between the chips and the lanes — the '
       + 'design of record\'s own DOM order', () => {
     renderPane({ events: { entries: ENTRIES, counts: COUNTS, conditions: [CONDITION] } });
 
     const chips = screen.getByTestId('coming-up-chips');
     const strip = screen.getByTestId('coming-up-conditions');
-    const handoff = screen.getByTestId('coming-up-handoff');
+    const handoff = screen.getByTestId('coming-up-fourdays');
 
     expect(chips.compareDocumentPosition(strip)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(strip.compareDocumentPosition(handoff)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
@@ -532,10 +590,10 @@ describe('WindowFirstComingUp — recurring conditions strip (plan §7 P4)', () 
     expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
   });
 
-  it('the handoff row still renders while the almanac feed is loading or has failed — it reads '
+  it('the lanes still render while the almanac feed is loading or has failed — they read '
       + 'only hotTopics, not the almanac status', () => {
     renderPane({ status: 'loading', events: undefined });
-    expect(screen.getByTestId('coming-up-handoff')).toBeInTheDocument();
+    expect(screen.getByTestId('coming-up-fourdays')).toBeInTheDocument();
     expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
   });
 

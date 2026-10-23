@@ -149,6 +149,18 @@ The handoff was written against the prototype. Against the code, these hold.
       `alignedEvent` is non-null.
     - A tide peak beyond the four days ("peak Tue") isn't in `hotTopics`, so an open bar reads
       `runs on` with no peak.
+    - ⚠️ **Corrected in C1's review (2026-10-23).** The tide-run fields are window-bounded:
+      - `Spring`/`KingTideHotTopicStrategy` filter the run to `lastPlanDate`, and `TideRunBuilder`
+        passes `perDay.size()` as `dayCount`.
+      - So on day 4, `dayNumber == dayCount` always, and `peak` marks the biggest **visible** day,
+        not the run's peak.
+      - Neither can say whether a run continues. C1 therefore takes "open" for a tide row from the
+        served almanac instead. The run is open when `feed.entries` holds a `spring-tide` or
+        `king-tide` entry (or a coincidence with either) whose `startDate` is on or before
+        `lastPlanDate`. The almanac keeps such an entry only when it ends after that date.
+      - Both tide types are accepted, because the hot topic and the almanac can label one run
+        differently.
+      - **An open segment prints no peak.**
 
 ### Map chrome
 
@@ -865,8 +877,8 @@ changes".
 | Phase | PR | State |
 |---|---|---|
 | Plan | — | drafted 2026-10-23; adversarially reviewed (four lenses); every finding folded in; owner answered Q1–Q12 |
-| B1 | — | ready to brief once the plan merges |
-| C1 | — | ready to brief once the plan merges |
+| B1 | #1320 | ✅ merged 2026-10-23 (`3bed1f56`); Codex 👍 first round |
+| C1 | — | built 2026-10-23 by Sonnet. Four review lenses; one fix round, including the §1.10 tide-run correction. Headless screenshots at 1280 and 390 match the design's layout (the harness had no web fonts). Not seen with a screen reader, in forced colours, or in the real app behind sign-in |
 | M1 | — | after C1 |
 | M2 | — | after M1 |
 | M3 | — | after B1 and M2 |
