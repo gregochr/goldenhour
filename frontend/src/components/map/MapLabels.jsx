@@ -829,7 +829,10 @@ export default function MapLabels({
               key={it.key}
               item={it}
               style={styleFor(it.key)}
-              selected={selectedName === it.name}
+              // Only a PLACED chip may carry the selected mark: a hidden one is the first match for
+              // `closeCallout`'s lookup and would take focus nowhere. Unplaced, the visible fallback
+              // ordinary chip of the same place carries it.
+              selected={selectedName === it.name && boxFor(it.key) != null}
               fade={askActive}
               refCallback={(node) => {
                 if (node) seasRefs.current.set(it.locationId, node);

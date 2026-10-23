@@ -427,6 +427,43 @@ describe('MapLabels — big-seas chips', () => {
     expect(ordinary).toContain('Stood, 3 star');
   });
 
+  it('a selected big-seas chip that fails placement does not carry data-selected; its visible replacement does', async () => {
+    const widths = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+    const heights = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get() {
+        if (this.className.includes('wf-bsc')) return 300;
+        return this.className.includes('wf-maplab-region') ? 100 : 40;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 17 });
+    restoreMeasure = () => {
+      if (widths) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', widths);
+      else delete HTMLElement.prototype.offsetWidth;
+      if (heights) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', heights);
+      else delete HTMLElement.prototype.offsetHeight;
+    };
+    currentMap = makeFullMap({ zoom: 9, size: { x: 320, y: 24 } });
+    currentMap.latLngToContainerPoint = ([, lng]) => ({ x: 160 + (lng + 1.5) * 100, y: 12 });
+    await mount({
+      spots: [
+        { name: 'Stood', lat: 55, lng: -1.5, rid: 'R', rating: 3 },
+        { name: 'Anchor', lat: 55, lng: -3.2, rid: 'R', rating: 4 },
+      ],
+      bigSeasChips: [{ ...chipsFor()[0], lat: 55, lng: -1.5, name: 'Stood' }],
+      selectedName: 'Stood',
+    });
+    await act(async () => { runFrames(); });
+    const shown = (el) => el.style.display !== 'none';
+    const hiddenSeas = seasChips()[0];
+    expect(shown(hiddenSeas)).toBe(false);
+    expect(hiddenSeas.dataset.selected).toBeUndefined();
+    const marked = [...document.querySelectorAll('[data-testid="map-label-chip"][data-selected="true"]')];
+    expect(marked.filter(shown)).toHaveLength(1);
+    expect(marked.filter(shown)[0].getAttribute('aria-label')).toBe('Stood, 3 star');
+  });
+
   it('does not give the ordinary chip back when the big-seas chip places', async () => {
     await mountSeas({
       spots: [{ name: 'Roker Pier & Lighthouse', lat: 54.92, lng: -1.36, rid: 'North East', rating: 2 }],

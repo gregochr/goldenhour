@@ -5227,9 +5227,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * ✕ was not the focused control.
    */
   function closeCallout() {
-    const origin = mapPaneRef.current?.querySelector(
+    // Only a VISIBLE match: a label the placer has hidden (`display: none`, or still off-screen
+    // measuring) is not focusable, and focusing it would drop focus to <body>.
+    const origin = [...(mapPaneRef.current?.querySelectorAll(
       '[data-testid="map-label-chip"][data-selected="true"], [data-testid="map-pin"][data-selected="true"]',
-    );
+    ) ?? [])].find((el) => el.style.display !== 'none' && el.style.visibility !== 'hidden');
     const target = origin instanceof HTMLElement && origin.isConnected ? origin : mapPaneRef.current;
     target?.focus({ preventScroll: true });
     setSelectedLocationName(null);

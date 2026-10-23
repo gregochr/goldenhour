@@ -472,7 +472,9 @@ export default function PinsLayer({
               key={it.key}
               item={it}
               style={style}
-              selected={selectedName === it.name}
+              // Only a PLACED chip carries the selected mark (see `MapLabels.jsx`); the place's pin,
+              // always visible, carries it otherwise.
+              selected={selectedName === it.name && box != null}
               fade={askActive}
               refCallback={(node) => {
                 if (node) seasRefs.current.set(it.locationId, node);

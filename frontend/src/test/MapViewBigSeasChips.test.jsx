@@ -54,11 +54,11 @@ vi.mock('react-leaflet', () => ({
 }));
 
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div /> }));
-const labelProps = { last: null };
+const labelProps = { last: null, extra: null };
 vi.mock('../components/map/MapLabels.jsx', () => ({
   default: (props) => {
     labelProps.last = props;
-    return <div data-testid="map-labels-stub" />;
+    return <div data-testid="map-labels-stub">{labelProps.extra}</div>;
   },
 }));
 const pinsProps = { last: null };
@@ -89,6 +89,11 @@ vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockRes
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
+vi.mock('../components/map/MapCallout.jsx', () => ({
+  default: (props) => (
+    <button type="button" data-testid="map-callout-close" onClick={props.onClose}>close</button>
+  ),
+}));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
 import MapView from '../components/MapView.jsx';
@@ -215,6 +220,7 @@ beforeEach(() => {
   zoomHandlers.length = 0;
   getAstroAvailableDates.mockResolvedValue([]);
   labelProps.last = null;
+  labelProps.extra = null;
   pinsProps.last = null;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T09:40:00Z`));
@@ -254,6 +260,22 @@ describe('MapView — the big-seas chips', () => {
     mockZoom = 13;
     await renderMap();
     expect(labelProps.last.bigSeasChips).toHaveLength(0);
+  });
+
+  it('closeCallout returns focus to the VISIBLE selected label, never to a hidden one that comes first', async () => {
+    // A selected big-seas chip the placer has hidden (display: none) precedes the visible replacement
+    // in the DOM; the lookup must skip it or focus is lost to <body>.
+    labelProps.extra = (
+      <>
+        <button type="button" data-testid="map-label-chip" data-selected="true" style={{ display: 'none' }}>hidden</button>
+        <button type="button" data-testid="map-label-chip" data-selected="true">visible</button>
+      </>
+    );
+    await renderMap();
+    await act(async () => { labelProps.last.onSelect(SPOT.name); });
+    const close = await screen.findByTestId('map-callout-close');
+    await act(async () => { fireEvent.click(close); });
+    expect(document.activeElement).toBe(screen.getByText('visible'));
   });
 
   it('the SELECTED place KEEPS its chip (the pressed button stays mounted; only an Ask pick displaces one)', async () => {
