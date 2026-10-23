@@ -1239,6 +1239,12 @@ describe('HeatmapGrid — an UNRATED region ("Too few rated", unrated-verdict-pl
 
 // ── Day header solar times ───────────────────────────────────────────────────
 
+// Fixed civil dates, one each side of the UK clock change, so the expected UK times never depend
+// on the wall clock's DST state (a `futureDateStr(2)` fixture crossed 25 Oct 2026 and broke the
+// hard-coded +1 h). Summer is BST (UTC+1); winter is GMT (UTC+0).
+const SUMMER_DAY = '2026-07-15';
+const WINTER_DAY = '2026-12-15';
+
 describe('HeatmapGrid — day header solar times', () => {
   /**
    * Builds a briefing day with both SUNRISE and SUNSET event summaries, each
@@ -1272,10 +1278,10 @@ describe('HeatmapGrid — day header solar times', () => {
 
   it('shows sunrise and sunset times in the day column header', () => {
     // UTC 04:58 → BST 05:58  |  UTC 18:42 → BST 19:42
-    const days = [buildDayWithTimes(DATE_1, `${DATE_1}T04:58:00`, `${DATE_1}T18:42:00`)];
+    const days = [buildDayWithTimes(SUMMER_DAY, `${SUMMER_DAY}T04:58:00`, `${SUMMER_DAY}T18:42:00`)];
 
     renderGrid({
-      events: [{ date: DATE_1, targetType: 'SUNRISE' }, { date: DATE_1, targetType: 'SUNSET' }],
+      events: [{ date: SUMMER_DAY, targetType: 'SUNRISE' }, { date: SUMMER_DAY, targetType: 'SUNSET' }],
       briefingDays: days,
     });
 
@@ -1286,10 +1292,10 @@ describe('HeatmapGrid — day header solar times', () => {
 
   it('sunrise glyph precedes sunrise time, sunset glyph precedes sunset time — not swapped', () => {
     // Distinct UTC times so a swap would fail: sunrise 04:58→05:58 BST, sunset 18:42→19:42 BST
-    const days = [buildDayWithTimes(DATE_1, `${DATE_1}T04:58:00`, `${DATE_1}T18:42:00`)];
+    const days = [buildDayWithTimes(SUMMER_DAY, `${SUMMER_DAY}T04:58:00`, `${SUMMER_DAY}T18:42:00`)];
 
     renderGrid({
-      events: [{ date: DATE_1, targetType: 'SUNRISE' }, { date: DATE_1, targetType: 'SUNSET' }],
+      events: [{ date: SUMMER_DAY, targetType: 'SUNRISE' }, { date: SUMMER_DAY, targetType: 'SUNSET' }],
       briefingDays: days,
     });
 
@@ -1311,20 +1317,20 @@ describe('HeatmapGrid — day header solar times', () => {
 
   it('shows only sunset time when day has no SUNRISE event summary', () => {
     const days = [{
-      date: DATE_1,
+      date: SUMMER_DAY,
       eventSummaries: [{
         targetType: 'SUNSET',
         regions: [{
           regionName: 'North East',
           verdict: 'GO',
           summary: 'Clear',
-          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${DATE_1}T18:42:00` }],
+          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${SUMMER_DAY}T18:42:00` }],
         }],
       }],
     }];
 
     renderGrid({
-      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      events: [{ date: SUMMER_DAY, targetType: 'SUNSET' }],
       briefingDays: days,
     });
 
@@ -1336,7 +1342,7 @@ describe('HeatmapGrid — day header solar times', () => {
 
   it('renders no solar-times element when no slot has a solarEventTime', () => {
     const days = [{
-      date: DATE_1,
+      date: SUMMER_DAY,
       eventSummaries: [{
         targetType: 'SUNSET',
         regions: [{
@@ -1349,7 +1355,7 @@ describe('HeatmapGrid — day header solar times', () => {
     }];
 
     renderGrid({
-      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      events: [{ date: SUMMER_DAY, targetType: 'SUNSET' }],
       briefingDays: days,
     });
 
@@ -1357,15 +1363,17 @@ describe('HeatmapGrid — day header solar times', () => {
   });
 
   it('shows separate solar times for each day column', () => {
+    // Summer column converts (+1 h BST); winter column does not (GMT), so both a missing
+    // conversion and an unconditional +1 h fail.
     const days = [
-      buildDayWithTimes(DATE_1, `${DATE_1}T04:58:00`, `${DATE_1}T18:42:00`),
-      buildDayWithTimes(DATE_2, `${DATE_2}T04:55:00`, `${DATE_2}T18:44:00`),
+      buildDayWithTimes(SUMMER_DAY, `${SUMMER_DAY}T04:58:00`, `${SUMMER_DAY}T18:42:00`),
+      buildDayWithTimes(WINTER_DAY, `${WINTER_DAY}T07:55:00`, `${WINTER_DAY}T15:44:00`),
     ];
 
     renderGrid({
       events: [
-        { date: DATE_1, targetType: 'SUNRISE' }, { date: DATE_1, targetType: 'SUNSET' },
-        { date: DATE_2, targetType: 'SUNRISE' }, { date: DATE_2, targetType: 'SUNSET' },
+        { date: SUMMER_DAY, targetType: 'SUNRISE' }, { date: SUMMER_DAY, targetType: 'SUNSET' },
+        { date: WINTER_DAY, targetType: 'SUNRISE' }, { date: WINTER_DAY, targetType: 'SUNSET' },
       ],
       briefingDays: days,
     });
@@ -1374,8 +1382,8 @@ describe('HeatmapGrid — day header solar times', () => {
     expect(headers).toHaveLength(2);
     expect(headers[0].textContent).toContain('05:58');
     expect(headers[0].textContent).toContain('19:42');
-    expect(headers[1].textContent).toContain('05:55');
-    expect(headers[1].textContent).toContain('19:44');
+    expect(headers[1].textContent).toContain('07:55');
+    expect(headers[1].textContent).toContain('15:44');
   });
 });
 
