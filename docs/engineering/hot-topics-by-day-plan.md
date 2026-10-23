@@ -709,7 +709,14 @@ Known items:
   and counts**. HW must return no rating and no stand-down.
 - **`selectEvRow`'s `typeChanged`** (:5127-5138) resets the star floor and stand-down and **clears
   the persisted `mapFilterMinStars`**. Stepping sunrise → HW → sunset would wipe the reader's saved
-  filter. Exempt HW both ways: compare the last *solar* type.
+  filter.
+  - **The rule:** `typeChanged` is false whenever **either** the current or the destination row is
+    the HW row (`eventType === 'HIGH_WATER'` on either side). There is no reset in either direction.
+  - Comparing against "the last solar type" does **not** work (Codex P1 on #1319). After
+    sunrise → HW, the HW → sunset step compares SUNSET with SUNRISE and resets anyway.
+  - The accepted consequence: going from sunrise to sunset by way of the HW row keeps the filters,
+    while stepping directly from sunrise to sunset resets them as today. A stop on the HW row reads
+    as a choice to look at the same day, not to change light. The sweep test pins both paths.
 - **`bigSeasChipItems`** (`bigSeasChips.js:44`) returns nothing unless `kind === 'solar'`. Accept
   `'hw'` and ring every structure on it, because high water is the event.
 - **Places that read `kind !== 'solar'` as "night"**: `MapView.jsx:3829` (`followWindowRow`), :5185
@@ -772,7 +779,7 @@ Known items:
   its date, and the parent date and the Map pane stay in sync.
 - **`hwEventSweep.test.jsx`**, one assertion per swept path. It must include:
   - **no stars** through `getRatingForLocation`;
-  - the persisted star filter survives sunrise → HW → sunset;
+  - the persisted star filter survives sunrise → HW → sunset, while a direct sunrise → sunset step still resets it;
   - big-seas chips are present and ringed;
   - no "not scored" line;
   - the callout and outcome block don't read the HW row as sunset.
