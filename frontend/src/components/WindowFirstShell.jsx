@@ -389,7 +389,7 @@ export default function WindowFirstShell({
   forecastDates = null, registerCloseDialogs = null,
 }) {
   const {
-    heatStripCards, heatPointSets, heatUnratedSets, heatSpots, reachById, regionSeries,
+    heatStripCards, heatPointSets, heatUnratedSets, heatStoodSets, heatSpots, reachById, regionSeries,
     windowCards, paneItems, loading, briefing, evaluationScores, scoresLoaded,
     scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
     origin, setOrigin, regions, effectiveReachById,
@@ -1312,6 +1312,7 @@ export default function WindowFirstShell({
       spots: heatSpots,
       points: heatPointSets.get(openCard.key) || EMPTY_POINTS,
       unrated: heatUnratedSets?.get?.(openCard.key) || EMPTY_POINTS,
+      stood: heatStoodSets?.get?.(openCard.key) || EMPTY_POINTS,
       // The matrix's own descriptors, so the popup's null-prose line and the six cells behind it
       // name one set of windows in one order.
       windows: heatStripCards,
@@ -1334,7 +1335,7 @@ export default function WindowFirstShell({
       // prop path from `App` rather than two.
       homeCoords,
     };
-  }, [openCard, heatSpots, heatPointSets, heatUnratedSets, heatStripCards, regionSeries, reachById,
+  }, [openCard, heatSpots, heatPointSets, heatUnratedSets, heatStoodSets, heatStripCards, regionSeries, reachById,
     eventSummariesByKey, fieldLens, focusedRegion, origin, homeCoords]);
 
   // Lifted to App for the Map tab's doors. Without this a tile handed to the map lands on a map that
@@ -2515,6 +2516,7 @@ export default function WindowFirstShell({
             cards={heatStripCards}
             pointSets={heatPointSets}
             unratedSets={heatUnratedSets}
+            stoodSets={heatStoodSets}
             spots={heatSpots}
             reachById={reachById}
             /* The served topics, for the matrix's scope filter (plan-matrix A8). Read straight off

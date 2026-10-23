@@ -17,7 +17,10 @@ import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
 import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
-import { buildHeatPointSets, buildHeatSpots, buildUnratedPointSets } from '../utils/heatSpots.js';
+import {
+  buildHeatPointSets, buildHeatSpots, buildHeatWindowStates, buildUnratedPointSets,
+} from '../utils/heatSpots.js';
+import { stoodPointSetsOf } from '../utils/mapStandDown.js';
 import { buildRegionSeries } from '../utils/windowFirstRegions.js';
 import { AWAY_TIER_ID, originReachMap, toOrigin } from '../utils/planOrigin.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
@@ -82,6 +85,7 @@ const WindowFirstBriefingContext = createContext({
   heatSpots: EMPTY_ARRAY,
   heatPointSets: EMPTY_POINT_SETS,
   heatUnratedSets: EMPTY_POINT_SETS,
+  heatStoodSets: EMPTY_POINT_SETS,
   regionSeries: EMPTY_REGION_SERIES,
   reachById: EMPTY_REACH,
   effectiveReachById: EMPTY_REACH,
@@ -724,6 +728,21 @@ export function WindowFirstBriefingProvider({
   );
 
   /**
+   * The weather-stood places per window, keyed like {@link heatPointSets} — what the Plan
+   * thumbnails and the open row's field hatch as "stood down" (big-seas plan F4), so the Plan and
+   * the Map agree on stood ground. Solar windows with evidence only, {@code TIDE_MISALIGNED}
+   * excluded ({@code stoodPointSetsOf}); a window with nothing stood has no entry.
+   *
+   * <p>⚠️ Empty until {@code scoresLoaded}, for the same reason as {@link heatUnratedSets}.
+   */
+  const heatStoodSets = useMemo(
+    () => (scoresLoaded
+      ? stoodPointSetsOf(buildHeatWindowStates(heatSpotList, upcomingEvents))
+      : EMPTY_POINT_SETS),
+    [scoresLoaded, heatSpotList, upcomingEvents],
+  );
+
+  /**
    * Each region's served mean across every rendered window, for the open row's six-dot strip.
    *
    * <p>Built here rather than per card because it is a CROSS-window quantity: a card holds one
@@ -744,7 +763,7 @@ export function WindowFirstBriefingProvider({
       briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
       heatSpots: heatSpotList,
-      heatPointSets, heatUnratedSets,
+      heatPointSets, heatUnratedSets, heatStoodSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro,
@@ -757,7 +776,7 @@ export function WindowFirstBriefingProvider({
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
-      heatSpotList, heatPointSets, heatUnratedSets,
+      heatSpotList, heatPointSets, heatUnratedSets, heatStoodSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro,

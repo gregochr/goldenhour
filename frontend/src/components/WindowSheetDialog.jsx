@@ -629,6 +629,7 @@ export default function WindowSheetDialog({
               spots={field.spots}
               points={field.points}
               unrated={field.unrated}
+              stood={field.stood}
               bestRating={card.bestRating}
               regionNames={scopedRegionNames}
               chips={chips}
