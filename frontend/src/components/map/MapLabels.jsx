@@ -287,10 +287,15 @@ const TOOLTIP_WIDTH_FALLBACK = 240;
  *   would hide is the failure: a numbered card with its marker under a 112px line is worse than one
  *   shifted a little. Without the answer the sheet stays what it has always been to this layer, a
  *   thing a label may sit under
+ * @param {number|string} [props.chromeKey] a repaint key for the top-left chrome group: `MapView` passes
+ *   the nonce `useChromeTlHeight` bumps whenever that group's published height changes (the topic chips
+ *   row growing, a sky-wide line, a wrapped row). This layer repaints only on map move, zoom and resize
+ *   or on a prop change, and reads the group as an obstacle when it places, so a group that grew under
+ *   labels already placed would otherwise leave them under it; a change of this key re-runs placement
  */
 export default function MapLabels({
   spots: allSpots, standRegions = NO_STAND_REGIONS, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
-  onSelect = null, onSelectAskPick = null, eventLabel = '', bottomInset = 0, rampHex = defaultRampHex,
+  onSelect = null, onSelectAskPick = null, eventLabel = '', bottomInset = 0, chromeKey = '', rampHex = defaultRampHex,
   omitUnrated = false, bigSeasChips = NO_BIG_SEAS_CHIPS,
 }) {
   const map = useMap();
@@ -505,7 +510,7 @@ export default function MapLabels({
   // list, above), and `paintRef` is already pointed at the fresh closure by the layout effect
   // above by the time this runs. `repaintNow` rather than a bare call so a frame the throttle
   // already owes is not doubled.
-  useEffect(() => { repaintNow(); }, [paint, repaintNow, bottomInset]);
+  useEffect(() => { repaintNow(); }, [paint, repaintNow, bottomInset, chromeKey]);
 
   /**
    * The measure-then-place pass (see the class doc). Keyed on the `frame` OBJECT's identity, the
@@ -1137,4 +1142,5 @@ MapLabels.propTypes = {
   onSelectAskPick: PropTypes.func,
   eventLabel: PropTypes.string,
   bottomInset: PropTypes.number,
+  chromeKey: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
 };

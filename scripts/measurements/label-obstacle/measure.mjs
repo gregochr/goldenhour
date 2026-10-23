@@ -130,7 +130,8 @@ const { VIEWPORTS } = await import('./lib.mjs');
 /** `none` is the baseline (chrome only); the other three each open one of the seeded surfaces. */
 /** `win9` is the SAME panel at a production-shaped region count — see the harness's own note. */
 /** `seas` is the chrome group with the big-seas line under the control (big-seas plan F1). */
-const SURFACES = ['none', 'land', 'win', 'win9', 'reg', 'seas'];
+/** `topics` / `topicsEmpty` / `seasTopics` add the hot-topic chips row (hot-topics-by-day-plan M1). */
+const SURFACES = ['none', 'land', 'win', 'win9', 'reg', 'seas', 'topics', 'topicsEmpty', 'seasTopics'];
 const REGION_COUNT_FOR = { win9: 9 };
 const OBSTACLE_TESTIDS = [
   // The transient surfaces under test…

@@ -27,6 +27,7 @@ import MapWindowPanel from '../../../../frontend/src/components/map/MapWindowPan
 import MapRegionPanel from '../../../../frontend/src/components/map/MapRegionPanel.jsx';
 import WindowControl from '../../../../frontend/src/components/map/WindowControl.jsx';
 import BigSeasLine from '../../../../frontend/src/components/map/BigSeasLine.jsx';
+import MapTopicChips from '../../../../frontend/src/components/map/MapTopicChips.jsx';
 import { setRewind } from '../../../../frontend/src/utils/rewind.js';
 import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -164,6 +165,30 @@ const LANDING_MODEL = {
 };
 
 const noop = () => {};
+
+/** The phone breakpoint `useIsMobile` uses: (max-width: 639px). */
+const IS_PHONE = window.innerWidth <= 639;
+
+/**
+ * The topic chips' measurement fixture (hot-topics-by-day-plan §3 M1): THREE chips, the longest names
+ * and `where` texts the palette produces for a Northumberland day (a coastal tide, a region-scoped
+ * dust, a whole-sky aurora), nothing selected. The REAL component renders them inside the REAL
+ * chrome-tl, so the row's wrap, gap and height are the app's.
+ */
+const TOPIC_CHIPS = [
+  {
+    type: 'KING_TIDE', name: 'King tide', glyph: '\uD83C\uDF0A', colour: '#6FA8B0', where: '66 coastal',
+    label: 'King tide, 66 coastal places', wholeSky: false, bigSeas: false,
+  },
+  {
+    type: 'DUST', name: 'Dust', glyph: '\uD83C\uDFDC\uFE0F', colour: '#f97316', where: '12 places',
+    label: 'Dust, 12 places', wholeSky: false, bigSeas: false,
+  },
+  {
+    type: 'AURORA', name: 'Aurora', glyph: '\uD83C\uDF0C', colour: '#8E86D6', where: 'sky-wide',
+    label: 'Aurora, sky-wide', wholeSky: true, bigSeas: false,
+  },
+];
 
 /**
  * The big-seas line's measurement fixture (big-seas plan F1): a day on `EV_ROWS[0]`'s own date, with
@@ -401,13 +426,27 @@ function Harness() {
                 onReopenLanding={noop}
                 onOpenWindowPanel={noop}
               />
-              {which === 'seas' && (
+              {(which === 'seas' || which === 'seasTopics') && (
                 <BigSeasLine
                   bigSeas={[SEAS_DAY]}
                   evRow={EV_ROWS[0]}
                   events={SEAS_EVENTS}
                   onSelectEv={noop}
                 />
+              )}
+              {/* The phone rules as shipped (`MapView`): `isMobile` below 640px (the empty state is not
+                  drawn), and the row is SUPPRESSED while the big-seas line shows (owner, 2026-10-23). */}
+              {(which === 'topics' || which === 'seasTopics') && (
+                <MapTopicChips
+                  chips={TOPIC_CHIPS}
+                  selectedType={null}
+                  onToggle={noop}
+                  isMobile={IS_PHONE}
+                  suppressed={IS_PHONE && which === 'seasTopics'}
+                />
+              )}
+              {which === 'topicsEmpty' && (
+                <MapTopicChips chips={[]} selectedType={null} onToggle={noop} isMobile={IS_PHONE} />
               )}
             </div>
             {which === 'land' && (
