@@ -229,6 +229,30 @@ describe('PinsLayer — big-seas chips', () => {
     expect(document.querySelector('[data-testid="map-label-chip"][data-selected="true"]')).toBe(chip);
   });
 
+  it('tab order: the Ask pick, then the big-seas chips, then the ordinary pins', async () => {
+    await mountPins({
+      spots: [
+        ...SPOTS,
+        { name: 'Whitby', lat: 54.5, lng: -0.6, rid: 'North East', rating: 3 },
+        { name: 'Buttermere', lat: 54.5, lng: -3.1, rid: 'The Lakes', rating: 4 },
+        {
+          name: 'Alnmouth',
+          lat: 55.39,
+          lng: -1.61,
+          rid: 'North East',
+          rating: 4,
+          askPick: { rank: 1, shortWindow: 'x', rating: 4, verdict: 'MAYBE', label: 'Pick 1' },
+        },
+      ],
+      bigSeasChips: chipsFor().slice(0, 2),
+    });
+    const order = [...document.querySelectorAll('[data-testid="pins-layer"] button')].map((b) => {
+      if (b.dataset.kind === 'big-seas') return 'chip';
+      return b.dataset.ask === 'pick' ? 'pick' : 'pin';
+    });
+    expect(order).toEqual(['pick', 'chip', 'chip', 'pin', 'pin', 'pin', 'pin']);
+  });
+
   it('draws nothing without chips', async () => {
     await mountPins({ bigSeasChips: undefined });
     expect(seasChips()).toHaveLength(0);

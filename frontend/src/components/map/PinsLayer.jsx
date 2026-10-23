@@ -452,7 +452,40 @@ export default function PinsLayer({
         </span>
       ))}
 
-      {frame.pins.map(({ spot, x, y }) => {
+      {/* DOM (= tab) order: Ask picks, then the big-seas chips, then every other pin, so a keyboard
+          reader reaches the chips before a catalogue's worth of pins. Paint order is the stylesheet's
+          (`.wf-bsc` carries a z-index in this layer), so the chips still sit above the pins. */}
+      {[
+        ...frame.pins.filter(({ spot }) => spot.askPick),
+        ...frame.bigSeasItems.map((it) => ({ seas: it })),
+        ...frame.pins.filter(({ spot }) => !spot.askPick),
+      ].map((entry) => {
+        if (entry.seas) {
+          const it = entry.seas;
+          const box = isMeasured ? placement.placed.get(it.key) : undefined;
+          let style;
+          if (box) style = { left: `${box.x}px`, top: `${box.y}px` };
+          else if (isMeasured) style = { display: 'none' };
+          else style = { left: '-9999px', top: '0px', visibility: 'hidden' };
+          return (
+            <BigSeasChip
+              key={it.key}
+              item={it}
+              style={style}
+              selected={selectedName === it.name}
+              fade={askActive}
+              refCallback={(node) => {
+                if (node) seasRefs.current.set(it.locationId, node);
+                else seasRefs.current.delete(it.locationId);
+              }}
+              onSelect={onSelect}
+              onTipEnter={(e) => showSeasTip(it.locationId, e)}
+              onTipMove={moveTip}
+              onTipLeave={hideTip}
+            />
+          );
+        }
+        const { spot, x, y } = entry;
         const pick = spot.askPick ?? null;
         if (pick) {
           // Ask PhotoCast's pick (F3): the PICK'S window's colour, its RANK where the star would be,
@@ -570,31 +603,6 @@ export default function PinsLayer({
             )}
             {hasRatedBadge(spot) && <RatedBadge value={spot.myRating} />}
           </button>
-        );
-      })}
-
-      {frame.bigSeasItems.map((it) => {
-        const box = isMeasured ? placement.placed.get(it.key) : undefined;
-        let style;
-        if (box) style = { left: `${box.x}px`, top: `${box.y}px` };
-        else if (isMeasured) style = { display: 'none' };
-        else style = { left: '-9999px', top: '0px', visibility: 'hidden' };
-        return (
-          <BigSeasChip
-            key={it.key}
-            item={it}
-            style={style}
-            selected={selectedName === it.name}
-            fade={askActive}
-            refCallback={(node) => {
-              if (node) seasRefs.current.set(it.locationId, node);
-              else seasRefs.current.delete(it.locationId);
-            }}
-            onSelect={onSelect}
-            onTipEnter={(e) => showSeasTip(it.locationId, e)}
-            onTipMove={moveTip}
-            onTipLeave={hideTip}
-          />
         );
       })}
     </div>,

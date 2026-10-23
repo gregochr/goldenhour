@@ -6885,6 +6885,11 @@ button.wf-hc.also.on:hover {
     0 0 0 3px color-mix(in srgb, var(--color-tide) 18%, transparent),
     0 2px 10px rgba(0, 0, 0, 0.6);
 }
+/* In Pins the chips come BEFORE the ordinary pins in the DOM (tab order), so paint order is explicit:
+   above the unstacked pins, below an Ask pick's own z-index (up to 99). */
+[data-testid='pins-layer'] .wf-maplab-chip.wf-bsc {
+  z-index: 1;
+}
 .wf-bsc-bolt {
   flex: none;
   font-size: 10px;
