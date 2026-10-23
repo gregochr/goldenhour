@@ -134,4 +134,93 @@ describe('axiosClient — refresh cycle against the real authApi', () => {
     expect(adapter).toHaveBeenCalledTimes(1);
     expect(count('/api/auth/refresh')).toBe(1);
   });
+
+  describe('A6 — unauthenticated auth calls never refresh or sign anyone out', () => {
+    const calls = [
+      ['register', () => authApi.register('u', 'e@x.com', 't', true, true)],
+      ['resendVerification', () => authApi.resendVerification('e@x.com')],
+      ['verifyEmail', () => authApi.verifyEmail('tok')],
+      ['setPasswordForNewUser', () => authApi.setPasswordForNewUser('tok', 'pw')],
+      ['requestPasswordReset', () => authApi.requestPasswordReset('e@x.com', 't')],
+      ['resetPassword', () => authApi.resetPassword('tok', 'pw')],
+      ['submitWaitlist', () => authApi.submitWaitlist('e@x.com')],
+    ];
+
+    it.each(calls)('%s: a 401 rejects with no refresh and no session-expired', async (_name, call) => {
+      localStorage.setItem(TOKEN_KEY, 'other-users-token');
+      localStorage.setItem(REFRESH_KEY, 'other-users-r');
+      adapter.mockImplementation(reject401);
+
+      await expect(settle(call())).rejects.toMatchObject({ response: { status: 401 } });
+
+      expect(adapter).toHaveBeenCalledTimes(1);
+      expect(count('/api/auth/refresh')).toBe(0);
+      expect(events('goldenhour:session-expired')).toHaveLength(0);
+      expect(localStorage.getItem(TOKEN_KEY)).toBe('other-users-token');
+      expect(localStorage.getItem(REFRESH_KEY)).toBe('other-users-r');
+    });
+  });
+
+  describe('a refreshed token that cannot be persisted', () => {
+    function refreshOkThenBearerNew(config) {
+      if (config.url === '/api/auth/refresh') {
+        return ok(config, { accessToken: 'new', refreshToken: 'new-r' });
+      }
+      return config.headers['Authorization'] === 'Bearer new'
+        ? ok(config, { fine: true })
+        : reject401(config);
+    }
+
+    function failStorageWrites() {
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('full', 'QuotaExceededError');
+      });
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+    }
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('B1: the retry carries the new token although storage still holds the old one', async () => {
+      localStorage.setItem(TOKEN_KEY, 'old');
+      localStorage.setItem(REFRESH_KEY, 'old-r');
+      adapter.mockImplementation(refreshOkThenBearerNew);
+      failStorageWrites();
+
+      const res = await settle(apiClient.get('/api/briefing'));
+
+      expect(res.data).toEqual({ fine: true });
+      const briefingCalls = adapter.mock.calls.filter(([c]) => c.url === '/api/briefing');
+      expect(briefingCalls).toHaveLength(2);
+      expect(briefingCalls[1][0].headers['Authorization']).toBe('Bearer new');
+      expect(localStorage.getItem(TOKEN_KEY)).toBe('old');
+      expect(events('goldenhour:session-expired')).toHaveLength(0);
+    });
+
+    it('B2: a concurrent waiter retries with the new token too', async () => {
+      localStorage.setItem(TOKEN_KEY, 'old');
+      localStorage.setItem(REFRESH_KEY, 'old-r');
+      adapter.mockImplementation(refreshOkThenBearerNew);
+      failStorageWrites();
+
+      const results = await settle(Promise.all([
+        apiClient.get('/api/briefing'),
+        apiClient.get('/api/almanac'),
+      ]));
+
+      expect(results.map((r) => r.data)).toEqual([{ fine: true }, { fine: true }]);
+      expect(count('/api/auth/refresh')).toBe(1);
+      const retries = adapter.mock.calls.filter(([c]) => c.url !== '/api/auth/refresh' && c.headers['Authorization'] === 'Bearer new');
+      expect(retries).toHaveLength(2);
+      retries.forEach(([c]) => expect(c.headers['Authorization']).toBe('Bearer new'));
+    });
+
+    it('B3: a fresh request without a handed-down token still uses the storage token', async () => {
+      localStorage.setItem(TOKEN_KEY, 'stored');
+      adapter.mockImplementation((config) => ok(config, {}));
+
+      await settle(apiClient.get('/api/briefing'));
+
+      expect(adapter.mock.calls[0][0].headers['Authorization']).toBe('Bearer stored');
+    });
+  });
 });
