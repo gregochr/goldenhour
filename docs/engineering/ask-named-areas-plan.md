@@ -201,7 +201,10 @@ package-private and unit-tested.
 - **Place, with aliases (D9).** A slot matches when `containsRun(placeWords(name), wanted)`, or the same
   holds for any alias of its location. It is `exact` when `wanted` equals the name's words or any alias's
   words. `matchedAlias` is set only when the name did not match: the alias whose words equal `wanted` if
-  there is one, otherwise the first matching alias in alias order.
+  there is one, otherwise the matching alias with the fewest characters, ties broken case-insensitively
+  alphabetically. Aliases come from unordered `Set`s and an unordered `findAll()`, so never rely on load
+  order. `AskAreas` also sorts each alias list by that same rule, so the snapshot itself is deterministic.
+  So "heugh" reports "The Heugh" (9 characters) ahead of "Heugh Battery" and "Heugh Lighthouse".
 - **Area.** An area matches when the query's words contain the area's name words, or one alias's words,
   as a contiguous run: `containsRun(wanted, areaWords)`, the reverse direction from places, so "along
   hadrians wall" and "Steel Rigg on Hadrian's Wall" both contain it. When several areas match, the longest
