@@ -9,18 +9,13 @@
  * existing UK formatter and parser, and {@code now} is {@code appNow()} so an admin's Rewind moves
  * the line with every other clock read.
  */
-import { degreesToCompass16, formatEventTimeUk, parseUtcInstant } from './conversions.js';
+import { degreesToCompass16, formatEventTimeUk } from './conversions.js';
+import { bigSeasWindowAhead } from './bigSeasWindow.js';
 import { findEvIndex } from './mapEvents.js';
 import { appNow } from './rewind.js';
 
 /** Stable result for "no line": a fresh object per call would defeat memo comparisons downstream. */
 const NO_LINE = Object.freeze({ form: null, day: null, aligned: false, jumpRow: null });
-
-/** Whether a day's window is still ahead of {@code now}: an unparseable end reads as not ahead. */
-function windowEndsAfter(day, now) {
-  const end = parseUtcInstant(day?.windowEnd);
-  return end != null && end.getTime() > now.getTime();
-}
 
 /**
  * Chooses the big-seas line for the window the reader is looking at.
@@ -46,7 +41,7 @@ function windowEndsAfter(day, now) {
 export function bigSeasFor(bigSeas, evRow, events, now = appNow()) {
   if (!Array.isArray(bigSeas) || bigSeas.length === 0 || !evRow || evRow.past) return NO_LINE;
   const days = bigSeas
-    .filter((d) => d?.date && windowEndsAfter(d, now))
+    .filter((d) => d?.date && bigSeasWindowAhead(d, now))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const today = days.find((d) => d.date === evRow.date);
   const day = today ?? days.find((d) => d.date > evRow.date);
@@ -57,7 +52,9 @@ export function bigSeasFor(bigSeas, evRow, events, now = appNow()) {
   if (day.alignedEvent && !aligned) {
     const list = Array.isArray(events) ? events : [];
     const idx = findEvIndex(list, day.alignedEvent, day.date);
-    jumpRow = idx >= 0 ? list[idx] : null;
+    // A PAST row is not a place to jump to (a sunset-aligned day read from its night row, after the
+    // sunset has gone, has the aligned row in the list but already elapsed).
+    jumpRow = idx >= 0 && !list[idx].past ? list[idx] : null;
   }
   return { form, day, aligned, jumpRow };
 }

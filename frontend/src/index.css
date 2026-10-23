@@ -4475,7 +4475,8 @@ button.wf-hc.also.on:hover {
      key last changed (`wf-map-scored-legend-gone`, set via a `useEffect` with cleanup — never CSS
      alone, since the class has to survive a window change resetting the clock). */
   .wf-map-tab .wf-map-scored-legend {
-    top: 62px;
+    /* 62px when `--wf-chrome-tl-h` is unset; below the big-seas line when it shows (F1). */
+    top: calc(var(--wf-chrome-tl-h, 40px) + 22px);
     left: 50%;
     bottom: auto;
     right: auto;
@@ -4583,7 +4584,7 @@ button.wf-hc.also.on:hover {
   flex-direction: column;
   height: 74px;
   /* Every height below is clamped to the frame — never over the window pill (see `.wf-map-peek-open`). */
-  max-height: calc(100% - 64px);
+  max-height: calc(100% - var(--wf-chrome-tl-h, 44px) - 20px);
   transition: height .28s cubic-bezier(.3, .7, .2, 1);
 }
 /* Clamped to the frame (plan §4 #7): 356px is the reference frame's own figure, but an iPhone SE
@@ -4591,13 +4592,13 @@ button.wf-hc.also.on:hover {
    pill (`top: 10px; height: 44px` — 10 + 44 + 10 = 64px it must stay clear of). */
 .wf-map-peek-open {
   height: 356px;
-  max-height: calc(100% - 64px);
+  max-height: calc(100% - var(--wf-chrome-tl-h, 44px) - 20px);
 }
 /* ── The sheet's Ask states (Ask PhotoCast F4, plan §2.7's phone paragraph) ───────────────────────
    `data-ask` is `utils/askPeek.js#askPeekMode`'s answer, written by `MapView`; `off` — the sheet
    before Ask existed — has no rule here at all, so with Ask off the heights above are all there is.
    The numbers are `PEEK_HEIGHT` in `utils/askPeek.js` and `askPeekCss.test.js` reads this file to
-   hold the two together. All clamp to `calc(100% - 64px)` (the base rule's), so the pill is never
+   hold the two together. All clamp to `calc(100% - var(--wf-chrome-tl-h, 44px) - 20px)` (the base rule's; 64px when unset), so the pill is never
    covered on a 667px phone. Specificity (0,2,0) beats `.wf-map-peek-open` (0,1,0), whatever the order.
    The transition is the README's `.28s cubic-bezier(.3,.7,.2,1)` ("Sheet height transition"; the mock's
    own CSS says `.26s`, which is what this sheet had before Ask — the README is the stated figure), set on
@@ -6399,9 +6400,15 @@ button.wf-hc.also.on:hover {
   text-align: right;
 }
 /* The week menu's big-seas marker on the row whose event the high water lands on (big-seas plan F1).
-   Teal, not the storm-surge amber: that colour is banned on the map. */
+   Teal, not the storm-surge amber: that colour is banned on the map. It is an inline-SVG bolt
+   (`BoltIcon`) that takes `currentColor`: the U+26A1 character is an emoji on macOS, iOS and Windows
+   and ignores `color`, which showed it yellow. */
 .wf-win-row-bigseas {
   color: var(--color-tide);
+}
+.wf-bolt {
+  display: inline-block;
+  vertical-align: -0.12em;
 }
 
 /* ── The big-seas line (big-seas plan F1; docs/design/big-seas/README.md "Big-seas line") ───────────
@@ -6447,6 +6454,7 @@ button.wf-hc.also.on:hover {
 .wf-big-seas-text {
   flex: 1 1 auto;
   min-width: 0;
+  line-height: 1.35;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -6475,6 +6483,9 @@ button.wf-hc.also.on:hover {
 }
 @media (max-width: 639px) {
   .wf-big-seas { max-width: none; }
+  /* A touch target taller than its text, without growing the row (the negative margin gives the
+     room back). */
+  .wf-big-seas-go { padding: 6px 0; margin: -6px 0; }
 }
 
 /* ── The EARLIER group (outcome-rating-plan.md §2 #2, O3b) ──────────────────────────────────────

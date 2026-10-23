@@ -3,6 +3,8 @@ import { resolveConfidence, daysOut } from './confidenceUtils.js';
 import { isNightOver } from './mapDates.js';
 import { parseUtcInstant } from './conversions.js';
 import { windowKey } from './windowKeys.js';
+import { appNow } from './rewind.js';
+import { bigSeasWindowAhead } from './bigSeasWindow.js';
 import { heatPointsFor, POINT_SCORE_INDEX } from './heatSpots.js';
 
 /**
@@ -758,7 +760,8 @@ export function isNightOffered(eventType, date, { todayStr, currentNightDate = n
  * @param {?Array<{date: string, alignedEvent: ?('SUNRISE'|'SUNSET')}>} [args.bigSeas] the served
  *   {@code briefing.bigSeas} (big-seas plan F1). Filter/select only: the solar row a day's
  *   {@code alignedEvent} names is stamped {@code bigSeasAligned: true} (the week menu's ⚡); nothing
- *   is computed from the sea state
+ *   is computed from the sea state; a day whose {@code windowEnd} is not after {@code now} stamps nothing
+ * @param {Date} [args.now] the app clock for that test, {@code appNow()} by default
  * @returns {Array<object>} the EV rows, chronological, night-after-sunset
  */
 export function buildMapEvents({
@@ -778,6 +781,7 @@ export function buildMapEvents({
   isEventTimePast = () => false,
   pastSolarWindows = [],
   bigSeas = null,
+  now = appNow(),
 }) {
   const forecastDateSet = new Set(forecastDates);
   const pastByKey = new Map();
@@ -877,7 +881,7 @@ export function buildMapEvents({
       rows.push(row);
     }
   }
-  stampBigSeasAligned(rows, bigSeas);
+  stampBigSeasAligned(rows, bigSeas, now);
   return rows;
 }
 
@@ -886,12 +890,13 @@ export function buildMapEvents({
  * {@code alignedEvent} names (big-seas plan F1). A PAST row is never stamped: its window is over.
  *
  * @param {Array<object>} rows the EV rows, mutated in place (they are this call's own fresh objects)
+ * @param {Date} now the app clock: a day whose window has ended stamps nothing, as the line shows nothing
  * @param {?Array<object>} bigSeas the served days, or nullish
  */
-function stampBigSeasAligned(rows, bigSeas) {
+function stampBigSeasAligned(rows, bigSeas, now) {
   if (!Array.isArray(bigSeas) || bigSeas.length === 0) return;
   const keys = new Set(bigSeas
-    .filter((d) => d?.date && d?.alignedEvent)
+    .filter((d) => d?.date && d?.alignedEvent && bigSeasWindowAhead(d, now))
     .map((d) => windowKey(d.date, d.alignedEvent)));
   for (const row of rows) {
     if (row.kind === EVENT_KIND.SOLAR && !row.past && keys.has(windowKey(row.date, row.eventType))) {

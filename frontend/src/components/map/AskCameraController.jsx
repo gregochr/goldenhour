@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import L from 'leaflet';
 import { useMap } from 'react-leaflet';
 import {
-  ASK_FIT_MAX_ZOOM, ASK_SELECT_ZOOM, fitPadding, NO_INSET, prefersReducedMotion, selectOffset,
+  ASK_FIT_MAX_ZOOM, ASK_SELECT_ZOOM, chromeHeightOf, fitPadding, NO_INSET, prefersReducedMotion, selectOffset,
 } from '../../utils/askCamera.js';
 
 /** How long after the LAST frame resize the picks are fitted again, in ms (the dock animates 280ms). */
@@ -21,7 +21,7 @@ const OWN_MOVE_MS = FLIGHT_SECONDS * 1000 + 200;
 
 /** The fit's options: the clamped padding as Leaflet's two corners, and the zoom cap. */
 function fitOptions(map, inset) {
-  const pad = fitPadding(map.getSize(), inset);
+  const pad = fitPadding(map.getSize(), inset, chromeHeightOf(map.getContainer?.()));
   return {
     paddingTopLeft: [pad.left, pad.top],
     paddingBottomRight: [pad.right, pad.bottom],

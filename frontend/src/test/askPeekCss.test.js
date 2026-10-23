@@ -58,10 +58,10 @@ describe('the sheet\'s heights (utils/askPeek.js ⇄ index.css)', () => {
   });
 });
 
-describe('the clamp — the window pill is never covered (calc(100% - 64px))', () => {
+describe('the clamp — the window pill (and the big-seas line under it) is never covered', () => {
   it('is on the BASE rule, so every height above inherits it — 126, 112, 408 and 470 included', () => {
-    expect(declared('.wf-map-peek', 'max-height')).toBe('calc(100% - 64px)');
-    expect(declared('.wf-map-peek-open', 'max-height')).toBe('calc(100% - 64px)');
+    expect(declared('.wf-map-peek', 'max-height')).toBe('calc(100% - var(--wf-chrome-tl-h, 44px) - 20px)');
+    expect(declared('.wf-map-peek-open', 'max-height')).toBe('calc(100% - var(--wf-chrome-tl-h, 44px) - 20px)');
   });
 
   it('is never re-declared (and so never loosened) by a state rule', () => {
@@ -73,7 +73,8 @@ describe('the clamp — the window pill is never covered (calc(100% - 64px))', (
   it('is the figure MapLabels\' obstacle clamps to as well — the window pill\'s 10px + 44px + 10px', () => {
     const labels = readFileSync(resolve(process.cwd(), 'src/components/map/MapLabels.jsx'), 'utf8');
     expect(labels).toMatch(/PEEK_PILL_CLEARANCE = 64;/);
-    expect(declared('.wf-map-peek', 'max-height')).toContain('64px');
+    // 44px fallback + 20px = the 64px MapLabels clamps to, until the big-seas line makes the chrome taller.
+    expect(declared('.wf-map-peek', 'max-height')).toBe('calc(100% - var(--wf-chrome-tl-h, 44px) - 20px)');
   });
 });
 

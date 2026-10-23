@@ -144,7 +144,7 @@ describe('the window panel sits in the frame, not in the chrome box', () => {
 
     expect(decl(body, 'width')).toBe('504px');
     expect(decl(body, 'max-width')).toBe(decl(ruleFor('.wf-map-tab .wf-map-chrome-tl'), 'max-width'));
-    // 36px fallback + 14px = the old 50px; `bigSeasOffsetsCascade.test.js` evaluates it both ways.
+    // 36px fallback + 14px = the old 50px; `bigSeasCascade.test.js` evaluates it both ways.
     expect(decl(body, 'top')).toBe('calc(var(--wf-chrome-tl-h, 36px) + 14px)');
     expect(decl(body, 'left')).toBe(decl(ruleFor('.wf-map-chrome-tl'), 'left'));
   });

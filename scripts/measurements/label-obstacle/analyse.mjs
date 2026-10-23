@@ -204,7 +204,7 @@ function classify(a, b, fromRects, toRects) {
     const g = grewFrom.get(`${r.left},${r.top}`);
     if (g && r.width > g.width && r.height === g.height) {
       realAdded.push({ x: g.left + g.width, y: g.top, w: r.width - g.width, h: g.height });
-    } else if (g && r.height > g.height && r.width >= g.width) {
+    } else if (g && r.height > g.height && r.width === g.width) {
       // Grew DOWNWARD (the big-seas line): only the strip below the old bottom edge is new.
       realAdded.push({ x: r.left, y: g.top + g.height, w: r.width, h: r.height - g.height });
     } else {

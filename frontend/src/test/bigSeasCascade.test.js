@@ -185,6 +185,23 @@ describe('the offsets that assumed a 36px control (panel, landing card)', () => 
     expect(bottomEdge(94)).toBe(bottomEdge(null));
   });
 
+  it('the phone "scored places" toast sits below the line: 62px when unset, below the chrome when set', () => {
+    const top = declOf('.wf-map-tab .wf-map-scored-legend', 'top', { phone: true });
+    expect(top).toBe('calc(var(--wf-chrome-tl-h, 40px) + 22px)');
+    expect(evalCalc(top, { h: null })).toBe(62);
+    expect(evalCalc(top, { h: 94 })).toBeGreaterThanOrEqual(8 + 94);
+  });
+
+  it.each(['.wf-map-peek', '.wf-map-peek-open'])(
+    '%s clamps under the line: 64px of the frame when unset, the chrome height + 20px when set',
+    (sel) => {
+      const maxHeight = declOf(sel, 'max-height');
+      expect(maxHeight).toBe('calc(100% - var(--wf-chrome-tl-h, 44px) - 20px)');
+      expect(evalCalc(maxHeight, { h: null, frame: 1000 })).toBe(1000 - 64);
+      expect(evalCalc(maxHeight, { h: 150, frame: 1000 })).toBe(1000 - 170);
+    },
+  );
+
   it('keeps the plain-px values for everything else in those rules', () => {
     expect(px(declOf('.wf-win-panel', 'left'))).toBe(60);
     expect(px(declOf('.wf-land', 'left'))).toBe(12);

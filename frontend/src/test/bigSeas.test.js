@@ -137,6 +137,34 @@ describe('bigSeasFor: the jump row', () => {
   });
 });
 
+describe('bigSeasFor: elapsed rows and the window boundary', () => {
+  it('has no jump row when the aligned row has gone past (HW after sunset, read from the night row)', () => {
+    const events = weekEvents().map((r) => (
+      r.id === 'solar:2026-10-24:SUNSET' ? { ...r, past: true, served: false } : r
+    ));
+    const night = rowOf(events, 'astro:2026-10-24:ASTRO');
+    const sel = bigSeasFor(DAYS, night, events, THURSDAY_MORNING);
+    expect(sel.form).toBe('full');
+    expect(sel.aligned).toBe(false);
+    expect(sel.jumpRow).toBeNull();
+  });
+
+  describe('at the end of the window', () => {
+    afterEach(() => setRewind(null));
+
+    it('drops Saturday at exactly its windowEnd, and keeps it one second before', () => {
+      const events = weekEvents();
+      const sunrise = rowOf(events, 'solar:2026-10-24:SUNRISE');
+      setRewind('2026-10-24T17:14:59Z');
+      expect(bigSeasFor(DAYS, sunrise, events).form).toBe('full');
+      setRewind('2026-10-24T17:15:00Z');
+      const sel = bigSeasFor(DAYS, sunrise, events);
+      expect(sel.form).toBe('compact');
+      expect(sel.day).toBe(SUNDAY);
+    });
+  });
+});
+
 describe('bigSeasCopy: the words, verbatim from the handoff', () => {
   const events = weekEvents();
   const sel = (id, days = DAYS) => bigSeasFor(days, rowOf(events, id), events, THURSDAY_MORNING);
@@ -190,9 +218,22 @@ describe('bigSeasCopy: the words, verbatim from the handoff', () => {
 });
 
 describe('the 16-point compass', () => {
-  it('names the sixteen points and wraps', () => {
-    expect([0, 22.5, 45, 90, 180, 247.5, 270, 337.5, 360, 15, 350].map(degreesToCompass16))
-      .toEqual(['N', 'NNE', 'NE', 'E', 'S', 'WSW', 'W', 'NNW', 'N', 'NNE', 'N']);
+  const NAMES = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+
+  it.each(NAMES.map((name, i) => [i * 22.5, name]))('%s degrees is %s', (deg, name) => {
+    expect(degreesToCompass16(deg)).toBe(name);
+  });
+
+  it('wraps: 360 is N and -22.5 is NNW', () => {
+    expect(degreesToCompass16(360)).toBe('N');
+    expect(degreesToCompass16(-22.5)).toBe('NNW');
+  });
+
+  it('turns over at the half-point: 11.24 is N, 11.25 is NNE (and 348.75 is N, 348.74 NNW)', () => {
+    expect(degreesToCompass16(11.24)).toBe('N');
+    expect(degreesToCompass16(11.25)).toBe('NNE');
+    expect(degreesToCompass16(348.74)).toBe('NNW');
+    expect(degreesToCompass16(348.75)).toBe('N');
   });
 
   it('leaves the 8-point helper alone', () => {
@@ -212,7 +253,7 @@ describe('buildMapEvents stamps the aligned row', () => {
   const window = (date, targetType) => ({
     date, targetType, label: 'Sat 24 Oct', time: '07:00', bestRating: 3,
   });
-  const build = (bigSeas) => buildMapEvents({
+  const build = (bigSeas, now = undefined) => buildMapEvents({
     solarWindows: [
       window('2026-10-24', 'SUNRISE'), window('2026-10-24', 'SUNSET'),
       window('2026-10-25', 'SUNRISE'), window('2026-10-25', 'SUNSET'),
@@ -221,16 +262,55 @@ describe('buildMapEvents stamps the aligned row', () => {
     todayStr: '2026-10-24',
     tomorrowStr: '2026-10-25',
     bigSeas,
+    ...(now ? { now } : {}),
   });
 
   it("stamps bigSeasAligned only on the row each day's alignedEvent names", () => {
-    const rows = build(DAYS);
+    const rows = build(DAYS, THURSDAY_MORNING);
     expect(rows.filter((r) => r.bigSeasAligned).map((r) => r.id))
       .toEqual(['solar:2026-10-24:SUNSET', 'solar:2026-10-25:SUNRISE']);
   });
 
   it('stamps nothing for a day that is not aligned, or with nothing served', () => {
-    expect(build([MONDAY_NOT_ALIGNED]).some((r) => r.bigSeasAligned)).toBe(false);
-    expect(build(undefined).some((r) => r.bigSeasAligned)).toBe(false);
+    expect(build([MONDAY_NOT_ALIGNED], THURSDAY_MORNING).some((r) => r.bigSeasAligned)).toBe(false);
+    expect(build(undefined, THURSDAY_MORNING).some((r) => r.bigSeasAligned)).toBe(false);
+  });
+
+  describe('against the app clock', () => {
+    afterEach(() => setRewind(null));
+
+    it('stamps nothing for a day whose window has ended, so the bolt and the line agree', () => {
+      // Saturday ends 17:15Z. At 18:00Z only Sunday's sunrise still earns a bolt.
+      const rows = build(DAYS, new Date('2026-10-24T18:00:00Z'));
+      expect(rows.filter((r) => r.bigSeasAligned).map((r) => r.id)).toEqual(['solar:2026-10-25:SUNRISE']);
+      // ...and exactly at the end, as the line does.
+      const atEnd = build(DAYS, new Date('2026-10-24T17:15:00Z'));
+      expect(atEnd.filter((r) => r.bigSeasAligned).map((r) => r.id)).toEqual(['solar:2026-10-25:SUNRISE']);
+    });
+
+    it('reads appNow() when no clock is passed, so a Rewind moves it', () => {
+      setRewind('2026-10-24T18:00:00Z');
+      expect(build(DAYS).filter((r) => r.bigSeasAligned).map((r) => r.id))
+        .toEqual(['solar:2026-10-25:SUNRISE']);
+    });
+  });
+
+  it('never stamps a PAST row, even one whose big-seas window is still open', () => {
+    // Saturday's sunset has elapsed (a past row, from pastSolarWindows) while the window runs on
+    // past it; the row is not a place to look, so it earns no bolt.
+    const now = new Date('2026-10-24T16:30:00Z');
+    const rows = buildMapEvents({
+      solarWindows: [],
+      forecastDates: ['2026-10-24'],
+      pastSolarWindows: [{ date: '2026-10-24', targetType: 'SUNSET', earliestEventTime: '2026-10-24T16:00:00' }],
+      isEventTimePast: (t) => new Date(`${t}Z`).getTime() < now.getTime(),
+      todayStr: '2026-10-24',
+      tomorrowStr: '2026-10-25',
+      bigSeas: [SATURDAY],
+      now,
+    });
+    const sunset = rows.find((r) => r.id === 'solar:2026-10-24:SUNSET');
+    expect(sunset.past).toBe(true);
+    expect(sunset.bigSeasAligned).toBeUndefined();
   });
 });

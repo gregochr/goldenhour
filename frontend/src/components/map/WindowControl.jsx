@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { calDow } from '../../utils/windowFirstStrip.js';
+import BoltIcon from './BoltIcon.jsx';
 import { VERDICT_LABEL, badgeChannel } from '../../utils/windowFirstCards.js';
 import VerdictWord from '../shared/VerdictWord.jsx';
 import { verdictRegionLabel } from '../../utils/mapVerdict.js';
@@ -968,7 +969,7 @@ function WindowRow({ row, active, onSelect, ratedCount = null }) {
         )}
       </span>
       <span className="wf-win-row-topics" aria-hidden="true">
-        {row.bigSeasAligned && <span className="wf-win-row-bigseas" data-testid="wf-win-row-bigseas">{'\u26A1'}</span>}
+        {row.bigSeasAligned && <span className="wf-win-row-bigseas" data-testid="wf-win-row-bigseas"><BoltIcon /></span>}
         {icons.join('')}
       </span>
     </button>

@@ -3,6 +3,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { setRewind } from '../utils/rewind.js';
 import BigSeasLine from '../components/map/BigSeasLine.jsx';
 import {
   SATURDAY, SUNDAY, THURSDAY_MORNING, weekEvents,
@@ -18,6 +19,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setRewind(null);
   vi.useRealTimers();
 });
 
@@ -103,15 +105,39 @@ describe('BigSeasLine: the action', () => {
   });
 });
 
+describe('BigSeasLine: the clock is the app clock', () => {
+  it('under a Rewind past the Saturday window, the Saturday sunrise row reads the compact Sunday line', () => {
+    // `Date` is faked at Thursday; only `appNow()` can see the Rewind. A line reading `new Date()`
+    // would still say Saturday's full form here.
+    setRewind('2026-10-24T18:30:00Z');
+    renderLine({ evId: 'solar:2026-10-24:SUNRISE' });
+    expect(screen.getByTestId('wf-big-seas').dataset.form).toBe('compact');
+    expect(screen.getByTestId('wf-big-seas-l1').textContent).toMatch(/^Sunday 06:49/);
+  });
+});
+
 describe('BigSeasLine: accessibility and absence', () => {
-  it('is a labelled group, not a live status region, with the bolt hidden from AT', () => {
+  it('is a labelled group, not a live status region, with the bolt and the badge words hidden from AT', () => {
     renderLine({ evId: 'solar:2026-10-24:SUNRISE' });
     const group = screen.getByRole('group', { name: 'Big seas' });
     expect(group).toBe(screen.getByTestId('wf-big-seas'));
     expect(group.getAttribute('tabindex')).toBe('-1');
     expect(screen.queryByRole('status')).toBeNull();
-    const bolt = group.querySelector('[aria-hidden="true"]');
-    expect(bolt.textContent).toBe('⚡');
+    // An inline SVG, not the U+26A1 emoji (which ignores `color` and shows yellow).
+    const bolt = screen.getByTestId('wf-bolt');
+    expect(bolt.tagName.toLowerCase()).toBe('svg');
+    expect(bolt.getAttribute('aria-hidden')).toBe('true');
+    expect(bolt.getAttribute('fill')).toBe('currentColor');
+    expect(group.textContent).not.toContain('\u26A1');
+    // "Big seas" is spoken once: by the group's label, not again by the badge.
+    const badgeWords = screen.getByText('Big seas');
+    expect(badgeWords.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('names the structure-less sea when no structure is served (N = 0)', () => {
+    renderLine({ evId: 'solar:2026-10-24:SUNRISE', days: [{ ...SATURDAY, structures: [] }] });
+    expect(screen.getByTestId('wf-big-seas-l2').textContent)
+      .toBe('Waves 4.1 m from NNE \u00B7 watch from high ground, not the pier');
   });
 
   it('renders nothing with no day served, or on a past row', () => {
@@ -132,63 +158,89 @@ describe('BigSeasLine: accessibility and absence', () => {
 
 describe('BigSeasLine: publishing the chrome height', () => {
   const OriginalRO = globalThis.ResizeObserver;
-  let callbacks;
+  let observers;
+  let height;
+  let original;
 
   beforeEach(() => {
-    callbacks = [];
+    observers = [];
+    height = 94;
     globalThis.ResizeObserver = class {
-      constructor(cb) { callbacks.push(cb); }
-      observe() {}
-      disconnect() {}
+      constructor(cb) {
+        this.cb = cb;
+        this.observed = [];
+        this.disconnected = false;
+        observers.push(this);
+      }
+
+      observe(el) { this.observed.push(el); }
+
+      disconnect() { this.disconnected = true; }
     };
-  });
-
-  afterEach(() => {
-    globalThis.ResizeObserver = OriginalRO;
-  });
-
-  function renderInFrame(evId) {
-    const utils = render(
-      <div data-testid="frame">
-        <div data-testid="chrome">
-          <BigSeasLine
-            bigSeas={[SATURDAY]}
-            evRow={row(evId)}
-            events={EVENTS}
-            onSelectEv={vi.fn()}
-          />
-        </div>
-      </div>,
-    );
-    return { frame: screen.getByTestId('frame'), chrome: screen.getByTestId('chrome'), ...utils };
-  }
-
-  it('sets --wf-chrome-tl-h on the frame from the chrome group, follows resizes, and clears on unmount', () => {
     // jsdom has no layout: give the group a height, as the browser would measure it.
-    let height = 94;
-    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
     Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
       configurable: true,
       get() { return this.dataset?.testid === 'chrome' ? height : 0; },
     });
-    try {
-      const { frame, unmount } = renderInFrame('solar:2026-10-24:SUNRISE');
-      expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('94px');
-      height = 112;
-      callbacks.forEach((cb) => cb());
-      expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('112px');
-      unmount();
-      expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('');
-    } finally {
-      if (original) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original);
-      else delete HTMLElement.prototype.offsetHeight;
-    }
   });
 
-  it('publishes nothing while no line shows, so the old offsets stand', () => {
-    const { frame } = renderInFrame('solar:2026-10-26:SUNRISE');
-    expect(screen.queryByTestId('wf-big-seas')).toBeNull();
+  afterEach(() => {
+    globalThis.ResizeObserver = OriginalRO;
+    if (original) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original);
+    else delete HTMLElement.prototype.offsetHeight;
+  });
+
+  const frameOf = (evId) => (
+    <div data-testid="frame">
+      <div data-testid="chrome">
+        <BigSeasLine bigSeas={[SATURDAY]} evRow={row(evId)} events={EVENTS} onSelectEv={vi.fn()} />
+      </div>
+    </div>
+  );
+
+  function renderInFrame(evId) {
+    const utils = render(frameOf(evId));
+    return { frame: screen.getByTestId('frame'), chrome: screen.getByTestId('chrome'), ...utils };
+  }
+
+  it('sets --wf-chrome-tl-h on the frame from the chrome group, follows resizes, and clears on unmount', () => {
+    const { frame, unmount } = renderInFrame('solar:2026-10-24:SUNRISE');
+    expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('94px');
+    height = 112;
+    observers.forEach((o) => o.cb());
+    expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('112px');
+    unmount();
     expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('');
-    expect(callbacks).toHaveLength(0);
+  });
+
+  it('observes the chrome group itself, and disconnects on unmount and on hide', () => {
+    const { chrome, unmount } = renderInFrame('solar:2026-10-24:SUNRISE');
+    expect(observers).toHaveLength(1);
+    expect(observers[0].observed).toEqual([chrome]);
+    expect(observers[0].disconnected).toBe(false);
+    unmount();
+    expect(observers[0].disconnected).toBe(true);
+  });
+
+  it('follows shown -> hidden -> shown: the variable goes "" -> 94px -> "" -> 94px, each show with a fresh observer', () => {
+    const { frame, rerender } = renderInFrame('solar:2026-10-26:SUNRISE');
+    expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('');
+    expect(observers).toHaveLength(0);
+    rerender(frameOf('solar:2026-10-24:SUNRISE'));
+    expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('94px');
+    expect(observers).toHaveLength(1);
+    rerender(frameOf('solar:2026-10-26:SUNRISE'));
+    expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('');
+    expect(observers[0].disconnected).toBe(true);
+    rerender(frameOf('solar:2026-10-24:SUNRISE'));
+    expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('94px');
+    expect(observers).toHaveLength(2);
+  });
+
+  it('publishes nothing while the group measures zero (a hidden pane)', () => {
+    height = 0;
+    const { frame } = renderInFrame('solar:2026-10-24:SUNRISE');
+    expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('');
   });
 });

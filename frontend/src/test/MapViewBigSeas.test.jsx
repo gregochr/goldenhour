@@ -135,6 +135,7 @@ function Pane({ bigSeas, onDate }) {
       forecastDates={[TODAY, SAT]}
       autoEventType="SUNSET"
       heat={heatProp()}
+      runId="run-1"
       bigSeas={bigSeas}
       onSelectDate={(d, opts) => { onDate?.(d, opts); setDate(d); }}
     />
@@ -198,6 +199,36 @@ describe('MapView — the big-seas line', () => {
     expect(screen.queryByTestId('wf-big-seas-go')).toBeNull();
     // Focus was parked on the line's root before the jump and stayed there.
     expect(document.activeElement).toBe(line);
+  });
+});
+
+describe('MapView — the chrome height reaches the frame blocks that hang under it', () => {
+  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+  beforeEach(() => {
+    // jsdom has no layout: the chrome group is 101px tall once the line is in it.
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get() { return this.dataset?.testid === 'wf-map-chrome-tl' ? 101 : 0; },
+    });
+  });
+  afterEach(() => {
+    if (original) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original);
+    else delete HTMLElement.prototype.offsetHeight;
+  });
+
+  it('the chrome group\'s parent carries --wf-chrome-tl-h and contains the landing card it offsets', async () => {
+    await renderMap();
+    const chrome = screen.getByTestId('wf-map-chrome-tl');
+    const frame = chrome.parentElement;
+    expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('101px');
+    // The same element holds the landing card, so its `calc(var(--wf-chrome-tl-h) + 24px)` reads it.
+    expect(frame.contains(screen.getByTestId('wf-land'))).toBe(true);
+  });
+
+  it('publishes nothing when no big-seas day is served', async () => {
+    await renderMap({ bigSeas: undefined });
+    const frame = screen.getByTestId('wf-map-chrome-tl').parentElement;
+    expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('');
   });
 });
 

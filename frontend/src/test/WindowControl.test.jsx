@@ -988,7 +988,9 @@ describe('WindowControl — the week menu\'s big-seas marker (big-seas plan F1)'
     const rows = openMenu();
     const bolts = rows.map((r) => r.querySelector('[data-testid="wf-win-row-bigseas"]'));
     expect(bolts.map((b) => b !== null)).toEqual([false, true, false, false]);
-    expect(bolts[1].textContent).toBe('\u26A1');
+    // An inline SVG bolt (currentColor), not the U+26A1 emoji, which ignores `color`.
+    expect(bolts[1].querySelector('svg.wf-bolt[aria-hidden="true"]')).not.toBeNull();
+    expect(bolts[1].textContent).toBe('');
     const cell = bolts[1].closest('.wf-win-row-topics');
     expect(cell.getAttribute('aria-hidden')).toBe('true');
   });

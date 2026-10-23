@@ -1,7 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { appNow } from '../../utils/rewind.js';
 import { bigSeasCopy, bigSeasFor } from '../../utils/bigSeas.js';
+import BoltIcon from './BoltIcon.jsx';
 
 /**
  * The CSS custom property this line keeps current: the height of the window-control group
@@ -47,12 +48,19 @@ export default function BigSeasLine({ bigSeas, evRow, events, onSelectEv = undef
   const copy = bigSeasCopy(selection);
   const shown = copy != null;
 
-  useEffect(() => {
+  // A layout effect: the first measure lands before paint, so the landing card and panel do not jump.
+  useLayoutEffect(() => {
     const root = rootRef.current;
     const chrome = root?.parentElement;
     const frame = chrome?.parentElement;
     if (!shown || !chrome || !frame) return undefined;
-    const publish = () => frame.style.setProperty(CHROME_HEIGHT_VAR, `${chrome.offsetHeight}px`);
+    const publish = () => {
+      // A hidden pane (display: none) measures 0: publish nothing rather than a height of zero, so the
+      // old constants stand until the pane is visible and the observer fires again.
+      const h = chrome.offsetHeight;
+      if (h > 0) frame.style.setProperty(CHROME_HEIGHT_VAR, `${h}px`);
+      else frame.style.removeProperty(CHROME_HEIGHT_VAR);
+    };
     publish();
     let observer = null;
     if (typeof ResizeObserver === 'function') {
@@ -78,8 +86,10 @@ export default function BigSeasLine({ bigSeas, evRow, events, onSelectEv = undef
       data-form={selection.form}
     >
       <span className="wf-big-seas-badge">
-        <span aria-hidden="true">{'⚡'}</span>
-        {' Big seas'}
+        <BoltIcon />
+        {' '}
+        {/* aria-hidden: the group's own label already says "Big seas". */}
+        <span aria-hidden="true">Big seas</span>
       </span>
       <span className="wf-big-seas-text">
         <b className="wf-big-seas-l1" data-testid="wf-big-seas-l1">{copy.line1}</b>
