@@ -106,12 +106,7 @@ public class MarineWaveRefreshService {
         for (LocationEntity loc : coastal) {
             OpenMeteoMarineResponse response = fetch(loc, jobRunId);
             if (response != null) {
-                for (LocalDate date : dates) {
-                    persisted += upsert(loc, date, TargetType.SUNRISE,
-                            solarService.sunriseUtc(loc.getLat(), loc.getLon(), date), response, now);
-                    persisted += upsert(loc, date, TargetType.SUNSET,
-                            solarService.sunsetUtc(loc.getLat(), loc.getLon(), date), response, now);
-                }
+                persisted += refreshEvents(loc, response, dates, now);
             }
             if (loc.getCoastalStructure() != null) {
                 refreshHighWaters(loc, response, dates, now);
@@ -119,6 +114,26 @@ public class MarineWaveRefreshService {
         }
         LOG.info("Marine wave refresh: {} coastal locations, {} samples persisted",
                 coastal.size(), persisted);
+    }
+
+    /**
+     * The sunrise/sunset {@code marine_wave} upserts for one location. Isolated so a failure here is
+     * logged and neither skips the location's high-water refresh nor stops the next location.
+     */
+    private int refreshEvents(LocationEntity loc, OpenMeteoMarineResponse response,
+            List<LocalDate> dates, Instant now) {
+        int persisted = 0;
+        try {
+            for (LocalDate date : dates) {
+                persisted += upsert(loc, date, TargetType.SUNRISE,
+                        solarService.sunriseUtc(loc.getLat(), loc.getLon(), date), response, now);
+                persisted += upsert(loc, date, TargetType.SUNSET,
+                        solarService.sunsetUtc(loc.getLat(), loc.getLon(), date), response, now);
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("Marine event-grain refresh failed for {}: {}", loc.getName(), e.getMessage());
+        }
+        return persisted;
     }
 
     /**

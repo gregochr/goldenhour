@@ -33,6 +33,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -384,6 +385,56 @@ class MarineWaveRefreshServiceBigSeasTest {
 
         assertThat(writtenRows(STRUCTURE_ID, DAY_START, to)).isEmpty();
         verify(solarService, never()).civilDawnUtc(LAT, LON, LocalDate.of(2026, 12, 11));
+    }
+
+    @Test
+    @DisplayName("an event-grain failure (marine_wave save throws) still replaces the structure's high-water rows")
+    void eventGrainFailure_stillRefreshesHighWaters() {
+        LocationEntity roker = structure(STRUCTURE_ID, "Roker");
+        LocalDateTime sunrise = LocalDateTime.of(2026, 12, 10, 7, 50);
+        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(solarService.sunriseUtc(LAT, LON, DAY)).thenReturn(sunrise);
+        when(marineClient.sampleAt(response, sunrise)).thenReturn(Optional.of(new MarineWaveSample(2.2, 1.0, 40)));
+        when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
+                STRUCTURE_ID, DAY, TargetType.SUNRISE)).thenReturn(Optional.empty());
+        when(marineWaveRepository.save(any(MarineWaveEntity.class))).thenThrow(new IllegalStateException("db down"));
+        when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
+                .thenReturn(List.of());
+
+        service.refresh(List.of(roker), List.of(DAY), JOB_RUN_ID);
+
+        assertThat(writtenRows(STRUCTURE_ID, DAY_START, DAY_END)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an event-grain failure for one location does not stop the next location being refreshed")
+    void eventGrainFailure_nextLocationStillRefreshed() {
+        LocationEntity roker = structure(STRUCTURE_ID, "Roker");
+        LocationEntity amble = structure(8L, "Amble");
+        LocalDateTime sunrise = LocalDateTime.of(2026, 12, 10, 7, 50);
+        LocalDateTime sunset = LocalDateTime.of(2026, 12, 10, 15, 40);
+        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(solarService.sunriseUtc(LAT, LON, DAY)).thenReturn(sunrise);
+        when(solarService.sunsetUtc(LAT, LON, DAY)).thenReturn(sunset);
+        when(marineClient.sampleAt(response, sunrise)).thenReturn(Optional.of(new MarineWaveSample(2.2, 1.0, 40)));
+        when(marineClient.sampleAt(response, sunset)).thenReturn(Optional.empty());
+        when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
+                STRUCTURE_ID, DAY, TargetType.SUNRISE)).thenReturn(Optional.empty());
+        when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
+                8L, DAY, TargetType.SUNRISE)).thenReturn(Optional.empty());
+        // The first location's save throws; the second's succeeds.
+        when(marineWaveRepository.save(any(MarineWaveEntity.class)))
+                .thenThrow(new IllegalStateException("db down")).thenReturn(null);
+        when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
+                .thenReturn(List.of());
+        when(tideExtremeRepository.findHighWatersInWindow(List.of(8L), DAY_START, DAY_END))
+                .thenReturn(List.of());
+
+        service.refresh(List.of(roker, amble), List.of(DAY), JOB_RUN_ID);
+
+        verify(highWaterWriter).replace(STRUCTURE_ID, DAY_START, DAY_END, List.of());
+        verify(highWaterWriter).replace(8L, DAY_START, DAY_END, List.of());
+        verify(marineWaveRepository, times(2)).save(any(MarineWaveEntity.class));
     }
 
     @Test
