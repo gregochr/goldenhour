@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { buildHandoff, lastPlanDateStr, PLAN_OWNED_DAYS } from '../utils/comingUpHandoff.js';
+import {
+  laneDates, lastPlanDateStr, PLAN_OWNED_DAYS,
+} from '../utils/comingUpHandoff.js';
 
 const TODAY = '2026-08-08';
 
@@ -17,143 +19,27 @@ describe('lastPlanDateStr', () => {
   });
 });
 
-describe('buildHandoff — degraded states', () => {
-  it('degrades to the label-only row when hotTopics has not arrived (null)', () => {
-    const result = buildHandoff(TODAY, null);
-    expect(result.summary).toBeNull();
-    expect(result.topics).toEqual([]);
-    expect(result.windowLabel).toContain('Now —');
-  });
-
-  it('degrades to the label-only row when hotTopics is undefined', () => {
-    const result = buildHandoff(TODAY, undefined);
-    expect(result.summary).toBeNull();
-  });
-
-  it('renders nothing useful when todayStr itself is not yet known', () => {
-    const result = buildHandoff('', []);
-    expect(result).toEqual({ windowLabel: '', summary: null, topics: [] });
-  });
-});
-
-describe('buildHandoff — an arrived, empty topic list', () => {
-  it('says so explicitly rather than looking the same as "not arrived yet"', () => {
-    const result = buildHandoff(TODAY, []);
-    expect(result.summary).toBe('Nothing on those four days');
-    expect(result.topics).toEqual([]);
-  });
-});
-
-describe('buildHandoff — topic filtering, de-duping and naming', () => {
-  it('counts one topic and uses singular wording', () => {
-    const result = buildHandoff(TODAY, [
-      { type: 'DUST', label: 'Saharan dust', date: '2026-08-09' },
-    ]);
-    expect(result.summary).toBe('One topic on those four days');
-    expect(result.topics).toEqual([
-      { type: 'DUST', name: 'Saharan dust', color: '#f97316' },
+describe('laneDates — the one helper the handoff\'s type set and the lanes share', () => {
+  it('gives one item per window key, in the order topicWindowKeys produced them', () => {
+    expect(laneDates({ type: 'AURORA', date: '2026-08-08', eventType: 'NIGHT' })).toEqual([
+      { date: '2026-08-08', window: 'SUNSET', key: '2026-08-08:SUNSET' },
+      { date: '2026-08-09', window: 'SUNRISE', key: '2026-08-09:SUNRISE' },
     ]);
   });
 
-  it('counts three distinct topics and uses plural wording, spelled out', () => {
-    const result = buildHandoff(TODAY, [
-      { type: 'DUST', label: 'Saharan dust', date: '2026-08-09' },
-      { type: 'AURORA', label: 'Aurora possible', date: '2026-08-10' },
-      { type: 'KING_TIDE', label: 'King tide', date: '2026-08-11' },
-    ]);
-    expect(result.summary).toBe('Three topics on those four days');
-    expect(result.topics).toHaveLength(3);
+  it('gives a day-scoped tide both windows whatever its eventType', () => {
+    expect(laneDates({ type: 'SPRING_TIDE', date: '2026-08-08', eventType: null }).map((i) => i.key))
+      .toEqual(['2026-08-08:SUNRISE', '2026-08-08:SUNSET']);
   });
 
-  it('de-dupes by type — the same topic firing on two of the four days gets one swatch', () => {
-    const result = buildHandoff(TODAY, [
-      { type: 'DUST', label: 'Saharan dust', date: '2026-08-09' },
-      { type: 'DUST', label: 'Saharan dust', date: '2026-08-10' },
+  it('gives an unanchored topic its own date with no window and no key', () => {
+    expect(laneDates({ type: 'STORM_SURGE', date: '2026-08-08', eventType: null })).toEqual([
+      { date: '2026-08-08', window: null, key: null },
     ]);
-    expect(result.topics).toHaveLength(1);
-    expect(result.summary).toBe('One topic on those four days');
   });
 
-  it('excludes a topic dated before today', () => {
-    const result = buildHandoff(TODAY, [
-      { type: 'DUST', label: 'Saharan dust', date: '2026-08-07' },
-    ]);
-    expect(result.topics).toEqual([]);
-    expect(result.summary).toBe('Nothing on those four days');
-  });
-
-  it('keeps a NIGHT topic dated yesterday — its morning half is today\'s sunrise, which Plan badges', () => {
-    // The aurora strategy dates its alert topic by the poller's night: before dawn, yesterday's.
-    const result = buildHandoff(TODAY, [
-      { type: 'AURORA', label: 'Aurora possible', date: '2026-08-07', eventType: 'NIGHT' },
-    ]);
-    expect(result.topics.map((t) => t.type)).toEqual(['AURORA']);
-    expect(result.summary).toBe('One topic on those four days');
-  });
-
-  it('still excludes a SUNSET topic dated yesterday — its one window has gone', () => {
-    const result = buildHandoff(TODAY, [
-      { type: 'DUST', label: 'Saharan dust', date: '2026-08-07', eventType: 'SUNSET' },
-    ]);
-    expect(result.topics).toEqual([]);
-  });
-
-  it('excludes a NIGHT topic dated the day before yesterday — both halves have gone', () => {
-    const result = buildHandoff(TODAY, [
-      { type: 'AURORA', label: 'Aurora possible', date: '2026-08-06', eventType: 'NIGHT' },
-    ]);
-    expect(result.topics).toEqual([]);
-  });
-
-  it('excludes a topic dated beyond Plan\'s last day', () => {
-    const result = buildHandoff(TODAY, [
-      { type: 'DUST', label: 'Saharan dust', date: '2026-08-12' },
-    ]);
-    expect(result.topics).toEqual([]);
-  });
-
-  it('includes a topic on the boundary dates — today and the last Plan day', () => {
-    const result = buildHandoff(TODAY, [
-      { type: 'DUST', label: 'Saharan dust', date: TODAY },
-      { type: 'AURORA', label: 'Aurora possible', date: '2026-08-11' },
-    ]);
-    expect(result.topics.map((t) => t.type)).toEqual(['DUST', 'AURORA']);
-  });
-
-  it('falls back to the raw type as the name when a topic has no label', () => {
-    const result = buildHandoff(TODAY, [
-      { type: 'MYSTERY_TOPIC', date: TODAY },
-    ]);
-    expect(result.topics[0].name).toBe('MYSTERY_TOPIC');
-  });
-
-  it('gives LUNAR_ECLIPSE the same swatch colour as ECLIPSE — one channel, two types', () => {
-    const result = buildHandoff(TODAY, [
-      { type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', date: TODAY },
-    ]);
-    expect(result.topics[0].color).toBe('#C4787F');
-  });
-
-  it('gives valley mist its own air-family swatch, not the unrecognised-type default', () => {
-    const result = buildHandoff(TODAY, [
-      { type: 'MIST', label: 'Valley mist', date: TODAY },
-    ]);
-    expect(result.topics[0].color).toBe('#8FA3B8');
-  });
-
-  it('gives an unrecognised type the default swatch colour rather than throwing', () => {
-    const result = buildHandoff(TODAY, [
-      { type: 'MYSTERY_TOPIC', label: 'A new kind of topic', date: TODAY },
-    ]);
-    expect(result.topics[0].color).toBe('#9CA3AF');
-  });
-
-  it('skips a topic with no type or no date rather than crashing on it', () => {
-    const result = buildHandoff(TODAY, [
-      { type: null, date: TODAY },
-      { type: 'DUST', date: null },
-      { label: 'no type at all', date: TODAY },
-    ]);
-    expect(result.topics).toEqual([]);
+  it('gives an undated topic nothing', () => {
+    expect(laneDates({ type: 'DUST' })).toEqual([]);
+    expect(laneDates(null)).toEqual([]);
   });
 });

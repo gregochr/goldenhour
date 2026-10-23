@@ -1,0 +1,88 @@
+/**
+ * The one hot-topic palette — colour, glyph and names per HotTopic {@code type}
+ * (hot-topics-by-day-plan §1.7, Q9).
+ *
+ * <p>Presentation only, not a derivation: it maps a served {@code type} to how that type looks.
+ * Before this module the app had four private maps (a swatch map in {@code comingUpHandoff.js}, the
+ * almanac's {@code comingUpGlyphs.js}, the Map's badge-channel icons and the {@code --color-topic-*}
+ * family tokens), none keyed by HotTopic type, and the two design mocks disagreed with each other
+ * about aurora. The colours here are the app's live {@code SWATCH_COLOR} values moved verbatim —
+ * the mocks' hexes are not used.
+ *
+ * <p>An unknown type gets {@link DEFAULT_SWATCH_COLOR}, a bullet and the served label, so a topic
+ * the client has never heard of is visible rather than dropped.
+ */
+
+const TIDE_TEAL = '#6FA8B0';
+const NIGHTGLOW_VIOLET = '#8E86D6';
+
+/** For a topic type this module has never heard of — visible, but not claiming a family. */
+export const DEFAULT_SWATCH_COLOR = '#9CA3AF';
+
+/** Accent colours keyed by topic type — moved verbatim from {@code comingUpHandoff.js}. */
+export const SWATCH_COLOR = {
+  KING_TIDE: TIDE_TEAL,
+  SPRING_TIDE: TIDE_TEAL,
+  INVERSION: TIDE_TEAL,
+  MIST: '#8FA3B8',
+  STORM_SURGE: '#f59e0b',
+  AURORA: NIGHTGLOW_VIOLET,
+  NLC: NIGHTGLOW_VIOLET,
+  METEOR: NIGHTGLOW_VIOLET,
+  DUST: '#f97316',
+  SUPERMOON: '#fbbf24',
+  EQUINOX: '#fcd34d',
+  ECLIPSE: '#C4787F',
+  LUNAR_ECLIPSE: '#C4787F',
+  BLUEBELL: '#8b5cf6',
+  CLEARANCE: '#fb923c',
+  SNOW_FRESH: '#e0f2fe',
+  SNOW_MIST: '#cbd5e1',
+  SNOW_TOPS: '#bfdbfe',
+};
+
+/**
+ * Glyph, full name and short (phone) name for each of the backend's eighteen types
+ * ({@code TopicRarity.RANK_BY_TYPE}). {@code placeNoun} marks the types that live on the coast.
+ */
+const TOPIC_META = {
+  KING_TIDE: { glyph: '🌊', name: 'King tide', shortName: 'King tide', placeNoun: 'coastal' },
+  SPRING_TIDE: { glyph: '🌊', name: 'Spring tide', shortName: 'Tide', placeNoun: 'coastal' },
+  STORM_SURGE: { glyph: '🌊', name: 'Storm surge', shortName: 'Surge', placeNoun: 'coastal' },
+  INVERSION: { glyph: '☁️', name: 'Inversion', shortName: 'Inversion' },
+  MIST: { glyph: '🌫️', name: 'Mist', shortName: 'Mist' },
+  DUST: { glyph: '🏜️', name: 'Dust', shortName: 'Dust' },
+  SNOW_TOPS: { glyph: '🏔️', name: 'Snow on the tops', shortName: 'Snow tops' },
+  SNOW_MIST: { glyph: '❄️', name: 'Snow and mist', shortName: 'Snow mist' },
+  SNOW_FRESH: { glyph: '❄️', name: 'Fresh snow', shortName: 'Fresh snow' },
+  CLEARANCE: { glyph: '🌤️', name: 'Clearance', shortName: 'Clearing' },
+  BLUEBELL: { glyph: '🌸', name: 'Bluebells', shortName: 'Bluebells' },
+  AURORA: { glyph: '🌌', name: 'Aurora', shortName: 'Aurora' },
+  NLC: { glyph: '✦', name: 'NLC', shortName: 'NLC' },
+  METEOR: { glyph: '☄️', name: 'Meteors', shortName: 'Meteors' },
+  SUPERMOON: { glyph: '🌙', name: 'Supermoon', shortName: 'Supermoon' },
+  EQUINOX: { glyph: '☀️', name: 'Equinox', shortName: 'Equinox' },
+  ECLIPSE: { glyph: '◐', name: 'Eclipse', shortName: 'Eclipse' },
+  LUNAR_ECLIPSE: { glyph: '🌘', name: 'Lunar eclipse', shortName: 'Lunar ecl.' },
+};
+
+/** Every type the palette knows, for tests and for callers that need to enumerate. */
+export const TOPIC_PALETTE_TYPES = Object.keys(TOPIC_META);
+
+/**
+ * How one topic type is drawn.
+ *
+ * @param {?string} type  the served {@code HotTopic.type}
+ * @param {?string} label the served {@code label}, used as the name of an unknown type
+ * @returns {{colour: string, glyph: string, name: string, shortName: string, placeNoun?: string}}
+ *          the topic's style; never null
+ */
+export function topicStyle(type, label) {
+  const key = String(type || '').toUpperCase();
+  const meta = TOPIC_META[key];
+  if (!meta) {
+    const name = label || type || 'Topic';
+    return { colour: DEFAULT_SWATCH_COLOR, glyph: '•', name, shortName: name };
+  }
+  return { colour: SWATCH_COLOR[key] ?? DEFAULT_SWATCH_COLOR, ...meta };
+}

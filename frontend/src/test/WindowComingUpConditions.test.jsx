@@ -240,7 +240,7 @@ describe('WindowComingUpConditions — the strip', () => {
     // here the engines space themselves: measured 2026-09-11 by Playwright's algorithm for the
     // separators between elements, and on 2026-09-14 for the one a text node follows (`peak` /
     // date), which sits inside the `inline-flex` `.wf-cond-peak` — all of them then confirmed
-    // against Chromium's native tree. The rule is in `WindowFirstComingUpHandoff`'s class doc. So
+    // against Chromium's native tree. The rule is in `WindowComingUpFourDays`'s class doc. So
     // this pins one user-facing boundary and several that exist for jsdom's reading.
     render(<WindowComingUpConditions conditions={[condition()]} onGoToPlan={vi.fn()} />);
 
@@ -268,6 +268,28 @@ describe('WindowComingUpConditions — the strip', () => {
     expect(screen.getByRole('button', {
       name: '30 Aug 4.8 m above usual supermoon see it below →',
     })).toBeInTheDocument();
+  });
+
+  it('focuses the ENTRY\'s own card after scrolling — never a day chip inside it', () => {
+    document.body.innerHTML = '<div data-entry-id="spring-tide:2026-09-12:2026-09-15">'
+      + '<button data-testid="coming-up-day-chip">12</button>'
+      + '<button data-testid="coming-up-card">Spring tide run</button></div>';
+    const entry = document.querySelector('[data-entry-id]');
+    entry.scrollIntoView = vi.fn();
+
+    render(
+      <WindowComingUpConditions
+        conditions={[condition({
+          occurrences: [occ({ status: 'promoted', entryId: 'spring-tide:2026-09-12:2026-09-15' })],
+        })]}
+        onGoToPlan={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('condition-row'));
+    fireEvent.click(screen.getByTestId('condition-occurrence'));
+
+    expect(document.querySelector('[data-testid="coming-up-card"]')).toHaveFocus();
+    expect(document.querySelector('[data-testid="coming-up-day-chip"]')).not.toHaveFocus();
   });
 
   it('scrolling to a promoted occurrence with no matching DOM entry is a harmless no-op', () => {

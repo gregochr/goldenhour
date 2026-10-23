@@ -145,6 +145,8 @@ function chipTitle(spot) {
  *                   siblings in the shell; the dialog reads it through the same
  *                   {@code lookupForWindow} every other per-location fact here goes through.
  * @param {string[]} props.scopeNames the region names the page is scoped to
+ * @param {?string}  props.emphasisTopic a HotTopic type whose row to outline for 1.6 s and scroll
+ *                   into view (a Coming up lane's tap-through); focus is not moved
  * @param {string}   props.todayStr   today's ISO date in Europe/London
  * @param {boolean}  [props.escapeEnabled] whether Escape closes THIS layer — false while something
  *                   is stacked over it, which is what makes Escape close one layer per press
@@ -156,7 +158,8 @@ function chipTitle(spot) {
  *                   Absent renders no button, the same withholding rule {@code onOpenLocation} has.
  */
 export default function WindowSheetDialog({
-  card, index, total, field, topicIndex, eclipseIndex = null, scopeNames, todayStr,
+  card, index, total, field, topicIndex, eclipseIndex = null, scopeNames, emphasisTopic = null,
+  todayStr,
   escapeEnabled = true, peeksSuppressed = false,
   onClose, onStep, onOpenSpot, onOpenLocation, onOpenInMap, onSeeAllSpots, onOpenPick, scoreIndex,
   colourMode = null,
@@ -359,10 +362,18 @@ export default function WindowSheetDialog({
     const verdict = card.verdictLabel
       ? `, ${card.verdictLabel}${card.verdictBlanked === true ? `, ${BLANKED_STAND_DOWN_SPOKEN}` : ''}`
       : '';
-    if (!field.selectedRegion) return `${where}${verdict}`;
+    // A Coming up lane's tap-through names the topic it was about — only when this window has that
+    // row, so the sentence never points at something the popup does not show.
+    const wanted = emphasisTopic ? String(emphasisTopic).toUpperCase() : null;
+    const emphasised = wanted
+      ? topicRows.find((row) => String(row.badge?.type || '').toUpperCase() === wanted)
+      : null;
+    const highlight = emphasised ? `, highlighting ${emphasised.badge.label}` : '';
+    if (!field.selectedRegion) return `${where}${verdict}${highlight}`;
     const shown = shownSpots.length;
-    return `${where}${verdict}, showing ${field.selectedRegion}, ${shown} location${shown === 1 ? '' : 's'}`;
-  }, [windowLabel, index, total, card.verdictLabel, card.verdictBlanked, field.selectedRegion, shownSpots.length]);
+    return `${where}${verdict}, showing ${field.selectedRegion}, ${shown} location${shown === 1 ? '' : 's'}${highlight}`;
+  }, [windowLabel, index, total, card.verdictLabel, card.verdictBlanked, field.selectedRegion,
+    shownSpots.length, emphasisTopic, topicRows]);
 
   const emptyLine = useMemo(() => {
     if (shownSpots.length > 0) return null;
@@ -679,7 +690,7 @@ export default function WindowSheetDialog({
             </div>
           </div>
 
-          <WindowTopicRows rows={topicRows} />
+          <WindowTopicRows rows={topicRows} emphasisTopic={emphasisTopic} />
 
           {showRace && <DawnRace sight={raceSight} spotName={raceSpot?.locationName ?? null} />}
 
@@ -815,6 +826,7 @@ WindowSheetDialog.propTypes = {
     byName: PropTypes.instanceOf(Map),
   }),
   scopeNames: PropTypes.arrayOf(PropTypes.string),
+  emphasisTopic: PropTypes.string,
   todayStr: PropTypes.string.isRequired,
   escapeEnabled: PropTypes.bool,
   /** True while another dialog is stacked over this one — see the spot strip's own note. */

@@ -499,9 +499,23 @@ export default function WindowFirstShell({
    * looked at yet.
    */
   const [focusedRegion, setFocusedRegion] = useState(null);
+  /**
+   * The topic row the open popup should emphasise, as `{key, type}` — set only by
+   * {@code goToPlanWindow} (a Coming up lane's tap-through, hot-topics-by-day-plan §3 C1).
+   *
+   * <p>Keyed to the window it was set for, and read through {@code emphasisTopic} below, so it can
+   * only ever apply to that window: stepping `‹ ›` to another key hides it at once, and closing the
+   * popup (key → null) hides it too. {@code openWindow} and {@code selectTab} also clear it, so a
+   * later reopening of the same window does not revive a stale emphasis.
+   */
+  const [emphasis, setEmphasis] = useState(null);
+  const emphasisTopic = openWindowKey != null && emphasis?.key === openWindowKey
+    ? emphasis.type
+    : null;
   const openWindow = useCallback((key) => {
     setOpenWindowKey(key);
     setFocusedRegion(null);
+    setEmphasis(null);
     // ⚠️ Warms the two lazy chunks that can be STACKED over this popup — see `warmStackedChunks`
     // for the measured reason. Fire-and-forget and idempotent; it is not on any render path.
     if (key != null) warmStackedChunks();
@@ -792,6 +806,7 @@ export default function WindowFirstShell({
     // pressed Coming up was left with a dialog about a Plan window floating over the almanac feed.
     setOpenWindowKey(null);
     setFocusedRegion(null);
+    setEmphasis(null);
     setSheetSpot(null);
     setSheetWindowKey(null);
     setSearchSeed(null);
@@ -1785,6 +1800,50 @@ export default function WindowFirstShell({
     [heatSpots, reachById, origin],
   );
   /**
+   * The keys of the windows Plan renders a card for — the only windows a Coming up lane can open
+   * (Plan shows six; passed and travel-day windows are dropped), so the lanes' tap target is chosen
+   * from this set and falls back to plain {@code goToPlan} when none of a segment's windows is in it.
+   */
+  const planWindowKeys = useMemo(
+    () => new Set(windowCards.map((card) => card.key)),
+    [windowCards],
+  );
+  /**
+   * A Coming up lane's tap-through: Plan, with that window's popup open and the tapped topic's row
+   * emphasised (hot-topics-by-day-plan §3 C1 "Plan window door", Q6).
+   *
+   * <p>One click handler, in this order, and the order is the point:
+   * <ol>
+   *   <li>{@code selectTab('plan')} — which also clears every dialog and any stale emphasis;
+   *   <li>focus the Plan tab button, as {@code goToPlan} does. The popup captures its opener when it
+   *       mounts, and the lane button that was just pressed lives in a panel {@code selectTab} has
+   *       hidden — so without this the popup would restore focus to a node that is not reachable,
+   *       and closing it would drop the reader to {@code <body>};
+   *   <li>{@code openWindow(key)} — the existing opener, not the raw setter, so it also clears the
+   *       focused region and warms the lazy chunks;
+   *   <li>set the emphasis <b>only if</b> the popup's own scoped {@code windowTopics} contains a row
+   *       of that type. The popup is scope-filtered and the lanes are not, so a region-scoped topic
+   *       can be absent from it, and emphasising a row that is not there would be a lie.
+   * </ol>
+   *
+   * <p>A key with no card (it changed since the lanes were built) leaves the reader on Plan with
+   * nothing opened — the same place a plain {@code goToPlan} puts them.
+   *
+   * @param {string} key       the `date:TYPE` window key
+   * @param {string} topicType the tapped lane's HotTopic type
+   */
+  const goToPlanWindow = (key, topicType) => {
+    selectTab('plan');
+    tabRefs.current[tabs.findIndex((t) => t.id === 'plan')]?.focus();
+    const card = windowCards.find((c) => c.key === key);
+    if (!card) return;
+    openWindow(key);
+    const wanted = String(topicType || '').toUpperCase();
+    const present = windowTopics(key, card.allBadges, topicIndex, planScopeNames)
+      .some((row) => String(row.badge?.type || '').toUpperCase() === wanted);
+    if (present) setEmphasis({ key, type: wanted });
+  };
+  /**
    * The sheet footer's origin action — this place's own region, and whether it may be planned from.
    *
    * <p>Matched on region NAME, byte-identically and never normalised, because that is the only key
@@ -2427,6 +2486,8 @@ export default function WindowFirstShell({
         todayStr={todayStr}
         onRetry={comingUp.retry}
         onGoToPlan={goToPlan}
+        openableKeys={planWindowKeys}
+        onGoToPlanWindow={goToPlanWindow}
         onShowOnMap={showOnMap ?? NO_MAP_DOOR}
         comingUpLastSeenDate={comingUpLastSeenDate}
         forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
@@ -2706,6 +2767,7 @@ export default function WindowFirstShell({
             topicIndex={topicIndex}
             eclipseIndex={eclipseIndex}
             scopeNames={planScopeNames}
+            emphasisTopic={emphasisTopic}
             todayStr={todayStr}
             // ⚠️ The Escape ORDER, and the whole of it: this layer declines the key while anything
             // sits over it, so a press takes exactly one layer. See `stackedOverPopup`.

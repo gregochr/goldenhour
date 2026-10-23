@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import WindowTopicRows from '../components/WindowTopicRows.jsx';
 import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
@@ -336,5 +336,79 @@ describe('WindowTopicRows — ordering', () => {
     expect(rows.map((r) => r.badge.label)).toEqual(['Aurora', 'Snow on the tops']);
     expect(screen.getAllByTestId('wf-topic-row-name').map((n) => n.textContent))
       .toEqual(['Aurora', 'Snow on the tops']);
+  });
+});
+
+describe('WindowTopicRows — emphasis (a Coming up lane tap-through)', () => {
+  const rowsFor = () => windowTopics(
+    windowKey(D, 'SUNSET'),
+    [
+      badge({ type: 'AURORA', label: 'Aurora', rarityRank: 2 }),
+      badge({ type: 'KING_TIDE', label: 'King tide', rarityRank: 4 }),
+    ],
+    buildTopicIndex([]),
+    [],
+  );
+
+  it('outlines only the rows of the emphasised type, in the topic colour', () => {
+    render(<WindowTopicRows rows={rowsFor()} emphasisTopic="KING_TIDE" />);
+    const [aurora, tide] = screen.getAllByTestId('wf-topic-row');
+    expect(aurora).not.toHaveAttribute('data-emphasis');
+    expect(tide).toHaveAttribute('data-emphasis', 'true');
+    expect(tide.style.getPropertyValue('--c')).toBe('#6FA8B0');
+    expect(screen.getByTestId('wf-topic-rows')).toHaveAttribute('data-emphasis-topic', 'KING_TIDE');
+  });
+
+  it('matches the type case-insensitively', () => {
+    render(<WindowTopicRows rows={rowsFor()} emphasisTopic="king_tide" />);
+    expect(screen.getAllByTestId('wf-topic-row')[1]).toHaveAttribute('data-emphasis', 'true');
+  });
+
+  it('scrolls the emphasised row into view without moving focus', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      const before = document.activeElement;
+      render(<WindowTopicRows rows={rowsFor()} emphasisTopic="KING_TIDE" />);
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(scrollIntoView.mock.contexts[0]).toBe(screen.getAllByTestId('wf-topic-row')[1]);
+      expect(document.activeElement).toBe(before);
+    } finally {
+      delete Element.prototype.scrollIntoView;
+    }
+  });
+
+  it('scrolls once per emphasis — a briefing poll that rebuilds the rows does not re-scroll', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      const { rerender } = render(<WindowTopicRows rows={rowsFor()} emphasisTopic="KING_TIDE" />);
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      // A poll: brand-new row objects, same emphasis.
+      rerender(<WindowTopicRows rows={rowsFor()} emphasisTopic="KING_TIDE" />);
+      rerender(<WindowTopicRows rows={rowsFor()} emphasisTopic="KING_TIDE" />);
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      // A new tap-through (cleared, then set again) does scroll.
+      rerender(<WindowTopicRows rows={rowsFor()} emphasisTopic={null} />);
+      rerender(<WindowTopicRows rows={rowsFor()} emphasisTopic="KING_TIDE" />);
+      expect(scrollIntoView).toHaveBeenCalledTimes(2);
+    } finally {
+      delete Element.prototype.scrollIntoView;
+    }
+  });
+
+  it('emphasises nothing, and scrolls nothing, without an emphasisTopic', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      render(<WindowTopicRows rows={rowsFor()} />);
+      expect(screen.getAllByTestId('wf-topic-row').some((r) => r.hasAttribute('data-emphasis')))
+        .toBe(false);
+      expect(screen.getByTestId('wf-topic-rows')).not.toHaveAttribute('data-emphasis-topic');
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      delete Element.prototype.scrollIntoView;
+    }
   });
 });

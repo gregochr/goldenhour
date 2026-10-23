@@ -435,6 +435,17 @@ topics live on those four days`. The two tabs then agree **by construction** —
 label-only row (`Now — Mon 31` / `On Plan →`); never synthesise. This is the filter/map class, not
 D12's.
 
+> **Superseded in presentation, 2026-10-23 (hot-topics-by-day C1).** The one-line row is replaced
+> by the "Next four days" lanes (`WindowComingUpFourDays`, model `utils/fourDayLanes.js`): one row
+> per topic type, a bar for a multi-day run and a dot for a single window, each a button into Plan.
+> Everything above this note still holds for them — client-rendered from `briefing.hotTopics`,
+> ungated on the almanac `status`, degrade to header and day headers without a briefing (never
+> synthesise) and `Nothing on those four days` for an arrived empty list. `WindowFirstComingUpHandoff` is deleted;
+> `buildHandoff` is deleted too (no caller); `lastPlanDateStr` and the shared `laneDates` remain in
+> `utils/comingUpHandoff.js`. A tide run "goes on past day 4" from the served almanac entry that
+> straddles `lastPlanDate` (the topic's `tideRun` is built from in-window days only, so its
+> `dayNumber == dayCount` on day 4 proves nothing).
+
 ---
 
 ## 3 · Phase map

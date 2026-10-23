@@ -2,6 +2,7 @@ import { useState } from 'react';
 import PropTypes from 'prop-types';
 import { familyOf, occurrenceCountsLine, anyConditionInterim, bitsWord } from '../utils/comingUpConditions.js';
 import { FAMILY_GLYPHS } from '../utils/comingUpGlyphs.js';
+import { scrollToEntry } from '../utils/scrollToEntry.js';
 
 /**
  * The recurring-conditions strip (design README §2/§2.1, plan §7 P4) — one row per frequent topic
@@ -165,19 +166,6 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
 }
 
 /**
- * Finds the chronology card matching `entryId` and scrolls it into view with a brief highlight —
- * the invariant this depends on (D11) is that a `promoted` occurrence's `entryId` always resolves
- * to a real, currently-rendered entry.
- */
-function scrollToEntry(entryId) {
-  const target = document.querySelector(`[data-entry-id="${entryId}"]`);
-  if (!target) return;
-  target.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-  target.classList.add('wf-cu-ent-highlight');
-  window.setTimeout(() => target.classList.remove('wf-cu-ent-highlight'), 1600);
-}
-
-/**
  * One occurrence row — date/value/bits/reason/status (design §2.1's exact grid and styling).
  *
  * <p>A {@code promoted}/{@code insidePlan} row renders as a real {@code <button>} wrapping every
@@ -198,7 +186,7 @@ function OccurrenceRow({ occurrence, onGoToPlan }) {
   // removing these changed no accessible name (measured 2026-09-11 by Playwright's
   // accessible-name algorithm over Chromium's, WebKit's and Firefox's layout; Chromium's native
   // accessibility tree agreed on 2026-09-14). Contrast the name/cadence separator earlier in this
-  // file, which IS load-bearing. The rule is in `WindowFirstComingUpHandoff`'s class doc.
+  // file, which IS load-bearing. The rule is in `WindowComingUpFourDays`'s class doc.
   const cells = (
     <>
       <span className="wf-cond-od">{occurrence.dateLabel}</span>
