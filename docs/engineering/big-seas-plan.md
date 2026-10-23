@@ -75,8 +75,9 @@ The handoff was written against the prototype. Against the code, these hold:
       stand-down.
     - The footer's cause word (`· storm`). The cause is named on the ground; the footer says
       ` · N stood down`.
-    - A ⚡ in the **phone peek sheet's** own window list (it has no topics column). ⚠️ The phone's pill dropdown
-      is the same `WindowControl` menu as desktop, so the week-menu ⚡ DOES appear on a phone (corrected in F1).
+    - The **phone** week-menu ⚡. On a phone the pill opens the peek sheet's window list
+      (`MapPeekWindowsSection`), not the `WindowControl` dropdown, and it has no topics column. The big-seas
+      **line** does show on a phone; only the menu marker stays out (owner Q11).
     - The stand-down hatch draws **under** the field, not after it as the handoff says (§3 F3,
       rated colour must win).
     - The big-seas line is **504px**, not 580 (the label-obstacle budget).
@@ -400,8 +401,8 @@ qualifying day. The table holds every input, so tuning is a SQL query; §6 gets 
 - **Week menu:** `buildMapEvents` stamps `bigSeasAligned: true` on the EV row matching a day's
   `alignedEvent` (filter/select). `WindowRow` renders `⚡` in the `aria-hidden`
   `.wf-win-row-topics` cell **and** an sr-only ", big seas" clause in the row's main cell (the
-  verdict-count pattern at WindowControl.jsx:807). The phone peek sheet's own window list has no topics
-  column and is unchanged; the pill's dropdown is shared with phone, so the ⚡ shows there too (§1.13).
+  verdict-count pattern at WindowControl.jsx:807). The ⚡ is in the desktop and tablet dropdown only: on a phone the pill opens the peek sheet's window list, which
+  has no topics column and is unchanged (§1.13, owner Q11).
 - **Tests** (`docs/engineering/frontend-test-standards.md`):
   - `bigSeas.test.js`: full on the day; full on that day's night row; compact before; null after
     the last day; null on past rows; an elapsed today switching to the next day's compact under a

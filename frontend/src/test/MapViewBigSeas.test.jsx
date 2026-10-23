@@ -55,7 +55,8 @@ vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => null }));
 
 let mockRole = 'PRO_USER';
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole }) }));
-vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
+let mockIsMobile = false;
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mockIsMobile }));
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 vi.mock('../api/auroraApi.js', () => ({
@@ -153,6 +154,7 @@ async function renderMap(props = {}) {
 beforeEach(() => {
   localStorage.clear();
   mockRole = 'PRO_USER';
+  mockIsMobile = false;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T09:40:00Z`));
 });
@@ -240,5 +242,18 @@ describe('MapView — the week menu\'s bolt', () => {
     const marked = rows.filter((r) => r.querySelector('[data-testid="wf-win-row-bigseas"]'));
     expect(marked.map((r) => r.getAttribute('data-ev-id'))).toEqual([`solar:${SAT}:SUNSET`]);
     expect(marked[0].textContent).toContain(', big seas');
+  });
+});
+
+describe('MapView — on a phone (owner Q11: the line shows, the menu bolt stays out)', () => {
+  it('shows the line, but the peek sheet\'s window rows carry no bolt and no ", big seas" clause', async () => {
+    mockIsMobile = true;
+    await renderMap();
+    expect(screen.getByTestId('wf-big-seas')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const rows = screen.getAllByTestId('wf-map-peek-win-row');
+    expect(rows.some((r) => r.getAttribute('data-ev-id') === `solar:${SAT}:SUNSET`)).toBe(true);
+    expect(screen.queryByTestId('wf-win-row-bigseas')).toBeNull();
+    expect(rows.every((r) => !r.querySelector('.wf-bolt') && !/big seas/i.test(r.textContent))).toBe(true);
   });
 });
