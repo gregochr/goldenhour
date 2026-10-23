@@ -373,7 +373,7 @@ function fits(box, placed, frameWidth, frameHeight) {
  *   label rather than a duration claim nothing measured.
  */
 export default function WindowRowFieldMap({
-  windowKey, date, confidence, spots, points, unrated = EMPTY_UNRATED, stood = EMPTY_STOOD, bestRating = null, regionNames, selectedRegion,
+  windowKey, date, confidence, spots, points, unrated = EMPTY_UNRATED, stood: stoodAll = EMPTY_STOOD, bestRating = null, regionNames, selectedRegion,
   origin = null, chips = EMPTY_CHIPS,
   reachById, todayStr, onSelectRegion, onOpenLocation = null, onOpenInMap = null, homePoint = null,
   reachMeasured = false, colourMode = null,
@@ -391,6 +391,15 @@ export default function WindowRowFieldMap({
   // open row's map is framed exactly as the six thumbnails above it are. One module, so a row and
   // the strip that opened it cannot disagree about what is in shot.
   const framed = useMemo(() => scopeSpots(spots, reachById, origin), [spots, reachById, origin]);
+  // The stood places INSIDE the frame (by region name, the thumbnail's `stoodInFrame` rule). Read
+  // once, here, by every decision below (plate hatch, note, focus) AND by the paint, so a stand-down
+  // in a region cropped out can neither withdraw the plate hatch nor label a map it is not on. The
+  // same array back when nothing is cropped, so an unscoped caller keeps its identity.
+  const stood = useMemo(() => {
+    const names = new Set(framed.map((s) => s.regionName));
+    const inFrame = stoodAll.filter((p) => names.has(p.rid));
+    return inFrame.length === stoodAll.length ? stoodAll : inFrame;
+  }, [stoodAll, framed]);
   /**
    * The catalogue indexed for the chip join — <b>id first, name second</b> (plan §3 rule 11).
    *

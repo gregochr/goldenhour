@@ -232,6 +232,34 @@ describe('WindowRowFieldMap — what it hands the kernel', () => {
     expect(drawGeo.mock.calls.at(-1)[5].focus).toBeUndefined();
   });
 
+  it('ignores stood places outside the frame: the plate hatch stays and nothing says "stood down"', async () => {
+    // Framed to the Coast origin, a stand-down in Dales is cropped out of shot.
+    const outside = [{ lat: 7, lng: 25, reason: 'HIGH_CLOUD', rid: 'Dales', key: '#2' }];
+    await withMeasuredMap(600, async () => {
+      await renderMap({
+        origin: { name: 'Coast' }, bestRating: null, points: [], stood: outside, selectedRegion: 'Dales',
+      });
+    });
+    const opts = drawGeo.mock.calls.at(-1)[5];
+    expect(opts.hatch).toBe(true);
+    expect(opts).not.toHaveProperty('stood');
+    expect(opts.focus).toBeUndefined();
+    expect(screen.getByTestId('wf-row-map-unscored')).toHaveTextContent('Not scored');
+    expect(screen.getByTestId('wf-row-map-unscored')).not.toHaveTextContent('Stood down');
+  });
+
+  it('an in-frame stood place withdraws the plate hatch, and only it is painted beside an off-frame one', async () => {
+    const inside = { lat: 7, lng: 5, reason: 'HIGH_CLOUD', rid: 'Coast', key: '#1' };
+    const outside = { lat: 7, lng: 25, reason: 'HIGH_CLOUD', rid: 'Dales', key: '#2' };
+    await withMeasuredMap(600, async () => {
+      await renderMap({ origin: { name: 'Coast' }, bestRating: null, points: [], stood: [inside, outside] });
+    });
+    const opts = drawGeo.mock.calls.at(-1)[5];
+    expect(opts.hatch).toBe(false);
+    expect(opts.stood).toEqual([inside]);
+    expect(screen.getByTestId('wf-row-map-unscored')).toHaveTextContent('Stood down by the weather');
+  });
+
   it('holds the radius at its floor on a narrow map', async () => {
     await withMeasuredMap(100, async () => {
       await renderMap();
