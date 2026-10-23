@@ -754,6 +754,7 @@
                         <param>com.gregochr.goldenhour.service.ask.AskNightRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.ask.AskWindowContextRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.ask.AskPlaceLookupRegressionTest</param>
+                        <param>com.gregochr.goldenhour.service.ask.AskNamedAreaRegressionTest</param>
                         <param>com.gregochr.goldenhour.eval.SkyRatingEvalTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.SystemPromptTokenCountTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.PromptReplayHarnessTest</param>

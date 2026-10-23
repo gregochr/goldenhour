@@ -78,7 +78,7 @@ public final class AskToolSchemas {
     public static List<Tool> tools(boolean withUser, boolean withThread, boolean withPlaceLookup) {
         List<Tool> tools = new ArrayList<>();
         tools.add(listWindows());
-        tools.add(rankSpots(withUser));
+        tools.add(rankSpots(withUser, withPlaceLookup));
         if (withPlaceLookup) {
             tools.add(lookUpPlace());
         }
@@ -101,7 +101,7 @@ public final class AskToolSchemas {
                 m(), List.of());
     }
 
-    private static Tool rankSpots(boolean withUser) {
+    private static Tool rankSpots(boolean withUser, boolean withNamedAreas) {
         Map<String, Object> props = new LinkedHashMap<>();
         props.put("windowIds", array(string(), "Only these window ids (from list_windows)."));
         props.put("regionNames", array(string(), "Only these region names."));
@@ -120,6 +120,10 @@ public final class AskToolSchemas {
                             + "'near', 'nearby' or 'local' with no number. The result says the "
                             + "radius: quote it as 'within N miles of home'."));
         }
+        if (withNamedAreas) {
+            props.put("areaName", m("type", "string", "description", "Only places in this named area (e.g. a "
+                    + "landmark such as Hadrian's Wall), by its name or another name for it."));
+        }
         props.put("limit", m("type", "integer", "minimum", 1, "maximum", AskTools.MAX_SPOTS,
                 "description", "How many spots, at most " + AskTools.MAX_SPOTS + "."));
         return tool(RANK_SPOTS,
@@ -137,7 +141,8 @@ public final class AskToolSchemas {
                 "Looks up one place by name and returns its served rating, verdict, headline, tide fit and "
                         + "whether PhotoCast recommends it (status), for each window. Use it when the reader "
                         + "asks about a specific place, e.g. why it is rated as it is. It never makes the place "
-                        + "a pick.",
+                        + "a pick. The name may also be a named area, such as a landmark, or another name for a "
+                        + "place; the result then lists the named area's places for each window.",
                 props, List.of("name"));
     }
 

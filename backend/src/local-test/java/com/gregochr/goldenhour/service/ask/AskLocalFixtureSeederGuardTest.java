@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.gregochr.goldenhour.repository.AreaRepository;
+import com.gregochr.goldenhour.repository.LocationAliasRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
@@ -44,6 +46,8 @@ class AskLocalFixtureSeederGuardTest {
                 .withBean(RegionRepository.class, () -> mock(RegionRepository.class))
                 .withBean(LocationRepository.class, () -> mock(LocationRepository.class))
                 .withBean(TideExtremeRepository.class, () -> mock(TideExtremeRepository.class))
+                .withBean(AreaRepository.class, () -> mock(AreaRepository.class))
+                .withBean(LocationAliasRepository.class, () -> mock(LocationAliasRepository.class))
                 .withBean(BriefingEvaluationService.class, () -> mock(BriefingEvaluationService.class))
                 .withBean(BriefingService.class, () -> mock(BriefingService.class))
                 .withBean(AskSnapshotBuilder.class, () -> mock(AskSnapshotBuilder.class))
