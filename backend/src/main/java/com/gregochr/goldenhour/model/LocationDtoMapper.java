@@ -57,6 +57,9 @@ public class LocationDtoMapper {
                 entity.getGridLat(),
                 entity.getGridLng(),
                 entity.getBluebellExposure(),
+                entity.getCoastalStructure(),
+                entity.getStructureFacesDeg(),
+                entity.getStructureLabel(),
                 entity.isWoodlandOnly());
     }
 

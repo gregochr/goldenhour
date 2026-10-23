@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.entity.BluebellExposure;
+import com.gregochr.goldenhour.entity.CoastalStructure;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideType;
@@ -42,7 +43,10 @@ import java.util.Set;
  * @param gridLat                    snapped Open-Meteo grid latitude, or {@code null}
  * @param gridLng                    snapped Open-Meteo grid longitude, or {@code null}
  * @param bluebellExposure           bluebell exposure type, or {@code null}
- * @param woodlandOnly               true when this location's only photographic subject is under canopy
+ * @param coastalStructure           the kind of wave-breaking structure (big seas), or {@code null}
+ * @param structureFacesDeg          compass bearing the structure faces (0-359), or {@code null}
+ * @param structureLabel             the big-seas chip's short name, or {@code null}
+ * @param woodlandOnly              true when this location's only photographic subject is under canopy
  */
 public record LocationDto(
         Long id,
@@ -70,5 +74,8 @@ public record LocationDto(
         Double gridLat,
         Double gridLng,
         BluebellExposure bluebellExposure,
+        CoastalStructure coastalStructure,
+        Integer structureFacesDeg,
+        String structureLabel,
         boolean woodlandOnly) {
 }

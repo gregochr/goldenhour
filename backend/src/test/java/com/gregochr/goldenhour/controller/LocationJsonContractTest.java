@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.BluebellExposure;
+import com.gregochr.goldenhour.entity.CoastalStructure;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
@@ -75,6 +76,9 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 .gridLat(55.61)
                 .gridLng(-1.71)
                 .bluebellExposure(BluebellExposure.WOODLAND)
+                .coastalStructure(CoastalStructure.PIER)
+                .structureFacesDeg(45)
+                .structureLabel("Bamburgh Pier")
                 .build();
         LocationEntity minimal = LocationEntity.builder()
                 .id(2L).name("Minimal Spot").lat(1.0).lon(2.0)
@@ -97,6 +101,7 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"effectiveFetchMetres\":5000.0,\"avgShelfDepthMetres\":12.0,"
                 + "\"coastalTidal\":true,\"elevationMetres\":30,\"overlooksWater\":true,\"mistProne\":true,"
                 + "\"gridLat\":55.61,\"gridLng\":-1.71,\"bluebellExposure\":\"WOODLAND\","
+                + "\"coastalStructure\":\"PIER\",\"structureFacesDeg\":45,\"structureLabel\":\"Bamburgh Pier\","
                 + "\"woodlandOnly\":false},"
                 + "{\"id\":2,\"name\":\"Minimal Spot\",\"lat\":1.0,\"lon\":2.0,"
                 + "\"solarEventType\":[],\"tideType\":[],\"locationType\":[],\"region\":null,"
@@ -106,7 +111,8 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"shoreNormalBearingDegrees\":null,\"effectiveFetchMetres\":null,"
                 + "\"avgShelfDepthMetres\":null,\"coastalTidal\":false,\"elevationMetres\":null,"
                 + "\"overlooksWater\":false,\"mistProne\":false,\"gridLat\":null,\"gridLng\":null,"
-                + "\"bluebellExposure\":null,\"woodlandOnly\":false}"
+                + "\"bluebellExposure\":null,\"coastalStructure\":null,\"structureFacesDeg\":null,"
+                + "\"structureLabel\":null,\"woodlandOnly\":false}"
                 + "]";
 
         mockMvc.perform(get("/api/locations"))

@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.MarineWaveSample;
 import com.gregochr.goldenhour.model.OpenMeteoMarineResponse;
 import com.gregochr.goldenhour.repository.MarineWaveRepository;
+import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -64,6 +65,12 @@ class MarineWaveRefreshServiceTest {
     private SolarService solarService;
 
     @Mock
+    private TideExtremeRepository tideExtremeRepository;
+
+    @Mock
+    private MarineHighWaterWriter highWaterWriter;
+
+    @Mock
     private JobRunService jobRunService;
 
     private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -73,7 +80,8 @@ class MarineWaveRefreshServiceTest {
     @BeforeEach
     void setUp() {
         service = new MarineWaveRefreshService(
-                marineClient, marineWaveRepository, solarService, jobRunService, clock);
+                marineClient, marineWaveRepository, solarService, tideExtremeRepository, highWaterWriter,
+                jobRunService, clock);
     }
 
     private static LocationEntity coastal() {
@@ -119,7 +127,8 @@ class MarineWaveRefreshServiceTest {
     void refresh_inland_skips() {
         service.refresh(List.of(inland()), List.of(DATE), JOB_RUN_ID);
 
-        verifyNoInteractions(marineClient, solarService, marineWaveRepository, jobRunService);
+        verifyNoInteractions(marineClient, solarService, marineWaveRepository, tideExtremeRepository,
+                highWaterWriter, jobRunService);
     }
 
     @Test
@@ -131,7 +140,7 @@ class MarineWaveRefreshServiceTest {
 
         verify(jobRunService).logApiCall(eq(JOB_RUN_ID), eq(ServiceName.OPEN_METEO_MARINE), eq("GET"),
                 eq(MARINE_LABEL), isNull(), anyLong(), isNull(), isNull(), eq(false), eq("boom"));
-        verifyNoInteractions(marineWaveRepository);
+        verifyNoInteractions(marineWaveRepository, tideExtremeRepository, highWaterWriter);
     }
 
     @Test
@@ -146,6 +155,6 @@ class MarineWaveRefreshServiceTest {
 
         service.refresh(List.of(coastal()), List.of(DATE), JOB_RUN_ID);
 
-        verifyNoInteractions(marineWaveRepository);
+        verifyNoInteractions(marineWaveRepository, tideExtremeRepository, highWaterWriter);
     }
 }
