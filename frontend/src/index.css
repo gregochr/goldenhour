@@ -44,6 +44,13 @@
   /* Tide facts (objective, independent of the sky verdict). */
   --color-tide: #6FA8B0;
 
+  /* Stood-down ground on the Map (big-seas plan F3). A cool grey-blue, deliberately OFF the red-amber-
+     green ramp so it cannot be read as a score: the region label's name, its cause line, and the
+     footer's "· N stood down" count. The hatch itself is canvas (`heatField.js` paintStandDown). */
+  --color-standdown-ink: #D3DAE8;
+  --color-standdown-ink-2: #B8C5DC;
+  --color-standdown-count: #C9D2E4;
+
   /* "Close to home" — the local/proximity channel's warm gold (the regional panel's "all" filter,
      the location sheet's kicker). Deliberately NOT --color-plex-gold (which is bone, identical to
      ink) so the channel reads as its own accent rather than chrome. */
@@ -4138,6 +4145,10 @@ button.wf-hc.also.on:hover {
   max-width: calc(100% - 16px);
   pointer-events: none;
 }
+/* The footer's stood-down count (big-seas plan F3). */
+.wf-map-counts-standdown {
+  color: var(--color-standdown-count);
+}
 .wf-map-counts-flag {
   color: #EBD9A8;
 }
@@ -6581,11 +6592,40 @@ button.wf-hc.also.on:hover {
 .wf-maplab-region[data-hot='true'] {
   color: #F9F1E2;
 }
+/* A stood-down region's label (big-seas plan F3): the name over `stood down · cause`, in the cool ink
+   the hatch is ruled in. Replaces the region's ordinary label, so it keeps that label's box rules
+   (mono, uppercase, nowrap); two lines, centred, the cause a size smaller. */
+.wf-maplab-region.wf-maplab-standdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1.2;
+  color: var(--color-standdown-ink);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .95), 0 0 9px rgba(0, 0, 0, .85);
+}
+.wf-maplab-standdown-cause {
+  font-size: 8.5px;
+  color: var(--color-standdown-ink-2);
+}
 /* README §6: "Short names below 430px width" — CSS truncation of the served name for now; a
    curated short form is decision D-11. Capped rather than left to wrap, because a wrapped region
    name grows the label's own measured box mid-placement, which the greedy pass has already sized
    it against. */
 .wf-maplab-region[data-tiny='true'] {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A stood-down label is a two-line flex column: the 90px clip must not take its cause line, so the
+   box is released and only the NAME truncates (big-seas plan F3). Later than the rule above, same
+   specificity, so it wins. */
+.wf-maplab-standdown[data-tiny='true'] {
+  max-width: none;
+  overflow: visible;
+}
+.wf-maplab-standdown[data-tiny='true'] .wf-maplab-standdown-name {
+  display: block;
   max-width: 90px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -7315,8 +7355,17 @@ button.wf-hc.also.on:hover {
     repeating-linear-gradient(-45deg, rgba(242, 231, 211, 0.32) 0 0.8px, transparent 0.8px 5px),
     #241d18;
 }
-/* Forced colours drop backgrounds and box-shadows, so both swatches would vanish: a CanvasText border
-   on each, and the hatch swatch keeps its own colours so it stays distinguishable from the plain one. */
+/* The stand-down key (big-seas plan F3): 20x9, the map's own veil with the cool 45 degree rule. */
+.wf-legend-swatch-standdown {
+  width: 20px;
+  height: 9px;
+  background:
+    repeating-linear-gradient(-45deg, rgba(184, 197, 220, 0.5) 0 1px, transparent 1px 4px),
+    rgba(16, 15, 19, 0.66);
+}
+/* Forced colours drop backgrounds and box-shadows, so all three swatches would vanish: a CanvasText
+   border on each, and the hatch swatches keep their own colours so they stay distinguishable from the
+   plain one (dashed for "not rated yet", dotted for "stood down"). */
 @media (forced-colors: active) {
   .wf-legend-swatch {
     border: 1px solid CanvasText;
@@ -7325,6 +7374,10 @@ button.wf-hc.also.on:hover {
   .wf-legend-swatch-hatch {
     forced-color-adjust: none;
     border-style: dashed;
+  }
+  .wf-legend-swatch-standdown {
+    forced-color-adjust: none;
+    border-style: dotted;
   }
 }
 .wf-legend-ring-toggle {

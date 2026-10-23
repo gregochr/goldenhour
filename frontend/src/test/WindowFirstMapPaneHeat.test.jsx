@@ -357,6 +357,26 @@ describe('WindowFirstMapPane — the heat prop', () => {
       expect(entry.unrated.map((p) => p.name)).toEqual(['Wastwater', 'Kelso']);
     });
 
+    it('offers the stood list, reasons and region names included, only once the scores have loaded (big-seas F3)', () => {
+      const stoodSpots = SPOTS.map((s, i) => ({
+        ...s,
+        skySubject: true,
+        states: [i === 1 ? 'stood' : 'rated', 'rated'],
+        reasons: [i === 1 ? 'PRECIPITATION' : null, null],
+      }));
+      const ctx = (scoresLoaded) => context({
+        heatSpots: stoodSpots, upcomingEvents: EVENTS, scoresLoaded,
+      });
+      renderPane(ctx(false));
+      expect(MapStub.lastProps.heat.windowStates.size).toBe(0);
+      cleanup();
+      renderPane(ctx(true));
+      const entry = MapStub.lastProps.heat.windowStates.get(`${TODAY}:SUNSET`);
+      expect(entry.stood).toEqual([{
+        lat: 54.44, lng: -3.3, reason: 'PRECIPITATION', rid: 'The Lakes', key: '#2',
+      }]);
+    });
+
     it('offers no unrated points for a window with no rated or stood spot (empty scores response)', () => {
       const none = STATE_SPOTS.map((s) => ({ ...s, states: ['unrated', 'unrated'] }));
       renderPane(context({ heatSpots: none, upcomingEvents: EVENTS, scoresLoaded: true }));

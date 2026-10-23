@@ -715,7 +715,60 @@ export function unknownMask(unrated, rated, w, h, opts) {
  */
 export function paintUnknown(ctx, w, h, unrated, rated, opts) {
   opts = opts || {};
-  const m = unknownMask(unrated, rated, w, h, opts);
+  return paintMasked(ctx, w, h, unrated, rated, opts, (tc) => ruleHatch(tc, w, h, opts));
+}
+
+/** The stand-down fill: a dark veil under the rule, so the hatch reads on any basemap. */
+const STAND_FILL = 'rgba(16,15,19,.66)';
+/** The stand-down rule: an 8px pitch of 1.2px 45 degree lines in a cool grey, off the score ramp. */
+const STAND_RULE = { hatchGap: 8, hatchLine: 1.2, hatchInk: 'rgba(184,197,220,.5)' };
+
+/**
+ * Paints the stand-down hatch around the places a window stood down for the weather, UNDER the
+ * field and ABOVE the plate (big-seas plan F3; docs/design/big-seas/README.md "Stand-down hatch").
+ *
+ * <p>The same projection-independent signature as {@link paintUnknown} (points already in CSS px,
+ * no Leaflet {@code map}), so the Map and the Plan tab's d3 hosts share it. It differs in the
+ * texture (a {@link STAND_FILL} veil, then the {@link STAND_RULE} lines), in taking the disc radius
+ * from {@code opts.standRadius} (the stood places' reach, not the field's), and in nothing else:
+ * the mask is {@link unknownMask} with the stood places in place of the unrated ones, so a rated
+ * place's colour wins where the two overlap, and the clip is the same soft land path.
+ *
+ * @param {CanvasRenderingContext2D} ctx target context, drawing in CSS px
+ * @param {number} w surface width in CSS px
+ * @param {number} h surface height in CSS px
+ * @param {Array<{x: number, y: number, rid: *}>} stood stood places, in CSS px
+ * @param {Array<{x: number, y: number, rid: *}>} rated rated places, in CSS px
+ * @param {object} [opts] what {@link paintUnknown} takes, plus {@code standRadius} (the disc
+ *        radius in px; absent, the field's {@code radius})
+ * @returns {boolean} whether anything was drawn
+ */
+export function paintStandDown(ctx, w, h, stood, rated, opts) {
+  opts = opts || {};
+  const merged = opts.standRadius ? { ...opts, radius: opts.standRadius } : opts;
+  return paintMasked(ctx, w, h, stood, rated, merged, (tc) => {
+    tc.fillStyle = STAND_FILL;
+    tc.fillRect(0, 0, w, h);
+    ruleHatch(tc, w, h, STAND_RULE);
+  });
+}
+
+/**
+ * The shared body of {@link paintUnknown} and {@link paintStandDown}: ruled onto a temp canvas by
+ * {@code rule}, multiplied by the {@link unknownMask} in one {@code destination-in}, then drawn
+ * through the land clip.
+ *
+ * @param {CanvasRenderingContext2D} ctx target context, drawing in CSS px
+ * @param {number} w surface width in CSS px
+ * @param {number} h surface height in CSS px
+ * @param {Array<{x: number, y: number, rid: *}>} subject the places the layer is drawn around
+ * @param {Array<{x: number, y: number, rid: *}>} rated rated places, which the mask yields to
+ * @param {object} opts the options both layers take
+ * @param {function(CanvasRenderingContext2D): void} rule draws the texture on the temp canvas
+ * @returns {boolean} whether anything was drawn
+ */
+function paintMasked(ctx, w, h, subject, rated, opts, rule) {
+  const m = unknownMask(subject, rated, w, h, opts);
   if (!m) return false;
   const off = document.createElement('canvas');
   off.width = m.cols;
@@ -739,7 +792,7 @@ export function paintUnknown(ctx, w, h, unrated, rated, opts) {
   t.height = H;
   const tc = t.getContext('2d');
   tc.setTransform(sx, 0, 0, sx, 0, 0);
-  ruleHatch(tc, w, h, opts);
+  rule(tc);
   const mk = document.createElement('canvas');
   mk.width = W;
   mk.height = H;
@@ -803,6 +856,8 @@ function ratedMaskPoints(pts) {
  *        everything {@link field} takes. `unrated` is the "not rated yet" places
  *        ({@code unratedPointsFor}'s shape): the ground around them is hatched, under the field and
  *        over the plate, so colour wins where a rated place is near — absent, nothing is drawn.
+ *        `stood` (with `standRadius`, the disc radius in px) does the same for the weather-stood
+ *        places ({@link paintStandDown}), painted straight after the unrated hatch.
  *        `hatch` rules {@link hatchPlate}'s no-data texture over the plate;
  *        it is the CALLER's claim that this window carries no scores, never inferred from an
  *        empty field — {@link field} also returns null when every point is culled outside the
@@ -845,6 +900,16 @@ export function drawGeo(cv, w, h, spots, win, opts) {
       { ...opts, clip },
     );
   }
+  // Stood-down ground (big-seas plan F3/F4): after the unrated hatch, still under the field, so a
+  // rated neighbour's colour wins. Absent by default.
+  if (opts.stood && opts.stood.length) {
+    paintStandDown(
+      ctx, w, h,
+      maskPoints(opts.stood, (s) => projection([s.lng, s.lat])),
+      ratedMaskPoints(pts),
+      { ...opts, clip },
+    );
+  }
   paint(ctx, w, h, pts, { ...opts, alpha: opts.focus ? 238 : 206, clip });
   // After the field and before the coastline: the mark belongs to the plate, so it sits under the
   // edge that defines the plate. Ordinary callers never set it, so every existing host's paint
@@ -866,7 +931,9 @@ export function drawGeo(cv, w, h, spots, win, opts) {
  * @param {object} map a Leaflet map
  * @param {Array<{lat: number, lng: number, r: number[], rid: *}>} spots the catalogue
  * @param {number} win index into each spot's `r` scores
- * @param {{score?: (spot: object) => number, unrated?: Array<object>}} [opts] `score` lets a host
+ * @param {{score?: (spot: object) => number, unrated?: Array<object>, stood?: Array<object>,
+ *        standRadius?: number}} [opts] `stood` hatches the ground around the weather-stood places
+ *        ({@link paintStandDown}), after the unrated hatch and under the field; `score` lets a host
  *        score a location by something other than a solar window index — the Map tab's night
  *        events (astro, aurora) are derived, not present in `r[]` — and `unrated` hatches the
  *        ground around those places under the field (see {@link drawGeo}; the soft land clip applies),
@@ -897,7 +964,59 @@ export function drawTiles(cv, map, spots, win, opts) {
       opts,
     );
   }
+  // After the unrated hatch, before the field (big-seas plan F3): rated colour wins.
+  paintStoodOnTiles(ctx, w, h, map, opts, pts);
   return paint(ctx, w, h, pts, opts);
+}
+
+/**
+ * Paints {@code opts.stood} on a Leaflet host's context, when there is any.
+ *
+ * @param {CanvasRenderingContext2D} ctx target context, drawing in CSS px
+ * @param {number} w map width in CSS px
+ * @param {number} h map height in CSS px
+ * @param {object} map a Leaflet map
+ * @param {{stood?: Array<object>}} opts the host's options
+ * @param {Array<{x: number, y: number, sc: *, rid: *}>} pts the field's projected points
+ * @returns {boolean} whether anything was drawn
+ */
+function paintStoodOnTiles(ctx, w, h, map, opts, pts) {
+  if (!opts.stood || !opts.stood.length) return false;
+  return paintStandDown(
+    ctx, w, h,
+    maskPoints(opts.stood, (s) => {
+      const p = map.latLngToContainerPoint([s.lat, s.lng]);
+      return [p.x, p.y];
+    }),
+    ratedMaskPoints(pts),
+    opts,
+  );
+}
+
+/**
+ * Pins view's stand-down layer: the same paint as {@link drawTiles}' {@code stood} option, with no
+ * field after it (big-seas plan F3). The caller has already cleared the canvas; this only draws.
+ *
+ * @param {HTMLCanvasElement} cv target canvas, sized to the map
+ * @param {object} map a Leaflet map
+ * @param {Array<{lat: number, lng: number, r: number[], rid: *}>} spots the rated points the mask
+ *        yields to
+ * @param {number} win index into each spot's {@code r} scores
+ * @param {object} opts {@code stood}, {@code standRadius}, {@code opacity} and the land-clip keys
+ * @returns {boolean} whether anything was drawn
+ */
+export function drawStandDownTiles(cv, map, spots, win, opts) {
+  opts = opts || {};
+  const sz = map.getSize();
+  const w = sz.x;
+  const h = sz.y;
+  if (!(w > 20) || !(h > 20)) return false;
+  const ctx = fit(cv, w, h);
+  const pts = spots.map((s) => {
+    const p = map.latLngToContainerPoint([s.lat, s.lng]);
+    return { x: p.x, y: p.y, sc: s.r[win], rid: s.rid };
+  });
+  return paintStoodOnTiles(ctx, w, h, map, opts, pts);
 }
 
 /**

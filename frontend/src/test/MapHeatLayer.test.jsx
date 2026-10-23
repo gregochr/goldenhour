@@ -14,6 +14,7 @@ let currentMap = null;
 vi.mock('react-leaflet', () => ({ useMap: () => currentMap }));
 
 const drawTiles = vi.fn();
+const drawStandDownTiles = vi.fn();
 const radiusFor = vi.fn(() => 120);
 // P4 RE-PIN (map-tab-v2-plan.md §3 P4): `land()` now tracks the SAME latch the mocked `load()`
 // flips, so `MapHeatLayer`'s `alreadyLoaded = land() != null` guard sees a faithful reflection of
@@ -30,6 +31,7 @@ vi.mock('../utils/heatField.js', async (importOriginal) => {
   return {
     ...actual,
     drawTiles: (...args) => drawTiles(...args),
+    drawStandDownTiles: (...args) => drawStandDownTiles(...args),
     radiusFor: (...args) => radiusFor(...args),
     load: (...args) => load(...args),
     land: () => (mockLandLoaded ? LAND_FIXTURE : null),
@@ -1431,5 +1433,118 @@ describe('MapHeatLayer — dim (Ask PhotoCast’s picks)', () => {
     await act(async () => { runFrames(); });
 
     expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92, 5);
+  });
+});
+
+describe('MapHeatLayer — the stand-down hatch (big-seas plan F3)', () => {
+  const STOOD = [{ lat: 54.9, lng: -2.1, rid: 'North East' }];
+  const RATED = [{ lat: 55.1, lng: -1.9, rid: 'North East', r: [4] }];
+
+  beforeEach(() => {
+    landMaskGet.mockReset();
+    landMaskGet.mockReturnValue(null);
+    HTMLCanvasElement.prototype.getContext = () => makeCanvasCtxStub();
+  });
+
+  it('hands the kernel the stood places and the 6500 m, 22-150 px disc radius', async () => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount({ stood: STOOD });
+    const opts = drawTiles.mock.calls.at(-1)[4];
+    expect(opts.stood).toBe(STOOD);
+    expect(opts.standRadius).toBe(120); // `radiusFor` is stubbed to 120
+    expect(radiusFor).toHaveBeenCalledWith(currentMap, 6500, 22, 150);
+    // The field's own radius is unchanged.
+    expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 400);
+  });
+
+  it('carries the field\'s opacity, so the fade and Ask\'s dim reach the hatch', async () => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount({ stood: STOOD, dim: 1 });
+    const full = drawTiles.mock.calls.at(-1)[4].opacity;
+    await mount({ stood: STOOD, dim: 0.5 });
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(full * 0.5, 5);
+  });
+
+  it.each([[null], [[]], [undefined]])('leaves the options object as it was for %j', async (stood) => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount({ stood });
+    expect('stood' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+    expect('standRadius' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+  });
+
+  it('Pins: paints the layer AFTER the canvas clear and BEFORE the coastline stroke, with no field', async () => {
+    const stubPath = { __stub: 'land' };
+    landMaskGet.mockReturnValue(stubPath);
+    const ctxStub = makeCanvasCtxStub();
+    HTMLCanvasElement.prototype.getContext = () => ctxStub;
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ fieldEnabled: false, stood: STOOD, stoodRated: RATED });
+    expect(drawTiles).not.toHaveBeenCalled();
+    expect(drawStandDownTiles).toHaveBeenCalled();
+    const clear = ctxStub.clearRect.mock.invocationCallOrder[0];
+    const paint = drawStandDownTiles.mock.invocationCallOrder[0];
+    const coast = ctxStub.stroke.mock.invocationCallOrder[0];
+    expect(clear).toBeLessThan(paint);
+    expect(paint).toBeLessThan(coast);
+  });
+
+  it('Pins: the mask yields to the rated points it is handed, not the empty field points', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({
+      points: [], fieldEnabled: false, stood: STOOD, stoodRated: RATED,
+    });
+    const [, , spots, win, opts] = drawStandDownTiles.mock.calls.at(-1);
+    expect(spots).toBe(RATED);
+    expect(win).toBe(0);
+    expect(opts.stood).toBe(STOOD);
+    expect(opts.standRadius).toBe(120);
+    expect(opts.opacity).toBeGreaterThan(0);
+  });
+
+  it('Pins: carries the soft land clip, the field\'s grid, blur and confidence, and its opacity', async () => {
+    const stubPath = { __stub: 'land' };
+    landMaskGet.mockReturnValue(stubPath);
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({
+      fieldEnabled: false, stood: STOOD, stoodRated: RATED, conf: 0.8, dim: 1,
+    });
+    const opts = drawStandDownTiles.mock.calls.at(-1)[4];
+    expect(opts.clipPath).toBe(stubPath);
+    expect(opts.clipSoft).toBe(4);
+    expect(opts.clipGrow).toBe(120); // `radiusFor` is stubbed
+    expect(opts.grid).toBe(6);
+    expect(opts.blur).toBe(4);
+    expect(opts.conf).toBe(0.8);
+    expect(opts.opacity).toBeCloseTo(0.92 * fadeAt(9).heat, 5);
+  });
+
+  it('Pins: drops the clip keys altogether at or above the land-clip zoom', async () => {
+    landMaskGet.mockReturnValue({ __stub: 'land' });
+    currentMap = makeMap({ zoom: 12, panes: markerPanes() });
+    await mount({ fieldEnabled: false, stood: STOOD, stoodRated: RATED });
+    const opts = drawStandDownTiles.mock.calls.at(-1)[4];
+    expect('clipPath' in opts).toBe(false);
+    expect('clipSoft' in opts).toBe(false);
+    expect(opts.opacity).toBeCloseTo(0.92 * fadeAt(12).heat, 5);
+  });
+
+  it('Pins: Ask\'s dim halves the hatch exactly as it halves the field', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ fieldEnabled: false, stood: STOOD, dim: 1 });
+    const full = drawStandDownTiles.mock.calls.at(-1)[4].opacity;
+    await mount({ fieldEnabled: false, stood: STOOD, dim: 0.5 });
+    expect(drawStandDownTiles.mock.calls.at(-1)[4].opacity / full).toBeCloseTo(0.5, 5);
+  });
+
+  it('Pins: falls back to the layer\'s own points when no rated list is handed in', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ fieldEnabled: false, stood: STOOD });
+    expect(drawStandDownTiles.mock.calls.at(-1)[2]).toBe(POINTS);
+  });
+
+  it('Pins: paints nothing extra without stood places', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ fieldEnabled: false, stood: [] });
+    expect(drawStandDownTiles).not.toHaveBeenCalled();
   });
 });

@@ -9,8 +9,8 @@ import { pxPerKmAtHome, RING_MIN_PX, RING_TIERS } from '../../utils/reachRings.j
 import { seedObstacles } from '../../utils/labelPlacement.js';
 import {
   chipBoxWithinBadgedBox, chipCandidates, hasRatedBadge, homeLabelItems, placeLabelPass,
-  regionLabelItems, ringLabelItems, verdictWord, withBadgeOverhang,
-  REGION_TINY_FRAME_WIDTH,
+  regionLabelItems, ringLabelItems, standDownRegionItems, verdictWord, withBadgeOverhang,
+  withStandDownLabels, REGION_TINY_FRAME_WIDTH,
 } from '../../utils/mapLabels.js';
 import { badgeAccessibleClause } from '../../utils/outcomeRatingJoin.js';
 import RatedBadge from './RatedBadge.jsx';
@@ -40,6 +40,9 @@ import TideWave from './TideWave.jsx';
  */
 const LABEL_PANE = 'wf-labels';
 const LABEL_PANE_Z = 650;
+
+/** No stood-down region labels: one stable identity, so the default never repaints the pass. */
+const NO_STAND_REGIONS = [];
 
 /**
  * Live chrome to seed as obstacles (README §6: "the window bar, Regions/Heat/Pins/Filters bar,
@@ -278,7 +281,7 @@ const TOOLTIP_WIDTH_FALLBACK = 240;
  *   thing a label may sit under
  */
 export default function MapLabels({
-  spots: allSpots, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
+  spots: allSpots, standRegions = NO_STAND_REGIONS, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
   onSelect = null, onSelectAskPick = null, eventLabel = '', bottomInset = 0, rampHex = defaultRampHex,
   omitUnrated = false,
 }) {
@@ -410,7 +413,12 @@ export default function MapLabels({
       width,
       height,
       home,
-      regionItems: regionLabelItems(spots, project, zoom),
+      // A qualified stood-down region's label replaces its ordinary one (big-seas plan F3), in the
+      // same tier and under the same zoom gate; the cause word was decided by the caller.
+      regionItems: withStandDownLabels(
+        regionLabelItems(spots, project, zoom),
+        standDownRegionItems(standRegions, project, zoom),
+      ),
       ringItems: ringsActive ? ringLabelItems({
         homePoint: home, zoom, ringsWithRadius, frameHeight: height, reachMeasured,
         formatDuration: formatDriveDuration,
@@ -419,7 +427,7 @@ export default function MapLabels({
       chips,
       tiny: width < REGION_TINY_FRAME_WIDTH,
     });
-  }, [map, spots, homeCoords, rings, reachMeasured, selectedName]);
+  }, [map, spots, standRegions, homeCoords, rings, reachMeasured, selectedName]);
 
   /**
    * The rAF-guarded throttle/settle pair, mirroring `MapHeatLayer.jsx`'s own — "never their own
@@ -724,14 +732,20 @@ export default function MapLabels({
             if (node) regionRefs.current.set(it.key, node);
             else regionRefs.current.delete(it.key);
           }}
-          className="wf-maplab-region"
+          className={it.standDown ? 'wf-maplab-region wf-maplab-standdown' : 'wf-maplab-region'}
           aria-hidden="true"
           data-hot={it.hot ? 'true' : undefined}
           data-tiny={frame.tiny ? 'true' : undefined}
+          data-standdown={it.standDown || undefined}
           data-testid="map-label-region"
           style={styleFor(it.key)}
         >
-          {it.rid}
+          {it.standDown ? (
+            <>
+              <span className="wf-maplab-standdown-name">{it.rid}</span>
+              <span className="wf-maplab-standdown-cause">{`stood down · ${it.standDown}`}</span>
+            </>
+          ) : it.rid}
         </span>
       ))}
 
@@ -917,6 +931,19 @@ export default function MapLabels({
 }
 
 MapLabels.propTypes = {
+  /**
+   * The regions whose label reads "stood down · cause" (big-seas plan F3, `standDownRegions`'
+   * output): each replaces that region's ordinary label. Default none.
+   */
+  standRegions: PropTypes.arrayOf(PropTypes.shape({
+    rid: PropTypes.string.isRequired,
+    cause: PropTypes.string.isRequired,
+    points: PropTypes.arrayOf(PropTypes.shape({
+      lat: PropTypes.number,
+      lng: PropTypes.number,
+      rid: PropTypes.string,
+    })).isRequired,
+  })),
   /** A `(score) => '#rrggbb'` for the chip swatch; defaults to the shared ramp (aurora passes its own). */
   rampHex: PropTypes.func,
   /** Aurora only: spots with no rating get no chip (an Ask pick is always kept). Default false. */
