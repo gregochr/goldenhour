@@ -159,6 +159,41 @@ describe('WindowRowFieldMap — what it hands the kernel', () => {
     expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('unrated');
   });
 
+  it('hands the window its stood places beside the rated points, which keep their own list', async () => {
+    // Big-seas F4. The hatch yields to a rated neighbour inside `drawGeo`'s mask (heatFieldStandDown
+    // pins that); the host's part is to hand over BOTH lists untouched.
+    const stood = [{ lat: 7, lng: 5, reason: 'HIGH_CLOUD', rid: 'Coast', key: '#9' }];
+    await withMeasuredMap(600, async () => {
+      await renderMap({ stood });
+    });
+    const [, , , points, , opts] = drawGeo.mock.calls.at(-1);
+    expect(opts.stood).toBe(stood);
+    expect(points).toBe(POINTS);
+    // The disc radius is the field's own, as the unrated hatch is sized.
+    expect(opts).not.toHaveProperty('standRadius');
+  });
+
+  it('still hatches a stood place on an UNSCORED window, and passes nothing for an empty list', async () => {
+    const stood = [{ lat: 7, lng: 5, reason: 'PRECIPITATION', rid: 'Coast', key: '#9' }];
+    await withMeasuredMap(600, async () => {
+      await renderMap({ stood, bestRating: null, points: [] });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5].stood).toBe(stood);
+    expect(drawGeo.mock.calls.at(-1)[5].hatch).toBe(true);
+
+    drawGeo.mockClear();
+    await withMeasuredMap(600, async () => {
+      await renderMap({ stood: [] });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('stood');
+
+    drawGeo.mockClear();
+    await withMeasuredMap(600, async () => {
+      await renderMap();
+    });
+    expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('stood');
+  });
+
   it('holds the radius at its floor on a narrow map', async () => {
     await withMeasuredMap(100, async () => {
       await renderMap();

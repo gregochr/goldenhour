@@ -238,7 +238,7 @@ Where the build departs from §3 or adds to it:
 Nothing in this series has been seen in the signed-in app. With the app open:
 
 1. **A thin window beside a well-rated one**, Plan and Map: the thin one shows a small warm patch in a large hatched area and `Worth it 4.0★ · 6 rated`; the well-rated one has no `· N rated` and little hatch. On the Map, the pill reads `· N rated` (a different number from the Plan card is expected: scope pool, not reach pool).
-2. **A wet morning with many stand-downs.** Stood-down places are plain ground in the "not rated yet" layer. (Since big-seas F3 the Map draws them with its own stand-down hatch; check that the two marks read as different.)
+2. **A wet morning with many stand-downs.** Stood-down places are plain ground in the "not rated yet" layer. (Since big-seas F3 the Map draws them with its own stand-down hatch, and since F4 the Plan thumbnails and row map do too, so the hosts agree again; check that the two marks read as different.)
 3. **A region with woods and hides.** They are never hatched, on either tab.
 4. **The phone card at 320px and a wide phone**: the 320px card has no `· N rated` (the Spread row's `N/M rated` carries it), a wider card has it on one line and the verdict row does not wrap; the legend shows the two swatches and no right-hand line.
 5. **The Map zoomed in**: the hatch and the colour hand over together at the zoom handover; with Ask answering, both dim together; the phone Layers section shows `Ground`.

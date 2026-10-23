@@ -2363,6 +2363,103 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
     });
   });
 
+  describe('the per-place "stood down" layer (big-seas F4)', () => {
+    const KEY = `${TODAY}:SUNSET`;
+    const STOOD = [
+      { lat: 55.4, lng: -1.6, reason: 'HIGH_CLOUD', rid: 'R', key: '#9' },
+      { lat: 55.5, lng: -1.7, reason: 'PRECIPITATION', rid: 'R', key: '#10' },
+    ];
+    const cardName = () => screen.getByTestId('wf-heat-card').textContent;
+
+    it('hands a thumbnail its stood places, and the rated neighbour keeps its own point', async () => {
+      const pointSets = scoredWindows([stripCard({ bestRating: 4 })]);
+      await withMeasuredThumbs(160, async () => {
+        await renderStrip({
+          cards: [stripCard({ bestRating: 4 })], pointSets, stoodSets: new Map([[KEY, STOOD]]),
+        });
+      });
+      const [, , , points, , opts] = drawGeo.mock.calls.at(-1);
+      expect(opts.stood).toBe(STOOD);
+      expect(points).toBe(pointSets.get(KEY));
+      expect(points[0].r).toEqual([4]);
+      expect(opts).not.toHaveProperty('standRadius');
+    });
+
+    it('still hatches a whole-window stand-down (unscored: no rating, so no bestRating gate)', async () => {
+      await withMeasuredThumbs(160, async () => {
+        await renderStrip({ cards: [UNSCORED], stoodSets: new Map([[UNSCORED.key, STOOD]]) });
+      });
+      const opts = drawGeo.mock.calls.at(-1)[5];
+      expect(opts.stood).toBe(STOOD);
+      expect(opts.hatch).toBe(true);
+    });
+
+    it('passes none when the set is empty or absent, nor on an away cell', async () => {
+      await withMeasuredThumbs(160, async () => {
+        await renderStrip({ cards: [stripCard({ bestRating: 4 })], stoodSets: new Map([[KEY, []]]) });
+      });
+      expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('stood');
+
+      drawGeo.mockClear();
+      await withMeasuredThumbs(160, async () => {
+        await renderStrip({ cards: [stripCard({ bestRating: 4 })] });
+      });
+      expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('stood');
+
+      drawGeo.mockClear();
+      const away = stripCard({
+        key: '2026-08-06:SUNSET', date: '2026-08-06', bestRating: null, away: true,
+        verdict: null, verdictLabel: 'Not forecast',
+      });
+      await withMeasuredThumbs(160, async () => {
+        await renderStrip({ cards: [away], stoodSets: new Map([[away.key, STOOD]]) });
+      });
+      drawGeo.mock.calls.forEach((c) => expect(c[5]).not.toHaveProperty('stood'));
+    });
+
+    it('shows the legend\'s third swatch only while a visible thumbnail has stood ground', async () => {
+      await renderStrip({
+        cards: [stripCard({ bestRating: 4 })], stoodSets: new Map([[KEY, STOOD]]),
+      });
+      const key = screen.getByTestId('wf-heat-key-standdown');
+      expect(key).toHaveTextContent('Stood down — ruled out by the weather');
+      expect(screen.getByTestId('wf-heat-key-standdown-swatch').className).toContain('wf-legend-swatch-standdown');
+      // The two existing swatches are undisturbed.
+      expect(screen.getByTestId('wf-heat-key-hatch')).toHaveTextContent('not rated yet');
+      expect(screen.getByTestId('wf-heat-key-plain')).toHaveTextContent('no places');
+
+      cleanup();
+      await renderStrip({ cards: [stripCard({ bestRating: 4 })], stoodSets: new Map([[KEY, []]]) });
+      expect(screen.queryByTestId('wf-heat-key-standdown')).toBeNull();
+
+      cleanup();
+      const away = stripCard({
+        key: '2026-08-06:SUNSET', date: '2026-08-06', bestRating: null, away: true,
+        verdict: null, verdictLabel: 'Not forecast',
+      });
+      await renderStrip({ cards: [away], stoodSets: new Map([[away.key, STOOD]]) });
+      expect(screen.queryByTestId('wf-heat-key-standdown')).toBeNull();
+    });
+
+    it('says how many places stood down in the hidden sentence, singular for one', async () => {
+      await renderStrip({
+        cards: [stripCard({ bestRating: 4 })], stoodSets: new Map([[KEY, STOOD]]),
+      });
+      expect(cardName()).toContain('2 places stood down by the weather');
+
+      cleanup();
+      await renderStrip({
+        cards: [stripCard({ bestRating: 4 })], stoodSets: new Map([[KEY, STOOD.slice(0, 1)]]),
+      });
+      expect(cardName()).toContain('1 place stood down by the weather');
+      expect(cardName()).not.toContain('1 places');
+
+      cleanup();
+      await renderStrip({ cards: [stripCard({ bestRating: 4 })], stoodSets: new Map([[KEY, []]]) });
+      expect(cardName()).not.toContain('stood down by the weather');
+    });
+  });
+
   it('leaves a RATED window alone even when its field has no points to paint', async () => {
     // ⚠️ The production defect, in one test. An empty point set is a fact about the join behind
     // the picture, not about the forecast — on 2026-08-19 three windows the payload was rating had

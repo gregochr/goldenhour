@@ -162,6 +162,7 @@ const HINT_BOX = { width: 118, height: 24 };
 /** One frozen array, so a caller that draws no chips does not hand over a fresh prop each render. */
 const EMPTY_CHIPS = Object.freeze([]);
 const EMPTY_UNRATED = Object.freeze([]);
+const EMPTY_STOOD = Object.freeze([]);
 
 /**
  * Reach ring tiers — {@code RING_TIERS}/{@code RING_MIN_PX} moved to {@code utils/reachRings.js}
@@ -340,6 +341,10 @@ function fits(box, placed, frameWidth, frameHeight) {
  * @param {Array}    [props.unrated]  this window's unrated places, from {@code buildUnratedPointSets}
  *                                    — hatched as "not rated yet" (thin-sample plan F2); never
  *                                    drawn on an unscored window
+ * @param {Array}    [props.stood]    this window's weather-stood places, from
+ *                                    {@code stoodPointSetsOf} — hatched as "stood down" (big-seas plan
+ *                                    F4). Unlike {@code unrated} it IS drawn on an unscored window: a
+ *                                    whole-window stand-down has no rating, and is what the hatch is for
  * @param {?number}  [props.bestRating] the window's served best rating — null when the payload
  *   says nothing in this window is rated, which is the one thing that draws the unscored mark.
  *   Absent is treated as "not rated" only in the sense that a caller passing nothing gets no mark:
@@ -368,7 +373,7 @@ function fits(box, placed, frameWidth, frameHeight) {
  *   label rather than a duration claim nothing measured.
  */
 export default function WindowRowFieldMap({
-  windowKey, date, confidence, spots, points, unrated = EMPTY_UNRATED, bestRating = null, regionNames, selectedRegion,
+  windowKey, date, confidence, spots, points, unrated = EMPTY_UNRATED, stood = EMPTY_STOOD, bestRating = null, regionNames, selectedRegion,
   origin = null, chips = EMPTY_CHIPS,
   reachById, todayStr, onSelectRegion, onOpenLocation = null, onOpenInMap = null, homePoint = null,
   reachMeasured = false, colourMode = null,
@@ -514,6 +519,10 @@ export default function WindowRowFieldMap({
       // The per-place "not rated yet" layer: skipped when the whole plate is hatched (the window's
       // own unscored predicate, never an empty set). `focus` is passed above and fades it too.
       ...(notScored || !unrated.length ? null : { unrated }),
+      // Stood-down ground (big-seas plan F4): the same list the Map hatches. Not withheld on an
+      // unscored window, whose absence of a rating is the stand-down. The disc radius is the
+      // field's own (`radius` above), the way the unrated hatch is sized.
+      ...(stood.length ? { stood } : null),
       fit: fitTo,
       // The kernel raises its own alpha to 238 when a focus is set, so a focused field reads as
       // deliberate rather than as a dimmer version of the unfocused one. Byte-identical, never
@@ -597,7 +606,7 @@ export default function WindowRowFieldMap({
     // that this callback's colours (and now its bloom options) come from `scoreRamp`'s module
     // state. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [windowKey, date, confidence, points, unrated, notScored, fitTo, framed, regionNames, focusRegion,
+  }, [windowKey, date, confidence, points, unrated, stood, notScored, fitTo, framed, regionNames, focusRegion,
     selectedRegion, todayStr, chips, geoByKey, chipCap, hasHomeGeo, homePoint, colourMode]);
 
   const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
@@ -1087,6 +1096,7 @@ WindowRowFieldMap.propTypes = {
   origin: PropTypes.shape({ name: PropTypes.string.isRequired }),
   points: PropTypes.array.isRequired,
   unrated: PropTypes.array,
+  stood: PropTypes.array,
   bestRating: PropTypes.number,
   /**
    * The locations the field may name, in the order they deserve the space — focused region first,

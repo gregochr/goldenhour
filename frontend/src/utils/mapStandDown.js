@@ -23,6 +23,36 @@ export function weatherStoodOf(stood) {
   return (Array.isArray(stood) ? stood : []).filter((p) => p.reason !== TIDE_STAND_DOWN_REASON);
 }
 
+/** The solar events a stand-down hatch is ever drawn for (never an astro or aurora night). */
+const SOLAR_TARGETS = new Set(['SUNRISE', 'SUNSET']);
+
+/**
+ * The Plan tab's stood ground (big-seas plan F4): per window key ({@code date:targetType}), the
+ * weather-stood places the thumbnails and the row map hatch. The same gates as the Map's
+ * {@code standGround}: solar windows only, the evidence gate (some place rated or stood; NEVER
+ * {@code bestRating}, because a whole-window stand-down has no rated place and is the window this
+ * exists for), and {@code TIDE_MISALIGNED} left out. A window with nothing to hatch has no entry.
+ *
+ * <p>The caller withholds the whole call until {@code scoresLoaded}: an empty or failed scores
+ * response yields no states at all, so this sees no evidence either.
+ *
+ * @param {?Map<string, {stood: Array<object>, states: Map<string, string>}>} windowStates
+ *        {@code buildHeatWindowStates}' result
+ * @returns {Map<string, Array<object>>} window key to its weather-stood places
+ */
+export function stoodPointSetsOf(windowStates) {
+  const out = new Map();
+  if (!(windowStates instanceof Map)) return out;
+  for (const [key, entry] of windowStates) {
+    const targetType = key.slice(key.indexOf(':') + 1);
+    if (!SOLAR_TARGETS.has(targetType)) continue;
+    if (!windowHasEvidence(entry?.states)) continue;
+    const stood = weatherStoodOf(entry.stood);
+    if (stood.length > 0) out.set(key, stood);
+  }
+  return out;
+}
+
 /**
  * Whether a window holds any evidence at all: at least one {@code rated} or {@code stood} place
  * (the {@code unratedPointsFor} test). The pane's own guard against a pending or failed scores
@@ -108,4 +138,16 @@ export function standDownFooterCount(scopePool, stood) {
     if (keys.has(heatSpotKey(spot))) n += 1;
   }
   return n;
+}
+
+/**
+ * The Plan thumbnail's spoken clause for its stood-down ground (big-seas plan F4): "N places stood
+ * down by the weather", singular for one, and nothing at all for none.
+ *
+ * @param {number} count how many places the thumbnail hatches as stood down
+ * @returns {string[]} one clause, or an empty list (so a caller can {@code concat} it)
+ */
+export function stoodPhrase(count) {
+  if (!Number.isInteger(count) || count <= 0) return [];
+  return [count === 1 ? '1 place stood down by the weather' : `${count} places stood down by the weather`];
 }

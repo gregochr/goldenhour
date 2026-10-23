@@ -34,6 +34,7 @@ import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { leaveBy } from '../utils/leaveBy.js';
 import { DIRECTION_WORD, STATE_WORD } from '../utils/windowFirstRows.js';
 import { tideRun } from '../utils/windowFirstTideRun.js';
+import { stoodPhrase } from '../utils/mapStandDown.js';
 import TideWave from './map/TideWave.jsx';
 import { prefersReducedMotion } from '../utils/askCamera.js';
 
@@ -639,6 +640,8 @@ function areaLabel(regionName, tiny) {
  * @param {object}   props
  * @param {Array}    props.cards      descriptors from {@code buildHeatStripCards}, chronological
  * @param {Map}      props.pointSets  window key to kernel points, from {@code buildHeatPointSets}
+ * @param {?Map}     [props.stoodSets] window key to weather-stood points, from the provider's
+ *                                    {@code heatStoodSets} — the "stood down" hatch (big-seas plan F4)
  * @param {?Map}     [props.unratedSets] window key to unrated points, from
  *                                    {@code buildUnratedPointSets} — the "not rated yet" hatch
  * @param {Array}    props.spots      the whole heat catalogue, for framing and the beyond line
@@ -668,7 +671,7 @@ function areaLabel(regionName, tiny) {
  *                                    drawn under an away origin, even when set.
  */
 export default function WindowFirstHeatStrip({
-  cards, pointSets, unratedSets, spots, reachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
+  cards, pointSets, unratedSets, stoodSets, spots, reachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
   origin = null, onSearchRegion, colourMode = null, homeCoords = null, highlightKeys = null,
 }) {
   // Framing is the ONE thing scope is allowed to decide about the field: which regions are in shot.
@@ -812,6 +815,16 @@ export default function WindowFirstHeatStrip({
   }, [cards]);
 
   /**
+   * Whether ANY card on screen has stood-down ground drawn on its thumbnail (big-seas plan F4): the
+   * legend's third swatch shows only then. The same predicate the paint pass uses (a non-away card
+   * with a non-empty stood list), so the key never names a mark that is not on screen.
+   */
+  const stoodShown = useMemo(
+    () => cards.some((card) => !card.away && (stoodSets?.get?.(card.key)?.length ?? 0) > 0),
+    [cards, stoodSets],
+  );
+
+  /**
    * Whether ANY card on screen is currently drawing the histogram's hatched, unrated bar — the
    * footer's own note for it (below) shows only while that mark is actually on screen, matching the
    * unscored-map-plate note's own rule one line above it (independently: the two conditions are
@@ -925,6 +938,11 @@ export default function WindowFirstHeatStrip({
         // plate is already hatched — the same predicate, not an empty set) nor an away cell.
         ...(card.away || unscored.has(card.key) || !unratedSets?.get?.(card.key)?.length
           ? null : { unrated: unratedSets.get(card.key) }),
+        // Stood-down ground (big-seas plan F4): the Map's list, never on an away cell. Unlike the
+        // unrated layer it is NOT withheld on an unscored window: a window where every place stood
+        // down has no rating, and is the one this exists for. Disc radius = the field's `radius`.
+        ...(card.away || !stoodSets?.get?.(card.key)?.length
+          ? null : { stood: stoodSets.get(card.key) }),
         fit: fitTo,
         // Bloom only in TEMPERATURE mode (map-tab-v2-plan.md §3 P2, decision D-1): the bloom's
         // whole rationale is the temp ramp's luminance inversion, and the verdict ramp has none —
@@ -977,7 +995,7 @@ export default function WindowFirstHeatStrip({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [cards, pointSets, unratedSets, unscored, fitTo, todayStr, frameAspect, colourMode, framed, scopeNames,
+  }, [cards, pointSets, unratedSets, stoodSets, unscored, fitTo, todayStr, frameAspect, colourMode, framed, scopeNames,
     origin, homeCoords]);
 
   /**
@@ -1256,6 +1274,8 @@ export default function WindowFirstHeatStrip({
       .filter(Boolean)
       .concat(notScored ? ['not scored'] : [])
       .concat(card.away || !spokenPool ? [] : [spokenPool])
+      // Big-seas plan F4: the hatch is a picture, so its count is said too (same list the canvas gets).
+      .concat(card.away ? [] : stoodPhrase(stoodSets?.get?.(card.key)?.length ?? 0))
       // ⚠️ Suppressed when the window carries no rating anywhere — the pool then has no rated spot
       // either, so "not scored" and "best, not scored yet" would be one fact said twice in a
       // sentence that has to stay scannable across six cards. NOT suppressed on an empty pool: the
@@ -1866,6 +1886,16 @@ export default function WindowFirstHeatStrip({
           <span className="wf-hstrip-sw wf-hstrip-sw-hatch" aria-hidden="true" />
           not rated yet
         </span>
+        {stoodShown && (
+          <span className="wf-hstrip-key" data-testid="wf-heat-key-standdown">
+            <span
+              className="wf-hstrip-sw wf-legend-swatch-standdown"
+              data-testid="wf-heat-key-standdown-swatch"
+              aria-hidden="true"
+            />
+            Stood down — ruled out by the weather
+          </span>
+        )}
         <span className="wf-hstrip-key" data-testid="wf-heat-key-plain">
           <span className="wf-hstrip-sw" aria-hidden="true" />
           no places
@@ -2069,6 +2099,7 @@ WindowFirstHeatStrip.propTypes = {
   })).isRequired,
   pointSets: PropTypes.instanceOf(Map),
   unratedSets: PropTypes.instanceOf(Map),
+  stoodSets: PropTypes.instanceOf(Map),
   spots: PropTypes.array.isRequired,
   reachById: PropTypes.instanceOf(Map),
   /** The served hot topics, for the scope filter. Absent means nothing is scope-filtered. */
