@@ -29,9 +29,13 @@ import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import WindowControl from './map/WindowControl.jsx';
 import BigSeasLine from './map/BigSeasLine.jsx';
 import MapTopicChips from './map/MapTopicChips.jsx';
+import MapTopicStrip from './map/MapTopicStrip.jsx';
 import MapTopicRings from './map/MapTopicRings.jsx';
 import { useChromeTlHeight } from '../hooks/useChromeTlHeight.js';
-import { mapScopeNames, topicAnnouncement, topicsOnRow } from '../utils/mapTopics.js';
+import { useChromeBlHeight } from '../hooks/useChromeBlHeight.js';
+import {
+  fourDayGrid, mapScopeNames, topicAnnouncement, topicsOnRow,
+} from '../utils/mapTopics.js';
 import { buildTopicIndex } from '../utils/windowFirstTopics.js';
 import { scopeRegions } from '../utils/planOrigin.js';
 import BoltIcon from './map/BoltIcon.jsx';
@@ -1357,6 +1361,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // Publishes the chrome-tl group's height on EVERY day (not only big-seas days) - §1.12.
   // The nonce is the label layers' repaint key: it moves when that published height does.
   const [chromeTlRef, chromeTlNonce] = useChromeTlHeight();
+  // The bottom-left stack's height, on EVERY render it exists (hot-topics-by-day-plan §3 M2): the counts
+  // footer lifts by it while the four-day strip is mounted, and its nonce joins the label repaint key.
+  const [chromeBlRef, chromeBlNonce] = useChromeBlHeight();
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
   // Minimum-quality threshold (1–5). It's a true "this and above" control, so it
   // always holds a value; persisted to localStorage as 'mapFilterMinStars', and
@@ -1504,6 +1511,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * left that ever sets this state.
    */
   const [tideStripHeight, setTideStripHeight] = useState(null);
+  /**
+   * The four-day hot-topics strip's own measured height (hot-topics-by-day-plan §3 M2), written from
+   * {@code MapTopicStrip}'s {@code onHeightChange}: the {@code tideStripHeight} precedent, for the same
+   * reason. {@code MapCallout} treats the strip as a placement-band bar and re-measures it off the DOM,
+   * but nothing in its trigger list noticed the strip opening or collapsing, so this value's identity
+   * changing is the repaint trigger. {@code null} while the strip is not on screen.
+   */
+  const [topicStripHeight, setTopicStripHeight] = useState(null);
   /**
    * The Regions jump list's own camera target (map-tab-v2-plan.md §3 P11) — an OVERRIDE of the
    * ordinary `heatArea`-derived bounds below, not a second `HeatBoundsController`.
@@ -4280,7 +4295,27 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     locationsById,
   }), [activeMapEvent, topicIndex, hotTopics, topicScopeNames, bigSeasDay, topicRoster, locationsById]);
   const activeTopicChip = topicChips.find((chip) => chip.type === selectedTopic) ?? null;
+  // The four-day strip (M2): desktop and tablet only (M4 owns the phone). Built from the same index and
+  // scope as the chips, never from `row.badges`; no rows means no strip.
+  // The clock the Big seas test reads is the one `bigSeasFor` reads (`appNow()`), re-evaluated each minute
+  // (`gridClock`), so a Big seas bar cannot outlive the chip.
+  const gridClock = Math.floor(appNow().getTime() / 60000);
+  const topicGrid = useMemo(() => (isMobile ? null : fourDayGrid({
+    events: mapEvents,
+    topicIndex,
+    hotTopics,
+    scopeNames: topicScopeNames,
+    bigSeas,
+    todayStr: mapTodayStr,
+    activeRow: activeMapEvent,
+    nightDate: auroraNight,
+    now: new Date(gridClock * 60000),
+  })), [isMobile, mapEvents, topicIndex, hotTopics, topicScopeNames, bigSeas, mapTodayStr, activeMapEvent,
+    auroraNight, gridClock]);
+  const topicStripMounted = topicGrid != null && topicGrid.rows.length > 0;
+  const topicChipTypes = useMemo(() => topicChips.map((chip) => chip.type), [topicChips]);
   const topicRowId = activeMapEvent?.id ?? null;
+  const pendingTopicAnnounce = useRef(null);
   // ⚠️ The announcement is ONE-SHOT. A live region speaks what is in it whenever it is re-shown, so text
   // left in it was re-spoken on every pane re-show, foreign-modal close and retry-line drop. It is
   // cleared when the window row changes, when the pane is hidden, when the retry line takes the region,
@@ -4289,6 +4324,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // once, and then timed out like any other.
   /* eslint-disable react-hooks/set-state-in-effect -- one-shot reconciliations, each ending the condition that fired it */
   useEffect(() => { setTopicAnnounce(''); }, [topicRowId]);
+  // A strip press that MOVED the window: the sentence is parked in `pendingTopicAnnounce` by
+  // `pickTopicFromStrip` and spoken here, once, AFTER the row-change clear above has run (declaration order).
+  useEffect(() => {
+    const pending = pendingTopicAnnounce.current;
+    if (!pending) return;
+    pendingTopicAnnounce.current = null;
+    setTopicAnnounce(pending);
+  }, [topicRowId]);
   useEffect(() => { if (!paneVisible) setTopicAnnounce(''); }, [paneVisible]);
   useEffect(() => { if (ratingRetrying) setTopicAnnounce(''); }, [ratingRetrying]);
   useEffect(() => {
@@ -4313,6 +4356,72 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const next = selectedTopic === type ? null : type;
     setSelectedTopic(next);
     setTopicAnnounce(topicAnnouncement(chip, next != null, ringsAvailable && (chip?.places?.length ?? 0) > 0));
+  }
+  // The counts footer clears the four-day strip, and only where it would otherwise sit across it. It is
+  // centred, so on a wide frame it is nowhere near the strip (440px at the left) and must not move at all;
+  // on a narrower frame their horizontal spans meet, and it lifts by exactly the strip and the tide strip
+  // under it (never the legend chip above them). With no overlap this is null and the footer stays where
+  // today's rules put it (8px, or above the tide strip by `--tsh`). Measured, because no class can know.
+  const [footerLift, setFooterLift] = useState(null);
+  useEffect(() => {
+    const pane = mapPaneRef.current;
+    if (!topicStripMounted || !pane) {
+      // Nothing to clear: the one-shot reset of a measurement that no longer applies.
+      setFooterLift(null);
+      return undefined;
+    }
+    const measure = () => {
+      const footer = pane.querySelector('[data-testid="wf-map-counts-footer"]');
+      const strip = pane.querySelector('[data-testid="wf-topic-strip"]');
+      const tide = pane.querySelector('[data-testid="wf-tide-strip"]');
+      let next = null;
+      if (footer && strip) {
+        const f = footer.getBoundingClientRect();
+        const s = strip.getBoundingClientRect();
+        if (s.width > 1 && f.left < s.right && f.right > s.left) {
+          const gap = 6;
+          next = Math.round(strip.offsetHeight + (tide ? tide.offsetHeight + gap : 0)) + 16;
+        }
+      }
+      setFooterLift((prev) => (prev === next ? prev : next));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    let observer = null;
+    if (typeof ResizeObserver === 'function') {
+      observer = new ResizeObserver(measure);
+      observer.observe(pane);
+      for (const id of ['wf-map-counts-footer', 'wf-topic-strip', 'wf-tide-strip']) {
+        const el = pane.querySelector(`[data-testid="${id}"]`);
+        if (el) observer.observe(el);
+      }
+    }
+    return () => {
+      window.removeEventListener('resize', measure);
+      observer?.disconnect();
+    };
+  }, [topicStripMounted, topicStripHeight, tideStripHeight]);
+  /**
+   * A press on the four-day strip that selects a topic (a bar, or a label whose topic is not on this
+   * window): the topic is selected and, when the press names a window, the reader moves to it through the
+   * same {@code selectEvRow} the window control uses. Both state changes land in one batch, so the
+   * "selection ends when the type is not on the window" reconciliation sees the new window. The status
+   * region is told "X selected" at once when the window does not change; when it does, the sentence the
+   * strip built ("X selected; window moved to Friday sunrise") is parked and spoken after the row-change
+   * clear (a row change clears the one-shot announcement).
+   */
+  function pickTopicFromStrip(type, row, movedMessage = null) {
+    setSelectedTopic(type);
+    if (row && row.id !== activeMapEvent?.id) {
+      pendingTopicAnnounce.current = movedMessage;
+      selectEvRow(row);
+      return;
+    }
+    if (row) {
+      selectEvRow(row);
+    }
+    const chip = topicChips.find((c) => c.type === type);
+    setTopicAnnounce(topicAnnouncement(chip, true, ringsAvailable && (chip?.places?.length ?? 0) > 0));
   }
   // On a phone, while the big-seas line shows, the chips row is not drawn (owner, 2026-10-23): Big seas
   // is already the line there and the row cost labels. A selection made before that stays (the rings
@@ -5809,6 +5918,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       className="flex flex-col flex-1 min-h-0 wf-map-tab"
       // While a hot topic is selected the ordinary name chips and pin labels step back (index.css).
       data-topic-selected={topicRingsDrawn ? 'true' : undefined}
+      // The four-day strip is mounted: the landing card caps its height above the whole bottom-left stack
+      // by `--wf-chrome-bl-h` (index.css). Unset otherwise, so nothing else moves.
+      data-topic-strip={topicStripMounted ? 'on' : undefined}
       // It exists so a test can pin that `MAP_PANE_SELECTOR`'s class sits on THIS element, the one
       // carrying `mapPaneRef` and the pane's key handler, rather than merely existing somewhere in
       // the tree.
@@ -5999,7 +6111,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 rampHex={isAuroraMode ? AURORA_RAMP.hex : rampHex}
                 omitUnrated={isAuroraMode}
                 bigSeasChips={bigSeasChips}
-                chromeKey={chromeTlNonce}
+                chromeKey={`${chromeTlNonce}.${chromeBlNonce}`}
                 // The phone's peek sheet is an obstacle while an answer's picks are on the map (F4),
                 // from its TARGET height; with no answer it is not one, as it never was.
                 bottomInset={isMobile && askActive ? peekTarget : 0}
@@ -6019,7 +6131,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 glow={isAuroraMode}
                 omitUnrated={isAuroraMode}
                 bigSeasChips={bigSeasChips}
-                chromeKey={chromeTlNonce}
+                chromeKey={`${chromeTlNonce}.${chromeBlNonce}`}
               />
             </Suspense>
           )}
@@ -6273,6 +6385,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               auroraResultsByDate={auroraNightRows}
               pendingNightRowIds={pendingNightRowIds}
               tideStripHeight={tideStripHeight}
+              topicStripHeight={topicStripHeight}
               // The phone sheet's resting height (74 / 126 / 112 — `--psh`): a callout may stand over
               // the 112px minimised line, and the sheet changing height under a card that is already
               // placed must repaint its band. Null off the phone.
@@ -6833,10 +6946,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             entry in the obstacle list, since `.wf-map-chrome-bl` already carries that seed. It is
             `!isMobile` because the phone gets its OWN mount below (T7, full width, above the bar,
             never nested in this column). */}
-        {(showViewlineUpsell || (heatOffered && heatView === 'heat' && !isMobile)
+        {(showViewlineUpsell || topicStripMounted || (heatOffered && heatView === 'heat' && !isMobile)
           || (heatOffered && heatView === 'pins' && !isMobile && (stoodPoints.length > 0 || bigSeasShown))
           || (!isMobile && tideStripModel.visible)) && (
-          <div className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
+          <div ref={chromeBlRef} className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
             {showViewlineUpsell && (
               <div
                 data-testid="viewline-upsell-chip"
@@ -6884,6 +6997,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 variant="pins"
                 stoodKey={stoodPoints.length > 0}
                 seasKey={bigSeasShown}
+              />
+            )}
+            {/* The four-day hot-topics strip (hot-topics-by-day-plan §3 M2): a flex child BEFORE the tide
+                strip, so the legend chip above clears it by flex order. It draws its header only while
+                the tide strip shows (Q8) or the landing card is open; the stored preference is untouched. */}
+            {topicStripMounted && (
+              <MapTopicStrip
+                grid={topicGrid}
+                selectedType={activeTopicChip?.type ?? null}
+                currentTypes={topicChipTypes}
+                forceCollapsed={tideStripModel.visible || landingOpen}
+                forceReason={tideStripModel.visible ? 'the tide strip is showing' : 'the welcome card is open'}
+                fallbackFocus={() => mapPaneRef.current?.focus({ preventScroll: true })}
+                onToggleType={toggleTopic}
+                onPick={pickTopicFromStrip}
+                onHeightChange={setTopicStripHeight}
               />
             )}
             {!isMobile && (
@@ -6955,7 +7084,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             scored yet shows no footer rather than "0 of 0 shown". The rated clause beside it
             is conditional — see its own note. */}
         {heatOffered && (
-          <div data-testid="wf-map-counts-footer" className="wf-map-counts-footer">
+          <div
+            data-testid="wf-map-counts-footer"
+            className="wf-map-counts-footer"
+            style={footerLift != null ? { bottom: `${footerLift}px` } : undefined}
+          >
             <span>
               <b>{scopedVisibleLocations.length}</b> of {scopeBasePool.length} shown
               {/* ⚠️ Only when it DIFFERS, which is this codebase's own rule for a second

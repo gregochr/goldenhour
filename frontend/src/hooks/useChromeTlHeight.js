@@ -40,6 +40,19 @@ export const CHROME_TL_HEIGHT_VAR = '--wf-chrome-tl-h';
  *          {@code .wf-map-chrome-tl}, and the repaint nonce
  */
 export function useChromeTlHeight() {
+  return usePublishedHeight(CHROME_TL_HEIGHT_VAR);
+}
+
+/**
+ * The shared mechanism behind {@link useChromeTlHeight} and {@code useChromeBlHeight}: a callback
+ * ref that publishes the node's height as the custom property {@code varName} on its parent and
+ * returns a nonce that moves whenever that height does. See {@link useChromeTlHeight} for the rules
+ * (no publish at 0, no nonce for the first publish, cleanup removes the variable).
+ *
+ * @param {string} varName the custom property to publish, e.g. {@code --wf-chrome-tl-h}
+ * @returns {[function(?Element): (void|function()), number]} the ref callback, and the repaint nonce
+ */
+export function usePublishedHeight(varName) {
   const [nonce, setNonce] = useState(0);
   const lastRef = useRef(undefined);
   const ref = useCallback((chrome) => {
@@ -48,8 +61,8 @@ export function useChromeTlHeight() {
     lastRef.current = undefined;
     const publish = () => {
       const h = chrome.offsetHeight;
-      if (h > 0) frame.style.setProperty(CHROME_TL_HEIGHT_VAR, `${h}px`);
-      else frame.style.removeProperty(CHROME_TL_HEIGHT_VAR);
+      if (h > 0) frame.style.setProperty(varName, `${h}px`);
+      else frame.style.removeProperty(varName);
       const published = h > 0 ? h : null;
       if (lastRef.current !== undefined && lastRef.current !== published) setNonce((n) => n + 1);
       lastRef.current = published;
@@ -62,8 +75,8 @@ export function useChromeTlHeight() {
     }
     return () => {
       observer?.disconnect();
-      frame.style.removeProperty(CHROME_TL_HEIGHT_VAR);
+      frame.style.removeProperty(varName);
     };
-  }, []);
+  }, [varName]);
   return [ref, nonce];
 }

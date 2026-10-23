@@ -184,8 +184,8 @@ function glowShadow(hex) {
  *   order) and on top by z-index, has no tooltip, and every other pin steps back. Without this prop
  *   it falls back to {@code onSelect}
  * @param {string} [props.eventLabel] the active EV row's label+time, for the hover tooltip
- * @param {number|string} [props.chromeKey] the top-left chrome group's repaint nonce (see
- *   {@code MapLabels}); a change re-runs the placement pass
+ * @param {number|string} [props.chromeKey] the top-left and bottom-left chrome groups' repaint key,
+ *   {@code `${tl}.${bl}`} (see {@code MapLabels}); a change re-runs the placement pass
  */
 export default function PinsLayer({
   spots: allSpots, homeCoords = null, selectedName = null, onSelect = null, onSelectAskPick = null,

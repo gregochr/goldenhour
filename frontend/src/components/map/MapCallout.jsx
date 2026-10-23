@@ -5,7 +5,7 @@ import PropTypes from 'prop-types';
 import { createPortal } from 'react-dom';
 import { useMap } from 'react-leaflet';
 import {
-  anchorCallout, calloutBand, calloutFacts, filterCalloutTopics, isCoastalTidalLocation,
+  anchorCallout, CALLOUT_MARGIN, calloutBand, calloutFacts, filterCalloutTopics, isCoastalTidalLocation,
   NIGHT_RETRY_LINE, regionGlossFor,
 } from '../../utils/mapCallout.js';
 import { verdictWord } from '../../utils/verdictWord.js';
@@ -86,11 +86,14 @@ const COUNTS_FOOTER_SELECTOR = '[data-testid="wf-map-counts-footer"]';
  * nothing asked this band to treat the desktop strip as a floor and `.wf-map-chrome-bl` itself
  * still is not in this list either (an existing, separate omission this phase does not touch).
  */
+const TOPIC_STRIP_SELECTOR = '[data-testid="wf-topic-strip"]';
+
 const BAND_BAR_SELECTOR = [
   '[data-testid="wf-map-chrome-tl"]',
   '[data-testid="wf-map-chrome-tr"]',
   COUNTS_FOOTER_SELECTOR,
   '[data-testid="wf-tide-strip"]',
+  TOPIC_STRIP_SELECTOR,
 ].join(', ');
 
 /** Leaflet's own bottom-right corner (zoom control + `CentreOnHomeControl`) — see `MapLabels.jsx`'s
@@ -260,6 +263,10 @@ function kindShort(event) {
  *        every other repaint-trigger prop in this list already takes (Codex P1 on the T7 PR: the
  *        strip toggling open/collapsed changed its real rect with nothing in this component's
  *        listeners to notice, so the callout's card kept the stale band until an unrelated pan/zoom)
+ * @param {?number} [props.topicStripHeight] the four-day hot-topics strip's own measured height in px
+ *        (hot-topics-by-day-plan §3 M2), or `null` when it is not on screen. The same shape and the
+ *        same use as `tideStripHeight`: only its IDENTITY changing matters, as a repaint trigger,
+ *        because `BAND_BAR_SELECTOR` includes the strip and `paint()` re-measures it off the DOM.
  * @param {?number} [props.bandKey] the phone peek sheet's RESTING height in px (74 with no Ask row, 126
  *        with one, 112 under a minimised answer — the `--psh` `MapView` publishes on the pane), or null
  *        off the phone. Like {@code tideStripHeight} it is read for NOTHING but its identity changing: a
@@ -329,7 +336,8 @@ export default function MapCallout({
   scoreIndex = null, slotIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
   regionGlossIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
-  tideStripHeight = null, bandKey = null, hourlyRows = null, now = null, dayMode = false,
+  tideStripHeight = null, topicStripHeight = null, bandKey = null, hourlyRows = null, now = null,
+  dayMode = false,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
   userRole = null, ratings = null, auroraAlertLevel = null, travelDay = false,
 }) {
@@ -385,11 +393,15 @@ export default function MapCallout({
       return {
         top: r.top - containerRect.top,
         bottom: r.bottom - containerRect.top,
+        left: r.left - containerRect.left,
+        right: r.right - containerRect.left,
         width: r.width,
         height: r.height,
         // The one opt-out — see `COUNTS_FOOTER_SELECTOR`. `matches` rather than a index/order test,
         // because `barEls` is built from two separate queries whose own order is not a contract.
         always: typeof el.matches === 'function' && el.matches(COUNTS_FOOTER_SELECTOR),
+        // The four-day strip is narrow on a wide frame: it floors the band only under the card's span.
+        overlapOnly: typeof el.matches === 'function' && el.matches(TOPIC_STRIP_SELECTOR),
       };
     });
     // ⚠️ **The peek sheet is a FIXED obstacle on the phone, never a measured one**
@@ -412,7 +424,16 @@ export default function MapCallout({
         top: size.y - psh, bottom: size.y, width: size.x, height: psh, always: true,
       });
     }
-    const band = calloutBand({ frameWidth: size.x, frameHeight: size.y, bars });
+    // The card's horizontal span, which `anchorCallout` will clamp to the same margin: it does not depend
+    // on the band, so it can be known first and lets a narrow bar floor the band only where it is met.
+    const spanWidth = isMobile ? CALLOUT_WIDTH_MOBILE : CALLOUT_WIDTH;
+    const spanLeft = Math.min(
+      Math.max(point.x - spanWidth / 2, CALLOUT_MARGIN),
+      Math.max(CALLOUT_MARGIN, size.x - spanWidth - CALLOUT_MARGIN),
+    );
+    const band = calloutBand({
+      frameWidth: size.x, frameHeight: size.y, bars, cardSpan: { left: spanLeft, right: spanLeft + spanWidth },
+    });
     setFrame({
       point, frameWidth: size.x, frameHeight: size.y, band,
     });
@@ -579,7 +600,7 @@ export default function MapCallout({
   // poll hands a new array with the same contents and this fires once — one extra measure, no loop.
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, event?.past, rating, ratingKnown, ratingRetrying,
-    tideAlignmentIndex, tideStripHeight, bandKey, hourlyRows, ratingLayout, changing, adminOpen,
+    tideAlignmentIndex, tideStripHeight, topicStripHeight, bandKey, hourlyRows, ratingLayout, changing, adminOpen,
     adminLayout, travelDay, auroraAlertLevel, repaintNow,
   ]);
 
@@ -1323,6 +1344,7 @@ MapCallout.propTypes = {
   auroraResultsByDate: PropTypes.instanceOf(Map),
   pendingNightRowIds: PropTypes.instanceOf(Set),
   tideStripHeight: PropTypes.number,
+  topicStripHeight: PropTypes.number,
   bandKey: PropTypes.number,
   /** A hide's served hourly comfort rows for the active window's date — see the JSDoc above. */
   hourlyRows: PropTypes.arrayOf(PropTypes.object),

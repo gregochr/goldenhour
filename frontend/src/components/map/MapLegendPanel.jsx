@@ -100,8 +100,9 @@ export default function MapLegendPanel({
   const rootRef = useRef(null);
   const panelRef = useRef(null);
 
-  // Opens UP from the bottom-left chip, so it is the frame's TOP edge it can run past.
-  useFitToFrame(panelRef, rootRef, { direction: 'up', open });
+  // Opens UP from the bottom-left chip, so it is the frame's TOP edge it can run past: the room stops under
+  // the top-left chrome group (window pill, big-seas line, topic chips), not at the frame's top.
+  useFitToFrame(panelRef, rootRef, { direction: 'up', open, clearTopChrome: true });
 
 
   // A press on the MAP dismisses nothing — `useOutsideDismiss` carries that rule for all four map

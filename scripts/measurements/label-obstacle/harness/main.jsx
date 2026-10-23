@@ -28,6 +28,11 @@ import MapRegionPanel from '../../../../frontend/src/components/map/MapRegionPan
 import WindowControl from '../../../../frontend/src/components/map/WindowControl.jsx';
 import BigSeasLine from '../../../../frontend/src/components/map/BigSeasLine.jsx';
 import MapTopicChips from '../../../../frontend/src/components/map/MapTopicChips.jsx';
+import MapTopicStrip from '../../../../frontend/src/components/map/MapTopicStrip.jsx';
+import MapTideStrip from '../../../../frontend/src/components/map/MapTideStrip.jsx';
+import { fourDayGrid } from '../../../../frontend/src/utils/mapTopics.js';
+import { buildTopicIndex } from '../../../../frontend/src/utils/windowFirstTopics.js';
+import { useChromeBlHeight } from '../../../../frontend/src/hooks/useChromeBlHeight.js';
 import { setRewind } from '../../../../frontend/src/utils/rewind.js';
 import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -222,6 +227,108 @@ const SEAS_EVENTS = [
   },
 ];
 
+/**
+ * The four-day strip's measurement fixture (hot-topics-by-day-plan §3 M2): the Sunday 6 Sep the rest of
+ * this harness is rewound to, five rows (Big seas, dust tonight, an aurora night, a two-day king tide, an
+ * inversion on day 4) drawn by the REAL `MapTopicStrip` from the REAL `fourDayGrid`, current window the
+ * Sunday sunset. The strip's states: `stripOpen` / `stripClosed` (the header only) with no tide strip,
+ * `tideOnly` (the tide strip alone, the baseline for the next two), `tideStripClosed` (what the app
+ * draws when the tide strip shows, Q8) and `tideStripOpen` (NOT reachable in the app, measured as the
+ * ceiling it was designed to avoid).
+ */
+const STRIP_DAY = '2026-09-06';
+const stripTopic = (type, label, date, eventType, extra = {}) => ({
+  type, label, date, eventType, regions: [], locationNames: [], ...extra,
+});
+const STRIP_TOPICS = [
+  stripTopic('DUST', 'Dust', STRIP_DAY, 'SUNSET'),
+  stripTopic('AURORA', 'Aurora', STRIP_DAY, 'NIGHT'),
+  stripTopic('KING_TIDE', 'King tide', '2026-09-07', null),
+  stripTopic('KING_TIDE', 'King tide', '2026-09-08', null),
+  stripTopic('INVERSION', 'Inversion', '2026-09-09', 'SUNRISE'),
+];
+const STRIP_EVENTS = [
+  ...['2026-09-06', '2026-09-07', '2026-09-08', '2026-09-09'].flatMap((date) => ['SUNRISE', 'SUNSET']
+    .map((eventType) => ({
+      id: `solar:${date}:${eventType}`, kind: 'solar', date, eventType, label: date, dayLabel: date,
+      served: true, badges: [], scored: true, bestRating: 3,
+    }))),
+];
+const STRIP_GRID = fourDayGrid({
+  events: STRIP_EVENTS,
+  topicIndex: buildTopicIndex(STRIP_TOPICS),
+  hotTopics: STRIP_TOPICS,
+  scopeNames: [],
+  bigSeas: [SEAS_DAY],
+  todayStr: STRIP_DAY,
+  activeRow: STRIP_EVENTS[1],
+  now: new Date('2026-09-06T04:00:00Z'),
+});
+const TIDE_FACT = {
+  locationName: 'Bamburgh Castle', state: 'MID', direction: 'RISING', range: '4.3 m',
+  rangeAnomaly: 'about average', curve: [0, 0.3, 0.7, 1, 0.6, 0.2, 0], windowPosition: 0.32,
+  windowLevel: 0.2, sunrisePosition: 0.32, sunsetPosition: 0.7,
+  extremes: [{ kind: 'LW', position: 0.3, time: '07:30' }], heightAtWindow: '0.9 m',
+};
+const TIDE_MODEL = {
+  visible: true, fitKnown: true, unserved: false, representative: 'Bamburgh Castle',
+  namedCoastal: Array.from({ length: 16 }, (_, i) => ({ name: `Coast ${i}` })),
+  dimmed: [{ name: 'Coast 1' }, { name: 'Coast 2' }, { name: 'Coast 3' }], matched: [],
+  dominantWant: 'HIGH', dominantWantCount: 3, nextFitRow: EV_ROWS[1], nextFitAny: EV_ROWS[1],
+};
+
+// The reader's stored choice is what these surfaces vary, never the frame-height default (a 625px frame
+// would otherwise start `stripOpen` collapsed): '1' for the open states, '0' for the closed one.
+try {
+  const w = window.__R5_SURFACE__;
+  if (w === 'stripOpen' || w === 'tideStripOpen') localStorage.setItem('mapTopicStripOpen', '1');
+  else if (w === 'stripClosed' || w === 'tideStripClosed') localStorage.setItem('mapTopicStripOpen', '0');
+} catch { /* no storage */ }
+
+/** The bottom-left stack as `MapView` builds it: legend, then the four-day strip, then the tide strip. */
+function BottomLeftStack({ which, paneRef }) {
+  const [blRef] = useChromeBlHeight();
+  const wide = window.innerWidth >= 640;
+  const stripOn = wide && ['stripOpen', 'stripClosed', 'tideStripClosed', 'tideStripOpen'].includes(which);
+  const tideOn = wide && ['tideOnly', 'tideStripClosed', 'tideStripOpen'].includes(which);
+  // The app collapses the strip while the tide strip shows (Q8); `tideStripOpen` forces it open to
+  // measure the ceiling that rule avoids. `stripClosed` is the reader's own stored "closed".
+  const collapsed = which === 'stripClosed' || which === 'tideStripClosed';
+  return (
+    <div ref={blRef} className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
+      {wide && <MapLegendPanel
+        open={false}
+        onOpenChange={noop}
+        handoverFraction={0.5}
+        ringsEnabled={false}
+        onToggleRings={noop}
+        hasHome
+        reachMeasured
+      />}
+      {stripOn && (
+        <MapTopicStrip
+          grid={STRIP_GRID}
+          selectedType="AURORA"
+          currentTypes={['DUST', 'AURORA', 'BIG_SEAS']}
+          forceCollapsed={collapsed}
+          onToggleType={noop}
+          onPick={noop}
+        />
+      )}
+      {tideOn && (
+        <MapTideStrip
+          model={TIDE_MODEL}
+          tide={TIDE_FACT}
+          activeRow={EV_ROWS[0]}
+          sunriseTime="06:22"
+          sunsetTime="20:14"
+          mapPaneRef={paneRef}
+        />
+      )}
+    </div>
+  );
+}
+
 function Chips() {
   return (
     <div id="r5-chips">
@@ -276,7 +383,7 @@ function Chips() {
  * at a plausible taller value, i.e. the guess was load-bearing. Mounting the real thing is the
  * only way to stop that being a free parameter.
  */
-function AlwaysOnChrome() {
+function AlwaysOnChrome({ which, paneRef }) {
   const jumpRows = REGION_NAMES.map((name, i) => ({
     name, driveMinutes: 25 + i * 14, beyondArea: i > 2, bestRating: 5 - (i % 4),
   }));
@@ -337,17 +444,7 @@ function AlwaysOnChrome() {
       {/* ⚠️ `!isMobile` in `MapView.jsx` — the Legend panel is withheld on a phone, where the
           bottom bar occupies that corner. Without this gate the harness drew a 98x36 chip at 390px
           that the app never renders. */}
-      <div className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
-        {window.innerWidth >= 640 && <MapLegendPanel
-          open={false}
-          onOpenChange={noop}
-          handoverFraction={0.5}
-          ringsEnabled={false}
-          onToggleRings={noop}
-          hasHome
-          reachMeasured
-        />}
-      </div>
+      <BottomLeftStack which={which} paneRef={paneRef} />
 
       <div
         data-testid="photocast-scored-legend"
@@ -397,8 +494,40 @@ function AlwaysOnChrome() {
   );
 }
 
+/**
+ * The counts footer clears the four-day strip only where their horizontal spans meet (`MapView`'s
+ * `footerLift`): strip height + (tide strip height + 6 when it shows) + 16, never the legend chip. The same
+ * formula, measured the same way, applied as the inline `bottom` the app writes.
+ */
+function useFooterLift(active) {
+  React.useLayoutEffect(() => {
+    if (!active) return undefined;
+    const measure = () => {
+      const footer = document.querySelector('[data-testid="wf-map-counts-footer"]');
+      const strip = document.querySelector('[data-testid="wf-topic-strip"]');
+      const tide = document.querySelector('[data-testid="wf-tide-strip"]');
+      if (!footer || !strip) return;
+      const f = footer.getBoundingClientRect();
+      const r = strip.getBoundingClientRect();
+      if (r.width > 1 && f.left < r.right && f.right > r.left) {
+        footer.style.bottom = `${Math.round(strip.offsetHeight + (tide ? tide.offsetHeight + 6 : 0)) + 16}px`;
+      } else {
+        footer.style.removeProperty('bottom');
+      }
+    };
+    const timers = [0, 60, 200].map((ms) => setTimeout(measure, ms));
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.body);
+    return () => { timers.forEach(clearTimeout); observer.disconnect(); };
+  }, [active]);
+}
+
 function Harness() {
   const which = window.__R5_SURFACE__;
+  const paneRef = React.useRef(null);
+  const stripMounted = window.innerWidth >= 640
+    && ['stripOpen', 'stripClosed', 'tideStripClosed', 'tideStripOpen'].includes(which);
+  useFooterLift(stripMounted);
   return (
     // ⚠️ The map frame is NOT the viewport. `App.jsx` pads `<main>` by `sm:px-4` (32px total, at
     // >=640px only) and `WindowFirstShell` wraps the pane in a block capped at `WRAP_MAX_WIDTH`
@@ -408,7 +537,11 @@ function Harness() {
       <div className="wf-r5-wrap">
         <div className="wf-shell">
           <div className="wf-body wf-body--map">
-            <div className="flex flex-col flex-1 min-h-0 wf-map-tab">
+            <div
+              ref={paneRef}
+              className="flex flex-col flex-1 min-h-0 wf-map-tab"
+              data-topic-strip={stripMounted ? 'on' : undefined}
+            >
           <div
             id="r5-frame"
             style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden' }}
@@ -485,7 +618,7 @@ function Harness() {
                 onOpenLocationSheet={noop}
               />
             )}
-            <AlwaysOnChrome />
+            <AlwaysOnChrome which={which} paneRef={paneRef} />
             <Chips />
               </div>
             </div>

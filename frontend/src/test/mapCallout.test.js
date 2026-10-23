@@ -50,6 +50,23 @@ describe('calloutBand', () => {
     expect(unflagged.bot).toBe(625);
   });
 
+  it('counts a narrow `overlapOnly` bar only where the card\'s own span meets it', () => {
+    const strip = {
+      top: 400, bottom: 450, left: 8, right: 448, width: 440, height: 50, overlapOnly: true,
+    };
+    const frame = { frameWidth: 1000, frameHeight: 500, bars: [strip] };
+    // Over it: a floor at strip.top - 8. Clear of it (the span starts at the strip's right edge): ignored.
+    expect(calloutBand({ ...frame, cardSpan: { left: 8, right: 294 } }).bot).toBe(392);
+    expect(calloutBand({ ...frame, cardSpan: { left: 447, right: 733 } }).bot).toBe(392);
+    expect(calloutBand({ ...frame, cardSpan: { left: 448, right: 734 } }).bot).toBe(492);
+    expect(calloutBand({ ...frame, cardSpan: { left: 706, right: 992 } }).bot).toBe(492);
+    // Without a span, or without the flag, a narrow bar stays ignored (every other bar is unchanged).
+    expect(calloutBand(frame).bot).toBe(492);
+    expect(calloutBand({
+      ...frame, bars: [{ ...strip, overlapOnly: false }], cardSpan: { left: 8, right: 294 },
+    }).bot).toBe(492);
+  });
+
   it('ignores a bar narrower than half the frame width, regardless of position', () => {
     const bars = [{ top: 0, bottom: 40, width: 199, height: 40 }];
     const band = calloutBand({ frameWidth: 400, frameHeight: 600, bars });

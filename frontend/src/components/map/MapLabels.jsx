@@ -287,11 +287,13 @@ const TOOLTIP_WIDTH_FALLBACK = 240;
  *   would hide is the failure: a numbered card with its marker under a 112px line is worse than one
  *   shifted a little. Without the answer the sheet stays what it has always been to this layer, a
  *   thing a label may sit under
- * @param {number|string} [props.chromeKey] a repaint key for the top-left chrome group: `MapView` passes
- *   the nonce `useChromeTlHeight` bumps whenever that group's published height changes (the topic chips
- *   row growing, a sky-wide line, a wrapped row). This layer repaints only on map move, zoom and resize
- *   or on a prop change, and reads the group as an obstacle when it places, so a group that grew under
- *   labels already placed would otherwise leave them under it; a change of this key re-runs placement
+ * @param {number|string} [props.chromeKey] a repaint key for the TWO chrome groups the placer reads as
+ *   obstacles: `MapView` passes `${tl}.${bl}`, the nonces `useChromeTlHeight` and `useChromeBlHeight`
+ *   bump whenever the top-left group's (the topic chips row growing, a sky-wide line, a wrapped row) or
+ *   the bottom-left stack's (the four-day strip opening or collapsing, the tide strip, the legend chip)
+ *   published height changes. This layer repaints only on map move, zoom and resize or on a prop change,
+ *   so a group that grew under labels already placed would otherwise leave them under it; a change of
+ *   this key re-runs placement
  */
 export default function MapLabels({
   spots: allSpots, standRegions = NO_STAND_REGIONS, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
