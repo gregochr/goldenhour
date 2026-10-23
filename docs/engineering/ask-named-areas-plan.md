@@ -62,9 +62,10 @@ future name made entirely of accepted words ("High Tops"), and A2 does it for th
   Viaduct or Letah Wood. The owner checks the result with §5 and corrects it in A3.
   **Found while building A1:** V86's comments name production's Wall locations by id (41 Walltown Crags,
   42 Cawfields, 43 Caw Gap, 44 Steel Rigg & Winshield Crags, 45 Peel Craggs, 46 Sycamore Gap, 47
-  Highshield Crags, 48 Hotbank Crags, 49 Cuddy's Crags). The seed list therefore also carries "Steel
-  Rigg & Winshield Crags" and "Highshield Crags". On a fresh database, V169's "Irthing Gorge" (a bluebell
-  wood) joins too.
+  Highshield Crags, 48 Hotbank Crags, 49 Cuddy's Crags, 50 Houseteads Fort). `application-prod.yml`'s
+  location roster has the same exact names, including the misspelt **"Houseteads Fort"**. The seed list
+  therefore also carries "Steel Rigg & Winshield Crags", "Highshield Crags", "Houseteads Fort" and
+  "Housesteads Fort" (Codex P1). On a fresh database, V169's "Irthing Gorge" (a bluebell wood) joins too.
 - **Q2 — area aliases.** "Hadrian Wall", "Roman Wall". **Not** "the Wall" or "Wall": an area alias must be
   at least two words.
 - **Q3 — other areas.** None seeded. The owner adds "Kielder", "Northumberland coast" and the like in A3.
@@ -131,7 +132,8 @@ JOIN locations l
   ON lower(replace(l.name, '’', '''')) IN (
        'walltown crags', 'walltown', 'cawfields', 'caw gap', 'steel rigg', 'peel craggs', 'peel crags',
        'hotbank crags', 'hotbank', 'cuddy''s crags', 'housesteads', 'sycamore gap', 'irthing gorge',
-       'crammel linn', 'crammel linn waterfall')
+       'crammel linn', 'crammel linn waterfall', 'steel rigg & winshield crags', 'highshield crags',
+       'houseteads fort', 'housesteads fort')
 WHERE a.name = 'Hadrian''s Wall';
 
 INSERT INTO location_alias (location_id, alias)
