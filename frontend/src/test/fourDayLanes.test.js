@@ -240,6 +240,7 @@ describe('buildFourDayLanes — open runs', () => {
       .toBe(true);
     const merged = {
       ...TIDE_ENTRY, id: 'm', type: 'supermoon', coincidence: [{ type: 'king-tide', family: 'coastal' }],
+      dayRanges: [{ date: SUN, rangeMetres: 5, peak: false }, { date: '2026-10-28', rangeMetres: 5.2, peak: true }],
     };
     expect(only(lanes([tideDay(MON, lastDay)], { entries: [merged] }), 'SPRING_TIDE').open).toBe(true);
   });
@@ -257,6 +258,83 @@ describe('buildFourDayLanes — open runs', () => {
   it('is not open when the segment stops short of Monday, whatever the entries say', () => {
     const seg = only(lanes([tideDay(SAT)], { entries: [TIDE_ENTRY] }), 'SPRING_TIDE');
     expect(seg.open).toBe(false);
+  });
+});
+
+describe('buildFourDayLanes — a merged entry\'s union span is never the tide\'s (Codex P1, #1322)', () => {
+  // A tide that ends on day 4 merged with a supermoon running to day 7. ComingUpAssembler unions
+  // the two spans (so entry.endDate is the supermoon's) and carries the tide's own days on dayRanges.
+  const range = (date, peak = false) => ({ date, rangeMetres: 5, peak });
+  const merged = (over) => ({
+    id: 'supermoon:2026-10-24:2026-10-29', type: 'supermoon', startDate: SAT, endDate: '2026-10-29',
+    coincidence: [
+      { type: 'supermoon', family: 'sun-moon' }, { type: 'spring-tide', family: 'coastal' },
+    ],
+    ...over,
+  });
+  const peakRun = [
+    tideDay(SUN),
+    tideDay(MON, { ...lastDay, peak: true, alignedEvent: 'sunset' }),
+  ];
+  const seg = (entry, rendered = [entry.id]) => only(
+    lanes(peakRun, { entries: [entry], renderedEntryIds: new Set(rendered) }), 'SPRING_TIDE',
+  );
+
+  it('1. a tide ending on day 4, merged with a supermoon running on, is NOT open: the peak shows and '
+      + 'there is no "this run" jump', () => {
+    const result = seg(merged({ dayRanges: [range(SAT), range(SUN), range(MON, true)] }));
+    expect(result.open).toBe(false);
+    expect(result.leftText).toBe('Sun → Mon');
+    expect(result.rightText).toBe('peak Mon · ↓ sunset');
+    expect(result.jump).toBeNull();
+  });
+
+  it('2. a merged entry whose dayRanges run past day 4 IS open', () => {
+    const result = seg(merged({
+      dayRanges: [range(SAT), range(SUN), range(MON), range('2026-10-27', true)],
+    }));
+    expect(result).toMatchObject({ open: true, leftText: 'runs on', rightText: '' });
+    expect(result.jump).toMatchObject({ straddling: true, label: 'In the list · 24–29 Oct' });
+  });
+
+  it('3. the same when the SUPERMOON hosts and the tide is only in coincidence', () => {
+    const result = seg(merged({
+      type: 'supermoon',
+      coincidence: [{ type: 'spring-tide', family: 'coastal' }],
+      dayRanges: [range(SUN), range(MON), range('2026-10-27')],
+    }));
+    expect(result.open).toBe(true);
+  });
+
+  it('3b. and when the TIDE hosts, with dayRanges deciding rather than the union endDate', () => {
+    const ends = merged({ type: 'spring-tide', dayRanges: [range(SUN), range(MON, true)] });
+    expect(seg(ends).open).toBe(false);
+    const runs = merged({
+      type: 'king-tide', dayRanges: [range(SUN), range(MON), range('2026-10-27')],
+    });
+    expect(seg(runs).open).toBe(true);
+  });
+
+  it('4. a merged entry with no dayRanges offers no evidence, so it is not open', () => {
+    expect(seg(merged({})).open).toBe(false);
+    expect(seg(merged({ dayRanges: [] })).open).toBe(false);
+  });
+
+  it('5. an unmerged tide entry ending after the last Plan day is open', () => {
+    const own = { ...TIDE_ENTRY, id: 'own', endDate: '2026-10-29' };
+    expect(seg(own).open).toBe(true);
+    expect(seg({ ...own, endDate: MON }).open).toBe(false);
+  });
+
+  it('a merged entry whose tide does not straddle falls to the next-run jump rule, not "this run"', () => {
+    const run = [tideDay(SUN), tideDay(MON, lastDay)];
+    const open = only(lanes(run, {
+      entries: [{ ...TIDE_ENTRY, id: 'strad' }, merged({ dayRanges: [range(SUN), range(MON)] })],
+      renderedEntryIds: new Set(['supermoon:2026-10-24:2026-10-29']),
+    }), 'SPRING_TIDE');
+    expect(open.open).toBe(true); // the unrendered unmerged straddler proves the run goes on
+    expect(open.jump).toMatchObject({ straddling: false });
+    expect(open.jump.label).toMatch(/^Next run in the list/);
   });
 });
 
@@ -360,8 +438,11 @@ describe('buildFourDayLanes — the jump button (§1.9)', () => {
     const merged = entry({
       id: 'supermoon:2026-10-24:2026-10-30', type: 'supermoon',
       coincidence: [{ type: 'spring-tide', family: 'coastal' }],
+      dayRanges: [{ date: SUN, rangeMetres: 5, peak: false }, { date: '2026-10-28', rangeMetres: 5.2, peak: true }],
     });
-    expect(jumpOf([merged], new Set([merged.id])).entryId).toBe(merged.id);
+    expect(jumpOf([merged], new Set([merged.id]))).toMatchObject({
+      entryId: merged.id, straddling: true,
+    });
   });
 
   it('accepts a king-tide entry for a spring-tide topic and the other way round', () => {

@@ -28,7 +28,10 @@ import { topicStyle } from './topicPalette.js';
  * keeps a tide entry in {@code /api/almanac} only when it ends after the last Plan day, so a tide
  * row whose segment ends on day 4 is open exactly when the FULL served entry list (not only the
  * rendered ids) holds a spring- or king-tide entry — by {@code type} or any
- * {@code coincidence[].type}, since a merged card takes its host's type — that started by day 4.
+ * {@code coincidence[].type}, since a merged card takes its host's type — whose TIDE continues past
+ * day 4. For an unmerged entry that is its own {@code endDate}; for a merged one the dates are a
+ * union with the other topic (a supermoon can run on after the tide ends), so they are never read
+ * and the tide's own {@code dayRanges} decide (see {@code tideContinues}).
  * Either tide type counts for either topic, because the hot topic and the almanac can label one
  * physical run king vs spring differently. That is a filter/select over served almanac fields. A
  * NIGHT topic is open by the other served fact: its next-morning key falls after day 4. No peak
@@ -73,13 +76,40 @@ function longDow(dateStr) {
     .toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
 }
 
-/** Whether an almanac entry is (or merged) a tide run by the last Plan day — the served fact. */
+/**
+ * Whether the TIDE in an almanac entry is still running past the last Plan day — decided from the
+ * tide's own span, never from a span that may belong to something else.
+ *
+ * <p>An unmerged tide entry ({@code coincidence} empty) is the tide's own span: it continues iff it
+ * started by {@code lastPlan} and its {@code endDate} is after it. A MERGED entry's
+ * {@code startDate}/{@code endDate} are the UNION of every merged topic's span
+ * ({@code ComingUpAssembler.mergeEntries}) — a tide that ends on day 4 merged with a supermoon that
+ * runs to day 7 has an {@code endDate} on day 7 — so that date is NEVER read. The tide's own days
+ * ride {@code dayRanges}, "carried onto a merged entry whichever topic hosts"; the tide continues iff
+ * those days begin by {@code lastPlan} and the last one is after it. A merged entry with no
+ * {@code dayRanges} offers no evidence, so it does not continue: the conservative answer is a closed
+ * lane that still shows its peak.
+ *
+ * @param {object} entry a served almanac entry
+ * @param {string} lastPlan the last Plan date, `YYYY-MM-DD`
+ * @returns {boolean} true only when the entry holds a tide run that goes past `lastPlan`
+ */
+function tideContinues(entry, lastPlan) {
+  const tideTypes = ALMANAC_TYPES_BY_TOPIC.KING_TIDE;
+  const lines = entry?.coincidence ?? [];
+  const holdsTide = tideTypes.includes(entry?.type)
+    || lines.some((line) => tideTypes.includes(line?.type));
+  if (!holdsTide) return false;
+  if (lines.length === 0) {
+    return Boolean(entry.startDate) && entry.startDate <= lastPlan && entry.endDate > lastPlan;
+  }
+  const days = (entry.dayRanges ?? []).map((d) => d?.date).filter(Boolean).sort();
+  return days.length > 0 && days[0] <= lastPlan && days[days.length - 1] > lastPlan;
+}
+
+/** Whether any served entry holds a tide run that continues past the last Plan day. */
 function tideRunStraddles(entries, lastPlan) {
-  const wanted = ALMANAC_TYPES_BY_TOPIC.KING_TIDE;
-  return Array.isArray(entries) && entries.some((entry) => entry?.startDate
-    && entry.startDate <= lastPlan
-    && (wanted.includes(entry.type)
-      || (entry.coincidence ?? []).some((line) => wanted.includes(line?.type))));
+  return Array.isArray(entries) && entries.some((entry) => tideContinues(entry, lastPlan));
 }
 
 /** `Fri` — short weekday, en-GB, noon UTC so no zone moves the date. */
@@ -106,8 +136,8 @@ function entryDates(entry, todayStr) {
  * <p>Matches {@code entry.type} <b>or</b> any {@code coincidence[].type} (a merged card takes its
  * host's type, so a supermoon-hosted card carries the tide only in a coincidence line — the rule
  * {@code matchesFilter} already uses), restricted to the entry ids the month list is actually
- * rendering under the active chip. A straddling run (started by the last Plan day, ending after it)
- * wins; otherwise the next run.
+ * rendering under the active chip. A straddling run (a tide's own span started by the last Plan day
+ * and ends after it) wins; otherwise the next run.
  */
 function jumpFor(type, entries, renderedEntryIds, lastPlan, todayStr) {
   const wanted = ALMANAC_TYPES_BY_TOPIC[type];
@@ -119,7 +149,11 @@ function jumpFor(type, entries, renderedEntryIds, lastPlan, todayStr) {
         || (entry.coincidence ?? []).some((line) => wanted.includes(line?.type))))
     .sort((a, b) => (a.startDate < b.startDate ? -1 : a.startDate > b.startDate ? 1 : 0));
   if (matches.length === 0) return null;
-  const straddling = matches.find((entry) => entry.startDate <= lastPlan);
+  // "This run in the list": for a tide, the tide's OWN span straddles (see tideContinues — a merged
+  // card's union dates would claim a tide that ended on day 4 as "this run"); otherwise the entry's.
+  const isTide = TIDE_TOPICS.has(type);
+  const straddling = matches.find((entry) => (isTide
+    ? tideContinues(entry, lastPlan) : entry.startDate <= lastPlan));
   const entry = straddling ?? matches[0];
   const dates = entryDates(entry, todayStr);
   return {
