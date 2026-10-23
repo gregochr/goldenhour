@@ -81,8 +81,10 @@ class NamedAreasMigrationTest {
                     + "WHERE a.name = 'Hadrian''s Wall'"))
                     .containsExactlyInAnyOrder("Hadrian Wall", "Roman Wall");
             assertThat(strings(st, "SELECT l.name FROM area_location al JOIN locations l ON l.id = al.location_id"))
-                    .as("the two planted Wall spellings joined, Allen Banks did not")
-                    .containsExactlyInAnyOrder("Walltown Crags", "Cuddy’s Crags");
+                    .as("the two planted Wall spellings joined, plus Irthing Gorge, which V169 inserts on a "
+                            + "fresh database; Allen Banks did not")
+                    .containsExactlyInAnyOrder("Walltown Crags", "Cuddy’s Crags", "Irthing Gorge")
+                    .doesNotContain("Allen Banks");
             assertThat(strings(st, "SELECT la.alias FROM location_alias la JOIN locations l "
                     + "ON l.id = la.location_id WHERE l.name = 'Hartlepool Headland'"))
                     .containsExactlyInAnyOrder("The Heugh", "Heugh Lighthouse", "Heugh Battery");
