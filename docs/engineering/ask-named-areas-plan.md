@@ -470,7 +470,52 @@ After A2:
 
 ## §7 As built
 
-(Filled in per phase.)
+**A1** (#1323, merged 2026-10-23 as `4d5005db`, Sonnet-built): V189, `AreaEntity`, `LocationAliasEntity` +
+`LocationAliasId`, the two repositories, `AreaRepositoryTest` and `NamedAreasMigrationTest` (CI-proven).
+Review and Codex fixes:
+- The seed covers every spelling on production's Wall roster (`application-prod.yml`, V86 ids 41–50),
+  including "Steel Rigg & Winshield Crags", "Highshield Crags" and the misspelt "Houseteads Fort". On a fresh
+  database V169's Irthing Gorge joins.
+- `deleteByLocationId` is an explicit `@Modifying @Query` (the `UserDriveTimeRepository` pattern).
+
+**A2** (#1324, Sonnet-built). Gates: full local verify exit 0 (13,802 tests), checkstyle exit 0.
+
+Measured budgets (both pinned at ≤ 4,500 characters; `MAX_AREA_PLACES` stays 6):
+- named-area worst case: 4,024 (4 windows × 6 places, 60-character names, every status, every note);
+- place found by a 40-character `matchedAlias` on every row: 4,199.
+
+Mutation checks (each broken, a test seen to fail, restored with `cp`):
+
+| Mutation | Failed |
+|---|---|
+| area matched before an exact place (D10) | `exactPlaceBeatsArea`, `exactAliasBeatsArea` |
+| area lookup records evidence | `areaLookupIsNeverEvidence` |
+| `areaName` in Ready's `rank_spots` schema | `lookupSchemasMatchArgumentRecords`, `namedAreaIsATypedQuestionArgument`, `schemasAreUnchangedFromTheGolden` |
+| "no named area" clause removed | `typedPromptCarriesThePlaceLookupRule`, `typedPromptCarriesTheNamedAreaRule` |
+
+`AskReadyClaudeEngineTest` did not fail on the schema mutation: it does not pin `rank_spots`; the golden test
+does.
+
+Deviations:
+1. Two existing tests were edited, as the plan requires: `AskPromptBuilderTest` (the amended clause) and
+   `AskToolSchemasTest` (`areaName` is typed-only, so the Ready-list comparison drops it). The local-only
+   `AskLocalFixtureSeederGuardTest` gained mock beans for the two new repositories. No regression assertion
+   was touched.
+2. `matchedAlias` is null whenever the place's own name also contains the query words, even if an alias is the
+   exact match (§4.6 applied literally).
+3. A window with no in-scope member is omitted from the area result. `AreaInfo.places` is the distinct
+   in-scope members over the shown (at most 4) windows, and the out-of-scope versus none-in-windows note is
+   decided over the shown windows only.
+4. Tie-breaks: aliases by `AskAreas.ALIAS_ORDER` (length, case-insensitive alphabetical, then natural order);
+   two areas with equal runs go to the alphabetically first name.
+5. `AskLocalFixtureSeeder` keeps its 10-argument constructor (no area seeding) beside a new `@Autowired`
+   12-argument one. Using the seeded area in a browser needs `photocast.ask.stub: false`, which bills the real
+   Anthropic key.
+6. `AskSnapshot.withNames(areas, aliases)` is a new public copy method, used by tests and the regression
+   fixture.
+7. `RepositoryAskAreas` catches and returns empty, and `AskSnapshotBuilder` catches again: a repository failure
+   inside the read-only transaction can surface as `UnexpectedRollbackException` at commit, outside the
+   method's own try.
 
 ## §8 Subagent briefs
 
