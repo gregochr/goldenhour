@@ -509,10 +509,11 @@ qualifying day. The table holds every input, so tuning is a SQL query; §6 gets 
     labels, so the footer suffix is the spoken trace.
 - **Cause word:** `STAND_DOWN_CAUSE_WORD` in `utils/standDown.js` maps `HIGH_CLOUD → cloud`,
   `PRECIPITATION → rain`, `LOW_VISIBILITY → murk`, `GENERIC → weather` (Q2). The region's word is the
-  most common reason among its stood places; a tie gives `weather`.
+  single reason when all its stood places share one; **any mix of two or more distinct reasons
+  gives `weather`** (owner, Q2; Codex P1 on #1306). There is no majority vote.
 - **Licence edit** (`architecture-decisions.md`, *Backend-heavy*, the Map scope class). Add the
   members **(g)** the footer stood count, **(h)** the region stand-down qualification and **(i)** the
-  cause vote. Change "Members: those six, nothing else" to "those nine", and change "None of the six"
+  cause word (one shared reason, or `weather`). Change "Members: those six, nothing else" to "those nine", and change "None of the six"
   to match. Do **not** renumber the classes: the next class is still headed "A SEVENTH class".
 - **Legend:** a 20×9 hatch swatch, "ruled out by the weather, cause named on the ground", shown
   while `stoodPoints` is non-empty, in the desktop panel and the phone Ground row.
@@ -530,7 +531,7 @@ qualifying day. The table holds every input, so tuning is a SQL query; §6 gets 
   - `heatFieldStandDown.test.js`: rated suppression in a mixed region; soft clip; opacity
     passthrough; call order (unknown → stood → field → coast).
   - Label: zero-rated qualifies; one rated 1★ place disqualifies; a served finite mean
-    disqualifies; it replaces the region label; majority and tie cause.
+    disqualifies; it replaces the region label; a single shared cause; any mix (e.g. 2× rain + 1× cloud) gives `weather`.
   - The unscored line's new wording; the legend and Ground keys; the footer suffix and its absence
     at 0.
   - The forced-colours cascade.
@@ -593,7 +594,7 @@ tested.
 | Q7 | Big seas on Plan and Coming up as a hot topic? | Map only |
 | Q8 | Role gating | All roles |
 | Q9 | Plan-tab thumbnails hatch stood ground? | **Yes, as phase F4** in this series |
-| Q10 | Region label and cause vote: client or served? | Client, licensed as members (h)/(i), guarded by the served mean |
+| Q10 | Region label and cause word: client or served? | Client, licensed as members (h)/(i), guarded by the served mean |
 | Q11 | Handoff items to add back | **Hatch and chips in Pins view.** Night-row hatch, footer cause and the phone ⚡ stay out |
 
 The thresholds (3.0 m, 60°, 8 s, ±90 min) are config, to be tuned over the winter from
