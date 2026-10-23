@@ -27,9 +27,12 @@ Only one of them is unrated.
    handoff's rule every one of them would be hatched "not rated yet" for ever. They take no part in
    the new layer: no colour, no hatch, plain ground — exactly what they draw today.
 2. **A weather stand-down counts as looked at, not unrated.** A score row with a null rating and a
-   `triageReason` was examined and stood down. It is NOT hatched; it stays plain ground (it draws no
-   colour today either, and that is unchanged). Only a sky place with neither a rating nor a triage
-   reason for the window is "not rated yet".
+   `triageReason` was examined and stood down. It is NOT in THIS layer (it draws no colour today
+   either, and that is unchanged). Only a sky place with neither a rating nor a triage reason for the
+   window is "not rated yet". ⚠️ **Amended 2026-10-23:** the owner overruled "plain ground, not
+   hatched" for a weather stand-down on 2026-10-22 (`docs/engineering/big-seas-plan.md` Q1): the Map
+   tab now hatches it with its own, different mark (a dark veil with cool 45° lines, under the field,
+   rated colour winning), built by big-seas F3. It is still never in the "not rated yet" hatch.
 3. **The Map tab's count has its own population.** The Plan card's count is the reach pool's (the
    figure already in `6/83 rated`). The Map tab has no reach pool: its verdict follows the SCOPE
    segment (*My area* / *Everywhere*, `utils/mapVerdict.js`). The map pill's count is therefore the
@@ -199,7 +202,7 @@ to report anything in the spec that the code contradicts rather than guessing.
 
 | # | Decision | Taken |
 |---|---|---|
-| Q1 | Stand-downs: plain ground, not hatched and not a third look | Owner, 2026-10-22 |
+| Q1 | Stand-downs: plain ground, not hatched and not a third look | Owner, 2026-10-22. **Overruled the same day** for the Map's big-seas series: a weather stand-down IS hatched, as a third look (`big-seas-plan.md` Q1, built in F3) |
 | Q2 | Woods and hides take no part in the layer | Owner, 2026-10-22 |
 | Q3 | Forced samples set the verdict but take no pick | Owner, 2026-10-22 |
 | Q4 | Map count = scope pool, Plan count = reach pool | Owner, 2026-10-22 |
@@ -235,7 +238,7 @@ Where the build departs from §3 or adds to it:
 Nothing in this series has been seen in the signed-in app. With the app open:
 
 1. **A thin window beside a well-rated one**, Plan and Map: the thin one shows a small warm patch in a large hatched area and `Worth it 4.0★ · 6 rated`; the well-rated one has no `· N rated` and little hatch. On the Map, the pill reads `· N rated` (a different number from the Plan card is expected: scope pool, not reach pool).
-2. **A wet morning with many stand-downs.** Stood-down places are plain ground, not hatched.
+2. **A wet morning with many stand-downs.** Stood-down places are plain ground in the "not rated yet" layer. (Since big-seas F3 the Map draws them with its own stand-down hatch; check that the two marks read as different.)
 3. **A region with woods and hides.** They are never hatched, on either tab.
 4. **The phone card at 320px and a wide phone**: the 320px card has no `· N rated` (the Spread row's `N/M rated` carries it), a wider card has it on one line and the verdict row does not wrap; the legend shows the two swatches and no right-hand line.
 5. **The Map zoomed in**: the hatch and the colour hand over together at the zoom handover; with Ask answering, both dim together; the phone Layers section shows `Ground`.

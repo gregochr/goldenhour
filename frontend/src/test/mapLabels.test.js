@@ -8,6 +8,7 @@ import {
   placeLabelPass,
   BADGE_OVERHANG_X, BADGE_OVERHANG_Y, chipBoxWithinBadgedBox, hasRatedBadge, withBadgeOverhang,
   verdictWord, WORTH_IT_THRESHOLD, MAYBE_THRESHOLD,
+  standDownRegionItems, withStandDownLabels,
 } from '../utils/mapLabels.js';
 import * as verdictWordModule from '../utils/verdictWord.js';
 
@@ -564,5 +565,53 @@ describe('hasRatedBadge', () => {
 
   it('is false for an Ask pick, whatever the record — a pick speaks for its own window', () => {
     expect(hasRatedBadge({ myRating: 4, askPick: { rank: 1 } })).toBe(false);
+  });
+});
+
+describe('mapLabels — the stood-down region labels (big-seas plan F3)', () => {
+  const project = (s) => [s.lng * 10, s.lat * 10];
+  const region = (rid, cause, ...pts) => ({
+    rid, cause, points: pts.map(([lat, lng]) => ({ lat, lng, rid })),
+  });
+
+  it('sits at the centroid of the region\'s STOOD places, under the ordinary label\'s key', () => {
+    const items = standDownRegionItems([region('North', 'rain', [54, 2], [56, 4])], project, 9);
+    expect(items).toEqual([{
+      key: 'region:North', rid: 'North', x: 30, y: 550, hot: false, standDown: 'rain',
+    }]);
+  });
+
+  it('shares the regions tier zoom gate: nothing at or above 11.2', () => {
+    const r = [region('North', 'rain', [54, 2])];
+    expect(standDownRegionItems(r, project, REGION_LABEL_MAX_ZOOM - 0.01)).toHaveLength(1);
+    expect(standDownRegionItems(r, project, REGION_LABEL_MAX_ZOOM)).toEqual([]);
+  });
+
+  it('tolerates no regions and skips a region with an unprojectable centroid', () => {
+    expect(standDownRegionItems(undefined, project, 9)).toEqual([]);
+    expect(standDownRegionItems([region('North', 'rain', [NaN, 2])], project, 9)).toEqual([]);
+  });
+
+  it('REPLACES the region\'s ordinary label and leaves the others alone', () => {
+    const ordinary = regionLabelItems(
+      [spot('a', 'North', 4), spot('b', 'South', 3)].map((s, i) => ({ ...s, lat: 50 + i, lng: 1 })),
+      project,
+      9,
+    );
+    const stood = standDownRegionItems([region('North', 'cloud', [54, 2])], project, 9);
+    const merged = withStandDownLabels(ordinary, stood);
+    expect(merged.map((m) => m.key).sort()).toEqual(['region:North', 'region:South']);
+    expect(merged.find((m) => m.key === 'region:North').standDown).toBe('cloud');
+    expect(merged.find((m) => m.key === 'region:South').standDown).toBeUndefined();
+  });
+
+  it('adds the label for a region with no ordinary one (every place stood down)', () => {
+    const merged = withStandDownLabels([], standDownRegionItems([region('North', 'murk', [54, 2])], project, 9));
+    expect(merged).toHaveLength(1);
+  });
+
+  it('returns the ordinary list untouched when nothing stood down', () => {
+    const ordinary = [{ key: 'region:South' }];
+    expect(withStandDownLabels(ordinary, [])).toBe(ordinary);
   });
 });

@@ -47,6 +47,9 @@ import { dowDayLabel, pastDayLabel } from '../utils/windowFirstCards.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
 import { heatSpotKey } from '../utils/heatSpots.js';
 import { buildThinCounts } from '../utils/mapThinSample.js';
+import {
+  standDownFooterCount, standDownRegions, weatherStoodOf, windowHasEvidence,
+} from '../utils/mapStandDown.js';
 import { withScopedSolarTimes } from '../utils/mapScopedTime.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
@@ -304,6 +307,14 @@ HeatBoundsController.propTypes = {
  * of its paint callback — so an unscored window would repaint the same nothing on every render.
  */
 const EMPTY_POINTS = [];
+
+/** The stand-down ground of a window that has none: stable identities, so nothing repaints for it. */
+const NO_STAND_GROUND = Object.freeze({
+  stood: EMPTY_POINTS, rated: EMPTY_POINTS, regions: EMPTY_POINTS, entry: null,
+});
+
+/** The Heat view's key-slot line for a window where every place stood down (big-seas plan F3). */
+const STOOD_DOWN_UNSCORED_LINE = 'Stood down by the weather — no place rated for this event';
 /** Stable empty rows — the window panel's fallback while it is closed (map-landing-plan.md §3 L5). */
 const EMPTY_ROWS = [];
 
@@ -2857,6 +2868,50 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [isAstroMode, isAuroraMode, heatOn, heatWindow, heat, heatSpotPool, focusLensNames]);
 
   /**
+   * The stand-down ground (big-seas plan F3): the places this window stood down FOR THE WEATHER,
+   * the rated points the hatch's mask yields to, and the regions that earn a "stood down" label.
+   *
+   * <p>SOLAR windows only (past ones included), in Heat AND Pins, never an astro or aurora night.
+   * ⚠️ <b>Gated on evidence, not on {@code heatWindow.bestRating}</b>: a window where every place
+   * stood down has no rated place, and that is the window this exists for. The evidence is the
+   * window's states holding at least one rated or stood place, so an empty or failed scores response
+   * (which reads every place unrated) draws nothing. {@code TIDE_MISALIGNED} is not "ruled out by the
+   * weather" and is excluded. Narrowed ONLY by the dark-sky pool and the door's spot-set lens, as the
+   * colour and the unrated hatch are; the rating floor, chips, drive and scope never reach it.
+   */
+  const standGround = useMemo(() => {
+    if (isAstroMode || isAuroraMode || !heatOffered || !heatWindow) return NO_STAND_GROUND;
+    const entry = heat.windowStates?.get(heatWindow.key);
+    if (!entry || !windowHasEvidence(entry.states)) return NO_STAND_GROUND;
+    let pool = heatSpotPool || heat.spots || EMPTY_POINTS;
+    const lensKeys = focusLensNames
+      ? new Set(pool.filter((s) => focusLensNames.has(s.name)).map(heatSpotKey)) : null;
+    if (lensKeys) pool = pool.filter((s) => lensKeys.has(heatSpotKey(s)));
+    const allowed = heatSpotPool || lensKeys ? new Set(pool.map(heatSpotKey)) : null;
+    // A stood point carries its join key already (`stoodPointsFor`); a rated point is joined as ever.
+    const stood = allowed
+      ? weatherStoodOf(entry.stood).filter((p) => allowed.has(p.key)) : weatherStoodOf(entry.stood);
+    if (stood.length === 0) return { ...NO_STAND_GROUND, entry };
+    const ratedAll = heat.pointsByKey?.get(heatWindow.key) || EMPTY_POINTS;
+    return {
+      entry,
+      stood,
+      rated: allowed ? ratedAll.filter((p) => allowed.has(heatSpotKey(p))) : ratedAll,
+      regions: standDownRegions({
+        stood,
+        spots: pool,
+        states: entry.states,
+        served: !heatWindow.past,
+        regionVerdictIndex,
+        date,
+        targetType: eventType,
+      }),
+    };
+  }, [isAstroMode, isAuroraMode, heatOffered, heatWindow, heat, heatSpotPool, focusLensNames,
+    regionVerdictIndex, date, eventType]);
+  const stoodPoints = standGround.stood;
+
+  /**
    * Whether the payload says nothing in the selected window is rated — the Plan tab's mark, adapted
    * to a host with no plate to hatch.
    *
@@ -4295,6 +4350,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
     : EMPTY_POINTS;
 
+  /**
+   * The footer's ` · N stood down` (big-seas plan F3): the scope pool's places this window stood down
+   * for the weather. Its own population, like the footer's other two numbers; no Heat/Pins split.
+   * The cause word is not repeated here (it is named on the ground).
+   */
+  const standFooterCount = standDownFooterCount(scopeBasePool, standGround.entry?.stood);
+
 
   /**
    * The counts footer's second line — "Beyond {@code N}h: …" in My area, or the whole-catalogue
@@ -4455,7 +4517,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * is a claim about the forecast, which a failed request is no evidence for, and the callout beside
    * this says the same failure in the same words. Both render sites below read it.
    */
-  const unscoredLineText = ratingRetrying ? NIGHT_RETRY_LINE : 'This event is not scored yet';
+  // A window every place of which stood down is not "unscored": the pipeline looked and ruled it out
+  // (big-seas plan F3), and the ground beside the line is hatched to say so.
+  const unscoredLineText = ratingRetrying
+    ? NIGHT_RETRY_LINE
+    : (stoodPoints.length > 0 ? STOOD_DOWN_UNSCORED_LINE : 'This event is not scored yet');
 
   /**
    * What the tab's status region says: {@code NIGHT_RETRY_LINE} whenever the tab is SHOWING it — in
@@ -5692,6 +5758,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 colourMode={mapColourScale}
                 points={heatPoints}
                 unrated={unratedPoints}
+                // The stand-down hatch (big-seas plan F3), Heat and Pins both. In Pins `points` is
+                // empty by construction (the field is withheld), so the mask's rated places ride in
+                // `stoodRated`; in Heat they are `points` itself.
+                stood={stoodPoints}
+                stoodRated={heatPinsOn ? standGround.rated : null}
                 // ASTRO has no `heat.windows` entry to read a scalar off (adversarial review,
                 // real #3) — `astroConfidenceScalar` is this mode's own capped-inference figure.
                 // AURORA likewise (aurora-heat-plan.md D2): its own capped-inference scalar.
@@ -5721,6 +5792,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             <Suspense fallback={null}>
               <MapLabels
                 spots={labelSpots}
+                standRegions={standGround.regions}
                 homeCoords={homeGeo}
                 rings={ringsEnabled}
                 reachMeasured={mapReachMeasured}
@@ -6446,18 +6518,31 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   )}
                   {/* The ground key (thin-sample plan F4), solar and rated windows only: the hatch is
                       not drawn on a night or an unscored window, so neither is its key. */}
-                  {heatOffered && heatOn && !windowUnscored && !isAstroMode && !isAuroraMode && (
+                  {/* Big-seas plan F3: the row also opens for a stand-down hatch, in Heat AND Pins and
+                      on a whole-window stand-down (`windowUnscored`), each item on its own gate. */}
+                  {heatOffered && !isAstroMode && !isAuroraMode
+                    && ((heatOn && !windowUnscored) || stoodPoints.length > 0) && (
                     <div data-testid="wf-map-peek-ground" className="wf-map-peek-lay-row">
                       <span className="wf-map-peek-lay-label">Ground</span>
                       <span className="wf-legend-ground">
-                        <span className="wf-legend-ground-item">
-                          <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-hatch" />
-                          not rated yet
-                        </span>
-                        <span className="wf-legend-ground-item">
-                          <i aria-hidden="true" className="wf-legend-swatch" />
-                          no places
-                        </span>
+                        {heatOn && !windowUnscored && (
+                          <>
+                            <span className="wf-legend-ground-item">
+                              <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-hatch" />
+                              not rated yet
+                            </span>
+                            <span className="wf-legend-ground-item">
+                              <i aria-hidden="true" className="wf-legend-swatch" />
+                              no places
+                            </span>
+                          </>
+                        )}
+                        {stoodPoints.length > 0 && (
+                          <span data-testid="wf-map-peek-standdown" className="wf-legend-ground-item">
+                            <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-standdown" />
+                            ruled out by the weather, cause named on the ground
+                          </span>
+                        )}
                       </span>
                     </div>
                   )}
@@ -6509,6 +6594,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             `!isMobile` because the phone gets its OWN mount below (T7, full width, above the bar,
             never nested in this column). */}
         {(showViewlineUpsell || (heatOffered && heatView === 'heat' && !isMobile)
+          || (heatOffered && heatView === 'pins' && !isMobile && stoodPoints.length > 0)
           || (!isMobile && tideStripModel.visible)) && (
           <div className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
             {showViewlineUpsell && (
@@ -6541,6 +6627,21 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 variant={isAuroraMode ? 'aurora' : 'solar'}
                 viewlineShown={viewlineShown}
                 groundKey={!isAstroMode && !isAuroraMode && !windowUnscored}
+                stoodKey={stoodPoints.length > 0}
+              />
+            )}
+            {/* Pins view's legend (big-seas plan F3): a variant that renders only the keys of the
+                layers Pins draws, mounted on desktop while one of them is shown. The big-seas key
+                (F2) joins the stand-down key here. */}
+            {heatOffered && heatView === 'pins' && !isMobile && stoodPoints.length > 0 && (
+              <MapLegendPanel
+                open={openMapMenu === 'legend'}
+                onOpenChange={(next) => setOpenMapMenu(next ? 'legend' : null)}
+                handoverFraction={legendHandoverFraction}
+                ringsEnabled={ringsEnabled}
+                onToggleRings={() => setRingsEnabled((v) => !v)}
+                variant="pins"
+                stoodKey
               />
             )}
             {!isMobile && (
@@ -6626,6 +6727,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               {scopedRatedCount < scopedVisibleLocations.length && (
                 <span data-testid="wf-map-counts-rated">
                   {` · ${scopedRatedCount} rated`}
+                </span>
+              )}
+              {/* Big-seas plan F3: the weather stand-downs among the pool, omitted at 0. */}
+              {standFooterCount > 0 && (
+                <span data-testid="wf-map-counts-standdown" className="wf-map-counts-standdown">
+                  {` · ${standFooterCount} stood down`}
                 </span>
               )}
               {filterActiveCount > 0 && (
