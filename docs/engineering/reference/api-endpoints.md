@@ -99,7 +99,7 @@
 > "Triggered ✓", because `triggerNow` queues before the guard is consulted. The backfill is not guarded.
 
 ### Locations & Regions (Bearer / ADMIN for writes)
-`GET /api/locations` | `POST /api/locations` (ADMIN) | `PUT /api/locations/{name}/reset-failures` (ADMIN) | `GET|POST /api/regions` | `PUT /api/regions/{id}` | `PUT /api/regions/{id}/enabled` | `PUT /api/regions/{id}/base` (ADMIN) | `GET /api/regions/drive-times`
+`GET /api/locations` | `POST /api/locations` (ADMIN) | `PUT /api/locations/reset-failures?name=` (ADMIN) | `GET /api/locations/aliases` (ADMIN) | `PUT /api/locations/{id}/aliases` `{aliases[]}` (ADMIN; 404 unknown location, 409 name clash; never via `PUT /api/locations/{id}`) | `GET|POST /api/areas` (ADMIN; POST 201) | `PUT /api/areas/{id}` `{name, aliases[]}` (ADMIN; keeps members) | `PUT /api/areas/{id}/locations` `{locationIds[]}` (ADMIN; 400 unknown location id) | `DELETE /api/areas/{id}` (ADMIN; 204) | `GET|POST /api/regions` | `PUT /api/regions/{id}` | `PUT /api/regions/{id}/enabled` | `PUT /api/regions/{id}/base` (ADMIN) | `GET /api/regions/drive-times`
 
 > **`POST /api/locations` is ADMIN**, and was not until 2026-08-26 — it was the one mutation on
 > `LocationController` carrying no `@PreAuthorize`, so `/api/**` → `.authenticated()` let any LITE
