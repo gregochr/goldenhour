@@ -416,7 +416,8 @@ public class AskService {
      * aurora (the window's existence is itself aurora data). The LITE branch is unreachable over HTTP since the
      * role gate refuses LITE before this runs; it stays as a second layer.
      */
-    private static AskQuestion withWindow(AskQuestion question, AskSnapshot snapshot, UserRole role) {
+    // Package-private for AskServiceTest: the LITE branch is unreachable through ask() since the role gate.
+    static AskQuestion withWindow(AskQuestion question, AskSnapshot snapshot, UserRole role) {
         String id = question.windowId();
         boolean canSeeAurora = AskUserContext.mayViewAurora(role);
         boolean known = id != null && (snapshot.window(id).isPresent()

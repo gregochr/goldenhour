@@ -118,9 +118,22 @@ class AskControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("a 403 elsewhere keeps the default body: a LITE reader on an admin Ask route has no NOT_ENTITLED code")
     void otherForbiddensKeepTheDefaultBody() throws Exception {
-        mockMvc.perform(get("/api/admin/ask/metrics").with(user("someone").roles("LITE_USER")))
+        MvcResult denied = mockMvc.perform(get("/api/admin/ask/metrics").with(user("someone").roles("LITE_USER")))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").doesNotExist());
+                .andReturn();
+        assertThat(denied.getResponse().getContentType()).as("not Ask's JSON refusal").isNull();
+        assertThat(denied.getResponse().getContentAsString()).doesNotContain("NOT_ENTITLED");
+    }
+
+    @Test
+    @DisplayName("AskController carries the class-level @PreAuthorize for PRO_USER and ADMIN, the second layer "
+            + "behind the security chain's matcher")
+    void controllerCarriesTheRoleMarker() {
+        org.springframework.security.access.prepost.PreAuthorize marker = com.gregochr.goldenhour.controller
+                .AskController.class.getAnnotation(org.springframework.security.access.prepost.PreAuthorize.class);
+
+        assertThat(marker).isNotNull();
+        assertThat(marker.value()).isEqualTo("hasAnyRole('PRO_USER','ADMIN')");
     }
 
     @Test

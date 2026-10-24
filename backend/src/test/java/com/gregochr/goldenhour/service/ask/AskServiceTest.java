@@ -1372,16 +1372,35 @@ class AskServiceTest {
     }
 
     @Test
-    @DisplayName("settings for a LITE asker with Ask on are enabled with zeros and typedAvailable false, "
-            + "and read neither the usage store nor the spend cap")
+    @DisplayName("settings for a LITE asker with Ask on are enabled with zeros and typedAvailable false: a "
+            + "seeded usage row of 2 is not read (used stays 0), and the spend cap is not consulted")
     void settingsOnForLite() {
         properties.setEnabled(true);
+        usageStore.reserve(41L, LocalDate.of(2026, 10, 5), 30, 90);
+        usageStore.reserve(41L, LocalDate.of(2026, 10, 5), 30, 90);
         role = UserRole.LITE_USER;
 
         assertThat(service.settings(reader())).isEqualTo(new AskSettingsResponse(true, 0, 0, 0, false));
 
-        assertThat(usageRepository.count()).isZero();
         verifyNoInteractions(jobRuns);
+    }
+
+    @Test
+    @DisplayName("withWindow keeps a held astro night and drops a held aurora night for a role that may not see "
+            + "aurora (unreachable over HTTP since the role gate, so pinned on the method itself)")
+    void withWindowDropsAnAuroraNightForLite() {
+        AskSnapshot withNights = AskNightFixtures.withNights(snapshot, null, AskNightFixtures.astroNight(
+                AskNightFixtures.TONIGHT, AskNightFixtures.astro(1L, "Bamburgh", "Northumberland", 5, 3)),
+                AskNightFixtures.auroraNight(AskNightFixtures.TONIGHT,
+                        AskNightFixtures.aurora(1L, "Bamburgh", "Northumberland", 5, 4, 3)));
+        AskQuestion astro = new AskQuestion("Is it any good?", "is it any good", "2026-10-05_astro", null, "map");
+        AskQuestion aurora = new AskQuestion("Is it any good?", "is it any good", "2026-10-05_aurora", null, "map");
+
+        assertThat(AskService.withWindow(astro, withNights, UserRole.LITE_USER).windowId())
+                .isEqualTo("2026-10-05_astro");
+        assertThat(AskService.withWindow(aurora, withNights, UserRole.LITE_USER).windowId()).isNull();
+        assertThat(AskService.withWindow(aurora, withNights, UserRole.PRO_USER).windowId())
+                .isEqualTo("2026-10-05_aurora");
     }
 
     @Test
@@ -1490,7 +1509,8 @@ class AskServiceTest {
 
     @Test
     @DisplayName("a solar answer carries no night version and is offered to the typed cache "
-            + "(the LITE night version moved to AskNightVersionTest: LITE can no longer reach ask())")
+            + "(the LITE night version is already covered by AskNightVersionTest.composition and "
+            + "liteVersionIgnoresTheState: LITE can no longer reach ask())")
     void solarAnswerCarriesNoNightVersion() {
         withTonightsAstro(new AskSnapshot.AuroraState("MODERATE", 6.0));
 
@@ -1537,7 +1557,9 @@ class AskServiceTest {
 
     @Test
     @DisplayName("a PRO thread echoing an appended ;a=STRONG against a live QUIET is reset "
-            + "(the LITE half, no reset and no oracle, moved to AskNightVersionTest and AskThreadContextNightTest)")
+            + "(the LITE half, no reset and no oracle, is already covered by "
+            + "AskNightVersionTest.auroraSegmentIsNotAnOracleForLite and "
+            + "AskThreadContextNightTest.nightStaleAgainstIgnoresTheAuroraSegmentWithoutAccess)")
     void auroraSegmentIsComparedForPro() {
         withTonightsAstro(new AskSnapshot.AuroraState("QUIET", null));
         properties.setLimitPro(100);
@@ -1591,7 +1613,7 @@ class AskServiceTest {
 
     @Test
     @DisplayName("a night windowId the snapshot holds reaches the engine as the context, an aurora night "
-            + "included for PRO (the LITE drop of an aurora night is unreachable over ask() now)")
+            + "included for PRO (the LITE drop is pinned directly in withWindowDropsAnAuroraNightForLite)")
     void heldNightWindowIdIsContext() {
         properties.setLimitPro(100);
         rebuild();

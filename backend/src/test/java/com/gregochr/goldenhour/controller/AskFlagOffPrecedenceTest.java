@@ -32,10 +32,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * "Ask is switched off" is one interceptor ({@code AskFlagInterceptor}), and this proves its
- * precedence through the real security chain on every Ask route: <b>401 (anonymous), then 403 (an
- * admin route without the admin role), then 404 (the flag)</b>. The admin routes are guarded by
+ * precedence through the real security chain on every Ask route: <b>401 (anonymous), then 403 (a
+ * role that may not use the route), then 404 (the flag)</b>. The public routes
+ * ({@code /api/ask}, {@code /api/ask/ready}) are PRO_USER and ADMIN only, refused 403 by the security
+ * chain's matcher (with {@code AskController}'s class-level {@code @PreAuthorize} as a second layer)
+ * before the interceptor runs, so a LITE caller never sees the 404. The admin routes are guarded by
  * method security, which runs inside the controller after any interceptor, so the interceptor must
- * stand down for a non-admin; the public routes are guarded by the filter chain alone.
+ * stand down for a non-admin.
  * {@code GET /api/user/settings/ask} is outside the interceptor and answers whatever the flag says.
  */
 class AskFlagOffPrecedenceTest extends AbstractControllerTest {

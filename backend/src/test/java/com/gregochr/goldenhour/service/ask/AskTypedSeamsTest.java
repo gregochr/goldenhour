@@ -182,25 +182,37 @@ class AskTypedSeamsTest {
     }
 
     // -- the role gate: a LITE asker gets none of the free paths --------------------------------------
+    // These call ask() directly, skipping admit(), so each one pins ask()'s own guard against the real
+    // pre-filter, Ready matcher and cache.
+
+    private AskErrorCode liteRefusedDirectly(String question) {
+        AppUserEntity carol = AppUserEntity.builder().id(CAROL).username("carol").role(UserRole.LITE_USER).build();
+        try {
+            service.ask(carol, new AskRequest(question, null, List.of(), "map"));
+        } catch (AskRefusal e) {
+            return e.code();
+        }
+        throw new AssertionError("expected a refusal");
+    }
 
     @Test
     @DisplayName("a LITE asker is NOT_ENTITLED on the pre-filter path: no can't-answer, no suggestions, no log row")
     void liteGetsNoPreFilterAnswer() {
-        assertThat(refusedAs("carol", "Is the car park busy this weekend?")).isEqualTo(AskErrorCode.NOT_ENTITLED);
+        assertThat(liteRefusedDirectly("Is the car park busy this weekend?")).isEqualTo(AskErrorCode.NOT_ENTITLED);
 
         verify(engine, never()).run(any(), any(), any(), any());
         assertThat(logged).isEmpty();
-        assertThat(usage(CAROL)).isEqualTo(AskUsageStore.Usage.NONE);
+        assertThat(usageRepository.count()).isZero();
     }
 
     @Test
     @DisplayName("a LITE asker is NOT_ENTITLED on the Ready-match path, though the question matches a Ready one")
     void liteGetsNoReadyMatch() {
-        assertThat(refusedAs("carol", "Where's good this weekend?")).isEqualTo(AskErrorCode.NOT_ENTITLED);
+        assertThat(liteRefusedDirectly("Where's good this weekend?")).isEqualTo(AskErrorCode.NOT_ENTITLED);
 
         verify(engine, never()).run(any(), any(), any(), any());
         assertThat(logged).isEmpty();
-        assertThat(usage(CAROL)).isEqualTo(AskUsageStore.Usage.NONE);
+        assertThat(usageRepository.count()).isZero();
     }
 
     @Test
@@ -208,20 +220,23 @@ class AskTypedSeamsTest {
             + "cached")
     void liteGetsNoCacheHit() {
         ask("alice", "Which spot has the best light on the water at dusk?");
+        int loggedBefore = logged.size();
 
-        assertThat(refusedAs("carol", "Which spot has the best light on the water at dusk?"))
+        assertThat(liteRefusedDirectly("Which spot has the best light on the water at dusk?"))
                 .isEqualTo(AskErrorCode.NOT_ENTITLED);
 
         verify(engine, times(1)).run(any(), any(), any(), any());
+        assertThat(logged).hasSize(loggedBefore);
         assertThat(usage(CAROL)).isEqualTo(AskUsageStore.Usage.NONE);
     }
 
     @Test
     @DisplayName("a LITE asker is NOT_ENTITLED on the engine path, and no ask_usage row is created for them")
     void liteGetsNoEngineRun() {
-        assertThat(refusedAs("carol", "Something new about the sky?")).isEqualTo(AskErrorCode.NOT_ENTITLED);
+        assertThat(liteRefusedDirectly("Something new about the sky?")).isEqualTo(AskErrorCode.NOT_ENTITLED);
 
         verify(engine, never()).run(any(), any(), any(), any());
+        assertThat(logged).isEmpty();
         assertThat(usageRepository.count()).isZero();
     }
 
