@@ -58,7 +58,7 @@ export default function AskInputRow({ inputRef, view, viewLabel = undefined }) {
   const reasonId = useId();
   const [text, setText] = useState('');
   const busy = ask.phase === 'busy';
-  const locked = ask.typedDisabled;
+  const readyOnly = ask.typedDisabled;
   const empty = text.trim() === '';
   // What the next question carries, against what the answer on screen was asked in.
   const { asked } = ask;
@@ -78,7 +78,7 @@ export default function AskInputRow({ inputRef, view, viewLabel = undefined }) {
 
   const submit = async (event) => {
     event.preventDefault();
-    if (locked || busy) return;
+    if (readyOnly || busy) return;
     const question = text.trim();
     if (question === '') return;
     setText('');
@@ -129,23 +129,23 @@ export default function AskInputRow({ inputRef, view, viewLabel = undefined }) {
           className="wf-ask-in-field"
           data-testid="ask-input"
           aria-label="Ask about the forecasts"
-          aria-describedby={locked ? reasonId : undefined}
-          placeholder={locked ? READY_ONLY_PLACEHOLDER : 'Ask about the forecasts…'}
-          value={locked ? '' : text}
-          readOnly={locked}
-          aria-disabled={locked || undefined}
+          aria-describedby={readyOnly ? reasonId : undefined}
+          placeholder={readyOnly ? READY_ONLY_PLACEHOLDER : 'Ask about the forecasts…'}
+          value={readyOnly ? '' : text}
+          readOnly={readyOnly}
+          aria-disabled={readyOnly || undefined}
           maxLength={MAX_QUESTION_LENGTH}
           autoComplete="off"
           enterKeyHint="send"
-          onChange={(event) => { if (!locked) setText(event.target.value); }}
+          onChange={(event) => { if (!readyOnly) setText(event.target.value); }}
         />
-        {locked && <span id={reasonId} className="sr-only">{READY_ONLY_PLACEHOLDER}</span>}
+        {readyOnly && <span id={reasonId} className="sr-only">{READY_ONLY_PLACEHOLDER}</span>}
         <button
           type="submit"
           className="wf-ask-in-go"
           data-testid="ask-send"
           aria-label="Send question"
-          aria-disabled={locked || busy || empty || undefined}
+          aria-disabled={readyOnly || busy || empty || undefined}
         >
           <span aria-hidden="true">↑</span>
         </button>

@@ -100,6 +100,7 @@ const REFUSAL_SENTENCE = {
   ALLOWANCE_EXHAUSTED: 'You’ve used today’s questions. Ready questions are still available.',
   DAILY_LIMIT: 'That’s the most questions we can take from you today. Ready questions are still available.',
   TYPED_UNAVAILABLE: 'Typed questions are unavailable right now. Ready questions are still available.',
+  NOT_ENTITLED: 'Ask PhotoCast is part of Pro.',
 };
 
 /** The two refusals that cannot have moved the allowance, so need no re-read. */
@@ -152,10 +153,12 @@ const EMPTY_THREAD = [];
  * @property {object} allowance {@code useAskAllowance}'s value
  * @property {boolean} typedDisabled typed questions are off: the field reads "Ready questions only
  *           today" and is disabled; Ready questions still work
- * @property {'pending'|'on'|'off'|'down'} availability {@code pending}: the server has not yet
+ * @property {'pending'|'on'|'off'|'down'|'locked'} availability {@code pending}: the server has not yet
  *           said (show nothing — a flash on a flag-off server is the failure); {@code off}: Ask is
  *           off (settings say disabled, or a POST was 404 — hide every surface); {@code down}: the
- *           settings read failed and nothing is known (show Ask disabled); {@code on}
+ *           settings read failed and nothing is known (show Ask disabled); {@code locked}: Ask would be
+ *           {@code on} (or {@code down}) but the reader is not PRO or ADMIN — every entry draws greyed with
+ *           a "Pro" pill and nothing opens or is requested; {@code on}
  * @property {boolean} isPro PRO_USER or ADMIN
  * @property {function(string, {windowId?: string, regionIds?: Array<number>, view?: string,
  *           viewLabel?: string, windowLabel?: string}=):
@@ -343,7 +346,7 @@ export function AskProvider({ children }) {
     windowId, regionIds = [], view, viewLabel, windowLabel,
   } = {}) => {
     const text = typeof question === 'string' ? question.trim() : '';
-    if (text === '') return 'ignored';
+    if (text === '' || !isPro) return 'ignored';
     // A window whose chip the reader removed is left out; any other window is sent.
     const sentWindow = windowId && windowId !== removedWindow ? windowId : null;
     return send(text, {
@@ -353,9 +356,10 @@ export function AskProvider({ children }) {
       windowId: sentWindow,
       windowLabel: sentWindow ? (windowLabel ?? null) : null,
     });
-  }, [removedWindow, send]);
+  }, [isPro, removedWindow, send]);
 
   const openReady = useCallback((readyQuestion, context = {}) => {
+    if (!isPro) return;
     const answer = normaliseAnswer(readyQuestion?.answer, {
       id: answerSeq.current + 1,
       ready: true,
@@ -385,7 +389,7 @@ export function AskProvider({ children }) {
       type: ACTION.READY_OPENED, question, asked, runLabel: answer.runLabel,
     });
     openTimer.current = setTimeout(() => dispatch({ type: ACTION.ANSWERED, answer }), READY_OPEN_MS);
-  }, []);
+  }, [isPro]);
 
   const clear = useCallback(() => {
     sequence.current += 1;
@@ -395,10 +399,10 @@ export function AskProvider({ children }) {
 
   const { phase: storedPhase, question: convQuestion, asked: convAsked } = conv;
   const retry = useCallback(async () => {
-    if (storedPhase !== 'error') return;
+    if (!isPro || storedPhase !== 'error') return;
     // The question exactly as it was asked: its own context, not the surface's of the moment.
     await send(convQuestion, convAsked);
-  }, [storedPhase, convQuestion, convAsked, send]);
+  }, [isPro, storedPhase, convQuestion, convAsked, send]);
 
   const removeContextWindow = useCallback((windowId) => setRemovedWindow(windowId ?? null), []);
   const restoreContextWindow = useCallback(() => setRemovedWindow(null), []);
@@ -449,6 +453,9 @@ export function AskProvider({ children }) {
   let availability = 'on';
   if (serverOff || allowance.enabled === false) availability = 'off';
   else if (!allowance.loaded) availability = allowance.status === 'failed' ? 'down' : 'pending';
+  // A reader who is not PRO or ADMIN sees Ask locked wherever it would otherwise be on (or down) —
+  // never while pending (a flash on a flag-off server is the failure) and never over off.
+  if (!isPro && (availability === 'on' || availability === 'down')) availability = 'locked';
 
   // Off whenever Ask is not known to be on — so a field reading only this is disabled while the
   // server has not answered, and when it cannot be reached, not just when the allowance is spent.

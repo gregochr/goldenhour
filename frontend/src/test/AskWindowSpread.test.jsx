@@ -56,7 +56,7 @@ const SAT_LINE = 'Sat sunset · 180 rated across every region · 2 at 4★+';
 const SUN_LINE = 'Sun sunrise · 150 rated across every region · none at 4★+';
 
 describe('AskWindowSpread — on a typed answer', () => {
-  it.each(['LITE_USER', 'PRO_USER', 'ADMIN'])('draws one line per carried window under the summary, inside the live region, for a %s', async (role) => {
+  it.each(['PRO_USER', 'ADMIN'])('draws one line per carried window under the summary, inside the live region, for a %s', async (role) => {
     auth.role = role;
     ask.mockResolvedValue(ownResponse({ windows: WINDOWS }));
     await renderAsk();
@@ -143,8 +143,8 @@ describe('AskWindowSpread — on a typed answer', () => {
 });
 
 describe('AskWindowSpread — on a Ready answer', () => {
-  it('draws the lines a stored Ready answer carries, for a LITE reader, with no request', async () => {
-    auth.role = 'LITE_USER';
+  it('draws the lines a stored Ready answer carries, for a PRO reader, with no request', async () => {
+    auth.role = 'PRO_USER';
     const ready = readyResponse();
     ready.questions[0].answer.windows = [WINDOWS[0]];
     getReady.mockResolvedValue(ready);

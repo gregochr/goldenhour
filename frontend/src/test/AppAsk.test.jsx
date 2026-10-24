@@ -94,7 +94,7 @@ import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
 import { subscribeToRunNotifications } from '../api/runProgressApi.js';
 import { getTodaysLight } from '../api/lightApi.js';
-import { getAskSettings, getReady } from '../api/askApi.js';
+import { ask, getAskSettings, getReady } from '../api/askApi.js';
 
 const TOMORROW = ukDateStrOffset(1);
 const LOCATION_META = [{
@@ -134,7 +134,9 @@ const REWIND_TO = '2026-10-04T04:58:00Z';
 function renderApp(role = 'ADMIN') {
   localStorage.setItem('goldenhour_token', 'test-token');
   localStorage.setItem('goldenhour_role', role);
-  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+  // The briefing context is spied, so the reader's role reaches Ask as its `isPro`, as the real one derives it.
+  const isPro = role === 'PRO_USER' || role === 'ADMIN';
+  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({ ...ctx(), isPro, isLiteUser: !isPro });
   return render(<App />);
 }
 
@@ -171,6 +173,22 @@ describe('App — where Ask PhotoCast is mounted', () => {
     renderApp('PRO_USER');
     expect(await screen.findByTestId('ask-bar')).toBeEnabled();
     expect(getAskSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('a LITE reader sees the whole tree locked: a disabled bar, a Pro pill, and no Ask request', async () => {
+    renderApp('LITE_USER');
+
+    const bar = await screen.findByTestId('ask-bar');
+    expect(bar).toBeDisabled();
+    expect(screen.getByTestId('ask-bar-upsell')).toHaveTextContent('Pro');
+    expect(screen.getByTestId('ask-bar-locked').className).toContain('wf-lens-locked');
+    fireEvent.click(bar);
+    await act(async () => {});
+    expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
+    // The settings read (open to every role) says whether the flag is on; nothing else is asked.
+    expect(getAskSettings).toHaveBeenCalledTimes(1);
+    expect(getReady).not.toHaveBeenCalled();
+    expect(ask).not.toHaveBeenCalled();
   });
 
   it('rewound, the settings read NEVER fires and no Ask surface exists, on the phone', async () => {

@@ -323,6 +323,54 @@ async function pressPickChip(rank) {
 // Ask is an answer's phase for these: `select` is what the provider records.
 const withPicks = { askPicks: CARDS.map((c) => ({ ...c, eventType: c.targetType })), askAnswerId: 1, onSelectAskPick: vi.fn() };
 
+describe('a reader who is not PRO or ADMIN: the locked row', () => {
+  it('draws the row locked at 126px, and pressing the disabled entry opens nothing', async () => {
+    mockAsk = { ...conversation('empty'), availability: 'locked', typedDisabled: true };
+    await act(async () => { view = render(<MapView {...props({ askLocked: true })} />); });
+
+    const entry = screen.getByTestId('wf-map-peek-ask-entry');
+    expect(entry).toBeDisabled();
+    expect(screen.getByTestId('wf-map-peek-ask-locked').className).toContain('wf-lens-locked');
+    expect(screen.getByTestId('wf-map-peek-ask-locked').contains(screen.getByTestId('wf-map-peek-ask-upsell'))).toBe(false);
+    expect(mode()).toBe('collapsed');
+    expect(psh()).toBe('126px');
+
+    openAsk();
+    await act(async () => {});
+
+    expect(mode()).toBe('collapsed');
+    expect(screen.queryByTestId('wf-map-peek-ask-field')).not.toBeInTheDocument();
+  });
+
+  it('⚠️ `openAskSection` itself refuses: with the entry ENABLED (a seam the lock never leaves) a press opens nothing', async () => {
+    // The context says `on`, so the entry is a live button; only `MapView`'s own `askLocked` guard stands.
+    mockAsk = conversation('empty');
+    await act(async () => { view = render(<MapView {...props({ askLocked: true })} />); });
+    const entry = screen.getByTestId('wf-map-peek-ask-entry');
+    expect(entry).toBeEnabled();
+
+    openAsk();
+    await act(async () => {});
+
+    expect(mode()).toBe('collapsed');
+    expect(screen.queryByTestId('wf-map-peek-ask-field')).not.toBeInTheDocument();
+  });
+
+  it('Escape in the Layers body lands focus on the Layers button, never <body>: a disabled entry cannot take it', async () => {
+    mockAsk = { ...conversation('empty'), availability: 'locked', typedDisabled: true };
+    await act(async () => { view = render(<MapView {...props({ askLocked: true })} />); });
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
+    const pins = screen.getByTestId('wf-map-peek-view-pins');
+    pins.focus();
+
+    fireEvent.keyDown(pins, { key: 'Escape' });
+
+    expect(mode()).toBe('collapsed');
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
+  });
+});
+
 describe('the sheet at rest', () => {
   it('draws no Ask row, and the sheet before Ask existed, when Ask is not offered', async () => {
     await mount('empty', { askOffered: false });

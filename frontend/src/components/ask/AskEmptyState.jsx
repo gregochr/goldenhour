@@ -1,30 +1,17 @@
 import { useId } from 'react';
 import PropTypes from 'prop-types';
-import ProPill from '../shared/ProPill.jsx';
-import { PRO_DAILY_LIMIT } from '../../utils/askModel.js';
 import AskSuggestion from './AskSuggestion.jsx';
 
 /**
- * "N of M own questions left today · Pro: 30 a day" (a free reader) or "N of M left today" (PRO and
- * ADMIN) — the server's figures, or nothing at all before they are known.
+ * "N of M left today" — the server's figures, or nothing at all before they are known. Ask is Pro-only: a
+ * reader who is not PRO or ADMIN sees it locked and never reaches this state.
  */
 function AllowanceLine({ ask }) {
-  const { allowance, isPro } = ask;
+  const { allowance } = ask;
   if (!allowance.loaded || allowance.enabled === false) return null;
   const { left, limit } = allowance;
-  if (isPro) {
-    return (
-      <p className="wf-ask-usage" data-testid="ask-allowance">{`${left} of ${limit} left today`}</p>
-    );
-  }
   return (
-    <p className="wf-ask-usage" data-testid="ask-allowance">
-      {left > 0 ? `${left} of ${limit} own questions left today` : 'No own questions left today'}
-      {' · '}
-      <ProPill />
-      <span className="sr-only">:</span>
-      {` ${PRO_DAILY_LIMIT} a day`}
-    </p>
+    <p className="wf-ask-usage" data-testid="ask-allowance">{`${left} of ${limit} left today`}</p>
   );
 }
 

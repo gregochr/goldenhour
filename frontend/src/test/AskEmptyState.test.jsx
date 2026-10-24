@@ -114,16 +114,6 @@ describe('AskConversation — the empty state', () => {
   });
 
   describe('the allowance line', () => {
-    it('says what a free reader has, and where Pro goes, with the Pro text as text — not a link', async () => {
-      await renderAsk();
-
-      const line = await screen.findByTestId('ask-allowance');
-      expect(line).toHaveTextContent('3 of 3 own questions left today');
-      expect(within(line).getByTestId('pro-pill')).toHaveTextContent('Pro');
-      expect(line).toHaveTextContent('30 a day');
-      expect(within(line).queryByRole('link')).toBeNull();
-    });
-
     it.each(['PRO_USER', 'ADMIN'])('shows a %s only "N of M left today"', async (role) => {
       auth.role = role;
       getAskSettings.mockResolvedValue(settings({ used: 4, limit: 30, left: 26 }));
@@ -133,16 +123,6 @@ describe('AskConversation — the empty state', () => {
       const line = await screen.findByTestId('ask-allowance');
       expect(line).toHaveTextContent(/^26 of 30 left today$/);
       expect(within(line).queryByTestId('pro-pill')).toBeNull();
-    });
-
-    it('says "No own questions left today" at zero, and still names the Pro allowance', async () => {
-      getAskSettings.mockResolvedValue(settings({ used: 3, left: 0 }));
-
-      await renderAsk();
-
-      const line = await screen.findByTestId('ask-allowance');
-      expect(line).toHaveTextContent('No own questions left today');
-      expect(line).toHaveTextContent('30 a day');
     });
 
     it('says "0 of 30 left today" to a Pro reader at zero', async () => {

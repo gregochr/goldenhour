@@ -65,8 +65,8 @@ export const shellCtx = (overrides = {}) => {
     todayStr: TODAY,
     tomorrowStr: '2026-10-06',
     homePlace: 'Newcastle',
-    isPro: false,
-    isLiteUser: true,
+    isPro: true,
+    isLiteUser: false,
     reachLens: {
       tier: { id: '45', label: '45 min', limitMinutes: 45 },
       tierId: '45',

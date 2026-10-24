@@ -318,7 +318,8 @@ export default function WindowFirstMapPane({
    * context, with no provider, is `off`: a rewound page and every test that predates Ask). `MapView`
    * adds the phone and the tab.
    */
-  const askOffered = askAvailability === 'on' || askAvailability === 'down';
+  const askLocked = askAvailability === 'locked';
+  const askOffered = askAvailability === 'on' || askAvailability === 'down' || askLocked;
   /**
    * The picks `MapView` marks, each already joined to the briefing (`utils/askModel.buildPickCards`):
    * the rating and verdict are the PICK'S window's, never the active window's. Filter/map over served
@@ -883,6 +884,7 @@ export default function WindowFirstMapPane({
         askAnswerId={askAnswerId}
         onAskContext={onAskContext}
         askOffered={askOffered}
+        askLocked={askLocked}
         askPhase={askPhase}
         panelShown={panelShown}
         outcomeRatings={rewound ? null : outcomeRatings}

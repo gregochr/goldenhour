@@ -3,7 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import AskEventCard from '../components/ask/AskEventCard.jsx';
 import { ECLIPSE_SAFETY_NOTE, eclipseEvent, NOW } from './askFixtures.js';
 
-let mockRole = 'LITE_USER';
+let mockRole = 'PRO_USER';
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole }) }));
 
 // `formatDateLabel` answers "Today"/"Tomorrow" from the app's clock, so a date fixture that does not
@@ -31,7 +31,7 @@ const narrow = () => vi.spyOn(window, 'matchMedia').mockImplementation((query) =
 }));
 
 describe('AskEventCard — the safety note', () => {
-  it.each(['LITE_USER', 'PRO_USER', 'ADMIN'])('is visible, and in the accessibility tree, for %s', (role) => {
+  it.each(['PRO_USER', 'ADMIN'])('is visible, and in the accessibility tree, for %s', (role) => {
     mockRole = role;
 
     render(<AskEventCard event={eclipseEvent()} />);

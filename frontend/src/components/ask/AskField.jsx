@@ -39,6 +39,9 @@ import { refShape } from './askShapes.js';
  * @param {boolean} [props.showKeyHint=false] draw the "/" key cap (F2)
  * @param {boolean} [props.keyShortcut=false] the "/" key works: name it in {@code aria-keyshortcuts}
  * @param {boolean} [props.disabled]
+ * @param {boolean} [props.locked] the reader is not PRO or ADMIN: the button sits in a
+ *        `wf-lens-locked` wrapper (the drive filter's grey), is really {@code disabled}, advertises no
+ *        popup, expansion or `/` key, and a "Pro" pill is drawn BESIDE the wrapper, never inside it
  * @param {boolean} [props.expanded] whether the surface this opens is open
  * @param {string} [props.prompt] the field's text
  * @param {React.Ref} [props.buttonRef] the button's node, for the shell's focus return
@@ -46,27 +49,34 @@ import { refShape } from './askShapes.js';
  *        does not claim a popup dialog
  */
 export default function AskField({
-  onOpen, width = 260, showKeyHint = false, keyShortcut = false, disabled = false, expanded = false,
+  onOpen, width = 260, showKeyHint = false, keyShortcut = false, disabled = false, locked = false, expanded = false,
   prompt = 'Ask about the forecasts…', buttonRef = undefined, controls = undefined,
 }) {
-  return (
+  const button = (
     <button
       ref={buttonRef}
       type="button"
       className="wf-askf"
       data-testid="ask-field"
       data-width={width}
-      aria-haspopup={controls === undefined ? 'dialog' : undefined}
-      aria-controls={controls !== undefined && expanded ? controls : undefined}
-      aria-expanded={expanded}
-      aria-keyshortcuts={showKeyHint || keyShortcut ? '/' : undefined}
-      disabled={disabled}
+      aria-haspopup={controls === undefined && !locked ? 'dialog' : undefined}
+      aria-controls={controls !== undefined && expanded && !locked ? controls : undefined}
+      aria-expanded={locked ? undefined : expanded}
+      aria-keyshortcuts={(showKeyHint || keyShortcut) && !locked ? '/' : undefined}
+      disabled={disabled || locked}
       onClick={onOpen}
     >
       <span className="wf-askf-k" aria-hidden="true">Ask</span>
       <span className="wf-askf-q">{prompt}</span>
-      {showKeyHint && <kbd className="wf-askf-kbd" aria-hidden="true">/</kbd>}
+      {showKeyHint && !locked && <kbd className="wf-askf-kbd" aria-hidden="true">/</kbd>}
     </button>
+  );
+  if (!locked) return button;
+  return (
+    <span className="wf-askf-lockrow" data-testid="ask-field-lockrow">
+      <span className="wf-askf-lockwrap wf-lens-locked" data-testid="ask-field-locked">{button}</span>
+      <span className="wf-lens-pro" data-testid="ask-field-upsell">Pro</span>
+    </span>
   );
 }
 
@@ -76,6 +86,7 @@ AskField.propTypes = {
   showKeyHint: PropTypes.bool,
   keyShortcut: PropTypes.bool,
   disabled: PropTypes.bool,
+  locked: PropTypes.bool,
   expanded: PropTypes.bool,
   prompt: PropTypes.string,
   buttonRef: refShape,

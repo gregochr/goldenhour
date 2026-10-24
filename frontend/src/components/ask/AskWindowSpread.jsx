@@ -19,8 +19,8 @@ export const SPOKEN_LEAD = 'Rated places, by window.';
  * reader voices as counts ("Saturday sunset", "4 stars or more" — never "Sat", never "4 black star
  * plus") — the Plan card's own pattern for its spread row.
  *
- * <p>⚠️ Reads no role and sits in no media query: this file's test renders it for every role on a
- * typed and on a Ready answer, and `askCss.test.js` pins that no rule anywhere in the Ask stylesheet
+ * <p>⚠️ Reads no role and sits in no media query: this file's test renders it for a PRO and an ADMIN reader on a
+ * typed and on a Ready answer (Ask is Pro-only; a LITE reader never reaches an answer), and `askCss.test.js` pins that no rule anywhere in the Ask stylesheet
  * hides it and no conditional block names it. (A stylesheet cannot gate on a role in this app; the
  * role proof is the render.)
  *
