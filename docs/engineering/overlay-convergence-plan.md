@@ -39,7 +39,7 @@ into every review agent's prompt.
 
 ## §0 Status
 
-**Status: COMPLETE 2026-10-21: C1–C5 merged (#1246 #1248 #1252 #1258 #1262), C1–C4 released v2.29.2, C5 pending release; C6 this PR.** The open owner questions are consolidated in §7. §5 D1–D6 were TAKEN by the owner 2026-10-20 (every recommendation confirmed; D2 follows from D1). Phase log (each phase appends its own row in
+**Status: COMPLETE 2026-10-21: C1–C5 merged (#1246 #1248 #1252 #1258 #1262), C1–C4 released v2.29.2, C5 and C6 (#1266) released v2.30.0.** The open owner questions are consolidated in §7. §5 D1–D6 were TAKEN by the owner 2026-10-20 (every recommendation confirmed; D2 follows from D1). Phase log (each phase appends its own row in
 the same commit as its code; the `PR` column names the PR, not a SHA — the repo squash-merges):
 
 | phase | what | PR | notes |
