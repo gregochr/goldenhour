@@ -130,7 +130,6 @@ const OBSTACLE_SELECTOR = [
   // mutually exclusive, so at most one of these ever matches.
   '[data-testid="wf-win-panel"]',
   '[data-testid="wf-reg-panel"]',
-  '[data-testid="colour-scale-notice"]',
   '[data-testid="viewline-upsell-chip"]',
   '[data-testid="photocast-scored-legend"]',
 ].join(', ');

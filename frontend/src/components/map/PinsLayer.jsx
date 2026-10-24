@@ -79,7 +79,6 @@ const OBSTACLE_SELECTOR = [
   // give. The two levels are mutually exclusive, so at most one ever matches.
   '[data-testid="wf-win-panel"]',
   '[data-testid="wf-reg-panel"]',
-  '[data-testid="colour-scale-notice"]',
   '[data-testid="viewline-upsell-chip"]',
   '[data-testid="photocast-scored-legend"]',
 ].join(', ');
