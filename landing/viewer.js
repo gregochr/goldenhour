@@ -34,6 +34,7 @@
   });
 
   dialog.addEventListener('close', function () {
+    if (dialog.open) return;
     img.removeAttribute('src');
     if (opener) {
       opener.focus();
