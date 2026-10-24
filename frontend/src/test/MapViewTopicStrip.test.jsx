@@ -498,6 +498,7 @@ describe('MapView: the counts footer clears the strip only where it overlaps it'
       const r = { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 };
       if (id === 'wf-map-counts-footer') return { ...r, left: footerLeft, right: footerLeft + 127, width: 127 };
       if (id === 'wf-topic-strip') return { ...r, left: 8, right: 448, width: 440 };
+      if (id === 'wf-tide-strip') return { ...r, left: 8, right: 448, width: 440 };
       return r;
     };
     Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
@@ -535,6 +536,20 @@ describe('MapView: the counts footer clears the strip only where it overlaps it'
     await renderMap({ tide: TIDE });
     // 150 (strip) + 6 + 200 (tide strip) + 16.
     expect(footer().style.bottom).toBe('372px');
+  });
+
+  it('with ONLY the tide strip mounted and no horizontal overlap, the footer is not lifted at all', async () => {
+    footerLeft = 577;
+    await renderMap({ hotTopics: [], tide: TIDE });
+    expect(screen.getByTestId('wf-tide-strip')).toBeInTheDocument();
+    expect(footer().style.bottom).toBe('');
+  });
+
+  it('with ONLY the tide strip mounted and a horizontal overlap, it lifts by the tide strip plus 16', async () => {
+    footerLeft = 347;
+    await renderMap({ hotTopics: [], tide: TIDE });
+    expect(screen.getByTestId('wf-tide-strip')).toBeInTheDocument();
+    expect(footer().style.bottom).toBe('216px');
   });
 
   it('puts the footer back where it was when the window narrows back out of overlap', async () => {

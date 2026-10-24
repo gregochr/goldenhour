@@ -223,20 +223,25 @@ describe('the Map tab\'s full-frame chrome z-ladder (map-tab-v2-plan.md §3 P7)'
 });
 
 /**
- * The tide strip lifts the bottom-CENTRE counts footer via `--tsh` while it is on screen
- * (tide-window-plan.md T6 #6, plan §7 check 4) — a `bottom: calc(var(--tsh, 120px) + 16px)` rule
- * jsdom cannot resolve numerically (`css: false` means no `var()`/`calc()` support at all), so this
- * asserts the RAW rule text rather than a computed style, the same reason `sliceRules` above reads
- * source text instead of trusting `getComputedStyle`. Real numeric clearance is a browser
- * measurement (plan §9), not a unit test's job.
+ * The bottom-CENTRE counts footer used to be lifted by a `--tsh` CSS rule whenever the tide strip
+ * was on (tide-window-plan.md T6 #6). That rule is gone: `MapView` lifts it by measurement, only
+ * where it overlaps the bottom-left stack (see `MapViewTopicStrip.test.jsx`). `css: false` means
+ * jsdom has no `var()` support, so this asserts the RAW rule text.
  */
-describe('the tide strip lifts the counts footer via --tsh (tide-window-plan.md T6 #6)', () => {
-  it('declares the lift scoped to BOTH the tab root\'s strip-on class and the counts footer', () => {
-    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-    // Scoped to both classes together — a bare `.wf-map-counts-footer { bottom: … }` would lift the
-    // footer on every render, not only while the strip is actually mounted and visible.
-    expect(css).toMatch(
-      /\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-counts-footer\s*\{[^}]*bottom:\s*calc\(var\(--tsh,\s*120px\)\s*\+\s*16px\)/,
-    );
+describe('the counts footer is a quiet caption that no CSS rule lifts (map-counts-footer-quieter)', () => {
+  const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('no rule lifts the footer by `--tsh`: MapView moves it by measurement, only where it overlaps the stack', () => {
+    expect(css).not.toMatch(/wf-tide-strip-on\s+\.wf-map-counts-footer/);
+  });
+
+  it('the base rule carries no border and no panel background, only a halo from the page ground', () => {
+    const start = css.indexOf('\n.wf-map-counts-footer {');
+    const body = css.slice(start, css.indexOf('}', start));
+    expect(body).not.toMatch(/border/);
+    expect(body).not.toMatch(/background/);
+    expect(body).not.toMatch(/plex-panel/);
+    expect(body).toMatch(/text-shadow:[^;]*var\(--color-plex-bg\)/);
+    expect(body).toMatch(/color:\s*var\(--color-plex-text-secondary\)/);
   });
 });

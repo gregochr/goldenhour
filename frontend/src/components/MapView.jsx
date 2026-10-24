@@ -4549,30 +4549,43 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     setSelectedTopic(next);
     setTopicAnnounce(topicAnnouncement(chip, next != null, ringsAvailable && (chip?.places?.length ?? 0) > 0));
   }
-  // The counts footer clears the four-day strip, and only where it would otherwise sit across it. It is
-  // centred, so on a wide frame it is nowhere near the strip (440px at the left) and must not move at all;
-  // on a narrower frame their horizontal spans meet, and it lifts by exactly the strip and the tide strip
-  // under it (never the legend chip above them). With no overlap this is null and the footer stays where
-  // today's rules put it (8px, or above the tide strip by `--tsh`). Measured, because no class can know.
+  // The counts footer clears the bottom-left stack (the four-day strip and/or the desktop tide strip),
+  // and only where it would otherwise sit across it. It is centred, so on a wide frame it is nowhere
+  // near the stack (440px at the left) and must not move at all; on a narrower frame their horizontal
+  // spans meet, and it lifts by exactly the stack's height (topic strip + tide strip + the gap between
+  // them, never the legend chip above). With no overlap this is null and the footer sits at its 8px
+  // base. Measured, because no class can know. Only the horizontal span is compared, and the footer's
+  // own `bottom` does not change it, so measuring lifted or unlifted gives the same answer: no
+  // oscillation.
   const [footerLift, setFooterLift] = useState(null);
   useEffect(() => {
     const pane = mapPaneRef.current;
-    if (!topicStripMounted || !pane) {
-      // Nothing to clear: the one-shot reset of a measurement that no longer applies.
+    if (isMobile || !pane) {
+      // Nothing to clear (the phone clips the footer away): the one-shot reset of a stale measurement.
       setFooterLift(null);
       return undefined;
     }
     const measure = () => {
       const footer = pane.querySelector('[data-testid="wf-map-counts-footer"]');
-      const strip = pane.querySelector('[data-testid="wf-topic-strip"]');
-      const tide = pane.querySelector('[data-testid="wf-tide-strip"]');
+      const strips = ['wf-topic-strip', 'wf-tide-strip']
+        .map((id) => pane.querySelector(`[data-testid="${id}"]`))
+        .filter(Boolean);
       let next = null;
-      if (footer && strip) {
+      if (footer && strips.length > 0) {
         const f = footer.getBoundingClientRect();
-        const s = strip.getBoundingClientRect();
-        if (s.width > 1 && f.left < s.right && f.right > s.left) {
+        // The stack's horizontal span is the union of the mounted strips that have a real width.
+        let left = Infinity;
+        let right = -Infinity;
+        for (const el of strips) {
+          const r = el.getBoundingClientRect();
+          if (r.width <= 1) continue;
+          left = Math.min(left, r.left);
+          right = Math.max(right, r.right);
+        }
+        if (f.left < right && f.right > left) {
           const gap = 6;
-          next = Math.round(strip.offsetHeight + (tide ? tide.offsetHeight + gap : 0)) + 16;
+          const height = strips.reduce((sum, el) => sum + el.offsetHeight, 0);
+          next = Math.round(height + (strips.length > 1 ? gap : 0)) + 16;
         }
       }
       setFooterLift((prev) => (prev === next ? prev : next));
@@ -4592,7 +4605,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       window.removeEventListener('resize', measure);
       observer?.disconnect();
     };
-  }, [topicStripMounted, topicStripHeight, tideStripHeight]);
+  }, [isMobile, topicStripMounted, topicStripHeight, tideStripHeight]);
   /**
    * A press on the four-day strip that selects a topic (a bar, or a label whose topic is not on this
    * window): the topic is selected and, when the press names a window, the reader moves to it through the
