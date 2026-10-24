@@ -15,13 +15,17 @@
  * holds more than one channel — storm surge and clearance carry facts today and have no event anchor
  * to reach a window by — so the next channel arrives here rather than reshaping the caller.
  *
- * <h2>The row is not role-gated</h2>
+ * <h2>The row's plain tide facts are not role-gated; the curve and the per-location match are Pro</h2>
  *
- * <p>Plan §7 asks this to be settled rather than let two surfaces disagree. It is the window's own
- * context: tide chips and tide-aligned markers are ungated for every role. `freemium_ui_strategy.md`
- * blurs cloud-layer breakdown, aerosol metrics and the technical panel; tide is almanac, and
- * {@code GET /api/tides} is deliberately Bearer rather than ADMIN for the same reason. So: no gate,
- * and no `role` plumbed into this arm.
+ * <p>The window's own context stays ungated for every role: the tide chips (state, direction, the
+ * nearest extreme) and the topic facts. `freemium_ui_strategy.md` blurs cloud-layer breakdown,
+ * aerosol metrics and the technical panel; tide state is almanac, and {@code GET /api/tides} is
+ * deliberately Bearer rather than ADMIN for the same reason. What is Pro, since 2026-10-24, is
+ * the tide CURVE (the Map's chart, the height at the light, the popup's sparkline) and the
+ * per-location MATCH (dimming, "N tides aligned", the tide-fit clauses) — the Map half is a client
+ * lock (`tideLocked`), the Plan half arrives with the server strip. See
+ * `docs/engineering/tide-pro-gate-plan.md` §2. No `role` is plumbed into this arm: a locked reader
+ * simply receives rows without those fields.
  *
  * <p><b>The reconvergence with {@code HotTopicStrip} that used to be DUE here is now DISCHARGED, by
  * removal rather than by a pricing decision.</b> {@code HotTopicStrip} used to blur every topic's

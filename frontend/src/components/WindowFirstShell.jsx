@@ -2981,7 +2981,9 @@ export default function WindowFirstShell({
             // into it — the callout has had a region gloss behind its summary since P9.
             regionGlossIndex={sheetGlossIndex}
             // The tide-fit block, per solar row (T5).
-            tideAlignmentIndex={sheetTideAlignmentIndex}
+            // The per-location tide match is Pro (tide-pro-gate-plan.md, Q2): a locked reader's sheet gets no index,
+            // so no TideFitBlock and no next-fit line.
+            tideAlignmentIndex={isPro ? sheetTideAlignmentIndex : null}
             // The eclipse spot line, per solar row (L7).
             eclipseIndex={sheetEclipseIndex}
             // The C2 forecast-detail block's tier gating (a boolean, never the role — plan §5c).
