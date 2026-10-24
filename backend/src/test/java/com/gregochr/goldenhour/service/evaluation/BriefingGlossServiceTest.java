@@ -398,7 +398,8 @@ class BriefingGlossServiceTest {
     private BriefingRegion glossFor(String json) {
         stubModelSelection();
         Message response = mockResponse(json);
-        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+        when(anthropicApiClient.createMessage(argThat(
+                params -> requestNamesRegion(params, "Northumberland"))))
                 .thenReturn(response);
         List<BriefingDay> enriched = glossService.generateGlosses(
                 List.of(dayWith(region("Northumberland", Verdict.GO))), 1L);
