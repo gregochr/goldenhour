@@ -467,7 +467,9 @@ describe('WindowFirstComingUp — the "Next four days" tiles (coming-up-glance-p
   it('hands a weather chip the pane\'s Map door: onShowOnMap with that morning\'s date and event', () => {
     const { onShowOnMap } = renderPane({ hotTopics: [MIST] });
     fireEvent.click(chipFor('MIST'));
-    expect(onShowOnMap).toHaveBeenCalledWith('2026-08-11', 'SUNRISE');
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      kind: 'event', date: '2026-08-11', eventType: 'SUNRISE', topicType: 'MIST',
+    });
   });
 
   it('withholds the Map door for a date outside the reader\'s known forecast dates', () => {

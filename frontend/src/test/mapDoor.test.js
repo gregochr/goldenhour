@@ -284,6 +284,18 @@ describe('resolveDoor', () => {
 });
 
 describe('normalizeMapTrigger (extracted from App.jsx\'s handleShowOnMap, D8)', () => {
+  it('the positional event call is unchanged and carries no topicType', () => {
+    expect(normalizeMapTrigger(DATE, 'SUNRISE')).toEqual({ kind: 'event', date: DATE, eventType: 'SUNRISE' });
+  });
+
+  it('an object event trigger carries topicType when given, and omits the key otherwise', () => {
+    expect(normalizeMapTrigger({ kind: 'event', date: DATE, eventType: 'SUNSET', topicType: 'INVERSION' }))
+      .toEqual({ kind: 'event', date: DATE, eventType: 'SUNSET', topicType: 'INVERSION' });
+    const bare = normalizeMapTrigger({ kind: 'event', date: DATE, eventType: 'SUNSET' });
+    expect(bare).toEqual({ kind: 'event', date: DATE, eventType: 'SUNSET' });
+    expect(bare).not.toHaveProperty('topicType');
+  });
+
   it('a coming-up handoff normalises to kind:\'coming-up\'', () => {
     // P6 (`docs/engineering/coming-up-plan.md` D7) deleted kind:'topic' and its only producer
     // (`HotTopicStrip`), so `coming-up` is now normalizeMapTrigger's only `filterAction`-bearing
@@ -372,6 +384,15 @@ describe('doorHeadline (the breadcrumb\'s title · caption, overlay convergence 
 });
 
 describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)', () => {
+  it('event: carries topicType into the door when the trigger has one, and not otherwise', () => {
+    const withTopic = doorFromTrigger(
+      { kind: 'event', date: DATE, eventType: 'SUNSET', topicType: 'INVERSION' }, ctx([]),
+    );
+    expect(withTopic).toMatchObject({ date: DATE, targetType: 'SUNSET', topicType: 'INVERSION' });
+    const plain = doorFromTrigger({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx([]));
+    expect(plain).not.toHaveProperty('topicType');
+  });
+
   it('aurora: names the night, the AURORA event and its headline; no lens fields at all', () => {
     const door = doorFromTrigger({ kind: 'aurora', date: DATE }, ctx([]));
     expect(door).toEqual({

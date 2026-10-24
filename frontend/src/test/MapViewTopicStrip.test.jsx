@@ -177,6 +177,7 @@ const HOT_TOPICS = [
 
 function Pane({
   hotTopics, runId = null, tide = null, startDate = TODAY, bigSeas = undefined, forecastDates = [TODAY, SAT],
+  planHandoff = null,
 }) {
   const [date, setDate] = React.useState(startDate);
   return (
@@ -191,6 +192,7 @@ function Pane({
       hotTopics={hotTopics}
       bigSeas={bigSeas}
       onSelectDate={(d) => setDate(d)}
+      planHandoff={planHandoff}
     />
   );
 }
@@ -373,6 +375,45 @@ describe('MapView: presses on the strip', () => {
     await act(async () => { rerender(<Pane hotTopics={[]} />); });
     expect(screen.queryByTestId('wf-topic-strip')).toBeNull();
     expect(document.activeElement).toBe(screen.getByTestId('wf-map-pane'));
+  });
+});
+
+describe('MapView: a door that names a topic (T3)', () => {
+  const door = (extra = {}) => ({
+    source: 'plan', eventType: 'SUNSET', date: TODAY, region: null, nonce: 1, topicType: 'DUST', ...extra,
+  });
+
+  it('selects the named chip on arrival, through the strip\'s own path', async () => {
+    await renderMap({ planHandoff: door() });
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('map-status')).toHaveTextContent('Dust selected.');
+  });
+
+  it('selects nothing when the door names no topic', async () => {
+    await renderMap({ planHandoff: door({ topicType: undefined }) });
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('selects nothing when the landed window does not carry the type', async () => {
+    await renderMap({ planHandoff: door({ topicType: 'INVERSION' }) });
+    expect(screen.queryByTestId('wf-topic-chip-INVERSION')).toBeNull();
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'false');
+    expect(chip('KING_TIDE')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('does not re-select on a repeat render of the same nonce; a reader\'s deselect stays', async () => {
+    const { rerender } = await renderMap({ planHandoff: door() });
+    await press('wf-topic-chip-DUST');
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'false');
+    await act(async () => { rerender(<Pane hotTopics={[...HOT_TOPICS]} planHandoff={door()} />); });
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('selects again for a new nonce (a repeat arrival)', async () => {
+    const { rerender } = await renderMap({ planHandoff: door() });
+    await press('wf-topic-chip-DUST');
+    await act(async () => { rerender(<Pane hotTopics={HOT_TOPICS} planHandoff={door({ nonce: 2 })} />); });
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'true');
   });
 });
 

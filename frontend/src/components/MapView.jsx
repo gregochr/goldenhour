@@ -4373,6 +4373,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     setSelectedTopic(null);
     if (!onHighWaterRow) setTopicAnnounce('Topic selection cleared: it is not on this window.');
   }, [selectedTopic, activeTopicChip, onHighWaterRow]);
+  // ── A door that names a topic (T3, `coming-up-glance-plan.md`): a Coming up weather chip opens the Map at its
+  // window with that topic's chip selected. Once per handoff nonce, through the strip's own selection path
+  // (`pickTopicFromStrip`), only when the LANDED window carries the type - otherwise nothing is selected. The
+  // nonce is spent on the first apply, so a re-render never re-selects and a reader's deselect stays. While the
+  // landed window's chips have not yet carried the type the door waits; it is dropped when the window moves off.
+  const appliedTopicNonce = useRef(null);
+  const topicWindowSeenNonce = useRef(null);
+  useEffect(() => {
+    const type = planHandoff?.source === 'plan' ? planHandoff.topicType : null;
+    if (!type || appliedTopicNonce.current === planHandoff.nonce) return;
+    const landed = activeMapEvent != null
+      && activeMapEvent.eventType === planHandoff.eventType && activeMapEvent.date === planHandoff.date;
+    if (!landed) {
+      if (topicWindowSeenNonce.current === planHandoff.nonce) appliedTopicNonce.current = planHandoff.nonce;
+      return;
+    }
+    topicWindowSeenNonce.current = planHandoff.nonce;
+    if (!topicChips.some((chip) => chip.type === type)) return;
+    appliedTopicNonce.current = planHandoff.nonce;
+    pickTopicFromStrip(type, null);
+    // `pickTopicFromStrip` is re-made each render; the nonce, the landed row and the chips are the triggers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planHandoff?.nonce, activeMapEvent, topicChips]);
   const hwRingsOn = heatOffered && (heatOn || heatPinsOn);
   useEffect(() => {
     if (!onHighWaterRow) {
@@ -7649,6 +7672,8 @@ MapView.propTypes = {
     focusNames: PropTypes.arrayOf(PropTypes.string),
     /** Pins to fit the camera to. */
     focusPoints: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
+    /** A hot-topic type to select once its chip is on the landed window (a Coming up weather chip's door). */
+    topicType: PropTypes.string,
     /** The subject filter and dark-sky toggle the door switches on (promoted from the legacy props). */
     filterAction: PropTypes.string,
     darkSky: PropTypes.bool,

@@ -706,6 +706,8 @@ function AppInner() {
       ...(door.focusPoints?.length ? { focusPoints: door.focusPoints } : {}),
       ...(door.filterAction ? { filterAction: door.filterAction } : {}),
       ...(door.darkSky ? { darkSky: true } : {}),
+      // The hot-topic chip the Map selects on arrival (a Coming up weather chip's door); ABSENT otherwise.
+      ...(door.topicType ? { topicType: door.topicType } : {}),
       ...(door.title ? { title: door.title } : {}),
       ...(door.caption ? { caption: door.caption } : {}),
       // The tab the door was pressed on (a Plan, Coming up or Operations press), so the breadcrumb's

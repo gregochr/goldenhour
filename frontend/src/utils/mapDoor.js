@@ -333,6 +333,18 @@ export function normalizeMapTrigger(dateOrHandoff, eventType, locationName = nul
       date: dateOrHandoff.date,
     };
   }
+  if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'event') {
+    // The object form of the event door, for the one producer that needs a field the positional
+    // `(date, eventType)` call cannot carry: `topicType`, the Coming up weather chip's hot-topic type,
+    // which the Map selects on arrival. ABSENT (not null) when not asked, so the shape is exactly the
+    // positional call's.
+    return {
+      kind: 'event',
+      date: dateOrHandoff.date,
+      eventType: dateOrHandoff.eventType,
+      ...(dateOrHandoff.topicType ? { topicType: dateOrHandoff.topicType } : {}),
+    };
+  }
   if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.region) {
     // A region trigger, optionally carrying a hot topic's qualifying locations + label so the
     // door narrows to just those pins (elevated inversion spots, coastal tide spots, …).
@@ -400,6 +412,8 @@ export function doorFromTrigger(trigger, ctx) {
     door.night = { kind: 'aurora', date: trigger.date };
   }
   if (h.filterAction) door.filterAction = h.filterAction;
+  // The Coming up weather chip's topic, for the Map to select on arrival (`kind:'event'` only).
+  if (trigger.kind === 'event' && trigger.topicType) door.topicType = trigger.topicType;
   if (h.darkSky) door.darkSky = true;
   if (resolved.focus?.names?.length) door.focusNames = resolved.focus.names;
   if (resolved.focus?.points?.length) door.focusPoints = resolved.focus.points;
