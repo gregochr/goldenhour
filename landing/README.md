@@ -92,6 +92,11 @@ days under fixed URLs, so a changed file would be masked. A `RUN` step in `Docke
 `*.css *.js *.webp *.png` and rewrites its exact quoted reference in the pages to `"file?v=<hash>"`.
 The source HTML keeps plain URLs (local previews are unchanged), and plain paths are still served.
 
+**Caching split.** HTML is served `Cache-Control: no-cache` (revalidated on every visit, a cheap 304), so a
+deploy is seen at once; fingerprinted assets are cached for 30 days. The security headers live in
+`security-headers.conf` (included at server level and in each location) because a location with its own
+`add_header` stops inheriting the server-level ones.
+
 The live `photocast.css` still needs a one-off Cloudflare purge to clear the copy cached under the
 old plain URL. That only matters for the plain URL: once fingerprinted URLs ship, nothing requests it.
 
