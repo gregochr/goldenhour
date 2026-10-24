@@ -291,20 +291,22 @@ export default function WindowFirstComingUp({
           </div>
         )}
 
-        {/* The "Next four days" lanes (hot-topics-by-day-plan C1; they replaced the design's dashed
-            `.hoff` handoff row, plan D14) sit after the chips but —
-            unlike the chips — are NOT gated on the almanac fetch: they read `hotTopics`, a
-            wholly separate data source. Gating them on `ready` would make the tab's own boundary
-            statement vanish during a slow or failed almanac load. Only the jump button needs the
-            feed, and `renderedEntryIds` is empty until it arrives, so it simply does not render. */}
+        {/* The "Next four days" tiles (coming-up-glance-plan T1; they replaced the hot-topics-by-day
+            C1 lanes, which replaced the design's dashed `.hoff` handoff row, plan D14) sit after the
+            chips but — unlike the chips — are NOT gated on the almanac fetch: they read `hotTopics`,
+            a wholly separate data source. Gating them on `ready` would make the tab's own boundary
+            statement vanish during a slow or failed almanac load. Only a chip's jump needs the
+            feed, and `renderedEntryIds` is empty until it arrives, so no chip jumps until then. */}
         <WindowComingUpFourDays
           todayStr={todayStr}
           hotTopics={hotTopics}
           openableKeys={openableKeys}
           entries={events?.entries}
           renderedEntryIds={renderedEntryIds}
+          forecastDates={forecastDates}
           onGoToPlan={onGoToPlan}
           onGoToPlanWindow={onGoToPlanWindow}
+          onShowOnMap={onShowOnMap}
         />
 
         {status === 'ready' && monthGroups.map((group, i) => (

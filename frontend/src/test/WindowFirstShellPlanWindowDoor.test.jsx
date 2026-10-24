@@ -180,8 +180,7 @@ const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /
 /** Goes to Coming up and presses the lane button for one topic type. */
 async function pressLane(type) {
   await act(async () => { fireEvent.click(tab('Coming up')); });
-  const button = screen.getAllByTestId('coming-up-fourdays-dot')
-    .concat(screen.queryAllByTestId('coming-up-fourdays-bar'))
+  const button = screen.getAllByTestId('coming-up-fourdays-chip')
     .find((b) => b.getAttribute('data-topic') === type);
   expect(button).toBeDefined();
   await act(async () => { fireEvent.click(button); });

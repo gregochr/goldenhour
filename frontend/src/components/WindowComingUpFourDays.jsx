@@ -1,69 +1,74 @@
 import { useId, useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { buildFourDayLanes } from '../utils/fourDayLanes.js';
+import { buildFourDayTiles } from '../utils/fourDayTiles.js';
 import { scrollToEntry } from '../utils/scrollToEntry.js';
 import { GLANCE_LABEL } from '../utils/tabLabels.js';
 import GlanceLabel from './GlanceLabel.jsx';
 
-/** `Friday` — long weekday for a spoken destination, noon UTC so no zone moves the date. */
+const FOOTNOTE = "WX = weather-driven, only shown once it's in the forecast. Tap a chip to see its "
+  + 'entry below where it has one; tap a WX chip to open that morning or evening on the Map.';
+
+/** `Friday` — long weekday for a spoken form, noon UTC so no zone moves the date. */
 function longWeekday(dateStr) {
   return new Date(`${dateStr}T12:00:00Z`)
     .toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
 }
 
-/** `opens At a Glance on the Friday sunset`, or plain `opens At a Glance` when no card exists for it. */
-function destination(target) {
-  if (!target) return `opens ${GLANCE_LABEL}`;
-  const at = target.indexOf(':');
-  return `opens ${GLANCE_LABEL} on the ${longWeekday(target.slice(0, at))} ${target.slice(at + 1).toLowerCase()}`;
+/** The badge as a word a screen reader says: PEAK → "peak", FULL → "full moon". */
+function badgeWord(badge) {
+  if (!badge) return '';
+  if (badge === 'FULL') return 'full moon';
+  return String(badge).toLowerCase();
 }
 
-/**
- * The accessible name of one bar or dot — spoken words, never raw symbols.
- *
- * <p>A bar has visible text ({@code today → Mon}, {@code peak Sat · ↓ sunset}), so its name STARTS
- * with the spoken form of that text ("today to Monday, peak Saturday at sunset", WCAG 2.5.3 —
- * {@code aria-label} replaces content, so the words must be restated at the front), then names the
- * topic and where the tap goes. The visible spans are {@code aria-hidden}: the arrows, the "·" and
- * the glyphs are decoration to a screen reader. A dot's only content is an {@code aria-hidden}
- * glyph, so its name opens with the topic.
- */
-function segmentName(row, seg) {
-  if (seg.kind === 'bar') {
-    const spoken = [seg.spoken.left, seg.spoken.peak].filter(Boolean).join(', ');
-    return `${spoken}, ${row.name}, ${destination(seg.target)}`;
+/** Where the tap goes, in words — whichever of the three routes applies (see {@link tapChip}). */
+function destination(chip) {
+  if (chip.jump) return 'shown in the list below';
+  if (chip.mapDoor) {
+    return `opens the Map that ${chip.mapDoor.eventType === 'SUNSET' ? 'evening' : 'morning'}`;
   }
-  const windows = seg.windows.map((w) => w.toLowerCase()).join(' and ');
-  const when = [seg.spoken.day, windows].filter(Boolean).join(' ');
-  return `${row.name}, ${when}${seg.open ? ', runs on' : ''}, ${destination(seg.target)}`;
+  return `opens ${GLANCE_LABEL}`;
 }
 
-/** `King tide: show the run in the list, 24–29 Oct` — the jump button's name. */
-function jumpName(row, jump) {
-  return `${row.name}: show the ${jump.straddling ? 'run' : 'next run'} in the list, ${jump.dates}`;
+/** The `sr-only` tail of a chip's name: badge word, weather-driven, the weekday, the destination. */
+function spokenTail(chip, date) {
+  return [
+    badgeWord(chip.badge),
+    chip.weather ? 'weather-driven' : '',
+    longWeekday(date),
+    destination(chip),
+  ].filter(Boolean).join(', ');
 }
 
 /**
- * The Coming up tab's "Next four days" lanes (hot-topics-by-day-plan §3 C1; design
- * {@code docs/design/hot-topics-by-day/README.md} §1) — one row per hot topic, four day columns,
- * a bar for a topic spanning days and a dot for a single window. It replaces the dashed handoff
- * row (coming-up-plan D14): it still states the boundary with Plan out loud, and still reads only
- * {@code briefing.hotTopics}, ungated on the almanac fetch's {@code status}.
+ * The Coming up tab's "Next four days" tiles (coming-up-glance-plan §3 T1; design
+ * {@code docs/design/coming-up-glance/README.md} §2) — four day tiles, each listing that day's hot
+ * topics as chips. They replace the hot-topics-by-day C1 lanes (a row per topic, with bars and dots),
+ * which in turn replaced the dashed handoff row (coming-up-plan D14): the strip still states the
+ * boundary with At a Glance out loud, and still reads only {@code briefing.hotTopics}, ungated on the
+ * almanac fetch's {@code status}.
  *
- * <p>Degrades without synthesising anything: with no briefing it is the header and the four day
- * headers; with an arrived, empty list it is the header and one line.
+ * <p>Degrades without synthesising anything: with no briefing it is the header and four empty tiles;
+ * with an arrived, empty list it is the header, the four tiles and one line.
  *
- * <p>Each bar and dot is a {@code <button>}. A tap on one that has a Plan window card calls
- * {@code onGoToPlanWindow(key, type)} (opens that window's popup with the topic row emphasised);
- * one with none — Plan renders only six windows, and passed or travel-day windows are dropped —
- * calls plain {@code onGoToPlan()}, and its name says so. A bar's name starts with its visible
- * text (WCAG 2.5.3, since {@code aria-label} replaces content), then names the topic and where
- * the tap goes; arrows and glyphs are {@code aria-hidden}. The dashed jump button on a run that
- * continues past the fourth day scrolls to the matching list entry ({@code scrollToEntry}).
+ * <p><b>Each tile</b> is a {@code role="group"} named by its day header ("Saturday 24, today"); the
+ * today tile also carries {@code aria-current="date"}. A day with no topic renders no {@code <ul>}
+ * (no "list, 0 items") but keeps its tile.
  *
- * <p>Layout is CSS grid and <b>every grid item is explicitly placed</b> (row and column) —
- * auto-placement broke the design's own prototype twice. The phone rules live in
- * {@code @media (max-width: 639px)} only.
+ * <p><b>Each chip</b> is an {@code <li>} holding a {@code <button>}. Its accessible name is built from
+ * its CONTENT, with no {@code aria-label} (WCAG 2.5.3 "label in name": the name starts with the visible
+ * name): the desktop and phone names and values are paired spans, one hidden per media query; then
+ * {@code sr-only} text carries what the box and swatch show only visually — the badge as a word, "weather-driven",
+ * the weekday, and the destination. The swatch, the badge box and the WX box are {@code aria-hidden}.
+ * (jsdom loads no stylesheet in the suite, so both spans of a pair count there.)
+ *
+ * <p><b>What a tap does</b>, first match wins: a chip with a {@code jump} scrolls the list to that
+ * entry ({@code scrollToEntry}); one with a {@code mapDoor} (a weather chip, for a date the reader holds
+ * a forecast for) calls {@code onShowOnMap(date, eventType)}; otherwise {@code onGoToPlanWindow(target,
+ * type)} when a Plan window card exists for it (Plan renders only six windows), else plain
+ * {@code onGoToPlan()}. The destination in the chip's name says which.
+ *
+ * <p>The phone rules live in {@code @media (max-width: 639px)} only.
  *
  * <h2>The separator rule — inherited from the handoff row this replaces</h2>
  *
@@ -132,28 +137,36 @@ function jumpName(row, jump) {
  *                                    has arrived
  * @param {Set<string>|Array<string>} [props.openableKeys] the `date:TYPE` keys of Plan's window
  *                                    cards — the only windows a tap can open
- * @param {?Array}   [props.entries]  the served almanac entries, for the jump button
+ * @param {?Array}   [props.entries]  the served almanac entries, for a chip's jump
  * @param {Set<string>|Array<string>} [props.renderedEntryIds] ids of the entries the month list is
  *                                    rendering now; a jump never targets any other
+ * @param {?Array<string>} [props.forecastDates] the dates the reader holds a colour forecast for;
+ *                                    null = not known (no Map door withheld), an array, even empty,
+ *                                    = known (a door for a date outside it is withheld)
  * @param {function} props.onGoToPlan switches to the Plan tab and moves focus there
  * @param {function} [props.onGoToPlanWindow] `(key, topicType)` — switches to Plan, focuses the
  *                                    Plan tab and opens that window's popup with the topic emphasised
+ * @param {function} [props.onShowOnMap] `(date, eventType)` — opens the Map at that morning or
+ *                                    evening (the shell's `kind:'event'` door)
  */
 export default function WindowComingUpFourDays({
-  todayStr, hotTopics, openableKeys, entries, renderedEntryIds, onGoToPlan, onGoToPlanWindow,
+  todayStr, hotTopics, openableKeys, entries, renderedEntryIds, forecastDates, onGoToPlan,
+  onGoToPlanWindow, onShowOnMap,
 }) {
   const labelId = useId();
-  const { days, rows } = useMemo(
-    () => buildFourDayLanes({ todayStr, hotTopics, openableKeys, entries, renderedEntryIds }),
-    [todayStr, hotTopics, openableKeys, entries, renderedEntryIds],
+  const { days, topicCount } = useMemo(
+    () => buildFourDayTiles({
+      todayStr, hotTopics, openableKeys, entries, renderedEntryIds, forecastDates,
+    }),
+    [todayStr, hotTopics, openableKeys, entries, renderedEntryIds, forecastDates],
   );
 
-  const openSegment = (row, seg) => {
-    if (seg.target && onGoToPlanWindow) onGoToPlanWindow(seg.target, row.type);
+  const tapChip = (chip) => {
+    if (chip.jump) scrollToEntry(chip.jump.entryId);
+    else if (chip.mapDoor && onShowOnMap) onShowOnMap(chip.mapDoor.date, chip.mapDoor.eventType);
+    else if (chip.target && onGoToPlanWindow) onGoToPlanWindow(chip.target, chip.type);
     else onGoToPlan();
   };
-
-  const lastRow = (rows?.length ?? 0) + 1;
 
   return (
     <section
@@ -162,7 +175,17 @@ export default function WindowComingUpFourDays({
       aria-labelledby={labelId}
     >
       <div className="wf-cu-fd-head">
-        <span className="wf-cu-fd-label" id={labelId}>Next four days</span>
+        <span className="wf-cu-fd-title">
+          <span className="wf-cu-fd-label" id={labelId}>Next four days</span>
+          {topicCount > 0 && (
+            <>
+              {' '}
+              <span className="wf-cu-fd-count" data-testid="coming-up-fourdays-count">
+                {topicCount} {topicCount === 1 ? 'topic' : 'topics'} · from the forecast
+              </span>
+            </>
+          )}
+        </span>
         {' '}
         <button
           type="button"
@@ -176,133 +199,122 @@ export default function WindowComingUpFourDays({
         </button>
       </div>
 
-      {rows && rows.length === 0 && (
+      {days.length > 0 && (
+        <div className="wf-cu-fd-tiles" data-testid="coming-up-fourdays-tiles">
+          {days.map((day) => (
+            <DayTile key={day.date} day={day} idBase={labelId} onTap={tapChip} />
+          ))}
+        </div>
+      )}
+
+      {topicCount === 0 && (
         <p className="wf-cu-fd-empty" data-testid="coming-up-fourdays-empty">
           Nothing on those four days
         </p>
       )}
 
-      {days.length > 0 && !(rows && rows.length === 0) && (
-        <div className="wf-cu-fd-grid" data-testid="coming-up-fourdays-grid">
-          <span
-            className="wf-cu-fd-now"
-            aria-hidden="true"
-            style={{ gridRow: `1 / ${lastRow + 1}` }}
-          />
-          {days.map((day, i) => (
-            <span
-              key={day.date}
-              className="wf-cu-fd-day"
-              data-today={day.today ? 'true' : undefined}
-              data-testid="coming-up-fourdays-day"
-              data-col={i}
-            >
-              <i>{day.dow}</i>
-              <b>{day.dayNum}</b>
-            </span>
-          ))}
-
-          {(rows ?? []).map((row, r) => (
-            <RowCells
-              key={row.type}
-              row={row}
-              gridRow={r + 2}
-              onOpen={openSegment}
-            />
-          ))}
-        </div>
+      {topicCount > 0 && (
+        <p className="wf-cu-fd-foot" data-testid="coming-up-fourdays-foot">{FOOTNOTE}</p>
       )}
     </section>
   );
 }
 
-/** One topic's label, its bars and dots, and its jump button — every item explicitly placed. */
-function RowCells({ row, gridRow, onOpen }) {
-  const colour = { '--c': row.colour };
+/** One day's tile: a named group, its header, and (only when it has any) a list of chips. */
+function DayTile({ day, idBase, onTap }) {
+  const headId = `${idBase}-${day.date}`;
   return (
-    <>
-      <span
-        className="wf-cu-fd-n"
-        data-testid="coming-up-fourdays-label"
-        style={{ gridRow }}
-      >
-        <span className="wf-cu-fd-i" aria-hidden="true">{row.glyph}</span>
-        <span className="wf-cu-fd-nl">{row.name}</span>
-        <span className="wf-cu-fd-ns">{row.shortName}</span>
-      </span>
-      {row.segments.map((seg) => {
-        const placement = {
-          ...colour,
-          gridRow,
-          gridColumn: `${seg.start + 2} / ${seg.end + 3}`,
-        };
-        const name = segmentName(row, seg);
-        return (
-          <span key={`${seg.start}-${seg.end}`} className="wf-cu-fd-seg" style={placement}>
-            {seg.kind === 'bar' ? (
+    <div
+      className="wf-cu-fd-tile"
+      role="group"
+      aria-labelledby={headId}
+      aria-current={day.today ? 'date' : undefined}
+      data-today={day.today ? 'true' : undefined}
+      data-testid="coming-up-fourdays-day"
+    >
+      <div className="wf-cu-fd-dh" id={headId}>
+        <span className="sr-only">{`${longWeekday(day.date)} ${day.dayNum}, ${day.relative}`}</span>
+        <span className="wf-cu-fd-dow" aria-hidden="true">{day.dow}</span>
+        <span className="wf-cu-fd-dnum" aria-hidden="true">{day.dayNum}</span>
+        <span className="wf-cu-fd-rel" aria-hidden="true">
+          <span className="wf-cu-fd-rel-l">{day.relative}</span>
+          <span className="wf-cu-fd-rel-s">{day.relativeShort}</span>
+        </span>
+      </div>
+      {day.chips.length > 0 && (
+        <ul className="wf-cu-fd-chips">
+          {day.chips.map((chip) => (
+            <li key={chip.key}>
               <button
                 type="button"
-                className="wf-cu-fd-bar"
-                data-open={seg.open ? 'true' : undefined}
-                data-testid="coming-up-fourdays-bar"
-                data-topic={row.type}
-                aria-label={name}
-                onClick={() => onOpen(row, seg)}
+                className="wf-cu-fd-chip"
+                style={{ '--c': chip.colour }}
+                data-continuation={chip.isContinuation ? 'true' : undefined}
+                data-weather={chip.weather ? 'true' : undefined}
+                data-topic={chip.type}
+                data-testid="coming-up-fourdays-chip"
+                onClick={() => onTap(chip)}
               >
-                <span className="wf-cu-fd-bt" aria-hidden="true">{seg.leftText}</span>
-                {seg.rightText && (
-                  <>
+                <span className="wf-cu-fd-l1">
+                  <span className="wf-cu-fd-sw" aria-hidden="true" />
+                  <span className="wf-cu-fd-name">
+                    <span className="wf-cu-fd-nl">{chip.name}</span>
+                    <span className="wf-cu-fd-ns">{chip.chipName}</span>
+                  </span>
+                  {chip.badge && (
+                    <span className="wf-cu-fd-badge" aria-hidden="true">{chip.badge}</span>
+                  )}
+                  {chip.weather && (
+                    <span className="wf-cu-fd-wx" aria-hidden="true">WX</span>
+                  )}
+                </span>
+                {(chip.value || chip.shortValue) && (
+                  <span className="wf-cu-fd-val">
+                    {chip.value && <span className="wf-cu-fd-vl">{chip.value}</span>}
                     {' '}
-                    <span className="wf-cu-fd-pk" aria-hidden="true">{seg.rightText}</span>
-                  </>
+                    {chip.shortValue && <span className="wf-cu-fd-vs">{chip.shortValue}</span>}
+                  </span>
                 )}
+                {' '}
+                <span className="sr-only">{spokenTail(chip, day.date)}</span>
               </button>
-            ) : (
-              <button
-                type="button"
-                className="wf-cu-fd-dot"
-                data-open={seg.open ? 'true' : undefined}
-                data-testid="coming-up-fourdays-dot"
-                data-topic={row.type}
-                aria-label={name}
-                onClick={() => onOpen(row, seg)}
-              >
-                <span className="wf-cu-fd-dv" aria-hidden="true">{seg.glyph}</span>
-              </button>
-            )}
-          </span>
-        );
-      })}
-      {row.segments.filter((seg) => seg.jump).map((seg) => (
-        <button
-          key={`jump-${seg.start}`}
-          type="button"
-          className="wf-cu-fd-jump"
-          data-testid="coming-up-fourdays-jump"
-          data-topic={row.type}
-          aria-label={jumpName(row, seg.jump)}
-          title={seg.jump.label}
-          style={{ ...colour, gridRow }}
-          onClick={() => scrollToEntry(seg.jump.entryId)}
-        >
-          <span aria-hidden="true">↓</span>
-        </button>
-      ))}
-    </>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
-RowCells.propTypes = {
-  row: PropTypes.shape({
-    type: PropTypes.string.isRequired,
-    name: PropTypes.string.isRequired,
-    shortName: PropTypes.string.isRequired,
-    glyph: PropTypes.string.isRequired,
-    colour: PropTypes.string.isRequired,
-    segments: PropTypes.array.isRequired,
+const chipShape = PropTypes.shape({
+  key: PropTypes.string.isRequired,
+  type: PropTypes.string.isRequired,
+  name: PropTypes.string.isRequired,
+  chipName: PropTypes.string.isRequired,
+  colour: PropTypes.string.isRequired,
+  value: PropTypes.string,
+  shortValue: PropTypes.string,
+  badge: PropTypes.string,
+  weather: PropTypes.bool.isRequired,
+  isContinuation: PropTypes.bool.isRequired,
+  events: PropTypes.arrayOf(PropTypes.string).isRequired,
+  jump: PropTypes.shape({ entryId: PropTypes.string.isRequired }),
+  mapDoor: PropTypes.shape({ date: PropTypes.string.isRequired, eventType: PropTypes.string.isRequired }),
+  target: PropTypes.string,
+});
+
+DayTile.propTypes = {
+  day: PropTypes.shape({
+    date: PropTypes.string.isRequired,
+    dow: PropTypes.string.isRequired,
+    dayNum: PropTypes.string.isRequired,
+    relative: PropTypes.string.isRequired,
+    relativeShort: PropTypes.string.isRequired,
+    today: PropTypes.bool.isRequired,
+    chips: PropTypes.arrayOf(chipShape).isRequired,
   }).isRequired,
-  gridRow: PropTypes.number.isRequired,
-  onOpen: PropTypes.func.isRequired,
+  idBase: PropTypes.string.isRequired,
+  onTap: PropTypes.func.isRequired,
 };
 
 WindowComingUpFourDays.propTypes = {
@@ -313,6 +325,8 @@ WindowComingUpFourDays.propTypes = {
   renderedEntryIds: PropTypes.oneOfType([
     PropTypes.instanceOf(Set), PropTypes.arrayOf(PropTypes.string),
   ]),
+  forecastDates: PropTypes.arrayOf(PropTypes.string),
   onGoToPlan: PropTypes.func.isRequired,
   onGoToPlanWindow: PropTypes.func,
+  onShowOnMap: PropTypes.func,
 };
