@@ -1431,8 +1431,11 @@ export default function WindowFirstShell({
    * reader who Tabs out of the sheet reaches neither a card behind the scrim nor a banner above the
    * shell; and {@code selectTab} closes the sheet on any tab change, from any route.
    */
+  // A reader who is not PRO or ADMIN sees every entry LOCKED (greyed, really disabled, a "Pro" pill beside
+  // it): `locked` draws wherever `on` and `down` do, and refuses at every opener and the `/` key.
+  const askLocked = ask.availability === 'locked';
   const askEntry = (() => {
-    if (ask.availability !== 'on' && ask.availability !== 'down') return null;
+    if (ask.availability !== 'on' && ask.availability !== 'down' && !askLocked) return null;
     const onSkyTab = effectiveTab === 'plan' || effectiveTab === 'coming-up';
     if (askSurface === 'phone') return onSkyTab ? 'bar' : null;
     if (askSurface === 'tablet') return onSkyTab || effectiveTab === 'map' ? 'field' : null;
@@ -1441,7 +1444,7 @@ export default function WindowFirstShell({
   // The docked surface's entry: the same tabs as the tablet's field, from 1024px. "Is there a dock to
   // open" — `askDockOpen` is "is it open".
   const askDocked = askSurface === 'desktop' || askSurface === 'wide';
-  const askDockEntry = (ask.availability === 'on' || ask.availability === 'down')
+  const askDockEntry = (ask.availability === 'on' || ask.availability === 'down' || askLocked)
     && askDocked && effectiveTab !== 'operations';
   // ⚠️ `askSheetOpen` would otherwise be held while NOTHING draws the sheet — the window crossing 1024px, a
   // phone Map, Ask switched off — and bring the sheet back by itself the next time an entry exists (an
@@ -1459,14 +1462,15 @@ export default function WindowFirstShell({
   // gone (its event passed) is deliberately never released — it would leave the entry disabled with
   // no dialog on screen and nothing to say why.
   const askDialogOpen = openCard != null || modalOpenOverPopup || settingsOpen;
-  const askDisabled = ask.availability === 'down' || Boolean(contentDisabled) || askDialogOpen;
+  // `askLocked` is folded in here so the `/` key (which reads this) is refused BEFORE its `preventDefault`.
+  const askDisabled = ask.availability === 'down' || askLocked || Boolean(contentDisabled) || askDialogOpen;
   const askViewSpec = ASK_VIEW[effectiveTab] ?? ASK_VIEW.plan;
   // The tablet's Operations tab draws no field, but the tab list is `flex: 1` with Operations pinned
   // to its right edge (`.wf-tab-gated`): without something holding the field's width, pressing
   // Operations would widen the list and slide the button out from under the pointer.
   // Held from 1024px too (F2), where Operations is the same admin-only tab pinned to the same edge.
   const askGhost = (askSurface === 'tablet' || askDocked) && effectiveTab === 'operations'
-    && (ask.availability === 'on' || ask.availability === 'down');
+    && (ask.availability === 'on' || ask.availability === 'down' || askLocked);
   const askFieldWidth = ASK_FIELD_WIDTH[askSurface] ?? 260;
   /**
    * Opens the sheet. The entry is {@code disabled} (a real attribute, so no press reaches this) while
@@ -1475,6 +1479,7 @@ export default function WindowFirstShell({
    * {@code role="dialog"} outside this root), at press time, and refused with nothing taken down.
    */
   const openAskSheet = () => {
+    if (askLocked) return;
     if (foreignDialogOpen(shellRef.current)) return;
     setAskSheetOpen(true);
   };
@@ -1672,10 +1677,11 @@ export default function WindowFirstShell({
    * {@code disabled} while one of its own stands. Opening focuses the field from the dock's own mount.
    */
   const openAskDock = useCallback(() => {
+    if (askLocked) return;
     if (foreignDialogOpen(shellRef.current)) return;
     if (askDockShown) askDockInputRef.current?.focus({ preventScroll: true });
     else setAskDockOpen(true);
-  }, [askDockShown]);
+  }, [askDockShown, askLocked]);
   /**
    * The ✕ and Escape inside the dock: CLOSE, keep the conversation, and put focus on the field.
    *
@@ -2368,6 +2374,7 @@ export default function WindowFirstShell({
           width={260}
           prompt={askEntryText}
           disabled={askDisabled}
+          locked={askLocked}
           expanded={askSheetShown}
           onOpen={openAskSheet}
           buttonRef={askTriggerRef}
@@ -2383,6 +2390,7 @@ export default function WindowFirstShell({
           keyShortcut
           prompt={askEntryText}
           disabled={askDisabled}
+          locked={askLocked}
           expanded={askDockShown}
           controls={ASK_DOCK_ID}
           onOpen={openAskDock}
@@ -2734,6 +2742,7 @@ export default function WindowFirstShell({
         <AskBar
           prompt={askEntryText}
           disabled={askDisabled}
+          locked={askLocked}
           expanded={askSheetShown}
           onOpen={openAskSheet}
           buttonRef={askTriggerRef}

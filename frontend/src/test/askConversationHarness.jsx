@@ -28,7 +28,7 @@ import {
  */
 
 /** The role the mocked `useAuth` answers with; {@link installAskConversationMocks} resets it. */
-export const auth = { role: 'LITE_USER' };
+export const auth = { role: 'PRO_USER' };
 
 export const LAKES = {
   id: 3, name: 'The Lake District', enabled: true, baseName: 'Keswick', baseLat: 54.6013, baseLon: -3.1347,
@@ -123,7 +123,7 @@ export function installAskConversationMocks() {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(NOW);
   localStorage.clear();
-  auth.role = 'LITE_USER';
+  auth.role = 'PRO_USER';
   vi.resetAllMocks();
   getDailyBriefing.mockResolvedValue(briefing());
   fetchTravelDayRanges.mockResolvedValue([]);

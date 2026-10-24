@@ -211,7 +211,7 @@ function context(over = {}) {
     scoresLoaded: true,
     briefing: briefing(),
     regions: [{ id: 5, name: REGION, enabled: true }],
-    isPro: false,
+    isPro: true,
     ...over,
   };
 }

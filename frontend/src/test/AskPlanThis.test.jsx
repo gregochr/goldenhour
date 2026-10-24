@@ -61,7 +61,7 @@ const baseCtx = () => ({
   effectiveReachById: home([[WHITBY, 95], [SALTBURN, 50]]),
   scoreRows: SCORE_ROWS,
   homePlace: 'Newcastle',
-  isPro: false,
+  isPro: true,
 });
 
 /** The conversation's latest value. */

@@ -31,7 +31,7 @@ const narrow = () => vi.spyOn(window, 'matchMedia').mockImplementation((query) =
 }));
 
 describe('AskEventCard — the safety note', () => {
-  it.each(['LITE_USER', 'PRO_USER', 'ADMIN'])('is visible, and in the accessibility tree, for %s', (role) => {
+  it.each(['PRO_USER', 'ADMIN'])('is visible, and in the accessibility tree, for %s', (role) => {
     mockRole = role;
 
     render(<AskEventCard event={eclipseEvent()} />);

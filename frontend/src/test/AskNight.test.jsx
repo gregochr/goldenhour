@@ -161,35 +161,6 @@ describe('the night pick card', () => {
     ]);
   });
 
-  it('for LITE, shows the astro card alone and NEVER requests the aurora payload', async () => {
-    ctx = baseCtx({ isPro: false });
-    ask.mockResolvedValue(nightAnswer());
-    await renderAsk();
-
-    await askTyped('Clear skies tonight?');
-
-    await screen.findByTestId('ask-pick-1');
-    expect(screen.getByTestId('ask-pick-score-1-sky')).toBeInTheDocument();
-    expect(screen.queryByTestId('ask-pick-score-1-aurora')).toBeNull();
-    expect(getAstroConditions).toHaveBeenCalledTimes(1);
-    expect(getAuroraForecastResults).not.toHaveBeenCalled();
-  });
-
-  it('⚠️ for LITE, an aurora pick has no card and the aurora endpoint is still not touched', async () => {
-    ctx = baseCtx({ isPro: false });
-    ask.mockResolvedValue(nightAnswer({
-      picks: [nightPick({ targetType: 'AURORA', windowId: '2026-10-05_aurora', ratingAtAnswer: 3 })],
-    }));
-    await renderAsk();
-
-    await askTyped('Any aurora tonight?');
-    await act(async () => {});
-
-    expect(screen.queryByTestId('ask-pick-1')).toBeNull();
-    expect(getAuroraForecastResults).not.toHaveBeenCalled();
-    expect(getAstroConditions).not.toHaveBeenCalled();
-  });
-
   it('drops a pick whose place is not on the night\'s payload, and never renumbers the ones that stay', async () => {
     ask.mockResolvedValue(nightAnswer({
       picks: [

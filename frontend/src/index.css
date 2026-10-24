@@ -14280,6 +14280,19 @@ button.wf-mchip:hover {
   cursor: pointer;
 }
 .wf-ask-bar:disabled { opacity: .5; cursor: default; }
+/* LOCKED (a reader who is not PRO or ADMIN). The bar stays the opaque, hit-testable fixed box above — the
+   lock is `.wf-lens-locked` on the INNER span only, so a tap can never fall through to the card scrolled
+   beneath it — and the box's own disabled dim is lifted so the inner span reads at the drive row's .45
+   rather than the two composing to ~.23 (the "Pro" pill, a sibling of that span, stays undimmed). */
+.wf-ask-bar[data-locked]:disabled { opacity: 1; }
+.wf-ask-bar-inner {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wf-ask-bar > .wf-lens-pro { flex: none; margin-right: 8px; }
 .wf-ask-bar:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;
@@ -14359,6 +14372,19 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   background: rgba(201, 162, 75, .1);
 }
 .wf-askf:disabled { opacity: .5; cursor: default; }
+/* LOCKED: the field sits in `.wf-lens-locked` and the "Pro" pill is the wrapper's sibling. The field's own
+   disabled dim is lifted under the lock (no double dim: .5 inside .45 is ~.23). The margin that used to be
+   the button's moves to the row, so the field keeps its place in the tab row. */
+.wf-askf-lockrow {
+  flex: none;
+  align-self: flex-end;
+  display: flex;
+  align-items: flex-end;
+  margin: 0 var(--wf-gutter) 6px 0;
+}
+.wf-askf-lockrow .wf-askf { margin: 0; }
+.wf-askf-lockrow > .wf-lens-pro { margin: 0 0 8px 6px; }
+.wf-lens-locked .wf-askf:disabled { opacity: 1; }
 .wf-askf:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;
@@ -14694,6 +14720,11 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   cursor: pointer;
 }
 .wf-map-peek-ask-entry:disabled { opacity: .5; cursor: default; }
+/* LOCKED: the entry's `.wf-lens-locked` wrapper takes the row's flex share, so the entry's own `flex: 1`
+   applies inside it; the "Pro" pill is the row's next sibling. The disabled dim is lifted under the lock. */
+.wf-map-peek-ask-lockwrap { flex: 1; min-width: 0; display: flex; }
+.wf-map-peek-ask-row > .wf-lens-pro { flex: none; align-self: center; }
+.wf-lens-locked .wf-map-peek-ask-entry:disabled { opacity: 1; }
 .wf-map-peek-ask-entry:focus-visible,
 .wf-map-peek-ask-x:focus-visible {
   outline: 2px solid var(--color-plex-gold);

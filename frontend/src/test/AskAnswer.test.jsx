@@ -463,7 +463,7 @@ describe('AskConversation — a typed question', () => {
     expect(screen.queryByTestId('ask-events')).toBeNull();
   });
 
-  it.each(['LITE_USER', 'PRO_USER', 'ADMIN'])('shows an event’s safety note on a typed answer to a %s', async (role) => {
+  it.each(['PRO_USER', 'ADMIN'])('shows an event’s safety note on a typed answer to a %s', async (role) => {
     auth.role = role;
     ask.mockResolvedValue(ownResponse());
     await renderAsk();

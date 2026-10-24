@@ -91,6 +91,7 @@ export default function MapPeekAsk({
   const {
     phase, typedDisabled, availability, inputError,
   } = ask;
+  const locked = availability === 'locked';
   const settled = SETTLED_PHASES.includes(phase);
   // ⚠️ A refusal's sentence is shown in the collapsed row only while the reader has not yet SEEN it. The
   // conversation, while the section is open, renders it itself (and announces it); `inputError` then
@@ -166,6 +167,39 @@ export default function MapPeekAsk({
     onClose();
   };
 
+  // Locked (the reader is not PRO or ADMIN): the entry sits in a `wf-lens-locked` wrapper and the "Pro" pill is
+  // its sibling, outside the grey. Otherwise the bare button, exactly as it always was.
+  const entryButton = (
+    <button
+      ref={entryRef}
+      type="button"
+      className="wf-map-peek-ask-entry"
+      data-testid="wf-map-peek-ask-entry"
+      aria-expanded={locked ? undefined : 'false'}
+      aria-label={unseenError ? `${PEEK_ASK_PROMPT} ${unseenError}` : undefined}
+      disabled={availability === 'down' || locked}
+      onClick={onOpen}
+    >
+      <span className="wf-map-peek-ask-k" aria-hidden="true">Ask</span>
+      <span
+        className="wf-map-peek-ask-q"
+        data-error={unseenError ? 'true' : undefined}
+        data-testid="wf-map-peek-ask-q"
+      >
+        {unseenError ?? PEEK_ASK_PROMPT}
+      </span>
+      <span className="wf-map-peek-ask-go" aria-hidden="true">↑</span>
+    </button>
+  );
+  const entryRow = locked ? (
+    <>
+      <span className="wf-map-peek-ask-lockwrap wf-lens-locked" data-testid="wf-map-peek-ask-locked">
+        {entryButton}
+      </span>
+      <span className="wf-lens-pro" data-testid="wf-map-peek-ask-upsell">Pro</span>
+    </>
+  ) : entryButton;
+
   return (
     <div
       ref={wrapRef}
@@ -193,26 +227,7 @@ export default function MapPeekAsk({
             {settled && <span id={hintId} className="sr-only">{NEW_CONVERSATION_HINT}</span>}
           </>
         ) : (
-          <button
-            ref={entryRef}
-            type="button"
-            className="wf-map-peek-ask-entry"
-            data-testid="wf-map-peek-ask-entry"
-            aria-expanded="false"
-            aria-label={unseenError ? `${PEEK_ASK_PROMPT} ${unseenError}` : undefined}
-            disabled={availability === 'down'}
-            onClick={onOpen}
-          >
-            <span className="wf-map-peek-ask-k" aria-hidden="true">Ask</span>
-            <span
-              className="wf-map-peek-ask-q"
-              data-error={unseenError ? 'true' : undefined}
-              data-testid="wf-map-peek-ask-q"
-            >
-              {unseenError ?? PEEK_ASK_PROMPT}
-            </span>
-            <span className="wf-map-peek-ask-go" aria-hidden="true">↑</span>
-          </button>
+          entryRow
         )}
       </div>
       {expanded && (

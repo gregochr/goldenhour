@@ -38,9 +38,6 @@ import { windowKey } from './windowKeys.js';
 /** The input's placeholder once typed questions are off for the day (design State 7). */
 export const READY_ONLY_PLACEHOLDER = 'Ready questions only today';
 
-/** The Pro allowance quoted in the upsell line. The design's figure — `photocast.ask.limit-pro`'s default. */
-export const PRO_DAILY_LIMIT = 30;
-
 /** The wire's `kind` values. */
 export const KIND = { READY: 'ready', OWN: 'own', CANT: 'cant' };
 

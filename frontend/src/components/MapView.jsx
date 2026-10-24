@@ -1259,7 +1259,7 @@ CentreOnHomeControl.propTypes = {
  *       and {@code PinsLayer} draw as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -5869,6 +5869,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * rule on this tab and the shell's own `openAskSheet` apply).
    */
   function openAskSection() {
+    if (askLocked) return;
     if (foreignModalOver(mapPaneRef.current)) return;
     // Not `handlePeekPress`'s toggle: this only ever OPENS (the control that calls it is not drawn while
     // the section is open), and a second press landing before the first has re-rendered must not shut it.
@@ -7840,6 +7841,8 @@ MapView.propTypes = {
   askAnswerId: PropTypes.number,
   onAskContext: PropTypes.func,
   askOffered: PropTypes.bool,
+  /** The reader is not PRO or ADMIN: the peek draws Ask's row locked and it never opens. */
+  askLocked: PropTypes.bool,
   askPhase: PropTypes.oneOf(['empty', 'busy', 'answer', 'plan', 'cant', 'error']),
   panelShown: PropTypes.bool,
   /**
