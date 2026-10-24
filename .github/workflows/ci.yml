@@ -28,7 +28,8 @@ concurrency:
 jobs:
 
   # ── Docs-only detection ──────────────────────────────────────────────────────
-  # A CHANGELOG or docs/ change cannot break a test, so running the full suite for
+  # A CHANGELOG, docs/ or landing/ change cannot break a test (landing/ is the static
+  # marketing site, deployed by release-landing.sh and never built here), so running the full suite for
   # one costs ~8 minutes to prove nothing.
   #
   # The obvious approach — `paths-ignore` on the trigger — is a TRAP here. Branch
@@ -41,7 +42,8 @@ jobs:
   #
   # Fail-safe by construction: every ambiguous case (not a PR, empty diff, any
   # non-doc path, any error) yields docs_only=false and the full suite runs. The
-  # only route to skipping is an explicit, non-empty, entirely-documentation diff.
+  # only route to skipping is an explicit, non-empty diff of documentation and the
+  # landing site alone.
   changes:
     name: Detect docs-only change
     runs-on: ubuntu-latest
@@ -77,12 +79,13 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED" | sed 's/^/  /'
 
-          # Documentation is *.md anywhere, or anything under docs/. Deliberately
-          # narrow: .github/workflows/** is code, and so is everything else.
-          NON_DOC=$(echo "$CHANGED" | grep -vE '(^docs/|\.md$)' || true)
+          # Documentation is *.md anywhere, or anything under docs/; the landing site is
+          # anything under landing/ (root only, so backend/landing/ still counts as code).
+          # Deliberately narrow: .github/workflows/** is code, and so is everything else.
+          NON_DOC=$(echo "$CHANGED" | grep -vE '(^docs/|^landing/|\.md$)' || true)
 
           if [ -z "$NON_DOC" ]; then
-            echo "Documentation only — the suite proves nothing here, skipping it."
+            echo "Documentation or the landing site only — the suite proves nothing here, skipping it."
             echo "docs_only=true" >> "$GITHUB_OUTPUT"
           else
             echo "Non-documentation paths present:"

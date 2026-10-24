@@ -60,12 +60,12 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED" | sed 's/^/  /'
 
-          # Same narrow rule as ci.yml: *.md anywhere, or anything under docs/.
+          # Same narrow rule as ci.yml: *.md anywhere, or anything under docs/ or landing/.
           # .github/workflows/** is code and is scanned.
-          NON_DOC=$(echo "$CHANGED" | grep -vE '(^docs/|\.md$)' || true)
+          NON_DOC=$(echo "$CHANGED" | grep -vE '(^docs/|^landing/|\.md$)' || true)
 
           if [ -z "$NON_DOC" ]; then
-            echo "Documentation only — a diff scan of a diff with no code finds nothing."
+            echo "Documentation or the landing site only — a diff scan of a diff with no Java to analyse finds nothing."
             echo "docs_only=true" >> "$GITHUB_OUTPUT"
           else
             echo "Non-documentation paths present:"
