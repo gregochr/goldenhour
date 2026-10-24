@@ -381,6 +381,16 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
     expect(handoff).not.toHaveProperty('night');
   });
 
+  it('T3: a kind:\'event\' trigger with a topicType puts it in the handoff', async () => {
+    const handoff = await press({ kind: 'event', date: TOMORROW, eventType: 'SUNSET', topicType: 'DUST' });
+    expect(handoff).toMatchObject({ source: 'plan', eventType: 'SUNSET', date: TOMORROW, topicType: 'DUST' });
+  });
+
+  it('T3: the plain kind:\'event\' trigger has no topicType key', async () => {
+    const handoff = await press({ kind: 'event', date: TOMORROW, eventType: 'SUNSET' });
+    expect(handoff).not.toHaveProperty('topicType');
+  });
+
   it('C4: a dark-sky coming-up trigger carries the dark-sky lens and the card\'s headline, no subject filter', async () => {
     const handoff = await press({
       kind: 'coming-up', darkSky: true, filterAction: null, label: 'Meteor shower', date: TOMORROW,

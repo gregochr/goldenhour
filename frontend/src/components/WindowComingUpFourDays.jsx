@@ -152,8 +152,8 @@ function spokenTail(chip, date) {
  * @param {function} props.onGoToPlan switches to the Plan tab and moves focus there
  * @param {function} [props.onGoToPlanWindow] `(key, topicType)` — switches to Plan, focuses the
  *                                    Plan tab and opens that window's popup with the topic emphasised
- * @param {function} [props.onShowOnMap] `(date, eventType)` — opens the Map at that morning or
- *                                    evening (the shell's `kind:'event'` door)
+ * @param {function} [props.onShowOnMap] `({kind:'event', date, eventType, topicType})` — opens the Map at
+ *                                    that morning or evening with the chip's topic selected
  */
 export default function WindowComingUpFourDays({
   todayStr, hotTopics, openableKeys, entries, renderedEntryIds, forecastDates, onGoToPlan,
@@ -172,7 +172,9 @@ export default function WindowComingUpFourDays({
 
   const tapChip = (chip) => {
     if (chip.jump) scrollToEntry(chip.jump.entryId);
-    else if (chip.mapDoor) onShowOnMap(chip.mapDoor.date, chip.mapDoor.eventType);
+    else if (chip.mapDoor) onShowOnMap({
+      kind: 'event', date: chip.mapDoor.date, eventType: chip.mapDoor.eventType, topicType: chip.type,
+    });
     else if (chip.target && onGoToPlanWindow) onGoToPlanWindow(chip.target, chip.type);
     else onGoToPlan();
   };

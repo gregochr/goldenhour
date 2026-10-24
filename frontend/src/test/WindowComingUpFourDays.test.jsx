@@ -211,7 +211,9 @@ describe('WindowComingUpFourDays — what a tap does (first match wins)', () => 
       hotTopics: [inversion], openableKeys: new Set([`${SUN}:SUNRISE`]),
     });
     fireEvent.click(chip('INVERSION'));
-    expect(onShowOnMap).toHaveBeenCalledWith(SUN, 'SUNRISE');
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      kind: 'event', date: SUN, eventType: 'SUNRISE', topicType: 'INVERSION',
+    });
     expect(scrollToEntry).not.toHaveBeenCalled();
     expect(onGoToPlanWindow).not.toHaveBeenCalled();
     expect(onGoToPlan).not.toHaveBeenCalled();

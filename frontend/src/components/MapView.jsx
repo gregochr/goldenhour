@@ -1477,6 +1477,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The last `planHandoff` night this map followed - see the night-follow effect below. */
   const appliedPlanNightNonce = useRef(null);
   /**
+   * The last `planHandoff` nonce whose topic door (`planHandoff.topicType`) is SPENT: applied, cancelled by a
+   * reader's window or topic choice, or found not to match the window the map landed on. See the topic-door
+   * effect. {@link spendTopicDoor} is the one writer besides that effect.
+   */
+  const appliedTopicNonce = useRef(null);
+  /** Spends the standing topic door, if any: the reader has acted, so the door must not fire later. */
+  function spendTopicDoor() {
+    if (planHandoff) appliedTopicNonce.current = planHandoff.nonce;
+  }
+  /**
    * The Map tab's two heat controls, and the nonce that re-frames the camera.
    *
    * <p>Both are local to this mount, so the Plan tab's open row and this tab cannot pull each other
@@ -1924,6 +1934,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // hears the key, so this clears the topic ITSELF - exactly one level - and the NEXT press
         // dismisses the card as it always did. Deferring unconditionally left Escape doing nothing.
         if (!mapPaneRef.current?.contains(e.target)) {
+          spendTopicDoor();
           setSelectedTopic(null);
           setTopicAnnounce('Topic selection cleared.');
         }
@@ -3898,6 +3909,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // A window followed on purpose, from ANY route (Ask, or the door's own night-follow), supersedes
     // a door night still waiting for its row: the row arriving later must not yank the map back.
     if (planHandoff) appliedPlanNightNonce.current = planHandoff.nonce;
+    spendTopicDoor();
     setEventType(row.eventType);
     setUserHasOverriddenEvent(true);
     if (forwardable) {
@@ -4373,6 +4385,38 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     setSelectedTopic(null);
     if (!onHighWaterRow) setTopicAnnounce('Topic selection cleared: it is not on this window.');
   }, [selectedTopic, activeTopicChip, onHighWaterRow]);
+  // ── A door that names a topic (T3, `coming-up-glance-plan.md`): a Coming up weather chip opens the Map at its
+  // window with that topic's chip selected. The door gets ONE chance, keyed on the handoff nonce; the nonce is
+  // spent (`appliedTopicNonce`) by whichever comes first:
+  //   (a) the selection is applied (through `pickTopicFromStrip`, only when the landed window carries the type);
+  //   (b) the reader changes the window (`selectEvRow` - the pill, the steppers, the strip's moves - or
+  //       `followWindowRow`; the aurora auto-jump does not spend, (d) covers wherever it lands);
+  //   (c) the reader makes any topic choice (`toggleTopic`, `pickTopicFromStrip`, either Escape path clearing it);
+  //   (d) the effect evaluates once the door's event is the map's event and rows exist, and the active window is
+  //       NOT the door's date and event (the map landed elsewhere, or the door's row is absent): spent, no selection;
+  //   (e) the door's window has landed and the topic data is loaded: DECIDED at once - applied if the chip is
+  //       there, otherwise spent with no selection, so a later poll or scope change that adds the chip is ignored.
+  // The door WAITS only for data that is not there yet: rows not loaded, or `hotTopics` not served (a null or
+  // absent list). A re-render of the same nonce never re-selects, so a reader's deselect stays.
+  useEffect(() => {
+    const type = planHandoff?.source === 'plan' ? planHandoff.topicType : null;
+    if (!type || appliedTopicNonce.current === planHandoff.nonce) return;
+    // The landing effect sets the door's event a tick after the handoff arrives; judge nothing before it has.
+    if (eventType !== planHandoff.eventType) return;
+    const landed = activeMapEvent != null
+      && activeMapEvent.eventType === planHandoff.eventType && activeMapEvent.date === planHandoff.date;
+    if (!landed) {
+      // Rows loaded and none is the door's window (or a different one is showing): the door is spent.
+      if (activeMapEvent != null || mapEvents.length > 0) appliedTopicNonce.current = planHandoff.nonce;
+      return;
+    }
+    // The topic data has not been served yet (an absent list reads as the shared empty default): wait for it.
+    if (!Array.isArray(hotTopics) || hotTopics === NO_HOT_TOPICS || topicRoster.length === 0) return;
+    appliedTopicNonce.current = planHandoff.nonce;
+    if (topicChips.some((chip) => chip.type === type)) pickTopicFromStrip(type, null);
+    // `pickTopicFromStrip` is re-made each render; the nonce, the landed row and the chips are the triggers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planHandoff?.nonce, activeMapEvent, topicChips, eventType, hotTopics, topicRoster]);
   const hwRingsOn = heatOffered && (heatOn || heatPinsOn);
   useEffect(() => {
     if (!onHighWaterRow) {
@@ -4501,6 +4545,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const next = selectedTopic === type ? null : type;
     // A press is the reader's own choice: it spends the High-water row's auto-selection (see above).
     hwAutoTopicRef.current = false;
+    spendTopicDoor();
     setSelectedTopic(next);
     setTopicAnnounce(topicAnnouncement(chip, next != null, ringsAvailable && (chip?.places?.length ?? 0) > 0));
   }
@@ -4559,6 +4604,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   function pickTopicFromStrip(type, row, movedMessage = null) {
     hwAutoTopicRef.current = false;
+    spendTopicDoor();
     setSelectedTopic(type);
     if (row && row.id !== activeMapEvent?.id) {
       pendingTopicAnnounce.current = movedMessage;
@@ -5547,6 +5593,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const typeChanged = row.eventType !== eventType && !hwStep;
     // A window the reader chose themselves spends any door night still waiting for its row.
     if (planHandoff) appliedPlanNightNonce.current = planHandoff.nonce;
+    spendTopicDoor();
     setUserHasOverriddenEvent(true);
     setEventType(row.eventType);
     if (typeChanged) {
@@ -6098,6 +6145,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       return;
     }
     // A selected hot topic is the LAST layer to go, after the callout: one press, one level.
+    // Reaching this layer is the reader's own dismissal: a door still waiting for its data is spent by it.
+    spendTopicDoor();
     if (selectedTopic != null) {
       setSelectedTopic(null);
       setTopicAnnounce('Topic selection cleared.');
@@ -7649,6 +7698,8 @@ MapView.propTypes = {
     focusNames: PropTypes.arrayOf(PropTypes.string),
     /** Pins to fit the camera to. */
     focusPoints: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
+    /** A hot-topic type to select once its chip is on the landed window (a Coming up weather chip's door). */
+    topicType: PropTypes.string,
     /** The subject filter and dark-sky toggle the door switches on (promoted from the legacy props). */
     filterAction: PropTypes.string,
     darkSky: PropTypes.bool,
