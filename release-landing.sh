@@ -227,7 +227,7 @@ git fetch -q origin "$1"
 echo "FETCHED=$(git rev-parse FETCH_HEAD)"
 echo "PREV=$( (cat ~/.photocast-landing-deployed 2>/dev/null || true) | awk '{print $1}')"
 echo "---"
-git diff --stat FETCH_HEAD -- landing/
+git diff --stat -R FETCH_HEAD -- landing/
 REMOTE
 ) || die "could not fetch origin/$REF on the host"
 FETCHED=$(sed -n 's/^FETCHED=//p' <<< "$REMOTE_INFO")
@@ -254,7 +254,7 @@ if [[ -z "$DIFFSTAT" ]]; then
         echo "  host files already match but the marker says ${MARKER:-unknown} is deployed; rebuilding."
     fi
 else
-    echo "  host working tree vs $SHORT:"
+    echo "  what the deploy changes on the host (host now → $SHORT):"
     printf '%s\n' "$DIFFSTAT" | sed 's/^/    /'
 fi
 
