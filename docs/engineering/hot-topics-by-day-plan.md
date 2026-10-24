@@ -884,8 +884,8 @@ changes".
 | B1 | #1320 | ✅ merged 2026-10-23 (`3bed1f56`); Codex 👍 first round |
 | C1 | #1322 | ✅ merged 2026-10-23 (`8661a732`) and released in v2.31.0. One Codex round: the tide continuation now reads the tide's own span. Not seen in the real app behind sign-in |
 | M1 | #1328 | ✅ merged 2026-10-23 (`ebf1be9e`); Codex 👍 on the first round. Q13 applied; the label-obstacle numbers are below |
-| M2 | — | built 2026-10-24 by Sonnet; four review lenses, one fix round. The label-obstacle numbers are below |
-| M3 | — | after B1 and M2 |
+| M2 | #1329 | ✅ merged 2026-10-24 (`5717cbb1`); Codex 👍 on the first round. The label-obstacle numbers are below |
+| M3 | — | built 2026-10-24 by Sonnet. Four review lenses, one of them on the sweep alone; one fix round. Fixes: expiry never fights a door, no night reading, the exemption scoped to HW↔solar, the breadcrumb word, the counts footer, and tick placement |
 | M4 | — | after M2, if Q5 |
 
 **M1 label-obstacle measurement** (2026-10-23):

@@ -58,6 +58,27 @@ export const MONDAY_NOT_ALIGNED = {
   otherWindows: 1,
 };
 
+/**
+ * Friday 23 Oct (BST): an UNALIGNED day whose lead high water falls strictly between the lights
+ * (hot-topics-by-day B1): `daylightHighWater` with the anchor structure's own sunrise and sunset.
+ * Window 11:30-14:00 UK, high water 12:40 UK (11:40Z), sunrise 07:20 and sunset 17:40 UK, so the tick
+ * sits 5h20 of 10h20 = 51.6% of the way along the day.
+ */
+export const FRIDAY_HW = {
+  date: '2026-10-23',
+  windowStart: '2026-10-23T10:30:00',
+  windowEnd: '2026-10-23T13:00:00',
+  hwTime: '2026-10-23T11:40:00',
+  daylightHighWater: true,
+  daylightStart: '2026-10-23T06:20:00',
+  daylightEnd: '2026-10-23T16:40:00',
+  waveHeightM: 3.4,
+  waveDirectionDeg: 15,
+  wavePeriodS: 9,
+  structures: SATURDAY.structures,
+  otherWindows: 0,
+};
+
 /** One solar EV row, shaped like `buildMapEvents`' output for the fields the line reads. */
 export function solarRow(date, eventType, extra = {}) {
   return {

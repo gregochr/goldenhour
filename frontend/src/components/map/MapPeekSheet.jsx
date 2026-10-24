@@ -8,6 +8,7 @@ import { isNightRow } from '../../utils/mapPeek.js';
 import { EVENT_KIND } from '../../utils/mapEvents.js';
 import { meridiemOf } from '../../utils/askModel.js';
 import { KindChip, RatedCell } from './WindowControl.jsx';
+import BoltIcon from './BoltIcon.jsx';
 import { noStoredForecast } from './outcomeRatingCopy.js';
 
 /**
@@ -470,7 +471,12 @@ export function MapPeekWindowsSection({
               onClick={() => onSelect(row)}
             >
               <KindChip row={row} />
-              <span className="wf-map-peek-wr-day">{row.dayLabel ?? row.label}</span>
+              <span className="wf-map-peek-wr-day">
+                {row.dayLabel ?? row.label}
+                {/* The daylight High-water row (hot-topics-by-day M3): the bolt is decoration, so the
+                    row's name carries the fact itself. */}
+                {row.kind === EVENT_KIND.HW && <span className="sr-only">, big seas</span>}
+              </span>
               <span className="wf-map-peek-wr-time">{row.time}</span>
               {night ? (
                 row.scored && row.bestRating != null ? (
@@ -481,6 +487,13 @@ export function MapPeekWindowsSection({
                 ) : (
                   <span className="wf-map-peek-wr-verdict wf-map-peek-wr-unscored">&mdash;</span>
                 )
+              ) : row.kind === EVENT_KIND.HW ? (
+                // No score on the High-water row: a dash and the bolt (aria-hidden), like the week menu.
+                <span className="wf-map-peek-wr-verdict wf-map-peek-wr-unscored" data-testid="wf-map-peek-wr-hw">
+                  &mdash;
+                  {' '}
+                  <span className="wf-win-row-bigseas" aria-hidden="true"><BoltIcon /></span>
+                </span>
               ) : (
                 verdict ? (
                   <b className="wf-map-peek-wr-verdict" data-tier={verdict.tier}>

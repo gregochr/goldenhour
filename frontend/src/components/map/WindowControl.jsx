@@ -136,7 +136,9 @@ export default function WindowControl({
    * rows keep the name computed from their content, untouched.
    */
   function nightPillName(row) {
-    if (!row || row.kind === 'solar' || row.past === true) return undefined;
+    // The daylight High-water row has its own words in its content (kind, day, time, "Big seas"): it
+    // is neither a night row ("not scored yet" would be a false claim) nor a solar one.
+    if (!row || row.kind === 'solar' || row.kind === 'hw' || row.past === true) return undefined;
     const kind = KIND_TEXT[row.eventType] || row.eventType;
     const best = Number.isFinite(row.bestRating)
       ? `best ${row.bestRating} star${row.bestRating === 1 ? '' : 's'}` : 'not scored yet';
@@ -411,7 +413,7 @@ export default function WindowControl({
                 says "past" in words. */}
             {active.past
               ? <span className="wf-win-past" data-testid="wf-win-past">Past</span>
-              : (
+              : active.kind === 'hw' ? <HighWaterVerdict /> : (
                 <VerdictCell
                   verdict={activeVerdict}
                   scopeIsArea={scopeIsArea}
@@ -864,13 +866,33 @@ function dayHeading(dateStr) {
   return `${calDow(dateStr)} ${dayNum}`.toUpperCase();
 }
 
-/** am / pm / night — the CSS colour-class key. Astro and Aurora share one colour (README table). */
+/**
+ * am / pm / night / hw — the CSS colour-class key. Astro and Aurora share one colour (README table);
+ * the daylight High-water row has its own, in the tide light (hot-topics-by-day-plan §3 M3).
+ */
 function kindClass(row) {
   if (row.kind === 'solar') return row.eventType === 'SUNRISE' ? 'am' : 'pm';
+  if (row.kind === 'hw') return 'hw';
   return 'night';
 }
 
-const KIND_TEXT = { SUNRISE: 'Sunrise', SUNSET: 'Sunset', ASTRO: 'Astro', AURORA: 'Aurora' };
+const KIND_TEXT = {
+  SUNRISE: 'Sunrise', SUNSET: 'Sunset', ASTRO: 'Astro', AURORA: 'Aurora', HIGH_WATER: 'High water',
+};
+
+/**
+ * The neutral verdict word on the daylight High-water row: it is not a light window, so it carries no
+ * tier, no tint and no region, only the fact that this is for big seas.
+ */
+function HighWaterVerdict() {
+  return (
+    <span className="wf-win-verdict wf-win-verdict-hw" data-testid="wf-win-verdict-hw">
+      <span className="wf-win-verdict-line">
+        <b className="wf-win-verdict-word">Big seas</b>
+      </span>
+    </span>
+  );
+}
 
 /**
  * Exported since the map-mobile-sheet increment (§3 M2 task 5): the peek sheet's Windows section
@@ -956,7 +978,8 @@ function WindowRow({ row, active, onSelect, ratedCount = null }) {
         {/* big-seas plan F1: the sr-only twin of the ⚡ in the topics cell below, which is
             aria-hidden like every topic icon — the row's name must carry the fact itself (the
             verdict-count pattern above). */}
-        {row.bigSeasAligned && <span className="sr-only">, big seas</span>}
+        {/* The High-water row's chip already says "High water", so its clause is the bolt's own fact. */}
+        {(row.bigSeasAligned || row.kind === 'hw') && <span className="sr-only">, big seas</span>}
       </span>
       <span className="wf-win-row-score">
         {row.scored ? (
@@ -969,7 +992,7 @@ function WindowRow({ row, active, onSelect, ratedCount = null }) {
         )}
       </span>
       <span className="wf-win-row-topics" aria-hidden="true">
-        {row.bigSeasAligned && <span className="wf-win-row-bigseas" data-testid="wf-win-row-bigseas"><BoltIcon /></span>}
+        {(row.bigSeasAligned || row.kind === 'hw') && <span className="wf-win-row-bigseas" data-testid="wf-win-row-bigseas"><BoltIcon /></span>}
         {icons.join('')}
       </span>
     </button>
@@ -1058,6 +1081,8 @@ WindowRow.propTypes = {
     pickKind: PropTypes.oneOf(['best', 'also']),
     /** The served big-seas high water lands on this event (big-seas plan F1): draws the ⚡. */
     bigSeasAligned: PropTypes.bool,
+    /** `'hw'` for the daylight High-water row (draws the ⚡ and says "big seas, high water"). */
+    kind: PropTypes.string,
   }).isRequired,
   active: PropTypes.bool.isRequired,
   onSelect: PropTypes.func.isRequired,

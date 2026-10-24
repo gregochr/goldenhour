@@ -13,6 +13,8 @@ const KIND_WORD = {
   SUNSET: 'sunset',
   ASTRO: 'astro',
   AURORA: 'aurora',
+  // The daylight High-water row (hot-topics-by-day M3): without it the strip printed "high_water".
+  HIGH_WATER: 'high water',
 };
 
 /**

@@ -11,7 +11,7 @@ import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
 import { getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates } from '../api/auroraApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
-import { isTravelDate, formatEventTimeUk } from '../utils/conversions.js';
+import { isTravelDate, formatEventTimeUk, parseUtcInstant } from '../utils/conversions.js';
 import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
 import { lookupForWindow } from '../utils/locationSheet.js';
@@ -34,12 +34,12 @@ import MapTopicRings from './map/MapTopicRings.jsx';
 import { useChromeTlHeight } from '../hooks/useChromeTlHeight.js';
 import { useChromeBlHeight } from '../hooks/useChromeBlHeight.js';
 import {
-  fourDayGrid, mapScopeNames, topicAnnouncement, topicsOnRow,
+  BIG_SEAS_TYPE, fourDayGrid, mapScopeNames, topicAnnouncement, topicsOnRow,
 } from '../utils/mapTopics.js';
 import { buildTopicIndex } from '../utils/windowFirstTopics.js';
 import { scopeRegions } from '../utils/planOrigin.js';
 import BoltIcon from './map/BoltIcon.jsx';
-import { bigSeasFor } from '../utils/bigSeas.js';
+import { bigSeasCopy, bigSeasFor } from '../utils/bigSeas.js';
 import {
   bigSeasChipItems, dropProtectedBigSeasChips, NO_BIG_SEAS_CHIPS,
 } from '../utils/bigSeasChips.js';
@@ -55,8 +55,8 @@ import TideWave from './map/TideWave.jsx';
 import { fadeAt } from '../utils/heatHandover.js';
 import {
   buildMapEvents, findEvIndex, isForwardableRow, isPastSolarWindow, nightPreviewDates, solarHorizonDates,
-  solarRowPredicate,
-  EVENT_KIND,
+  solarRowPredicate, isNightKind, isHighWaterRow,
+  EVENT_KIND, HIGH_WATER,
 } from '../utils/mapEvents.js';
 import { myRatingOf } from '../utils/outcomeRatingJoin.js';
 import { dowDayLabel, pastDayLabel } from '../utils/windowFirstCards.js';
@@ -365,6 +365,11 @@ const NO_BIG_SEAS = [];
 const NO_HOT_TOPICS = [];
 /** How long a topic announcement stays in the status region before it is cleared (one-shot). */
 const TOPIC_ANNOUNCE_MS = 6000;
+/**
+ * The longest a High-water row's deadline timer sleeps before it re-reads the clock. A wall-clock
+ * deadline must not rest on one long `setTimeout`: a hidden tab throttles and can suspend it.
+ */
+const HW_DEADLINE_SLICE_MS = 30000;
 /** Stable empty list: no Ask answer on screen. A fresh `[]` per render would defeat `MapView`'s memo. */
 const NO_ASK_PICKS = [];
 /**
@@ -3136,8 +3141,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * and leaves the night paths exactly as they were, which is the smaller change.
    */
   const solarWindowOnScreen = useCallback(
-    () => (eventType !== 'SUNRISE' && eventType !== 'SUNSET')
-      || solarRowExists(date, eventType),
+    // ⚠️ The daylight High-water row is NOT a solar window and answers FALSE: "non-solar answers true"
+    // is for the night kinds, whose callers branch before this. For High water it would let the rating
+    // accessor read `dayData.sunset` (the sunset's stars on the HW row's chips, pins, floor and counts)
+    // and stand-down read `'sunset'` too. False means: no score, no fetch, no triage (hot-topics-by-day
+    // M3, the sweep's default for an unknown kind).
+    () => (eventType === HIGH_WATER ? false : (eventType !== 'SUNRISE' && eventType !== 'SUNSET')
+      || solarRowExists(date, eventType)),
     [solarRowExists, date, eventType],
   );
 
@@ -3170,7 +3180,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   /** True when this location's forecast for the current event was triaged (stand-down). */
   const isStandDownLocation = useCallback((loc) => {
-    if (eventType === 'AURORA') return false;
+    if (eventType === 'AURORA' || eventType === HIGH_WATER) return false;
     const types = loc.locationType ?? [];
     const isPureWildlife = isWildlifeOnly(types);
     if (isPureWildlife) return false;
@@ -3201,6 +3211,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (eventType === 'ASTRO') {
       return astroScores[loc.name]?.stars ?? null;
     }
+    // The daylight High-water row is not a window the forecast scores: no stars, from any source
+    // (the sweep's default; `solarWindowOnScreen` below answers false for it as well).
+    if (eventType === HIGH_WATER) return null;
     // ⚠️ Nothing to answer for a window this tab has no row for — see `solarWindowOnScreen` and
     // `utils/mapEvents.js`'s `solarRowPredicate`. Both indexes below are keyed by an arbitrary
     // `date` and both legitimately carry rows the EV list excludes, so without this the star
@@ -3341,7 +3354,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // is not "unknown" — it carries a served miss — so it must not make the admin "unknown" toggle
   // read as actionable, nor be the thing that toggle's title claims exists to reveal. `visibleLocations` below already lets it through the rating stage
   // unconditionally; this just stops it also being counted as the OTHER kind of absence.
-  const hasUnrated = typeFiltered.some((loc) => (
+  // False on the daylight High-water row: every place is unrated there by design, so the admin "unknown"
+  // toggle would look actionable and reveal nothing.
+  const hasUnrated = eventType !== HIGH_WATER && typeFiltered.some((loc) => (
     !isStandDownLocation(loc) && getRatingForLocation(loc) == null
     && !getTideOnLightForLocation(loc)
   ));
@@ -3876,7 +3891,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   function followWindowRow(row) {
     if (!row) return false;
     const forwardable = isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight });
-    const night = row.kind !== EVENT_KIND.SOLAR;
+    // A NIGHT is astro or aurora. The daylight High-water row is dated like a solar window: it must be
+    // forwardable, and it is not told to `App` as a night (`isNightKind`, never `!== SOLAR`).
+    const night = isNightKind(row.kind);
     if (!night && !forwardable) return false;
     // A window followed on purpose, from ANY route (Ask, or the door's own night-follow), supersedes
     // a door night still waiting for its row: the row arriving later must not yank the map back.
@@ -4316,6 +4333,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const topicChipTypes = useMemo(() => topicChips.map((chip) => chip.type), [topicChips]);
   const topicRowId = activeMapEvent?.id ?? null;
   const pendingTopicAnnounce = useRef(null);
+  // The daylight High-water row's three pieces of memory (M3, the effects further down): the arrival that
+  // has already auto-selected Big seas, whether the selection is the auto one (the reader's own press spends
+  // it), the High-water row last on screen (for the expiry transition), and a render key for the deadline.
+  const hwArrivedRef = useRef(null);
+  const hwAutoTopicRef = useRef(false);
+  const lastHwRowRef = useRef(null);
+  const [, setHwExpiryTick] = useState(0);
   // ⚠️ The announcement is ONE-SHOT. A live region speaks what is in it whenever it is re-shown, so text
   // left in it was re-spoken on every pane re-show, foreign-modal close and retry-line drop. It is
   // cleared when the window row changes, when the pane is hidden, when the retry line takes the region,
@@ -4334,13 +4358,132 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [topicRowId]);
   useEffect(() => { if (!paneVisible) setTopicAnnounce(''); }, [paneVisible]);
   useEffect(() => { if (ratingRetrying) setTopicAnnounce(''); }, [ratingRetrying]);
+  // ── The daylight High-water row (hot-topics-by-day-plan §3 M3) ───────────────────────────────────────
+  // Arriving on it SELECTS Big seas for the reader (rings on the day's structures, ordinary chips dimmed),
+  // once per arrival; leaving it clears that selection unless the reader made it themselves. A press on a
+  // chip or a strip bar spends the auto flag (`hwAutoTopicRef`): from then on the selection is theirs.
+  const onHighWaterRow = isHighWaterRow(activeMapEvent);
   useEffect(() => {
     if (selectedTopic == null || activeTopicChip != null) return;
-    // The selected type is not on this window (or not any more): the selection ends with it.
+    // The selected type is not on this window (or not any more): the selection ends with it. Arriving on the
+    // High-water row replaces it with Big seas instead, and the arrival effect below says so (one sentence,
+    // not "cleared" and then "selected").
     setSelectedTopic(null);
-    setTopicAnnounce('Topic selection cleared: it is not on this window.');
-  }, [selectedTopic, activeTopicChip]);
+    if (!onHighWaterRow) setTopicAnnounce('Topic selection cleared: it is not on this window.');
+  }, [selectedTopic, activeTopicChip, onHighWaterRow]);
+  const hwRingsOn = heatOffered && (heatOn || heatPinsOn);
+  useEffect(() => {
+    if (!onHighWaterRow) {
+      hwArrivedRef.current = null;
+      if (hwAutoTopicRef.current) {
+        hwAutoTopicRef.current = false;
+        setSelectedTopic((cur) => (cur === BIG_SEAS_TYPE ? null : cur));
+      }
+      return;
+    }
+    if (hwArrivedRef.current === topicRowId) return;
+    hwArrivedRef.current = topicRowId;
+    const replaced = selectedTopic != null && selectedTopic !== BIG_SEAS_TYPE;
+    if (selectedTopic == null || replaced) {
+      hwAutoTopicRef.current = true;
+      setSelectedTopic(BIG_SEAS_TYPE);
+    }
+    if (replaced) {
+      // Another topic was selected and is not on this row: say what replaced it, appended to any "Window
+      // moved to ..." sentence the strip parked (spoken by the effect above, earlier in this commit).
+      const n = hwRingsOn ? (topicChips.find((c) => c.type === BIG_SEAS_TYPE)?.places?.length ?? 0) : 0;
+      const sentence = n > 0
+        ? `Big seas selected: ${n} ${n === 1 ? 'structure' : 'structures'} ringed.` : 'Big seas selected.';
+      setTopicAnnounce((cur) => (cur ? `${cur} ${sentence}` : sentence));
+    }
+  }, [onHighWaterRow, topicRowId, selectedTopic, hwRingsOn, topicChips]);
+  // The row's expiry needs its own transition. Once `windowEnd` passes (or a poll serves a different lead and
+  // the row is dropped), `buildMapEvents` merely stops emitting the row; nothing changes the stored
+  // `eventType`, which would stay HIGH_WATER with no row (`activeEvIndex === -1`, no active window). So the
+  // row is remembered while it is on screen, and:
+  //  - the row went under the SAME date (expired, or the served lead changed): move to that date's next
+  //    window (normally its sunset), as an AUTOMATIC move: it does not spend a plan door's nonce and does
+  //    not mark the window the reader's own (`userHasOverriddenEvent`), so a later door still lands; the
+  //    star floor and the other filters are untouched (nothing here resets them);
+  //  - the DATE moved from outside (a Plan or Coming up door, the aurora banner, `App`'s own clamp): never
+  //    forward and never call `onSelectDate`, the mover's date and window win. A door's own `setEventType`
+  //    stands (the functional update leaves any other type alone); with none it falls back to the
+  //    auto-selected event, locally;
+  //  - not while the pane is hidden: it applies when the pane shows.
+  useEffect(() => {
+    if (onHighWaterRow) lastHwRowRef.current = activeMapEvent;
+  }, [onHighWaterRow, activeMapEvent]);
+  const hwRowVanished = eventType === HIGH_WATER && activeEvIndex < 0 && mapEvents.length > 0;
+  useEffect(() => {
+    if (!hwRowVanished || !paneVisible) return;
+    const last = lastHwRowRef.current;
+    lastHwRowRef.current = null;
+    if (!last || last.date !== date) {
+      (async () => setEventType((cur) => (cur === HIGH_WATER ? (autoEventType ?? 'SUNSET') : cur)))();
+      return;
+    }
+    // Rows the reader can actually be moved to: not past, not another High-water row, and ones `App` will
+    // take (a stale row that `isForwardableRow` refuses would leave the pane and its parent on two dates,
+    // the very defect the row's `inForecastDomain` exists to prevent). A solar window is preferred over a
+    // night; the first row of the list is the last resort.
+    const reachable = mapEvents.filter((row) => !row.past && !isHighWaterRow(row)
+      && isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight }));
+    const solar = reachable.filter((row) => row.kind === EVENT_KIND.SOLAR);
+    const target = solar.find((row) => row.date > last.date || (row.date === last.date && row.eventType !== 'SUNRISE'))
+      ?? solar[0] ?? reachable[0] ?? mapEvents[0];
+    const word = { SUNRISE: 'Sunrise', SUNSET: 'Sunset', ASTRO: 'Astro', AURORA: 'Aurora' }[target.eventType]
+      ?? target.label;
+    pendingTopicAnnounce.current = `High water has passed: now ${word}${target.time ? ` ${target.time}` : ''}`;
+    (async () => {
+      setEventType(target.eventType);
+      if (isForwardableRow(target, { todayStr: mapTodayStr, currentNightDate: auroraNight })) {
+        setLocalNightDate(null);
+        if (target.date !== date) {
+          forwardedDateRef.current = target.date;
+          onSelectDate?.(target.date, {
+            isNight: isNightKind(target.kind),
+            ...(target.past === true ? { isPast: true } : {}),
+          });
+        }
+      } else {
+        setLocalNightDate(target.date);
+      }
+    })();
+    // The vanished row IS the trigger (and the pane showing); the list is read at the moment it fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hwRowVanished, paneVisible]);
   /* eslint-enable react-hooks/set-state-in-effect */
+  // The deadline timer for a selected High-water row: armed at the row's `windowEnd`, measured against
+  // `appNow()` (so a Rewind is honoured), and bumping a render key so `buildMapEvents` runs again and the
+  // vanished-row effect above can fire. ⚠️ A WALL-CLOCK deadline, so never one long `setTimeout`: a hidden
+  // tab throttles and can suspend timers, so it wakes in short slices, re-checks the clock each time, and
+  // re-checks at once when the tab becomes visible. The timer is armed from the effect, never after an
+  // await, so cleanup always sees it.
+  const hwDeadlineMs = onHighWaterRow ? (parseUtcInstant(activeMapEvent.windowEnd)?.getTime() ?? null) : null;
+  useEffect(() => {
+    if (hwDeadlineMs == null) return undefined;
+    let timer = null;
+    const check = () => {
+      timer = null;
+      const remaining = hwDeadlineMs - appNow().getTime();
+      if (remaining <= 0) {
+        setHwExpiryTick((n) => n + 1);
+        return;
+      }
+      timer = setTimeout(check, Math.min(remaining, HW_DEADLINE_SLICE_MS));
+    };
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (timer != null) clearTimeout(timer);
+      check();
+    };
+    timer = setTimeout(check, 0);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      if (timer != null) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [hwDeadlineMs]);
   useEffect(() => {
     if (!topicAnnounce) return undefined;
     const timer = setTimeout(() => setTopicAnnounce(''), TOPIC_ANNOUNCE_MS);
@@ -4354,6 +4497,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   function toggleTopic(type) {
     const chip = topicChips.find((c) => c.type === type);
     const next = selectedTopic === type ? null : type;
+    // A press is the reader's own choice: it spends the High-water row's auto-selection (see above).
+    hwAutoTopicRef.current = false;
     setSelectedTopic(next);
     setTopicAnnounce(topicAnnouncement(chip, next != null, ringsAvailable && (chip?.places?.length ?? 0) > 0));
   }
@@ -4411,6 +4556,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * clear (a row change clears the one-shot announcement).
    */
   function pickTopicFromStrip(type, row, movedMessage = null) {
+    hwAutoTopicRef.current = false;
     setSelectedTopic(type);
     if (row && row.id !== activeMapEvent?.id) {
       pendingTopicAnnounce.current = movedMessage;
@@ -4422,6 +4568,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     }
     const chip = topicChips.find((c) => c.type === type);
     setTopicAnnounce(topicAnnouncement(chip, true, ringsAvailable && (chip?.places?.length ?? 0) > 0));
+  }
+  /**
+   * A press on a day's High-water tick on the strip: move to that daylight High-water row through the same
+   * {@code selectEvRow} the window control uses (so a FUTURE row hands its date to {@code onSelectDate} and
+   * the parent and the pane stay in step). The strip has parked focus already. Arriving on the row
+   * auto-selects Big seas (the effect above), and the sentence the strip built is spoken after the
+   * row-change clear.
+   */
+  function selectHwFromStrip(row, movedMessage = null) {
+    if (!row || row.id === activeMapEvent?.id) return;
+    pendingTopicAnnounce.current = movedMessage;
+    selectEvRow(row);
   }
   // On a phone, while the big-seas line shows, the chips row is not drawn (owner, 2026-10-23): Big seas
   // is already the line there and the row cost labels. A selection made before that stays (the rings
@@ -4576,7 +4734,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const dayData = loc.forecastsByDate.get(nightDate);
     // Aurora/Astro mode: use sunset as background weather context (night event)
     const solarType = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
-    const forecast = dayData?.[solarType];
+    // The daylight High-water row has no forecast of its own, and must not borrow the sunset's.
+    const forecast = eventType === HIGH_WATER ? undefined : dayData?.[solarType];
     const types = loc.locationType ?? [];
     const isPureWildlife = isWildlifeOnly(types);
     // `isPureWildlife` selects the marker's wildlife colour. A canopy site is deliberately NOT part of
@@ -4787,7 +4946,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * drawing real stars. The colour key does NOT follow — it stays down on that row because it
    * describes the painted field, and none is painted ({@code windowUnscored} is still true).
    */
-  const unscoredLineShown = windowUnscored && !fillerHasRatings
+  // The daylight High-water row paints no field and states no score, so "not scored yet" would be a false
+  // claim about a window that is not scored by design (`windowUnscored` stays true: no colour key either).
+  const unscoredLineShown = windowUnscored && !fillerHasRatings && eventType !== HIGH_WATER
     && (isAstroMode || activeMapEvent != null);
 
   /**
@@ -4937,7 +5098,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * records a few screens down. This used to say the return sat between `mapEvents` and here.)
    */
   const activeNightRows = (() => {
-    if (!activeMapEvent || activeMapEvent.kind === EVENT_KIND.SOLAR) return null;
+    // Night kinds only: the daylight High-water row is neither a solar window nor a night, and must not be
+    // read as one (it would look up that date's aurora rows and print their regions' stars).
+    if (!activeMapEvent || !isNightKind(activeMapEvent.kind)) return null;
     return activeMapEvent.kind === EVENT_KIND.ASTRO
       ? astroConditionsByDate.get(activeMapEvent.date)
       : auroraNightRows.get(activeMapEvent.date);
@@ -4950,7 +5113,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (activeMapEvent.kind === EVENT_KIND.SOLAR) {
       return regionBestRatingFor(regionBestIndex, activeMapEvent.date, activeMapEvent.eventType, regionName);
     }
-    return nightRegionBest?.get(regionName) ?? null;
+    return isNightKind(activeMapEvent.kind) ? (nightRegionBest?.get(regionName) ?? null) : null;
   }
   const jumpRows = buildJumpRows({
     spots: heat?.spots || EMPTY_POINTS,
@@ -5341,7 +5504,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * unknown toggles the reader only just set.
    */
   function selectEvRow(row) {
-    const typeChanged = row.eventType !== eventType;
+    // ⚠️ No reset when EITHER side is the daylight High-water row (hot-topics-by-day-plan §3 M3), in either
+    // direction. Stepping sunrise -> HW -> sunset must not wipe the reader's saved star floor, and comparing
+    // against "the last solar type" does not work: after sunrise -> HW the HW -> sunset step would compare
+    // SUNSET with SUNRISE and reset anyway. A stop on the HW row reads as a choice to look at the same day,
+    // not to change light. The accepted consequence: sunrise -> HW -> sunset keeps the filters, while
+    // stepping directly from sunrise to sunset resets them, as it always did.
+    // The exemption is for the High-water row's own neighbours in its day, the two solar windows; a step
+    // between it and a night (astro, aurora) resets like any solar to night step.
+    const isLight = (t) => t === 'SUNRISE' || t === 'SUNSET';
+    const hwStep = (row.eventType === HIGH_WATER && isLight(eventType))
+      || (eventType === HIGH_WATER && isLight(row.eventType));
+    const typeChanged = row.eventType !== eventType && !hwStep;
     // A window the reader chose themselves spends any door night still waiting for its row.
     if (planHandoff) appliedPlanNightNonce.current = planHandoff.nonce;
     setUserHasOverriddenEvent(true);
@@ -5399,7 +5573,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // Named only when true: every other pick's call is byte for byte what it was, and `App`'s
       // `isPast` default is the safe answer for a live window.
       onSelectDate?.(row.date, {
-        isNight: row.kind !== EVENT_KIND.SOLAR,
+        // `isNightKind`, not `!== SOLAR`: the daylight High-water row is neither, and `App` would
+        // otherwise license a night for a date that is a plain day (hot-topics-by-day M3).
+        isNight: isNightKind(row.kind),
         ...(row.past === true ? { isPast: true } : {}),
       });
     } else {
@@ -6414,6 +6590,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   : storedAuroraResults[selectedLoc.name])?.alertLevel ?? null)
                 : null}
               travelDay={isTravelDate(activeMapEvent?.date ?? date, travelRanges)}
+              // The daylight High-water row's lead copy (hot-topics-by-day M3); null on every other row.
+              highWaterLead={isHighWaterRow(activeMapEvent)
+                ?(bigSeasCopy(bigSeasSelection)?.lead ?? null) : null}
               onSelectEv={selectEvRow}
               onOpenSheet={() => handleOpenLocationSheet(false)}
               onOpenInPlan={() => handleOpenLocationSheet(true)}
@@ -7012,6 +7191,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 fallbackFocus={() => mapPaneRef.current?.focus({ preventScroll: true })}
                 onToggleType={toggleTopic}
                 onPick={pickTopicFromStrip}
+                onSelectHw={selectHwFromStrip}
                 onHeightChange={setTopicStripHeight}
               />
             )}
@@ -7089,6 +7269,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             className="wf-map-counts-footer"
             style={footerLift != null ? { bottom: `${footerLift}px` } : undefined}
           >
+            {isHighWaterRow(activeMapEvent) ? (
+              // The daylight High-water row rates nothing, so "0 of N shown" would read as a failure and the
+              // rated and stood-down clauses have nothing to count: say what IS drawn, and why no score.
+              <span data-testid="wf-map-counts-hw">
+                <b>{bigSeasChips.length}</b>
+                {` big-seas ${bigSeasChips.length === 1 ? 'structure' : 'structures'} · high water has no light score`}
+                {filterActiveCount > 0 && (
+                  <span data-testid="wf-map-counts-filtered" className="wf-map-counts-flag"> filtered</span>
+                )}
+              </span>
+            ) : (
             <span>
               <b>{scopedVisibleLocations.length}</b> of {scopeBasePool.length} shown
               {/* ⚠️ Only when it DIFFERS, which is this codebase's own rule for a second
@@ -7114,6 +7305,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 <span data-testid="wf-map-counts-filtered" className="wf-map-counts-flag"> filtered</span>
               )}
             </span>
+            )}
             {countsSecondLine && (
               <span data-testid="wf-map-counts-second" className="wf-map-counts-second">{countsSecondLine}</span>
             )}

@@ -15,6 +15,7 @@
  * Coming up lanes. Topics come from the index.
  */
 import { bigSeasWindowAhead } from './bigSeasWindow.js';
+import { formatEventTimeUk, parseUtcInstant } from './conversions.js';
 import { isNightOver, shiftDateStr } from './mapDates.js';
 import { spotsNamed } from './mapDoor.js';
 import { appNow } from './rewind.js';
@@ -135,6 +136,9 @@ function whereLabel(count, noun) {
 /** The served topics on a row, in served order, before scope. */
 function rowTopics(row, topicIndex, hotTopics) {
   if (!row?.date) return [];
+  // The daylight High-water row (M3) is Big seas only: it is not a forecast window, so no topic
+  // belongs to it (the index has no key for it either; this states the rule).
+  if (row.kind === 'hw') return [];
   if (NIGHT_ROW_KINDS.has(row.kind)) {
     // A night row has no served badges (map-tab-v2 §6 O-10); it shows its own night's NIGHT topics
     // (plan §1.6, Q3), never the evening's sunset topics, which would put dust on an astro night.
@@ -171,11 +175,15 @@ export function topicsOnRow({
   if (bigSeasDay && row) {
     const places = bigSeasPlaces(bigSeasDay, locationsById);
     const where = places.length > 0 ? `${places.length} ${places.length === 1 ? 'structure' : 'structures'}` : null;
+    // On a daylight High-water day the chip carries the time ("Big seas · HW 12:40", plan §1.14).
+    const hwTime = bigSeasDay.daylightHighWater === true ? formatEventTimeUk(bigSeasDay.hwTime) : null;
+    const name = hwTime ? `${BIG_SEAS_STYLE.name} · HW ${hwTime}` : BIG_SEAS_STYLE.name;
     chips.push({
       type: BIG_SEAS_TYPE,
       ...BIG_SEAS_STYLE,
+      name,
       where,
-      label: where ? `${BIG_SEAS_STYLE.name}, ${where}` : BIG_SEAS_STYLE.name,
+      label: where ? `${name}, ${where}` : name,
       wholeSky: false,
       bigSeas: true,
       topics: [],
@@ -368,6 +376,13 @@ export function fourDayGrid({
     if (c >= 0 && !rowByColumn[c]) rowByColumn[c] = ev;
   }
   const currentColumn = currentColumnOf(activeRow, dates, todayStr, nightDate);
+  // The span the "you are here" shade covers: one column for a window, and the whole day (both of its
+  // columns) for the daylight High-water row, which sits between the lights and belongs to neither.
+  let currentSpan = currentColumn >= 0 ? { start: currentColumn, end: currentColumn } : null;
+  if (activeRow?.kind === 'hw') {
+    const d = dates.indexOf(activeRow.date);
+    if (d >= 0) currentSpan = { start: d * 2, end: d * 2 + 1 };
+  }
   const columns = rowByColumn.map((row, index) => ({
     index,
     date: dates[Math.floor(index / 2)],
@@ -426,7 +441,61 @@ export function fourDayGrid({
       bars: runsOf(on),
     });
   }
-  return { days, columns, currentColumn, rows };
+  return { days, columns, currentColumn, currentSpan, rows, hwTicks: hwTicksOf(events, dates, activeRow) };
+}
+
+/** A tick never touches the day's edge: clamped to 4-96% of the two columns (plan §3 M3). */
+const TICK_MIN_PCT = 4;
+const TICK_MAX_PCT = 96;
+
+/**
+ * Where high water sits between the day's served sunrise and sunset, as a percentage of the day's two
+ * columns, or null when it cannot be placed (a bound is missing or unparseable, or the day has no
+ * length). Licensed geometry, like the tide sparkline: the instants are SERVED (B1's
+ * {@code daylightStart}/{@code daylightEnd}), the comparison "between the lights" is the server's.
+ *
+ * @param {{hwTime: ?string, daylightStart: ?string, daylightEnd: ?string}} row the High-water EV row
+ * @returns {?number} 4 to 96, or null
+ */
+export function hwTickPercent(row) {
+  const hw = parseUtcInstant(row?.hwTime);
+  const start = parseUtcInstant(row?.daylightStart);
+  const end = parseUtcInstant(row?.daylightEnd);
+  if (!hw || !start || !end) return null;
+  const span = end.getTime() - start.getTime();
+  if (!(span > 0)) return null;
+  const pct = ((hw.getTime() - start.getTime()) / span) * 100;
+  return Math.min(TICK_MAX_PCT, Math.max(TICK_MIN_PCT, pct));
+}
+
+/**
+ * The strip's High-water ticks: one per daylight High-water EV row whose date is one of the strip's
+ * days and whose bounds were served. No bounds, no tick.
+ *
+ * @param {?Array<object>} events the built EV list
+ * @param {string[]} dates the strip's four dates
+ * @param {?object} activeRow the EV row on screen
+ * @returns {Array<{date: string, day: number, percent: number, time: string, dow: string,
+ *   row: object, current: boolean}>}
+ */
+function hwTicksOf(events, dates, activeRow) {
+  const ticks = [];
+  for (const ev of Array.isArray(events) ? events : []) {
+    if (ev?.kind !== 'hw') continue;
+    const day = dates.indexOf(ev.date);
+    const percent = hwTickPercent(ev);
+    if (day < 0 || percent == null) continue;
+    ticks.push({
+      date: ev.date,
+      day,
+      percent,
+      time: formatEventTimeUk(ev.hwTime) || ev.time || '',
+      dow: weekdayOf(ev.date),
+      row: ev,
+      current: activeRow?.id === ev.id,
+    });
+  }
+  return ticks;
 }
 
 /**
@@ -442,8 +511,10 @@ export function fourDayGrid({
  */
 export function barTarget(grid, bar, onCurrentRow) {
   const cur = grid.currentColumn;
-  const covers = cur >= bar.start && cur <= bar.end;
-  if (covers && onCurrentRow) return { stay: true, column: cur };
+  // The daylight High-water row covers its whole day, so `currentSpan` (when the grid has one) decides.
+  const span = grid.currentSpan ?? (cur >= 0 ? { start: cur, end: cur } : null);
+  const covers = span != null && span.start <= bar.end && span.end >= bar.start;
+  if (covers && onCurrentRow) return { stay: true, column: cur >= 0 ? cur : span.start };
   if (covers && grid.columns[cur]?.interactive) return { stay: false, column: cur };
   for (let c = bar.start; c <= bar.end; c += 1) {
     if (grid.columns[c]?.interactive) return { stay: false, column: c };

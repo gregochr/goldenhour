@@ -89,6 +89,9 @@ export function askWindowOf(row) {
     if (row.eventType !== 'SUNRISE' && row.eventType !== 'SUNSET') return null;
     return { date: row.date, eventType: row.eventType, label: String(row.label ?? '') };
   }
+  // The daylight High-water row is not a window Ask has an id for (hot-topics-by-day-plan §3 M3): the
+  // lookup below would also answer null, but a new kind should say so rather than rely on a miss.
+  if (row.kind === EVENT_KIND.HW) return null;
   const kindWord = NIGHT_KIND_WORD[row.eventType];
   if (!kindWord) return null;
   return { date: row.date, eventType: row.eventType, label: `${String(row.label ?? '')} · ${kindWord}` };

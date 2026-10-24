@@ -55,19 +55,21 @@ export function otherWindow(events, activeIndex, verdicts) {
   // "next" when nothing on screen matches the roster at all.
   const active = ((activeIndex % n) + n) % n;
   const tierOf = (row) => verdicts?.get(row.id)?.tier ?? null;
+  // The daylight High-water row is not a light window, so it is never named as the "other window".
+  const nameable = (row) => !row.past && row.kind !== EVENT_KIND.HW;
   // ⚠️ A PAST row (outcome-rating-plan.md §2 #2) is never named, in the scan or the fallback: the
   // summary points at a window the reader can still plan for, and a window that has gone is neither
   // an alternative nor, with no verdict (`tierOf` reads null), anything the all-Poor test could
   // rule out. Without the skip every past row passed the `!== 'STAND_DOWN'` test and led the wrap.
   for (let step = 1; step < n; step += 1) {
     const idx = (active + step) % n;
-    if (!list[idx].past && tierOf(list[idx]) !== 'STAND_DOWN') return list[idx];
+    if (nameable(list[idx]) && tierOf(list[idx]) !== 'STAND_DOWN') return list[idx];
   }
   // Every OTHER live row is STAND_DOWN — the all-Poor fallback: the very next row that has not gone,
   // whatever its tier. Null when every other row is past.
   for (let step = 1; step < n; step += 1) {
     const idx = (active + step) % n;
-    if (!list[idx].past) return list[idx];
+    if (nameable(list[idx])) return list[idx];
   }
   return null;
 }
@@ -76,7 +78,8 @@ export function otherWindow(events, activeIndex, verdicts) {
  * figure instead" branch, keyed by KIND rather than by a `windowVerdict` miss (the same rule
  * `utils/mapVerdict.js#buildEvVerdicts` states for itself). */
 export function isNightRow(row) {
-  return row?.kind !== EVENT_KIND.SOLAR;
+  // The daylight High-water row is neither a solar window nor a night: it takes the neutral cell.
+  return row?.kind !== EVENT_KIND.SOLAR && row?.kind !== EVENT_KIND.HW;
 }
 
 /**
