@@ -80,9 +80,14 @@ describe('WindowProseSlot — the prose, in one order', () => {
       row: row({ glossHeadline: 'Cirrus canvas', glossDetail: 'Thin high cloud at 40%.' }),
     });
     const body = screen.getByTestId('wf-prose-body');
-    expect(body).toHaveTextContent('Cirrus canvas Thin high cloud at 40%.');
+    expect(body).toHaveTextContent('Cirrus canvas. Thin high cloud at 40%.');
     expect(screen.getByTestId('wf-prose-lead')).toHaveTextContent('Cirrus canvas');
     expect(body).not.toHaveTextContent(NARRATIVE);
+  });
+
+  it('does not double a headline that already ends in terminal punctuation', () => {
+    renderSlot({ row: row({ glossHeadline: 'Cirrus canvas!', glossDetail: 'Thin high cloud.' }) });
+    expect(screen.getByTestId('wf-prose-body').textContent).toBe('Cirrus canvas! Thin high cloud.');
   });
 
   it('renders a lone headline as the prose rather than as a lead with nothing under it', () => {
