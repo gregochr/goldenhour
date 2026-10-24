@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.32.0] - 2026-10-24
+
+### Changed — frontend dev dependency undici bumped past the 8.12.1 advisories
+
+The transitive dev dependency `undici` (pulled in by `jsdom`) moves from 8.10.2 to 8.12.2 in the
+lockfile, clearing the high-severity EventSource, SRI and content-encoding advisories that were failing
+`npm audit` in the frontend CI job. No runtime code is affected.
+
+### Added — the four-day hot-topics strip on the phone's Map
+
+On a phone, the Map's "Other windows" panel now ends with a collapsible "Hot topics · next four days" section: the same eight-window grid as the desktop strip (a 70px label column, the High-water tick included), closed until you open it, except on big-seas days, when it starts open. It remembers its own open state separately from the desktop strip. Pressing a bar, or a label that has to move you to another window, selects the topic and the window and then folds the panel down so the rings on the map can be seen. On days when the big-seas line replaces the topic chips, this section is the way to the other topics. Desktop and tablet are unchanged. Frontend only.
+
+### Added — a daylight "High water" event on the Map for big-seas days
+
+When the big waves peak at high water in the middle of the day, between sunrise and sunset, the Map's window list now has its own "High water" entry for that day, sitting between the sunrise and the sunset. Choosing it shows the day's piers and lighthouses ringed, with Big seas selected for you (it clears again when you step away unless you chose it yourself), and says plainly that it is not a light window: no stars, no heat colours, no "not scored yet", and your saved star filter is left alone. The big-seas line gains an "At high water 12:40 ›" button from the day's other windows and now reads "high water 12:40, between the lights". On desktop and tablet the four-day strip draws a small tick on the Big seas bar where high water falls between that day's sunrise and sunset, and pressing it opens the event. When the window ends the Map moves on to that day's sunset by itself. Frontend only.
+
+### Added — a four-day hot-topics strip on the Map
+
+On desktop and tablet the bottom-left of the Map now carries a docked "Hot topics · next four days" strip: today and the next three days across, a sunrise and a sunset column each, and one row per hot topic with a bar over the windows it is on (a night topic such as aurora is one bar from Friday's sunset to Saturday's sunrise; Big seas leads and covers both windows of its day). The window on screen is shaded, and pressing a bar opens that window with the topic selected, so the chips and rings above show where it applies; pressing a topic's name toggles it on this window or jumps to the first window it is on. The strip folds to its header while the tide strip or the landing card is showing, remembers whether you closed it, and lifts the counts footer and caps the landing card so nothing sits underneath it. It is not drawn on a phone. Frontend only.
+
+### Added — hot-topic chips and rings on the Map
+
+Under the window control the Map now shows a chip for each hot topic that fires on the window on screen (a king tide, dust, an aurora; Big seas first on a big-seas day), with how many places it is for ("66 coastal", "12 places", "sky-wide"). Pressing a chip rings the places it applies to and steps every other name label back, the ringed places' own labels included (a topic that draws no rings leaves the labels alone); pressing it again, or Escape after the callout, clears it. A topic that is sky-wide, such as an aurora, draws no rings and prints a one-line notice in the chips row instead. The selection follows you to another window that carries the same topic and clears when it does not, and the toggle is announced through the tab's existing status line. The chips come from the same served topics and window index as Plan and Coming up, so a window with no forecast row still lists what is happening on it. On a phone the row is under the pill with the place count hidden and no "no hot topics" text, and it is left out altogether while the big-seas line is showing, since Big seas is already that line. The chrome height that the landing card, window panel, phone toast and Ask's camera sit below is now published on every day, not only on big-seas days.
+
 ## [v2.31.0] - 2026-10-23
 
 ### Changed — frontend dev dependency zod bumped past GHSA-mrhx-c7xc-m3w5
