@@ -142,7 +142,8 @@ const renderShell = (extraProps = {}) => {
   return { ...view, props, rerenderWith };
 };
 
-const tab = (name) => screen.getByRole('tab', { name });
+// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
+const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 
 beforeEach(() => {
   getAlmanac.mockReset();
@@ -168,14 +169,14 @@ afterEach(() => {
 describe('WindowFirstShell — no initialTab prop', () => {
   it('opens on Plan, pinning the default every other shell suite relies on', () => {
     renderShell();
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
   });
 });
 
 describe('WindowFirstShell — initialTab="plan"', () => {
   it('opens on Plan even with a map pane already present at mount', () => {
     renderShell({ initialTab: 'plan', mapPane: MAP_PANE });
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByTestId('map-pane')).toBeNull();
   });
 });
@@ -195,7 +196,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
     // `GET /api/forecast` has returned rows, so the shell renders before the Map pane exists even
     // when the device prefers it.
     const { rerenderWith } = renderShell({ initialTab: 'map' });
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
 
     act(() => rerenderWith({ mapPane: MAP_PANE }));
 
@@ -228,7 +229,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
 
     act(() => rerenderWith({ mapPane: MAP_PANE }));
 
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
   });
 
@@ -245,7 +246,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
 
     act(() => rerenderWith({ mapPane: MAP_PANE }));
 
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('stays on Plan after a bare keydown on the pane, with no tab focused', () => {
@@ -254,7 +255,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
 
     act(() => rerenderWith({ mapPane: MAP_PANE }));
 
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('stays on Plan after a wheel event on the pane', () => {
@@ -263,7 +264,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
 
     act(() => rerenderWith({ mapPane: MAP_PANE }));
 
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('stays on Coming up when the reader chose it before the map pane arrived', () => {
@@ -281,7 +282,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
     // Only an explicit `tabRequest` moves focus (`:745`'s own note) — the preference-driven switch
     // must leave `document.activeElement` exactly where it was.
     const { rerenderWith } = renderShell({ initialTab: 'map' });
-    const plan = tab('Plan');
+    const plan = tab('At a Glance');
     plan.focus();
     expect(document.activeElement).toBe(plan);
 
@@ -311,7 +312,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
 
       act(() => rerenderWith({ mapPane: MAP_PANE }));
 
-      expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+      expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     });
 
     it('resolves to Map when the pane arrives just under the grace boundary, before the timer has fired at all', () => {
@@ -359,8 +360,8 @@ describe('WindowFirstShell — initialTab="map"', () => {
     renderShell({ initialTab: 'map', mapPane: MAP_PANE });
     expect(screen.getByTestId('map-pane')).toBeInTheDocument();
 
-    fireEvent.click(tab('Plan'));
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(tab('At a Glance'));
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
 
     fireEvent.click(tab('Map'));
     expect(screen.getByTestId('map-pane')).toBeInTheDocument();

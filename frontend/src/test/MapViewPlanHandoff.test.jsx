@@ -999,7 +999,7 @@ describe('MapView — the breadcrumb\'s return names the tab the door came from 
   it.each([
     ['coming-up', 'Coming up'],
     ['operations', 'Operations'],
-    [undefined, 'Plan'],
+    [undefined, /^At a Glance/],
   ])('a door from %s returns there', async (from, label) => {
     const onReturnToPlan = vi.fn();
     await renderTab({

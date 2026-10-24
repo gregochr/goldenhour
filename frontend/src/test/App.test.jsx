@@ -223,7 +223,7 @@ describe('App — the Plan shell', () => {
     providerSpy.mockImplementation(() => { throw new Error('boom'); });
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'The Plan stopped working' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'At a Glance stopped working' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
 
     // The boundary now sits OUTSIDE App's <main> (aurora-banner-plan.md §4 D1), so the fallback brings
@@ -911,7 +911,7 @@ describe('App — panes handed to WindowFirstShell', () => {
 
     expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
     // The arm itself is intact — the missing tab is a withheld pane, not a broken shell.
-    expect(screen.getByRole('tab', { name: 'Plan' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toBeInTheDocument();
   });
 
   /**
@@ -1197,7 +1197,7 @@ describe('App — recasts the page as a flex column on the Map tab (map-tab-v2-p
     expect(classTokens(main)).toContain('flex-col');
 
     // Back to Plan restores it — the recast is per-tab, not a one-way switch.
-    const planTab = screen.getByRole('tab', { name: 'Plan' });
+    const planTab = screen.getByRole('tab', { name: /^At a Glance/ });
     await act(async () => { planTab.click(); });
     expect(classTokens(main)).toContain('px-4');
     expect(classTokens(main)).not.toContain('sm:px-4');
@@ -1240,7 +1240,7 @@ describe('App — recasts the page as a flex column on the Map tab (map-tab-v2-p
     expect(root.className).toContain('flex-col');
     expect(root.className).toContain('overflow-hidden');
 
-    const planTab = screen.getByRole('tab', { name: 'Plan' });
+    const planTab = screen.getByRole('tab', { name: /^At a Glance/ });
     await act(async () => { planTab.click(); });
     expect(root.className).toContain('min-h-screen');
     expect(root.className).not.toContain('overflow-hidden');
@@ -1288,7 +1288,7 @@ describe('App — suppresses the app-wide footer on the Map tab (adversarial rev
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
 
     // Back to Plan restores it — suppression is per-tab, not a one-way switch.
-    const planTab = screen.getByRole('tab', { name: 'Plan' });
+    const planTab = screen.getByRole('tab', { name: /^At a Glance/ });
     await act(async () => { planTab.click(); });
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
   });
@@ -1435,7 +1435,7 @@ describe('App — a wildlife hide\'s hourly rows add no window to the Map pane\'
   it('still withholds the Map tab when no visible location has any forecast row at all', async () => {
     fetchForecasts.mockResolvedValue([]);
     renderApp();
-    await screen.findByRole('tab', { name: 'Plan' });
+    await screen.findByRole('tab', { name: /^At a Glance/ });
     expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
   });
 });

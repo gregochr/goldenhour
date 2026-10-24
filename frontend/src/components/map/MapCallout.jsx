@@ -32,6 +32,7 @@ import { readableInkOn } from '../../utils/windowFirstSpots.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 import { PEEK_HEIGHT } from '../../utils/askPeek.js';
+import { GLANCE_SHORT_LABEL } from '../../utils/tabLabels.js';
 
 /** The desktop/tablet card width (README §7: "286px (266px mobile)"). */
 const CALLOUT_WIDTH = 286;
@@ -1294,7 +1295,8 @@ export default function MapCallout({
               aria-haspopup="dialog"
               onClick={() => onOpenInPlan?.()}
             >
-              Open in Plan
+              {/* The short name at every width: the callout is 286px and the button half of it. */}
+              {`Open in ${GLANCE_SHORT_LABEL}`}
             </button>
           )}
         </div>

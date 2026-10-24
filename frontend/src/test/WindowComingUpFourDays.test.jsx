@@ -140,7 +140,7 @@ describe('WindowComingUpFourDays — names and glyphs', () => {
     renderLanes();
     const bar = screen.getByTestId('coming-up-fourdays-bar');
     expect(bar).toHaveTextContent('tonight → Sat');
-    expect(bar).toHaveAccessibleName('tonight to Saturday, Aurora, opens Plan on the Friday sunset');
+    expect(bar).toHaveAccessibleName('tonight to Saturday, Aurora, opens At a Glance on the Friday sunset');
   });
 
   it('keeps raw symbols out of every name and hides them from assistive technology', () => {
@@ -169,21 +169,21 @@ describe('WindowComingUpFourDays — names and glyphs', () => {
     const bar = screen.getByTestId('coming-up-fourdays-bar');
     expect(bar).toHaveTextContent('Sat → Sun peak Sun · ↓ sunset');
     expect(bar).toHaveAccessibleName(
-      'Saturday to Sunday, peak Sunday at sunset, Spring tide, opens Plan',
+      'Saturday to Sunday, peak Sunday at sunset, Spring tide, opens At a Glance',
     );
   });
 
-  it('names a dot by topic, day and window, and a no-card tap as plain "opens Plan"', () => {
+  it('names a dot by topic, day and window, and a no-card tap as plain "opens At a Glance"', () => {
     renderLanes({ openableKeys: new Set() });
     expect(screen.getByTestId('coming-up-fourdays-dot'))
-      .toHaveAccessibleName('Inversion, Saturday sunrise, opens Plan');
+      .toHaveAccessibleName('Inversion, Saturday sunrise, opens At a Glance');
   });
 
   it('adds "runs on" to an open dot\'s name', () => {
     renderLanes({ hotTopics: [tide(MON, {})], entries: [STRADDLER] });
     const dot = screen.getByTestId('coming-up-fourdays-dot');
     expect(dot).toHaveAccessibleName(
-      'Spring tide, Monday sunrise and sunset, runs on, opens Plan on the Monday sunrise',
+      'Spring tide, Monday sunrise and sunset, runs on, opens At a Glance on the Monday sunrise',
     );
     expect(dot).toHaveAttribute('data-open', 'true');
   });
@@ -198,7 +198,7 @@ describe('WindowComingUpFourDays — names and glyphs', () => {
     expect(bar).toHaveAttribute('data-open', 'true');
     expect(bar).toHaveTextContent('runs on');
     expect(bar).toHaveAccessibleName(
-      'Saturday onwards, Spring tide, opens Plan on the Saturday sunset',
+      'Saturday onwards, Spring tide, opens At a Glance on the Saturday sunset',
     );
   });
 
@@ -206,7 +206,7 @@ describe('WindowComingUpFourDays — names and glyphs', () => {
     renderLanes();
     expect(screen.getAllByTestId('coming-up-fourdays-label')[0].querySelector('.wf-cu-fd-i'))
       .toHaveAttribute('aria-hidden', 'true');
-    expect(screen.getByRole('button', { name: 'On Plan' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^At a Glance/ })).toBeInTheDocument();
   });
 
   it('draws the dot\'s window glyph', () => {
@@ -217,7 +217,7 @@ describe('WindowComingUpFourDays — names and glyphs', () => {
   it('keeps a literal space between the header\'s label and its button', () => {
     renderLanes();
     const head = screen.getByTestId('coming-up-fourdays').querySelector('.wf-cu-fd-head');
-    expect(head.textContent).toBe('Next four days On Plan →');
+    expect(head.textContent).toBe('Next four days At a GlanceGlance →');
   });
 });
 
@@ -244,7 +244,7 @@ describe('WindowComingUpFourDays — taps', () => {
     expect(onGoToPlan).toHaveBeenCalledTimes(1);
   });
 
-  it('"On Plan" calls onGoToPlan with no date', () => {
+  it('"At a Glance" calls onGoToPlan with no date', () => {
     const { onGoToPlan } = renderLanes();
     fireEvent.click(screen.getByTestId('coming-up-fourdays-plan'));
     expect(onGoToPlan).toHaveBeenCalledWith();
@@ -353,7 +353,7 @@ describe('WindowComingUpFourDays — degrade states', () => {
   it('shows only the header and the day headers before the briefing has arrived', () => {
     renderLanes({ hotTopics: undefined });
     expect(screen.getByText('Next four days')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'On Plan' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^At a Glance/ })).toBeInTheDocument();
     expect(screen.getAllByTestId('coming-up-fourdays-day')).toHaveLength(4);
     expect(screen.queryByTestId('coming-up-fourdays-label')).toBeNull();
     expect(screen.queryByTestId('coming-up-fourdays-empty')).toBeNull();
@@ -364,12 +364,12 @@ describe('WindowComingUpFourDays — degrade states', () => {
     expect(screen.getByTestId('coming-up-fourdays-empty')).toHaveTextContent('Nothing on those four days');
     expect(screen.queryByTestId('coming-up-fourdays-label')).toBeNull();
     expect(screen.queryByTestId('coming-up-fourdays-day')).toBeNull();
-    expect(screen.getByRole('button', { name: 'On Plan' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^At a Glance/ })).toBeInTheDocument();
   });
 
   it('shows only the header while today is not yet known', () => {
     renderLanes({ todayStr: '' });
-    expect(screen.getByRole('button', { name: 'On Plan' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^At a Glance/ })).toBeInTheDocument();
     expect(screen.queryByTestId('coming-up-fourdays-day')).toBeNull();
   });
 });

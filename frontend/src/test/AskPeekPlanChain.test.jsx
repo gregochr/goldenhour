@@ -304,7 +304,8 @@ afterEach(() => {
   fakeMap?.container.remove();
 });
 
-const tab = (name) => screen.getByRole('tab', { name });
+// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
+const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 const sheet = () => screen.getByTestId('wf-map-peek');
 const mode = () => sheet().getAttribute('data-ask');
 /** The shell hiding (0 x 0) or showing the Map's panel: the pane's own ResizeObserver fires with its box. */
@@ -353,7 +354,7 @@ describe('Open in Plan, from the phone Map’s Ask section, through the real she
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Whitby');
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByTestId('window-first-panel-map')).toHaveAttribute('hidden');
     expect(openRowKey()).toBe(`${TOMORROW}:SUNRISE`);
     expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(1);

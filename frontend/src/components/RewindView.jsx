@@ -91,7 +91,7 @@ export default function RewindView() {
   return (
     <div className="flex flex-col gap-5" data-testid="rewind-view">
       <p className="text-sm text-plex-text-secondary">
-        Rewind the app to just before a solar event that has passed. The Plan and Map tabs then render
+        Rewind the app to just before a solar event that has passed. At a Glance and the Map tab then render
         the forecast as it stood at that moment — that window live, its verdict, stars and best bet in
         place — so you can screenshot the forecast that sent you out after you have got back.
       </p>
@@ -124,7 +124,7 @@ export default function RewindView() {
                   </span>
                   {event.passed && !event.inBriefing && (
                     <span className="text-xs text-plex-text-muted" data-testid={`rewind-not-briefed-${key}`}>
-                      The briefing has been rebuilt since and no longer holds this day, so the Plan tab
+                      The briefing has been rebuilt since and no longer holds this day, so At a Glance
                       cannot show it.
                     </span>
                   )}
@@ -154,7 +154,7 @@ export default function RewindView() {
       <div className="flex flex-col gap-2 border-t border-plex-border pt-3">
         <label className="text-xs text-plex-text-muted" htmlFor="rewind-custom">
           Or a moment of your own, in your browser’s time zone — within the last {maxAgeDays} days.
-          The Plan tab shows only the days the current briefing holds.
+          At a Glance shows only the days the current briefing holds.
         </label>
         <div className="flex flex-wrap items-center gap-2">
           <input

@@ -70,7 +70,7 @@ describe('RewindView', () => {
     const button = await screen.findByTestId('rewind-to-2026-10-03-SUNSET');
     expect(button).toBeDisabled();
     expect(screen.getByTestId('rewind-event-2026-10-03-SUNSET')).toHaveTextContent('no longer in the forecast');
-    expect(screen.getByTestId('rewind-not-briefed-2026-10-03-SUNSET')).toHaveTextContent('Plan tab cannot show it');
+    expect(screen.getByTestId('rewind-not-briefed-2026-10-03-SUNSET')).toHaveTextContent('At a Glance cannot show it');
   });
 
   it('Rewind to … sets the rewind to the served instant with the event as the map focus', async () => {

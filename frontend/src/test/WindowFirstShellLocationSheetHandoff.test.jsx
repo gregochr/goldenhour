@@ -122,7 +122,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
       id: 42, name: 'Bamburgh', regionName: 'North East', inPlan: true, nonce: 1,
     }));
 
-    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
     const sheet = await screen.findByTestId('location-sheet');
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Bamburgh');
     expect(sheet).toBeInTheDocument();
@@ -142,7 +142,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Bamburgh');
     expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'false');
     expect(screen.getByTestId('window-first-panel-map')).not.toHaveAttribute('hidden');
     expect(screen.getByTestId('map-pane')).toBeInTheDocument();
   });
@@ -209,7 +209,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     }));
     // Force the new context to actually apply — the shell has to re-render once for the strip to
     // exist before it can be clicked.
-    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
 
     await screen.findByTestId('wf-heat-strip');
     await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
@@ -268,7 +268,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
         id: 1, name: 'Spot 1', lat: 55.61, lng: -1.71, regionName: 'Northumberland & Tyneside', rid: 'Northumberland & Tyneside', skySubject: true, bortleClass: 3, scores: [4],
       }],
     }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
 
     await screen.findByTestId('wf-heat-strip');
     await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
@@ -283,7 +283,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     expect(screen.getByTestId('location-sheet')).toBeInTheDocument();
     expect(screen.queryByTestId('window-sheet')).toBeNull();
     // And the tab did not move on the way — the whole point of this route.
-    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('stamps inPlace on the sheet footer\'s map door, from the tab in force', async () => {
@@ -350,7 +350,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
         locationSheetHandoff={{ id: 1, name: 'Spot 1', regionName: 'North East', nonce: 4 }}
       />,
     );
-    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByTestId('location-sheet')).toBeNull();
   });
 
@@ -396,7 +396,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
 
     const dialog = await screen.findByTestId('location-sheet');
     expect(document.activeElement).not.toBe(document.body);
-    const onTab = document.activeElement === screen.getByRole('tab', { name: 'Plan' });
+    const onTab = document.activeElement === screen.getByRole('tab', { name: /^At a Glance/ });
     const onDialog = dialog.contains(document.activeElement);
     expect(onTab || onDialog).toBe(true);
     raf.mockRestore();

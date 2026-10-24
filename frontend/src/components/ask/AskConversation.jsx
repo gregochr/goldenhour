@@ -14,6 +14,7 @@ import AskThreadHistory from './AskThreadHistory.jsx';
 import AskThreadReset from './AskThreadReset.jsx';
 import { planActionsShape } from './askShapes.js';
 import { scrollToTopOfScroller } from '../../utils/askScroll.js';
+import { GLANCE_LABEL } from '../../utils/tabLabels.js';
 import {
   KIND, newestRunLabel, questionsForView, readyBusyLine, TYPED_BUSY_LINE,
 } from '../../utils/askModel.js';
@@ -29,7 +30,7 @@ const NO_REGIONS = [];
  */
 const READY_ALL_LABEL = {
   map: 'Map · all regions',
-  plan: 'Plan · all regions',
+  plan: `${GLANCE_LABEL} · all regions`,
   'coming-up': 'Coming up · all regions',
 };
 

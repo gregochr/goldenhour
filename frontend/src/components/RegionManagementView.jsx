@@ -344,7 +344,7 @@ export default function RegionManagementView() {
           {mode === 'edit' && (
             <fieldset className="flex flex-col gap-2" data-testid="region-base-fields">
               <legend className="block text-xs text-plex-text-secondary mb-1">
-                Base town — the origin the Plan tab can plan from
+                Base town — the origin the At a Glance tab can plan from
               </legend>
               <p className="text-xs text-plex-text-muted">
                 The town a visitor would stay in, not the region&apos;s centre — a centroid is

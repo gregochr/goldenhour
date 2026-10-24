@@ -174,7 +174,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const tab = (name) => screen.getByRole('tab', { name });
+// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
+const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 
 /** Goes to Coming up and presses the lane button for one topic type. */
 async function pressLane(type) {
@@ -194,7 +195,7 @@ describe('WindowFirstShell — the Plan window door (a Coming up lane’s tap-th
     await renderShell();
     await pressLane('DUST');
 
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByTestId('window-sheet')).toBeInTheDocument();
     expect(topicRow('DUST')).toHaveAttribute('data-emphasis', 'true');
     expect(screen.getByTestId('wf-topic-rows')).toHaveAttribute('data-emphasis-topic', 'DUST');
@@ -256,7 +257,7 @@ describe('WindowFirstShell — the Plan window door (a Coming up lane’s tap-th
     await act(async () => { fireEvent.click(screen.getByTestId('window-sheet-close')); });
     expect(screen.queryByTestId('window-sheet')).toBeNull();
 
-    await act(async () => { fireEvent.click(tab('Plan')); });
+    await act(async () => { fireEvent.click(tab('At a Glance')); });
     await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[1]); });
     await screen.findByTestId('window-sheet');
     expect(topicRow('DUST')).toBeDefined();
@@ -269,13 +270,13 @@ describe('WindowFirstShell — the Plan window door (a Coming up lane’s tap-th
     const dialog = await screen.findByTestId('window-sheet');
     // The dialog has taken focus (so the tab really was captured as the opener) ...
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
-    expect(tab('Plan')).not.toHaveFocus();
+    expect(tab('At a Glance')).not.toHaveFocus();
 
     await act(async () => { fireEvent.click(screen.getByTestId('window-sheet-close')); });
     await act(async () => { await Promise.resolve(); });
 
     // ... and gives it back to the Plan tab on close.
-    expect(tab('Plan')).toHaveFocus();
+    expect(tab('At a Glance')).toHaveFocus();
   });
 
   it('hands the lanes the shell\'s todayStr — the first day column is today\'s date', async () => {

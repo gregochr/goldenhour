@@ -2,6 +2,8 @@ import { useId, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { buildFourDayLanes } from '../utils/fourDayLanes.js';
 import { scrollToEntry } from '../utils/scrollToEntry.js';
+import { GLANCE_LABEL } from '../utils/tabLabels.js';
+import GlanceLabel from './GlanceLabel.jsx';
 
 /** `Friday` — long weekday for a spoken destination, noon UTC so no zone moves the date. */
 function longWeekday(dateStr) {
@@ -9,11 +11,11 @@ function longWeekday(dateStr) {
     .toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
 }
 
-/** `opens Plan on the Friday sunset`, or plain `opens Plan` when no Plan card exists for it. */
+/** `opens At a Glance on the Friday sunset`, or plain `opens At a Glance` when no card exists for it. */
 function destination(target) {
-  if (!target) return 'opens Plan';
+  if (!target) return `opens ${GLANCE_LABEL}`;
   const at = target.indexOf(':');
-  return `opens Plan on the ${longWeekday(target.slice(0, at))} ${target.slice(at + 1).toLowerCase()}`;
+  return `opens ${GLANCE_LABEL} on the ${longWeekday(target.slice(0, at))} ${target.slice(at + 1).toLowerCase()}`;
 }
 
 /**
@@ -168,7 +170,7 @@ export default function WindowComingUpFourDays({
           onClick={() => onGoToPlan()}
           data-testid="coming-up-fourdays-plan"
         >
-          On Plan
+          <GlanceLabel />
           {' '}
           <span aria-hidden="true">→</span>
         </button>

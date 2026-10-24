@@ -121,7 +121,7 @@ export default function HotTopicSimulation() {
         </p>
         {state.enabled && (
           <p className="text-xs text-plex-text-muted">
-            Switch to the Plan tab to see the pills
+            Switch to the At a Glance tab to see the pills
           </p>
         )}
       </div>

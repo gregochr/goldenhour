@@ -37,6 +37,8 @@ import useAskSurface from '../hooks/useAskSurface.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
 import useStuckSentinel from '../hooks/useStuckSentinel.js';
+import { GLANCE_LABEL, GLANCE_SHORT_LABEL } from '../utils/tabLabels.js';
+import GlanceLabel from './GlanceLabel.jsx';
 
 /**
  * The Coming up pane's `onShowOnMap` when the shell was handed no Map door (no forecast to map). The
@@ -175,7 +177,7 @@ const PREFERRED_TAB_GRACE_MS = 1500;
  * of a bar that has to fit a phone (measured).
  */
 const TABS = [
-  { id: 'plan', label: 'Plan', glyph: '◉' },
+  { id: 'plan', label: GLANCE_LABEL, shortLabel: GLANCE_SHORT_LABEL, glyph: '◉' },
   { id: 'coming-up', label: 'Coming up', glyph: null },
   { id: 'map', label: 'Map', glyph: '◍', slot: 'mapPane' },
   { id: 'operations', label: 'Operations', glyph: null, slot: 'operationsPane', gated: true },
@@ -188,14 +190,14 @@ const TABS = [
  * sheet OR the dock is sent with no region and no window.
  */
 const ASK_VIEW = {
-  plan: { view: 'plan', label: 'Plan · all regions' },
+  plan: { view: 'plan', label: `${GLANCE_LABEL} · all regions` },
   'coming-up': { view: 'coming-up', label: 'Coming up · all regions' },
   map: { view: 'map', label: 'Map · all regions' },
 };
 
-/** What the dock's header says it is beside, by tab (the mock's "· on Plan" / "· on Map"). */
+/** What the dock's header says it is beside, by tab (the mock's "· on Plan" / "· on Map"; Plan is now At a Glance). */
 const ASK_DOCK_CONTEXT = {
-  plan: 'on Plan',
+  plan: `on ${GLANCE_LABEL}`,
   'coming-up': 'on Coming up',
   map: 'on Map',
 };
@@ -2292,7 +2294,7 @@ export default function WindowFirstShell({
       <div
         data-testid="window-first-tabs"
         role="tablist"
-        aria-label="Plan sections"
+        aria-label="Sections"
         className="wf-tabs flex gap-1.5"
       >
         {tabs.map((tab, index) => {
@@ -2347,7 +2349,7 @@ export default function WindowFirstShell({
                   {`${tab.glyph} `}
                 </span>
               )}
-              {tab.label}
+              {tab.shortLabel ? <GlanceLabel /> : tab.label}
               {badge && (
                 <span
                   aria-hidden="true"

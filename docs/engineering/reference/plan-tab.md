@@ -1,5 +1,7 @@
 # Plan tab, Daily Briefing, Plan-screen confidence and the neighbour guard
 
+> **Label (coming-up-glance-plan.md R1):** the tab's user-facing name is **At a Glance** (phone: **Glance**) since that phase. This file, the code and every identifier still say "Plan tab" / `plan`.
+
 > Moved verbatim from `CLAUDE.md` on 2026-10-22 to keep the always-loaded file small.
 > Read the section you need; this file is not loaded automatically.
 
