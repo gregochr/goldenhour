@@ -435,6 +435,9 @@ topics live on those four days`. The two tabs then agree **by construction** —
 label-only row (`Now — Mon 31` / `On Plan →`); never synthesise. This is the filter/map class, not
 D12's.
 
+> **Since superseded again, 2026-10-24:** the lanes below are now four day tiles with topic chips
+> (`utils/fourDayTiles.js`; `docs/engineering/coming-up-glance-plan.md` T1), and `fourDayLanes.js` is deleted.
+>
 > **Superseded in presentation, 2026-10-23 (hot-topics-by-day C1).** The one-line row is replaced
 > by the "Next four days" lanes (`WindowComingUpFourDays`, model `utils/fourDayLanes.js`): one row
 > per topic type, a bar for a multi-day run and a dot for a single window, each a button into Plan.

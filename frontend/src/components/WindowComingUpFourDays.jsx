@@ -30,14 +30,20 @@ function destination(chip) {
   return `opens ${GLANCE_LABEL}`;
 }
 
-/** The `sr-only` tail of a chip's name: badge word, weather-driven, the weekday, the destination. */
+/**
+ * The `sr-only` tail of a chip's name: badge word, "continues" (the dashed border is otherwise the
+ * only signal, WCAG 1.3.1), weather-driven, the weekday, the destination. It opens with ", " so it
+ * reads on from the visible value.
+ */
 function spokenTail(chip, date) {
-  return [
+  const parts = [
     badgeWord(chip.badge),
+    chip.isContinuation ? 'continues' : '',
     chip.weather ? 'weather-driven' : '',
     longWeekday(date),
     destination(chip),
-  ].filter(Boolean).join(', ');
+  ].filter(Boolean);
+  return `, ${parts.join(', ')}`;
 }
 
 /**
@@ -154,16 +160,19 @@ export default function WindowComingUpFourDays({
   onGoToPlanWindow, onShowOnMap,
 }) {
   const labelId = useId();
+  // No `onShowOnMap`, no Map door: the model then never builds one, so a chip's spoken destination
+  // and its tap route cannot disagree.
+  const hasMapDoor = typeof onShowOnMap === 'function';
   const { days, topicCount } = useMemo(
     () => buildFourDayTiles({
-      todayStr, hotTopics, openableKeys, entries, renderedEntryIds, forecastDates,
+      todayStr, hotTopics, openableKeys, entries, renderedEntryIds, forecastDates, hasMapDoor,
     }),
-    [todayStr, hotTopics, openableKeys, entries, renderedEntryIds, forecastDates],
+    [todayStr, hotTopics, openableKeys, entries, renderedEntryIds, forecastDates, hasMapDoor],
   );
 
   const tapChip = (chip) => {
     if (chip.jump) scrollToEntry(chip.jump.entryId);
-    else if (chip.mapDoor && onShowOnMap) onShowOnMap(chip.mapDoor.date, chip.mapDoor.eventType);
+    else if (chip.mapDoor) onShowOnMap(chip.mapDoor.date, chip.mapDoor.eventType);
     else if (chip.target && onGoToPlanWindow) onGoToPlanWindow(chip.target, chip.type);
     else onGoToPlan();
   };
@@ -259,6 +268,7 @@ function DayTile({ day, idBase, onTap }) {
                   <span className="wf-cu-fd-sw" aria-hidden="true" />
                   <span className="wf-cu-fd-name">
                     <span className="wf-cu-fd-nl">{chip.name}</span>
+                    {' '}
                     <span className="wf-cu-fd-ns">{chip.chipName}</span>
                   </span>
                   {chip.badge && (
@@ -268,6 +278,7 @@ function DayTile({ day, idBase, onTap }) {
                     <span className="wf-cu-fd-wx" aria-hidden="true">WX</span>
                   )}
                 </span>
+                {' '}
                 {(chip.value || chip.shortValue) && (
                   <span className="wf-cu-fd-val">
                     {chip.value && <span className="wf-cu-fd-vl">{chip.value}</span>}
@@ -275,7 +286,6 @@ function DayTile({ day, idBase, onTap }) {
                     {chip.shortValue && <span className="wf-cu-fd-vs">{chip.shortValue}</span>}
                   </span>
                 )}
-                {' '}
                 <span className="sr-only">{spokenTail(chip, day.date)}</span>
               </button>
             </li>

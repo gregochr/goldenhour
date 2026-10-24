@@ -10234,7 +10234,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    The phone rules live in `@media (max-width: 639px)` only, so desktop and tablet are untouched. */
 .wf-cu-fd {
   --fd-ink-2: rgba(242, 231, 211, 0.7);
-  --fd-ink-3: rgba(242, 231, 211, 0.5);
+  --fd-ink-3: rgba(242, 231, 211, 0.55); /* README says 50%; raised for contrast, in this strip only */
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -10417,7 +10417,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   font-size: 8.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--c);
+  /* Pulled toward the ink so every palette colour (BLUEBELL violet is ~3.95:1 raw) reaches 4.5:1
+     as text, while still reading as the topic's colour. */
+  color: color-mix(in oklch, var(--c) 70%, var(--color-plex-text));
 }
 .wf-cu-fd-wx {
   flex: none;
@@ -10428,7 +10430,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   font-family: var(--font-mono);
   font-size: 8px;
   text-transform: uppercase;
-  color: var(--fd-ink-3);
+  color: var(--fd-ink-2);
 }
 .wf-cu-fd-val {
   padding-left: 13px;
@@ -10456,6 +10458,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   .wf-cu-fd-tile[data-today='true'] { border-width: 2px; }
   .wf-cu-fd-chip:focus-visible,
   .wf-cu-fd-plan:focus-visible { outline: 2px solid Highlight; }
+  /* Forced colours flatten the hover background and border colour, so hover needs its own cue. */
+  .wf-cu-fd-chip:hover { outline: 1px solid Highlight; }
 }
 /* Phone only: five-pixel gutters, smaller type, the relative label stacked under the date, no
    badge or WX boxes (the short value's " pk" / "full" carries the cue), and the phone names. Desktop
@@ -10464,31 +10468,36 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   .wf-cu-fd-count { display: none; }
   .wf-cu-fd-tiles { gap: 5px; }
   .wf-cu-fd-tile { padding: 6px 5px 7px; }
-  .wf-cu-fd-dh { flex-wrap: wrap; column-gap: 7px; row-gap: 2px; }
+  /* Weekday, date and relative label stack on three lines, flush left. The README's "8px" for the
+     relative label is the gap ABOVE it (its type is the mono 9px). */
+  .wf-cu-fd-dh { flex-direction: column; align-items: flex-start; gap: 1px; }
   .wf-cu-fd-dnum { font-size: 16px; }
   .wf-cu-fd-rel {
-    flex-basis: 100%;
     margin-left: 0;
-    font-size: 8px;
+    margin-top: 8px;
+    font-size: 9px;
     text-align: left;
   }
   .wf-cu-fd-rel-l { display: none; }
   .wf-cu-fd-rel-s { display: inline; }
-  .wf-cu-fd-chip { padding: 3px 5px; }
-  .wf-cu-fd-name { flex: 1 1 auto; font-size: 10.5px; overflow: visible; text-overflow: clip; }
+  /* 24px tap targets on the phone (WCAG 2.5.8). */
+  .wf-cu-fd-chip { min-height: 24px; padding: 3px 5px; }
+  .wf-cu-fd-plan { min-height: 24px; padding: 4px 0; }
+  /* Known chipNames are six characters or fewer and never reach the ellipsis; it is the safety net
+     for an unknown type, whose fallback name is the full served label. */
+  .wf-cu-fd-name { flex: 1 1 auto; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; }
   .wf-cu-fd-nl { display: none; }
   .wf-cu-fd-ns { display: inline; }
   .wf-cu-fd-badge,
   .wf-cu-fd-wx { display: none; }
-  .wf-cu-fd-l1 { gap: 4px; }
-  /* 7px swatch + 4px gap = 11px indent. A value too long for the tile wraps at its spaces rather
-     than ellipsizing or running out of the chip (the phone's labels must show whole). */
+  /* The value sits flush under the swatch (no indent, as the mock draws it), on one line, never
+     ellipsized: "+0.4 m pk" fits the ~52px content box. */
   .wf-cu-fd-val {
-    padding-left: 11px;
+    padding-left: 0;
     font-size: 8.5px;
     overflow: visible;
     text-overflow: clip;
-    white-space: normal;
+    white-space: nowrap;
   }
   .wf-cu-fd-vl { display: none; }
   .wf-cu-fd-vs { display: inline; }

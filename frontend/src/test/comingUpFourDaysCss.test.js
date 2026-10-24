@@ -84,7 +84,7 @@ describe('the "Next four days" day tiles stylesheet', () => {
   it('puts every phone-only size inside the phone query, and none outside it', () => {
     expect(phone).toContain('.wf-cu-fd-tile { padding: 6px 5px 7px; }');
     expect(phone).toContain('.wf-cu-fd-dnum { font-size: 16px; }');
-    expect(phone).toContain('.wf-cu-fd-chip { padding: 3px 5px; }');
+    expect(phone).toMatch(/\.wf-cu-fd-chip \{[^}]*padding: 3px 5px;/);
     expect(phone).toContain('font-size: 10.5px;');
     expect(phone).toContain('font-size: 8.5px;');
     // Outside the query, nothing declares a phone value.
@@ -106,8 +106,42 @@ describe('the "Next four days" day tiles stylesheet', () => {
     expect(phone).toContain('.wf-cu-fd-count { display: none; }');
     expect(phone).toMatch(/\.wf-cu-fd-badge,\s*\.wf-cu-fd-wx \{ display: none; \}/);
     expect(outsidePhone).not.toMatch(/\.wf-cu-fd-(badge|wx|count) \{[^}]*display: none/);
-    expect(phone).toMatch(/\.wf-cu-fd-rel \{[^}]*flex-basis: 100%;[^}]*text-align: left;/);
-    expect(phone).toContain('.wf-cu-fd-dh { flex-wrap: wrap;');
+    expect(phone).toMatch(/\.wf-cu-fd-rel \{[^}]*font-size: 9px;[^}]*text-align: left;/);
+    expect(phone).toMatch(/\.wf-cu-fd-dh \{ flex-direction: column; align-items: flex-start;/);
+  });
+
+  it('never hides a desktop half (nl, vl, rel-l) outside the phone query', () => {
+    for (const half of ['nl', 'vl', 'rel-l']) {
+      expect(outsidePhone, half).not.toMatch(new RegExp(`\\.wf-cu-fd-${half}\\b[^{]*\\{[^}]*display: none`));
+    }
+  });
+
+  it('keeps the phone value on one line, flush, and the wrap and overflow overrides phone-only', () => {
+    expect(phone).toMatch(/\.wf-cu-fd-val \{[^}]*padding-left: 0;[^}]*white-space: nowrap;/);
+    expect(phone).toMatch(/\.wf-cu-fd-val \{[^}]*overflow: visible;/);
+    expect(outsidePhone).not.toContain('overflow: visible');
+    expect(outsidePhone).not.toContain('white-space: normal');
+  });
+
+  it('keeps an ellipsis safety net on the phone name, for an unknown type\'s full-label fallback', () => {
+    expect(phone).toMatch(/\.wf-cu-fd-name \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;/);
+  });
+
+  it('gives the phone 24px tap targets for the chip and the At a Glance link', () => {
+    expect(phone).toMatch(/\.wf-cu-fd-chip \{[^}]*min-height: 24px;/);
+    expect(phone).toMatch(/\.wf-cu-fd-plan \{[^}]*min-height: 24px;/);
+  });
+
+  it('keeps the badge text mixed toward the ink for contrast, and the WX text on ink-2', () => {
+    expect(ruleBody('.wf-cu-fd-badge')).toContain(
+      'color: color-mix(in oklch, var(--c) 70%, var(--color-plex-text));',
+    );
+    expect(ruleBody('.wf-cu-fd-wx')).toContain('color: var(--fd-ink-2);');
+  });
+
+  it('gives forced colours a hover cue', () => {
+    expect(mediaBlock('(forced-colors: active)', tilesStart))
+      .toContain('.wf-cu-fd-chip:hover { outline: 1px solid Highlight; }');
   });
 
   it('never states a topic colour as a literal — only through --c', () => {

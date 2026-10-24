@@ -144,7 +144,7 @@ const ctx = (overrides = {}) => ({
 
 let originalGetContext;
 
-async function renderShell(overrides = {}) {
+async function renderShell(overrides = {}, { onOpenMapTab = vi.fn(), forecastDates } = {}) {
   originalGetContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = () => ({});
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx(overrides));
@@ -154,7 +154,8 @@ async function renderShell(overrides = {}) {
         onOpenSettings={vi.fn()}
         onSignOut={vi.fn()}
         onShowOnMap={vi.fn()}
-        onOpenMapTab={vi.fn()}
+        onOpenMapTab={onOpenMapTab}
+        forecastDates={forecastDates}
         locations={[]}
       />,
     );
@@ -212,6 +213,22 @@ describe('WindowFirstShell — the Plan window door (a Coming up lane’s tap-th
     await pressLane('INVERSION'); // scoped out of the popup
     await screen.findByTestId('window-sheet');
     expect(screen.getByTestId('window-sheet-live')).not.toHaveTextContent('highlighting');
+  });
+
+  it('sends a weather chip with a forecast to the Map, not to the Plan popup', async () => {
+    const onOpenMapTab = vi.fn();
+    const mist = {
+      type: 'MIST', label: 'Valley mist', date: TODAY, eventType: 'SUNRISE', regions: ['Lake District'],
+      glance: { value: 'dawn · likely at 2 sites', shortValue: 'likely', weather: true },
+    };
+    await renderShell(
+      { briefing: { generatedAt: `${TODAY}T12:00:00`, hotTopics: [mist], days: DAYS } },
+      { onOpenMapTab, forecastDates: [TODAY] },
+    );
+    await pressLane('MIST');
+    expect(onOpenMapTab).toHaveBeenCalledTimes(1);
+    expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({ date: TODAY }));
+    expect(screen.queryByTestId('window-sheet')).toBeNull();
   });
 
   it('emphasises a whole-sky topic, which the scope never filters', async () => {

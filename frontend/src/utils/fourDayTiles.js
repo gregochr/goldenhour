@@ -130,14 +130,6 @@ function jumpFor(type, date, entries, rendered) {
   return hits.length > 0 ? { entryId: hits[0].id } : null;
 }
 
-/** The first non-null {@code glance} among these topics, or null. */
-function firstGlance(topics) {
-  for (const topic of topics) {
-    if (topic?.glance) return topic.glance;
-  }
-  return null;
-}
-
 /**
  * Builds the chip for one type on one date.
  *
@@ -149,7 +141,8 @@ function firstGlance(topics) {
 function buildChip(type, date, records, ctx) {
   const first = records[0].topic;
   const style = topicStyle(type, first.label);
-  const glance = firstGlance(records.map((r) => r.topic));
+  const glanceRecord = records.find((r) => r.topic?.glance) ?? null;
+  const glance = glanceRecord ? glanceRecord.topic.glance : null;
   const weather = glance?.weather === true;
 
   const windows = new Set(records.map((r) => r.item.window).filter(Boolean));
@@ -161,8 +154,12 @@ function buildChip(type, date, records, ctx) {
   }
 
   let mapDoor = null;
-  if (weather && (ctx.forecastDates == null || ctx.forecastDates.includes(date))) {
-    const eventType = events[0] ?? (first.eventType === NIGHT ? SUNSET : SUNRISE);
+  if (ctx.hasMapDoor && weather
+      && (ctx.forecastDates == null || ctx.forecastDates.includes(date))) {
+    // The window of the topic that SUPPLIED the glance (its text names that light), else the first
+    // record's, else the default for an unanchored topic.
+    const eventType = glanceRecord?.item.window ?? records[0].item.window
+      ?? (first.eventType === NIGHT ? SUNSET : SUNRISE);
     mapDoor = { date, eventType };
   }
 
@@ -196,12 +193,14 @@ function buildChip(type, date, records, ctx) {
  * @param {Set<string>|Array<string>} [args.openableKeys] the `date:TYPE` keys of Plan's window cards
  * @param {?Array<string>} [args.forecastDates] the dates the reader holds a colour forecast for; null
  *        is "not known" and withholds no Map door, an array (even empty) is known
+ * @param {boolean} [args.hasMapDoor] whether the caller can open the Map; false makes every
+ *        {@code mapDoor} null so the spoken destination and the tap route cannot disagree
  * @returns {{days: Array<object>, topicCount: ?number}} the four tiles, each with its chips, and the
  *          number of distinct topic types across them — null while {@code hotTopics} has not arrived
  */
 export function buildFourDayTiles({
   todayStr, hotTopics, entries = null, renderedEntryIds = null, openableKeys = null,
-  forecastDates = null,
+  forecastDates = null, hasMapDoor = true,
 }) {
   if (!todayStr) return { days: [], topicCount: null };
 
@@ -209,6 +208,7 @@ export function buildFourDayTiles({
   const lastPlan = lastPlanDateStr(todayStr);
   const ctx = {
     entries,
+    hasMapDoor,
     forecastDates: Array.isArray(forecastDates) ? forecastDates : null,
     openable: openableKeys instanceof Set ? openableKeys : new Set(openableKeys ?? []),
     rendered: renderedEntryIds instanceof Set ? renderedEntryIds : new Set(renderedEntryIds ?? []),

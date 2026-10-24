@@ -172,6 +172,20 @@ describe('WindowComingUpFourDays — the accessible name is built from content',
     expect(chip('SPRING_TIDE')).toHaveAccessibleName(/Sunday, shown in the list below$/);
   });
 
+  it('reads one peak chip as exactly this name (both name and value spans count in jsdom)', () => {
+    renderTiles({ hotTopics: [surge] });
+    expect(chip('STORM_SURGE')).toHaveAccessibleName(
+      'Storm surge Surge HW 16:02 · +0.4 m +0.4 m pk, peak, Saturday, opens At a Glance',
+    );
+  });
+
+  it('speaks a continuation, which the dashed border otherwise shows alone', () => {
+    renderTiles({ hotTopics: [tide(TODAY), tide(SUN)] });
+    const [first, second] = screen.getAllByTestId('coming-up-fourdays-chip');
+    expect(first).not.toHaveAccessibleName(/continues/);
+    expect(second).toHaveAccessibleName(/, continues, Sunday/);
+  });
+
   it('puts no decorative text (the swatch, WX, PEAK) in the name', () => {
     renderTiles({ hotTopics: [surge, inversion] });
     expect(chip('INVERSION').textContent).toContain('WX');
@@ -226,6 +240,47 @@ describe('WindowComingUpFourDays — what a tap does (first match wins)', () => 
     fireEvent.click(chip('INVERSION'));
     expect(onShowOnMap).not.toHaveBeenCalled();
     expect(onGoToPlanWindow).toHaveBeenCalledWith(`${SUN}:SUNRISE`, 'INVERSION');
+  });
+
+  it('⚠️ builds no Map door without onShowOnMap: the name and the tap agree on the Plan window', () => {
+    const { onGoToPlanWindow } = renderTiles({
+      hotTopics: [inversion], onShowOnMap: undefined, openableKeys: new Set([`${SUN}:SUNRISE`]),
+    });
+    expect(chip('INVERSION')).toHaveAccessibleName(/weather-driven, Sunday, opens At a Glance$/);
+    fireEvent.click(chip('INVERSION'));
+    expect(onGoToPlanWindow).toHaveBeenCalledWith(`${SUN}:SUNRISE`, 'INVERSION');
+  });
+
+  it('prefers the list jump to the Map door for a weather chip that has an entry', () => {
+    const nlc = {
+      type: 'NLC', label: 'NLC', date: SUN, eventType: 'SUNSET',
+      glance: { value: 'dusk', shortValue: 'dusk', weather: true },
+    };
+    const season = {
+      id: 'nlc-season:2026-10-20:2026-10-30', type: 'nlc-season',
+      startDate: '2026-10-20', endDate: '2026-10-30',
+    };
+    const { onShowOnMap } = renderTiles({
+      hotTopics: [nlc], entries: [season], renderedEntryIds: new Set([season.id]),
+    });
+    fireEvent.click(chip('NLC'));
+    expect(scrollToEntry).toHaveBeenCalledWith(season.id);
+    expect(onShowOnMap).not.toHaveBeenCalled();
+  });
+
+  it('falls back to plain onGoToPlan when no onGoToPlanWindow was supplied', () => {
+    const { onGoToPlan } = renderTiles({
+      onGoToPlanWindow: undefined, openableKeys: new Set([`${MON}:SUNSET`]),
+    });
+    fireEvent.click(chip('DUST'));
+    expect(onGoToPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a literal space between the header label and its button', () => {
+    renderTiles();
+    const space = screen.getByTestId('coming-up-fourdays-plan').previousSibling;
+    expect(space.nodeType).toBe(Node.TEXT_NODE);
+    expect(space.textContent).toBe(' ');
   });
 
   it('names the route the tap takes (a weather chip with no door says it opens At a Glance)', () => {

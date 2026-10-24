@@ -207,7 +207,11 @@ describe('buildFourDayTiles — the jump (§2.3: the entry\'s own span must cove
 
   it('⚠️ gives a Sunday tide chip NO jump when its run ends Monday and only a November run is rendered', () => {
     const result = tiles({
-      hotTopics: [tide(SUN), tide(MON)],
+      // A run of two days: Sunday is day 1 of 2, Monday day 2 of 2.
+      hotTopics: [
+        tide(SUN, { tideRun: { dayNumber: 1, dayCount: 2, peak: false } }),
+        tide(MON, { tideRun: { dayNumber: 2, dayCount: 2, peak: true } }),
+      ],
       entries: [NOV_RUN],
       renderedEntryIds: new Set([NOV_RUN.id]),
     });
@@ -241,6 +245,26 @@ describe('buildFourDayTiles — the jump (§2.3: the entry\'s own span must cove
     });
     expect(chipsOf(result, SUN)[0].jump).toBeNull();
     expect(chipsOf(result, MON)[0].jump).toEqual({ entryId: 'later' });
+  });
+
+  it('picks the earliest-starting entry when two rendered entries cover the date, whatever the order', () => {
+    const early = entry({ id: 'early', startDate: TODAY, endDate: '2026-10-30' });
+    const late = entry({ id: 'late', startDate: SUN, endDate: '2026-10-30' });
+    const result = tiles({
+      hotTopics: [tide(MON)],
+      entries: [late, early],
+      renderedEntryIds: ['late', 'early'],
+    });
+    expect(chipsOf(result, MON)[0].jump).toEqual({ entryId: 'early' });
+  });
+
+  it('stops an unmerged tide entry at its own endDate', () => {
+    const ends = entry({ id: 'ends', startDate: TODAY, endDate: SUN });
+    const result = tiles({
+      hotTopics: [tide(SUN), tide(MON)], entries: [ends], renderedEntryIds: ['ends'],
+    });
+    expect(chipsOf(result, SUN)[0].jump).toEqual({ entryId: 'ends' });
+    expect(chipsOf(result, MON)[0].jump).toBeNull();
   });
 
   it('reads a merged entry\'s tide days from dayRanges, never its union dates', () => {
@@ -332,12 +356,36 @@ describe('buildFourDayTiles — the Map door', () => {
       .toBeNull();
   });
 
-  it('defaults the event to the chip\'s first event, in morning-then-evening order', () => {
+  it('⚠️ takes the door\'s event from the topic that supplied the glance, not from the display order', () => {
+    // A dusk MIST carrying the glance, served first, plus a dawn MIST with none.
+    const dusk = wx('MIST', SUN, 'SUNSET');
+    const dawn = topic('MIST', SUN, 'SUNRISE');
+    const result = tiles({ hotTopics: [dusk, dawn] });
+    const [chip] = chipsOf(result, SUN);
+    // Display order stays chronological ...
+    expect(chip.events).toEqual(['SUNRISE', 'SUNSET']);
+    // ... but the door opens the evening the glance text is about.
+    expect(chip.mapDoor).toEqual({ date: SUN, eventType: 'SUNSET' });
+  });
+
+  it('falls back to the first record\'s window when the glance topic is unanchored', () => {
+    const dusk = topic('MIST', SUN, 'SUNSET');
+    const glanced = wx('MIST', SUN, null);
+    const [chip] = chipsOf(tiles({ hotTopics: [dusk, glanced] }), SUN);
+    expect(chip.mapDoor.eventType).toBe('SUNSET');
+  });
+
+  it('builds no door at all when the caller has no Map door (hasMapDoor false)', () => {
+    const result = tiles({ hotTopics: [wx('MIST', SUN)], hasMapDoor: false });
+    expect(chipsOf(result, SUN)[0].mapDoor).toBeNull();
+    expect(chipsOf(result, SUN)[0].weather).toBe(true);
+  });
+
+  it('lists a chip\'s events in morning-then-evening order', () => {
     const result = tiles({
       hotTopics: [wx('DUST', SUN, 'SUNSET'), wx('DUST', SUN, 'SUNRISE')],
     });
     expect(chipsOf(result, SUN)[0].events).toEqual(['SUNRISE', 'SUNSET']);
-    expect(chipsOf(result, SUN)[0].mapDoor.eventType).toBe('SUNRISE');
     const evening = tiles({ hotTopics: [wx('DUST', SUN, 'SUNSET')] });
     expect(chipsOf(evening, SUN)[0].mapDoor.eventType).toBe('SUNSET');
   });
