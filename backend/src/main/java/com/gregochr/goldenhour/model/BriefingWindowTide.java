@@ -63,8 +63,8 @@ import java.util.List;
  *                       cache-equality shortcut never compares. Different mechanism, same
  *                       value-comparability requirement
  * @param windowPosition where the solar event falls through the local day, 0.0 at midnight to 1.0 at
- *                       the next
- * @param windowLevel    the normalised water level at that instant, on the same 0–1 scale as
+ *                       the next; null on the Lite wire, where the curve is a Pro fact
+ * @param windowLevel    (null on the Lite wire) the normalised water level at that instant, on the same 0–1 scale as
  *                       {@link #curve} so the mark sits on the line by construction. Clamped: the
  *                       curve is normalised over its own samples, and the event rarely falls on
  *                       one, so a peak between two samples could otherwise place the mark a
@@ -106,8 +106,8 @@ public record BriefingWindowTide(
         @JsonInclude(JsonInclude.Include.NON_NULL) String rangeAnomaly,
         @JsonInclude(JsonInclude.Include.NON_NULL) String seas,
         List<Double> curve,
-        double windowPosition,
-        double windowLevel,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Double windowPosition,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Double windowLevel,
         @JsonInclude(JsonInclude.Include.NON_NULL) Double sunrisePosition,
         @JsonInclude(JsonInclude.Include.NON_NULL) Double sunsetPosition,
         @JsonInclude(JsonInclude.Include.NON_NULL) List<Extreme> extremes,
@@ -157,6 +157,23 @@ public record BriefingWindowTide(
             double windowLevel) {
         this(locationName, state, direction, nearestType, nearestTime, nearestOffset, range,
                 rangeAnomaly, seas, curve, windowPosition, windowLevel, null, null, null, null);
+    }
+
+    /**
+     * Returns this tide as the LITE role is served it: the curve, the positions, the extremes and
+     * the height at the light removed; the state, direction, nearest extreme, range, range anomaly
+     * and sea state kept.
+     *
+     * <p>Rebuilt through the canonical constructor, never the legacy twelve-field one (which would
+     * default the four trailing components away without a trace). {@code curve} becomes the empty
+     * list, the existing "no shape" contract, so the key stays on the wire.
+     *
+     * @return the stripped copy
+     */
+    public BriefingWindowTide forLite() {
+        return new BriefingWindowTide(locationName, state, direction, nearestType, nearestTime,
+                nearestOffset, range, rangeAnomaly, seas, List.of(), null, null, null, null, null,
+                null);
     }
 
     /**

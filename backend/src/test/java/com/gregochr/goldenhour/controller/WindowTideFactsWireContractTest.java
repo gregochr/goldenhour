@@ -42,7 +42,7 @@ class WindowTideFactsWireContractTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing serves window.tideFacts with its field names, omits null "
             + "optional fields, and omits the key on a window with none")
     void getBriefing_pinsTideFactsWireShape() throws Exception {
@@ -97,7 +97,7 @@ class WindowTideFactsWireContractTest extends AbstractControllerTest {
     // This proves null-@JsonUnwrapped serialisation on the Jackson 3 wire only (a null tide writes
     // none of the keys). The strip itself is proven in ServedBriefingAssemblerTest.
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("P5: a served slot (tide null) serialises none of the unwrapped tide keys, "
             + "while window.tideFacts is present")
     void getBriefing_strippedSlotCarriesNoTideKeys() throws Exception {

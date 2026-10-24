@@ -251,6 +251,19 @@ public record BriefingSlot(
     }
 
     /**
+     * Returns a copy of this slot carrying the given flags, every other field unchanged.
+     *
+     * @param newFlags the replacement flag strings
+     * @return a new slot, every other field unchanged
+     */
+    public BriefingSlot withFlags(List<String> newFlags) {
+        return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
+                newFlags, standdownReason, claudeRating, skyRating, fierySkyPotential,
+                goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
+                eclipse, neighbourOutlier);
+    }
+
+    /**
      * Returns a copy of this slot carrying the given neighbour-outlier mark, every other field
      * unchanged. The value is stored verbatim; the guard passes {@code TRUE} or null, never
      * {@code FALSE}.

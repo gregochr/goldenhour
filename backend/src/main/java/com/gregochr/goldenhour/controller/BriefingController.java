@@ -1,15 +1,19 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.BriefingDigestResponse;
 import com.gregochr.goldenhour.model.BriefingModelTestResultDto;
 import com.gregochr.goldenhour.model.BriefingModelTestRunDto;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.service.BriefingDigestService;
 import com.gregochr.goldenhour.service.BriefingModelTestService;
+import com.gregochr.goldenhour.service.BriefingRoleShaper;
 import com.gregochr.goldenhour.service.BriefingService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import com.gregochr.goldenhour.util.Authorities;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,6 +38,7 @@ public class BriefingController {
     private final BriefingService briefingService;
     private final BriefingModelTestService briefingModelTestService;
     private final BriefingDigestService briefingDigestService;
+    private final BriefingRoleShaper briefingRoleShaper;
 
     /**
      * Constructs a {@code BriefingController}.
@@ -41,13 +46,16 @@ public class BriefingController {
      * @param briefingService          the service that manages the briefing cache
      * @param briefingModelTestService the service that runs briefing model comparisons
      * @param briefingDigestService    the service that projects the briefing into the digest
+     * @param briefingRoleShaper       the shaper that strips Pro-only tide data for LITE readers
      */
     public BriefingController(BriefingService briefingService,
             BriefingModelTestService briefingModelTestService,
-            BriefingDigestService briefingDigestService) {
+            BriefingDigestService briefingDigestService,
+            BriefingRoleShaper briefingRoleShaper) {
         this.briefingService = briefingService;
         this.briefingModelTestService = briefingModelTestService;
         this.briefingDigestService = briefingDigestService;
+        this.briefingRoleShaper = briefingRoleShaper;
     }
 
     /**
@@ -58,22 +66,32 @@ public class BriefingController {
      * Gate 2 honesty filter is applied to any region with zero Claude-scored
      * locations before the response leaves the service layer.
      *
-     * @return the cached briefing response with honesty filter applied
+     * <p><b>The body is role-shaped.</b> The tide curve and the per-location tide match are Pro
+     * features (docs/engineering/tide-pro-gate-plan.md §7), so a reader who is neither PRO_USER nor
+     * ADMIN gets the briefing with them removed. The check is fail-closed: anything that is not
+     * positively PRO or ADMIN is served as LITE. The strip happens only here, at the HTTP edge, so
+     * the digest and Ask keep the full data. A role variant is not personal data: the body depends
+     * on the role alone, and the ETag is hashed from the body, so the two variants never share one.
+     *
+     * @param auth the caller's authentication
+     * @return the cached briefing response with honesty filter applied, shaped for the caller's role
      */
     @GetMapping
-    public ResponseEntity<DailyBriefingResponse> getBriefing() {
+    public ResponseEntity<DailyBriefingResponse> getBriefing(Authentication auth) {
         DailyBriefingResponse briefing = briefingService.getCachedBriefingForApi();
         if (briefing == null) {
             return ResponseEntity.noContent().build();
         }
-        return ResponseEntity.ok(briefing);
+        boolean pro = Authorities.hasRole(auth, UserRole.PRO_USER)
+                || Authorities.hasRole(auth, UserRole.ADMIN);
+        return ResponseEntity.ok(pro ? briefing : briefingRoleShaper.forLite(briefing));
     }
 
     /**
      * Returns a flat, bounded, chronological projection of the briefing's solar windows, or 204 No
      * Content when no briefing has been generated yet.
      *
-     * <p>The same forecast {@link #getBriefing()} serves, with the tree removed — for clients that
+     * <p>The same forecast {@link #getBriefing(Authentication)} serves, with the tree removed — for clients that
      * cannot afford to walk it. Bearer with no role gate, by inheritance from {@code /api/**} →
      * {@code .authenticated()}: it is a strict projection of a payload every authenticated caller
      * may already read in full, so a gate here would deny nothing and break the callers it exists

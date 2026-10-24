@@ -4,6 +4,9 @@ import com.gregochr.goldenhour.entity.BriefingModelTestResultEntity;
 import com.gregochr.goldenhour.entity.BriefingModelTestRunEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.model.BriefingWindowTide;
+import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.Confidence;
@@ -41,7 +44,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     private MockMvc mockMvc;
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing returns 200 with cached briefing")
     void getBriefing_returnsCachedResult() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildSampleBriefing());
@@ -67,7 +70,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing serialises the UNRATED display verdict by name on region and slot "
             + "through the real Jackson 3 response chain (unrated-verdict-plan.md U1)")
     void getBriefing_serialisesUnratedByName() throws Exception {
@@ -94,7 +97,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing returns 204 when cache is empty")
     void getBriefing_noContent() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(null);
@@ -121,7 +124,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("JSON includes slot-level detail")
     void getBriefing_slotDetail() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildSampleBriefing());
@@ -138,7 +141,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing routes through getCachedBriefingForApi (not the raw accessor)")
     void getBriefing_routesThroughHonestyApiAccessor() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildSampleBriefing());
@@ -150,7 +153,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing — honesty-filtered region JSON shape "
             + "(verdictLabel, empty slots, replacement summary)")
     void getBriefing_zeroCoverageSurfacesHonestyFilter() throws Exception {
@@ -175,7 +178,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing — bestBets field is present even when empty")
     void getBriefing_bestBetsAlwaysPresent() throws Exception {
         // Verifies that @JsonInclude(ALWAYS) on bestBets means the field is never silently
@@ -288,6 +291,117 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$[0].evaluationModel").value("HAIKU"));
     }
 
+    // ── GET /api/briefing: the role-shaped tide body (tide-pro-gate-plan.md §7) ───────────────
+    //
+    // BriefingRoleShaper is the REAL bean here, never a @MockitoBean: a mock would fork
+    // AbstractControllerTest's shared context. The shaped body is what the caller sees on the
+    // Jackson 3 wire.
+
+    private static final String WINDOW = "$.days[0].eventSummaries[0].window";
+    private static final String SLOT = "$.days[0].eventSummaries[0].regions[0].slots[0]";
+
+    private static DailyBriefingResponse tideBriefing() {
+        BriefingWindowTide tide = new BriefingWindowTide("Whitby", TideState.MID,
+                BriefingWindowTide.Direction.FALLING, "HW", "19:28", "1h43 before sunset",
+                "4.9 m", "1.2 m above an average tide", "0.3 m · smooth",
+                List.of(0.0, 0.5, 1.0), 0.88, 0.42, 0.25, 0.75,
+                List.of(new BriefingWindowTide.Extreme("HW", 0.8, "19:28")), "3.1 m");
+        LocationTideFact fact = new LocationTideFact(7L, "Bamburgh", "HIGH", true, 0.61, true,
+                "HW 06:12 · 25m after sunrise", 0.83, "RISING", "4.9 m", "wants higher",
+                "Tide suits this spot");
+        BriefingWindow window = new BriefingWindow(null, DisplayVerdict.WORTH_IT, 4, null, null,
+                List.of(), null, tide, List.of(fact));
+        BriefingSlot slot = new BriefingSlot(7L, "Bamburgh", LocalDateTime.of(2026, 10, 11, 6, 0),
+                Verdict.GO, null, null, List.of("Tide aligned", "Clear all layers"), null, null,
+                null, null, null, null, DisplayVerdict.AWAITING, null, false, null);
+        BriefingRegion region = new BriefingRegion("North East", Verdict.GO, "s", List.of(),
+                List.of(slot), null, null, null, null, null, null, DisplayVerdict.AWAITING, 0,
+                null, false, null);
+        BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE,
+                List.of(region), List.of(), null, window);
+        return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "h",
+                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
+                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/briefing as LITE: no curve, no positions, no height, no match; free facts stay")
+    void getBriefing_liteGetsNoCurveAndNoMatch() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(tideBriefing());
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                // curve is stripped to the empty list, never to an absent key.
+                .andExpect(jsonPath(WINDOW + ".tide.curve").isEmpty())
+                .andExpect(jsonPath(WINDOW + ".tide.windowPosition").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tide.windowLevel").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tide.sunrisePosition").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tide.sunsetPosition").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tide.extremes").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tide.heightAtWindow").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tide.state").value("MID"))
+                .andExpect(jsonPath(WINDOW + ".tide.direction").value("FALLING"))
+                .andExpect(jsonPath(WINDOW + ".tide.nearestTime").value("19:28"))
+                .andExpect(jsonPath(WINDOW + ".tide.rangeAnomaly")
+                        .value("1.2 m above an average tide"))
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideAligned").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideAlignmentQuality").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideShortfall").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideFitPhrase").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideHeight").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideLevel").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideState").value("HIGH"))
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideDirection").value("RISING"))
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideOnTheLight").value(true))
+                .andExpect(jsonPath(SLOT + ".flags.length()").value(1))
+                .andExpect(jsonPath(SLOT + ".flags[0]").value("Clear all layers"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("GET /api/briefing as PRO keeps the curve, the positions and the match")
+    void getBriefing_proKeepsCurveAndMatch() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(tideBriefing());
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(WINDOW + ".tide.curve.length()").value(3))
+                .andExpect(jsonPath(WINDOW + ".tide.windowPosition").value(0.88))
+                .andExpect(jsonPath(WINDOW + ".tide.windowLevel").value(0.42))
+                .andExpect(jsonPath(WINDOW + ".tide.heightAtWindow").value("3.1 m"))
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideAligned").value(true))
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideFitPhrase")
+                        .value("Tide suits this spot"))
+                .andExpect(jsonPath(SLOT + ".flags.length()").value(2))
+                .andExpect(jsonPath(SLOT + ".flags[0]").value("Tide aligned"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/briefing as ADMIN keeps the curve, the positions and the match")
+    void getBriefing_adminKeepsCurveAndMatch() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(tideBriefing());
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(WINDOW + ".tide.curve.length()").value(3))
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideAligned").value(true))
+                .andExpect(jsonPath(SLOT + ".flags[0]").value("Tide aligned"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing fails closed: the default ROLE_USER is served as LITE")
+    void getBriefing_unknownRoleIsServedAsLite() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(tideBriefing());
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(WINDOW + ".tide.curve").isEmpty())
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideAligned").doesNotExist());
+    }
+
     // ── GET /api/briefing/digest ──────────────────────────────────────────────────────────────
     //
     // Driven through the REAL Spring MVC / Jackson 3 response chain and the REAL
@@ -301,7 +415,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     // boundary pair in BriefingDigestServiceTest, which is where it belongs.
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing/digest flattens each window onto one object")
     void getDigest_returnsFlatWindows() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
@@ -344,7 +458,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing/digest omits an absent narrative rather than sending nulls")
     void getDigest_omitsAbsentNarrative() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
@@ -358,7 +472,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing/digest honours an explicit limit")
     void getDigest_honoursLimit() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
@@ -370,7 +484,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing/digest returns 204 when cache is empty")
     void getDigest_noContent() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(null);

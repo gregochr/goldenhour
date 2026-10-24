@@ -3,13 +3,23 @@ package com.gregochr.goldenhour.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingWindow;
+import com.gregochr.goldenhour.model.BriefingWindowTide;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.model.LocationTideFact;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -197,6 +207,46 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/briefing: a LITE GET with a PRO ETag gets 200 and the LITE body, and the "
+            + "reverse (the ETag is hashed from the role-shaped body)")
+    void briefingEtagDoesNotCrossRoles() throws Exception {
+        // The fixture really carries a non-empty curve and tideAligned. Otherwise both roles'
+        // bodies would be identical, hash the same, and a 304 would be correct.
+        when(briefingService.getCachedBriefingForApi()).thenReturn(tideBriefingResponse());
+
+        String liteEtag = mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.tide.curve").isEmpty())
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+        String proEtag = mockMvc.perform(get("/api/briefing").with(user("pro").roles("PRO_USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.tide.curve.length()")
+                        .value(3))
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+
+        assertThat(proEtag).as("a role-shaped body must hash differently").isNotEqualTo(liteEtag);
+
+        // LITE presents PRO's validator: it must get the LITE body, not a 304.
+        mockMvc.perform(get("/api/briefing").header(HttpHeaders.IF_NONE_MATCH, proEtag))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.tide.curve").isEmpty())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.tideFacts[0].tideAligned")
+                        .doesNotExist());
+        // And LITE's own validator still 304s for LITE.
+        mockMvc.perform(get("/api/briefing").header(HttpHeaders.IF_NONE_MATCH, liteEtag))
+                .andExpect(status().isNotModified());
+        // The reverse: PRO presents LITE's validator and gets the full 200.
+        mockMvc.perform(get("/api/briefing").header(HttpHeaders.IF_NONE_MATCH, liteEtag)
+                        .with(user("pro").roles("PRO_USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.tide.curve.length()")
+                        .value(3))
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.tideFacts[0].tideAligned")
+                        .value(true));
+    }
+
+    @Test
     @WithMockUser
     @DisplayName("GET /api/briefing still returns 204 before the first briefing is built")
     void briefingColdStartStillReturns204() throws Exception {
@@ -259,6 +309,23 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
                 List.of(),
                 List.of(),
                 null);
+    }
+
+    private static DailyBriefingResponse tideBriefingResponse() {
+        BriefingWindowTide tide = new BriefingWindowTide("Whitby", TideState.MID,
+                BriefingWindowTide.Direction.FALLING, "HW", "19:28", "1h43 before sunset",
+                "4.9 m", "1.2 m above an average tide", "0.3 m · smooth",
+                List.of(0.0, 0.5, 1.0), 0.88, 0.42, 0.25, 0.75, List.of(), "3.1 m");
+        LocationTideFact fact = new LocationTideFact(7L, "Bamburgh", "HIGH", true, 0.61, true,
+                "HW 06:12 · 25m after sunrise", 0.83, "RISING", "4.9 m", "wants higher",
+                "Tide suits this spot");
+        BriefingWindow window = new BriefingWindow(null, DisplayVerdict.WORTH_IT, 4, null, null,
+                List.of(), null, tide, List.of(fact));
+        BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(),
+                List.of(), null, window);
+        return new DailyBriefingResponse(LocalDateTime.of(2026, 7, 25, 4, 0), "h",
+                List.of(new BriefingDay(LocalDate.of(2026, 7, 26), List.of(summary))),
+                List.of(), null, null, false, false, 0, "SONNET", List.of(), List.of());
     }
 
     private static LocationEntity loc(Long id, String name) {
