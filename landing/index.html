@@ -29,22 +29,10 @@ aspect-ratio:16/9;display:flex;align-items:flex-end;justify-content:center;paddi
 .shot.tall{aspect-ratio:3/4}
 /* A .shot holding a real image drops the placeholder's padding, centring and 16/9 box: the
    image IS the content, so the well takes the image's own ratio rather than cropping it.
-   Both shots are cropped to their subject at build time, so nothing needs object-fit. */
+   The hero is the whole capture, masthead included, so nothing needs object-fit. */
 .shot.has-img{padding:0;display:block;background:var(--card);aspect-ratio:auto}
 .shot.has-img img{display:block;width:100%;height:auto;border-radius:11px}
 .figcap{font-family:var(--mono);font-size:12px;line-height:1.6;letter-spacing:.03em;color:var(--ink-dim);padding:14px 6px 4px;max-width:620px}
-/* verdict card, rendered from the app's own vocabulary */
-.verdict{position:absolute;top:20px;left:20px;width:min(360px,72%);background:color-mix(in oklab,#140F0C 96%,transparent);border:1px solid var(--rule-2);border-radius:12px;box-shadow:0 18px 44px rgba(0,0,0,.55);overflow:hidden}
-.verdict .vh{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;border-bottom:1px solid var(--rule)}
-.verdict .vh span{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim)}
-.vrow{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:13px 14px;border-bottom:1px solid var(--rule)}
-.vrow:last-child{border-bottom:none}
-.vrow .when{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)}
-.vrow .word{font-family:var(--disp);font-size:19px;font-weight:600;letter-spacing:-.02em;grid-column:1;color:var(--ink)}
-.vrow .word.go{color:var(--go)}
-.vrow .word.maybe{color:var(--maybe)}
-.vrow .where{font-size:13px;color:var(--ink-soft);grid-column:1}
-.tag{align-self:center;grid-row:1/span 3;grid-column:2;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;padding:5px 9px;border-radius:5px;background:var(--go-wash);color:var(--go);border:1px solid color-mix(in oklab,var(--go) 34%,transparent)}
 /* ── sections ── */
 section{padding:96px 0 0}
 .shead{display:grid;gap:18px;max-width:760px}
@@ -96,7 +84,6 @@ section{padding:96px 0 0}
 .story-grid{grid-template-columns:minmax(0,1fr);gap:28px}
 .feat{grid-template-columns:minmax(0,1fr);gap:6px}
 .feat .n{padding-top:0}
-.verdict{position:static;width:auto;margin-bottom:auto}
 .shot{aspect-ratio:auto;min-height:340px;align-items:flex-start;flex-direction:column;justify-content:space-between;gap:18px}
 .shot.has-img{min-height:0;aspect-ratio:auto}
 .shot .slot{align-self:center}
@@ -132,23 +119,9 @@ section{padding:96px 0 0}
 
 <div class="fig">
 <div class="shot has-img">
-<img src="shot-map.webp" width="1600" height="783" alt="The PhotoCast map tab: a heat field over northern England for tomorrow's sunrise, with the strongest areas warm and the poor ones cool, and named locations rated four stars.">
-<div class="verdict">
-<div class="vh"><span>Tonight or the morning?</span><span>Sat 5 Sep</span></div>
-<div class="vrow">
-<div class="when">Tonight · sunset 19:48</div>
-<div class="word go">Worth it</div>
-<div class="where">Strongest in Northumberland</div>
-<div class="tag">Best bet</div>
+<img src="shot-map.webp" width="1600" height="1001" alt="The PhotoCast map tab for today's sunrise: a heat field over Northumberland and the Tyne valley, warmest along the coast and the North Pennines, with named locations such as Alnmouth, Bothal Weir and Allen Banks rated four stars, and drive-time rings from home.">
 </div>
-<div class="vrow">
-<div class="when">Tomorrow · sunrise 06:22</div>
-<div class="word maybe">Maybe</div>
-<div class="where">Strongest on the North York Moors</div>
-</div>
-</div>
-</div>
-<p class="figcap">The map opens with the call already made: the next two windows, each with its verdict and the region that verdict is true of. Nothing to tap first.</p>
+<p class="figcap">The map opens on the next window with the call already made: a heat field of where the colour should be, the strongest locations named with their stars, and drive-time rings from home. Step through the windows with the arrows; the next four days' hot topics sit underneath.</p>
 </div>
 </div>
 </div>
