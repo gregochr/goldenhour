@@ -159,7 +159,7 @@ export default function AskConversation({
   // Nothing to fetch until a briefing exists: no briefing, no Ready answers (precompute skips it),
   // and fetching before it lands would only be refetched the moment it does.
   const generatedAt = briefing?.generatedAt ?? null;
-  const ready = useAskReady(scope, generatedAt, { enabled: generatedAt !== null });
+  const ready = useAskReady(scope, generatedAt, { enabled: generatedAt !== null && ask.availability !== 'locked' });
 
   const offered = questionsForView(ready.questions, view);
   const { phase } = ask;

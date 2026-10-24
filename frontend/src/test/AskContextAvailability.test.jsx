@@ -27,7 +27,7 @@ vi.mock('../api/askApi.js', async (importOriginal) => ({
   getAskSettings: vi.fn(),
 }));
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: auth.role }) }));
-import { ask, getAskSettings } from '../api/askApi.js';
+import { ask, getAskSettings, getReady } from '../api/askApi.js';
 
 beforeEach(installAskConversationMocks);
 afterEach(removeAskConversationMocks);
@@ -88,6 +88,25 @@ describe('a locked reader asks nothing', () => {
     expect(outcome).toBe('ignored');
     expect(ask).not.toHaveBeenCalled();
     expect(ctx.phase).toBe('empty');
+  });
+});
+
+describe('a locked, mounted AskConversation', () => {
+  it('makes no Ready request (and a PRO reader, as the control, does)', async () => {
+    auth.role = 'LITE_USER';
+    SERVER.loaded();
+    await renderAsk();
+    await act(async () => {});
+    expect(getReady).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('ask-ready-list')).toBeNull();
+  });
+
+  it('control: the same tree for a PRO reader does ask for the Ready list', async () => {
+    auth.role = 'PRO_USER';
+    SERVER.loaded();
+    await renderAsk();
+    await act(async () => {});
+    expect(getReady).toHaveBeenCalled();
   });
 });
 

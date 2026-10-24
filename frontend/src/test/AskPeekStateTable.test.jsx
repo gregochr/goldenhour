@@ -341,6 +341,34 @@ describe('a reader who is not PRO or ADMIN: the locked row', () => {
     expect(mode()).toBe('collapsed');
     expect(screen.queryByTestId('wf-map-peek-ask-field')).not.toBeInTheDocument();
   });
+
+  it('⚠️ `openAskSection` itself refuses: with the entry ENABLED (a seam the lock never leaves) a press opens nothing', async () => {
+    // The context says `on`, so the entry is a live button; only `MapView`'s own `askLocked` guard stands.
+    mockAsk = conversation('empty');
+    await act(async () => { view = render(<MapView {...props({ askLocked: true })} />); });
+    const entry = screen.getByTestId('wf-map-peek-ask-entry');
+    expect(entry).toBeEnabled();
+
+    openAsk();
+    await act(async () => {});
+
+    expect(mode()).toBe('collapsed');
+    expect(screen.queryByTestId('wf-map-peek-ask-field')).not.toBeInTheDocument();
+  });
+
+  it('Escape in the Layers body lands focus on the Layers button, never <body>: a disabled entry cannot take it', async () => {
+    mockAsk = { ...conversation('empty'), availability: 'locked', typedDisabled: true };
+    await act(async () => { view = render(<MapView {...props({ askLocked: true })} />); });
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
+    const pins = screen.getByTestId('wf-map-peek-view-pins');
+    pins.focus();
+
+    fireEvent.keyDown(pins, { key: 'Escape' });
+
+    expect(mode()).toBe('collapsed');
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
+  });
 });
 
 describe('the sheet at rest', () => {

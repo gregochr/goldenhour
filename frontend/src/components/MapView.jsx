@@ -1656,6 +1656,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const layersPeekBtnRef = useRef(null);
   /**
+   * Where focus lands when a peek section's body unmounts holding it and no answer is minimised: the Ask
+   * entry, unless that entry is DISABLED (locked, or unreachable) — `.focus()` on a disabled button does
+   * nothing and focus would fall to `<body>` — in which case the Layers peek button, which stays mounted.
+   * A stable object with a getter, so it reads the entry's state at the moment focus is handed on.
+   */
+  const askEntryFocusRef = useMemo(() => ({
+    get current() {
+      const entry = askEntryRef.current;
+      return entry && !entry.disabled ? entry : layersPeekBtnRef.current;
+    },
+  }), []);
+  /**
    * The peek sheet's Other windows and Tide buttons — the LATTER's own close-and-rescue rule
    * (map-mobile-sheet-plan.md §3 M3 task 4) needs both: `tidePeekBtnRef` to test whether IT held
    * focus when its gate turned false, and `windowsPeekBtnRef` as the rescue target, since Other
@@ -7011,7 +7023,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               /* The door while an answer is minimised (the buttons or the open section's body unmount
                  holding focus onto the line); the Ask entry otherwise — still reachable: a section
                  closing with no answer standing (Escape in the Layers body) leaves the collapsed row. */
-              fallbackFocusRef={askMode === 'minimised' ? askDoorRef : askEntryRef}
+              fallbackFocusRef={askMode === 'minimised' ? askDoorRef : askEntryFocusRef}
               ask={askRowOn ? (
                 <MapPeekAsk
                   mode={askMode}

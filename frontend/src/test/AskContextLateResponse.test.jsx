@@ -15,6 +15,7 @@ import {
   installAskConversationMocks, removeAskConversationMocks, Capture,
 } from './askConversationHarness.jsx';
 import { AskProvider, READY_OPEN_MS } from '../context/AskContext.jsx';
+import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { ownResponse, readyResponse } from './askFixtures.js';
 
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
@@ -181,6 +182,11 @@ describe('AskContext — a late response is dropped only once it has landed', ()
 
   it('holds no timer once it unmounts mid-open', async () => {
     // Without the briefing provider the Ready answer's own timer is the only one the provider holds.
+    // A bare provider reads the briefing context's default, which is not PRO: Ask would be locked and
+    // `openReady` a no-op. The spy supplies the one field that matters here.
+    vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({
+      briefing: null, reachById: new Map(), isPro: true, todayStr: '2026-10-05', tomorrowStr: '2026-10-06',
+    });
     const view = render(<AskProvider><Capture /></AskProvider>);
     await waitFor(() => expect(ctx).toBeDefined());
     act(() => ctx.openReady(readyResponse().questions[0]));

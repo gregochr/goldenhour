@@ -14293,6 +14293,14 @@ button.wf-mchip:hover {
   gap: 10px;
 }
 .wf-ask-bar > .wf-lens-pro { flex: none; margin-right: 8px; }
+/* Forced colours paint a disabled button's text in GrayText, the pill inside it with it: the pill is the
+   call to action, so it keeps the system's full-strength text colour and a border of the same. */
+@media (forced-colors: active) {
+  .wf-ask-bar > .wf-lens-pro {
+    color: CanvasText;
+    border-color: CanvasText;
+  }
+}
 .wf-ask-bar:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;

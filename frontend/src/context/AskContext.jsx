@@ -359,6 +359,7 @@ export function AskProvider({ children }) {
   }, [isPro, removedWindow, send]);
 
   const openReady = useCallback((readyQuestion, context = {}) => {
+    if (!isPro) return;
     const answer = normaliseAnswer(readyQuestion?.answer, {
       id: answerSeq.current + 1,
       ready: true,
@@ -388,7 +389,7 @@ export function AskProvider({ children }) {
       type: ACTION.READY_OPENED, question, asked, runLabel: answer.runLabel,
     });
     openTimer.current = setTimeout(() => dispatch({ type: ACTION.ANSWERED, answer }), READY_OPEN_MS);
-  }, []);
+  }, [isPro]);
 
   const clear = useCallback(() => {
     sequence.current += 1;
@@ -398,10 +399,10 @@ export function AskProvider({ children }) {
 
   const { phase: storedPhase, question: convQuestion, asked: convAsked } = conv;
   const retry = useCallback(async () => {
-    if (storedPhase !== 'error') return;
+    if (!isPro || storedPhase !== 'error') return;
     // The question exactly as it was asked: its own context, not the surface's of the moment.
     await send(convQuestion, convAsked);
-  }, [storedPhase, convQuestion, convAsked, send]);
+  }, [isPro, storedPhase, convQuestion, convAsked, send]);
 
   const removeContextWindow = useCallback((windowId) => setRemovedWindow(windowId ?? null), []);
   const restoreContextWindow = useCallback(() => setRemovedWindow(null), []);
