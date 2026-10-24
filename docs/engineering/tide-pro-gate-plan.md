@@ -9,8 +9,9 @@
 > backend and caching, and fidelity and rules. Their findings are folded in; the ones that changed
 > the shape are noted with *(rev)*.
 >
-> Five Sonnet-built PRs: **F0 → F1 → F2**, then **B1** once F1 is *released* and Q2/Q12 are answered,
-> and **L1** at any time (§8). Every ⚠️ marks a trap the code sets for the builder. Line references were
+> Five Sonnet-built PRs: **F0 → F1 → F2 → B1**, with **L1** at any time (§8). **The owner answered every §9
+> question on 2026-10-24**. Two answers differ from the defaults: Q8 (B1 may ship in the same release
+> as F0/F1) and Q13 (the worded upsell becomes the house pattern; Ask follows in a separate plan). Every ⚠️ marks a trap the code sets for the builder. Line references were
 > correct at `1a9986f5`. **The builder must re-read every reference before relying on it.** The owner
 > questions are in §9; each has a default, which is what gets built if it is not answered.
 
@@ -80,11 +81,15 @@ API body is byte-identical after B1.
    router; `App.jsx:89–97` knows only `/reset`), and the App Store forbids pointing at a web purchase.
    `UserSettingsModal.test.jsx:357` pins that there is **no `/upgrade/i` text at all** in Settings. The
    design's "Upgrade to PRO" button has nowhere to go, so it is dropped (Q1).
-7. **A second gating pattern** *(rev)*. The Ask lock (the same day, `roles-and-gating.md:58`) is
-   "nothing opens, no upsell words". The tide teaser **opens an upsell with words**, because the owner's
-   design asks for it, and the Map's "Aurora viewline available — upgrade to Pro" chip (`MapView.jsx:1852–1853`)
-   is the precedent. F1 records this in `roles-and-gating.md` as a deliberate second pattern, with when
-   to use which: a designed upsell surface versus a locked control. Q13 confirms it.
+7. **The worded upsell becomes the house pattern (Q13, owner).** The Ask lock (the same day,
+   `roles-and-gating.md:58`) is "nothing opens, no upsell words". The tide teaser **opens an upsell with
+   words**, because the owner's design asks for it, and the Map's "Aurora viewline available — upgrade
+   to Pro" chip (`MapView.jsx:1852–1853`) is the precedent. The owner chose to make this upsell the
+   **house pattern going forward**.
+   - F1 records it in `roles-and-gating.md`: a Pro feature's locked surface opens a worded upsell (no
+     link, no "upgrade" text, Q1).
+   - The greyed lock stays for controls too small to carry one.
+   - Moving Ask's lock to an upsell is a **separate follow-up plan**, not part of this series.
 
 ## 3. Where the lock comes from (every phase)
 
@@ -254,7 +259,7 @@ stay green unedited.
 - `reference/roles-and-gating.md`:
   - a new bullet, "**Tide at this light: the curve and the per-location match are Pro (2026-10-24)**",
     with §2's line;
-  - the second-pattern note (§2 #7);
+  - the house-pattern change (§2 #7, Q13);
   - the stale-role note;
   - the known open paths (§7.4).
 - `reference/map-tab.md`: the teaser, the choke point, the star-floor change and the phone gate.
@@ -357,9 +362,8 @@ Add a `lockedTopicTypes` prop (`['SPRING_TIDE','KING_TIDE']` when locked, otherw
 
 ## 7. B1 — the server strips the curve and the match for LITE (one PR, Sonnet)
 
-**Dependencies:** F0 and F1 must have been **released** (the owner's `release.sh` cut), not just merged
-(§8), and the owner must have answered **Q2** and **Q12**. The delivering session may build and test
-B1, but it **holds the PR unmerged** until those three are true. This is a blocking owner step.
+**Dependencies:** F0 and F1 **merged** (Q8, owner: B1 may ship in the same release; the PWA residual in
+§8 is accepted). Q2 and Q12 are answered: **Pro everywhere**, and the Plan popup's sparkline is Pro.
 
 ### 7.1 Where
 
@@ -480,7 +484,7 @@ miss, no "0 of N" and no sparkline.
 | **F0** | — | Changes no output today. It is B1's precondition. |
 | **F1** | F0 merged | The Map lock. Until B1, LITE can still read the match on the **Plan tab** (cards, the heat strip, the matrix, the location sheet and the Plan popup's sparkline), for at least one release. This is accepted, and B1 closes it. |
 | **F2** | F1 merged | Builds on the teaser. Independent of B1. |
-| **B1** | F0 + F1 **released**, Q2 + Q12 answered | Without F0 in every running bundle, a stripped body draws every LITE coastal spot as a miss. ⚠️ **PWA residual:** the precached bundle runs for one session after a deploy (ask-pro-gating-plan §6), so F0 must have been in a release *before* the one that carries B1. Build B1 if wanted, but hold the merge. |
+| **B1** | F0 + F1 merged | Without F0 in the running bundle, a stripped body draws every LITE coastal spot as a miss. **PWA residual, accepted by the owner (Q8):** the precached bundle runs for one session after a deploy (ask-pro-gating-plan §6). If B1 ships in the same release as F0, an installed LITE PWA may show every coastal spot dimmed for one session. |
 | **L1** | — (deploy after F1's release) | A landing-only PR (CI skips the suites, #1361). The owner deploys it with `./release-landing.sh`, after the app release carrying F1, so the page never promises as Pro something LITE still has free. |
 
 **Briefs.** Each phase is one Agent call with `model: "sonnet"` and `isolation: "worktree"`, branched
@@ -520,7 +524,10 @@ that. Make **two surgical edits** to `landing/index.html` on `main`:
 There is no CSS change. `git diff main -- landing/` must show exactly two hunks. Add
 `changelog.d/20261024-landing-tide-pro.md`.
 
-## 9. Owner questions (defaults are what gets built if unanswered)
+## 9. Owner questions — ANSWERED 2026-10-24
+
+The owner took every default except **Q8** (same release is fine) and **Q13** (the upsell becomes the house
+pattern; Ask follows in a separate plan). The *Default* column below is now the decision.
 
 | # | Question | Default |
 |---|---|---|
@@ -531,10 +538,10 @@ There is no CSS change. `git diff main -- landing/` must show exactly two hunks.
 | Q5 | The popover's heading and body copy (placeholders). | The README's placeholders. |
 | Q6 | Analytics events. | None (no analytics client). |
 | Q7 | The open paths in §7.4 stay free. | **Yes**, recorded. |
-| Q8 | Hold B1 until F0 and F1 are released (§8). | **Yes**, a blocking owner step. |
+| Q8 | Hold B1 until F0 and F1 are released (§8). | **Owner: no.** Same release is fine, and the one-session PWA residual is accepted. B1 follows F0 + F1 merged. |
 | Q9 | The landing paragraph sells "high, mid or low and rising or falling" as Pro, but the teaser shows it free. | **Keep the state free, and reword**: "With Pro, you can see the full tide curve for each sunrise and sunset, the height of the water at the light, and which coastal locations suit it." The owner signs it off. |
 | Q10 | The phone treatment (§5.3, §6.3) is the planner's own design; the README draws the desktop only. (b) The Layers Tide segment is locked rather than hidden. | **As planned; locked.** |
 | Q11 | LITE loses the coastal star-floor exemption (§5.1 #2), so low-star and unrated coastal spots are withheld like any others. The teaser can then be absent where PRO sees the panel. | **Accept.** |
 | Q12 | The Plan popup's tide sparkline, its mark and "X m at the light" become Pro (the curve). | **Yes.** The state and nearest-extreme facts stay. |
-| Q13 | A second gating pattern: tide opens a worded upsell, while Ask's lock opens nothing (§2 #7). | **Yes**, recorded with when to use which. |
+| Q13 | A second gating pattern: tide opens a worded upsell, while Ask's lock opens nothing (§2 #7). | **Owner: the upsell becomes the house pattern.** Ask moves to it in a separate follow-up plan. |
 | Q14 | A one-line LITE teaser still holds the four-day topic strip closed (an extra press). | **Keep**, consistent with PRO. |
