@@ -1256,7 +1256,7 @@ CentreOnHomeControl.propTypes = {
  *       and {@code PinsLayer} draw as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askLocked = false, tideLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1279,6 +1279,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // (`handleTideModePress`, further down) — never a second `useReaderSettings` call.
   const { role } = useAuth();
   const isMobile = useIsMobile();
+  /**
+   * The ONE choke point for every Map tide-MATCH cue (docs/engineering/tide-pro-gate-plan.md §5.1).
+   * The curve and the per-location match are Pro; `tideLocked` is the derived boolean the briefing
+   * context hands down (never a second `role ===` read here). With the index null, every reader of
+   * it below (`getTideOnLightForLocation` → `spotOf`'s tier/shortfall/phrase and the star-floor
+   * exemption, `stripModel`, the region panel rows, the callout) sees "no served fact", so no chip,
+   * pin, region row, callout block or next-fit jump can draw a match or a miss. Deliberately NOT
+   * folded into `tideCuesOn`, which also decides the phone peek's visibility (§5.3).
+   */
+  const mapTideIndex = tideLocked ? null : tideAlignmentIndex;
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
   const [eventType, setEventType] = useState(() => getNextEventType(locations, date));
   /**
@@ -3326,8 +3336,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const getTideOnLightForLocation = useCallback((loc) => {
     if (eventType !== 'SUNRISE' && eventType !== 'SUNSET') return null;
     if (!solarWindowOnScreen()) return null;
-    return lookupForWindow(tideAlignmentIndex, loc.id, loc.name, date, eventType);
-  }, [eventType, date, tideAlignmentIndex, solarWindowOnScreen]);
+    return lookupForWindow(mapTideIndex, loc.id, loc.name, date, eventType);
+  }, [eventType, date, mapTideIndex, solarWindowOnScreen]);
 
   /**
    * This window's lunar eclipse sight for a location (L7, `docs/engineering/lunar-eclipse-plan.md`
@@ -4070,6 +4080,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     hasCoastalInView: hasCoastalInViewForCues,
     tier: activeWindowTier,
   });
+
+  /**
+   * Whether the phone's Tide peek button (and so its section) is on offer — ONE derived value feeding
+   * BOTH the peek's `tideVisible` prop and `tideCloseGateRef`, so the force-close effect can never
+   * shut a section the button is still offering (tide-pro-gate-plan.md §5.3). For a locked (LITE)
+   * reader the Auto/Always/Off mode and the window tier are not consulted: the teaser section is
+   * offered whenever a served tide and a coastal spot are in view; PRO is `tideCuesOn` unchanged.
+   */
+  const tidePeekShown = tideLocked
+    ? (tideAvailableForCues && hasCoastalInViewForCues)
+    : tideCuesOn;
 
   /**
    * The Tide peek button's one-shot pulse (map-mobile-sheet-plan.md §3 M5 task 3) — plays once on a
@@ -4972,7 +4993,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     bounds: tideViewBounds,
     evRows: mapEvents,
     evIndex: activeEvIndex,
-    idx: tideAlignmentIndex,
+    idx: mapTideIndex,
   });
 
   /**
@@ -5056,7 +5077,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     points: panelPoints,
     driveMap: activeDriveMap,
     scoreIndex,
-    tideIndex: tideAlignmentIndex,
+    tideIndex: mapTideIndex,
     date: activeMapEvent?.date ?? null,
     targetType: activeMapEvent?.eventType ?? null,
     // Passed rather than defaulted: how many places the panel names is a fact about this surface,
@@ -5935,7 +5956,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * shown/stored mode to its last-persisted baseline by the time the promise settles).
    */
   function handleTideModePress(mode) {
-    if (!saveTideMode) return;
+    // A locked (LITE) reader never writes the tide mode: the segment is disabled, and this is the belt.
+    if (!saveTideMode || tideLocked) return;
     // Clear a standing failure message the instant a fresh press is made — a reader retrying should
     // not keep reading the previous attempt's outcome while this one is still in flight.
     setTideModeSaveFailed(false);
@@ -5960,7 +5982,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   tideCloseGateRef.current = {
     active: isMobile && sheetSection === 'tide',
-    tideVisible: tideCuesOn,
+    tideVisible: tidePeekShown,
   };
 
   /**
@@ -6696,7 +6718,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               driveMinutes={driveMinutesFor(selectedLoc.id)}
               distanceMiles={distanceMilesFor(selectedLoc.id)}
               tideOnLight={getTideOnLightForLocation(selectedLoc)}
-              tideAlignmentIndex={tideAlignmentIndex}
+              tideAlignmentIndex={mapTideIndex}
               eclipseSight={getEclipseForLocation(selectedLoc)}
               scoreIndex={scoreIndex}
               slotIndex={slotIndex}
@@ -7015,7 +7037,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               onPressWindows={() => handlePeekPress('win')}
               onPressLayers={() => handlePeekPress('lay')}
               onPressTide={() => handlePeekPress('tide')}
-              tideVisible={tideCuesOn}
+              tideVisible={tidePeekShown}
               tidePulse={tidePulse}
               onTidePulseEnd={clearTidePulse}
               layersButtonRef={layersPeekBtnRef}
@@ -7026,7 +7048,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               tideButtonContent={(
                 <>
                   <TideWave />
-                  {tideSummary(activeMapEvent?.tide, tideStripModel.dimmed.length)}
+                  {tideSummary(activeMapEvent?.tide, tideLocked ? 0 : tideStripModel.dimmed.length)}
                 </>
               )}
               tideBody={(
@@ -7036,6 +7058,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   sunriseTime={tideStripSunriseTime}
                   sunsetTime={tideStripSunsetTime}
                   model={tideStripModel}
+                  locked={tideLocked}
                   onSelectEv={selectEvRow}
                   focusTargetRef={tidePeekBtnRef}
                 />
@@ -7135,11 +7158,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       a failed save is announced through the tab's one status region, below. */}
                   <div className="wf-map-peek-lay-row wf-map-peek-lay-tide-row">
                     <span className="wf-map-peek-lay-label">Tide</span>
+                    <span className="wf-map-peek-tide-seg-group">
+                    <span
+                      data-testid="wf-map-peek-tide-mode-wrap"
+                      className={`wf-map-peek-tide-seg-wrap${tideLocked ? ' wf-lens-locked' : ''}`}
+                    >
                     <div className="wf-seg" role="group" aria-label="Tide">
                       <button
                         type="button"
                         data-testid="wf-map-peek-tide-mode-auto"
                         aria-pressed={mapTideMode === 'auto'}
+                        disabled={tideLocked}
                         onClick={() => handleTideModePress('auto')}
                         className={`wf-seg-btn${mapTideMode === 'auto' ? ' on' : ''}`}
                       >
@@ -7149,6 +7178,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                         type="button"
                         data-testid="wf-map-peek-tide-mode-always"
                         aria-pressed={mapTideMode === 'always'}
+                        disabled={tideLocked}
                         onClick={() => handleTideModePress('always')}
                         className={`wf-seg-btn${mapTideMode === 'always' ? ' on' : ''}`}
                       >
@@ -7158,16 +7188,24 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                         type="button"
                         data-testid="wf-map-peek-tide-mode-off"
                         aria-pressed={mapTideMode === 'off'}
+                        disabled={tideLocked}
                         onClick={() => handleTideModePress('off')}
                         className={`wf-seg-btn${mapTideMode === 'off' ? ' on' : ''}`}
                       >
                         Off
                       </button>
                     </div>
+                    </span>
+                    {tideLocked && (
+                      <span data-testid="wf-map-peek-tide-mode-upsell" className="wf-lens-pro">Pro</span>
+                    )}
+                    </span>
                   </div>
-                  <p data-testid="wf-map-peek-tide-hint" className="wf-map-peek-tide-hint">
-                    Auto: shown when the light is Maybe or better and the coast is in view.
-                  </p>
+                  {!tideLocked && (
+                    <p data-testid="wf-map-peek-tide-hint" className="wf-map-peek-tide-hint">
+                      Auto: shown when the light is Maybe or better and the coast is in view.
+                    </p>
+                  )}
                   {heatOffered && unscoredLineShown && (
                     <div data-testid="wf-map-peek-heat-unscored" className="wf-map-peek-lay-row">
                       <span className="wf-map-peek-lay-label">{unscoredLineText}</span>
@@ -7346,6 +7384,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             {!isMobile && (
               <MapTideStrip
                 model={tideStripModel}
+                locked={tideLocked}
                 tide={activeMapEvent?.tide ?? null}
                 activeRow={activeMapEvent}
                 sunriseTime={tideStripSunriseTime}
@@ -7805,6 +7844,8 @@ MapView.propTypes = {
   askOffered: PropTypes.bool,
   /** The reader is not PRO or ADMIN: the peek draws Ask's row locked and it never opens. */
   askLocked: PropTypes.bool,
+  /** The Map's tide curve and per-location tide match are Pro (tide-pro-gate-plan.md): true for LITE. */
+  tideLocked: PropTypes.bool,
   askPhase: PropTypes.oneOf(['empty', 'busy', 'answer', 'plan', 'cant', 'error']),
   panelShown: PropTypes.bool,
   /**

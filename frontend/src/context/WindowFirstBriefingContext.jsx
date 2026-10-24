@@ -95,6 +95,7 @@ const WindowFirstBriefingContext = createContext({
   todayStr: '',
   tomorrowStr: '',
   isPro: false,
+  tideLocked: false,
   comingUpLastSeenDate: undefined,
   setComingUpLastSeenAt: () => {},
 });
@@ -679,6 +680,9 @@ export function WindowFirstBriefingProvider({
   // `docs/engineering/coming-up-plan.md` D7) — removed rather than left as a readerless field,
   // the same orphan-hunting discipline that phase applied to `auroraTonight`/`HotTopic.tideRun`.
   const isPro = role === 'PRO_USER' || role === 'ADMIN';
+  // The Map's tide curve and per-location tide match are Pro (docs/engineering/tide-pro-gate-plan.md §3).
+  // Same derivation as the drive filter: the role stops here, a boolean goes down.
+  const tideLocked = !isPro;
 
   // Built once for the page rather than per strip: the spot peek looks a slot up by
   // (locationName, date, targetType), and `evaluationScores` is keyed with the region name in
@@ -766,7 +770,7 @@ export function WindowFirstBriefingProvider({
       heatPointSets, heatUnratedSets, heatStoodSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, homePlace, isPro,
+      ratingLens, homePlace, isPro, tideLocked,
       // The origin and its two inputs. `effectiveReachById` is published beside `reachById` rather
       // than in place of it, because the two answer different questions and one consumer still
       // wants the home one: the planning area and the beyond line are statements about HOME, and
@@ -779,7 +783,7 @@ export function WindowFirstBriefingProvider({
       heatSpotList, heatPointSets, heatUnratedSets, heatStoodSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, homePlace, isPro,
+      ratingLens, homePlace, isPro, tideLocked,
       origin, setOrigin, regions, effectiveReachById,
       comingUpLastSeenDate, setComingUpLastSeenAt],
   );
@@ -830,7 +834,7 @@ WindowFirstBriefingProvider.propTypes = {
  *           reachById: Map,
  *           reachLens: object, ratingLens: object, homePlace: ?string,
  *           todayStr: string,
- *           tomorrowStr: string, isPro: boolean,
+ *           tomorrowStr: string, isPro: boolean, tideLocked: boolean,
  *           comingUpLastSeenDate: (string|null|undefined), setComingUpLastSeenAt: function}}
  */
 export function useWindowFirstBriefing() {

@@ -493,10 +493,29 @@ TideStripFooter.propTypes = {
   focusAfterJump: PropTypes.func,
 };
 
+/**
+ * The teaser's decorative spark: a fixed, hard-coded sine, blurred. It is NEVER derived from the
+ * served tide (that would hand the Pro curve to a reader who does not have it), so it carries no
+ * props and is hidden from assistive tech.
+ */
+export function LockedTideSpark() {
+  return (
+    <svg
+      className="wf-tide-strip-spark" data-testid="wf-tide-strip-spark"
+      width="84" height="22" viewBox="0 0 84 22" aria-hidden="true" focusable="false"
+    >
+      <path
+        d="M0 11 C 10.5 -1, 21 -1, 31.5 11 S 52.5 23, 63 11 S 79 -1, 84 6"
+        fill="none" stroke="var(--color-badge-tide)" strokeWidth="2" strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export default function MapTideStrip({
   model = null, tide = null, activeRow = null, sunriseTime = null, sunsetTime = null,
   collapsed = false, onToggleCollapse = undefined, onSelectEv = undefined, mapPaneRef = null,
-  onHeightChange = undefined,
+  onHeightChange = undefined, locked = false,
 }) {
   const [node, setNode] = useState(null);
 
@@ -562,6 +581,28 @@ export default function MapTideStrip({
   }, [node, mapPaneRef, onHeightChange]);
 
   if (!model?.visible || !tide) return null;
+
+  // The LITE teaser (tide-pro-gate-plan.md §5.2): placed AFTER the null return above and BEFORE the
+  // collapsed branch, so `collapsed` has no effect while locked. The ROOT is kept exactly — the band
+  // bar, the footer lift and the obstacle lists all find the strip by `data-testid="wf-tide-strip"`,
+  // and `onHeightChange` fires only through `ref={setNode}` — with an inner row for the layout.
+  // Only the state phrase is read from `tide`; the curve, the height and every match cue are not.
+  if (locked) {
+    return (
+      <div
+        className="wf-map-tide-strip" ref={setNode} tabIndex={-1}
+        role="group" aria-label="Tide" data-testid="wf-tide-strip"
+      >
+        <div className="wf-tide-strip-locked" data-testid="wf-tide-strip-locked">
+          <span className="wf-tide-strip-kicker">{TIDE_KICKER_TEXT}</span>
+          <span className="wf-tide-strip-state" data-testid="wf-tide-strip-state">{statePhrase(tide)}</span>
+          <span className="wf-tide-strip-locked-spacer" />
+          <LockedTideSpark />
+          <span className="wf-lens-pro" data-testid="wf-tide-strip-upsell">Pro</span>
+        </div>
+      </div>
+    );
+  }
 
   if (collapsed) {
     const phrase = statePhrase(tide);
@@ -633,4 +674,6 @@ MapTideStrip.propTypes = {
   onSelectEv: PropTypes.func,
   mapPaneRef: PropTypes.object,
   onHeightChange: PropTypes.func,
+  /** The reader does not have the tide curve (LITE): draw the static Pro teaser instead. */
+  locked: PropTypes.bool,
 };
