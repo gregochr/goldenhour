@@ -627,7 +627,7 @@ class StubAskEngineTest {
         }
         com.gregochr.goldenhour.model.HotTopic bigWarning = new com.gregochr.goldenhour.model.HotTopic(
                 "ECLIPSE", "Eclipse", "d", TODAY, 1, null, List.of(), "desc", null, null, null, null, null,
-                null, null, null, null, null, null, huge);
+                null, null, null, null, null, null, huge, null);
         DailyBriefingResponse briefing = AskFixtures.briefing(List.of(), List.of(bigWarning));
 
         AskRun both = engine.run(question("rare events"), AskFixtures.snapshotOf(briefing, hugeEntries), USER,

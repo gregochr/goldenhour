@@ -468,6 +468,61 @@ class HotTopicJsonTest {
         assertThat(first).isEqualTo(second);
     }
 
+    @Test
+    @DisplayName("a null glance is absent from the wire")
+    void serialize_nullGlance_absent() throws Exception {
+        String json = mapper.writeValueAsString(surgeTopic());
+
+        assertThat(json).doesNotContain("glance");
+    }
+
+    @Test
+    @DisplayName("a set glance serialises its four keys and round-trips")
+    void serialize_glance_fourKeysAndRoundTrips() throws Exception {
+        GlanceLine glance = new GlanceLine("HW 16:02 · +0.72 m", "+0.72 m pk", "PEAK", true);
+        HotTopic original = surgeTopic().withGlance(glance);
+
+        String json = mapper.writeValueAsString(original);
+        var node = mapper.readTree(json).get("glance");
+
+        assertThat(node.get("value").asText()).isEqualTo("HW 16:02 · +0.72 m");
+        assertThat(node.get("shortValue").asText()).isEqualTo("+0.72 m pk");
+        assertThat(node.get("badge").asText()).isEqualTo("PEAK");
+        assertThat(node.get("weather").asBoolean()).isTrue();
+        assertThat(mapper.readValue(json, HotTopic.class)).isEqualTo(original);
+    }
+
+    @Test
+    @DisplayName("cached JSON written before glance existed deserialises with a null glance")
+    void deserialize_legacyJsonWithoutGlance_isNull() throws Exception {
+        String json = """
+                {"type":"DUST","label":"Dust","detail":"d","date":"2026-06-17","priority":1,
+                 "regions":[],"safetyNote":"keep"}
+                """;
+
+        HotTopic topic = mapper.readValue(json, HotTopic.class);
+
+        assertThat(topic.glance()).isNull();
+        assertThat(topic.safetyNote()).isEqualTo("keep");
+    }
+
+    @Test
+    @DisplayName("every wither carries glance through")
+    void withers_carryGlanceThrough() {
+        GlanceLine glance = new GlanceLine("v", "s", null, false);
+        HotTopic base = surgeTopic().withGlance(glance);
+
+        assertThat(base.withEvent("SUNRISE", "05:00").glance()).isSameAs(glance);
+        assertThat(base.withLocations(List.of("A")).glance()).isSameAs(glance);
+        assertThat(base.withNlcWindows(null, null).glance()).isSameAs(glance);
+        assertThat(base.withScience(null, null).glance()).isSameAs(glance);
+        assertThat(base.withExpandedDetail(null).glance()).isSameAs(glance);
+        assertThat(base.withTideRun(null).glance()).isSameAs(glance);
+        assertThat(base.withSurgeRun(null).glance()).isSameAs(glance);
+        assertThat(base.withRarity("r").glance()).isSameAs(glance);
+        assertThat(base.withSafety("s").glance()).isSameAs(glance);
+    }
+
     private static HotTopic surgeTopic() {
         return new HotTopic("STORM_SURGE", "Storm surge", "High surge risk",
                 LocalDate.of(2026, 6, 17), 1, null, List.of("Northumberland"), "desc", null);

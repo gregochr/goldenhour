@@ -22,7 +22,9 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.model.GlanceLine;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.Verdict;
@@ -1697,6 +1699,51 @@ class BriefingServiceTest {
             DailyBriefingResponse first = briefingService.getCachedBriefing();
             DailyBriefingResponse second = briefingService.getCachedBriefing();
             assertThat(second).isSameAs(first);
+        }
+
+        /**
+         * The seam that justifies where the glance decorator sits: the cache is built from the
+         * aggregator's output and every serve compares it to a fresh aggregator call. Both are
+         * decorated by the same real aggregator, so an unchanged world must keep the cached
+         * instance, and the cached topic must carry its glance.
+         */
+        @Test
+        @DisplayName("decorated topics — two serves with an unchanged world keep the cached briefing")
+        void decoratedTopicsUnchanged_returnsSameInstance() {
+            HotTopicStrategy dustStrategy = (from, to) -> List.of(
+                    new HotTopic("DUST", "Elevated dust", "d", FIXED_TODAY, 1, null, List.of(), null, null)
+                            .withScience(List.of(HotTopicFact.metric("AOD", "0.45 · thick")), null));
+            HotTopicEventEnricher passthrough = mock(HotTopicEventEnricher.class);
+            when(passthrough.enrich(anyList())).thenAnswer(inv -> inv.getArgument(0));
+            HotTopicAggregator realAggregator = new HotTopicAggregator(List.of(dustStrategy),
+                    new HotTopicSimulationService(), mock(TravelDayService.class), passthrough,
+                    new HotTopicGlanceDecorator());
+            BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
+            LunarPhaseService lunarPhaseService = new LunarPhaseService(new LunarCalculator());
+            BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
+                    solarService, locationService,
+                    new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
+                    new WoodlandVerdictEvaluator(), tideExtremeRepository, eclipseSightAssembler);
+            briefingService = new BriefingService(
+                    locationService, weatherLoader(),
+                    jobRunService, briefingCacheRepository,
+                    new ObjectMapper().findAndRegisterModules(),
+                    new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
+                    bluebellGlossService, auroraSummaryBuilder,
+                    new BriefingHierarchyBuilder(verdictEvaluator),
+                    slotBuilder, eventPublisher, realAggregator,
+                    evaluationViewService,
+                    BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
+                    snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+            refreshWithOneLocation();
+
+            DailyBriefingResponse first = briefingService.getCachedBriefing();
+            DailyBriefingResponse second = briefingService.getCachedBriefing();
+
+            assertThat(second).isSameAs(first);
+            assertThat(first.hotTopics()).hasSize(1);
+            assertThat(first.hotTopics().getFirst().glance())
+                    .isEqualTo(new GlanceLine("0.45 · thick", "0.45", null, true));
         }
 
         /**
