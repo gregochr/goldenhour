@@ -10812,13 +10812,12 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 .wf-cu-card[data-family="dust"] { --wf-cu-accent: var(--color-topic-dust); }
 .wf-cu-card[data-family="eclipse"] { --wf-cu-accent: var(--color-topic-eclipse); }
 
-/* Topic glyphs (G4, plan §4) — beside, never instead of, a colour swatch where one exists (chips,
-   condition rows); the timeline card has no swatch element (its colour is the `data-family` border
+/* Topic glyphs (G4, plan §4) — beside, never instead of, a colour swatch where one exists (chips);
+   the timeline card has no swatch element (its colour is the `data-family` border
    accent above), so there the glyph is the title's first child. `aria-hidden` throughout — the
    adjacent text already names the topic, matching the swatches' own precedent. */
 .wf-cu-gi { font-size: 12.5px; line-height: 1; flex: none; align-self: center; filter: saturate(.9); }
 .wf-cu-card-feat .wf-cu-gi { font-size: 14px; }
-.wf-cu-gi-cond { font-size: 12px; width: 14px; text-align: center; }
 .wf-cu-gi-chip { font-size: 11px; margin-right: 1px; }
 /* The coincidence sub-line glyph (§4.5, P3b's `.wf-cu-coin-line`) — smaller than the row glyph,
    matching the sub-line's own reduced scale against the card's title row. Compound selector, not

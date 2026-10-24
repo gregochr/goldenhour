@@ -1,5 +1,5 @@
 /* One glyph per topic family, beside (never instead of) the colour swatch where a swatch element
-   exists — condition rows and chips; the timeline card's colour is a border accent, no swatch.
+   exists — chips; the timeline card's colour is a border accent, no swatch.
    The swatch carries the topic colour system, the glyph carries recognition. */
 export const FAMILY_GLYPHS = {
   coastal: '🌊', 'night-sky': '🌌', aurora: '🌌', 'sun-moon': '☀️',

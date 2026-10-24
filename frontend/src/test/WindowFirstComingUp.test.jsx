@@ -133,12 +133,13 @@ describe('WindowFirstComingUp — the four states', () => {
     renderPane({
       status: 'ready',
       events: { entries: [], counts: { fixed: 0, forecast: 0, byFamily: {} } },
+      hotTopics: [{ type: 'DUST', label: 'Saharan dust', date: TODAY, eventType: 'SUNSET' }],
     });
 
     const empty = screen.getByTestId('coming-up-empty');
     expect(empty).toHaveTextContent('No dates coming up');
-    // The claim is about dates in the list, never about the pane as a whole.
-    expect(empty.textContent).not.toMatch(/^Nothing coming up/);
+    const lanes = screen.getByTestId('coming-up-fourdays');
+    expect(empty.compareDocumentPosition(lanes)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it('renders nothing but its frame before the tab has ever been opened', () => {
