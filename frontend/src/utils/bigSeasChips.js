@@ -4,7 +4,7 @@
  *
  * <p>A LEAF module on purpose (no {@code d3-geo} chain): {@code MapView} needs the chip list itself,
  * for the legend key's one shared condition, while {@code mapLabels.js} (which re-exports everything
- * here) is reachable only through the lazy {@code MapLabels}/{@code PinsLayer} chunks. Same reason
+ * here) is reachable only through the lazy {@code MapLabels} chunk. Same reason
  * {@code verdictWord.js} is a leaf.
  *
  * <p><b>Filter and select only.</b> The backend decided which structures qualify and their wave

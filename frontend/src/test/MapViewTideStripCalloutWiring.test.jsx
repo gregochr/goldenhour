@@ -66,7 +66,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
     </button>
   ),
 }));
-vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => null }));
 
 /** This file's own core assertion target: every `tideStripHeight` value `MapCallout` was ever
  * handed, in render order. */

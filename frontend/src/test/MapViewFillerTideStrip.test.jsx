@@ -54,7 +54,6 @@ vi.mock('react-leaflet', () => ({
 
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/map/MapLabels.jsx', () => ({ default: () => <div /> }));
-vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => null }));
 
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));

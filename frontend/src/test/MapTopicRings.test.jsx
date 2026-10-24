@@ -38,7 +38,7 @@ vi.mock('react-leaflet', () => ({
 }));
 
 import MapTopicRings, {
-  HEAT_RING_RADIUS, PINS_RING_RADIUS, TOPIC_RINGS_PANE,
+  HEAT_RING_RADIUS, TOPIC_RINGS_PANE,
 } from '../components/map/MapTopicRings.jsx';
 
 const PLACES = [
@@ -84,14 +84,6 @@ describe('MapTopicRings', () => {
     expect(Number(byWeight['3'].dataset.radius)).toBeGreaterThan(HEAT_RING_RADIUS);
     expect(Number(byWeight['8'].dataset.radius)).toBeGreaterThan(Number(byWeight['3'].dataset.radius));
     expect(Number(byWeight['8'].dataset.opacity)).toBeLessThan(0.22);
-  });
-
-  it('⚠️ draws a larger ring in Pins, outside the 26px pin that would cover the Heat one', () => {
-    render(<MapTopicRings places={[PLACES[0]]} colour="#6FA8B0" inPins />);
-    expect(PINS_RING_RADIUS).toBeGreaterThan(13);
-    expect(rings(PINS_RING_RADIUS)).toHaveLength(1);
-    expect(screen.queryAllByTestId('circle').filter((c) => c.dataset.radius === String(HEAT_RING_RADIUS)))
-      .toHaveLength(0);
   });
 
   it('sits in its own pane, above the marker pane (600) and below the labels (650)', () => {

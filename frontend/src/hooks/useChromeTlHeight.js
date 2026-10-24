@@ -18,7 +18,7 @@ export const CHROME_TL_HEIGHT_VAR = '--wf-chrome-tl-h';
  * observer that stood down on a day with no big seas left the landing card, the window panel, the
  * phone toast and Ask's fit sitting over the chips.
  *
- * <p>The nonce is the label layers' repaint key ({@code MapLabels}/{@code PinsLayer}'s
+ * <p>The nonce is the label layers' repaint key ({@code MapLabels}'s
  * {@code chromeKey}): they repaint only on map move, zoom and resize or on a prop change, and read
  * the group's rect as an obstacle when they place, so a change in the group's height has to reach
  * them as a prop. Driving it from the observer (rather than from a hand-built key over what the

@@ -52,10 +52,6 @@ export function handoverPhase(t) {
  * map-tab-v2-plan.md §4.5 records: "the legend paints from `rampGradientCss()`", not a second,
  * hand-authored gradient that can drift from the kernel's own stops.
  *
- * <p>Hidden entirely in Pins mode (README §3: "In Pins mode the Legend chip hides") — this
- * component does not know about that itself; `MapView` simply does not mount it there, the same
- * way the ramp key beside the Heat/Pins segment is withheld.
- *
  * <p>Purely presentational and fully controlled, like `FiltersPopover`/`WindowControl`: every value
  * and setter is a prop, and this component owns only its own open/close plumbing (click-outside,
  * `Escape`) plus the row markup.
@@ -94,9 +90,6 @@ export default function MapLegendPanel({
   groundKey = true, stoodKey = false, seasKey = false,
 }) {
   const aurora = variant === 'aurora';
-  // The Pins view's legend (big-seas plan F3): no field is painted there, so there is no ramp, no
-  // handover, no reach-ring toggle and no note, only the keys of the layers Pins does draw.
-  const pins = variant === 'pins';
   const rootRef = useRef(null);
   const panelRef = useRef(null);
 
@@ -158,36 +151,31 @@ export default function MapLegendPanel({
       {open && (
         <div ref={panelRef} id="wf-legend-panel" data-testid="wf-legend-panel" className="wf-legend-panel" role="dialog" aria-label="Map legend">
           {aurora && <div className="wf-legend-ramp-label">COLOUR = AURORA RATING</div>}
-          {!pins && (
-            <>
-              <div
-                data-testid="wf-legend-ramp"
-                className={aurora ? 'wf-legend-ramp wf-legend-ramp-aurora' : 'wf-legend-ramp'}
-                style={{ background: aurora ? AURORA_RAMP.gradientCss() : rampGradientCss() }}
-              />
-              <div className="wf-legend-ramp-row">
-                {aurora ? (
-                  <>
-                    <span>1&#9733; dark sky, no show</span>
-                    <span>3&#9733;</span>
-                    <span>5&#9733; aurora green</span>
-                  </>
-                ) : (
-                  <>
-                    <span>1&#9733; poor</span>
-                    <span>3&#9733;</span>
-                    <span>5&#9733; worth it</span>
-                  </>
-                )}
-              </div>
-            </>
-          )}
+          <div
+            data-testid="wf-legend-ramp"
+            className={aurora ? 'wf-legend-ramp wf-legend-ramp-aurora' : 'wf-legend-ramp'}
+            style={{ background: aurora ? AURORA_RAMP.gradientCss() : rampGradientCss() }}
+          />
+          <div className="wf-legend-ramp-row">
+            {aurora ? (
+              <>
+                <span>1&#9733; dark sky, no show</span>
+                <span>3&#9733;</span>
+                <span>5&#9733; aurora green</span>
+              </>
+            ) : (
+              <>
+                <span>1&#9733; poor</span>
+                <span>3&#9733;</span>
+                <span>5&#9733; worth it</span>
+              </>
+            )}
+          </div>
 
           {/* thin-sample plan F4: the two ground states beside the ramp's "rated" — the hatch is drawn
               around places nobody has rated for this window, plain ground where there are no places.
-              Solar windows only; an aurora night draws no hatch, so its key has none. Heat view only:
-              Pins draws no unrated hatch. */}
-          {!aurora && !pins && groundKey && (
+              Solar windows only; an aurora night draws no hatch, so its key has none. */}
+          {!aurora && groundKey && (
             <div data-testid="wf-legend-ground" className="wf-legend-ground">
               <span className="wf-legend-ground-item">
                 <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-hatch" />
@@ -201,7 +189,7 @@ export default function MapLegendPanel({
           )}
 
           {/* Big-seas plan F3: the stand-down hatch's key, while the hatch is drawn (solar, with a
-              weather stand-down in the window) — in Heat beside the ground key, in Pins on its own. */}
+              weather stand-down in the window), beside the ground key. */}
           {stoodKey && !aurora && (
             <div data-testid="wf-legend-standdown">
               <div className="wf-legend-ramp-label">Stood down</div>
@@ -231,19 +219,17 @@ export default function MapLegendPanel({
             </div>
           )}
 
-          {!pins && (
-            <div data-testid="wf-legend-hand" className="wf-legend-hand">
-              <span className="wf-legend-hand-bar">
-                <i style={{ width: `${barWidthPct}%` }} />
-              </span>
-              <span className="wf-legend-hand-txt">
-                <b>{phase.label}</b>
-                {phase.detail}
-              </span>
-            </div>
-          )}
+          <div data-testid="wf-legend-hand" className="wf-legend-hand">
+            <span className="wf-legend-hand-bar">
+              <i style={{ width: `${barWidthPct}%` }} />
+            </span>
+            <span className="wf-legend-hand-txt">
+              <b>{phase.label}</b>
+              {phase.detail}
+            </span>
+          </div>
 
-          {hasHome && !pins && (
+          {hasHome && (
             <button
               type="button"
               data-testid="wf-legend-rings-toggle"
@@ -256,7 +242,7 @@ export default function MapLegendPanel({
             </button>
           )}
 
-          {pins ? null : aurora ? (
+          {aurora ? (
             <div data-testid="wf-legend-note" className="wf-legend-note">
               <b>Rating, not Kp.</b> Each location&rsquo;s score already folds in latitude, cloud and
               sky darkness.
@@ -282,7 +268,7 @@ MapLegendPanel.propTypes = {
   onToggleRings: PropTypes.func.isRequired,
   hasHome: PropTypes.bool,
   reachMeasured: PropTypes.bool,
-  variant: PropTypes.oneOf(['solar', 'aurora', 'pins']),
+  variant: PropTypes.oneOf(['solar', 'aurora']),
   viewlineShown: PropTypes.bool,
   /** Whether the hatch is drawn for this window (solar, and rated); the ground key is withheld otherwise. */
   groundKey: PropTypes.bool,

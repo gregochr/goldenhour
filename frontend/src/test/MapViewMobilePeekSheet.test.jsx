@@ -91,7 +91,6 @@ vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null 
 vi.mock('../components/map/MapCallout.jsx', () => ({
   default: ({ location }) => (location ? <div data-testid="mock-callout">{location.name}</div> : null),
 }));
-vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => null }));
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/map/MapLabels.jsx', () => ({ default: () => null }));
 // The REAL `BottomSheet` is deliberately not mocked here — the Layers section's Regions/Filters
@@ -292,28 +291,29 @@ describe('MapView (tab) — the Windows section (map-mobile-sheet-plan.md §3 M2
   });
 });
 
-describe('MapView (tab) — the Layers section\'s Show row (Codex retrospective finding on #927, fixed at M5)', () => {
-  // ⚠️ Until this fix, the Show (Heat | Pins) row rendered unconditionally in the Layers section —
-  // when `heatOffered` is false (no served heat data, or an astro/aurora window on screen) neither
-  // `MapLabels` nor `PinsLayer` mounts, so the row's two buttons only flipped `heatView` and
-  // changed nothing on the map. The desktop toolbar cluster was already correctly gated on
-  // `heatOffered`; the phone Layers row now matches it.
-  it('is present when heat is offered (a solar window with served heat data)', async () => {
+describe('MapView (tab) — the Layers section carries no Heat | Pins "Show" row (Pins mode removed)', () => {
+  // The row existed to flip between the heat field and a one-dot-per-location Pins view. Pins is
+  // gone, so heat is the map and there is nothing to choose. The absence is asserted with the Layers
+  // pane OPEN and heat OFFERED (the Regions and Filters rows prove the pane rendered), so it is not
+  // vacuous.
+  it('draws no view segment when heat is offered, and the rest of Layers is there', async () => {
     mockIsMobile = true;
     await renderMap();
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
-    expect(screen.getByTestId('wf-map-peek-view-heat')).toBeInTheDocument();
-    expect(screen.getByTestId('wf-map-peek-view-pins')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-layers')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-lay-regions')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-lay-filters')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-view-heat')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-view-pins')).not.toBeInTheDocument();
   });
 
-  it('is absent when heat is not offered (no served heat data)', async () => {
+  it('draws none when heat is not offered either', async () => {
     mockIsMobile = true;
     await renderMap({ heat: { ...heatProp(), enabled: false } });
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
     expect(screen.getByTestId('wf-map-peek-layers')).toBeInTheDocument();
     expect(screen.queryByTestId('wf-map-peek-view-heat')).not.toBeInTheDocument();
     expect(screen.queryByTestId('wf-map-peek-view-pins')).not.toBeInTheDocument();
-    // The rest of Layers survives — this gate is scoped to the Show row alone.
     expect(screen.getByTestId('wf-map-peek-lay-regions')).toBeInTheDocument();
   });
 });

@@ -203,16 +203,6 @@ const MapHeatLayer = lazy(() => import('./MapHeatLayer.jsx'));
 const MapLabels = lazy(() => import('./map/MapLabels.jsx'));
 
 /**
- * Pins mode (map-tab-v2-plan.md §3 P10), behind the SAME kind of `lazy()` boundary as
- * {@code MapLabels} above and for the identical reason: it imports {@code homeLabelItems}/
- * {@code placeLabelPass} from {@code utils/mapLabels.js}, which is the module that carries the
- * `d3-geo` chain via {@code centroid}/`heatField.js`. Never mounted alongside {@code MapLabels} —
- * the tab's Heat/Pins segment is one view or the other — but both still need their OWN `lazy()`
- * entry, since Pins-only sessions must not pay for a `MapLabels` chunk they never render either.
- */
-const PinsLayer = lazy(() => import('./map/PinsLayer.jsx'));
-
-/**
  * The selection callout (map-tab-v2-plan.md §3 P9) — a plain static import, unlike the layers
  * above, and unlike them for a narrower reason than this comment used to claim.
  *
@@ -231,7 +221,7 @@ const PinsLayer = lazy(() => import('./map/PinsLayer.jsx'));
  * modules folded into it, not a stable identifier) holding {@code centroid}, the heat-field
  * canvas kernel and topojson's feature decoder — which itself statically imported the
  * `d3-geo`/`d3-array` bundle. Net effect: the Map tab (which mounts
- * `MapView` before a reader has chosen Heat or Pins, or opened the callout at all) was
+ * `MapView` before a reader has opened the callout at all) was
  * eagerly loading the full closure of `MapView` at 18 chunks / 842,323 bytes raw — including the
  * `geo` chunk and that merged chunk, ~32.3 KB raw / ~12.75 KB gzip between them — exactly the
  * weight the `lazy()` boundaries above exist to keep off that network path.
@@ -240,7 +230,7 @@ const PinsLayer = lazy(() => import('./map/PinsLayer.jsx'));
  * threshold constants — out of `mapLabels.js` into its own leaf, `utils/verdictWord.js`, with
  * nothing else in it for a future addition to accidentally import `heatField.js` next to.
  * `MapCallout.jsx` now imports directly from there; `mapLabels.js` re-exports the same three
- * bindings (pinned by a test) so `MapLabels.jsx`/`PinsLayer.jsx` need no change. Verified two ways
+ * bindings (pinned by a test) so `MapLabels.jsx` needs no change. Verified two ways
  * rather than reasoned: `MapCallout.jsx`'s full SOURCE-level transitive import closure (21 files)
  * no longer reaches `mapLabels.js`, `heatField.js`, `d3-geo` or `topojson-client` at all — this is
  * a structural absence of the edge, not Rollup tree-shaking one away, so there is nothing left for
@@ -326,7 +316,7 @@ const EMPTY_POINTS = [];
 
 /** The stand-down ground of a window that has none: stable identities, so nothing repaints for it. */
 const NO_STAND_GROUND = Object.freeze({
-  stood: EMPTY_POINTS, rated: EMPTY_POINTS, regions: EMPTY_POINTS, entry: null,
+  stood: EMPTY_POINTS, regions: EMPTY_POINTS, entry: null,
 });
 
 /** The Heat view's key-slot line for a window where every place stood down (big-seas plan F3). */
@@ -1256,7 +1246,7 @@ CentreOnHomeControl.propTypes = {
  *       control and the phone peek sheet. An id it lacks is unknown and prints nothing.</li>
  *   <li>{@code outcomeRatings} also feeds {@code spot.myRating} in {@code labelSpots}: the reader's
  *       own record for a place, set ONLY while the window on screen is past, which {@code MapLabels}
- *       and {@code PinsLayer} draw as the corner badge. Per-user joins, not derivations.</li>
+ *       draws as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
 function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
@@ -1487,18 +1477,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (planHandoff) appliedTopicNonce.current = planHandoff.nonce;
   }
   /**
-   * The Map tab's two heat controls, and the nonce that re-frames the camera.
+   * The Map tab.s heat control, and the nonce that re-frames the camera.
    *
-   * <p>Both are local to this mount, so the Plan tab's open row and this tab cannot pull each other
-   * around: plan §4.5 keeps the two tabs' questions separate — time there, space here.
-   *
-   * <p>`heat` is the default view in v2 (that is the feature). `heatView`'s other value is
-   * `'pins'` (map-tab-v2-plan.md §3 P10, `PinsLayer.jsx` — "the honest comparison": one
-   * dot per location, no field). `heatArea` frames and filters to the
-   * planning area, which is the state a reader arrives in — you do not open on the whole of
-   * Britain.
+   * <p>Both are local to this mount, so the Plan tab.s open row and this tab cannot pull each other
+   * around: plan §4.5 keeps the two tabs. questions separate — time there, space here. `heatArea`
+   * frames and filters to the planning area, which is the state a reader arrives in — you do not
+   * open on the whole of Britain.
    */
-  const [heatView, setHeatView] = useState('heat');
   const [heatArea, setHeatArea] = useState(true);
   const [heatFitNonce, setHeatFitNonce] = useState(0);
   /**
@@ -2735,7 +2720,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * aurora is its twin with a different score source and its own ramp ({@code auroraHeatPoints}).
    */
   const heatOffered = Boolean(heat?.enabled);
-  const heatOn = heatOffered && heatView === 'heat';
   /**
    * The colour key's words and gradient, one definition for the three places it is drawn (desktop
    * toolbar, the phone peek sheet's Layers legend, and the legacy toolbar branch). An aurora night
@@ -2756,9 +2740,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       high: 'Worth it',
       label: 'Colour key: the field runs from Poor to Worth it',
     };
-  /** Pins mode (map-tab-v2-plan.md §3 P10) — `heatView === 'pins'`, reached through the tab's own segment. */
-  const heatPinsOn = heatOffered && heatView === 'pins';
-
   /**
    * The Legend panel's own handover fraction (map-tab-v2-plan.md §3 P10) — `MapHeatLayer.fadeAt`
    * re-exported via `utils/heatHandover.js` so this reads it without eagerly importing
@@ -2921,12 +2902,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       const allowedAurora = new Set(heatSpotPool.map(heatSpotKey));
       return auroraHeatPoints.filter((p) => allowedAurora.has(heatSpotKey(p)));
     }
-    if (!heatOn || !heatWindow) return EMPTY_POINTS;
+    if (!heatOffered || !heatWindow) return EMPTY_POINTS;
     const points = heat.pointsByKey?.get(heatWindow.key) || EMPTY_POINTS;
     if (!heatSpotPool) return points;
     const allowed = new Set(heatSpotPool.map(heatSpotKey));
     return points.filter((p) => allowed.has(heatSpotKey(p)));
-  }, [isAstroMode, astroHeatPoints, isAuroraMode, auroraHeatPoints, heatOn, heatWindow, heat, heatSpotPool]);
+  }, [isAstroMode, astroHeatPoints, isAuroraMode, auroraHeatPoints, heatOffered, heatWindow, heat, heatSpotPool]);
 
   /**
    * The field's points after the door's named spot-set lens (`focusLensNames`), if one stands: the
@@ -2952,7 +2933,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * claimed as "not rated yet", which is a claim about the forecast the filter has no standing to make.
    */
   const unratedPoints = useMemo(() => {
-    if (isAstroMode || isAuroraMode || !heatOn || !heatWindow || heatWindow.bestRating == null) {
+    if (isAstroMode || isAuroraMode || !heatOffered || !heatWindow || heatWindow.bestRating == null) {
       return EMPTY_POINTS;
     }
     let points = heat.windowStates?.get(heatWindow.key)?.unrated || EMPTY_POINTS;
@@ -2962,13 +2943,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     }
     if (focusLensNames) points = points.filter((p) => focusLensNames.has(p.name));
     return points;
-  }, [isAstroMode, isAuroraMode, heatOn, heatWindow, heat, heatSpotPool, focusLensNames]);
+  }, [isAstroMode, isAuroraMode, heatOffered, heatWindow, heat, heatSpotPool, focusLensNames]);
 
   /**
    * The stand-down ground (big-seas plan F3): the places this window stood down FOR THE WEATHER,
    * the rated points the hatch's mask yields to, and the regions that earn a "stood down" label.
    *
-   * <p>SOLAR windows only (past ones included), in Heat AND Pins, never an astro or aurora night.
+   * <p>SOLAR windows only (past ones included), never an astro or aurora night.
    * ⚠️ <b>Gated on evidence, not on {@code heatWindow.bestRating}</b>: a window where every place
    * stood down has no rated place, and that is the window this exists for. The evidence is the
    * window's states holding at least one rated or stood place, so an empty or failed scores response
@@ -2989,11 +2970,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const stood = allowed
       ? weatherStoodOf(entry.stood).filter((p) => allowed.has(p.key)) : weatherStoodOf(entry.stood);
     if (stood.length === 0) return { ...NO_STAND_GROUND, entry };
-    const ratedAll = heat.pointsByKey?.get(heatWindow.key) || EMPTY_POINTS;
     return {
       entry,
       stood,
-      rated: allowed ? ratedAll.filter((p) => allowed.has(heatSpotKey(p))) : ratedAll,
       regions: standDownRegions({
         stood,
         spots: pool,
@@ -3061,7 +3040,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * contradict each other outright, "not scored yet" beside "Couldn’t load — trying again".
    */
   const windowUnscored = Boolean(
-    heatOn && (isAstroMode
+    heatOffered && (isAstroMode
       ? astroHeatPoints.length === 0
       : isAuroraMode
         ? auroraHeatPoints.length === 0
@@ -4084,7 +4063,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const activeWindowTier = evVerdicts.get(activeMapEvent?.id)?.tier ?? null;
   /**
    * The one gate every phone tide cue reads (map-mobile-sheet-plan.md §1 #6, §3 M5 task 2) — a
-   * single boolean, never a flag threaded to `MapLabels`, `PinsLayer` or the tooltips. Desktop and
+   * single boolean, never a flag threaded to `MapLabels` or the tooltips. Desktop and
    * tablet are unconditionally `true` here: the mode/rule are phone-only by construction, so
    * `tierOf(tide)` below runs exactly as it always has on every other viewport.
    */
@@ -4146,9 +4125,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * `scopedVisibleLocations`, ⚠️ which is NOT the set the medallion markers draw from: those render
    * the un-scoped `visibleLocations` below, so with scope = "My area" the two pools genuinely
    * diverge (an adversarial-review finding — this sentence used to claim they were "the exact same
-   * filtered/scoped set"). It matters less than it reads: `PinsLayer` shares this same scoped pool,
-   * so the divergence is between the tab's two views and the hidden marker layer, not between two
-   * things a reader can see at once. Joined with the current window's rating via
+   * filtered/scoped set"). It matters less than it reads: the hidden marker layer draws from the
+   * un-scoped pool, so the divergence is with a layer a reader cannot see. Joined with the current window's rating via
    * the SAME accessor the star-threshold filter and
    * the marker render both already use (`getRatingForLocation`) — so a location's chip can never
    * show a different star than its own marker does.
@@ -4178,11 +4156,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       rating,
       bortleClass: loc.bortleClass ?? null,
       driveMinutes: driveMinutesFor(loc.id),
-      // `PinsLayer`'s own stand-down/no-data distinction (adversarial review C8) — a triaged
-      // location is not merely "nothing scored yet", the same distinction the medallion markers
-      // already draw via `resolveStandDown`/`STAND_DOWN_COLOUR`, so a pin should not collapse the
-      // two into one grey.
-      isStandDown: isStandDownLocation(loc),
       // Bundle rev 2's tide-chip tweak — the glyph, the label-budget tiebreaker
       // (`chipCandidates`) and the tooltip's third line all read `onTheLight`; the phrase is
       // carried alongside rather than re-derived so the tooltip never formats a tide clock time
@@ -4201,7 +4174,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // `!isMobile || tideVisible(...)`), so this null only ever fires on a phone whose mode/
       // verdict/viewport combination says "hide". `tideShortfall`/`tideFitPhrase` follow it so a
       // tooltip clause can never read a real phrase behind a glyph the chip isn't drawing; every
-      // consumer (`MapLabels`, `PinsLayer`) already gates on `tideTier` first, so this is the
+      // consumer (`MapLabels`) already gates on `tideTier` first, so this is the
       // single null they all inherit — never a second flag threaded to any of them.
       tideTier: tideCuesOn ? tierOf(tide) : null,
       tideShortfall: tideCuesOn ? (tide?.shortfall ?? null) : null,
@@ -4226,7 +4199,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       myRating: activeWindowPast ? myRatingOf(outcomeRatings, loc.id, date, eventType) : null,
     };
   }, [
-    getRatingForLocation, getTideOnLightForLocation, driveMinutesFor, isStandDownLocation, tideCuesOn,
+    getRatingForLocation, getTideOnLightForLocation, driveMinutesFor, tideCuesOn,
     activeWindowPast, outcomeRatings, date, eventType,
   ]);
   const labelSpots = useMemo(() => {
@@ -4323,7 +4296,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return dropProtectedBigSeasChips(items, { askNames: askPickNames });
   }, [bigSeasDay, bigSeasRoster, zoom, bigSeasEvKind, bigSeasEvType, bigSeasEvPast, askPickNames]);
   /** Whether chips are drawn: the one condition the chip mounts and the legend key share. */
-  const bigSeasShown = heatOffered && (heatOn || heatPinsOn) && bigSeasChips.length > 0;
+  const bigSeasShown = heatOffered && bigSeasChips.length > 0;
   // ── The hot-topic chips (hot-topics-by-day-plan §3 M1) ────────────────────────────────────────────
   // Topics come from the served `hotTopics` through the window index, never from `row.badges` (a filler
   // or past row has none). The scope is the area's region names (§1.5), the roster the rings join to is
@@ -4445,7 +4418,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // `pickTopicFromStrip` is re-made each render; the nonce, the landed row and the chips are the triggers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planHandoff?.nonce, activeMapEvent, topicChips, eventType, hotTopics, topicRoster]);
-  const hwRingsOn = heatOffered && (heatOn || heatPinsOn);
+  const hwRingsOn = heatOffered;
   useEffect(() => {
     if (!onHighWaterRow) {
       hwArrivedRef.current = null;
@@ -4563,12 +4536,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const timer = setTimeout(() => setTopicAnnounce(''), TOPIC_ANNOUNCE_MS);
     return () => clearTimeout(timer);
   }, [topicAnnounce]);
-  // Rings can only be drawn on a Heat or Pins map; a whole-sky or place-less topic draws none.
-  const ringsAvailable = heatOffered && (heatOn || heatPinsOn);
+  // Rings can only be drawn on a Heat map; a whole-sky or place-less topic draws none.
+  const ringsAvailable = heatOffered;
   const topicRingPlaces = ringsAvailable ? (activeTopicChip?.places ?? null) : null;
   const topicRingsDrawn = (topicRingPlaces?.length ?? 0) > 0;
   // ── The ringed places' names (topic-ring-names-plan.md) ───────────────────────────────────────────
-  // What `MapLabels` and `PinsLayer` draw from while a hot topic's rings are up: `labelSpots` with each
+  // What `MapLabels` draws from while a hot topic's rings are up: `labelSpots` with each
   // ringed place marked `topicRing` (offered first by `chipCandidates`, exempt from `omitUnrated`, not
   // dimmed), plus a spot APPENDED for each ringed place the reader's filters dropped (stand-down, star
   // floor, subject chips, drive filter ...), because the ring itself is drawn past those filters and a
@@ -4752,10 +4725,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // is already the line there and the row cost labels. A selection made before that stays (the rings
   // still draw) and Escape still clears it. Desktop and tablet are untouched.
   const topicsSuppressed = isMobile && bigSeasSelection.form != null;
-  // Whether a desktop Legend panel is mounted at all. The Pins legend mounts only while one of its keys
-  // is shown, so a zoom that retires the chips can unmount it under an open menu.
-  const legendMounted = heatOffered && !isMobile
-    && (heatView === 'heat' || (heatView === 'pins' && (stoodPoints.length > 0 || bigSeasShown)));
+  // Whether a desktop Legend panel is mounted at all: whenever heat is offered.
+  const legendMounted = heatOffered && !isMobile;
   useEffect(() => {
     if (openMapMenu !== 'legend' || legendMounted) return;
     // The panel that held the open menu is gone, and with it the focus (to <body>, where the pane's
@@ -4958,7 +4929,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   /**
    * The footer's ` · N stood down` (big-seas plan F3): the scope pool's places this window stood down
-   * for the weather. Its own population, like the footer's other two numbers; no Heat/Pins split.
+   * for the weather. Its own population, like the footer's other two numbers.
    * The cause word is not repeated here (it is named on the ground).
    */
   const standFooterCount = standDownFooterCount(scopeBasePool, standGround.entry?.stood);
@@ -4985,7 +4956,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * array every render, so a {@code useMemo} listing it could never hit (T3's own documented tension
    * over the "two independent memos" split — inert until a measured cost says otherwise).
    *
-   * <p>{@code labelSpots} is the same pool `MapLabels`/`PinsLayer` draw from, so the strip's counts
+   * <p>{@code labelSpots} is the same pool `MapLabels` draws from, so the strip's counts
    * can never disagree with a chip a reader is looking at. {@code tideViewBounds} is the TAB's own
    * Leaflet viewport (declared above).
    */
@@ -5196,9 +5167,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * had to explain a missing FIELD. It now has to explain an empty map. The two lines stay mutually
    * exclusive (below), so a reader never gets both.
    *
-   * <p>⚠️ <b>Not gated on {@code heatOn}</b>, unlike {@code windowUnscored}: Pins mode is exactly
-   * as blank, and the ramp key's "only in heat view" reasoning does not transfer to a sentence that
-   * explains the absence rather than a gradient.
+   * <p>⚠️ <b>Not gated on {@code heatOffered}</b>, unlike {@code windowUnscored}: the ramp key's
+   * reasoning does not transfer to a sentence that explains the absence rather than a gradient.
    *
    * <p>⚠️ <b>Mutually exclusive with {@code unscoredLineShown}</b>, which is not belt-and-braces:
    * ASTRO is deliberately exempt from that line's row gate (a catalogue with no astro conditions
@@ -5768,7 +5738,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * does not even paint. It was never a ring-anchoring prerequisite either, whatever the comment
    * here used to claim: {@code MapCallout} anchors off the location's own coordinates
    * ({@code latLngToContainerPoint}), never a marker ref. Selecting now selects, and the camera
-   * stays where the reader put it. Both callers (`MapLabels`' chips, `PinsLayer`'s dots) only offer
+   * stays where the reader put it. Both callers (`MapLabels`' chips) only offer
    * in-view locations anyway, so there is nothing off-screen left to chase.
    *
    * <p>A plain function, like {@code selectEvRow} above — NOT {@code useCallback}, which would be
@@ -6399,26 +6369,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             /* No fallback: the field is a picture, and a spinner where a picture is loading says
                less than the map already does.
 
-               Mounted on `heatOffered` alone (not `heatOn`) since map-tab-v2-plan.md §3 P10:
-               `MapHeatLayer` is now the coastline stroke's own host too, and the stroke keeps
-               drawing in BOTH the Heat and Pins views ("MapHeatLayer's pins-mode contract") — only
-               the field ITSELF (and the reach rings, which read the field's own home-gated canvas)
-               are withheld via `fieldEnabled={heatOn}`. Its OWN `Suspense` boundary, separate from
-               `MapLabels`/`PinsLayer` below: a shared boundary would re-suspend this ALREADY
-               PAINTED layer — and blank the coastline stroke it now hosts — for however long it
-               takes the OTHER lazy layer's chunk to resolve on the reader's very first switch
-               between Heat and Pins, which is exactly the flash-of-nothing this component's own
-               `fallback={null}` choice exists to avoid. */
+               `MapHeatLayer` is also the coastline stroke's own host. Its OWN `Suspense` boundary,
+               separate from `MapLabels` below: a shared boundary would re-suspend this ALREADY
+               PAINTED layer — and blank the coastline stroke it hosts — for however long the OTHER
+               lazy layer's chunk takes to resolve, which is exactly the flash-of-nothing this
+               component's own `fallback={null}` choice exists to avoid. */
             <Suspense fallback={null}>
               <MapHeatLayer
                 colourMode={mapColourScale}
                 points={heatPoints}
                 unrated={unratedPoints}
-                // The stand-down hatch (big-seas plan F3), Heat and Pins both. In Pins `points` is
-                // empty by construction (the field is withheld), so the mask's rated places ride in
-                // `stoodRated`; in Heat they are `points` itself.
+                // The stand-down hatch (big-seas plan F3); its mask's rated places are `points` itself.
                 stood={stoodPoints}
-                stoodRated={heatPinsOn ? standGround.rated : null}
                 // ASTRO has no `heat.windows` entry to read a scalar off (adversarial review,
                 // real #3) — `astroConfidenceScalar` is this mode's own capped-inference figure.
                 // AURORA likewise (aurora-heat-plan.md D2): its own capped-inference scalar.
@@ -6431,20 +6393,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 bloom={isAuroraMode ? AURORA_BLOOM : null}
                 homeCoords={homeGeo}
                 rings={ringsEnabled}
-                fieldEnabled={heatOn}
                 // Ask's picks are on the map: the FILL steps back (a factor inside the draw — never
                 // a pane opacity, which would take the coastline and the reach rings with it).
                 dim={askActive ? ASK_HEAT_DIM : 1}
               />
             </Suspense>
           )}
-          {/* `MapLabels` (ring labels, region names, location chips) and `PinsLayer` (the honest
-              one-dot-per-location comparison) are mutually exclusive on `heatOn`/`heatPinsOn` — the
-              tab's Heat/Pins segment is one view or the other — and share the SAME kind of `lazy()`
+          {/* `MapLabels` (ring labels, region names, location chips) shares the SAME kind of `lazy()`
               split as `MapHeatLayer` above for the identical `d3-geo` reason (map-tab-v2-plan.md
-              §3 P8/P10), but their OWN boundary: see the comment on `MapHeatLayer`'s boundary above
+              §3 P8), but its OWN boundary: see the comment on `MapHeatLayer`'s boundary above
               for why the two must not share one. */}
-          {heatOn && (
+          {heatOffered && (
             <Suspense fallback={null}>
               <MapLabels
                 spots={chipSpots}
@@ -6466,23 +6425,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               />
             </Suspense>
           )}
-          {heatPinsOn && (
-            <Suspense fallback={null}>
-              <PinsLayer
-                spots={chipSpots}
-                homeCoords={homeGeo}
-                selectedName={selectedLocationName}
-                onSelect={selectMapLocation}
-                onSelectAskPick={onSelectAskPick ? handleSelectAskPick : null}
-                eventLabel={mapEventLabel}
-                rampHex={isAuroraMode ? AURORA_RAMP.hex : rampHex}
-                glow={isAuroraMode}
-                omitUnrated={isAuroraMode}
-                bigSeasChips={bigSeasChips}
-                chromeKey={`${chromeTlNonce}.${chromeBlNonce}`}
-              />
-            </Suspense>
-          )}
           {/* ⚠️ NOT gated on `heatOffered` (PR #740 review — a confirmed Codex
               finding). `heatOffered` WAS `Boolean(heat?.enabled) && !isAuroraMode` — false for the
               whole time an aurora window was active, until aurora heat A2 — but `RegionsJump`/`⌂` are mounted regardless
@@ -6500,9 +6442,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               during an aurora window still resolves and fits that region's own location bounds
               exactly as it does for a solar one. */}
           {/* The selected topic's rings (hot-topics-by-day-plan M1): non-interactive, in a pane under the
-              labels, Heat and Pins alike. A whole-sky topic has no places and draws none. */}
+              labels. A whole-sky topic has no places and draws none. */}
           {topicRingsDrawn && (
-            <MapTopicRings places={topicRingPlaces} colour={activeTopicChip.colour} inPins={heatPinsOn} />
+            <MapTopicRings places={topicRingPlaces} colour={activeTopicChip.colour} />
           )}
           <HeatBoundsController bounds={heatBounds} nonce={heatBoundsNonce} padding={heatBoundsPadding} />
           {/* CARTO's basemaps.cartocdn.com dark_all tiles now require a registered API key
@@ -6612,10 +6554,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             <AuroraViewlineOverlay viewline={viewline} />
           )}
 
-          {/* Azimuth lines for the selected location. Dropped in Pins mode (map-tab-v2-plan.md §3
-              P10, decision D-9): they were marker-layer furniture, and the tab's chip/pin
-              vocabulary has no host for them there. */}
-          {!heatPinsOn && selectedLoc && sunriseAzimuth != null && eventType === 'SUNRISE' && (
+          {/* Azimuth lines for the selected location. */}
+          {selectedLoc && sunriseAzimuth != null && eventType === 'SUNRISE' && (
             <Polyline
               positions={[
                 [selectedLoc.lat, selectedLoc.lon],
@@ -6627,7 +6567,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               dashArray="10 6"
             />
           )}
-          {!heatPinsOn && selectedLoc && sunsetAzimuth != null && eventType === 'SUNSET' && (
+          {selectedLoc && sunsetAzimuth != null && eventType === 'SUNSET' && (
             <Polyline
               positions={[
                 [selectedLoc.lat, selectedLoc.lon],
@@ -6706,7 +6646,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           })}
 
           {/* The selection callout (map-tab-v2-plan.md §3 P9, README §7) — tab only. Rendered
-              regardless of `heatOn`/`heatOffered`: a chip or pin click sets `selectedLocationName`
+              regardless of `heatOffered`: a chip click sets `selectedLocationName`
               whether or not the heat kernel is currently painting anything, and the callout is the
               tab's ONLY selection surface now (no Leaflet popup left to fall back to). ⚠️ Said "a
               marker click" until the medallions stopped being visible on the tab at all — their
@@ -6781,10 +6721,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             Every corner is claimed exactly once, per the plan's z-ladder (index.css): chrome
             1100, menus 1500 (a menu must beat every other chip so its own dropdown/panel is
             never hidden under a sibling). Window control top-left (clearing Leaflet's own
-            zoom + home control stack the same way the old toolbar did); Regions + Heat/Pins +
+            zoom + home control stack the same way the old toolbar did); Regions +
             Filters top-right, in the README's own top-to-bottom order; colour-scale notice
             top-centre (the top corners are now both claimed by chrome); the Legend chip
-            bottom-left (P10 — hidden in Pins mode, shares its corner with the LITE
+            bottom-left (P10 — shares its corner with the LITE
             viewline-upsell chip, which never coexists with it); scored-locations chip
             bottom-right; counts footer bottom-centre. */}
         {/* The tab's empty state, CENTRE-BODY (owner call) — see `noForecastLineShown` for
@@ -6942,42 +6882,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         {!isMobile && (
         <div className="wf-map-chrome-tr" data-testid="wf-map-chrome-tr">
           <RegionsJump {...regionsJumpProps} />
-          {heatOffered && (
+          {/* The toolbar cluster holds the unscored line and the colour key. A High-water row is
+              unscored with no line to show, so neither child renders: gate the box itself, never
+              leave an empty bordered cluster. */}
+          {heatOffered && (unscoredLineShown || !windowUnscored) && (
             <div data-testid="wf-map-toolbar" className="wf-map-toolbar-cluster">
-              <div className="wf-map-toolbar-row">
-                <div className="wf-seg" role="group" aria-label="Map view">
-                  <button
-                    type="button"
-                    data-testid="wf-map-view-heat"
-                    aria-pressed={heatView === 'heat'}
-                    onClick={() => setHeatView('heat')}
-                    className={`wf-seg-btn${heatView === 'heat' ? ' on' : ''}`}
-                  >
-                    Heat
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="wf-map-view-pins"
-                    aria-pressed={heatView === 'pins'}
-                    onClick={() => setHeatView('pins')}
-                    className={`wf-seg-btn${heatView === 'pins' ? ' on' : ''}`}
-                  >
-                    <span aria-hidden="true">◍ </span>
-                    Pins
-                  </button>
-                </div>
-              </div>
-              {/* The ramp's key. Only in heat view — in Pins view it would explain a ramp
-                  nothing on screen is painted with (the field itself is withheld there, though
-                  `MapHeatLayer` stays mounted for the coastline stroke — see the mount comment
-                  above). "This event is not scored yet" REPLACES the key rather than sitting
-                  beside it, for the same reason. */}
+              {/* The ramp's key. "This event is not scored yet" REPLACES the key rather than
+                  sitting beside it. */}
               {unscoredLineShown && (
                 <div data-testid="wf-map-heat-unscored" className="wf-map-key">
                   {unscoredLineText}
                 </div>
               )}
-              {heatOn && !windowUnscored && (
+              {heatOffered && !windowUnscored && (
                 <div
                   data-testid="wf-map-heat-legend"
                   className="wf-map-key"
@@ -7100,39 +7017,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               )}
               layersBody={(
                 <div data-testid="wf-map-peek-layers" className="wf-map-peek-pane">
-                  {/* ⚠️ Gated on `heatOffered`, matching the desktop toolbar cluster
-                      (`.wf-map-toolbar-cluster` above, itself `{heatOffered && (...)}`) — a
-                      Codex retrospective finding against #927. With `heatOffered` false (no
-                      served heat data, or an astro/aurora window selected) `heatOn`/
-                      `heatPinsOn` are both forced false, so neither `MapLabels` nor
-                      `PinsLayer` mounts and this row's two buttons only flipped `heatView`
-                      with nothing on the map to show for it. */}
-                  {heatOffered && (
-                  <div className="wf-map-peek-lay-row">
-                    <span className="wf-map-peek-lay-label">Show</span>
-                    <div className="wf-seg" role="group" aria-label="Map view">
-                      <button
-                        type="button"
-                        data-testid="wf-map-peek-view-heat"
-                        aria-pressed={heatView === 'heat'}
-                        onClick={() => setHeatView('heat')}
-                        className={`wf-seg-btn${heatView === 'heat' ? ' on' : ''}`}
-                      >
-                        Heat
-                      </button>
-                      <button
-                        type="button"
-                        data-testid="wf-map-peek-view-pins"
-                        aria-pressed={heatView === 'pins'}
-                        onClick={() => setHeatView('pins')}
-                        className={`wf-seg-btn${heatView === 'pins' ? ' on' : ''}`}
-                      >
-                        <span aria-hidden="true">&#9677; </span>
-                        Pins
-                      </button>
-                    </div>
-                  </div>
-                  )}
                   <button
                     type="button"
                     data-testid="wf-map-peek-lay-regions"
@@ -7197,7 +7081,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       <span className="wf-map-peek-lay-label">{unscoredLineText}</span>
                     </div>
                   )}
-                  {heatOffered && heatOn && !windowUnscored && (
+                  {heatOffered && !windowUnscored && (
                     <div
                       data-testid="wf-map-peek-legend"
                       className="wf-map-peek-lay-row"
@@ -7217,7 +7101,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       </span>
                     </div>
                   )}
-                  {/* The big-seas key (big-seas plan F2), while chips are drawn: Heat and Pins alike. */}
+                  {/* The big-seas key (big-seas plan F2), while chips are drawn. */}
                   {bigSeasShown && (
                     <div data-testid="wf-map-peek-bigseas" className="wf-map-peek-lay-row">
                       <span className="wf-map-peek-lay-label">Big seas</span>
@@ -7233,14 +7117,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   )}
                   {/* The ground key (thin-sample plan F4), solar and rated windows only: the hatch is
                       not drawn on a night or an unscored window, so neither is its key. */}
-                  {/* Big-seas plan F3: the row also opens for a stand-down hatch, in Heat AND Pins and
-                      on a whole-window stand-down (`windowUnscored`), each item on its own gate. */}
+                  {/* Big-seas plan F3: the row also opens for a stand-down hatch, on a whole-window
+                       stand-down (`windowUnscored`), each item on its own gate. */}
                   {heatOffered && !isAstroMode && !isAuroraMode
-                    && ((heatOn && !windowUnscored) || stoodPoints.length > 0) && (
+                    && ((heatOffered && !windowUnscored) || stoodPoints.length > 0) && (
                     <div data-testid="wf-map-peek-ground" className="wf-map-peek-lay-row">
                       <span className="wf-map-peek-lay-label">Ground</span>
                       <span className="wf-legend-ground">
-                        {heatOn && !windowUnscored && (
+                        {heatOffered && !windowUnscored && (
                           <>
                             <span className="wf-legend-ground-item">
                               <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-hatch" />
@@ -7292,7 +7176,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             the Legend chip STACK here rather than one suppressing the other. ⚠️ They are NOT
             mutually exclusive: `showViewlineUpsell` is keyed on `auroraStatus`'s ALERT LEVEL
             (a background poll, live regardless of which event type is on screen), while the
-            Legend chip is keyed on `heatView`/`heatOffered` and, until A3, excludes AURORA MODE
+            Legend chip is keyed on `heatOffered` and, until A3, excludes AURORA MODE
             (`eventType === 'AURORA'`) by name — and a LITE reader can never enter aurora
             mode in the first place (`viewlineEnabled` above is PRO/ADMIN-only), so an alert can
             fire while a LITE reader sits on an ordinary Heat-view sunset. An earlier revision
@@ -7304,14 +7188,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
             ⚠️ The tide strip (tide-window-plan.md T6) is a THIRD reason this wrapper renders —
             added to the condition below rather than left implicit, since a viewport holding
-            coast on a solar window can be true with NEITHER other chip showing (Pins mode, or a
+            coast on a solar window can be true with NEITHER other chip showing (a
             LITE reader with no alert). It mounts as the LAST child so the two chips above it
             clear it by flex order alone (§4 #6) — never `position: absolute` and never its own
             entry in the obstacle list, since `.wf-map-chrome-bl` already carries that seed. It is
             `!isMobile` because the phone gets its OWN mount below (T7, full width, above the bar,
             never nested in this column). */}
-        {(showViewlineUpsell || topicStripMounted || (heatOffered && heatView === 'heat' && !isMobile)
-          || (heatOffered && heatView === 'pins' && !isMobile && (stoodPoints.length > 0 || bigSeasShown))
+        {(showViewlineUpsell || topicStripMounted || (heatOffered && !isMobile)
           || (!isMobile && tideStripModel.visible)) && (
           <div ref={chromeBlRef} className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
             {showViewlineUpsell && (
@@ -7332,7 +7215,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 </button>
               </div>
             )}
-            {heatOffered && heatView === 'heat' && !isMobile && (
+            {heatOffered && !isMobile && (
               <MapLegendPanel
                 open={openMapMenu === 'legend'}
                 onOpenChange={(next) => setOpenMapMenu(next ? 'legend' : null)}
@@ -7344,21 +7227,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 variant={isAuroraMode ? 'aurora' : 'solar'}
                 viewlineShown={viewlineShown}
                 groundKey={!isAstroMode && !isAuroraMode && !windowUnscored}
-                stoodKey={stoodPoints.length > 0}
-                seasKey={bigSeasShown}
-              />
-            )}
-            {/* Pins view's legend (big-seas plan F3): a variant that renders only the keys of the
-                layers Pins draws, mounted on desktop while one of them is shown. The big-seas key
-                (F2) joins the stand-down key here. */}
-            {heatOffered && heatView === 'pins' && !isMobile && (stoodPoints.length > 0 || bigSeasShown) && (
-              <MapLegendPanel
-                open={openMapMenu === 'legend'}
-                onOpenChange={(next) => setOpenMapMenu(next ? 'legend' : null)}
-                handoverFraction={legendHandoverFraction}
-                ringsEnabled={ringsEnabled}
-                onToggleRings={() => setRingsEnabled((v) => !v)}
-                variant="pins"
                 stoodKey={stoodPoints.length > 0}
                 seasKey={bigSeasShown}
               />

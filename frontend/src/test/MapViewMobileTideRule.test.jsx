@@ -105,15 +105,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
     </div>
   ),
 }));
-vi.mock('../components/map/PinsLayer.jsx', () => ({
-  default: (props) => (
-    <div data-testid="probe-pins">
-      {(props.spots || []).map((s) => (
-        <div key={s.name} data-testid="probe-pin" data-tide={s.tideTier ?? undefined}>{s.name}</div>
-      ))}
-    </div>
-  ),
-}));
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/BottomSheet.jsx', () => ({ default: () => null }));
 
@@ -284,19 +275,9 @@ describe('MapView (phone) — the one tide gate (map-mobile-sheet-plan.md §1 #6
     expect(screen.getByTestId('probe-spot')).toHaveAttribute('data-tide', 'match');
   });
 
-  it('the same chip data feeds BOTH MapLabels and PinsLayer identically — one gate, two consumers', async () => {
+  it('Off: the chip data MapLabels draws from carries no tide tier — one gate, one consumer', async () => {
     await renderMap({ mapTideMode: 'off' });
     expect(screen.getByTestId('probe-spot')).not.toHaveAttribute('data-tide');
-
-    // Switch to Pins view via the Layers section — `labelSpots` is the SAME array both consumers
-    // read, so the null must show up on the pin exactly as it does on the chip.
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('wf-map-peek-view-pins'));
-    });
-    expect(screen.getByTestId('probe-pin')).not.toHaveAttribute('data-tide');
   });
 });
 

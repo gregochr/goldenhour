@@ -79,7 +79,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
   default: (props) => { mapLabelsCalls.push(props); return null; },
 }));
 vi.mock('../components/map/MapTopicRings.jsx', () => ({ default: () => null }));
-vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => null }));
 const cameraCalls = [];
 vi.mock('../components/map/AskCameraController.jsx', () => ({
   default: (props) => { cameraCalls.push(props); return null; },
@@ -360,10 +359,10 @@ describe('a reader who is not PRO or ADMIN: the locked row', () => {
     mockAsk = { ...conversation('empty'), availability: 'locked', typedDisabled: true };
     await act(async () => { view = render(<MapView {...props({ askLocked: true })} />); });
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
-    const pins = screen.getByTestId('wf-map-peek-view-pins');
-    pins.focus();
+    const regions = screen.getByTestId('wf-map-peek-lay-regions');
+    regions.focus();
 
-    fireEvent.keyDown(pins, { key: 'Escape' });
+    fireEvent.keyDown(regions, { key: 'Escape' });
 
     expect(mode()).toBe('collapsed');
     expect(document.activeElement).not.toBe(document.body);
@@ -1339,29 +1338,29 @@ describe('the Layers door (phone, P2)', () => {
     expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
   });
 
-  // Focus INSIDE the open section's body (Heat / Pins, Tide mode…) when the section closes: the body
+  // Focus INSIDE the open section's body (Regions, Tide mode…) when the section closes: the body
   // unmounts with it, and the button row's report (focus inside the row) does not see it.
   it('Escape fired AT a control inside the Layers body, with an answer standing, lands focus on the door', async () => {
     await mount('answer');
     fireEvent.click(door());
-    const pins = screen.getByTestId('wf-map-peek-view-pins');
-    pins.focus();
-    expect(document.activeElement).toBe(pins);
+    const regions = screen.getByTestId('wf-map-peek-lay-regions');
+    regions.focus();
+    expect(document.activeElement).toBe(regions);
 
-    fireEvent.keyDown(pins, { key: 'Escape' });
+    fireEvent.keyDown(regions, { key: 'Escape' });
 
     expect(mode()).toBe('minimised');
-    expect(screen.queryByTestId('wf-map-peek-view-pins')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-lay-regions')).not.toBeInTheDocument();
     expect(document.activeElement).toBe(door());
   });
 
   it('the same with NO answer standing: focus lands on the Ask entry, never <body>', async () => {
     await mount('empty');
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
-    const pins = screen.getByTestId('wf-map-peek-view-pins');
-    pins.focus();
+    const regions = screen.getByTestId('wf-map-peek-lay-regions');
+    regions.focus();
 
-    fireEvent.keyDown(pins, { key: 'Escape' });
+    fireEvent.keyDown(regions, { key: 'Escape' });
 
     expect(mode()).toBe('collapsed');
     expect(document.activeElement).not.toBe(document.body);

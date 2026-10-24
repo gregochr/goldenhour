@@ -3,7 +3,6 @@ import PropTypes from 'prop-types';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { rampHex } from '../../utils/scoreRamp.js';
-import { STAND_DOWN_COLOUR } from '../markerUtils.js';
 import InfoTip from '../InfoTip.jsx';
 import BottomSheet from '../BottomSheet.jsx';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
@@ -140,7 +139,9 @@ export default function FiltersPopover({
                 : showStandDown ? 'Hide stand-down locations' : 'Show stand-down locations'}
               className={`wf-filters-seg-btn${showStandDown ? ' on' : ''}${!hasStandDown ? ' disabled' : ''}`}
             >
-              <span aria-hidden="true" className="wf-filters-dot" style={{ width: 8, height: 8, backgroundColor: STAND_DOWN_COLOUR }} />
+              {/* The same hatch swatch the Legend panel keys stand-down with: the map paints stand-down as
+                  that hatch, and no longer as a per-location colour. */}
+              <span aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-standdown" />
               &mdash; stand-down
             </button>
             <button

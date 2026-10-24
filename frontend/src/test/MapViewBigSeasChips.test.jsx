@@ -1,10 +1,10 @@
 /**
  * `MapView` + the real chip list, legend and phone Layers row for the big-seas chips (big-seas plan
- * F2): the one chip list both label layers draw, the key that shares its condition, and the rule that
+ * F2): the one chip list the label layer draws, the key that shares its condition, and the rule that
  * withholds an Ask-picked place's chip (the selected place keeps its own).
  *
- * <p>`MapLabels` and `PinsLayer` are probes that record the props `MapView` hands them (their own
- * pixels are `MapLabelsBigSeas.test.jsx`'s and `PinsLayerBigSeas.test.jsx`'s). Not mocked: `MapView`,
+ * <p>`MapLabels` is a probe that records the props `MapView` hands it (its own
+ * pixels are `MapLabelsBigSeas.test.jsx`'s). Not mocked: `MapView`,
  * `MapLegendPanel`, `buildMapEvents`, `bigSeasFor`. Saturday 24 Oct 2026 is still BST; the wall clock
  * is frozen on Thursday 22 Oct, so both Saturday events are ahead.
  */
@@ -59,13 +59,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
   default: (props) => {
     labelProps.last = props;
     return <div data-testid="map-labels-stub">{labelProps.extra}</div>;
-  },
-}));
-const pinsProps = { last: null };
-vi.mock('../components/map/PinsLayer.jsx', () => ({
-  default: (props) => {
-    pinsProps.last = props;
-    return <div data-testid="map-pins-stub" />;
   },
 }));
 
@@ -209,7 +202,6 @@ const openLegendIfAny = () => {
   if (chip) fireEvent.click(chip);
 };
 const openLegend = () => fireEvent.click(screen.getByTestId('wf-legend-chip'));
-const showPins = () => fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
 const chipNames = (probe) => (probe.last?.bigSeasChips ?? []).map((c) => c.name);
 
 beforeEach(() => {
@@ -221,7 +213,6 @@ beforeEach(() => {
   getAstroAvailableDates.mockResolvedValue([]);
   labelProps.last = null;
   labelProps.extra = null;
-  pinsProps.last = null;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T09:40:00Z`));
 });
@@ -306,13 +297,6 @@ describe('MapView — the big-seas chips', () => {
     expect(chipNames(labelProps)).toEqual(['Roker Pier & Lighthouse', "St. Mary's Lighthouse"]);
   });
 
-  it('hands Pins the same chips', async () => {
-    await renderMap();
-    showPins();
-    await screen.findByTestId('map-pins-stub');
-    expect(chipNames(pinsProps)).toEqual(['Roker Pier & Lighthouse', "St. Mary's Lighthouse", 'Amble']);
-    expect(pinsProps.last.bigSeasChips.every((c) => c.ringed)).toBe(true);
-  });
 });
 
 describe('MapView — the big-seas legend key', () => {
@@ -364,46 +348,10 @@ describe('MapView — the big-seas legend key', () => {
     expect(screen.queryByTestId('wf-map-peek-bigseas')).toBeNull();
   });
 
-  it('Pins: a zoom that retires the chips under an open legend closes it and keeps focus in the pane', async () => {
-    await renderMap();
-    showPins();
-    openLegend();
-    expect(screen.getByTestId('wf-legend-panel')).toBeInTheDocument();
-    mockZoom = 13;
-    await act(async () => {
-      for (const h of zoomHandlers) h.zoomend?.({ target: { getZoom: () => 13, getBounds: () => VIEWPORT } });
-    });
-    expect(screen.queryByTestId('wf-legend-chip')).toBeNull();
-    expect(document.activeElement).not.toBe(document.body);
-    // Back in range: the legend returns CLOSED, not reopened on its own.
-    mockZoom = 9;
-    await act(async () => {
-      for (const h of zoomHandlers) h.zoomend?.({ target: { getZoom: () => 9, getBounds: () => VIEWPORT } });
-    });
-    expect(screen.getByTestId('wf-legend-chip')).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  it('Pins: mounts the pins-variant legend for the key alone, with no stand-down to name', async () => {
-    await renderMap();
-    showPins();
-    openLegend();
-    expect(screen.getByTestId('wf-legend-bigseas')).toHaveTextContent(KEY_TEXT);
-    expect(screen.queryByTestId('wf-legend-standdown')).toBeNull();
-    expect(screen.queryByTestId('wf-legend-ramp')).toBeNull();
-  });
-
-  it('Pins: mounts no legend when there are no chips (and no stand-down)', async () => {
-    await renderMap({ bigSeas: undefined });
-    showPins();
-    expect(screen.queryByTestId('wf-legend-chip')).toBeNull();
-  });
-
-  it('phone: the Layers section carries the key in Heat and in Pins, and not without chips', async () => {
+  it('phone: the Layers section carries the key, and not without chips', async () => {
     mockIsMobile = true;
     const { unmount } = await renderMap();
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
-    expect(screen.getByTestId('wf-map-peek-bigseas')).toHaveTextContent(KEY_TEXT);
-    fireEvent.click(screen.getByTestId('wf-map-peek-view-pins'));
     expect(screen.getByTestId('wf-map-peek-bigseas')).toHaveTextContent(KEY_TEXT);
     unmount();
 

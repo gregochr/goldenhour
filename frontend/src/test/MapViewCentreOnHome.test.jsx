@@ -491,7 +491,7 @@ describe('centre on home — the camera controller stays mounted through aurora 
         />,
       );
     });
-    expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument(); // sanity: back in a live mode
+    expect(screen.getByTestId('wf-legend-chip')).toBeInTheDocument(); // sanity: back in a live mode (the Legend chip mounts only while heat is offered)
 
     expect(mapStub.fitBounds).not.toHaveBeenCalled();
   });

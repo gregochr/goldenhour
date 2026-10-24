@@ -14,7 +14,6 @@ let currentMap = null;
 vi.mock('react-leaflet', () => ({ useMap: () => currentMap }));
 
 const drawTiles = vi.fn();
-const drawStandDownTiles = vi.fn();
 const radiusFor = vi.fn(() => 120);
 // P4 RE-PIN (map-tab-v2-plan.md §3 P4): `land()` now tracks the SAME latch the mocked `load()`
 // flips, so `MapHeatLayer`'s `alreadyLoaded = land() != null` guard sees a faithful reflection of
@@ -31,7 +30,6 @@ vi.mock('../utils/heatField.js', async (importOriginal) => {
   return {
     ...actual,
     drawTiles: (...args) => drawTiles(...args),
-    drawStandDownTiles: (...args) => drawStandDownTiles(...args),
     radiusFor: (...args) => radiusFor(...args),
     load: (...args) => load(...args),
     land: () => (mockLandLoaded ? LAND_FIXTURE : null),
@@ -1253,109 +1251,43 @@ describe('MapHeatLayer — reach rings (map-tab-v2-plan.md §3 P8)', () => {
 });
 
 /**
- * Pins mode's contract on this host (map-tab-v2-plan.md §3 P10) — `fieldEnabled={false}`. The tab's
- * Heat/Pins segment withholds the score field (and, with it, the bloom and the reach rings) while
- * keeping the coastline stroke drawing, because that stroke is furniture, not a claim about the
- * data (the SAME reasoning P4's "still strokes the coast with an empty point set" test already
- * pins for the field-has-nothing-to-paint case). The medallion markers are held fully hidden
- * regardless of zoom — `PinsLayer` draws the dots now, so there is one place a location renders,
- * not two. Heat mode holds them hidden as well (its chips are ITS one place); what stays specific
- * to Pins mode is that the field, bloom and rings are withheld with them.
+ * The medallion markers on this host: held fully hidden whenever it is mounted, regardless of zoom or
+ * of the point set, because `MapLabels`' chips are the one place a location renders. (This block used
+ * to share a describe with Pins mode's `fieldEnabled={false}`; Pins mode is gone, the field is always
+ * painted when mounted, and these two cases are the marker half that stays until the markers go.)
  */
-describe('MapHeatLayer — Pins mode (map-tab-v2-plan.md §3 P10, `fieldEnabled`)', () => {
-  // Same reset every sibling describe block in this file applies (`the land clip`/`the coastline
-  // stroke`/`reach rings`): `landMaskGet`'s `mockReturnValue` is NOT cleared by the file's own
-  // `afterEach` (`vi.clearAllMocks()` resets calls, not implementations), so without this a
-  // truthy path left behind by whichever block runs immediately before this one — in file order,
-  // "reach rings"'s own final test sets one — would leak in here.
+describe('MapHeatLayer — the medallion panes stay hidden', () => {
   beforeEach(() => {
     landMaskGet.mockReset();
     landMaskGet.mockReturnValue(null);
     landMaskInvalidate.mockReset();
-    // The richer stub, not the file's own minimal `{}` default: `fieldEnabled: false` now calls
-    // `fit()` directly (to clear the canvas — see `MapHeatLayer.jsx`'s own comment on that branch),
-    // the same way the coastline stroke/reach-rings code already did, so every test in this block
-    // needs `setTransform` etc. to exist, whether or not that particular test cares about drawing.
     HTMLCanvasElement.prototype.getContext = () => makeCanvasCtxStub();
   });
 
-  it('defaults to true — every pre-P10 caller paints the field exactly as before', async () => {
+  it('paints the field on mount, with no switch to withhold it', async () => {
     currentMap = makeMap({ zoom: 9, panes: markerPanes() });
     await mount();
     expect(drawTiles).toHaveBeenCalled();
   });
 
-  it('never calls drawTiles when fieldEnabled is false', async () => {
-    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
-    await mount({ fieldEnabled: false });
-    expect(drawTiles).not.toHaveBeenCalled();
-  });
-
-  it('still strokes the coastline from the same Path2D, with the field withheld', async () => {
-    const stubPath = { __stub: 'land' };
-    landMaskGet.mockReset();
-    landMaskGet.mockReturnValue(stubPath);
-    const ctxStub = makeCanvasCtxStub();
-    HTMLCanvasElement.prototype.getContext = () => ctxStub;
-    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
-    await mount({ fieldEnabled: false });
-    expect(drawTiles).not.toHaveBeenCalled();
-    expect(ctxStub.stroke).toHaveBeenCalledWith(stubPath);
-    expect(ctxStub.strokeStyle).toMatch(/^rgba\(242,231,211,/);
-  });
-
-  it('clears the canvas even with no field paint to do it, so a prior Heat-mode frame cannot linger', async () => {
-    landMaskGet.mockReset();
-    landMaskGet.mockReturnValue(null);
-    const ctxStub = makeCanvasCtxStub();
-    HTMLCanvasElement.prototype.getContext = () => ctxStub;
-    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
-    await mount({ fieldEnabled: false });
-    expect(ctxStub.clearRect).toHaveBeenCalled();
-  });
-
-  it('never draws the reach rings, even with `rings` true, a saved home and a qualifying zoom', async () => {
-    const ctxStub = makeCanvasCtxStub();
-    ctxStub.beginPath = vi.fn();
-    ctxStub.arc = vi.fn();
-    ctxStub.setLineDash = vi.fn();
-    HTMLCanvasElement.prototype.getContext = () => ctxStub;
-    landMaskGet.mockReset();
-    landMaskGet.mockReturnValue(null);
-    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
-    await mount({
-      fieldEnabled: false, rings: true, homeCoords: { lat: 54.9, lon: -1.4 },
-    });
-    expect(ctxStub.arc).not.toHaveBeenCalled();
-  });
-
   it('holds the medallions fully hidden regardless of zoom — including past the handover band', async () => {
     // Zoom 13 is comfortably past `fadeAt`'s own band (10.4→12.0), the zoom that used to hand the
-    // markers back in Heat mode. Pins mode never let that zoom-keyed rule override its own "no
-    // medallions, ever" contract; Heat mode no longer HAS such a rule (see "never hands the
-    // medallions back"), so this now pins the shared property rather than an exception to one.
+    // markers back.
     currentMap = makeMap({ zoom: 13, panes: markerPanes() });
-    await mount({ fieldEnabled: false });
+    await mount();
     expect(currentMap.panes.markerPane.style.opacity).toBe('0');
     expect(currentMap.panes.markerPane.style.pointerEvents).toBe('none');
     expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
   });
 
-  it('keeps the panes hidden across a Pins → Heat switch, at the same zoom and on an empty window', async () => {
-    // ⚠️ INVERTED with the exception it used to prove. Switching back out of Pins mode no longer
-    // puts a medallion on screen at all — Heat hides them too — and neither does emptying the point
-    // set, which is what the old version of this test asserted. Both transitions are pinned here
-    // precisely because they are the two the previous code DID hand the panes back on: this is the
-    // regression test for the `points.length > 0` exception coming back by either door.
+  it('keeps the panes hidden when the point set empties at the same zoom', async () => {
+    // The old `points.length > 0` exception handed the panes back on an empty window; this is the
+    // regression test for it coming back.
     currentMap = makeMap({ zoom: 13, panes: markerPanes() });
-    const { rerender } = await mount({ fieldEnabled: false });
+    const { rerender } = await mount();
     expect(currentMap.panes.markerPane.style.opacity).toBe('0');
     await act(async () => {
-      rerender(<MapHeatLayer points={POINTS} conf={1} fieldEnabled />);
-    });
-    expect(currentMap.panes.markerPane.style.opacity).toBe('0');
-    await act(async () => {
-      rerender(<MapHeatLayer points={[]} conf={1} fieldEnabled />);
+      rerender(<MapHeatLayer points={[]} conf={1} />);
     });
     expect(currentMap.panes.markerPane.style.opacity).toBe('0');
     expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
@@ -1438,8 +1370,6 @@ describe('MapHeatLayer — dim (Ask PhotoCast’s picks)', () => {
 
 describe('MapHeatLayer — the stand-down hatch (big-seas plan F3)', () => {
   const STOOD = [{ lat: 54.9, lng: -2.1, rid: 'North East' }];
-  const RATED = [{ lat: 55.1, lng: -1.9, rid: 'North East', r: [4] }];
-
   beforeEach(() => {
     landMaskGet.mockReset();
     landMaskGet.mockReturnValue(null);
@@ -1470,81 +1400,5 @@ describe('MapHeatLayer — the stand-down hatch (big-seas plan F3)', () => {
     await mount({ stood });
     expect('stood' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
     expect('standRadius' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
-  });
-
-  it('Pins: paints the layer AFTER the canvas clear and BEFORE the coastline stroke, with no field', async () => {
-    const stubPath = { __stub: 'land' };
-    landMaskGet.mockReturnValue(stubPath);
-    const ctxStub = makeCanvasCtxStub();
-    HTMLCanvasElement.prototype.getContext = () => ctxStub;
-    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
-    await mount({ fieldEnabled: false, stood: STOOD, stoodRated: RATED });
-    expect(drawTiles).not.toHaveBeenCalled();
-    expect(drawStandDownTiles).toHaveBeenCalled();
-    const clear = ctxStub.clearRect.mock.invocationCallOrder[0];
-    const paint = drawStandDownTiles.mock.invocationCallOrder[0];
-    const coast = ctxStub.stroke.mock.invocationCallOrder[0];
-    expect(clear).toBeLessThan(paint);
-    expect(paint).toBeLessThan(coast);
-  });
-
-  it('Pins: the mask yields to the rated points it is handed, not the empty field points', async () => {
-    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
-    await mount({
-      points: [], fieldEnabled: false, stood: STOOD, stoodRated: RATED,
-    });
-    const [, , spots, win, opts] = drawStandDownTiles.mock.calls.at(-1);
-    expect(spots).toBe(RATED);
-    expect(win).toBe(0);
-    expect(opts.stood).toBe(STOOD);
-    expect(opts.standRadius).toBe(120);
-    expect(opts.opacity).toBeGreaterThan(0);
-  });
-
-  it('Pins: carries the soft land clip, the field\'s grid, blur and confidence, and its opacity', async () => {
-    const stubPath = { __stub: 'land' };
-    landMaskGet.mockReturnValue(stubPath);
-    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
-    await mount({
-      fieldEnabled: false, stood: STOOD, stoodRated: RATED, conf: 0.8, dim: 1,
-    });
-    const opts = drawStandDownTiles.mock.calls.at(-1)[4];
-    expect(opts.clipPath).toBe(stubPath);
-    expect(opts.clipSoft).toBe(4);
-    expect(opts.clipGrow).toBe(120); // `radiusFor` is stubbed
-    expect(opts.grid).toBe(6);
-    expect(opts.blur).toBe(4);
-    expect(opts.conf).toBe(0.8);
-    expect(opts.opacity).toBeCloseTo(0.92 * fadeAt(9).heat, 5);
-  });
-
-  it('Pins: drops the clip keys altogether at or above the land-clip zoom', async () => {
-    landMaskGet.mockReturnValue({ __stub: 'land' });
-    currentMap = makeMap({ zoom: 12, panes: markerPanes() });
-    await mount({ fieldEnabled: false, stood: STOOD, stoodRated: RATED });
-    const opts = drawStandDownTiles.mock.calls.at(-1)[4];
-    expect('clipPath' in opts).toBe(false);
-    expect('clipSoft' in opts).toBe(false);
-    expect(opts.opacity).toBeCloseTo(0.92 * fadeAt(12).heat, 5);
-  });
-
-  it('Pins: Ask\'s dim halves the hatch exactly as it halves the field', async () => {
-    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
-    await mount({ fieldEnabled: false, stood: STOOD, dim: 1 });
-    const full = drawStandDownTiles.mock.calls.at(-1)[4].opacity;
-    await mount({ fieldEnabled: false, stood: STOOD, dim: 0.5 });
-    expect(drawStandDownTiles.mock.calls.at(-1)[4].opacity / full).toBeCloseTo(0.5, 5);
-  });
-
-  it('Pins: falls back to the layer\'s own points when no rated list is handed in', async () => {
-    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
-    await mount({ fieldEnabled: false, stood: STOOD });
-    expect(drawStandDownTiles.mock.calls.at(-1)[2]).toBe(POINTS);
-  });
-
-  it('Pins: paints nothing extra without stood places', async () => {
-    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
-    await mount({ fieldEnabled: false, stood: [] });
-    expect(drawStandDownTiles).not.toHaveBeenCalled();
   });
 });

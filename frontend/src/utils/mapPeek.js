@@ -111,7 +111,7 @@ export function tideSummary(tide, dimmedCount = 0) {
 /**
  * The Auto/Always/Off tide-visibility rule (map-mobile-sheet-plan.md §3 M5 task 1) — the ONE gate
  * every phone tide cue keys off (through the single `tideTier` null at the spot-build site,
- * `MapView.jsx` §1 #6; never a flag threaded to `MapLabels`, `PinsLayer` or the tooltips).
+ * `MapView.jsx` §1 #6; never a flag threaded to `MapLabels` or the tooltips).
  *
  * <p>The three prerequisites are separate BOOLEAN inputs, never folded into
  * {@code mapTideFit.stripModel(...).visible}: that flag is false both for "no coast in view" and

@@ -55,7 +55,7 @@ import { foreignModalOverPaneOf } from '../utils/mapForeignModal.js';
  * `MapView` through six unrelated components, every one of which is rendered inside it.
  *
  * <p>⚠️ <b>This selector is NOT how the rest of the map finds its own frame</b>, and an earlier
- * draft of this comment claimed it was. `MapLabels.jsx` and `PinsLayer.jsx` reach the frame through
+ * draft of this comment claimed it was. `MapLabels.jsx` reaches the frame through
  * Leaflet — `map.getContainer().parentElement` — and their `OBSTACLE_SELECTOR` lists *chrome*
  * test-ids, never `map-container`. That route is unavailable here: these panels hold no map
  * instance, and threading one through six components to answer "was this press on the map" would

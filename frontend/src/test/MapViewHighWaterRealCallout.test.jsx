@@ -38,7 +38,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
     <button type="button" data-testid="probe-chip" onClick={() => props.onSelect('Bamburgh-0')}>chip</button>
   ),
 }));
-vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => <div /> }));
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));

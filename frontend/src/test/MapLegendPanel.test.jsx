@@ -70,26 +70,6 @@ describe('MapLegendPanel — the stand-down key (big-seas plan F3)', () => {
     expect(screen.getByTestId('wf-legend-standdown')).toBeInTheDocument();
     expect(screen.queryByTestId('wf-legend-ground')).toBeNull();
   });
-
-  describe('the Pins variant', () => {
-    it('renders only the stand-down key: no ramp, handover, rings toggle, note or ground key', () => {
-      render(<MapLegendPanel {...baseProps({ open: true })} variant="pins" stoodKey />);
-      expect(screen.getByTestId('wf-legend-chip')).toBeInTheDocument();
-      expect(screen.getByTestId('wf-legend-standdown')).toBeInTheDocument();
-      for (const id of ['wf-legend-ramp', 'wf-legend-hand', 'wf-legend-rings-toggle',
-        'wf-legend-note', 'wf-legend-ground']) {
-        expect(screen.queryByTestId(id)).toBeNull();
-      }
-    });
-
-    it('stays a labelled dialog that closes on Escape like the Heat panel', () => {
-      const onOpenChange = vi.fn();
-      render(<MapLegendPanel {...baseProps({ open: true, onOpenChange })} variant="pins" stoodKey />);
-      expect(screen.getByRole('dialog', { name: 'Map legend' })).toBeInTheDocument();
-      fireEvent.keyDown(screen.getByTestId('wf-legend'), { key: 'Escape' });
-      expect(onOpenChange).toHaveBeenCalledWith(false);
-    });
-  });
 });
 
 describe('MapLegendPanel — the chip', () => {
@@ -391,13 +371,9 @@ describe('MapLegendPanel — the big-seas key (big-seas plan F2)', () => {
     expect(screen.queryByTestId('wf-legend-bigseas')).toBeNull();
   });
 
-  it('shows in the Pins variant, alone or beside the stand-down key', () => {
-    const { rerender } = render(<MapLegendPanel {...baseProps({ open: true })} variant="pins" seasKey />);
+  it('shows beside the stand-down key when both are drawn', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} seasKey stoodKey />);
     expect(screen.getByTestId('wf-legend-bigseas')).toHaveTextContent(KEY_TEXT);
-    expect(screen.queryByTestId('wf-legend-standdown')).toBeNull();
-    expect(screen.queryByTestId('wf-legend-ramp')).toBeNull();
-    rerender(<MapLegendPanel {...baseProps({ open: true })} variant="pins" seasKey stoodKey />);
-    expect(screen.getByTestId('wf-legend-bigseas')).toBeInTheDocument();
     expect(screen.getByTestId('wf-legend-standdown')).toBeInTheDocument();
   });
 
