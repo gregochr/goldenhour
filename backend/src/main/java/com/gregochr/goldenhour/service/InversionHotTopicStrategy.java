@@ -97,6 +97,9 @@ import java.util.Locale;
 @Component
 public class InversionHotTopicStrategy implements HotTopicStrategy {
 
+    /** The {@link HotTopic#type()} this strategy emits. */
+    public static final String TYPE = "INVERSION";
+
     private static final String INVERSION_DESCRIPTION =
             "A temperature inversion traps cloud below elevated viewpoints, creating a"
                     + " 'sea of clouds' effect. Best seen from high ground overlooking"
@@ -159,7 +162,7 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
 
         return PerDateHotTopicBuilder.perDate(
                 strong,
-                "INVERSION",
+                TYPE,
                 "Cloud inversion",
                 "Strong inversion likely at elevated locations",
                 PRIORITY,
@@ -199,7 +202,7 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
         String value = reported + "/10 · " + bandLabel(reported);
         GlanceLine glance = new GlanceLine(
                 GLANCE_PREFIX + reported + GLANCE_DENOMINATOR, reported + GLANCE_DENOMINATOR, null,
-                HotTopicGlanceDecorator.WEATHER_TYPES.contains("INVERSION"));
+                HotTopicGlanceDecorator.WEATHER_TYPES.contains(TYPE));
         return topic.withScience(
                 List.of(HotTopicFact.metric("inversion", value)), INVERSION_NOTE)
                 .withGlance(glance);

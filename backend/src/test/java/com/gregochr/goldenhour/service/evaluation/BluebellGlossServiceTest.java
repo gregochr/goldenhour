@@ -15,7 +15,9 @@ import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.BluebellLocationMetr
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.BluebellMetrics;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.LocationEntry;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.RegionGroup;
+import com.gregochr.goldenhour.model.GlanceLine;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -55,6 +57,27 @@ class BluebellGlossServiceTest {
     void setUp() {
         glossService = new BluebellGlossService(
                 anthropicApiClient, new ObjectMapper(), modelSelectionService);
+    }
+
+    @Test
+    @DisplayName("a glossed topic keeps glance, facts, eventType and every other served field")
+    void enrichGlosses_glossedTopic_keepsEveryOtherField() {
+        when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS))
+                .thenReturn(EvaluationModel.HAIKU);
+        mockClaudeResponse("{\"headline\": \"Misty dawn — ideal woodland light\"}");
+        GlanceLine glance = new GlanceLine("first", "first", null, false);
+        List<HotTopicFact> facts = List.of(HotTopicFact.metric("k", "first"));
+        HotTopic original = bluebellTopic("Northumberland").withEvent("SUNRISE", "05:30")
+                .withScience(facts, "a note").withGlance(glance);
+
+        HotTopic glossed = glossService.enrichGlosses(List.of(original)).get(0);
+
+        assertThat(glossed.expandedDetail().regionGroups().get(0).glossHeadline()).isNotNull();
+        assertThat(glossed.glance()).isEqualTo(glance);
+        assertThat(glossed.facts()).isEqualTo(facts);
+        assertThat(glossed.note()).isEqualTo("a note");
+        assertThat(glossed.eventType()).isEqualTo("SUNRISE");
+        assertThat(glossed.eventTime()).isEqualTo("05:30");
     }
 
     @Test

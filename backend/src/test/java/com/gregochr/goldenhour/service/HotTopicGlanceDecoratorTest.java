@@ -127,29 +127,29 @@ class HotTopicGlanceDecoratorTest {
     @Test
     @DisplayName("tide prints its range, and says 'run starts' only on day 1 of a multi-day run")
     void tide_runStartsOnlyWhenRunHasMoreThanOneDay() {
-        HotTopic start = topic("SPRING_TIDE", D1).withTideRun(tide(1, 3, "5.6 m range", false));
-        HotTopic single = topic("KING_TIDE", D1).withTideRun(tide(1, 1, "6.1 m range", false));
-        HotTopic middle = topic("SPRING_TIDE", D2).withTideRun(tide(2, 3, "5.8 m range", false));
+        HotTopic start = topic("SPRING_TIDE", D1).withTideRun(tide(1, 3, "5.6 m", false));
+        HotTopic single = topic("KING_TIDE", D1).withTideRun(tide(1, 1, "6.1 m", false));
+        HotTopic middle = topic("SPRING_TIDE", D2).withTideRun(tide(2, 3, "5.8 m", false));
 
         List<HotTopic> out = decorator.decorate(List.of(start, single, middle));
 
-        assertThat(out.get(0).glance().value()).isEqualTo("5.6 m range · run starts");
-        assertThat(out.get(0).glance().shortValue()).isEqualTo("5.6 m range");
-        assertThat(out.get(1).glance().value()).isEqualTo("6.1 m range");
-        assertThat(out.get(2).glance().value()).isEqualTo("5.8 m range");
+        assertThat(out.get(0).glance().value()).isEqualTo("5.6 m · run starts");
+        assertThat(out.get(0).glance().shortValue()).isEqualTo("5.6 m");
+        assertThat(out.get(1).glance().value()).isEqualTo("6.1 m");
+        assertThat(out.get(2).glance().value()).isEqualTo("5.8 m");
         assertThat(out).allSatisfy(t -> assertThat(t.glance().weather()).isFalse());
     }
 
     @Test
     @DisplayName("the peak tide day carries PEAK and a ' pk' short value")
     void tide_peakDay() {
-        HotTopic t = topic("KING_TIDE", D2).withTideRun(tide(2, 3, "6.4 m range", true));
+        HotTopic t = topic("KING_TIDE", D2).withTideRun(tide(2, 3, "6.4 m", true));
 
         GlanceLine glance = glanceOf(t);
 
         assertThat(glance.badge()).isEqualTo("PEAK");
-        assertThat(glance.shortValue()).isEqualTo("6.4 m range pk");
-        assertThat(glance.value()).isEqualTo("6.4 m range");
+        assertThat(glance.shortValue()).isEqualTo("6.4 m pk");
+        assertThat(glance.value()).isEqualTo("6.4 m");
     }
 
     @Test
@@ -231,6 +231,13 @@ class HotTopicGlanceDecoratorTest {
     }
 
     // ── Guards ──────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("an unstamped weather type (simulated inversion or mist) is still marked WX")
+    void unstampedWeatherType_markedWeather() {
+        assertThat(glanceOf(topic("INVERSION", D1))).isEqualTo(new GlanceLine(null, null, null, true));
+        assertThat(glanceOf(topic("MIST", D1))).isEqualTo(new GlanceLine(null, null, null, true));
+    }
 
     @Test
     @DisplayName("an unknown type keeps a null glance")

@@ -81,14 +81,18 @@ class HotTopicAggregatorTest {
     void getHotTopics_simulatedBranch_returnsDecoratedTopics() {
         simulationService.setEnabled(true);
         simulationService.setTypeActive("SUPERMOON", true);
+        simulationService.setTypeActive("INVERSION", true);
+        simulationService.setTypeActive("MIST", true);
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(),
                 simulationService, travelDayService, eventEnricher, new HotTopicGlanceDecorator());
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
-        assertThat(topics).hasSize(1);
-        assertThat(topics.getFirst().glance()).isNotNull();
-        assertThat(topics.getFirst().glance().badge()).isEqualTo("FULL");
+        assertThat(topics).extracting(HotTopic::type).contains("SUPERMOON", "INVERSION", "MIST");
+        assertThat(topics).filteredOn(t -> "SUPERMOON".equals(t.type()))
+                .singleElement().satisfies(t -> assertThat(t.glance().badge()).isEqualTo("FULL"));
+        assertThat(topics).filteredOn(t -> "INVERSION".equals(t.type()) || "MIST".equals(t.type()))
+                .allSatisfy(t -> assertThat(t.glance().weather()).isTrue());
     }
 
     @Test

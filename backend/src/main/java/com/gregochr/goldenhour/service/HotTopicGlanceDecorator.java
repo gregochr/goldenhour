@@ -92,6 +92,10 @@ public class HotTopicGlanceDecorator {
             String first = firstFactValue(topic).orElse(null);
             return topic.withGlance(new GlanceLine(first, first, null, WEATHER_TYPES.contains(type)));
         }
+        if (WEATHER_TYPES.contains(type)) {
+            // A weather type no strategy stamped (e.g. a simulated one) is still marked WX.
+            return topic.withGlance(new GlanceLine(null, null, null, true));
+        }
         return topic;
     }
 

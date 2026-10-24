@@ -272,10 +272,7 @@ public class BluebellGlossService {
             ExpandedHotTopicDetail enrichedDetail = new ExpandedHotTopicDetail(
                     enrichedGroups, detail.bluebellMetrics(), detail.tideMetrics());
 
-            result.set(topicIdx, new HotTopic(
-                    original.type(), original.label(), original.detail(),
-                    original.date(), original.priority(), original.filterAction(),
-                    original.regions(), original.description(), enrichedDetail));
+            result.set(topicIdx, original.withExpandedDetail(enrichedDetail));
         }
 
         return result;
