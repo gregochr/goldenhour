@@ -12,9 +12,9 @@ import { eventWord } from '../../utils/windowFirstCards.js';
  * <p><b>Renders {@code null} unless {@code model.visible}</b> (§5 #7: solar row ∧ served window
  * tide ∧ ≥ 1 coastal spot in the padded viewport) — not a mode, no toggle, the only control is
  * collapse. `MapView` mounts this unconditionally as the last child of `.wf-map-chrome-bl` so the
- * legend chip and the viewline-upsell chip clear it by flex order (§4 #6, §1 #8) rather than by
- * `--tsh`, which this component publishes for the one chip in a DIFFERENT column — the bottom-centre
- * counts footer.
+ * legend chip and the viewline-upsell chip clear it by flex order (§4 #6, §1 #8). The bottom-centre
+ * counts footer clears it by `MapView`'s own measurement (`footerLift`), fed by this component's
+ * `onHeightChange`; there is no CSS custom property or tab-root class for it any more.
  *
  * <p><b>Every string is server-formatted</b> (§5 #5) except the footer's own count sentence, which
  * is the client's licensed tally over served facts (§1 #12) — {@link footerModel} and
@@ -494,18 +494,16 @@ export default function MapTideStrip({
   const focusStrip = () => node?.focus();
 
   /**
-   * Publishes `--tsh: <offsetHeight>px` on the `.wf-map-tab` root and toggles `wf-tide-strip-on`
-   * (T6 #6) — the same callback-ref + synchronous-measure-then-`ResizeObserver` shape
-   * `WindowFirstHeatStrip`'s `--wf-dh-h` already uses, so the counts footer clears the strip's REAL
-   * height rather than a guessed one: open and collapsed are roughly 3× apart (design §2).
+   * Reports the strip's REAL `offsetHeight` up to `onHeightChange`, via the callback-ref +
+   * synchronous-measure-then-`ResizeObserver` shape `WindowFirstHeatStrip`'s `--wf-dh-h` uses: open and
+   * collapsed are roughly 3× apart (design §2). It used to publish `--tsh` and `wf-tide-strip-on` on the
+   * `.wf-map-tab` root for the counts footer's CSS lift; nothing reads either any more (the footer is
+   * lifted by `MapView`'s measurement), so neither is written.
    *
-   * <p>Removes both on unmount OR the moment the strip stops being visible, since a hidden strip
-   * (`return null` below) unmounts this effect's own node — the cleanup path is the same one either
-   * way, which is exactly what keeps "the chrome returns to `bottom: 8px`" (§7 check 3) true without
-   * a second code path.
+   * <p>Reports `null` on unmount OR the moment the strip stops being visible, since a hidden strip
+   * (`return null` below) unmounts this effect's own node.
    *
-   * <p>⚠️ Also reports the same number up to `onHeightChange` (T7 follow-up, Codex P1 on the T7
-   * PR) — `MapCallout`'s own placement band treats this strip as a floor/ceiling bar
+   * <p>⚠️ The number (T7 follow-up, Codex P1 on the T7 PR) — `MapCallout`'s own placement band treats this strip as a floor/ceiling bar
    * (`BAND_BAR_SELECTOR`, T7), but that component's `paint()` only ever RUNS on a fixed list of
    * triggers, none of which fired when the strip toggled open ⇄ collapsed. `MapView` is the one
    * place both components already meet, so it is the one place a single state value can retrigger
@@ -513,25 +511,20 @@ export default function MapTideStrip({
    * NOT hand the number a second job: `MapCallout`'s own `paint()` still re-measures the strip's
    * real rect fresh off the DOM every time it runs, exactly like every other bar — `onHeightChange`
    * exists purely so ITS IDENTITY changing is what makes `paint()` run again in the first place.
-   * `null` on cleanup (unmount OR the strip going invisible) for the identical reason the CSS
-   * property is removed on the same path: a stale height is exactly as wrong as no height at all.
+   * `null` on cleanup (unmount OR the strip going invisible) for the same reason: a stale height is exactly as wrong as no height at all.
    */
   useEffect(() => {
     const pane = mapPaneRef?.current;
     if (!node || !pane || typeof ResizeObserver === 'undefined') return undefined;
     const write = () => {
       const h = Math.round(node.offsetHeight);
-      pane.style.setProperty('--tsh', `${h}px`);
       onHeightChange?.(h);
     };
-    pane.classList.add('wf-tide-strip-on');
     write();
     const observer = new ResizeObserver(write);
     observer.observe(node);
     return () => {
       observer.disconnect();
-      pane.classList.remove('wf-tide-strip-on');
-      pane.style.removeProperty('--tsh');
       onHeightChange?.(null);
     };
   }, [node, mapPaneRef, onHeightChange]);

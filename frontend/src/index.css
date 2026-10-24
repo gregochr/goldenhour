@@ -3940,8 +3940,7 @@ button.wf-hc.also.on:hover {
    ⚠️ Two class prefixes, not one, and both are literal strings the plan itself names: the ROOT is
    `.wf-map-tide-strip` (T7's own phone override, `docs/engineering/tide-window-plan.md` §3 T7 #1,
    quotes this selector verbatim, so it cannot be renamed to match `.wf-callout`/`.wf-legend`'s
-   single-prefix convention without breaking that phase's plan text), while every PART and the
-   `--tsh` toggle class are `wf-tide-strip-*` (T6 #6 also names `wf-tide-strip-on` verbatim). This
+   single-prefix convention without breaking that phase's plan text), while every PART is `wf-tide-strip-*`. This
    diverges from `.wf-callout-tide`'s single-prefix precedent (adversarial review, project-
    conventions lens) — recorded here as a considered, plan-forced choice rather than an oversight. */
 .wf-map-tide-strip {
@@ -4139,24 +4138,13 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text-muted);
   flex-wrap: wrap;
 }
-/* The strip publishes `--tsh` (its own real `offsetHeight`, in px) on `.wf-map-tab` and toggles
-   this class — open and collapsed are roughly 3× apart, so a fixed offset is wrong for one of them
-   (T6 #6, §7 check 4). Only the bottom-CENTRE counts footer needs the lift: the legend chip and the
-   viewline-upsell chip sit ABOVE the strip in the same flex column (§4 #6) and already clear it for
-   free, and the bottom-right scored-locations chip is out of the strip's column entirely.
-
-   ⚠️ This rule carries no media query, so it still fires on the phone (T7) — where the SAME
-   selector is visually hidden (below, inside `@media (max-width: 639px)`, an `sr-only`-shaped
-   clip rather than `display: none` since the accessibility fix for §6 Q8) regardless of this
-   `bottom`. The value this rule computes on the phone is therefore visually inert — a 1px clipped
-   box paints at whatever position `bottom` puts it, but nothing about that position is observable
-   — left unscoped deliberately rather than wrapped in `@media (min-width: 640px)`, since narrowing
-   it risks nothing this rule alone can break and a media-query split here would be one more thing
-   for the phone rule to stay in sync with for no visible gain (adversarial review, T7: flagged as
-   a minor real finding, fixed with this comment rather than a second media block). */
-.wf-map-tab.wf-tide-strip-on .wf-map-counts-footer {
-  bottom: calc(var(--tsh, 120px) + 16px);
-}
+/* The strip used to publish `--tsh` (its own `offsetHeight`) and a `wf-tide-strip-on` class on
+   `.wf-map-tab` for a CSS lift of the bottom-CENTRE counts footer (T6 #6, §7 check 4). No CSS reads
+   either any more and neither is written. `MapView`'s `footerLift` measurement lifts it only where
+   its horizontal span actually meets the bottom-left stack (topic strip and/or tide strip), so on
+   a wide frame it stays at `bottom: 8px`. The legend chip and the viewline-upsell chip sit ABOVE
+   the strip in the same flex column (§4 #6) and already clear it for free, and the bottom-right
+   scored-locations chip is out of the strip's column entirely. */
 
 /* ── The four-day hot-topics strip (hot-topics-by-day-plan §3 M2; docs/design/hot-topics-by-day/README.md §2C) ──
    A plain flex child of `.wf-map-chrome-bl`, BEFORE the tide strip (never separately positioned), 440px,
@@ -4488,9 +4476,12 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 }
 
 /* ── The counts footer (README "§9 Count footer") ──────────────────────────────────────────────
-   Bottom-centre, matching `.wf-map-key`'s pill treatment so the new chrome reads as one family
-   with the old. `--color-plex-panel` opaque for the same reason every map-floating chip is: a
-   translucent ground puts a coastline through the words. */
+   Bottom-centre, and a quiet CAPTION, not a chip: it reports on the catalogue rather than controlling
+   it, and an opaque bordered pill obscured the map for a line nobody acts on. With no ground of its
+   own, a dark halo built from `--color-plex-bg` (a 1px, 2px and 4px spread plus a drop) keeps the words
+   legible over a coastline or the orange and yellow heat field. The colour is the opaque
+   `--color-plex-text`: `-text-secondary` is 66% alpha, so the ground shows through the glyphs. In
+   forced colours `text-shadow` is dropped, so that mode gives it a `Canvas` ground back (below). */
 .wf-map-counts-footer {
   position: absolute;
   bottom: 8px;
@@ -4501,16 +4492,24 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 5px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--color-plex-border);
-  background: var(--color-plex-panel);
-  color: var(--color-plex-text-secondary);
+  padding: 2px 6px;
+  color: var(--color-plex-text);
+  text-shadow:
+    0 0 1px var(--color-plex-bg),
+    0 0 2px var(--color-plex-bg),
+    0 0 4px var(--color-plex-bg),
+    0 1px 2px var(--color-plex-bg);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
   text-align: center;
   max-width: calc(100% - 16px);
   pointer-events: none;
+}
+@media (forced-colors: active) and (min-width: 640px) {
+  .wf-map-counts-footer {
+    background: Canvas;
+    color: CanvasText;
+  }
 }
 /* The footer's stood-down count (big-seas plan F3). */
 .wf-map-counts-standdown {
@@ -4899,8 +4898,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
      §3 T7) both lived here — the strip's content is now the peek sheet's Tide section
      (`MapPeekTideSection`, ".wf-map-peek-tide-*" below) and `.wf-map-chrome-bl`'s phone bottom is
      therefore the plain, unconditional `calc(var(--psh, 74px) + 27px + 8px)` set above (M2 task 8, `--psh` since Ask) —
-     `--tsh`/`wf-tide-strip-on` are desktop/tablet-only from here; the desktop mount's own top-level
-     rule (`.wf-map-tab.wf-tide-strip-on .wf-map-counts-footer`, far above) is untouched. The counts
+     `--tsh`/`wf-tide-strip-on` are no longer written at all, and the counts footer's desktop lift is
+     `MapView`'s measured `footerLift`, not a CSS rule. The counts
      footer's `sr-only` clip (also set above) was already unconditional since M2, so nothing about
      it changes with the strip's removal. `mapPhoneChromeCascade.test.jsx` pins both absences. */
 
