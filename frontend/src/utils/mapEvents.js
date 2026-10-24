@@ -95,7 +95,28 @@ import { heatPointsFor, POINT_SCORE_INDEX } from './heatSpots.js';
  */
 
 /** The kind literals a row's {@code kind} field takes — also the CSS/colour class key. */
-export const EVENT_KIND = { SOLAR: 'solar', ASTRO: 'astro', AURORA: 'aur' };
+export const EVENT_KIND = { SOLAR: 'solar', ASTRO: 'astro', AURORA: 'aur', HW: 'hw' };
+
+/**
+ * The {@code eventType} of the daylight High-water row (hot-topics-by-day-plan §3 M3). Not a forecast
+ * window: no light score, no fetch, no heat, no stand-down. Every reader that branches on an
+ * {@code eventType} or a {@code kind} must give it its own answer or none at all, never the sunset's
+ * and never a night's.
+ */
+export const HIGH_WATER = 'HIGH_WATER';
+
+/** Whether an EV row is the daylight High-water row. */
+export function isHighWaterRow(row) {
+  return row?.kind === EVENT_KIND.HW;
+}
+
+/**
+ * Whether a row {@code kind} is a night (astro or aurora). The High-water row is neither a night nor a
+ * solar window, so a test written as {@code kind !== 'solar'} reads it wrongly; ask this instead.
+ */
+export function isNightKind(kind) {
+  return kind === EVENT_KIND.ASTRO || kind === EVENT_KIND.AURORA;
+}
 
 /**
  * A rating this list will show: a finite number. Anything else is "not scored" — mirrors
@@ -338,6 +359,49 @@ function solarRow(
     // a filler borrows; per-spot fit comes from the slots' own served tide facts, as for any row.
     tide: lent?.tide ?? null,
     inForecastDomain,
+  };
+}
+
+/**
+ * The daylight High-water row for one served big-seas day (hot-topics-by-day-plan §3 M3): inserted
+ * between that date's sunrise and sunset. Not a window the forecast scores, so it is {@code served:
+ * false}, {@code scored: false} and carries no badges, pick, tide or verdict.
+ *
+ * <p>{@code inForecastDomain} is REQUIRED: {@link isForwardableRow} rejects a row without it, so
+ * selecting the row would skip {@code onSelectDate} and leave the parent date out of step with the
+ * Map pane. The caller passes the date's own solar rows' value.
+ *
+ * @param {object} day the served {@code BigSeasDay} ({@code daylightHighWater} true)
+ * @param {string} todayStr the UK civil today
+ * @param {string} tomorrowStr the UK civil tomorrow
+ * @param {boolean} inForecastDomain the date's forecast-domain flag
+ * @param {(v: ?string) => ?string} formatTimeUk UTC-naive to UK 'HH:MM'
+ * @returns {object} the EV row
+ */
+function highWaterRow(day, todayStr, tomorrowStr, inForecastDomain, formatTimeUk) {
+  const dayLabel = dayLabelFor(day.date, todayStr, tomorrowStr);
+  return {
+    id: `hw:${day.date}:${HIGH_WATER}`,
+    kind: EVENT_KIND.HW,
+    eventType: HIGH_WATER,
+    date: day.date,
+    time: formatTimeUk(day.hwTime) || '',
+    label: `${dayLabel} high water`,
+    dayLabel,
+    badges: [],
+    bestRating: null,
+    scored: false,
+    served: false,
+    away: false,
+    pickKind: null,
+    pickRegion: null,
+    tide: null,
+    inForecastDomain,
+    // The served instants the expiry timer and the strip's tick read, forwarded verbatim.
+    windowEnd: day.windowEnd ?? null,
+    hwTime: day.hwTime ?? null,
+    daylightStart: day.daylightStart ?? null,
+    daylightEnd: day.daylightEnd ?? null,
   };
 }
 
@@ -760,7 +824,9 @@ export function isNightOffered(eventType, date, { todayStr, currentNightDate = n
  * @param {?Array<{date: string, alignedEvent: ?('SUNRISE'|'SUNSET')}>} [args.bigSeas] the served
  *   {@code briefing.bigSeas} (big-seas plan F1). Filter/select only: the solar row a day's
  *   {@code alignedEvent} names is stamped {@code bigSeasAligned: true} (the week menu's ⚡); nothing
- *   is computed from the sea state; a day whose {@code windowEnd} is not after {@code now} stamps nothing
+ *   is computed from the sea state; a day whose {@code windowEnd} is not after {@code now} stamps nothing.
+ *   A day flagged {@code daylightHighWater} (and still ahead) also gets one {@code EVENT_KIND.HW} row
+ *   between that date's sunrise and sunset (hot-topics-by-day-plan §3 M3)
  * @param {Date} [args.now] the app clock for that test, {@code appNow()} by default
  * @returns {Array<object>} the EV rows, chronological, night-after-sunset
  */
@@ -818,10 +884,21 @@ export function buildMapEvents({
   ]);
   const orderedDates = Array.from(allDatesSet).sort();
 
+  // The served days that get a daylight High-water row: the flag, and a window still ahead (the line's
+  // own test, `bigSeasWindowAhead`). One per date.
+  const hwDayByDate = new Map();
+  for (const day of Array.isArray(bigSeas) ? bigSeas : []) {
+    if (day?.date && day.daylightHighWater === true && bigSeasWindowAhead(day, now)
+      && !hwDayByDate.has(day.date)) {
+      hwDayByDate.set(day.date, day);
+    }
+  }
+
   const rows = [];
   for (const date of orderedDates) {
     const served = solarByDate.get(date) || {};
     const inForecastDomain = forecastDateSet.has(date);
+    const dateStart = rows.length;
 
     // Solar: sunrise then sunset, in the order they occur.
     //
@@ -853,6 +930,19 @@ export function buildMapEvents({
     // `past: true` and a label in the past vocabulary. It never borrows a lent tide or time: both
     // are withheld for an elapsed window by `lendFor` already.
     for (const type of ['SUNRISE', 'SUNSET']) {
+      if (type === 'SUNSET' && hwDayByDate.has(date)) {
+        // The daylight High-water row sits between the date's sunrise and sunset, and inherits the
+        // domain of the date's own solar rows (computed as `solarRow` does when it has none).
+        const sibling = rows.slice(dateStart).find((r) => r.kind === EVENT_KIND.SOLAR);
+        const hwDomain = sibling
+          ? sibling.inForecastDomain
+          : inForecastDomain || Boolean(served.SUNRISE) || Boolean(served.SUNSET);
+        // A date only a night contributed (outside the forecast domain, no solar window) has no day to
+        // hang a High-water row on: `App` would refuse the date, so the row is not offered at all.
+        if (hwDomain) {
+          rows.push(highWaterRow(hwDayByDate.get(date), todayStr, tomorrowStr, hwDomain, formatTimeUk));
+        }
+      }
       const pastWindow = pastByKey.get(windowKey(date, type)) ?? null;
       if (!hasSolarRow(served[type], inForecastDomain, date, todayStr, pastWindow)) continue;
       if (isPastSolarWindow({
@@ -931,7 +1021,9 @@ function stampBigSeasAligned(rows, bigSeas, now) {
  */
 export function isForwardableRow(row, { todayStr, currentNightDate = null }) {
   if (!row?.inForecastDomain) return false;
-  return row.kind === EVENT_KIND.SOLAR
+  // The High-water row is dated like a solar window (a date, never a night), so it takes the calendar
+  // test; the night test would pass a future date only by accident.
+  return row.kind === EVENT_KIND.SOLAR || row.kind === EVENT_KIND.HW
     // A PAST solar row is forwarded with a provenance flag (`App.selectDate`'s `isPast`), exactly as
     // a night is: `resolveMapDate` refuses a date before today without it, so the flag, never the
     // value, is what keeps a stale past pick from holding the map after a reload.

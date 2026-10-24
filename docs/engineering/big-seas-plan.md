@@ -635,6 +635,7 @@ tuning; the owner cuts releases.
 | B2 | — | after B1 |
 | F1 | — | built 2026-10-23 on `feature/big-seas-f1` (frontend only, against B2's served contract); label-obstacle re-measure below |
 | F2 | — | built 2026-10-23 on `feature/big-seas-f2` (frontend only, on F1): chips in Heat and Pins, tooltip, legend key in Heat, Pins and the phone Layers row |
+| M3 (hot-topics-by-day) | — | 2026-10-24: the daylight High-water event is built on this series' B1 fields (`daylightHighWater`, `daylightStart`/`daylightEnd`): a window-list row between that day's sunrise and sunset, the line's `At high water 12:40 ›` action and `between the lights` clause, and the strip's tick. See `docs/engineering/hot-topics-by-day-plan.md` §3 M3 and `docs/engineering/reference/map-tab.md` ("the daylight High-water event") |
 | F3 | — | ready to brief (Q1 answered); independent of B1–F2 |
 | F4 | — | after F3 |
 

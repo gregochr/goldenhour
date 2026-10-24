@@ -29,7 +29,8 @@ export const NO_BIG_SEAS_CHIPS = Object.freeze([]);
  *
  * <p>The caller passes {@code day} only when {@code bigSeasFor(...).form === 'full'} (null otherwise).
  * Chips are solar only: a night row (astro, aurora) draws none, and neither does a past row or a map
- * at street level. A chip is ringed when the row on screen is the day's aligned event.
+ * at street level. A chip is ringed when the row on screen is the day's aligned event, and EVERY chip
+ * is ringed on the daylight High-water row ({@code kind 'hw'}), which also draws its chips.
  *
  * @param {?object} day the served {@code BigSeasDay} of the full form, or null
  * @param {?Map<number, {name: string, lat: number, lon: number, regionName: ?string,
@@ -41,9 +42,12 @@ export const NO_BIG_SEAS_CHIPS = Object.freeze([]);
  *   regionName: string, driveMinutes: ?number}>} the chips, in the order served
  */
 export function bigSeasChipItems(day, locationsById, zoom, evRow) {
-  if (!day || !evRow || evRow.kind !== 'solar' || evRow.past) return NO_BIG_SEAS_CHIPS;
+  // Solar and the daylight High-water row ('hw') only. On the High-water row every structure is ringed:
+  // high water is the event (hot-topics-by-day-plan §3 M3).
+  if (!day || !evRow || (evRow.kind !== 'solar' && evRow.kind !== 'hw') || evRow.past) return NO_BIG_SEAS_CHIPS;
   if (!(zoom < BIG_SEAS_CHIP_MAX_ZOOM)) return NO_BIG_SEAS_CHIPS;
   const structures = Array.isArray(day.structures) ? day.structures : [];
+  const onHighWater = evRow.kind === 'hw';
   const onAlignedEvent = Boolean(day.alignedEvent) && evRow.eventType === day.alignedEvent;
   const items = [];
   for (const structure of structures) {
@@ -59,7 +63,7 @@ export function bigSeasChipItems(day, locationsById, zoom, evRow) {
       heightM: Number(structure.waveHeightM),
       // Ringed only when the row on screen is the day's aligned event AND this structure's OWN high
       // water is the one that lands on the light (the served per-structure `aligned`).
-      ringed: onAlignedEvent && structure.aligned === true,
+      ringed: onHighWater || (onAlignedEvent && structure.aligned === true),
       day,
       structure,
       regionName: loc.regionName || '',
@@ -171,7 +175,9 @@ export function bigSeasChipAriaLabel(item) {
   const base = `${item.label}, big seas, waves ${metres(item.heightM)} metres, `
     + `${formatEventTimeUk(day.windowStart)} to ${formatEventTimeUk(day.windowEnd)}`;
   const event = eventWord(day);
-  return item.ringed && event ? `${base}, high water on the ${event}` : base;
+  if (!item.ringed) return base;
+  // A ring with no aligned event is the High-water row's: high water is the event itself.
+  return event ? `${base}, high water on the ${event}` : `${base}, at high water`;
 }
 
 /** A period like 11 or 8.5 seconds. */

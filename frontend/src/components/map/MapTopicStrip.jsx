@@ -77,12 +77,14 @@ function spanWords(grid, bar) {
  * @param {Function} props.onToggleType {@code (type) => void}: toggle the topic where the reader is
  * @param {Function} props.onPick {@code (type, row, message) => void}: select the topic; {@code row} is
  *   the EV row to move to (null to stay), {@code message} the sentence to announce after a move
+ * @param {?Function} [props.onSelectHw] {@code (row, message) => void}: a press on a day's High-water tick moves
+ *   to that daylight High-water EV row (the tick sits on the Big seas row, over the day's two columns)
  * @param {?Function} [props.onHeightChange] called with the strip's height in px, null on unmount
  * @param {?Function} [props.fallbackFocus] where focus goes if the strip unmounts holding it
  */
 export default function MapTopicStrip({
   grid, selectedType = null, currentTypes, forceCollapsed = false, forceReason = '', onToggleType,
-  onPick, onHeightChange = undefined, fallbackFocus = null,
+  onPick, onSelectHw = undefined, onHeightChange = undefined, fallbackFocus = null,
 }) {
   const [pref, setPref] = useState(readOpenPreference);
   const [node, setNode] = useState(null);
@@ -189,6 +191,22 @@ export default function MapTopicStrip({
 
   const rowCount = grid.rows.length;
   const cur = grid.currentColumn;
+  // The columns the "you are here" shade covers: one for a window, the whole day for the daylight
+  // High-water row. A grid without `currentSpan` (an older caller) falls back to the single column.
+  const shade = grid.currentSpan ?? (cur >= 0 ? { start: cur, end: cur } : null);
+  // The High-water ticks sit on the Big seas row, the only row that has a day with high water on it.
+  const seasRowIndex = grid.rows.findIndex((r) => r.bigSeas);
+  const hwTicks = seasRowIndex >= 0 && Array.isArray(grid.hwTicks) ? grid.hwTicks : [];
+
+  // The two header rows size to content; the Big seas track is 36px (24 for the row, 12 for the tick's label
+  // above it), every other topic row 24px. Only while a tick is drawn.
+  const seasTrackRows = ['auto', 'auto', ...grid.rows.map((_, i) => (i === seasRowIndex ? '36px' : '24px'))].join(' ');
+
+  function pressTick(tick) {
+    if (tick.current) return;
+    parkFocus();
+    onSelectHw?.(tick.row, `Window moved to ${tick.dow} high water ${tick.time}`);
+  }
 
   return (
     <div
@@ -220,13 +238,19 @@ export default function MapTopicStrip({
         </span>
       )}
       {open && (
-        <div className="wf-tl-grid" id={gridId} data-testid="wf-topic-strip-grid">
-          {cur >= 0 && (
+        <div
+          className="wf-tl-grid"
+          id={gridId}
+          data-testid="wf-topic-strip-grid"
+          style={hwTicks.length > 0 ? { gridTemplateRows: seasTrackRows } : undefined}
+        >
+          {shade != null && (
             <div
               className="wf-tl-now"
               aria-hidden="true"
               data-testid="wf-topic-strip-now"
-              style={{ gridArea: `1 / ${cur + 2} / ${rowCount + 3} / ${cur + 3}` }}
+              data-whole-day={shade.end > shade.start ? 'true' : undefined}
+              style={{ gridArea: `1 / ${shade.start + 2} / ${rowCount + 3} / ${shade.end + 3}` }}
             />
           )}
           {grid.columns.filter((col) => col.row != null && !col.interactive).map((col) => (
@@ -263,6 +287,9 @@ export default function MapTopicStrip({
           ))}
           {grid.rows.map((topicRow, r) => {
             const gridRow = r + 3;
+            // The Big seas track is taller while ticks are drawn: its label rides in the top of the track,
+            // the label, bars and tick keep the bottom 24px, and nothing overlaps the arrow row above.
+            const tall = topicRow.bigSeas && hwTicks.length > 0;
             const isSelected = topicRow.type === selectedType;
             const onHere = onCurrent(topicRow.type);
             const labelGo = labelTarget(grid, topicRow, onHere);
@@ -277,7 +304,7 @@ export default function MapTopicStrip({
               <React.Fragment key={topicRow.type}>
                 <button
                   type="button"
-                  className="wf-tl-n"
+                  className={`wf-tl-n${tall ? ' wf-tl-tall' : ''}`}
                   aria-label={labelName}
                   aria-pressed={onHere ? isSelected : undefined}
                   aria-disabled={labelGo ? undefined : 'true'}
@@ -294,11 +321,11 @@ export default function MapTopicStrip({
                 {topicRow.bars.map((bar) => {
                   // "Current" means the window on screen has this topic: a bar can cover the active column
                   // yet not be on the row (a sunset-only dust bar under tonight's astro night row).
-                  const covers = cur >= bar.start && cur <= bar.end && onHere;
+                  const covers = shade != null && shade.start <= bar.end && shade.end >= bar.start && onHere;
                   const target = barTarget(grid, bar, onHere);
                   const span = spanWords(grid, bar);
                   const barProps = {
-                    className: 'wf-tl-b',
+                    className: `wf-tl-b${tall ? ' wf-tl-tall' : ''}`,
                     'data-testid': `wf-topic-bar-${topicRow.type}-${bar.start}`,
                     'data-current': covers ? 'true' : undefined,
                     'data-selected': isSelected && covers ? 'true' : undefined,
@@ -331,6 +358,33 @@ export default function MapTopicStrip({
                     />
                   );
                 })}
+                {/* The daylight High-water ticks (M3), in the Big seas row's own fragment so the tab order
+                    runs label, bars, ticks. A SIBLING of the bars, never inside one (a button in a button
+                    is invalid and the tick's press is not the bar's), over the row's two columns for that
+                    day. The wrapper passes pointer events through; the button is the only target, at least
+                    24px square, and its printed "HW 12:40" rides inside it (label in name). */}
+                {topicRow.bigSeas && hwTicks.map((tick) => (
+                  <div
+                    key={`hw-${tick.date}`}
+                    className="wf-tl-hw"
+                    data-testid={`wf-topic-strip-hw-${tick.date}`}
+                    style={{
+                      gridArea: `${gridRow} / ${tick.day * 2 + 2} / ${gridRow + 1} / ${tick.day * 2 + 4}`,
+                      '--x': `${tick.percent}%`,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      data-testid={`wf-topic-strip-hw-tick-${tick.date}`}
+                      data-current={tick.current ? 'true' : undefined}
+                      aria-label={`HW ${tick.time}, high water ${tick.dow}`}
+                      aria-current={tick.current ? 'true' : undefined}
+                      onClick={() => pressTick(tick)}
+                    >
+                      <span className="wf-tl-hwl" aria-hidden="true">{`HW ${tick.time}`}</span>
+                    </button>
+                  </div>
+                ))}
               </React.Fragment>
             );
           })}
@@ -354,6 +408,18 @@ MapTopicStrip.propTypes = {
       current: PropTypes.bool,
     })).isRequired,
     currentColumn: PropTypes.number.isRequired,
+    /** The columns the "you are here" shade covers: one, or both of a day's for the High-water row. */
+    currentSpan: PropTypes.shape({ start: PropTypes.number, end: PropTypes.number }),
+    /** The daylight High-water ticks (`fourDayGrid`): only those whose bounds were served. */
+    hwTicks: PropTypes.arrayOf(PropTypes.shape({
+      date: PropTypes.string,
+      day: PropTypes.number,
+      percent: PropTypes.number,
+      time: PropTypes.string,
+      dow: PropTypes.string,
+      row: PropTypes.object,
+      current: PropTypes.bool,
+    })),
     rows: PropTypes.arrayOf(PropTypes.shape({
       type: PropTypes.string,
       shortName: PropTypes.string,
@@ -370,6 +436,7 @@ MapTopicStrip.propTypes = {
   forceReason: PropTypes.string,
   onToggleType: PropTypes.func.isRequired,
   onPick: PropTypes.func.isRequired,
+  onSelectHw: PropTypes.func,
   onHeightChange: PropTypes.func,
   fallbackFocus: PropTypes.func,
 };

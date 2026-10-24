@@ -73,6 +73,9 @@ export function outlierKeysOf(briefing) {
 
 /** Star rating for a location on a date+event: briefing score wins, else the forecast rating. */
 function ratingFor(loc, date, eventType, briefingScores) {
+  // The daylight High-water row is never a door's window and carries no light score; without this the
+  // `: sunset` fallback below would hand it the sunset's.
+  if (eventType === 'HIGH_WATER') return null;
   const bs = briefingScoreFor(briefingScores, loc, date, eventType);
   if (bs?.rating != null) return bs.rating;
   const day = loc.forecastsByDate?.get?.(date);
@@ -82,6 +85,7 @@ function ratingFor(loc, date, eventType, briefingScores) {
 
 /** The solar event instant a location serves for a date+event, or null. */
 function solarTimeFor(loc, date, eventType) {
+  if (eventType === 'HIGH_WATER') return null;
   const day = loc.forecastsByDate?.get?.(date);
   const forecast = eventType === 'SUNRISE' ? day?.sunrise : day?.sunset;
   return forecast?.solarEventTime ?? null;

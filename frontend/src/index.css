@@ -1950,6 +1950,19 @@ button.wf-hc.on:hover {
   background: color-mix(in srgb, var(--color-plex-astro) 18%, var(--color-plex-panel));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-plex-astro) 34%, transparent);
 }
+/* hot-topics-by-day-plan §3 M3 — the daylight High-water row's kind chip, in the tide light (16% fill, 34%
+   inset border; docs/design/hot-topics-by-day/README.md §2D). Same idiom as `.night` above. */
+.wf-hc-sun.hw {
+  color: var(--color-tide-light);
+  background: color-mix(in srgb, var(--color-tide-light) 16%, var(--color-plex-panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-tide-light) 34%, transparent);
+}
+/* The neutral verdict word on that row ("Big seas"): no tier, so no tier hue; the pill's secondary ink. */
+.wf-win-verdict-hw .wf-win-verdict-word { color: var(--color-plex-text-secondary); }
+/* "HIGH WATER" is the widest kind word; it must never be the thing that clips when the pill is short of room
+   (the day label and the verdict word yield first). */
+.wf-win-pill .wf-hc-sun,
+.wf-map-peek-wr .wf-hc-sun { flex-shrink: 0; }
 /* `.wf-hc.on .wf-hc-sun` used to recolor the caption gold when a card was open — deleted
    (matrix-axis plan D15): at (0,3,0) it would out-specify `.wf-hc-sun.am`/`.pm` (0,2,0) and
    gold-recolor a dawn-blue or coral chip. The chip's tint is the axis signal now and must not
@@ -4294,8 +4307,78 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   background: var(--wf-tc);
   box-shadow: 0 0 10px color-mix(in srgb, var(--wf-tc) 55%, transparent);
 }
+/* The daylight High-water tick (M3): placed over the Big seas row's two columns for its day, `--x` the
+   percent along them. The wrapper lets pointer events through; the BUTTON is the target and is 24px wide
+   (the row is 24px tall), so the hit area meets the minimum while the drawn line stays 2px. The label rides
+   above the row, in the header band's gap. */
+.wf-tl-hw {
+  position: relative;
+  /* The Big seas track is 36px while a tick is drawn: the tick keeps the bottom 24px (the row proper),
+     and its label rides in the 12px above, clear of the arrow row. */
+  align-self: end;
+  height: 24px;
+  pointer-events: none;
+}
+/* The Big seas row's own label and bars sit in that same bottom 24px. */
+.wf-tl-tall { align-self: end; }
+.wf-tl-n.wf-tl-tall { height: 24px; }
+.wf-tl-b.wf-tl-tall { height: 18px; }
+.wf-tl-hw button {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--x);
+  width: 24px;
+  margin-left: -12px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.wf-tl-hw button::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 1px;
+  bottom: 1px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--color-plex-text);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-tide-light) 90%, transparent);
+}
+/* The current tick must contrast with a selected solid-teal bar under it: dark core, bone outline. */
+.wf-tl-hw button[data-current='true']::before {
+  left: 10.5px;
+  width: 3px;
+  background: var(--color-plex-bg);
+  box-shadow: 0 0 0 1.5px var(--color-plex-text);
+}
+.wf-tl-hw button:focus-visible {
+  outline: 2px solid var(--color-tide-light);
+  outline-offset: 1px;
+}
+/* The printed label is INSIDE the button (it is the button's visible text; the name restates it), lifted
+   into the track's top 12px. */
+.wf-tl-hw .wf-tl-hwl {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 1px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--color-tide-light);
+}
 /* Forced colours drop background and box-shadow: the current and selected bars keep a real outline. */
 @media (forced-colors: active) {
+  /* The tick is drawn by BORDER, not background, so it survives (plan §3 M2/M3). */
+  .wf-tl-hw button::before { background: none; box-shadow: none; border-left: 2px solid CanvasText; width: 0; }
+  .wf-tl-hw button[data-current='true']::before { border-left: 4px double Highlight; width: 0; left: 10px; }
+  .wf-tl-hw .wf-tl-hwl { color: CanvasText; }
   .wf-tl-b { border: 1px solid CanvasText; }
   .wf-tl-b[data-current='true'] { outline: 2px solid Highlight; outline-offset: 0; }
   .wf-tl-b[data-selected='true'] { outline: 3px double Highlight; outline-offset: 1px; }

@@ -11,7 +11,7 @@
  */
 import { degreesToCompass16, formatEventTimeUk } from './conversions.js';
 import { bigSeasWindowAhead } from './bigSeasWindow.js';
-import { findEvIndex } from './mapEvents.js';
+import { findEvIndex, HIGH_WATER } from './mapEvents.js';
 import { appNow } from './rewind.js';
 
 /** Stable result for "no line": a fresh object per call would defeat memo comparisons downstream. */
@@ -49,12 +49,17 @@ export function bigSeasFor(bigSeas, evRow, events, now = appNow()) {
   const form = today ? 'full' : 'compact';
   const aligned = form === 'full' && evRow.kind === 'solar' && day.alignedEvent === evRow.eventType;
   let jumpRow = null;
+  const list = Array.isArray(events) ? events : [];
   if (day.alignedEvent && !aligned) {
-    const list = Array.isArray(events) ? events : [];
     const idx = findEvIndex(list, day.alignedEvent, day.date);
     // A PAST row is not a place to jump to (a sunset-aligned day read from its night row, after the
     // sunset has gone, has the aligned row in the list but already elapsed).
     jumpRow = idx >= 0 && !list[idx].past ? list[idx] : null;
+  } else if (!day.alignedEvent && day.daylightHighWater === true) {
+    // A daylight High-water day (hot-topics-by-day-plan §3 M3): the action jumps to the day's HW row,
+    // and there is none ON the HW row itself (the reader is already there).
+    const idx = findEvIndex(list, HIGH_WATER, day.date);
+    jumpRow = idx >= 0 && list[idx].id !== evRow.id && !list[idx].past ? list[idx] : null;
   }
   return { form, day, aligned, jumpRow };
 }
@@ -95,7 +100,8 @@ function wavesText(day) {
  *
  * @param {{form: ?string, day: ?object, aligned: boolean, jumpRow: ?object}} selection
  *   {@link bigSeasFor}'s result
- * @returns {?{line1: string, line2: string, action: ?string}} null when there is no line
+ * @returns {?{line1: string, line2: string, action: ?string, lead: (string|undefined)}} null when there
+ *   is no line; {@code lead} is the High-water row's callout copy, present only on a daylight High-water day
  */
 export function bigSeasCopy(selection) {
   const { form, day, aligned, jumpRow } = selection ?? {};
@@ -105,11 +111,35 @@ export function bigSeasCopy(selection) {
     let line1 = `${windowText(day)} · high water ${formatEventTimeUk(day.hwTime)}`;
     if (aligned && event && day.gapMinutes != null && day.gapSide) {
       line1 += `, ${day.gapMinutes} min ${day.gapSide === 'BEFORE' ? 'before' : 'after'} ${event}`;
+    } else if (!event && day.daylightHighWater === true) {
+      // "Between the lights" is served (B1's flag), never compared here; "midday" would need a clock
+      // threshold, so it is not claimed (plan Q4b).
+      line1 += ', between the lights';
     }
+    let action = null;
+    if (jumpRow) {
+      action = event ? `On the ${event} ›` : `At high water ${formatEventTimeUk(day.hwTime)} ›`;
+    }
+    // The High-water row's own lead copy (the callout's body there). "In flat midday light" is dropped:
+    // B1's flag covers any high water strictly between the lights, so a 09:10 one would be told it was
+    // midday (plan Q4b).
+    // The "with … waves from …" clause needs both served facts; without either it is left out whole (never
+    // "NaN m" or "from undefined").
+    const haveWaves = day.waveHeightM != null && Number.isFinite(Number(day.waveHeightM))
+      && day.waveDirectionDeg != null && Number.isFinite(Number(day.waveDirectionDeg));
+    const waves = haveWaves
+      ? ` with ${Number(day.waveHeightM).toFixed(1)} m waves from ${degreesToCompass16(day.waveDirectionDeg)}`
+      : '';
+    const lead = !event && day.daylightHighWater === true
+      ? `High water at ${formatEventTimeUk(day.hwTime)}${waves}. Not a light window: this is for `
+        + 'spray over the piers, not for colour.'
+      : null;
     return {
       line1,
       line2: `${wavesText(day)} · watch from high ground, not the pier`,
-      action: jumpRow ? `On the ${event} ›` : null,
+      action,
+      // Named only on a High-water day, so every other day's copy is byte for byte what it was.
+      ...(lead ? { lead } : {}),
     };
   }
   const dayName = bigSeasDayName(day.date);

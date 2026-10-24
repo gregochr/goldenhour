@@ -238,6 +238,9 @@ export default function OutcomeRatingBlock({
     onChangingChange(true);
   };
 
+  // The daylight High-water row (hot-topics-by-day M3) is not a window anyone rated; the line below would
+  // read it as a sunset. The callout never mounts the block for it; this is the block's own refusal.
+  if (event.eventType === 'HIGH_WATER') return null;
   const kindAttr = event.eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
   const withChips = showsSeenChips({
     userRole, mine, changing, saving, saveError,
