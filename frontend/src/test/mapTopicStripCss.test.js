@@ -123,3 +123,43 @@ describe('the four-day strip stylesheet: forced colours', () => {
     expect(forced).toContain('border-left: 1px dashed CanvasText;');
   });
 });
+
+describe('the four-day strip stylesheet: the phone sheet variant (M4)', () => {
+  it('declares every .wf-topic-strip-sheet rule inside a max-width: 639px query, with the 70px label column', () => {
+    const outside = css.replace(/@media \(max-width: 639px\) \{[\s\S]*?\n\}\n/g, '');
+    expect(outside).not.toContain('wf-topic-strip-sheet');
+    const start = css.indexOf('.wf-topic-strip.wf-topic-strip-sheet {');
+    expect(start).toBeGreaterThan(-1);
+    expect(css.slice(css.lastIndexOf('@media', start), start)).toContain('(max-width: 639px)');
+    expect(css).toContain('grid-template-columns: 70px repeat(8, minmax(0, 1fr));');
+  });
+});
+
+describe('the four-day strip stylesheet: the sheet variant touch metrics (M4)', () => {
+  const phone = mediaBlock('(max-width: 639px)', css.indexOf('.wf-topic-strip.wf-topic-strip-sheet {') - 200);
+  const rule = (sel) => {
+    const at = phone.indexOf(`${sel} {`);
+    if (at === -1) throw new Error(`${sel} not in the sheet block`);
+    return phone.slice(at, phone.indexOf('}', at));
+  };
+
+  it('uses 32px rows, 24px bars (4px margins) and 32px labels, with a clipped, ellipsised name', () => {
+    expect(rule('.wf-topic-strip-sheet .wf-tl-grid')).toContain('grid-auto-rows: 32px');
+    expect(rule('.wf-topic-strip-sheet .wf-tl-grid')).toContain('row-gap: 4px');
+    expect(rule('.wf-topic-strip-sheet .wf-tl-b')).toContain('margin: 4px 2px');
+    expect(rule('.wf-topic-strip-sheet .wf-tl-b.wf-tl-tall')).toContain('height: 24px');
+    expect(rule('.wf-topic-strip-sheet .wf-tl-n')).toContain('height: 32px');
+    expect(rule('.wf-topic-strip-sheet .wf-tl-n')).toContain('overflow: hidden');
+    expect(rule('.wf-topic-strip-sheet .wf-tl-n')).toContain('min-width: 0');
+    expect(rule('.wf-topic-strip-sheet .wf-tl-n > span:last-child')).toContain('text-overflow: ellipsis');
+  });
+
+  it('makes the HW tick a 44x16 label band above the bar row, clamped inside the day columns', () => {
+    const tick = rule('.wf-topic-strip-sheet .wf-tl-hw button');
+    expect(tick).toContain('height: 16px');
+    expect(tick).toContain('width: 44px');
+    expect(tick).toContain('left: clamp(0px, calc(var(--x) - 22px), calc(100% - 44px))');
+    expect(rule('.wf-topic-strip-sheet .wf-tl-hw')).toContain('height: 44px');
+    expect(rule('.wf-topic-strip-sheet .wf-tl-hw::before')).toContain('pointer-events: none');
+  });
+});

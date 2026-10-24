@@ -5,7 +5,7 @@ import {
 import {
   act, fireEvent, render, screen,
 } from '@testing-library/react';
-import MapTopicStrip, { TOPIC_STRIP_OPEN_KEY } from '../components/map/MapTopicStrip.jsx';
+import MapTopicStrip, { TOPIC_STRIP_OPEN_KEY, TOPIC_STRIP_OPEN_SHEET_KEY } from '../components/map/MapTopicStrip.jsx';
 import { fourDayGrid } from '../utils/mapTopics.js';
 import { buildTopicIndex } from '../utils/windowFirstTopics.js';
 import { SATURDAY } from './bigSeasFixtures.js';
@@ -577,6 +577,107 @@ describe('MapTopicStrip: height reporting', () => {
     } finally {
       if (original) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original);
       else delete HTMLElement.prototype.offsetHeight;
+    }
+  });
+});
+
+describe('MapTopicStrip: the sheet variant (M4)', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('starts closed with no stored preference and never reports a height', () => {
+    const onHeightChange = vi.fn();
+    renderStrip({ variant: 'sheet', onHeightChange });
+    expect(screen.getByTestId('wf-topic-strip')).toHaveAttribute('data-variant', 'sheet');
+    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
+    expect(onHeightChange).not.toHaveBeenCalled();
+  });
+
+  it('starts open with openByDefault, and a stored choice beats that default', () => {
+    const { unmount } = renderStrip({ variant: 'sheet', openByDefault: true });
+    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'true');
+    unmount();
+    localStorage.setItem(TOPIC_STRIP_OPEN_SHEET_KEY, '0');
+    renderStrip({ variant: 'sheet', openByDefault: true });
+    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('reads and writes only its own key; the panel reads only the panel key', () => {
+    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
+    const { unmount } = renderStrip({ variant: 'sheet' });
+    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_SHEET_KEY)).toBe('1');
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_SHEET_KEY)).toBe('0');
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+    unmount();
+    localStorage.clear();
+    localStorage.setItem(TOPIC_STRIP_OPEN_SHEET_KEY, '1');
+    renderStrip();
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('0');
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_SHEET_KEY)).toBe('1');
+  });
+
+  it('draws the same labels and bars as the panel once opened, with no HW tick (this fixture has none), and presses the same', () => {
+    localStorage.setItem(TOPIC_STRIP_OPEN_SHEET_KEY, '1');
+    const { onPick } = renderStrip({ variant: 'sheet' });
+    expect(screen.getByTestId('wf-topic-strip-label-KING_TIDE')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-topic-strip-label-AURORA')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-topic-strip-label-INVERSION')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-topic-strip-grid').style.gridTemplateRows).toBe('');
+    expect(document.querySelector('[data-testid^="wf-topic-strip-hw-"]')).toBeNull();
+    fireEvent.click(bar('KING_TIDE', 2));
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick.mock.calls[0][0]).toBe('KING_TIDE');
+  });
+
+  it('the panel variant keeps its exact class and no variant attribute', () => {
+    renderStrip();
+    const root = screen.getByTestId('wf-topic-strip');
+    expect(root.className).toBe('wf-topic-strip');
+    expect(root.hasAttribute('data-variant')).toBe(false);
+  });
+
+  it('scrolls the grid into view when the reader opens it, not on mount and not for the panel', () => {
+    const original = Element.prototype.scrollIntoView;
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const mm = window.matchMedia;
+    try {
+      window.matchMedia = () => ({ matches: false });
+      localStorage.setItem(TOPIC_STRIP_OPEN_SHEET_KEY, '1');
+      const { unmount } = renderStrip({ variant: 'sheet' });
+      expect(scroll).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+      fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+      expect(scroll).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+      unmount();
+      scroll.mockClear();
+      localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '0');
+      renderStrip();
+      fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+      expect(scroll).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+      window.matchMedia = mm;
+    }
+  });
+
+  it('guards a missing matchMedia (smooth by default)', () => {
+    const original = Element.prototype.scrollIntoView;
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const mm = window.matchMedia;
+    try {
+      window.matchMedia = undefined;
+      renderStrip({ variant: 'sheet' });
+      fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+      expect(scroll).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+    } finally {
+      Element.prototype.scrollIntoView = original;
+      window.matchMedia = mm;
     }
   });
 });

@@ -11,10 +11,13 @@ export const TOPIC_STRIP_OPEN_KEY = 'mapTopicStripOpen';
 /** With no stored choice the strip starts open only on a map frame at least this tall (CSS px). */
 export const OPEN_BY_DEFAULT_MIN_FRAME_PX = 720;
 
+/** The phone sheet's own preference (M4): a rotate across 640px must not carry one variant's choice into the other. */
+export const TOPIC_STRIP_OPEN_SHEET_KEY = 'mapTopicStripOpenSheet';
+
 /** The stored preference as true / false, or null when there is none (or storage is unavailable). */
-function readOpenPreference() {
+function readOpenPreference(key) {
   try {
-    const v = localStorage.getItem(TOPIC_STRIP_OPEN_KEY);
+    const v = localStorage.getItem(key);
     if (v === '1') return true;
     if (v === '0') return false;
     return null;
@@ -23,13 +26,17 @@ function readOpenPreference() {
   }
 }
 
-function writeOpenPreference(open) {
+function writeOpenPreference(key, open) {
   try {
-    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, open ? '1' : '0');
+    localStorage.setItem(key, open ? '1' : '0');
   } catch {
     // Storage unavailable: the in-memory state still holds the choice for this session.
   }
 }
+
+/** The sheet variant's row heights (px): a 32px row, and 44px for the Big seas row while a tick is drawn. */
+const SHEET_ROW_PX = 32;
+const SHEET_SEAS_ROW_PX = 44;
 
 /** "Friday sunrise" or "Friday sunrise to Saturday sunset" for a bar's columns. */
 function spanWords(grid, bar) {
@@ -44,7 +51,7 @@ function spanWords(grid, bar) {
  *
  * <p>A flex child of {@code .wf-map-chrome-bl}, BEFORE the tide strip, never separately positioned,
  * so the legend chip above clears it by flex order and the label layers' bottom-left obstacle grows
- * to include it. Desktop and tablet only: the caller does not mount it on a phone (M4 owns that).
+ * to include it. The panel variant is desktop and tablet only; the phone mounts the {@code sheet} variant inside the peek sheet (M4).
  *
  * <p><b>The grid.</b> Eight columns by DATE, one row per topic from {@code fourDayGrid} (the served
  * index, never badges). A topic on contiguous windows is one bar. Every grid item is explicitly
@@ -81,12 +88,22 @@ function spanWords(grid, bar) {
  *   to that daylight High-water EV row (the tick sits on the Big seas row, over the day's two columns)
  * @param {?Function} [props.onHeightChange] called with the strip's height in px, null on unmount
  * @param {?Function} [props.fallbackFocus] where focus goes if the strip unmounts holding it
+ * @param {'panel'|'sheet'} [props.variant] {@code 'sheet'} (M4, phone only) is the same grid inside the peek
+ *   sheet's Windows body: full width, 70px label column, no frame-height default (it starts closed when no
+ *   preference is stored (unless {@code openByDefault}), no height report, its own storage key
+ *   ({@link TOPIC_STRIP_OPEN_SHEET_KEY}), and a scroll into view when the reader opens it. The model, names and
+ *   presses are the panel's own.
+ * @param {boolean} [props.openByDefault] sheet only: start OPEN when no preference is stored (the phone's
+ *   big-seas days, where the chips row is hidden and this is the way to topics)
  */
 export default function MapTopicStrip({
   grid, selectedType = null, currentTypes, forceCollapsed = false, forceReason = '', onToggleType,
-  onPick, onSelectHw = undefined, onHeightChange = undefined, fallbackFocus = null,
+  onPick, onSelectHw = undefined, onHeightChange = undefined, fallbackFocus = null, variant = 'panel',
+  openByDefault = false,
 }) {
-  const [pref, setPref] = useState(readOpenPreference);
+  const inSheet = variant === 'sheet';
+  const storageKey = inSheet ? TOPIC_STRIP_OPEN_SHEET_KEY : TOPIC_STRIP_OPEN_KEY;
+  const [pref, setPref] = useState(() => readOpenPreference(storageKey));
   const [node, setNode] = useState(null);
   // The map frame's height while it is known (0 reads as hidden, i.e. unknown), for the default.
   const [frameHeight, setFrameHeight] = useState(null);
@@ -94,15 +111,18 @@ export default function MapTopicStrip({
   const reasonId = useId();
   const headerRef = useRef(null);
   const focusedInGridRef = useRef(null);
+  const scrollOnOpenRef = useRef(false);
   const fallbackRef = useRef(fallbackFocus);
-  const defaultOpen = frameHeight == null || frameHeight >= OPEN_BY_DEFAULT_MIN_FRAME_PX;
+  const defaultOpen = inSheet
+    ? openByDefault
+    : (frameHeight == null || frameHeight >= OPEN_BY_DEFAULT_MIN_FRAME_PX);
   const stored = pref ?? defaultOpen;
   const open = stored && !forceCollapsed;
 
   // Reports the real height up (null on unmount): MapCallout re-measures the strip off the DOM and
   // needs only this value's identity changing as its repaint trigger.
   useEffect(() => {
-    if (!node || typeof ResizeObserver === 'undefined') return undefined;
+    if (inSheet || !node || typeof ResizeObserver === 'undefined') return undefined;
     // The frame is the positioned ancestor of the chrome-bl stack this strip sits in: its height is
     // watched by the SAME observer that reports the strip's own height (no second observer).
     const stack = node.parentElement;
@@ -120,7 +140,7 @@ export default function MapTopicStrip({
       observer.disconnect();
       onHeightChange?.(null);
     };
-  }, [node, onHeightChange]);
+  }, [node, onHeightChange, inSheet]);
 
   useEffect(() => { fallbackRef.current = fallbackFocus; }, [fallbackFocus]);
 
@@ -150,6 +170,18 @@ export default function MapTopicStrip({
     if (root && root.contains(document.activeElement)) fallbackRef.current?.();
   }, []);
 
+  // The sheet's strip sits below a list: when the reader opens it, bring the grid into view (the smooth
+  // scroll steps back to an instant jump under prefers-reduced-motion).
+  useLayoutEffect(() => {
+    if (!scrollOnOpenRef.current || !open) return;
+    scrollOnOpenRef.current = false;
+    const gridEl = node?.querySelector('.wf-tl-grid');
+    if (!gridEl?.scrollIntoView) return;
+    const reduce = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    gridEl.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+  }, [open, node]);
+
   const parkFocus = () => node?.focus({ preventScroll: true });
   const onCurrent = (type) => currentTypes.includes(type);
 
@@ -157,7 +189,8 @@ export default function MapTopicStrip({
     if (forceCollapsed) return;
     const next = !open;
     setPref(next);
-    writeOpenPreference(next);
+    writeOpenPreference(storageKey, next);
+    scrollOnOpenRef.current = inSheet && next;
   }
 
   /** "King tide selected; window moved to Friday sunrise": spoken once the window has changed. */
@@ -200,7 +233,9 @@ export default function MapTopicStrip({
 
   // The two header rows size to content; the Big seas track is 36px (24 for the row, 12 for the tick's label
   // above it), every other topic row 24px. Only while a tick is drawn.
-  const seasTrackRows = ['auto', 'auto', ...grid.rows.map((_, i) => (i === seasRowIndex ? '36px' : '24px'))].join(' ');
+  const seasPx = inSheet ? SHEET_SEAS_ROW_PX : 36;
+  const rowPx = inSheet ? SHEET_ROW_PX : 24;
+  const seasTrackRows = ['auto', 'auto', ...grid.rows.map((_, i) => (i === seasRowIndex ? `${seasPx}px` : `${rowPx}px`))].join(' ');
 
   function pressTick(tick) {
     if (tick.current) return;
@@ -214,7 +249,8 @@ export default function MapTopicStrip({
       tabIndex={-1}
       role="group"
       aria-label="Hot topics, next four days"
-      className="wf-topic-strip"
+      className={`wf-topic-strip${inSheet ? ' wf-topic-strip-sheet' : ''}`}
+      data-variant={inSheet ? 'sheet' : undefined}
       data-testid="wf-topic-strip"
       data-open={open ? 'true' : 'false'}
     >
@@ -439,4 +475,6 @@ MapTopicStrip.propTypes = {
   onSelectHw: PropTypes.func,
   onHeightChange: PropTypes.func,
   fallbackFocus: PropTypes.func,
+  openByDefault: PropTypes.bool,
+  variant: PropTypes.oneOf(['panel', 'sheet']),
 };

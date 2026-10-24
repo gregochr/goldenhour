@@ -4391,6 +4391,93 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   .wf-tl-now { border-left: 1px dashed CanvasText; border-right: 1px dashed CanvasText; }
 }
 
+/* The phone's strip (hot-topics-by-day M4): the same grid inside the peek sheet's Windows body. Full width of
+   the body, the design's 70px label column, no footer (the strip has none). Touch metrics: 32px rows, the Big
+   seas track 44px (32 + the 12px label band) while a tick is drawn, bars 24px tall. The inline
+   `gridTemplateRows` the component writes for a tick uses the same 32/44. Phone only. */
+@media (max-width: 639px) {
+  .wf-topic-strip.wf-topic-strip-sheet {
+    z-index: auto;
+    width: 100%;
+    box-shadow: none;
+    backdrop-filter: none;
+    background: transparent;
+    border-radius: 8px;
+  }
+  .wf-topic-strip-sheet .wf-tl-head {
+    min-height: 44px;
+    font-size: 10px;
+  }
+  .wf-topic-strip-sheet .wf-tl-grid {
+    grid-template-columns: 70px repeat(8, minmax(0, 1fr));
+    grid-auto-rows: 32px;
+    row-gap: 4px;
+    padding: 0 8px 10px;
+  }
+  .wf-topic-strip-sheet .wf-tl-n {
+    height: 32px;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 11px;
+    gap: 4px;
+  }
+  .wf-topic-strip-sheet .wf-tl-n > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wf-topic-strip-sheet .wf-tl-b { margin: 4px 2px; }
+  .wf-topic-strip-sheet .wf-tl-n.wf-tl-tall { height: 32px; }
+  .wf-topic-strip-sheet .wf-tl-b.wf-tl-tall { height: 24px; }
+  /* The High-water tick: the wrapper is the Big seas track; its line is drawn by the wrapper at the true
+     place (pointer-events none), and the BUTTON is a 44x16 label band above the bar row (the bar starts 16px
+     down), clamped to stay inside the day's two columns, so it never covers a bar or the next day. */
+  .wf-topic-strip-sheet .wf-tl-hw {
+    height: 44px;
+    align-self: end;
+  }
+  .wf-topic-strip-sheet .wf-tl-hw::before {
+    content: '';
+    position: absolute;
+    left: var(--x);
+    top: 14px;
+    bottom: 4px;
+    width: 2px;
+    margin-left: -1px;
+    border-radius: 1px;
+    background: var(--color-plex-text);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--color-tide-light) 90%, transparent);
+    pointer-events: none;
+  }
+  .wf-topic-strip-sheet .wf-tl-hw:has(button[data-current='true'])::before {
+    width: 3px;
+    margin-left: -1.5px;
+    background: var(--color-plex-bg);
+    box-shadow: 0 0 0 1.5px var(--color-plex-text);
+  }
+  .wf-topic-strip-sheet .wf-tl-hw button {
+    top: 0;
+    bottom: auto;
+    height: 16px;
+    width: 44px;
+    margin-left: 0;
+    left: clamp(0px, calc(var(--x) - 22px), calc(100% - 44px));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .wf-topic-strip-sheet .wf-tl-hw button::before { content: none; }
+  .wf-topic-strip-sheet .wf-tl-hw .wf-tl-hwl {
+    position: static;
+    transform: none;
+    margin: 0;
+  }
+  @media (forced-colors: active) {
+    .wf-topic-strip-sheet .wf-tl-hw::before { background: none; box-shadow: none; width: 0; border-left: 2px solid CanvasText; }
+    .wf-topic-strip-sheet .wf-tl-hw:has(button[data-current='true'])::before { border-left: 4px double Highlight; width: 0; }
+  }
+}
+
 /* ── The counts footer (README "§9 Count footer") ──────────────────────────────────────────────
    Bottom-centre, matching `.wf-map-key`'s pill treatment so the new chrome reads as one family
    with the old. `--color-plex-panel` opaque for the same reason every map-floating chip is: a
