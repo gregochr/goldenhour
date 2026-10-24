@@ -19,6 +19,7 @@ COPY screenshot.png /usr/share/nginx/html/
 COPY screenshot-map.png /usr/share/nginx/html/
 COPY screenshot-popup.png /usr/share/nginx/html/
 COPY nginx.conf /etc/nginx/nginx.conf
+COPY security-headers.conf /etc/nginx/security-headers.conf
 # Cloudflare and browsers cache css/js/images for 30 days under fixed URLs (nginx.conf), so a
 # changed file would never be re-fetched. Give every asset a content-fingerprinted URL: rewrite each
 # exact quoted reference "file" in the pages to "file?v=<10 hex of md5>". The source HTML keeps plain
