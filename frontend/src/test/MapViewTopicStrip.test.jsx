@@ -121,7 +121,17 @@ const TIDE = {
   heightAtWindow: '0.9 m',
 };
 
-function heatProp({ tide = null } = {}) {
+function heatProp({ tide = null, tideSat = null } = {}) {
+  const satWindow = tideSat ? [{
+    key: windowKey(SAT, 'SUNRISE'),
+    date: SAT,
+    targetType: 'SUNRISE',
+    label: 'Saturday sunrise',
+    time: '07:20',
+    bestRating: 4,
+    conf: 1,
+    tide: tideSat,
+  }] : [];
   return {
     enabled: true,
     hasHome: false,
@@ -129,7 +139,9 @@ function heatProp({ tide = null } = {}) {
     areaSpots: [SPOT],
     pointsByKey: new Map([[windowKey(TODAY, 'SUNSET'), [{
       id: SPOT.id, name: SPOT.name, lat: SPOT.lat, lng: SPOT.lng, rid: SPOT.rid, r: [5],
-    }]]]),
+    }]], ...(tideSat ? [[windowKey(SAT, 'SUNRISE'), [{
+      id: SPOT.id, name: SPOT.name, lat: SPOT.lat, lng: SPOT.lng, rid: SPOT.rid, r: [4],
+    }]]] : [])]),
     windows: [{
       key: windowKey(TODAY, 'SUNSET'),
       date: TODAY,
@@ -139,7 +151,7 @@ function heatProp({ tide = null } = {}) {
       bestRating: 5,
       conf: 1,
       ...(tide ? { tide } : {}),
-    }],
+    }, ...satWindow],
     areaBounds: [[54.3, -3.4], [55.7, -1.3]],
     catalogueBounds: [[54.3, -3.4], [55.7, -1.3]],
     tideByWindow: new Map(),
@@ -158,6 +170,8 @@ function makeLocation() {
     tideType: ['HIGH'],
     forecastsByDate: new Map([[TODAY, {
       sunset: { rating: 5, solarEventTime: `${TODAY}T17:12:00`, fierySkyPotential: 70, goldenHourPotential: 60 },
+    }], [SAT, {
+      sunrise: { rating: 4, solarEventTime: `${SAT}T07:20:00`, fierySkyPotential: 60, goldenHourPotential: 55 },
     }]]),
   };
 }
@@ -176,7 +190,7 @@ const HOT_TOPICS = [
 ];
 
 function Pane({
-  hotTopics, runId = null, tide = null, startDate = TODAY, bigSeas = undefined, forecastDates = [TODAY, SAT],
+  hotTopics, runId = null, tide = null, tideSat = null, startDate = TODAY, bigSeas = undefined, forecastDates = [TODAY, SAT],
   planHandoff = null, externalDate = null,
 }) {
   const [date, setDate] = React.useState(startDate);
@@ -186,7 +200,7 @@ function Pane({
       date={externalDate ?? date}
       forecastDates={forecastDates}
       autoEventType="SUNSET"
-      heat={heatProp({ tide })}
+      heat={heatProp({ tide, tideSat })}
       paneVisible
       runId={runId}
       hotTopics={hotTopics}
@@ -276,17 +290,93 @@ describe('MapView: the four-day strip mount', () => {
 });
 
 describe('MapView: the strip collapses under the tide strip and the landing card', () => {
-  it('draws its header only while the tide strip shows, and keeps the stored preference', async () => {
+  it('holds the grid closed under an open tide strip: header enabled, preference kept, flex order kept', async () => {
     localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
     await renderMap({ tide: TIDE });
     const chromeBl = screen.getByTestId('wf-map-chrome-bl');
     const tideStrip = screen.getByTestId('wf-tide-strip');
     expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle()).not.toHaveAttribute('aria-disabled');
+    expect(toggle()).toHaveAccessibleDescription('Opening it collapses the tide strip');
     expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    expect(screen.queryByTestId('wf-tide-strip-collapsed')).toBeNull();
     // Flex order: the topic strip comes BEFORE the tide strip.
     expect(strip().compareDocumentPosition(tideStrip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(chromeBl.lastElementChild).toBe(tideStrip);
     expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+  });
+
+  it('a press on the held header opens the grid and collapses the tide strip, focus staying on the header', async () => {
+    await renderMap({ tide: TIDE });
+    toggle().focus();
+    await act(async () => { fireEvent.click(toggle()); });
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
+    expect(document.activeElement).toBe(toggle());
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+  });
+
+  it('the tide strip\'s Open puts the tide strip back and holds the grid again, its preference still 1', async () => {
+    await renderMap({ tide: TIDE });
+    await act(async () => { fireEvent.click(toggle()); });
+    await press('wf-tide-strip-toggle');
+    expect(screen.queryByTestId('wf-tide-strip-collapsed')).toBeNull();
+    expect(screen.getByTestId('wf-tide-strip-toggle')).not.toHaveTextContent('Open');
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+  });
+
+  it('closing the yielded grid brings the tide strip back open', async () => {
+    await renderMap({ tide: TIDE });
+    await act(async () => { fireEvent.click(toggle()); });
+    expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
+    await act(async () => { fireEvent.click(toggle()); });
+    expect(screen.queryByTestId('wf-tide-strip-collapsed')).toBeNull();
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('0');
+  });
+
+  it('the yield is per window: another tidal window is held again with the tide strip open', async () => {
+    await renderMap({ tide: TIDE, tideSat: TIDE });
+    await act(async () => { fireEvent.click(toggle()); });
+    expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
+    // Thursday sunset -> Saturday sunrise (the other tidal window).
+    await press('wf-win-next');
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Sunrise Saturday');
+    expect(screen.getByTestId('wf-tide-strip')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-tide-strip-collapsed')).toBeNull();
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    // The reader's own tide-strip state was never touched by the yield.
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+    // Back on the first window the yield was cleared as the window moved away: it does not revive.
+    await press('wf-win-prev');
+    expect(screen.getByTestId('wf-win-pill')).not.toHaveTextContent('Sunrise Saturday');
+    expect(screen.getByTestId('wf-tide-strip')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-tide-strip-collapsed')).toBeNull();
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+  });
+
+  it('a bar press in the yielded grid that moves to another tidal window keeps the grid open', async () => {
+    await renderMap({ tide: TIDE, tideSat: TIDE });
+    await act(async () => { fireEvent.click(toggle()); });
+    await press('wf-topic-bar-KING_TIDE-4');
+    expect(screen.getByTestId('wf-topic-bar-KING_TIDE-4')).toHaveAttribute('data-current', 'true');
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
+  });
+
+  it('a reader who collapses the tide strip with its own toggle does not pop the grid open', async () => {
+    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
+    await renderMap({ tide: TIDE });
+    await press('wf-tide-strip-toggle');
+    expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
   });
 
   it('opens again by itself when the tide strip goes (the window no longer carries a tide)', async () => {
@@ -301,6 +391,8 @@ describe('MapView: the strip collapses under the tide strip and the landing card
     await renderMap({ runId: '2026-10-22T04:00:00' });
     expect(screen.getByTestId('wf-land')).toBeInTheDocument();
     expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle()).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByTestId('wf-topic-strip-closed-cue')).toHaveTextContent('· closed');
     expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBeNull();
     await act(async () => { fireEvent.click(screen.getByTestId('wf-land-close')); });
     expect(screen.queryByTestId('wf-land')).toBeNull();
@@ -358,13 +450,14 @@ describe('MapView: presses on the strip', () => {
   });
 
   it('a press whose target window shows the tide strip leaves focus on the strip, never on <body>', async () => {
-    // Start on Saturday (no tide, grid open); Thursday's sunset carries the tide strip, which folds the strip.
+    // Start on Saturday (no tide, grid open); Thursday's sunset carries the tide strip. The reader is
+    // using the grid, so it yields: the grid stays open and the tide strip shows its collapsed row.
     await renderMap({ tide: TIDE, startDate: SAT });
     expect(toggle()).toHaveAttribute('aria-expanded', 'true');
     screen.getByTestId('wf-topic-strip-label-DUST').focus();
     await act(async () => { fireEvent.click(screen.getByTestId('wf-topic-strip-label-DUST')); });
-    expect(screen.getByTestId('wf-tide-strip')).toBeInTheDocument();
-    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
     expect(document.activeElement).not.toBe(document.body);
     expect(strip().contains(document.activeElement)).toBe(true);
   });

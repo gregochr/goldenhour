@@ -131,10 +131,11 @@ const { VIEWPORTS } = await import('./lib.mjs');
 /** `win9` is the SAME panel at a production-shaped region count — see the harness's own note. */
 /** `seas` is the chrome group with the big-seas line under the control (big-seas plan F1). */
 /** `topics` / `topicsEmpty` / `seasTopics` add the hot-topic chips row (hot-topics-by-day-plan M1). */
-/** `stripOpen` / `stripClosed` / `tideOnly` / `tideStripClosed` / `tideStripOpen` add the four-day strip (M2). */
+/** `stripOpen` / `stripClosed` / `tideOnly` / `tideStripClosed` / `tideStripOpen` add the four-day strip (M2);
+ *  `tideCollapsedOpen` is the open grid over the tide strip's collapsed row (the reader's yield). */
 const SURFACES = [
   'none', 'land', 'win', 'win9', 'reg', 'seas', 'topics', 'topicsEmpty', 'seasTopics',
-  'stripOpen', 'stripClosed', 'tideOnly', 'tideStripClosed', 'tideStripOpen',
+  'stripOpen', 'stripClosed', 'tideOnly', 'tideStripClosed', 'tideStripOpen', 'tideCollapsedOpen',
 ];
 const REGION_COUNT_FOR = { win9: 9 };
 const OBSTACLE_TESTIDS = [

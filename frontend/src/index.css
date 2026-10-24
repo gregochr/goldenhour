@@ -4209,6 +4209,12 @@ button.wf-hc.also.on:hover {
   outline-offset: 1px;
 }
 .wf-tl-cv { margin-left: auto; }
+/* The cue a forced-closed (inert) header shows in the chevron slot: muted, lower-case, decorative. */
+.wf-tl-closed-cue {
+  text-transform: none;
+  letter-spacing: 0.04em;
+  color: var(--color-plex-text-muted);
+}
 /* Every item is placed with an inline `grid-area`; the two header rows size to content and every topic
    row after them is 24px. 92 + 8 x 41 = the 420px the 440px panel leaves inside its padding. */
 .wf-tl-grid {

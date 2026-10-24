@@ -1509,6 +1509,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const [tideStripCollapsed, setTideStripCollapsed] = useState(false);
   /**
+   * The EV row id on which the reader asked for the four-day grid over an open tide strip
+   * (topic-strip-tide-yield-plan §2). While it matches the window on screen ({@code tideYielded}) the
+   * tide strip draws collapsed and the grid is open. Cleared when the window moves away (during render,
+   * keyed on the active row id changing, below), so it is scoped to one window and does not revive on return. The panel variant only; the phone has no tide strip.
+   */
+  const [tideYieldRowId, setTideYieldRowId] = useState(null);
+  /**
    * The tide strip's own real, measured height (T7 follow-up, Codex P1) — written from
    * `MapTideStrip`'s `onHeightChange`, its `ResizeObserver` callback. `null` while the strip is not on screen. Exists ONLY to retrigger
    * `MapCallout`'s repaint when the strip's own rect changes (open ⇄ collapsed, or it appearing/
@@ -3753,6 +3760,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
    * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
   const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+  // The tide yield is scoped to one window: clear it when the active row CHANGES (adjust-state-on-change, no
+  // effect). Keyed on the change, not on a mismatch, so a strip press that sets the yield to its target row
+  // before that row arrives is not cleared by an intermediate render.
+  const activeMapEventId = activeMapEvent?.id ?? null;
+  const [yieldSeenRowId, setYieldSeenRowId] = useState(activeMapEventId);
+  if (activeMapEventId !== yieldSeenRowId) {
+    setYieldSeenRowId(activeMapEventId);
+    if (tideYieldRowId !== activeMapEventId) setTideYieldRowId(null);
+  }
 
   /**
    * A map with NO solar row opens on the live aurora night (overlay convergence C3, plan §3 C3).
@@ -4653,11 +4669,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * clear (a row change clears the one-shot announcement).
    */
   function pickTopicFromStrip(type, row, movedMessage = null) {
+    pickTopic(type, row, movedMessage, true);
+  }
+  /**
+   * The shared body of the panel and sheet picks. {@code yieldTide} (panel only) records the target row as
+   * the one on which the grid keeps the tide strip collapsed, so the grid the reader is using is not
+   * snatched shut on arrival at a tidal window.
+   */
+  function pickTopic(type, row, movedMessage, yieldTide) {
     hwAutoTopicRef.current = false;
     spendTopicDoor();
     setSelectedTopic(type);
     if (row && row.id !== activeMapEvent?.id) {
       pendingTopicAnnounce.current = movedMessage;
+      if (yieldTide) setTideYieldRowId(row.id);
       selectEvRow(row);
       return;
     }
@@ -4675,8 +4700,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * row-change clear.
    */
   function selectHwFromStrip(row, movedMessage = null) {
+    selectHw(row, movedMessage, true);
+  }
+  /** The shared body of the panel and sheet tick presses; {@code yieldTide} as for {@link pickTopic}. */
+  function selectHw(row, movedMessage, yieldTide) {
     if (!row || row.id === activeMapEvent?.id) return;
     pendingTopicAnnounce.current = movedMessage;
+    if (yieldTide) setTideYieldRowId(row.id);
     selectEvRow(row);
   }
   /**
@@ -4692,12 +4722,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }
   /** The sheet strip's bar or moving-label press: the strip's own pick, then the sheet folds to peek. */
   function pickTopicFromSheet(type, row, movedMessage = null) {
-    pickTopicFromStrip(type, row, movedMessage);
+    pickTopic(type, row, movedMessage, false);
     collapseSheetAfterTopicPress();
   }
   /** The sheet strip's High-water tick press: the strip's own move, then the sheet folds to peek. */
   function selectHwFromSheet(row, movedMessage = null) {
-    selectHwFromStrip(row, movedMessage);
+    selectHw(row, movedMessage, false);
     collapseSheetAfterTopicPress();
   }
   /** The sheet strip's label toggle: turning a topic ON folds the sheet (rings visible); OFF leaves it. */
@@ -4947,6 +4977,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * can never disagree with a chip a reader is looking at. {@code tideViewBounds} is the TAB's own
    * Leaflet viewport (declared above).
    */
+  const tideYielded = tideYieldRowId != null && tideYieldRowId === activeMapEvent?.id;
   const tideStripModel = stripModel({
     row: activeMapEvent,
     spots: labelSpots,
@@ -7320,15 +7351,21 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               />
             )}
             {/* The four-day hot-topics strip (hot-topics-by-day-plan §3 M2): a flex child BEFORE the tide
-                strip, so the legend chip above clears it by flex order. It draws its header only while
-                the tide strip shows (Q8) or the landing card is open; the stored preference is untouched. */}
+                strip, so the legend chip above clears it by flex order. While the tide strip shows it is
+                HELD (Q8): drawn closed, header pressable; a press yields the tide strip to its collapsed
+                row for this window only (topic-strip-tide-yield-plan). The landing card is a true forced
+                collapse; the stored preference is untouched by either. */}
             {topicStripMounted && (
               <MapTopicStrip
                 grid={topicGrid}
                 selectedType={activeTopicChip?.type ?? null}
                 currentTypes={topicChipTypes}
-                forceCollapsed={tideStripModel.visible || landingOpen}
-                forceReason={tideStripModel.visible ? 'the tide strip is showing' : 'the welcome card is open'}
+                forceCollapsed={landingOpen}
+                forceReason="the welcome card is open"
+                held={tideStripModel.visible && !tideYielded}
+                heldReason="the tide strip"
+                onOpenHeld={() => setTideYieldRowId(activeMapEvent?.id ?? null)}
+                onCloseYielded={() => setTideYieldRowId(null)}
                 fallbackFocus={() => mapPaneRef.current?.focus({ preventScroll: true })}
                 onToggleType={toggleTopic}
                 onPick={pickTopicFromStrip}
@@ -7343,8 +7380,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 activeRow={activeMapEvent}
                 sunriseTime={tideStripSunriseTime}
                 sunsetTime={tideStripSunsetTime}
-                collapsed={tideStripCollapsed}
-                onToggleCollapse={() => setTideStripCollapsed((v) => !v)}
+                collapsed={tideStripCollapsed || tideYielded}
+                onToggleCollapse={() => {
+                  if (tideYielded) {
+                    // "Open ▴" while the grid holds it collapsed: the tide strip opens, the grid is held again.
+                    setTideYieldRowId(null);
+                    setTideStripCollapsed(false);
+                    return;
+                  }
+                  setTideStripCollapsed((v) => !v);
+                }}
                 onSelectEv={selectEvRow}
                 mapPaneRef={mapPaneRef}
                 onHeightChange={setTideStripHeight}

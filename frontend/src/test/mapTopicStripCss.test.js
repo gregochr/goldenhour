@@ -82,6 +82,13 @@ describe('the four-day strip stylesheet: the strip', () => {
     expect(body).toContain('grid-auto-rows: 24px;');
   });
 
+  it('styles the forced-closed cue as muted, un-uppercased text from a token', () => {
+    const body = ruleBody('.wf-tl-closed-cue');
+    expect(body).toContain('text-transform: none;');
+    expect(body).toContain('color: var(--color-plex-text-muted);');
+    expect(body).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+
   it('keeps the shades out of hit-testing', () => {
     expect(ruleBody('.wf-tl-now')).toContain('pointer-events: none;');
     expect(ruleBody('.wf-tl-past')).toContain('pointer-events: none;');
@@ -131,6 +138,12 @@ describe('the four-day strip stylesheet: the phone sheet variant (M4)', () => {
     expect(start).toBeGreaterThan(-1);
     expect(css.slice(css.lastIndexOf('@media', start), start)).toContain('(max-width: 639px)');
     expect(css).toContain('grid-template-columns: 70px repeat(8, minmax(0, 1fr));');
+  });
+
+  it('declares the forced-closed cue outside the phone query (the sheet never shows it)', () => {
+    const phone = mediaBlock('(max-width: 639px)', css.indexOf('.wf-topic-strip.wf-topic-strip-sheet {') - 200);
+    expect(phone).not.toContain('wf-tl-closed-cue');
+    expect(css).toContain('.wf-tl-closed-cue {');
   });
 });
 

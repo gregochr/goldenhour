@@ -175,6 +175,9 @@ The handoff was written against the prototype. Against the code, these hold.
     - Integration points the handoff doesn't know about are listed in M2: the chrome-bl mount gate,
       the counts footer, the callout's band-bar selector and the landing card's height cap.
     - **When the tide strip shows, the four-day strip collapses to its header** (Q8).
+      *Amended 2026-10-24 (`topic-strip-tide-yield-plan.md`): it is HELD closed, not forced; a press on its
+      header opens it for that window and the tide strip yields to its collapsed row. The landing card
+      is still a true forced collapse.*
 
 12. **The chrome-tl height variable is published only on big-seas days.** `BigSeasLine`'s
     `ResizeObserver` returns early when the line is hidden, and removes `--wf-chrome-tl-h` on
@@ -867,7 +870,7 @@ changes".
 | Q5 | Should the phone get the strip? | **Yes, as a peek-sheet section (M4).** The handoff's docked strip would sit on the sheet |
 | Q6 | How should "Plan on that date with the topic selected" work? | **Open that window's popup with the topic row emphasised**, or plain Plan when the window isn't one of Plan's six |
 | Q7 | Which peak labels? | **Tide days only.** Aurora's "peak Sat" has no source; serving one is a separate backend change |
-| Q8 | What happens when the four-day strip and the tide strip show together? | **The four-day strip collapses to its header while the tide strip (or the landing card) shows** |
+| Q8 | What happens when the four-day strip and the tide strip show together? | **The four-day strip collapses to its header while the tide strip (or the landing card) shows** (amended 2026-10-24, `topic-strip-tide-yield-plan.md`: the tide strip HOLDS it, the reader's press on the header yields the tide strip for that window; only the landing card is inert) |
 | Q9 | Topic colours: the mock hexes or the app's? | **The app's live colours** (`SWATCH_COLOR`), extracted to one palette |
 | Q10 | Should Big seas be in the Coming up lanes? | **No.** It stays Map-only, as big-seas Q7 |
 | Q11 | Should the Map show "No hot topics on this window"? | **Yes on desktop and tablet; nothing on the phone**, where the row costs labels |
@@ -934,3 +937,7 @@ The default state decides which column applies to each frame:
 - Frames 720px or taller start open: −10.7% to −19.1%.
 - Q8's forced collapse holds the tide-strip case to between −1.5% and −6.5% on top of the tide strip
   alone. An open strip there would cost up to −37.1%.
+- *2026-10-24 (`topic-strip-tide-yield-plan.md` §5):* the reader's press yields the tide strip, so the grid
+  can now be OPEN over the tide strip's collapsed row. Measured against the tide strip alone, at @0 / @175:
+  desktop-1280 −5.7 / −7.3, laptop-1024 −6.3 / −15.0, tablet-820 −4.5 / −9.1 (phone not mounted). Recorded,
+  not gated: it is the reader's explicit choice for one window.
