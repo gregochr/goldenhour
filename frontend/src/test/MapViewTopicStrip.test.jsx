@@ -177,13 +177,13 @@ const HOT_TOPICS = [
 
 function Pane({
   hotTopics, runId = null, tide = null, startDate = TODAY, bigSeas = undefined, forecastDates = [TODAY, SAT],
-  planHandoff = null,
+  planHandoff = null, externalDate = null,
 }) {
   const [date, setDate] = React.useState(startDate);
   return (
     <MapView
       locations={[makeLocation()]}
-      date={date}
+      date={externalDate ?? date}
       forecastDates={forecastDates}
       autoEventType="SUNSET"
       heat={heatProp({ tide })}
@@ -407,6 +407,57 @@ describe('MapView: a door that names a topic (T3)', () => {
     expect(chip('DUST')).toHaveAttribute('aria-pressed', 'false');
     await act(async () => { rerender(<Pane hotTopics={[...HOT_TOPICS]} planHandoff={door()} />); });
     expect(chip('DUST')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  const INVERSION = topic({ type: 'INVERSION', label: 'Inversion', eventType: 'SUNSET' });
+
+  it('a door to a window with no row is spent, not left waiting: nothing is selected', async () => {
+    await renderMap({ planHandoff: door({ eventType: 'SUNRISE', topicType: 'DUST' }) });
+    expect(document.querySelectorAll('[data-testid^="wf-topic-chip-"][aria-pressed="true"]')).toHaveLength(0);
+    // Reaching the door's topic by hand afterwards is the reader's own press, not the door firing late.
+    await press('wf-topic-bar-DUST-1');
+    expect(document.querySelectorAll('[data-testid^="wf-topic-chip-"][aria-pressed="true"]')).toHaveLength(1);
+  });
+
+  it('a door the map did not land on is spent: navigating to its window by hand selects nothing', async () => {
+    // The door names Saturday; the pane keeps showing today, so the landed window is not the door's.
+    await renderMap({ planHandoff: door({ date: SAT, topicType: 'KING_TIDE' }) });
+    expect(chip('KING_TIDE')).toHaveAttribute('aria-pressed', 'false');
+    await press('wf-topic-bar-KING_TIDE-4');
+    await press('wf-topic-bar-DUST-1');
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip('KING_TIDE')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('a door that landed elsewhere stays spent when the date later arrives at its window', async () => {
+    const mismatched = door({ date: SAT, topicType: 'KING_TIDE' });
+    const { rerender } = await renderMap({ planHandoff: mismatched });
+    await act(async () => {
+      rerender(<Pane hotTopics={HOT_TOPICS} planHandoff={mismatched} externalDate={SAT} />);
+    });
+    expect(document.querySelectorAll('[data-testid^="wf-topic-chip-"][aria-pressed="true"]')).toHaveLength(0);
+  });
+
+  it('a reader\'s window change before the door applies cancels it', async () => {
+    const { rerender } = await renderMap({ planHandoff: door({ topicType: 'INVERSION' }) });
+    await press('wf-topic-bar-KING_TIDE-4');
+    await press('wf-topic-bar-DUST-1');
+    await act(async () => {
+      rerender(<Pane hotTopics={[...HOT_TOPICS, INVERSION]} planHandoff={door({ topicType: 'INVERSION' })} />);
+    });
+    expect(chip('INVERSION')).toHaveAttribute('aria-pressed', 'false');
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('a reader\'s own topic pick cancels a waiting door: a late chip does not override it', async () => {
+    const { rerender } = await renderMap({ planHandoff: door({ topicType: 'INVERSION' }) });
+    expect(screen.queryByTestId('wf-topic-chip-INVERSION')).toBeNull();
+    await press('wf-topic-chip-DUST');
+    await act(async () => {
+      rerender(<Pane hotTopics={[...HOT_TOPICS, INVERSION]} planHandoff={door({ topicType: 'INVERSION' })} />);
+    });
+    expect(chip('INVERSION')).toHaveAttribute('aria-pressed', 'false');
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('selects again for a new nonce (a repeat arrival)', async () => {
