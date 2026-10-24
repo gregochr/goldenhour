@@ -12644,7 +12644,7 @@ button.wf-mchip:hover {
   font-variant-numeric: tabular-nums;
   padding: 0 2px;
 }
-.wf-wsh-x { font-size: 10px; }
+.wf-wsh-x { font-size: 10px; padding: 0 9px; } /* 9px matches .wf-sheet-x so the two dialogs' close buttons read alike */
 /* The scrolling half. The header and the nav stay put, so stepping windows never scrolls the
    reader away from the control they are pressing. */
 .wf-wsh-b {
