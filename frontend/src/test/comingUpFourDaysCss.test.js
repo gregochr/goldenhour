@@ -184,3 +184,23 @@ describe('the "Next four days" day tiles stylesheet', () => {
     expect(ruleBody(".wf-trow[data-emphasis='true']")).toContain('outline-offset: -2px;');
   });
 });
+
+describe('the "In next 4 days" tag stylesheet (coming-up-glance-plan T2)', () => {
+  it('styles the tag per the README', () => {
+    const body = ruleBody('.wf-cu-next4');
+    expect(body).toContain('font-size: 8.5px;');
+    expect(body).toContain('letter-spacing: 0.08em;');
+    expect(body).toContain('text-transform: uppercase;');
+    expect(body).toContain('padding: 1px 5px;');
+    expect(body).toContain('border-radius: 3px;');
+    expect(body).toContain('color-mix(in oklch, #6FA8B0 22%, transparent)');
+    expect(body).toContain('1px solid color-mix(in oklch, #6FA8B0 55%, transparent)');
+  });
+
+  it('puts the title on its own line only inside the phone media query', () => {
+    const start = css.indexOf('\n.wf-cu-next4 {');
+    const phoneBlock = mediaBlock('(max-width: 639px)', start);
+    expect(phoneBlock).toContain('.wf-cu-nm { flex: 1 1 calc(100% - 28px); min-width: 0; }');
+    expect(css.replace(phoneBlock, '')).not.toContain('flex: 1 1 calc(100% - 28px)');
+  });
+});

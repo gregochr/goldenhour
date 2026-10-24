@@ -10916,6 +10916,24 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   border-radius: 4px;
   padding: 1px 5px;
 }
+.wf-cu-next4 {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-plex-text);
+  background: color-mix(in oklch, #6FA8B0 22%, transparent);
+  border: 1px solid color-mix(in oklch, #6FA8B0 55%, transparent);
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+/* Phone only (coming-up-glance-plan T2): the title takes its own line (less the glyph's width), so a
+   two-line title never overlaps the tags, which wrap in a row underneath. */
+@media (max-width: 639px) {
+  .wf-cu-nm { flex: 1 1 calc(100% - 28px); min-width: 0; }
+}
 .wf-cu-superlative {
   font-family: var(--font-mono);
   font-size: 8.5px;

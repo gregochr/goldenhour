@@ -480,6 +480,12 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
           </>
         )}
         <span className="wf-cu-kindtag" data-testid="coming-up-kindtag">{entry.kindTag}</span>
+        {entry.inNext4Days && (
+          <>
+            {' '}
+            <span className="wf-cu-next4" data-testid="coming-up-tag-next4">In next 4 days</span>
+          </>
+        )}
         {entry.superlative && (
           <>
             {' '}
@@ -715,6 +721,7 @@ WindowComingUpEntry.propTypes = {
     })),
     joinNote: PropTypes.string,
     isNew: PropTypes.bool.isRequired,
+    inNext4Days: PropTypes.bool,
   }).isRequired,
   onGoToPlan: PropTypes.func.isRequired,
   onShowOnMap: PropTypes.func.isRequired,
