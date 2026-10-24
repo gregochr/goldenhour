@@ -90,7 +90,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
         when(askService.admit(any())).thenReturn(ADMITTED);
         when(askService.ask(any(), any())).thenReturn(answer());
         when(askService.settings(any())).thenReturn(
-                new com.gregochr.goldenhour.service.ask.AskSettingsResponse(true, 1, 3, 2, true));
+                new com.gregochr.goldenhour.service.ask.AskSettingsResponse(true, 1, 30, 29, true));
     }
 
     @AfterEach
@@ -121,15 +121,47 @@ class AskTypedControllerTest extends AbstractControllerTest {
     // -- who may call -------------------------------------------------------------------------
 
     @ParameterizedTest
-    @ValueSource(strings = {"LITE_USER", "PRO_USER", "ADMIN"})
-    @DisplayName("every role may ask, and every role may read the allowance: Bearer, no role gate")
-    void everyRole(String role) throws Exception {
+    @ValueSource(strings = {"PRO_USER", "ADMIN"})
+    @DisplayName("PRO and ADMIN may ask, and may read the allowance")
+    void proAndAdminMayAsk(String role) throws Exception {
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(BODY)
                         .with(SecurityMockMvcRequestPostProcessors.user("someone").roles(role)))
                 .andExpect(status().isOk());
         mockMvc.perform(get(SETTINGS_URL)
                         .with(SecurityMockMvcRequestPostProcessors.user("someone").roles(role)))
                 .andExpect(status().isOk());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    @DisplayName("a LITE caller is 403 NOT_ENTITLED on POST with the flag on or off, before the admission "
+            + "interceptor: admit never runs and the service is never reached; the allowance read is still 200")
+    void liteIsNotEntitledToAsk(boolean flag) throws Exception {
+        properties.setEnabled(flag);
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(BODY)
+                        .with(SecurityMockMvcRequestPostProcessors.user("someone").roles("LITE_USER")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_ENTITLED"))
+                .andExpect(jsonPath("$.error").value("Ask PhotoCast is part of Pro."));
+        verify(askService, never()).admit(any());
+        verify(askService, never()).ask(any(), any());
+
+        mockMvc.perform(get(SETTINGS_URL)
+                        .with(SecurityMockMvcRequestPostProcessors.user("someone").roles("LITE_USER")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("a LITE caller with an oversized body is 403 before the body-limit filter reads it")
+    void liteIsRefusedBeforeTheBodyIsRead() throws Exception {
+        String huge = "{\"question\":\"" + "a".repeat(200_000) + "\"}";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(huge)
+                        .with(SecurityMockMvcRequestPostProcessors.user("someone").roles("LITE_USER")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_ENTITLED"));
+        verify(askService, never()).admit(any());
     }
 
     @Test
@@ -242,7 +274,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
     // -- the request ------------------------------------------------------------------------------
 
     @Test
-    @WithMockUser(roles = {"LITE_USER"})
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("the body maps to the request: question, windowId, regionIds and view")
     void requestMapping() throws Exception {
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(BODY))
@@ -255,7 +287,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = {"LITE_USER"})
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("windowId and regionIds are optional; unknown fields are ignored")
     void optionalFields() throws Exception {
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
@@ -304,6 +336,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
         when(askService.ask(any(), any())).thenThrow(new AskRefusal(code));
         int expected = switch (code) {
             case INVALID -> 400;
+            case NOT_ENTITLED -> 403;
             case RATE_LIMITED, ALLOWANCE_EXHAUSTED, DAILY_LIMIT -> 429;
             case ENGINE_FAILED -> 502;
             case TYPED_UNAVAILABLE -> 503;
@@ -348,7 +381,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
     // -- the success contract -------------------------------------------------------------------------
 
     @Test
-    @WithMockUser(roles = {"LITE_USER"})
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("the 200 body is plan §2.9's contract: kind own, picks, events with a safetyNote, missing null and "
             + "present, an empty try, the allowance, charged, generatedAt as ISO text and runLabel")
     void successWireShape() throws Exception {
@@ -378,7 +411,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = {"LITE_USER"})
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("an answer served without its allowance figure writes allowanceLeft as an explicit null")
     void unknownAllowanceIsWrittenAsNull() throws Exception {
         AskResponse base = answer();
@@ -393,7 +426,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = {"LITE_USER"})
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("a can't-answer carries answerable false, empty picks and events, missing, and the try pair")
     void cantWireShape() throws Exception {
         when(askService.ask(any(), any())).thenReturn(new AskResponse(false, "cant", "No parking data.",
@@ -428,7 +461,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
             + "\"events\":[],\"generatedAt\":\"2026-10-10T08:00:00\",\"ready\":true}]}";
 
     @Test
-    @WithMockUser(roles = {"LITE_USER"})
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("the thread maps to the request: question, summary, ids only, generatedAt and ready, "
             + "oldest first; ready defaults to false")
     void threadMapping() throws Exception {
@@ -449,7 +482,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = {"LITE_USER"})
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("a body with no thread, a null thread or an empty one is the same request as before threads "
             + "existed")
     void absentThreadIsTheOldRequest() throws Exception {
@@ -496,7 +529,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = {"LITE_USER"})
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("a reset answer carries threadReset true and threadResetReason; a fresh answer carries "
             + "neither key at all")
     void threadResetWireShape() throws Exception {
@@ -542,16 +575,33 @@ class AskTypedControllerTest extends AbstractControllerTest {
     // -- the settings read ----------------------------------------------------------------------------
 
     @Test
-    @WithMockUser(roles = {"LITE_USER"})
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("the allowance body is {enabled, used, limit, left, typedAvailable}")
     void settingsShape() throws Exception {
         mockMvc.perform(get(SETTINGS_URL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(true))
                 .andExpect(jsonPath("$.used").value(1))
-                .andExpect(jsonPath("$.limit").value(3))
-                .andExpect(jsonPath("$.left").value(2))
+                .andExpect(jsonPath("$.limit").value(30))
+                .andExpect(jsonPath("$.left").value(29))
                 .andExpect(jsonPath("$.typedAvailable").value(true));
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("a LITE reader's allowance is 200 with Ask on: enabled, zeros, typedAvailable false, no extra field")
+    void settingsShapeForLite() throws Exception {
+        when(askService.settings(any())).thenReturn(
+                new com.gregochr.goldenhour.service.ask.AskSettingsResponse(true, 0, 0, 0, false));
+
+        mockMvc.perform(get(SETTINGS_URL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(true))
+                .andExpect(jsonPath("$.used").value(0))
+                .andExpect(jsonPath("$.limit").value(0))
+                .andExpect(jsonPath("$.left").value(0))
+                .andExpect(jsonPath("$.typedAvailable").value(false))
+                .andExpect(jsonPath("$.length()").value(5));
     }
 
     @Test

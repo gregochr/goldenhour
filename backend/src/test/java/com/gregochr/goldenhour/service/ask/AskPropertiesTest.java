@@ -6,9 +6,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.context.properties.bind.BindException;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Configuration;
 
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -35,7 +38,6 @@ class AskPropertiesTest {
                 new Bound("call-timeout-seconds", 1, 60, AskProperties::setCallTimeoutSeconds),
                 new Bound("deadline-seconds", 1, 120, AskProperties::setDeadlineSeconds),
                 new Bound("rate-per-minute", 1, 600, AskProperties::setRatePerMinute),
-                new Bound("limit-lite", 0, 1000, AskProperties::setLimitLite),
                 new Bound("limit-pro", 0, 1000, AskProperties::setLimitPro),
                 new Bound("engine-ceiling-multiplier", 1, 20, AskProperties::setEngineCeilingMultiplier),
                 new Bound("ready.max-cycles-per-day", 1, 48,
@@ -47,7 +49,7 @@ class AskPropertiesTest {
     }
 
     @Test
-    @DisplayName("the defaults are the plan's: off, Haiku, 4 turns, 600 tokens, 20s/30s, 5/min, 3/30, "
+    @DisplayName("the defaults are the plan's: off, Haiku, 4 turns, 600 tokens, 20s/30s, 5/min, pro 30, "
             + "ceiling 3x, $0.50, 6 cycles, 2000 entries for 30 minutes, 8 thread exchanges, 90 days")
     void defaults() {
         AskProperties p = new AskProperties();
@@ -60,7 +62,6 @@ class AskPropertiesTest {
         assertThat(p.getCallTimeoutSeconds()).isEqualTo(20);
         assertThat(p.getDeadlineSeconds()).isEqualTo(30);
         assertThat(p.getRatePerMinute()).isEqualTo(5);
-        assertThat(p.getLimitLite()).isEqualTo(3);
         assertThat(p.getLimitPro()).isEqualTo(30);
         assertThat(p.getEngineCeilingMultiplier()).isEqualTo(3);
         assertThat(p.getDailySpendCapUsd()).isEqualTo(0.50);
@@ -107,28 +108,30 @@ class AskPropertiesTest {
     }
 
     @Test
-    @DisplayName("the allowance is LITE 3, PRO 30, ADMIN 30 (the PRO allowance); an unknown role gets the smallest")
+    @DisplayName("the allowance is PRO 30 and ADMIN 30 (the PRO allowance); LITE and an unknown role get 0")
     void allowanceByRole() {
         AskProperties p = new AskProperties();
 
-        assertThat(p.limitFor(com.gregochr.goldenhour.entity.UserRole.LITE_USER)).isEqualTo(3);
+        assertThat(p.limitFor(com.gregochr.goldenhour.entity.UserRole.LITE_USER)).isZero();
         assertThat(p.limitFor(com.gregochr.goldenhour.entity.UserRole.PRO_USER)).isEqualTo(30);
         assertThat(p.limitFor(com.gregochr.goldenhour.entity.UserRole.ADMIN)).isEqualTo(30);
-        assertThat(p.limitFor(null)).isEqualTo(3);
+        assertThat(p.limitFor(null)).isZero();
     }
 
     @Test
-    @DisplayName("the engine ceiling is the multiplier (3) times the role's allowance, and follows both settings")
+    @DisplayName("the engine ceiling is the multiplier (3) times the role's allowance, and follows both settings; "
+            + "0 for a role that may not use Ask")
     void ceilingByRole() {
         AskProperties p = new AskProperties();
 
-        assertThat(p.engineCeilingFor(com.gregochr.goldenhour.entity.UserRole.LITE_USER)).isEqualTo(9);
+        assertThat(p.engineCeilingFor(com.gregochr.goldenhour.entity.UserRole.LITE_USER)).isZero();
         assertThat(p.engineCeilingFor(com.gregochr.goldenhour.entity.UserRole.PRO_USER)).isEqualTo(90);
         assertThat(p.engineCeilingFor(com.gregochr.goldenhour.entity.UserRole.ADMIN)).isEqualTo(90);
-        p.setLimitLite(4);
+        p.setLimitPro(4);
         p.setEngineCeilingMultiplier(5);
-        assertThat(p.engineCeilingFor(com.gregochr.goldenhour.entity.UserRole.LITE_USER)).isEqualTo(20);
-        assertThat(p.engineCeilingFor(null)).isEqualTo(20);
+        assertThat(p.engineCeilingFor(com.gregochr.goldenhour.entity.UserRole.PRO_USER)).isEqualTo(20);
+        assertThat(p.engineCeilingFor(com.gregochr.goldenhour.entity.UserRole.LITE_USER)).isZero();
+        assertThat(p.engineCeilingFor(null)).isZero();
     }
 
     @Test
@@ -200,6 +203,25 @@ class AskPropertiesTest {
     @DisplayName("an out-of-range or unusable value fails binding, which is what fails startup")
     void badConfigurationFailsBinding(Map<String, String> config) {
         assertThatThrownBy(() -> bind(config)).isInstanceOf(BindException.class);
+    }
+
+    @Configuration
+    @EnableConfigurationProperties(AskProperties.class)
+    static class BindingConfig {
+    }
+
+    @Test
+    @DisplayName("a config that still carries photocast.ask.limit-lite starts cleanly and LITE still gets 0")
+    void retiredLimitLiteKeyDoesNotFailStartup() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(BindingConfig.class)
+                .withPropertyValues("photocast.ask.limit-lite=3", "photocast.ask.limit-pro=12")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    AskProperties bound = context.getBean(AskProperties.class);
+                    assertThat(bound.limitFor(com.gregochr.goldenhour.entity.UserRole.PRO_USER)).isEqualTo(12);
+                    assertThat(bound.limitFor(com.gregochr.goldenhour.entity.UserRole.LITE_USER)).isZero();
+                });
     }
 
     static Stream<Map<String, String>> badConfiguration() {

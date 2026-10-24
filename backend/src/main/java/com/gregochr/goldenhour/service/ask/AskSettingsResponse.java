@@ -6,7 +6,7 @@ package com.gregochr.goldenhour.service.ask;
  *
  * @param enabled        whether Ask is switched on
  * @param used           typed questions charged today
- * @param limit          the asker's daily allowance
+ * @param limit          the asker's daily allowance; 0 for a role that may not use Ask
  * @param left           {@code limit - used}, never negative
  * @param typedAvailable false when the flag is off, today's spend cap is reached, or a paid model
  *                       call's cost could not be recorded: the client then offers Ready questions only

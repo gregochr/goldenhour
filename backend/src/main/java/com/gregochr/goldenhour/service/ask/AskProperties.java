@@ -79,7 +79,6 @@ public class AskProperties implements InitializingBean {
     private int callTimeoutSeconds = 20;
     private int deadlineSeconds = 30;
     private int ratePerMinute = 5;
-    private int limitLite = 3;
     private int limitPro = 30;
     private int engineCeilingMultiplier = 3;
     private double dailySpendCapUsd = 0.50;
@@ -162,16 +161,6 @@ public class AskProperties implements InitializingBean {
     }
 
     /**
-     * Sets the daily allowance of a LITE user.
-     *
-     * @param limitLite 0 to 1000
-     * @throws IllegalArgumentException if out of range
-     */
-    public void setLimitLite(int limitLite) {
-        this.limitLite = within("limit-lite", limitLite, 0, MAX_DAILY_LIMIT);
-    }
-
-    /**
      * Sets the daily allowance of a PRO or ADMIN user.
      *
      * @param limitPro 0 to 1000
@@ -220,19 +209,16 @@ public class AskProperties implements InitializingBean {
     }
 
     /**
-     * A role's daily allowance of typed questions (plan §2.5 step 8, §6 Q6): LITE
-     * {@code limit-lite}, PRO and ADMIN {@code limit-pro} (D-7: ADMIN has the PRO allowance; the
-     * spend cap is the real ceiling). A null role gets the smallest allowance, so an unresolved
-     * role can only ever ask for less.
+     * A role's daily allowance of typed questions (plan §2.5 step 8, §6 Q6): PRO and ADMIN
+     * {@code limit-pro} (D-7: ADMIN has the PRO allowance; the spend cap is the real ceiling), and 0
+     * for any other role, including null, because Ask is Pro and Admin only. The 0 is not the refusal
+     * itself: {@code AskService} turns a role that may not use Ask away before any allowance is read.
      *
      * @param role the asker's role, or null
      * @return the number of typed questions that role may ask a UK day
      */
     public int limitFor(UserRole role) {
-        if (role == UserRole.PRO_USER || role == UserRole.ADMIN) {
-            return limitPro;
-        }
-        return limitLite;
+        return AskUserContext.mayUseAsk(role) ? limitPro : 0;
     }
 
     /**

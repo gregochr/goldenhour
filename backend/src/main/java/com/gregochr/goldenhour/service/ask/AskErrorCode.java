@@ -30,6 +30,9 @@ public enum AskErrorCode {
     TYPED_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE,
             "Typed questions are unavailable right now. Ready questions are still available."),
 
+    /** The asker's role may not use Ask (LITE_USER): Ask PhotoCast is a Pro and Admin feature. */
+    NOT_ENTITLED(HttpStatus.FORBIDDEN, "Ask PhotoCast is part of Pro."),
+
     /** The token names a user that no longer exists. Not in the plan's table: nothing else fits. */
     UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "Please sign in again.");
 

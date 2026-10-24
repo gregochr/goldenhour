@@ -26,6 +26,8 @@ import java.util.TreeSet;
  * plan's order, cheapest first</b>, so nothing expensive happens before a cheaper guard has had its
  * say:
  * <ol>
+ *   <li><b>Role gate</b> (first statement of {@link #admit} and {@link #ask}): Ask is Pro and Admin only.
+ *       403 {@code NOT_ENTITLED}, before anything is counted.</li>
  *   <li><b>Rate limit</b> ({@link AskRateLimiter}, 5 a minute per user, applied by {@link #admit}):
  *       before the request body is converted, so a body that cannot be read is counted too, and
  *       before the snapshot is built. 429 {@code RATE_LIMITED}.</li>
@@ -198,10 +200,12 @@ public class AskService {
      * @param auth the asker
      * @return the asker, now counted against the limit
      * @throws AskRefusal {@code UNAUTHENTICATED} when the token names a user that no longer exists
+     *                    (nothing is counted); {@code NOT_ENTITLED} when the role may not use Ask
      *                    (nothing is counted); {@code RATE_LIMITED} when the window is full
      */
     public AppUserEntity admit(Authentication auth) {
         AppUserEntity user = resolveUser(auth);
+        requireEntitled(user);
         if (!rateLimiter.tryAcquire(user.getId())) {
             LOG.debug("[ASK] User {} is over the rate limit", user.getId());
             throw denied(user.getId(), new AskRefusal(AskErrorCode.RATE_LIMITED));
@@ -219,6 +223,9 @@ public class AskService {
      *                    documentation); never for a missing flag, which the controller answers first
      */
     public AskResponse ask(AppUserEntity user, AskRequest request) {
+        // 0. Role gate. Ready matches, cache hits and pre-filter can't-answers all skip the allowance, so a
+        // limit of 0 alone would not refuse a LITE asker.
+        requireEntitled(user);
         long startedAt = System.nanoTime();
         long userId = user.getId();
 
@@ -331,6 +338,9 @@ public class AskService {
             return AskSettingsResponse.off();
         }
         AppUserEntity user = resolveUser(auth);
+        if (!AskUserContext.mayUseAsk(user.getRole())) {
+            return new AskSettingsResponse(true, 0, 0, 0, false);
+        }
         int limit = properties.limitFor(user.getRole());
         int used = usageStore.read(user.getId(), ForecastHorizon.today(clock)).used();
         return new AskSettingsResponse(true, used, limit, Math.max(0, limit - used),
@@ -338,6 +348,12 @@ public class AskService {
     }
 
     // -- steps --------------------------------------------------------------------------------
+
+    private static void requireEntitled(AppUserEntity user) {
+        if (!AskUserContext.mayUseAsk(user.getRole())) {
+            throw new AskRefusal(AskErrorCode.NOT_ENTITLED);
+        }
+    }
 
     private AppUserEntity resolveUser(Authentication auth) {
         if (auth == null || auth.getName() == null) {
