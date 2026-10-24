@@ -339,6 +339,29 @@ describe('Map tide lock — the desktop teaser (§5.2)', () => {
     expect(screen.getByTestId('wf-tide-strip')).toHaveTextContent(HEIGHT);
   });
 
+  it('the locked teaser still reports its height through onHeightChange (the callout band and footer lift follow it)', async () => {
+    const seen = [];
+    const RealRO = global.ResizeObserver;
+    global.ResizeObserver = class { observe() {} disconnect() {} };
+    try {
+      const { default: MapTideStrip } = await import('../components/map/MapTideStrip.jsx');
+      const pane = { current: document.createElement('div') };
+      render(
+        <MapTideStrip
+          locked
+          model={{ visible: true, dimmed: [], matched: [], namedCoastal: [{}] }}
+          tide={TIDE}
+          mapPaneRef={pane}
+          onHeightChange={(h) => seen.push(h)}
+        />,
+      );
+    } finally {
+      global.ResizeObserver = RealRO;
+    }
+    expect(seen.length).toBeGreaterThan(0);
+    expect(typeof seen[0]).toBe('number');
+  });
+
   it('the default is unlocked: a render that passes no tideLocked is the PRO strip', async () => {
     mockRole = 'ADMIN';
     await renderMap({ tideLocked: undefined });
@@ -452,6 +475,18 @@ describe('Map tide lock — the stand-down footer carries no tide term (§5.1 #5
     expect(screen.getByTestId('wf-map-counts-standdown')).toHaveTextContent('· 1 stood down');
     expect(screen.queryByTestId('wf-map-counts-filtered') != null).toBe(withoutTide.filtered);
   });
+
+  it('PRO shows the same count and flag for the same fixtures (the footer has no tide term for either role)', async () => {
+    mockRole = 'ADMIN';
+    const pro = await renderMap({ tideLocked: false, heat: heatProp({ stood: { 3: 'HIGH_CLOUD', 2: 'TIDE_MISALIGNED' } }) });
+    expect(screen.getByTestId('wf-map-counts-standdown')).toHaveTextContent('· 1 stood down');
+    const filtered = screen.queryByTestId('wf-map-counts-filtered') != null;
+    pro.unmount();
+    mockRole = 'LITE_USER';
+    await renderMap({ heat: heatProp({ stood: { 3: 'HIGH_CLOUD', 2: 'TIDE_MISALIGNED' } }) });
+    expect(screen.getByTestId('wf-map-counts-standdown')).toHaveTextContent('· 1 stood down');
+    expect(screen.queryByTestId('wf-map-counts-filtered') != null).toBe(filtered);
+  });
 });
 
 describe('Map tide lock — the phone peek (§5.3)', () => {
@@ -530,6 +565,12 @@ describe('Map tide lock — the phone peek (§5.3)', () => {
     expect(pill).toHaveClass('wf-lens-pro');
     expect(wrap).not.toContainElement(pill);
     expect(screen.queryByTestId('wf-map-peek-tide-hint')).toBeNull();
+    // The saved mode is not in force for LITE, so nothing is drawn pressed or `.on`.
+    ['auto', 'always', 'off'].forEach((m) => {
+      const btn = screen.getByTestId(`wf-map-peek-tide-mode-${m}`);
+      expect(btn).toHaveAttribute('aria-pressed', 'false');
+      expect(btn).not.toHaveClass('on');
+    });
     expect(saveTideMode).not.toHaveBeenCalled();
   });
 
@@ -538,7 +579,11 @@ describe('Map tide lock — the phone peek (§5.3)', () => {
     const saveTideMode = vi.fn().mockResolvedValue('saved');
     await renderMap({ tideLocked: false, saveTideMode });
     await openLayers();
-    expect(screen.getByTestId('wf-map-peek-tide-mode-wrap')).not.toHaveClass('wf-lens-locked');
+    // PRO's DOM is main's: the segment sits directly in the row, with no lock wrappers.
+    expect(screen.queryByTestId('wf-map-peek-tide-mode-wrap')).toBeNull();
+    expect(screen.getByTestId('wf-map-peek-tide-mode-auto').closest('.wf-map-peek-lay-tide-row')
+      .querySelector('.wf-map-peek-tide-seg-group')).toBeNull();
+    expect(screen.getByTestId('wf-map-peek-tide-mode-auto')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByTestId('wf-map-peek-tide-mode-upsell')).toBeNull();
     expect(screen.getByTestId('wf-map-peek-tide-hint')).toBeInTheDocument();
     await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-tide-mode-off')); });

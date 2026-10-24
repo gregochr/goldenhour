@@ -4140,6 +4140,8 @@ button.wf-hc.also.on:hover {
 /* Decorative only (aria-hidden): a fixed sine, one teal with the state, softened. */
 .wf-tide-strip-spark { flex: none; opacity: .55; filter: blur(1.2px); }
 .wf-tide-strip-locked > .wf-lens-pro { flex: none; }
+/* The kicker shrinks first, so the Pro pill is never clipped. */
+.wf-tide-strip-locked > .wf-tide-strip-kicker { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .wf-tide-strip-collapsed {
   display: flex;
   align-items: center;

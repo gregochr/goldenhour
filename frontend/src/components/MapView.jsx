@@ -4094,7 +4094,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   /**
    * The Tide peek button's one-shot pulse (map-mobile-sheet-plan.md §3 M5 task 3) — plays once on a
-   * false → true transition of `tideCuesOn`, ARMED ONLY after the first bounds-backed evaluation.
+   * false → true transition of `tidePeekShown` (`tideCuesOn` for PRO), ARMED ONLY after the first bounds-backed evaluation.
    *
    * <p>`tideViewBounds` is `null` until `BoundsTracker`'s own mount effect reports the real
    * viewport (declared above, alongside `handleTideBounds`), so a coastal Worth-it window's FIRST
@@ -4117,12 +4117,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (!state.armed) {
       // The seed render: record where things stand, but this is the baseline, never a transition.
       state.armed = true;
-      state.prevTideVisible = tideCuesOn;
+      state.prevTideVisible = tidePeekShown;
       return;
     }
-    if (!state.prevTideVisible && tideCuesOn) setTidePulse(true);
-    state.prevTideVisible = tideCuesOn;
-  }, [tideCuesOn, tideViewBounds]);
+    if (!state.prevTideVisible && tidePeekShown) setTidePulse(true);
+    state.prevTideVisible = tidePeekShown;
+  }, [tidePeekShown, tideViewBounds]);
   /** Clears the pulse on the animation's own `animationend` (`MapPeekSheet`'s `onTidePulseEnd`) —
    * never a timer, which could race a second transition landing mid-animation. Under
    * `prefers-reduced-motion: reduce` the CSS drops the animation outright (this file's existing
@@ -5967,6 +5967,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }
 
   /**
+   * The Layers Tide Auto/Always/Off segment. A locked (LITE) reader's saved mode is not in force, so
+   * no button is drawn pressed or `.on` and each is really `disabled`.
+   */
+  const shownTideMode = tideLocked ? null : mapTideMode;
+  const tideSegment = (
+    <div className="wf-seg" role="group" aria-label="Tide">
+      {[['auto', 'Auto'], ['always', 'Always'], ['off', 'Off']].map(([mode, label]) => (
+        <button
+          key={mode}
+          type="button"
+          data-testid={`wf-map-peek-tide-mode-${mode}`}
+          aria-pressed={shownTideMode === mode}
+          disabled={tideLocked}
+          onClick={() => handleTideModePress(mode)}
+          className={`wf-seg-btn${shownTideMode === mode ? ' on' : ''}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  /**
    * The Tide section's close-and-rescue gate, freshly written every render (map-mobile-sheet-
    * plan.md §3 M3 task 4, reused UNCHANGED here per §3 M5 task 2 — only the gate's SOURCE changed,
    * `tideStripModel.visible` → `tideCuesOn`). The `‹ ›` steppers can land the pill on a night row, a
@@ -7158,48 +7181,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       a failed save is announced through the tab's one status region, below. */}
                   <div className="wf-map-peek-lay-row wf-map-peek-lay-tide-row">
                     <span className="wf-map-peek-lay-label">Tide</span>
-                    <span className="wf-map-peek-tide-seg-group">
-                    <span
-                      data-testid="wf-map-peek-tide-mode-wrap"
-                      className={`wf-map-peek-tide-seg-wrap${tideLocked ? ' wf-lens-locked' : ''}`}
-                    >
-                    <div className="wf-seg" role="group" aria-label="Tide">
-                      <button
-                        type="button"
-                        data-testid="wf-map-peek-tide-mode-auto"
-                        aria-pressed={mapTideMode === 'auto'}
-                        disabled={tideLocked}
-                        onClick={() => handleTideModePress('auto')}
-                        className={`wf-seg-btn${mapTideMode === 'auto' ? ' on' : ''}`}
-                      >
-                        Auto
-                      </button>
-                      <button
-                        type="button"
-                        data-testid="wf-map-peek-tide-mode-always"
-                        aria-pressed={mapTideMode === 'always'}
-                        disabled={tideLocked}
-                        onClick={() => handleTideModePress('always')}
-                        className={`wf-seg-btn${mapTideMode === 'always' ? ' on' : ''}`}
-                      >
-                        Always
-                      </button>
-                      <button
-                        type="button"
-                        data-testid="wf-map-peek-tide-mode-off"
-                        aria-pressed={mapTideMode === 'off'}
-                        disabled={tideLocked}
-                        onClick={() => handleTideModePress('off')}
-                        className={`wf-seg-btn${mapTideMode === 'off' ? ' on' : ''}`}
-                      >
-                        Off
-                      </button>
-                    </div>
-                    </span>
-                    {tideLocked && (
-                      <span data-testid="wf-map-peek-tide-mode-upsell" className="wf-lens-pro">Pro</span>
-                    )}
-                    </span>
+                    {tideLocked ? (
+                      <div className="wf-map-peek-tide-seg-group">
+                        <div
+                          data-testid="wf-map-peek-tide-mode-wrap"
+                          className="wf-map-peek-tide-seg-wrap wf-lens-locked"
+                        >
+                          {tideSegment}
+                        </div>
+                        <span data-testid="wf-map-peek-tide-mode-upsell" className="wf-lens-pro">Pro</span>
+                      </div>
+                    ) : tideSegment}
                   </div>
                   {!tideLocked && (
                     <p data-testid="wf-map-peek-tide-hint" className="wf-map-peek-tide-hint">
