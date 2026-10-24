@@ -478,7 +478,7 @@ export default function LocationFourDaySheet({
               : lookupForWindow(tideAlignmentIndex, spot?.id, spot?.name, row.date, row.targetType);
             // Read only on a served MISS — a match never shows the jump/denial line, so scanning
             // for one would be wasted work on every rated, aligned row.
-            const nextFitRow = tideFact && !tideFact.aligned
+            const nextFitRow = tideFact && tideFact.aligned === false
               ? nextAlignedRow(scanRows, tideAlignmentIndex, { id: spot?.id, name: spot?.name }, rowIndex)
               : -1;
             // The eclipse spot line's own fact for THIS row (L7) — the same

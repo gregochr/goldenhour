@@ -93,11 +93,11 @@ export function buildWindowTideIndex(days, formatTime = () => '') {
  * coastal slot with a served tide state" (inland, or no stored extremes near this event) — a
  * different claim from a served miss, so it reads {@code null} rather than guessing {@code 'miss'}.
  *
- * @param {?{aligned: boolean}} fact
+ * @param {?{aligned: ?boolean}} fact
  * @returns {'match'|'miss'|null}
  */
 export function tierOf(fact) {
-  if (!fact) return null;
+  if (!fact || fact.aligned == null) return null;
   return fact.aligned ? 'match' : 'miss';
 }
 

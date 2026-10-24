@@ -63,6 +63,20 @@ describe('MapPeekTideSection — every line from one fixture', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('with no curve and no positions: no chart, and the no-per-spot-fit sentence, never the negative claim (F0)', () => {
+    const bare = tideFixture({
+      curve: [], windowPosition: undefined, windowLevel: undefined, heightAtWindow: undefined,
+      extremes: [],
+    });
+    render(<MapPeekTideSection tide={bare} activeRow={activeRow} model={baseModel({ fitKnown: false })} />);
+    expect(screen.getByTestId('wf-map-peek-tide-phase')).toHaveTextContent('mid tide, rising');
+    expect(screen.queryByTestId('wf-tide-strip-chart')).toBeNull();
+    expect(screen.queryByTestId('wf-tide-strip-svg')).toBeNull();
+    const footer = screen.getByTestId('wf-tide-strip-footer');
+    expect(footer).toHaveTextContent('No per-spot tide fit for this window');
+    expect(footer).not.toHaveTextContent('No coastal spot here has its water on this light');
+  });
+
   it('the key is the strip\'s own kicker text, verbatim', () => {
     render(<MapPeekTideSection tide={tideFixture()} activeRow={activeRow} model={baseModel()} />);
     expect(screen.getByTestId('wf-map-peek-tide-key')).toHaveTextContent('Tide at this light');

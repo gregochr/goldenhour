@@ -292,6 +292,13 @@ describe('buildTideAlignmentIndex', () => {
     expect(entry.shortfall).toBe('HIGHER');
   });
 
+  it('indexes a fact with a tide state but no served match as aligned null — unknown, never a miss (F0)', () => {
+    const idx = buildTideAlignmentIndex(daysWithTide({ tideState: 'LOW', tideFitPhrase: 'low tide, rising' }));
+    const fact = lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET');
+    expect(fact.aligned).toBeNull();
+    expect(fact.state).toBe('LOW');
+  });
+
   it('indexes a miss whose tideOnTheLight is null — the case the old skip dropped', () => {
     // Before T3, this index skipped any slot with no derivable on-the-light fact. A coastal slot
     // whose nearest extreme is too far to name a landing can still have a served PREFERENCE

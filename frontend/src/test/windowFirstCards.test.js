@@ -823,6 +823,21 @@ describe('buildWindowCards', () => {
         });
       });
 
+      describe('a pool whose per-location match is absent (F0)', () => {
+        it('counts no coastal spot, so no "0 of N" fit is ever stated', () => {
+          const slots = coastalSlots(7, 0).map((slot) => {
+            const stripped = { ...slot };
+            delete stripped.tideAligned;
+            return stripped;
+          });
+          const [card] = buildWithSlots(slots);
+          expect(card.pool.every((s) => s.tideState === 'HIGH' && s.tideAligned === null)).toBe(true);
+          expect(card.tideFit).toMatchObject({
+            coastal: 0, matched: 0, live: false, meanQuality: null,
+          });
+        });
+      });
+
       describe('meanQuality', () => {
         it('averages only the MATCHED spots\' quality, never the whole coastal pool', () => {
           const slots = [

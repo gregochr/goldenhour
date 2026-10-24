@@ -302,7 +302,9 @@ export function bestReachOf(pool) {
  * @returns {{coastal: number, matched: number, live: boolean, meanQuality: ?number}}
  */
 function tideFit(pool) {
-  const coastalSpots = pool.filter((spot) => spot.tideState != null);
+  // A spot whose match is absent (`tideAligned == null`, e.g. a payload with the per-location match
+  // withheld) makes no fit claim, so it is not counted: "0 of N on tide" would be a negative claim.
+  const coastalSpots = pool.filter((spot) => spot.tideState != null && spot.tideAligned != null);
   const matchedSpots = coastalSpots.filter((spot) => spot.tideAligned === true);
   const coastal = coastalSpots.length;
   const matched = matchedSpots.length;

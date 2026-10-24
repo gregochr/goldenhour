@@ -276,6 +276,18 @@ describe('tideSparkline — pure geometry over the payload, and nothing else', (
     expect(chart.markY).toBe(6);
   });
 
+  it('draws no mark when the window position or level is absent, but still draws the line (F0)', () => {
+    const chart = tideSparkline(tide({ windowPosition: undefined, windowLevel: undefined }));
+    expect(chart.path).toBe('M0.00 24.00 L52.00 12.00 L104.00 0.00');
+    expect(chart.markX).toBeNull();
+    expect(chart.markY).toBeNull();
+  });
+
+  it('draws no sparkline at all for an empty or absent curve (F0)', () => {
+    expect(tideSparkline(tide({ curve: [], windowPosition: undefined, windowLevel: undefined }))).toBeNull();
+    expect(tideSparkline(tide({ curve: undefined }))).toBeNull();
+  });
+
   it('draws a line from two samples, which is the fewest that make one', () => {
     expect(tideSparkline(tide({ curve: [0, 1] })).path).toBe('M0.00 24.00 L104.00 0.00');
   });

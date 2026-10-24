@@ -111,6 +111,21 @@ describe('coastalInView (map-mobile-sheet-plan.md §3 M5 task 1)', () => {
   });
 });
 
+describe('F0 — a missing match is unknown, never a miss', () => {
+  it('tierOf reads aligned null/undefined as null, and false as miss', () => {
+    expect(tierOf({ aligned: null })).toBeNull();
+    expect(tierOf({ state: 'LOW' })).toBeNull();
+    expect(tierOf({ aligned: false })).toBe('miss');
+    expect(tierOf({ aligned: true })).toBe('match');
+  });
+
+  it('nextAlignedRow finds nothing when the fact carries no match', () => {
+    const rows = [solarRow(DATE_1, 'SUNSET'), solarRow(DATE_2, 'SUNSET')];
+    const idx = tideIndex([{ id: 1, date: DATE_2, eventType: 'SUNSET', aligned: null, state: 'HIGH' }]);
+    expect(nextAlignedRow(rows, idx, { id: 1, name: null }, 0)).toBe(-1);
+  });
+});
+
 describe('tierOf', () => {
   it('reads match off an aligned fact', () => {
     expect(tierOf({ aligned: true })).toBe('match');
