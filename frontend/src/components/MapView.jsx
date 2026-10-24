@@ -1511,8 +1511,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /**
    * The EV row id on which the reader asked for the four-day grid over an open tide strip
    * (topic-strip-tide-yield-plan §2). While it matches the window on screen ({@code tideYielded}) the
-   * tide strip draws collapsed and the grid is open. Never cleared by an effect: another window simply
-   * stops matching, so the yield is scoped to one window. The panel variant only; the phone has no tide strip.
+   * tide strip draws collapsed and the grid is open. Cleared when the window moves away (during render,
+   * keyed on the active row id changing, below), so it is scoped to one window and does not revive on return. The panel variant only; the phone has no tide strip.
    */
   const [tideYieldRowId, setTideYieldRowId] = useState(null);
   /**
@@ -3761,6 +3761,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
    * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
   const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+  // The tide yield is scoped to one window: clear it when the active row CHANGES (adjust-state-on-change, no
+  // effect). Keyed on the change, not on a mismatch, so a strip press that sets the yield to its target row
+  // before that row arrives is not cleared by an intermediate render.
+  const activeMapEventId = activeMapEvent?.id ?? null;
+  const [yieldSeenRowId, setYieldSeenRowId] = useState(activeMapEventId);
+  if (activeMapEventId !== yieldSeenRowId) {
+    setYieldSeenRowId(activeMapEventId);
+    if (tideYieldRowId !== activeMapEventId) setTideYieldRowId(null);
+  }
 
   /**
    * A map with NO solar row opens on the live aurora night (overlay convergence C3, plan §3 C3).

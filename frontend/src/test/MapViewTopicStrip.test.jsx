@@ -351,6 +351,13 @@ describe('MapView: the strip collapses under the tide strip and the landing card
     expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
     // The reader's own tide-strip state was never touched by the yield.
     expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+    // Back on the first window the yield was cleared as the window moved away: it does not revive.
+    await press('wf-win-prev');
+    expect(screen.getByTestId('wf-win-pill')).not.toHaveTextContent('Sunrise Saturday');
+    expect(screen.getByTestId('wf-tide-strip')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-tide-strip-collapsed')).toBeNull();
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
   });
 
   it('a bar press in the yielded grid that moves to another tidal window keeps the grid open', async () => {

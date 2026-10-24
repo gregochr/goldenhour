@@ -28,8 +28,11 @@ is that **the reader's own press on the header is honoured, for the window on sc
   changes on purpose (tide-window-plan T6 §4 #12).
 - **New `tideYieldRowId`** (`useState(null)`): the id of the EV row on which the reader asked for the
   grid over the tide strip. Derived: `tideYielded = tideYieldRowId != null && tideYieldRowId === activeMapEvent?.id`.
-  It is never cleared by an effect: moving to another window simply makes it not match, so the yield
-  is **scoped to one window** and cannot leak across the session.
+  It is **cleared when the window moves away**, during render and not in an effect (React's adjust-state-on-
+  change pattern, keyed on the active row id CHANGING), so the yield is **scoped to one window** and coming
+  back to that window later does not revive it. Keying on the change, not on a mismatch, means a strip press
+  that sets the yield to the target row before the row arrives (`selectEvRow` hands the date to the parent
+  first) is not cleared by an intermediate render.
 - The tide strip renders `collapsed={tideStripCollapsed || tideYielded}`.
 - The four-day strip is **held** (drawn closed, header still pressable) while
   `tideStripModel.visible && !tideYielded`. This keys on `visible` exactly as Q8 does today, so a
@@ -46,7 +49,7 @@ is that **the reader's own press on the header is honoured, for the window on sc
 | A bar, label or HW tick in the **open** grid that moves the window | Set `tideYieldRowId` to the **target** row's id in the same handler (a press can only come from an open grid, which is never held) (`pickTopicFromStrip`, `selectHwFromStrip`), so the grid the reader is using is not snatched shut on arrival at a tidal window. Panel variant only; the sheet handlers do not set it. |
 | Tide strip "Open ▴" while yielded | `setTideYieldRowId(null)` and `setTideStripCollapsed(false)`: the tide strip opens, the grid falls back to held. The grid preference is untouched. |
 | Tide strip toggle otherwise | As today. |
-| Window change from anywhere else (window control, arrows, map, Ask…) | Nothing to do: the yield no longer matches, the tide strip is back to its own state, the grid is held again if the tide strip shows. |
+| Window change from anywhere else (window control, arrows, map, Ask…) | The yield is cleared as the window moves away: the tide strip is back to its own state, the grid is held again if the tide strip shows (and stays held on returning). |
 
 The landing (welcome) card stays a **true forced collapse** (`forceCollapsed={landingOpen}`), header
 `aria-disabled`, press inert. Landing + tide: forced wins.
