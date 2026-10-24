@@ -1,11 +1,9 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.AlmanacEvent;
-import com.gregochr.goldenhour.model.comingup.ComingUpCondition;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.comingup.ComingUpAssembler;
-import com.gregochr.goldenhour.service.comingup.ComingUpConditionsBuilder;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.Rewind;
 import org.slf4j.Logger;
@@ -46,8 +44,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * answers are identical because they are pure functions of the date and the stored data. A build is
  * not free, though (the tide-magnitude history is a three-year scan), so the cache is also
  * <b>warmed</b> rather than left to the first reader of the day: {@link #refresh()} rebuilds and
- * swaps it in at the tail of every pipeline cycle (where fresh forecast data has just been written,
- * which the feed's conditions strip reads) and once at startup (a restart drops the in-memory cache).
+ * swaps it in at the tail of every pipeline cycle (so the chronology the Glance tab and Ask read
+ * is never left at the day's first build) and once at startup (a restart drops the in-memory cache).
  *
  * <p><strong>Eligibility (plan §2 D1).</strong> An almanac event becomes a {@link ComingUpEntry}
  * only once it ends beyond Plan's four-day window ({@link PlanHorizon#lastPlanDate}) — an entry
@@ -81,7 +79,6 @@ public class AlmanacService {
     private final List<AlmanacSource> sources;
     private final Clock clock;
     private final ComingUpAssembler assembler;
-    private final ComingUpConditionsBuilder conditionsBuilder;
     private final Executor warmExecutor;
 
     /** Today's fully-built feed, or null before the first build of the day. */
@@ -105,14 +102,11 @@ public class AlmanacService {
      * @param sources   every almanac source Spring can find
      * @param clock     supplies "today" — the feed's first day and its cache key — resolved in
      *                  {@code Europe/London} by {@link ForecastHorizon}
-     * @param assembler         grows each eligible event to the full chronology entry shape
-     *                          (plan §5 P2)
-     * @param conditionsBuilder builds the standing-conditions strip (plan §7 P4)
+     * @param assembler grows each eligible event to the full chronology entry shape (plan §5 P2)
      */
     @Autowired
-    public AlmanacService(List<AlmanacSource> sources, Clock clock, ComingUpAssembler assembler,
-            ComingUpConditionsBuilder conditionsBuilder) {
-        this(sources, clock, assembler, conditionsBuilder, Executors.newVirtualThreadPerTaskExecutor());
+    public AlmanacService(List<AlmanacSource> sources, Clock clock, ComingUpAssembler assembler) {
+        this(sources, clock, assembler, Executors.newVirtualThreadPerTaskExecutor());
     }
 
     /**
@@ -122,15 +116,13 @@ public class AlmanacService {
      * @param sources           every almanac source Spring can find
      * @param clock             supplies "today"
      * @param assembler         grows each eligible event to the full chronology entry shape
-     * @param conditionsBuilder builds the standing-conditions strip
      * @param warmExecutor      where the startup warm runs — never the main thread
      */
     AlmanacService(List<AlmanacSource> sources, Clock clock, ComingUpAssembler assembler,
-            ComingUpConditionsBuilder conditionsBuilder, Executor warmExecutor) {
+            Executor warmExecutor) {
         this.sources = List.copyOf(sources);
         this.clock = clock;
         this.assembler = assembler;
-        this.conditionsBuilder = conditionsBuilder;
         this.warmExecutor = warmExecutor;
     }
 
@@ -188,9 +180,9 @@ public class AlmanacService {
      * than finding an empty slot and paying for a build of its own; contrast {@link #evict()}, which
      * empties it. A failed build throws and leaves the previous cache exactly as it was.
      *
-     * <p>Called after every pipeline cycle's run has finished (the standing conditions are read from
-     * the data the cycle has just written, and until now stayed as they were at the day's first
-     * request) and once at application start. Refuses to run on a thread with an admin rewind set —
+     * <p>Called after every pipeline cycle's run has finished (so the chronology is rebuilt from
+     * the data the cycle has just written rather than staying as the day's first request left it)
+     * and once at application start. Refuses to run on a thread with an admin rewind set —
      * the same guard {@link #getFeed(int)} has, since a rewound clock would build the wrong day's
      * feed and put it where everyone reads — although neither caller can have one.
      *
@@ -292,11 +284,9 @@ public class AlmanacService {
 
     /**
      * Builds the response for an explicit range: the raw merge, filtered to eligible entries and
-     * grown to the full chronology shape by {@link ComingUpAssembler}, plus the standing-conditions
-     * strip (plan §7 P4) — which needs the <b>unfiltered</b> merge too, since a run wholly inside
-     * Plan's window is strip material even though it never becomes a chronology entry (D11). The
-     * events inside Plan's window also go to the assembler as merge partners only (a Plan-window
-     * run or supermoon can be merged into an overlapping eligible one).
+     * grown to the full chronology shape by {@link ComingUpAssembler}. The events inside Plan's window
+     * also go to the assembler as merge partners only (a Plan-window run or supermoon can be merged
+     * into an overlapping eligible one).
      *
      * @param builtFor the date the feed starts at — also the response's {@code builtFor}
      * @param to       last day, inclusive
@@ -316,10 +306,7 @@ public class AlmanacService {
                 .filter(event -> !event.endDate().isAfter(cutoff))
                 .toList();
         ComingUpResponse core = assembler.assemble(builtFor, eligible, planOwned);
-        List<ComingUpCondition> conditions = conditionsBuilder.build(builtFor, all, core.entries());
-        return new Assembled(
-                new ComingUpResponse(core.builtFor(), core.bands(), core.counts(), conditions, core.entries()),
-                built.failedSources());
+        return new Assembled(core, built.failedSources());
     }
 
     /**

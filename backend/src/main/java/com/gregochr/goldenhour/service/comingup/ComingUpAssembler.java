@@ -230,7 +230,7 @@ public class ComingUpAssembler {
                 scoringProperties.getBands().getList(),
                 scoringProperties.getBands().getAnnounce(),
                 scoringProperties.getBands().getInterrupt());
-        return new ComingUpResponse(builtFor, bands, countsOf(entries), List.of(), entries);
+        return new ComingUpResponse(builtFor, bands, countsOf(entries), entries);
     }
 
     // ── Staging: one entry, before merge/superlative/threshold passes ─────────
@@ -1368,10 +1368,8 @@ public class ComingUpAssembler {
     }
 
     /**
-     * Nearest-rank median — mirrors {@code ComingUpConditionsBuilder.percentile(sorted, 0.50)}'s
-     * own definition (a separate copy rather than a shared call, since the two classes have no
-     * other coupling), so a scoreNote's "usual" figure and the standing-conditions strip's own
-     * "typical run" figure never quietly disagree on what "median" means for the same data.
+     * Nearest-rank median (the lower of the two middle values for an even count), so a
+     * scoreNote's "usual" figure has one fixed definition of "median".
      *
      * @param sortedAscending a non-empty list, ascending order
      */

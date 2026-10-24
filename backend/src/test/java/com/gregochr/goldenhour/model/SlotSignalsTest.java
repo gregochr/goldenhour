@@ -27,11 +27,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * predates the flag. This class's fixtures now set BOTH the reading and the {@code scored} flag
  * independently, rather than inferring one from the other.
  *
- * <p>This is the helper-level counterpart to {@code InversionHotTopicStrategyTest}'s and
- * {@code ComingUpConditionsBuilderTest}'s own reader-level tests: those two classes build
- * fixtures in the identical shape and drive them through this one method, so the strategy and the
- * builder can never disagree about which value is "the" inversion score for a key — there is
- * exactly one place that decision is made.
+ * <p>This is the helper-level counterpart to {@code InversionHotTopicStrategyTest}'s own
+ * reader-level tests: that class builds fixtures in the identical shape and drives them through
+ * this one method, so every reader of the signal agrees about which value is "the" inversion
+ * score for a key — there is exactly one place that decision is made.
  */
 class SlotSignalsTest {
 

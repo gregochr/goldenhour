@@ -250,7 +250,7 @@ model. The report does not say how many builds a prompt spans; group the JSON yo
 **Coming up merged shape** (`docs/engineering/supermoon-tide-run-plan.md`, S1–S4): a supermoon on a tide run is one entry (D10: span = union, host = longest span, a dated line per topic), serving `dayMarks` on a merged entry and `dayRanges` (`peak` server-owned) on every tide-run entry with two or more derivable days; `buildRangeScale`'s min/max/lo/hi (with the served average) for the chip range bars is geometry over served values, the licensed filter/map class (the percentile and the average are served, `docs/engineering/tide-range-rank-plan.md`; the client only scales them and applies the served-value `<= 5` big tier).
 
 ### Almanac (Bearer)
-`GET /api/almanac?days=90` — the 90-day "Coming up" feed. Bearer with **no role gate**, by
+`GET /api/almanac?days=90` — the 90-day "Coming up" feed. The response is `{builtFor, bands, counts, entries}`: the `conditions` array (the Recurring conditions panel's data) was removed by coming-up-glance B2, and a client that still sends or reads it simply sees no such key. Bearer with **no role gate**, by
 inheritance from `SecurityConfig`'s `/api/**` → `.authenticated()`; stated here because this project
 has already documented one endpoint as ADMIN that the code never enforced, and `AlmanacControllerTest`
 pins LITE/PRO/ADMIN access and anonymous rejection so "no `@PreAuthorize`" cannot be read as an
@@ -310,7 +310,7 @@ ETag-revalidated; safe to share because it carries no per-user data.
 **The feed is cached per UK day and refreshed, not just filled.** `AlmanacService.refresh()` builds the default
 90-day feed and swaps it in whole (never evict-then-build), and runs from the pipeline's tail
 (`PipelineOrchestrator.dispatchAlmanacRefresh`, after `finishRun`, on the background executor, nothing it throws reaches the run)
-and once on `ApplicationReadyEvent`, so the conditions payload (its Coming up panel was removed by coming-up-glance P2; the backend half goes in B2) follows each cycle's data and a restart or a new day does not leave
+and once on `ApplicationReadyEvent`, so the chronology follows each cycle's data (the served `conditions` array and its builder were deleted by coming-up-glance B2; the warm stays for the chronology) and a restart or a new day does not leave
 the first reader to pay for the build. There is no midnight job: the first reader after midnight still builds, which the memos
 below keep short. `TideService.getTideStats` is memoised per location per UTC cutoff day and `TideSizeIndex.measure` and
 `TideRunPeakHistory.peakRanges` per question per day (`DayScopedMemo`, whose in-flight loads are discarded if an eviction lands

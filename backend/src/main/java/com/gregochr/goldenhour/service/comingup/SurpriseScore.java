@@ -138,7 +138,6 @@ public final class SurpriseScore {
      * unit this method exists to replace: {@code bits} is unbounded surprisal, so a bracketed
      * {@code 3.9} offers a reader no denominator to reason about — there is no "out of". The
      * number stays on the wire where a consumer can use it ({@code
-     * ComingUpConditionPeak.bits}/{@code ComingUpConditionOccurrence.bits}/{@code
      * ComingUpEntry.bits}); it simply does not belong in a sentence a photographer reads.
      *
      * @param bits the rarity component, in bits ({@code log2(meanGapDays)})

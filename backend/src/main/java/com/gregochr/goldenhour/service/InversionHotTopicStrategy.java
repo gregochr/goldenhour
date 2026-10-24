@@ -42,7 +42,7 @@ import java.util.Locale;
  * up to 36 hours on a SETTLED region, so a forward slot can carry a null calculator reading for a
  * day and a half while Claude's own echo already exists. This detector now reads
  * {@link SlotSignals#effectiveInversionScore()} instead — the ONE shared rule every reader of
- * this signal uses (also read by {@code ComingUpConditionsBuilder.buildInversion}'s two loops):
+ * this signal uses:
  * the calculator's reading when present, else Claude's echo. When the calculator HAS scored a
  * slot, the calculator decides, full stop — the reading always wins when both exist. The echo is
  * never anything more than a stand-in for what the calculator has not reached yet, and it is the

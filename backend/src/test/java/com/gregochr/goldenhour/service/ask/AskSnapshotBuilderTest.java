@@ -666,7 +666,7 @@ class AskSnapshotBuilderTest {
 
     private void stubAlmanac(List<ComingUpEntry> entries) {
         when(almanacService.getFeed(AlmanacService.DEFAULT_DAYS))
-                .thenReturn(new ComingUpResponse(TODAY, null, null, List.of(), entries));
+                .thenReturn(new ComingUpResponse(TODAY, null, null, entries));
     }
 
     static ComingUpEntry almanacEntry(String type, String title, LocalDate start, LocalDate end,

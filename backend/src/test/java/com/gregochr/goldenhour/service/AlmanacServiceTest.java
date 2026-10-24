@@ -6,7 +6,6 @@ import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.comingup.ComingUpAssembler;
-import com.gregochr.goldenhour.service.comingup.ComingUpConditionsBuilder;
 import com.gregochr.goldenhour.service.comingup.ComingUpScoringProperties;
 import com.gregochr.goldenhour.service.comingup.DailyRangeHistory;
 import com.gregochr.goldenhour.service.comingup.TideRunPeakHistory;
@@ -47,14 +46,13 @@ class AlmanacServiceTest {
                 new com.gregochr.solarutils.MoonriseMoonsetCalculator());
     }
 
-    /**
-     * A mock rather than a real {@link ComingUpConditionsBuilder}: none of the tests in this file
-     * assert on {@code conditions}, and Mockito's default answer for a {@code List}-returning
-     * method is an empty list — matching this class's own pre-P4 expectation everywhere except the
-     * dedicated {@code ComingUpConditionsBuilderTest}, which exercises the real thing.
-     */
-    private static ComingUpConditionsBuilder conditionsBuilder() {
-        return mock(ComingUpConditionsBuilder.class);
+    /** An assembler whose build always fails, for the failed-build cases. */
+    private static ComingUpAssembler failingAssembler() {
+        ComingUpAssembler failing = mock(ComingUpAssembler.class);
+        org.mockito.Mockito.when(failing.assemble(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IllegalStateException("assembly broke"));
+        return failing;
     }
 
     /**
@@ -93,7 +91,7 @@ class AlmanacServiceTest {
         AlmanacSource late = (f, t) -> List.of(event(DAY.plusDays(10), DAY.plusDays(10), "late"));
         AlmanacSource early = (f, t) -> List.of(event(DAY, DAY, "early"));
 
-        List<AlmanacEvent> feed = new AlmanacService(List.of(late, early), CLOCK, assembler(), conditionsBuilder())
+        List<AlmanacEvent> feed = new AlmanacService(List.of(late, early), CLOCK, assembler())
                 .build(DAY, DAY.plusDays(20));
 
         assertThat(feed).extracting(AlmanacEvent::type).containsExactly("early", "late");
@@ -108,7 +106,7 @@ class AlmanacServiceTest {
         AlmanacSource alsoShort = (f, t) -> List.of(event(DAY, DAY, "aurora"));
 
         List<AlmanacEvent> feed = new AlmanacService(List.of(longSpan, shortSpan, alsoShort), CLOCK,
-                assembler(), conditionsBuilder())
+                assembler())
                 .build(DAY, DAY.plusDays(20));
 
         assertThat(feed).extracting(AlmanacEvent::type)
@@ -126,7 +124,7 @@ class AlmanacServiceTest {
 
         List<AlmanacEvent> feed =
                 new AlmanacService(List.of(broken, healthy), CLOCK,
-                        assembler(), conditionsBuilder()).build(DAY, DAY.plusDays(20));
+                        assembler()).build(DAY, DAY.plusDays(20));
 
         assertThat(feed).extracting(AlmanacEvent::type).containsExactly("solstice");
     }
@@ -139,14 +137,14 @@ class AlmanacServiceTest {
         };
 
         assertThat(new AlmanacService(List.of(broken, broken), CLOCK,
-                assembler(), conditionsBuilder()).build(DAY, DAY)).isEmpty();
+                assembler()).build(DAY, DAY)).isEmpty();
     }
 
     @Test
     @DisplayName("a second request for the same day and length reuses the built feed")
     void cachesWithinTheDay() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
-        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler());
 
         service.getFeed(30);
         service.getFeed(30);
@@ -159,7 +157,7 @@ class AlmanacServiceTest {
             + "because a span can start before the window and be reported either way")
     void aDifferentLengthRebuilds() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
-        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler());
 
         service.getFeed(30);
         service.getFeed(90);
@@ -172,7 +170,7 @@ class AlmanacServiceTest {
             + "still gets the live feed, and a rewound one never gets the cached live feed")
     void rewoundRequestsBypassTheCache() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
-        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler());
         try {
             service.getFeed(30);                                        // live: builds and caches (1)
             com.gregochr.goldenhour.util.Rewind.set(CLOCK.instant().minusSeconds(3600));
@@ -190,7 +188,7 @@ class AlmanacServiceTest {
     @DisplayName("evict() forces the next request to rebuild")
     void evictForcesARebuild() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
-        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler());
 
         service.getFeed(30);
         service.evict();
@@ -205,7 +203,7 @@ class AlmanacServiceTest {
     @DisplayName("refresh() fills an empty cache, so the first reader of the day pays for no build")
     void refreshWarmsAnEmptyCache() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
-        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler());
 
         assertThat(service.refresh()).isTrue();
         service.getFeed();
@@ -219,8 +217,7 @@ class AlmanacServiceTest {
         LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
         List<AlmanacEvent> served = new java.util.ArrayList<>(List.of(event(beyond, beyond, "meteor")));
         AlmanacSource source = (f, t) -> List.copyOf(served);
-        AlmanacService service = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler(),
-                conditionsBuilder());
+        AlmanacService service = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler());
         ComingUpResponse before = service.getFeed();
 
         // The pipeline has written new data since the day's first request.
@@ -252,7 +249,7 @@ class AlmanacServiceTest {
             }
             return List.of(event(DAY, DAY, "x"));
         };
-        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler());
         holder.set(service);
         ComingUpResponse before = service.getFeed();
 
@@ -280,8 +277,7 @@ class AlmanacServiceTest {
             }
             return List.of(event(beyond, beyond, "meteor"), event(beyond.plusDays(1), beyond.plusDays(1), "eclipse"));
         };
-        AlmanacService service = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler(),
-                conditionsBuilder());
+        AlmanacService service = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler());
         holder.set(service);
 
         ComingUpResponse readersOwn = service.getFeed();
@@ -317,8 +313,7 @@ class AlmanacServiceTest {
             }
             return List.of(event(beyond, beyond, "meteor"), event(beyond.plusDays(1), beyond.plusDays(1), "eclipse"));
         };
-        AlmanacService service = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler(),
-                conditionsBuilder());
+        AlmanacService service = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler());
         java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
         try {
             java.util.concurrent.Future<Boolean> first = pool.submit(service::refresh);
@@ -355,8 +350,7 @@ class AlmanacServiceTest {
             }
             return List.of(event(beyond.plusDays(1), beyond.plusDays(1), "spring-tide"));
         };
-        AlmanacService service = new AlmanacService(List.of(meteors, tides), ELIGIBILITY_CLOCK, assembler(),
-                conditionsBuilder());
+        AlmanacService service = new AlmanacService(List.of(meteors, tides), ELIGIBILITY_CLOCK, assembler());
         ComingUpResponse complete = service.getFeed();
         assertThat(complete.entries()).hasSize(2);
 
@@ -378,7 +372,7 @@ class AlmanacServiceTest {
         };
         CountingSource counter = new CountingSource(List.of());
         AlmanacService service = new AlmanacService(List.of(meteors, broken, counter), ELIGIBILITY_CLOCK,
-                assembler(), conditionsBuilder());
+                assembler());
 
         assertThat(service.refresh()).isTrue();
 
@@ -391,12 +385,12 @@ class AlmanacServiceTest {
     @DisplayName("a refresh whose build fails leaves the previous feed in place and propagates")
     void aFailedRefreshKeepsThePreviousFeed() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
-        ComingUpConditionsBuilder conditions = conditionsBuilder();
-        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditions);
+        ComingUpAssembler assembler = org.mockito.Mockito.spy(assembler());
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler);
         ComingUpResponse before = service.getFeed();
-        org.mockito.Mockito.when(conditions.build(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
-                .thenThrow(new IllegalStateException("conditions broke"));
+        org.mockito.Mockito.doThrow(new IllegalStateException("assembly broke")).when(assembler)
+                .assemble(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any());
 
         assertThatThrownBy(service::refresh).isInstanceOf(IllegalStateException.class);
 
@@ -407,7 +401,7 @@ class AlmanacServiceTest {
     @DisplayName("refresh() refuses to build while an admin rewind is set, and caches nothing")
     void refreshIsRefusedUnderARewind() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
-        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler());
         try {
             com.gregochr.goldenhour.util.Rewind.set(CLOCK.instant().minusSeconds(3600));
             assertThat(service.refresh()).isFalse();
@@ -426,7 +420,7 @@ class AlmanacServiceTest {
     void startupWarmRunsOnTheExecutor() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
         java.util.List<Runnable> queued = new java.util.ArrayList<>();
-        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder(),
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(),
                 queued::add);
 
         service.warmOnStartup();
@@ -441,12 +435,8 @@ class AlmanacServiceTest {
     @Test
     @DisplayName("a startup warm that fails, or an executor that refuses it, is logged and ignored")
     void startupWarmNeverThrows() {
-        ComingUpConditionsBuilder conditions = conditionsBuilder();
-        org.mockito.Mockito.when(conditions.build(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
-                .thenThrow(new IllegalStateException("conditions broke"));
-        AlmanacService failing = new AlmanacService(List.of(), CLOCK, assembler(), conditions, Runnable::run);
-        AlmanacService refused = new AlmanacService(List.of(), CLOCK, assembler(), conditionsBuilder(),
+        AlmanacService failing = new AlmanacService(List.of(), CLOCK, failingAssembler(), Runnable::run);
+        AlmanacService refused = new AlmanacService(List.of(), CLOCK, assembler(),
                 task -> {
                     throw new java.util.concurrent.RejectedExecutionException("shut down");
                 });
@@ -464,7 +454,7 @@ class AlmanacServiceTest {
             return List.of();
         };
 
-        new AlmanacService(List.of(recorder), CLOCK, assembler(), conditionsBuilder()).getFeed();
+        new AlmanacService(List.of(recorder), CLOCK, assembler()).getFeed();
 
         assertThat(span.get()).isEqualTo(AlmanacService.DEFAULT_DAYS).isEqualTo(90);
     }
@@ -477,7 +467,7 @@ class AlmanacServiceTest {
             span.set((int) java.time.temporal.ChronoUnit.DAYS.between(f, t) + 1);
             return List.of();
         };
-        AlmanacService service = new AlmanacService(List.of(recorder), CLOCK, assembler(), conditionsBuilder());
+        AlmanacService service = new AlmanacService(List.of(recorder), CLOCK, assembler());
 
         service.getFeed(0);
         assertThat(span.get()).isEqualTo(AlmanacService.MIN_DAYS);
@@ -493,7 +483,7 @@ class AlmanacServiceTest {
     @DisplayName("no sources at all is an empty feed, not a failure")
     void noSourcesIsEmpty() {
         assertThat(new AlmanacService(List.of(), CLOCK,
-                assembler(), conditionsBuilder()).getFeed(10).entries()).isEmpty();
+                assembler()).getFeed(10).entries()).isEmpty();
     }
 
     @Test
@@ -523,7 +513,7 @@ class AlmanacServiceTest {
             return List.of();
         };
 
-        new AlmanacService(List.of(recorder), lateBstEvening, assembler(), conditionsBuilder()).getFeed(30);
+        new AlmanacService(List.of(recorder), lateBstEvening, assembler()).getFeed(30);
 
         // Every entry this feed carries is a UK-dated event — a spring tide run, an equinox, an
         // NLC season. On the UTC anchor it opened on 2027-08-11, a day the UK had already finished.
@@ -564,7 +554,7 @@ class AlmanacServiceTest {
         AlmanacSource source = (f, t) -> List.of(event(LAST_PLAN_DATE, LAST_PLAN_DATE, "inside"));
 
         var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
-                assembler(), conditionsBuilder()).getFeed(90).entries();
+                assembler()).getFeed(90).entries();
 
         assertThat(entries).isEmpty();
     }
@@ -576,7 +566,7 @@ class AlmanacServiceTest {
         AlmanacSource source = (f, t) -> List.of(event(beyond, beyond, "beyond"));
 
         var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
-                assembler(), conditionsBuilder()).getFeed(90).entries();
+                assembler()).getFeed(90).entries();
 
         assertThat(entries).extracting(ComingUpEntry::type).containsExactly("beyond");
     }
@@ -588,7 +578,7 @@ class AlmanacServiceTest {
                 event(LAST_PLAN_DATE.minusDays(1), LAST_PLAN_DATE.plusDays(1), "straddler"));
 
         var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
-                assembler(), conditionsBuilder()).getFeed(90).entries();
+                assembler()).getFeed(90).entries();
 
         assertThat(entries).extracting(ComingUpEntry::type).containsExactly("straddler");
     }
@@ -603,7 +593,7 @@ class AlmanacServiceTest {
                 event(moonNight, moonNight, "supermoon"));
 
         var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
-                assembler(), conditionsBuilder()).getFeed(90).entries();
+                assembler()).getFeed(90).entries();
 
         assertThat(entries).hasSize(1);
         assertThat(entries.getFirst().type()).isEqualTo("spring-tide");
@@ -620,7 +610,7 @@ class AlmanacServiceTest {
                 event(LAST_PLAN_DATE.plusDays(5), LAST_PLAN_DATE.plusDays(6), "spring-tide"));
 
         var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
-                assembler(), conditionsBuilder()).getFeed(90).entries();
+                assembler()).getFeed(90).entries();
 
         assertThat(entries).extracting(ComingUpEntry::type).containsExactly("spring-tide");
     }
@@ -635,7 +625,7 @@ class AlmanacServiceTest {
         AlmanacSource source = (f, t) -> List.of(event(farEdge, farEdge, "far"));
 
         var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
-                assembler(), conditionsBuilder()).getFeed(90).entries();
+                assembler()).getFeed(90).entries();
 
         assertThat(entries).hasSize(1);
         assertThat(entries.getFirst().enteredWindow()).isEqualTo(ELIGIBILITY_TODAY);
@@ -651,7 +641,7 @@ class AlmanacServiceTest {
         // Requested at a 30-day horizon — a wrong implementation keying enteredWindow off the
         // request would compute farEdge.minusDays(29), not the fixed DEFAULT_DAYS basis.
         var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
-                assembler(), conditionsBuilder()).getFeed(30).entries();
+                assembler()).getFeed(30).entries();
 
         assertThat(entries.getFirst().enteredWindow()).isEqualTo(ELIGIBILITY_TODAY);
     }
@@ -660,10 +650,9 @@ class AlmanacServiceTest {
     @DisplayName("the response's builtFor is the UK civil today, matching the range it was built for")
     void responseCarriesBuiltFor() {
         ComingUpResponse response = new AlmanacService(List.of(), ELIGIBILITY_CLOCK,
-                assembler(), conditionsBuilder()).getFeed(30);
+                assembler()).getFeed(30);
 
         assertThat(response.builtFor()).isEqualTo(ELIGIBILITY_TODAY);
-        assertThat(response.conditions()).isEmpty();
     }
 
     // ── P2: bands and counts (plan §5) ──────────────────────────────────────
@@ -672,7 +661,7 @@ class AlmanacServiceTest {
     @DisplayName("bands are populated from the scoring properties, not left null (plan P2)")
     void bandsComeFromScoringProperties() {
         ComingUpResponse response = new AlmanacService(List.of(), ELIGIBILITY_CLOCK,
-                assembler(), conditionsBuilder()).getFeed(30);
+                assembler()).getFeed(30);
 
         assertThat(response.bands()).isNotNull();
         assertThat(response.bands().list()).isEqualTo(5.0);
@@ -690,7 +679,7 @@ class AlmanacServiceTest {
                 event(beyond, beyond, "meteor"), event(beyond.plusDays(1), beyond.plusDays(1), "eclipse"));
 
         ComingUpResponse response =
-                new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler(), conditionsBuilder()).getFeed(90);
+                new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler()).getFeed(90);
 
         assertThat(response.counts().fixed()).isEqualTo(2);
         assertThat(response.counts().forecast()).isZero();

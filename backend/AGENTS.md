@@ -155,7 +155,7 @@ Checkstyle and SpotBugs gate those in CI.
       one.
 
 12. **The valley-mist topic fires on `LIKELY` only, reading the stored band**
-    (`MistHotTopicStrategy`, `ComingUpConditionsBuilder.buildMist`, `TopicDailyLogJob.logMist`).
+    (`MistHotTopicStrategy`, `TopicDailyLogJob.logMist`).
     FOGBOUND is deliberately excluded (a white frame, not mist with a view through it), POSSIBLE is
     too weak a claim, and the band is *read* from `slot_atmosphere.mist_potential`, never rebuilt
     from `mist_score` (FOGBOUND is decided by event visibility, not the score). A `mist_scored =
