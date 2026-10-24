@@ -522,36 +522,11 @@ export function buildChronology(entries, todayStr, filterId, lastSeenDate, forec
 }
 
 /**
- * The footer's opening sentence — the general rule, true whether or not the feed has answered yet.
- * Shown on its own before {@code status === 'ready'}, so the pane never states a specific count it
- * does not have. "Fixed in advance", not the design's "fixed by orbital mechanics": two of the six
- * sources compute nothing orbital — the NLC season boundary is a hard-coded calendar window and the
- * equinox/solstice dates are fixed `MonthDay` anchors, not a solved instant — a distinction the
- * current pane already recorded and this rewrite keeps (plan §11.14).
+ * The footer's one sentence (coming-up-glance plan P2), shown in every status. It states a rule, not
+ * a count, so it is true before the feed has answered and after. "Fixed in advance", not "fixed by
+ * orbital mechanics": two of the six sources compute nothing orbital — the NLC season boundary is a
+ * hard-coded calendar window and the equinox/solstice dates are fixed `MonthDay` anchors.
  */
-export const FOOTER_LEAD = 'This list starts where the four-day forecast stops. It shows two '
-  + 'things: dates fixed in advance, and the forecast peak of a recurring condition.';
-
-/**
- * The footer's full paragraph (design README §5, plan §6) — {@link FOOTER_LEAD} plus the served
- * counts, read from the server's {@code counts} rather than counted off the rendered rows (so a
- * filter never changes what the footer claims). Only meaningful once the feed has actually
- * answered; the caller shows {@link FOOTER_LEAD} alone before then (see
- * {@code WindowFirstComingUp}'s own gating comment).
- *
- * @param {{fixed: number, forecast: number}} counts the served entry counts
- * @returns {string} the complete footer paragraph
- */
-export function footerCopy(counts) {
-  const { fixed, forecast } = counts;
-  const tail = 'The recurring conditions above are not listed date by date — open one to see '
-    + 'them all.';
-  if (forecast === 0) {
-    return `${FOOTER_LEAD} Every date here is fixed in advance — as certain three months out as `
-      + `it is tonight, because none of it depends on the weather. ${tail}`;
-  }
-  return `${FOOTER_LEAD} ${fixed} of these dates ${fixed === 1 ? 'is' : 'are'} fixed — as certain `
-    + `three months out as ${fixed === 1 ? 'it is' : 'they are'} tonight. `
-    + `${forecast} ${forecast === 1 ? 'is a forecast peak' : 'are forecast peaks'} and can still `
-    + `move: about three days ahead for cloud, five for dust. ${tail}`;
-}
+export const FOOTER = 'This list starts where the four-day forecast stops and shows dates fixed in '
+  + "advance. Weather-driven topics can't be known that far out, so they appear only in Next four "
+  + 'days.';

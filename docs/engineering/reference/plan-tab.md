@@ -65,7 +65,7 @@ four-day sheet over that pane with the tab unmoved. A place's own six windows ar
 sheet** (for a wildlife-only place it is its hourly comfort tables instead, on BOTH hosts — the Map tab's callout and Plan search reach the same sheet) (`LocationFourDaySheet`) stacked over the popup. Below the matrix sits **one**
 door (Regional planner), which has no other v2 home — the Hot topics door and its panel
 (`HotTopicStrip`) were removed in the Coming up redesign's P6
-(`docs/engineering/coming-up-plan.md` D7): the strip's standing conditions and the "Coming up"
+(`docs/engineering/coming-up-plan.md` D7): the Coming up tab's "Recurring conditions" panel (since removed by coming-up-glance P2) and the "Coming up"
 chronology cover what the door used to hold, and `WindowFirstDoors`' single remaining child goes
 full-width with no CSS change (`.wf-doors` is flex, `.wf-door` is `flex: 1`). ⚠️ **At most one dialog may claim
 to be the modal, and the guard is per-route rather than global**: the shared `Modal` takes a

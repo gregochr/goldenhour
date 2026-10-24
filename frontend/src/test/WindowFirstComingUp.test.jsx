@@ -124,31 +124,17 @@ describe('WindowFirstComingUp — the four states', () => {
       .toHaveTextContent('No dates coming up in the next 90 days beyond the four-day forecast.');
   });
 
-  it('⚠️ scopes the empty note to the DATED list, so it never denies the recurring conditions '
+  it('⚠️ scopes the empty note to the DATED list, so it never denies the four-day strip '
       + 'rendering right below it', () => {
-    // `totalEntries` counts `events.entries` alone, and the conditions strip is gated on `ready`
-    // rather than on that count — so an empty chronology beside live conditions is reachable, and
-    // a broader sentence would print a denial directly above rows the reader can see and open.
-    // Caught by a Codex review of #748, where the copy pass had dropped the scoping word.
+    // `totalEntries` counts `events.entries` alone, and the "Next four days" strip reads
+    // `hotTopics`, a separate source — so an empty chronology beside live four-day content is
+    // reachable, and a broader sentence would print a denial directly above rows the reader can
+    // see. Caught by a Codex review of #748, where the copy pass had dropped the scoping word.
     renderPane({
       status: 'ready',
-      events: {
-        entries: [],
-        counts: { fixed: 0, forecast: 0, byFamily: {} },
-        conditions: [{
-          type: 'COASTAL_TIDES',
-          name: 'Coastal tides',
-          cadence: 'deterministic',
-          interim: false,
-          rateLabel: 'a run every 14.8 days',
-          quantLabel: 'about one a fortnight · 6 runs in 90 days',
-          peak: null,
-          occurrences: [],
-        }],
-      },
+      events: { entries: [], counts: { fixed: 0, forecast: 0, byFamily: {} } },
     });
 
-    expect(screen.getByTestId('coming-up-conditions')).toBeInTheDocument();
     const empty = screen.getByTestId('coming-up-empty');
     expect(empty).toHaveTextContent('No dates coming up');
     // The claim is about dates in the list, never about the pane as a whole.
@@ -374,18 +360,6 @@ describe('WindowFirstComingUp — the vocabulary now lives on the card', () => {
     expect(screen.getByTestId('coming-up-footer').textContent).not.toMatch(/orbital/i);
   });
 
-  it('states the served fixed/forecast counts in the footer, not a count of rendered rows', () => {
-    renderPane();
-    expect(screen.getByTestId('coming-up-footer')).toHaveTextContent('Every date here is fixed in advance');
-  });
-
-  it('switches the footer copy once the served counts include a forecast entry', () => {
-    renderPane({ events: { entries: ENTRIES, counts: { fixed: 1, forecast: 1, byFamily: {} } } });
-    const footer = screen.getByTestId('coming-up-footer');
-    expect(footer).toHaveTextContent('1 is a forecast peak');
-    expect(footer.textContent).not.toContain('Every date here is fixed');
-  });
-
   it('renders the kind tag on every entry, not marker-on-exception', () => {
     // The footer's old "every date here is fixed" vocabulary job moved onto the per-card tag.
     renderPane();
@@ -394,27 +368,40 @@ describe('WindowFirstComingUp — the vocabulary now lives on the card', () => {
   });
 });
 
-describe('WindowFirstComingUp — the footer never states a count it does not have', () => {
-  it('shows only the general rule, with no count, before the feed has answered', () => {
-    // The defect this guards: the old footer's copy was static and count-free, so gating it on
-    // status was never necessary — the new copy names actual numbers, and stating them beneath
-    // "Looking ahead…" or "Could not load…" would be a claim about data that has not arrived.
-    for (const [status, events] of [['idle', null], ['loading', null], ['error', null]]) {
+describe('WindowFirstComingUp — the footer is one fixed sentence in every status', () => {
+  it('reads the same sentence in loading, error and ready, whatever the counts', () => {
+    for (const [status, events] of [
+      ['loading', null],
+      ['error', null],
+      ['ready', { entries: ENTRIES, counts: COUNTS }],
+      ['ready', { entries: ENTRIES, counts: { fixed: 1, forecast: 1, byFamily: {} } }],
+    ]) {
       const { unmount } = renderPane({ status, events });
-      const footer = screen.getByTestId('coming-up-footer');
-      expect(footer).toHaveTextContent(
-        'This list starts where the four-day forecast stops. It shows two things: dates fixed '
-        + 'in advance, and the forecast peak of a recurring condition.',
+      expect(screen.getByTestId('coming-up-footer')).toHaveTextContent(
+        'This list starts where the four-day forecast stops and shows dates fixed in advance. '
+        + "Weather-driven topics can't be known that far out, so they appear only in Next four "
+        + 'days.',
       );
-      expect(footer.textContent).not.toContain('Every date here is fixed in advance');
-      expect(footer.textContent).not.toMatch(/of these dates (is|are) fixed/);
       unmount();
     }
   });
+});
 
-  it('states the real counts once the feed answers', () => {
-    renderPane();
-    expect(screen.getByTestId('coming-up-footer')).toHaveTextContent('Every date here is fixed in advance');
+describe('WindowFirstComingUp — the Recurring conditions panel is gone (coming-up-glance P2)', () => {
+  it('renders no .wf-cond element, even when the payload still carries conditions', () => {
+    const { container } = renderPane({
+      events: {
+        entries: ENTRIES,
+        counts: COUNTS,
+        conditions: [{
+          type: 'COASTAL_TIDES', name: 'Coastal tides', cadence: 'deterministic', interim: false,
+          rateLabel: 'a run every 14.8 days', quantLabel: 'about one a fortnight', peak: null,
+          occurrences: [],
+        }],
+      },
+    });
+    expect(container.querySelector('[class*="wf-cond"]')).toBeNull();
+    expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
   });
 });
 
@@ -427,22 +414,10 @@ describe('WindowFirstComingUp — the "Next four days" lanes (plan D14, hot-topi
     ...over,
   });
 
-  it('renders the header and one row per topic, after the recurring-conditions strip and before '
-      + 'the chronology', () => {
-    renderPane({
-      hotTopics: [DUST],
-      events: {
-        entries: ENTRIES,
-        counts: COUNTS,
-        conditions: [{
-          type: 'COASTAL_TIDES', name: 'Coastal tides', cadence: 'deterministic', interim: false,
-          rateLabel: 'a run every 14.8 days', quantLabel: 'about one a fortnight', peak: null,
-          occurrences: [],
-        }],
-      },
-    });
+  it('renders the header and one row per topic, after the chips and before the chronology', () => {
+    renderPane({ hotTopics: [DUST] });
     const lanes = screen.getByTestId('coming-up-fourdays');
-    expect(screen.getByTestId('coming-up-conditions').compareDocumentPosition(lanes))
+    expect(screen.getByTestId('coming-up-chips').compareDocumentPosition(lanes))
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(lanes).toHaveTextContent('Next four days');
     expect(screen.getAllByTestId('coming-up-fourdays-label')).toHaveLength(1);
@@ -558,59 +533,10 @@ describe('WindowFirstComingUp — card-click fires the entry’s action', () => 
   });
 });
 
-describe('WindowFirstComingUp — recurring conditions strip (plan §7 P4)', () => {
-  const CONDITION = {
-    type: 'COASTAL_TIDES',
-    name: 'Coastal tides',
-    cadence: 'deterministic',
-    interim: false,
-    rateLabel: 'a run every 14.8 days · fixed by the ephemeris',
-    quantLabel: 'about one a fortnight · 7 runs in 90 days',
-    peak: null,
-    occurrences: [],
-  };
-
-  it('renders the strip from events.conditions, between the chips and the lanes — the '
-      + 'design of record\'s own DOM order', () => {
-    renderPane({ events: { entries: ENTRIES, counts: COUNTS, conditions: [CONDITION] } });
-
-    const chips = screen.getByTestId('coming-up-chips');
-    const strip = screen.getByTestId('coming-up-conditions');
-    const handoff = screen.getByTestId('coming-up-fourdays');
-
-    expect(chips.compareDocumentPosition(strip)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(strip.compareDocumentPosition(handoff)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  });
-
-  it('renders nothing for the strip when conditions is empty or absent, without breaking the pane', () => {
-    renderPane({ events: { entries: ENTRIES, counts: COUNTS, conditions: [] } });
-    expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
-
-    renderPane({ events: { entries: ENTRIES, counts: COUNTS } });
-    expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
-  });
-
-  it('the lanes still render while the almanac feed is loading or has failed — they read '
-      + 'only hotTopics, not the almanac status', () => {
+describe('WindowFirstComingUp — the lanes do not wait on the almanac feed', () => {
+  it('the lanes still render while the almanac feed is loading — they read only hotTopics', () => {
     renderPane({ status: 'loading', events: undefined });
     expect(screen.getByTestId('coming-up-fourdays')).toBeInTheDocument();
-    expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
-  });
-
-  it('the STRIP\'s own header sub-line gains a quiet "figures are provisional" suffix while any visible '
-      + 'condition is interim — never the chronology pane\'s own sub-line (plan §7)', () => {
-    renderPane({
-      events: { entries: ENTRIES, counts: COUNTS, conditions: [{ ...CONDITION, interim: true }] },
-    });
-    const marker = screen.getByTestId('coming-up-provisional');
-    expect(marker).toHaveTextContent('figures are provisional');
-    expect(screen.getByTestId('coming-up-conditions')).toContainElement(marker);
-    expect(screen.getByTestId('coming-up-subtitle')).not.toContainElement(marker);
-  });
-
-  it('the suffix is absent once every visible condition is mature', () => {
-    renderPane({ events: { entries: ENTRIES, counts: COUNTS, conditions: [CONDITION] } });
-    expect(screen.queryByTestId('coming-up-provisional')).toBeNull();
   });
 });
 

@@ -14,7 +14,7 @@ function prefersReducedMotion() {
  * Finds the chronology card matching {@code entryId}, scrolls it into view (centred), rings it
  * briefly and moves focus onto it.
  *
- * <p>Shared by the recurring-conditions strip's "see it below" and the Coming up lanes' jump
+ * <p>Used by the Coming up lanes' jump
  * button. The invariant both depend on (plan D11, hot-topics-by-day §1.9) is that the id resolves
  * to a currently-rendered entry; when it does not this is a harmless no-op, never a throw.
  *
