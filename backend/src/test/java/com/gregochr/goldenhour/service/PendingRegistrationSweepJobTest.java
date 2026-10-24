@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -22,6 +23,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -34,7 +36,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PendingRegistrationSweepJobTest {
 
-    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-10-24T12:00:00Z"), ZoneId.systemDefault());
+    private static final Clock CLOCK = Clock.fixed(Instant.parse("2031-03-12T10:00:00Z"), ZoneId.systemDefault());
     private static final LocalDateTime NOW = LocalDateTime.now(CLOCK);
     private static final Duration MINUTE = Duration.ofMinutes(1);
 
@@ -103,8 +105,10 @@ class PendingRegistrationSweepJobTest {
     void registersItself() {
         job.registerJob();
 
-        verify(scheduler).registerJobTarget(org.mockito.ArgumentMatchers.eq("pending_registration_sweep"),
-                org.mockito.ArgumentMatchers.any(Runnable.class));
+        ArgumentCaptor<Runnable> target = ArgumentCaptor.forClass(Runnable.class);
+        verify(scheduler).registerJobTarget(eq("pending_registration_sweep"), target.capture());
+        target.getValue().run();
+        verify(users).findPendingSweepCandidates(NOW.minusHours(96), UserRole.ADMIN);
     }
 
     @Test

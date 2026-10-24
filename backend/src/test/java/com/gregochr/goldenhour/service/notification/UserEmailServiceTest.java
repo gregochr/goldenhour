@@ -21,6 +21,7 @@ import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -276,6 +277,15 @@ class UserEmailServiceTest {
         verify(templateEngine, never()).process(any(String.class), any(IContext.class));
     }
 
+    /** Matches the reminder template's context exactly: link, flag, days left and the lapse date. */
+    private static IContext reminderContext(String token, boolean finalReminder) {
+        return argThat(ctx -> ctx instanceof Context c
+                && ("https://app.photocast.online/verify?token=" + token).equals(c.getVariable("verificationUrl"))
+                && Boolean.valueOf(finalReminder).equals(c.getVariable("finalReminder"))
+                && Integer.valueOf(3).equals(c.getVariable("daysLeft"))
+                && "Friday 14 March".equals(c.getVariable("lapsesOn")));
+    }
+
     @Test
     @DisplayName("isConfigured reports whether a mail sender exists")
     void isConfigured_reflectsTheSender() {
@@ -299,7 +309,7 @@ class UserEmailServiceTest {
     @Test
     @DisplayName("the reminder returns false with no sender and for a blank address, rendering nothing")
     void reminder_cannotSend_returnsFalse() {
-        LocalDateTime lapses = LocalDateTime.of(2026, 10, 30, 12, 0);
+        LocalDateTime lapses = LocalDateTime.of(2031, 3, 14, 10, 0);
 
         assertThat(new UserEmailService(null, templateEngine, new RegistrationProperties())
                 .sendVerificationReminderEmail("a@example.com", "alice", "tok", false, lapses)).isFalse();
@@ -315,12 +325,12 @@ class UserEmailServiceTest {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("verification-reminder-email"), any(IContext.class)))
+        when(templateEngine.process(eq("verification-reminder-email"), reminderContext("tok", true)))
                 .thenReturn("<html></html>");
         doThrow(new MailSendException("SMTP down")).when(mailSender).send(mimeMessage);
 
         assertThat(service.sendVerificationReminderEmail("a@example.com", "alice", "tok", true,
-                LocalDateTime.of(2026, 10, 30, 12, 0))).isFalse();
+                LocalDateTime.of(2031, 3, 14, 10, 0))).isFalse();
     }
 
     @Test
@@ -329,11 +339,11 @@ class UserEmailServiceTest {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("verification-reminder-email"), any(IContext.class)))
+        when(templateEngine.process(eq("verification-reminder-email"), reminderContext("fresh-tok", false)))
                 .thenReturn("<html></html>");
 
         boolean sent = service.sendVerificationReminderEmail("a@example.com", "alice", "fresh-tok", false,
-                LocalDateTime.of(2026, 10, 30, 12, 0));
+                LocalDateTime.of(2031, 3, 14, 10, 0));
 
         assertThat(sent).isTrue();
         ArgumentCaptor<IContext> captor = ArgumentCaptor.forClass(IContext.class);
@@ -343,7 +353,7 @@ class UserEmailServiceTest {
                 .isEqualTo("https://app.photocast.online/verify?token=fresh-tok");
         assertThat(context.getVariable("finalReminder")).isEqualTo(false);
         assertThat(context.getVariable("daysLeft")).isEqualTo(3);
-        assertThat(context.getVariable("lapsesOn")).isEqualTo("Friday 30 October");
+        assertThat(context.getVariable("lapsesOn")).isEqualTo("Friday 14 March");
         verify(mimeMessage).setSubject("PhotoCast — your place is held for 3 more days", "UTF-8");
         verify(mailSender).send(mimeMessage);
     }
@@ -354,11 +364,11 @@ class UserEmailServiceTest {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("verification-reminder-email"), any(IContext.class)))
+        when(templateEngine.process(eq("verification-reminder-email"), reminderContext("fresh-tok", true)))
                 .thenReturn("<html></html>");
 
         boolean sent = service.sendVerificationReminderEmail("a@example.com", "alice", "fresh-tok", true,
-                LocalDateTime.of(2026, 10, 30, 12, 0));
+                LocalDateTime.of(2031, 3, 14, 10, 0));
 
         assertThat(sent).isTrue();
         ArgumentCaptor<IContext> captor = ArgumentCaptor.forClass(IContext.class);

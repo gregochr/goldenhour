@@ -179,7 +179,7 @@ class VerificationTokenIssuerTest {
     @Test
     @DisplayName("expiresAt and createdAt come from the injected clock, not the wall clock")
     void issue_usesTheInjectedClock() {
-        java.time.Clock fixed = java.time.Clock.fixed(java.time.Instant.parse("2030-01-02T03:04:05Z"),
+        java.time.Clock fixed = java.time.Clock.fixed(java.time.Instant.parse("2031-03-12T10:00:00Z"),
                 java.time.ZoneId.systemDefault());
         VerificationTokenIssuer fixedIssuer = new VerificationTokenIssuer(users, tokens, jwtService, fixed);
         LocalDateTime now = LocalDateTime.now(fixed);

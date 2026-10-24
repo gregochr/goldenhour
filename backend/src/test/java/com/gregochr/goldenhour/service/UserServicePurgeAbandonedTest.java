@@ -36,14 +36,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class UserServicePurgeAbandonedTest {
 
-    private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 24, 12, 0);
+    private static final LocalDateTime NOW = LocalDateTime.of(2031, 3, 12, 10, 0);
 
     /** The collaborators {@link UserService} injects that a data-JPA slice does not supply. */
     @TestConfiguration
     static class TestBeans {
         @Bean
         Clock clock() {
-            return Clock.fixed(Instant.parse("2026-10-24T12:00:00Z"), ZoneOffset.UTC);
+            return Clock.fixed(Instant.parse("2031-03-12T10:00:00Z"), ZoneOffset.UTC);
         }
 
         @Bean

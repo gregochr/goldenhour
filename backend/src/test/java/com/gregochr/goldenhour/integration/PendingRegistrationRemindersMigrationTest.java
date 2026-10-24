@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class PendingRegistrationRemindersMigrationTest extends IntegrationTestBase {
 
-    private static final LocalDateTime CREATED = LocalDateTime.of(2026, 10, 1, 9, 30);
+    private static final LocalDateTime CREATED = LocalDateTime.of(2031, 3, 1, 9, 30);
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -132,7 +132,7 @@ class PendingRegistrationRemindersMigrationTest extends IntegrationTestBase {
             + "now, a mismatched expected stage changes 0 rows, and revert restores both columns")
     void advanceAndRevertOnPostgres() {
         long id = user("v190-cas", false, "", UserRole.LITE_USER);
-        LocalDateTime now = LocalDateTime.of(2026, 10, 24, 12, 0);
+        LocalDateTime now = LocalDateTime.of(2031, 3, 12, 10, 0);
 
         assertThat(users.advanceReminderStage(id, 1, 2, now)).isZero();
         assertThat(sent(id)).isZero();
@@ -166,7 +166,7 @@ class PendingRegistrationRemindersMigrationTest extends IntegrationTestBase {
                 id, location);
         jdbc.update("INSERT INTO app_user_email_claim (email_lower, claimed_at) VALUES (?, now())",
                 "v190-purge@example.com");
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.of(2031, 3, 12, 10, 0);
         jdbc.update("INSERT INTO email_verification_token (token_hash, user_id, expires_at, verified, created_at)"
                 + " VALUES ('v190-live', ?, ?, false, ?)", id, Timestamp.valueOf(now.plusHours(2)),
                 Timestamp.valueOf(now.minusHours(22)));

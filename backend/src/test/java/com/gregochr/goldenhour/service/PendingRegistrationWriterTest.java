@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class PendingRegistrationWriterTest {
 
-    private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 24, 12, 0);
+    private static final LocalDateTime NOW = LocalDateTime.of(2031, 3, 12, 10, 0);
 
     /** The beans the writer's collaborators inject that the JPA slice does not provide. */
     @TestConfiguration
