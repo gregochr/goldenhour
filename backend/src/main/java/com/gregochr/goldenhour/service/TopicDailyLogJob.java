@@ -84,17 +84,17 @@ import java.util.Map;
  *       and {@value #TYPE_INVERSION_LEGACY} is no longer written at all. <b>A rarity computation
  *       must read {@value #TYPE_INVERSION} alone and ignore {@value #TYPE_INVERSION_LEGACY};
  *       averaging the two would blend a biased and an unbiased population.</b> Nothing reads either
- *       yet: {@code ComingUpConditionsBuilder}'s inversion rarity stays pinned to the config
- *       fallback by owner decision (2026-10-02) until enough of this log exists, and switching it
- *       is a separate change.</li>
+ *       yet: the log is an unbiased measurement record kept for a future rarity computation (the
+ *       Coming up conditions strip that once pinned a config fallback was retired by
+ *       coming-up-glance B2).</li>
  *   <li><b>MIST_CALC</b> — {@code slot_atmosphere.mist_score}/{@code mist_potential} (V185,
  *       valley-mist-plan M1b), the deterministic {@code ValleyMistCalculator} reading written for
  *       every {@code mist_prone} candidate the pipeline fetched weather for, triaged or not. The
  *       {@code INVERSION_CALC} shape on both events: measured rows only (scored flag, score and
  *       band all present), present when the stored band is {@code LIKELY}, intensity the region's
  *       highest score, nothing for an unmeasured region. The name carries the population, so a
- *       rarity computation reads {@value #TYPE_MIST} alone. Nothing reads it yet:
- *       {@code ComingUpConditionsBuilder}'s mist rarity stays pinned to the config fallback.</li>
+ *       rarity computation reads {@value #TYPE_MIST} alone. Nothing reads it yet: it is
+ *       kept as a measurement record for a future rarity computation.</li>
  *   <li><b>SNOW</b> — {@code slot_atmosphere} (survivor-only; the only source — the
  *       {@code forecast_evaluation} snow columns were dropped in V116). The plan's candidate list
  *       names one "SNOW" topic, but the codebase has two live snow strategies:

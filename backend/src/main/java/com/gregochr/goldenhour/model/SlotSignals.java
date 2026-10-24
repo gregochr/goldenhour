@@ -86,10 +86,9 @@ public record SlotSignals(
      * slot the calculator would itself have refused; it only ever fills a gap the calculator has
      * not had the chance to fill yet.
      *
-     * <p>Used by {@code InversionHotTopicStrategy.detect}/{@code attachFacts} and by both of
-     * {@code ComingUpConditionsBuilder.buildInversion}'s reads (trailing history and forward peak
-     * alike) — the single shared helper a helper-level test and both readers' own tests pin
-     * against identical fixtures, so the two can never disagree.
+     * <p>Used by {@code InversionHotTopicStrategy.detect}/{@code attachFacts} — the single shared
+     * helper a helper-level test and the reader's own tests pin against identical fixtures, so
+     * they can never disagree.
      *
      * @return the effective 0–10 inversion score, or null when the calculator scored this slot
      *         and found nothing, or when neither surface has anything for this key at all

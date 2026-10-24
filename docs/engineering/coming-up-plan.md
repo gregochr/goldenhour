@@ -656,6 +656,8 @@ vs asserted.
 
 ## 7 · P4 — standing conditions (backend + frontend)
 
+*2026-10-24: retired by coming-up-glance B2 (the frontend panel went in P2; `ComingUpConditionsBuilder`, the `conditions` response component and the builder-only `coming-up.scoring` sub-configs were deleted in B2). `topic_daily_log` and `TopicDailyLogJob` stay.*
+
 **Backend.** `conditions[]` per §13, built in the assembly pass:
 - **Coastal tides** (D11 — one row, spring and king runs together, each occurrence keeping its own
   run label): rate from ephemeris (14.8 d), runs from `TideSizeIndex`/`TideRunBuilder` over the

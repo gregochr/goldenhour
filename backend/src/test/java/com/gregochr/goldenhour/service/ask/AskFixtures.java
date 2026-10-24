@@ -272,7 +272,7 @@ final class AskFixtures {
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
         when(freshness.now()).thenReturn(now);
         when(almanacService.getFeed(AlmanacService.DEFAULT_DAYS))
-                .thenReturn(new ComingUpResponse(TODAY, null, null, List.of(), new ArrayList<>(almanac)));
+                .thenReturn(new ComingUpResponse(TODAY, null, null, new ArrayList<>(almanac)));
         return new AskSnapshotBuilder(briefingService, travelDays, almanacService, freshness,
                 clockAt(now), Mockito.mock(AstroConditionsRepository.class),
                 Mockito.mock(AuroraForecastResultRepository.class), Mockito.mock(AstroConditionsService.class),

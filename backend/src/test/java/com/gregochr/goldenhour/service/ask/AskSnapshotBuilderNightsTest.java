@@ -85,7 +85,7 @@ class AskSnapshotBuilderNightsTest {
         when(briefingService.getCachedBriefingForApi()).thenReturn(AskFixtures.briefing(List.of(), List.of()));
         when(freshness.now()).thenReturn(NOW);
         when(almanacService.getFeed(AlmanacService.DEFAULT_DAYS))
-                .thenReturn(new ComingUpResponse(TODAY, null, null, List.of(), new ArrayList<>()));
+                .thenReturn(new ComingUpResponse(TODAY, null, null, new ArrayList<>()));
         builder = new AskSnapshotBuilder(briefingService, travelDayService, almanacService, freshness,
                 AskFixtures.clockAt(NOW), astroRepository, auroraRepository, astroService, nightSelector,
                 stateCache);

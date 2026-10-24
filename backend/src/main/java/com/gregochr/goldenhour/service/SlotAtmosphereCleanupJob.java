@@ -31,10 +31,11 @@ import java.time.LocalDate;
  * {@value #DEFAULT_RETENTION_DAYS}). ⚠️ <b>A value shorter than the longest read-back is refused at
  * startup</b> (fail fast with an {@link IllegalStateException}, the way {@code SeasonConfig} refuses
  * a malformed season window) rather than clamped: a silently-clamped retention would hide a
- * misconfiguration that deletes history a reader depends on. The longest reader looks back
- * {@code coming-up.scoring.recurrent.trailing-window-days} days (default 60) — the Coming up
- * valley-inversions condition, via {@code SlotSignalReader}; every other reader looks only forward
- * from today (the hot-topic strategies) or at yesterday ({@code TopicDailyLogJob}). See
+ * misconfiguration that deletes history a reader depends on. The 60-day
+ * {@code coming-up.scoring.recurrent.trailing-window-days} is kept deliberately as a retention floor
+ * (coming-up-glance plan B2); no reader looks back that far since the conditions builder was
+ * deleted. Every live reader looks only forward from today (the hot-topic strategies) or at
+ * yesterday ({@code TopicDailyLogJob}). See
  * {@link #longestReadBackDays(ComingUpScoringProperties)}: a new reader that looks further back
  * must be added there, or its history will be pruned from under it.
  *
@@ -102,11 +103,10 @@ public class SlotAtmosphereCleanupJob {
     }
 
     /**
-     * The longest any reader looks back from today over {@code slot_atmosphere}, in days: the
-     * Coming up valley-inversions trailing history ({@code SlotSignalReader.read} over
-     * {@code builtFor - trailing-window-days .. yesterday}) or the topic daily log's single day,
-     * whichever is greater. Every hot-topic strategy reads forward from today only, and the dust
-     * condition's trailing window reads {@code forecast_evaluation}, not this table.
+     * The retention floor over {@code slot_atmosphere}, in days: the configured trailing window
+     * (60 by default, kept deliberately as a floor by coming-up-glance plan B2, though no reader
+     * looks back that far now) or the topic daily log's single day, whichever is greater. Every
+     * hot-topic strategy reads forward from today only.
      *
      * @param scoringProperties the Coming up knobs
      * @return the minimum retention, in days, that keeps every reader's history whole

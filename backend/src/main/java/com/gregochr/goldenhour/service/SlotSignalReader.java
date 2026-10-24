@@ -40,8 +40,7 @@ import java.util.Map;
  * windows (round 3, a Codex P1 against PR #948's second cut)</b> — an earlier design kept the
  * forward peak calculator-only on the assumption a forward slot is upserted every cycle; that
  * assumption is false ({@code BriefingCandidateCollector} can skip a region on a fresh cache for up
- * to 36 hours before {@code fetchWeatherAndTriage} ever runs), so both the inversion hot topic and
- * the Coming up "Valley inversions" condition's forward peak AND trailing history now read
+ * to 36 hours before {@code fetchWeatherAndTriage} ever runs), so both the inversion hot topic now reads
  * {@code effectiveInversionScore()}. ⚠️ <b>A further Codex P1 (round 4) then found the fallback
  * itself too eager</b> — {@code InversionScoreCalculator.calculate} can return null for an
  * ELIGIBLE location (missing weather inputs), so a fresh row's null {@code inversionScore} is not

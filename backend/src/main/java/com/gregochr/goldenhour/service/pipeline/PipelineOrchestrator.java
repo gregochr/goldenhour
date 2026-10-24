@@ -800,9 +800,9 @@ public class PipelineOrchestrator {
      * {@link #finishRun} for the same reasons {@link #dispatchAskReady} gives: the run is terminal
      * first, the work is never on the run's thread, and nothing it does can reach the run.
      *
-     * <p>Why here: the feed's standing conditions (dust, valley inversions) read the forecast data this
-     * cycle has just written, and the feed is cached for the whole UK day, so without a refresh they
-     * stayed as they were at the day's first request. The refresh builds the new feed completely
+     * <p>Why here: the feed's chronology is rebuilt from the data this cycle has just written, and the
+     * feed is cached for the whole UK day, so without a refresh it would stay as the day's first
+     * request left it. The refresh builds the new feed completely
      * before replacing the old one, so no reader sees an empty cache while it runs. This method must
      * never throw, for the same reason as the Ask dispatch.
      *

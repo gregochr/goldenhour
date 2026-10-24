@@ -54,7 +54,7 @@ class AlmanacControllerTest extends AbstractControllerTest {
     }
 
     private static ComingUpResponse response(ComingUpEntry... entries) {
-        return new ComingUpResponse(BUILT_FOR, null, null, List.of(), List.of(entries));
+        return new ComingUpResponse(BUILT_FOR, null, null, List.of(entries));
     }
 
     @Test
@@ -66,7 +66,7 @@ class AlmanacControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/almanac"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.builtFor").value("2026-08-16"))
-                .andExpect(jsonPath("$.conditions.length()").value(0))
+                .andExpect(jsonPath("$.conditions").doesNotExist())
                 .andExpect(jsonPath("$.entries.length()").value(1))
                 .andExpect(jsonPath("$.entries[0].startDate").value("2026-08-16"))
                 .andExpect(jsonPath("$.entries[0].endDate").value("2026-08-18"))

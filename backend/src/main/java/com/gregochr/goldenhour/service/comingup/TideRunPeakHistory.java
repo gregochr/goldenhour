@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
  * <p>Deliberately simpler than {@code TideAlmanacSource.detectRuns}: it groups maximal consecutive
  * qualifying days with no outward walk past the query window's edges. A run-peak distribution is
  * built from years of history, so a day or two of truncation at the very edges of that window has no
- * material effect on it — unlike the almanac feed itself or P4's conditions strip, which need a
+ * material effect on it — unlike the almanac feed itself, which needs a
  * run's true first and last day and own the walk that finds them.
  */
 @Component
@@ -49,12 +49,11 @@ public class TideRunPeakHistory {
     /**
      * Each (port, roster, window end) history already worked out today.
      *
-     * <p>One "Coming up" build scores every spring and king run in the feed twice, once for the
-     * entry and once for the conditions strip, and each scoring asked for the same history: a
-     * three-year roster scan plus one query per historical run (~75 runs), about a dozen scans and
-     * ~900 queries per build for six runs. The answer depends only on the key and on stored
-     * extremes, so it is computed once per distinct question per UTC day and dropped when
-     * {@link TideSizeIndex} says the extremes changed.
+     * <p>Each scoring of a spring or king run asks for a history of a three-year roster scan plus
+     * one query per historical run (~75 runs); the memo pays off across builds (each cycle's refresh,
+     * other window lengths, admin rewinds), which would otherwise repeat those scans and queries.
+     * The answer depends only on the key and on stored extremes, so it is computed once per distinct question per UTC
+     * day and dropped when {@link TideSizeIndex} says the extremes changed.
      *
      * <p><b>Rewind-safe.</b> {@code AlmanacService} bypasses its own cache while an admin's rewind is
      * active, but this memo needs no such bypass: nothing here reads the application clock. The
