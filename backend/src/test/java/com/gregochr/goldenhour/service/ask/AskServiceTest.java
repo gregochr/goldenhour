@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -87,7 +88,7 @@ class AskServiceTest {
     private AskSnapshot snapshot;
     private AskUsageStore usageStore;
     private AskService service;
-    private UserRole role = UserRole.LITE_USER;
+    private UserRole role = UserRole.PRO_USER;
     private long spent;
     private Double homeLatitude;
     private Double homeLongitude;
@@ -176,6 +177,56 @@ class AskServiceTest {
         throw new AssertionError("expected a refusal");
     }
 
+    // -- the role gate: Ask is Pro and Admin only -------------------------------------------
+
+    private static AppUserEntity userWithRole(UserRole userRole) {
+        return AppUserEntity.builder().id(41L).username("reader").role(userRole).build();
+    }
+
+    @Test
+    @DisplayName("a LITE asker is NOT_ENTITLED at admit(), before the rate limiter counts: the one slot a "
+            + "minute is still there for the same user once they are PRO, and no ask_usage row exists")
+    void admitRefusesLiteBeforeTheLimiterCounts() {
+        properties.setRatePerMinute(1);
+        rebuild();
+        role = UserRole.LITE_USER;
+
+        assertThatThrownBy(() -> service.admit(reader()))
+                .isInstanceOfSatisfying(AskRefusal.class,
+                        e -> assertThat(e.code()).isEqualTo(AskErrorCode.NOT_ENTITLED));
+        assertThatThrownBy(() -> service.admit(reader()))
+                .isInstanceOfSatisfying(AskRefusal.class,
+                        e -> assertThat(e.code()).isEqualTo(AskErrorCode.NOT_ENTITLED));
+
+        role = UserRole.PRO_USER;
+        assertThat(service.admit(reader()).getId()).isEqualTo(41L);
+        assertThat(usageRepository.count()).isZero();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"PRO_USER", "ADMIN"}, mode = EnumSource.Mode.EXCLUDE)
+    @DisplayName("ask() refuses a role that may not use Ask as its first statement, so the free paths "
+            + "(pre-filter can't-answer, Ready match, cache hit) and the engine are all unreachable, and no "
+            + "ask_usage row is created")
+    void askRefusesLiteBeforeAnyStep(UserRole asRole) {
+        assertThatThrownBy(() -> service.ask(userWithRole(asRole), request("Best spot tonight?")))
+                .isInstanceOfSatisfying(AskRefusal.class,
+                        e -> assertThat(e.code()).isEqualTo(AskErrorCode.NOT_ENTITLED));
+
+        verifyNoInteractions(snapshotBuilder, preFilter, matcher, cache, engine);
+        assertThat(usageRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("a user with no role is NOT_ENTITLED as well")
+    void askRefusesAnUnresolvedRole() {
+        assertThatThrownBy(() -> service.ask(userWithRole(null), request("Best spot tonight?")))
+                .isInstanceOfSatisfying(AskRefusal.class,
+                        e -> assertThat(e.code()).isEqualTo(AskErrorCode.NOT_ENTITLED));
+
+        verifyNoInteractions(engine);
+    }
+
     // -- the happy path ---------------------------------------------------------------------
 
     @Test
@@ -187,8 +238,8 @@ class AskServiceTest {
         assertThat(response.answerable()).isTrue();
         assertThat(response.kind()).isEqualTo("own");
         assertThat(response.charged()).isTrue();
-        assertThat(response.allowanceLimit()).isEqualTo(3);
-        assertThat(response.allowanceLeft()).isEqualTo(2);
+        assertThat(response.allowanceLimit()).isEqualTo(30);
+        assertThat(response.allowanceLeft()).isEqualTo(29);
         assertThat(response.picks()).singleElement().satisfies(p -> {
             assertThat(p.locationName()).isEqualTo("Bamburgh");
             assertThat(p.windowId()).isEqualTo("2026-10-05_sunset");
@@ -212,7 +263,7 @@ class AskServiceTest {
         assertThat(question.getValue().sanitised()).isEqualTo("Please, could you tell me the Best Spot tonight?");
         assertThat(question.getValue().normalised()).isEqualTo("best spot tonight");
         assertThat(question.getValue().view()).isEqualTo("plan");
-        assertThat(context.getValue()).isEqualTo(new AskUserContext(41L, UserRole.LITE_USER, true));
+        assertThat(context.getValue()).isEqualTo(new AskUserContext(41L, UserRole.PRO_USER, true));
         assertThat(options.getValue()).isEqualTo(AskRunOptions.none());
     }
 
@@ -231,7 +282,7 @@ class AskServiceTest {
 
         ask("Best spot tonight?");
 
-        assertThat(contextSent()).isEqualTo(new AskUserContext(41L, UserRole.LITE_USER, true,
+        assertThat(contextSent()).isEqualTo(new AskUserContext(41L, UserRole.PRO_USER, true,
                 new AskUserContext.Home(54.9, -1.6, 25)));
     }
 
@@ -265,7 +316,7 @@ class AskServiceTest {
             + "built for the 6th")
     void rateLimitFiresBeforeTheSnapshot() {
         properties.setRatePerMinute(5);
-        properties.setLimitLite(100);
+        properties.setLimitPro(100);
         rebuild();
         for (int i = 0; i < 5; i++) {
             ask("Best spot tonight?");
@@ -283,7 +334,7 @@ class AskServiceTest {
     @DisplayName("the limit resets after 60 seconds")
     void rateLimitResets() {
         properties.setRatePerMinute(5);
-        properties.setLimitLite(100);
+        properties.setLimitPro(100);
         rebuild();
         for (int i = 0; i < 5; i++) {
             ask("Best spot tonight?");
@@ -310,7 +361,7 @@ class AskServiceTest {
             + "counted once")
     void admitCountsOnceAndAskCountsNone() {
         properties.setRatePerMinute(2);
-        properties.setLimitLite(100);
+        properties.setLimitPro(100);
         rebuild();
 
         AppUserEntity first = service.admit(reader());
@@ -460,7 +511,7 @@ class AskServiceTest {
     @DisplayName("a windowId in the window set reaches the engine; one outside it, malformed or blank is ignored, "
             + "not 400")
     void windowIdIsIgnoredWhenUnknown() {
-        properties.setLimitLite(100);
+        properties.setLimitPro(100);
         rebuild();
         for (String id : new String[] {"2026-10-05_sunset", "2026-10-06_sunrise"}) {
             submit(new AskRequest("Best?", id, null, "map"));
@@ -508,7 +559,7 @@ class AskServiceTest {
         assertThat(response.charged()).isFalse();
         assertThat(response.missing()).isEqualTo("parking");
         assertThat(response.picks()).isEmpty();
-        assertThat(response.allowanceLeft()).isEqualTo(3);
+        assertThat(response.allowanceLeft()).isEqualTo(30);
         verifyNoInteractions(engine, matcher, cache);
         assertThat(usage()).isEqualTo(AskUsageStore.Usage.NONE);
         ArgumentCaptor<AskLog.Entry> entry = ArgumentCaptor.forClass(AskLog.Entry.class);
@@ -550,7 +601,7 @@ class AskServiceTest {
 
         assertThat(response.kind()).isEqualTo("own");
         assertThat(response.charged()).isFalse();
-        assertThat(response.allowanceLeft()).isEqualTo(3);
+        assertThat(response.allowanceLeft()).isEqualTo(30);
         verifyNoInteractions(engine);
         verify(cache, never()).store(any(), any(), any(), any());
         assertThat(usage()).isEqualTo(AskUsageStore.Usage.NONE);
@@ -663,6 +714,7 @@ class AskServiceTest {
     @DisplayName("a follow-up is a typed question: charged, one allowance and one engine call, refused at the "
             + "allowance and at the spend cap")
     void followUpIsChargedAsTyped() {
+        properties.setLimitPro(3);
         AskResponse first = submit(followUp("Anything closer to home?", sameRun()));
 
         assertThat(first.charged()).isTrue();
@@ -672,7 +724,7 @@ class AskServiceTest {
         submit(followUp("And later?", sameRun()));
         assertThat(codeOf(followUp("One more?", sameRun()))).isEqualTo(AskErrorCode.ALLOWANCE_EXHAUSTED);
         spent = CAP;
-        properties.setLimitLite(100);
+        properties.setLimitPro(100);
         assertThat(codeOf(followUp("After the cap?", sameRun()))).isEqualTo(AskErrorCode.TYPED_UNAVAILABLE);
     }
 
@@ -823,7 +875,7 @@ class AskServiceTest {
     @DisplayName("the thread cap is photocast.ask.thread.max-exchanges: the cap is accepted, one more is INVALID")
     void threadCapFollowsConfiguration() {
         properties.getThread().setMaxExchanges(2);
-        properties.setLimitLite(100);
+        properties.setLimitPro(100);
 
         assertThat(submit(followUp("Q?", sameRun(), sameRun())).kind()).isEqualTo("own");
         AskRefusal refusal = org.junit.jupiter.api.Assertions.assertThrows(AskRefusal.class,
@@ -957,8 +1009,8 @@ class AskServiceTest {
     // -- 8. ceilings ------------------------------------------------------------------------------
 
     @ParameterizedTest
-    @CsvSource({"LITE_USER,3", "PRO_USER,30", "ADMIN,30"})
-    @DisplayName("the allowance is LITE 3, PRO 30, ADMIN 30: the Nth is answered, the N+1th is ALLOWANCE_EXHAUSTED")
+    @CsvSource({"PRO_USER,30", "ADMIN,30"})
+    @DisplayName("the allowance is PRO 30, ADMIN 30: the Nth is answered, the N+1th is ALLOWANCE_EXHAUSTED")
     void roleAllowances(UserRole asRole, int limit) {
         role = asRole;
         for (int i = 1; i <= limit; i++) {
@@ -974,6 +1026,7 @@ class AskServiceTest {
     @Test
     @DisplayName("an unanswerable question every time hits DAILY_LIMIT at 3 x the allowance with used still 0")
     void dailyLimit() {
+        properties.setLimitPro(3);
         when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> cantRun());
 
         for (int i = 1; i <= 9; i++) {
@@ -990,7 +1043,7 @@ class AskServiceTest {
     @Test
     @DisplayName("the allowance and the ceiling follow the configured limits and multiplier")
     void configuredLimits() {
-        properties.setLimitLite(1);
+        properties.setLimitPro(1);
         properties.setEngineCeilingMultiplier(2);
         when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> cantRun());
 
@@ -1033,7 +1086,7 @@ class AskServiceTest {
         assertThat(response.events()).isEmpty();
         assertThat(response.missing()).isEqualTo("parking");
         assertThat(response.tryThese()).isEqualTo(suggestions);
-        assertThat(response.allowanceLeft()).isEqualTo(3);
+        assertThat(response.allowanceLeft()).isEqualTo(30);
         assertThat(usage()).as("used refunded, engine_calls kept").isEqualTo(new AskUsageStore.Usage(0, 1));
     }
 
@@ -1091,7 +1144,7 @@ class AskServiceTest {
         assertThat(response.charged()).isTrue();
         assertThat(response.picks()).hasSize(1);
         assertThat(response.allowanceLeft()).isNull();
-        assertThat(response.allowanceLimit()).isEqualTo(3);
+        assertThat(response.allowanceLimit()).isEqualTo(30);
         assertThat(real.read(41L, LocalDate.of(2026, 10, 5))).isEqualTo(new AskUsageStore.Usage(1, 1));
     }
 
@@ -1122,7 +1175,7 @@ class AskServiceTest {
 
         assertThat(response.kind()).isEqualTo("cant");
         assertThat(response.allowanceLeft()).isNull();
-        assertThat(response.allowanceLimit()).isEqualTo(3);
+        assertThat(response.allowanceLimit()).isEqualTo(30);
         assertThat(real.read(41L, LocalDate.of(2026, 10, 5))).isEqualTo(new AskUsageStore.Usage(0, 1));
     }
 
@@ -1215,7 +1268,7 @@ class AskServiceTest {
 
         AskResponse response = ask("Parking?");
 
-        assertThat(response.allowanceLeft()).isEqualTo(3);
+        assertThat(response.allowanceLeft()).isEqualTo(30);
         assertThat(usage()).isEqualTo(new AskUsageStore.Usage(0, 1));
     }
 
@@ -1286,6 +1339,7 @@ class AskServiceTest {
     @Test
     @DisplayName("a new UK day starts a new allowance")
     void newDayNewAllowance() {
+        properties.setLimitPro(3);
         for (int i = 0; i < 3; i++) {
             ask("Best spot tonight?");
         }
@@ -1314,7 +1368,56 @@ class AskServiceTest {
         properties.setEnabled(true);
         ask("Best spot tonight?");
 
-        assertThat(service.settings(reader())).isEqualTo(new AskSettingsResponse(true, 1, 3, 2, true));
+        assertThat(service.settings(reader())).isEqualTo(new AskSettingsResponse(true, 1, 30, 29, true));
+    }
+
+    @Test
+    @DisplayName("settings for a LITE asker with Ask on are enabled with zeros and typedAvailable false: a "
+            + "seeded usage row of 2 is not read (used stays 0), and the spend cap is not consulted")
+    void settingsOnForLite() {
+        properties.setEnabled(true);
+        usageStore.reserve(41L, LocalDate.of(2026, 10, 5), 30, 90);
+        usageStore.reserve(41L, LocalDate.of(2026, 10, 5), 30, 90);
+        role = UserRole.LITE_USER;
+
+        assertThat(service.settings(reader())).isEqualTo(new AskSettingsResponse(true, 0, 0, 0, false));
+
+        verifyNoInteractions(jobRuns);
+    }
+
+    @Test
+    @DisplayName("withWindow keeps a held astro night and drops a held aurora night for a role that may not see "
+            + "aurora (unreachable over HTTP since the role gate, so pinned on the method itself)")
+    void withWindowDropsAnAuroraNightForLite() {
+        AskSnapshot withNights = AskNightFixtures.withNights(snapshot, null, AskNightFixtures.astroNight(
+                AskNightFixtures.TONIGHT, AskNightFixtures.astro(1L, "Bamburgh", "Northumberland", 5, 3)),
+                AskNightFixtures.auroraNight(AskNightFixtures.TONIGHT,
+                        AskNightFixtures.aurora(1L, "Bamburgh", "Northumberland", 5, 4, 3)));
+        AskQuestion astro = new AskQuestion("Is it any good?", "is it any good", "2026-10-05_astro", null, "map");
+        AskQuestion aurora = new AskQuestion("Is it any good?", "is it any good", "2026-10-05_aurora", null, "map");
+
+        assertThat(AskService.withWindow(astro, withNights, UserRole.LITE_USER).windowId())
+                .isEqualTo("2026-10-05_astro");
+        assertThat(AskService.withWindow(aurora, withNights, UserRole.LITE_USER).windowId()).isNull();
+        assertThat(AskService.withWindow(aurora, withNights, UserRole.PRO_USER).windowId())
+                .isEqualTo("2026-10-05_aurora");
+    }
+
+    @Test
+    @DisplayName("settings for an ADMIN with Ask on carry the PRO allowance")
+    void settingsOnForAdmin() {
+        properties.setEnabled(true);
+        role = UserRole.ADMIN;
+
+        assertThat(service.settings(reader())).isEqualTo(new AskSettingsResponse(true, 0, 30, 30, true));
+    }
+
+    @Test
+    @DisplayName("settings with Ask off are off() for every role, LITE included")
+    void settingsOffForEveryRole() {
+        role = UserRole.LITE_USER;
+
+        assertThat(service.settings(reader())).isEqualTo(AskSettingsResponse.off());
     }
 
     @Test
@@ -1333,7 +1436,7 @@ class AskServiceTest {
         for (int i = 0; i < 3; i++) {
             ask("Best spot tonight?");
         }
-        properties.setLimitLite(1);
+        properties.setLimitPro(1);
         AskSettingsResponse lowered = service.settings(reader());
         assertThat(lowered.used()).isEqualTo(3);
         assertThat(lowered.left()).isZero();
@@ -1394,7 +1497,6 @@ class AskServiceTest {
     @DisplayName("a night answer is never offered to the typed cache, and carries the night version it was "
             + "given against, with the aurora level for an asker who may see it")
     void nightAnswerIsUncacheableAndVersioned() {
-        role = UserRole.PRO_USER;
         withTonightsAstro(new AskSnapshot.AuroraState("MODERATE", 6.0));
         when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> nightRun());
 
@@ -1406,14 +1508,12 @@ class AskServiceTest {
     }
 
     @Test
-    @DisplayName("a LITE asker's night version holds no aurora level; a solar answer carries no night version")
-    void liteVersionAndSolarAnswer() {
+    @DisplayName("a solar answer carries no night version and is offered to the typed cache "
+            + "(the LITE night version is already covered by AskNightVersionTest.composition and "
+            + "liteVersionIgnoresTheState: LITE can no longer reach ask())")
+    void solarAnswerCarriesNoNightVersion() {
         withTonightsAstro(new AskSnapshot.AuroraState("MODERATE", 6.0));
-        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> nightRun());
 
-        assertThat(ask("Clear skies tonight?").nightVersion()).isEqualTo(liveNightVersion());
-
-        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> ok());
         assertThat(ask("Best spot tonight?").nightVersion()).isNull();
         verify(cache).store(any(), any(), any(), any());
     }
@@ -1448,7 +1548,6 @@ class AskServiceTest {
             + "re-join live, and a verbatim night summary does not")
     void readyOriginNightExchangeResets() {
         withTonightsAstro(new AskSnapshot.AuroraState("QUIET", null));
-        role = UserRole.PRO_USER;
 
         AskResponse response = submit(followUp("And later?",
                 nightExchange(liveNightVersion() + ";a=MODERATE", true)));
@@ -1457,24 +1556,16 @@ class AskServiceTest {
     }
 
     @Test
-    @DisplayName("a LITE thread echoing an appended ;a=STRONG against a live QUIET learns nothing: no reset, no "
-            + "mention of the level in the response; the same echo from a PRO asker resets")
-    void auroraSegmentIsNoOracleForLite() {
+    @DisplayName("a PRO thread echoing an appended ;a=STRONG against a live QUIET is reset "
+            + "(the LITE half, no reset and no oracle, is already covered by "
+            + "AskNightVersionTest.auroraSegmentIsNotAnOracleForLite and "
+            + "AskThreadContextNightTest.nightStaleAgainstIgnoresTheAuroraSegmentWithoutAccess)")
+    void auroraSegmentIsComparedForPro() {
         withTonightsAstro(new AskSnapshot.AuroraState("QUIET", null));
         properties.setLimitPro(100);
         rebuild();
         String forged = liveNightVersion() + ";a=STRONG";
 
-        AskResponse lite = submit(followUp("And later?", nightExchange(forged, false)));
-
-        assertThat(lite.threadReset()).isNull();
-        assertThat(lite.threadResetReason()).isNull();
-        assertThat(lite.nightVersion()).isNull();
-        assertThat(lite.toString()).doesNotContain("STRONG").doesNotContain("QUIET");
-        assertThat(engineOptions().thread().size()).isEqualTo(1);
-
-        org.mockito.Mockito.clearInvocations(engine);
-        role = UserRole.PRO_USER;
         AskResponse pro = submit(followUp("And later?", nightExchange(forged, false)));
 
         assertThat(pro.threadReset()).isTrue();
@@ -1505,7 +1596,7 @@ class AskServiceTest {
     @DisplayName("a well-formed night windowId for a night the snapshot does not hold (ended, or beyond the two "
             + "nights) is answered as a solar id for a passed window is: 200, the context dropped, never a 400")
     void unheldNightWindowIdIsAnsweredWithoutContext() {
-        properties.setLimitLite(100);
+        properties.setLimitPro(100);
         rebuild();
         withTonightsAstro(null);
         for (String id : new String[] {"2026-10-04_astro", "2026-10-04_aurora", "2026-10-09_astro",
@@ -1521,10 +1612,9 @@ class AskServiceTest {
     }
 
     @Test
-    @DisplayName("a night windowId the snapshot holds reaches the engine as the context; an aurora night only "
-            + "for a role that may see aurora")
+    @DisplayName("a night windowId the snapshot holds reaches the engine as the context, an aurora night "
+            + "included for PRO (the LITE drop is pinned directly in withWindowDropsAnAuroraNightForLite)")
     void heldNightWindowIdIsContext() {
-        properties.setLimitLite(100);
         properties.setLimitPro(100);
         rebuild();
         AskSnapshot withNights = AskNightFixtures.withNights(snapshot, null, AskNightFixtures.astroNight(
@@ -1535,13 +1625,14 @@ class AskServiceTest {
 
         submit(new AskRequest("Is it any good?", "2026-10-05_astro", null, "map"));
         submit(new AskRequest("Is it any good?", "2026-10-05_aurora", null, "map"));
-        role = UserRole.PRO_USER;
-        submit(new AskRequest("Is it any good?", "2026-10-05_aurora", null, "map"));
 
         ArgumentCaptor<AskQuestion> captured = ArgumentCaptor.forClass(AskQuestion.class);
-        verify(engine, times(3)).run(captured.capture(), any(), any(), any());
+        ArgumentCaptor<AskUserContext> contexts = ArgumentCaptor.forClass(AskUserContext.class);
+        verify(engine, times(2)).run(captured.capture(), eq(withNights), contexts.capture(),
+                eq(AskRunOptions.none()));
+        assertThat(contexts.getAllValues()).extracting(AskUserContext::role).containsOnly(UserRole.PRO_USER);
         assertThat(captured.getAllValues()).extracting(AskQuestion::windowId)
-                .containsExactly("2026-10-05_astro", null, "2026-10-05_aurora");
+                .containsExactly("2026-10-05_astro", "2026-10-05_aurora");
     }
 
     @Test

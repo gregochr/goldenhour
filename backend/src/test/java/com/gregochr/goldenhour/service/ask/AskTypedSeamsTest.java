@@ -17,6 +17,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.security.authentication.TestingAuthenticationToken;
@@ -38,6 +39,7 @@ import static com.gregochr.goldenhour.service.ask.ReadyFixtures.northumberland;
 import static com.gregochr.goldenhour.service.ask.ReadyFixtures.oct;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -63,6 +65,7 @@ class AskTypedSeamsTest {
             "2026-10-11_sunrise", "2026-10-11_sunset");
     private static final long ALICE = 1L;
     private static final long BOB = 2L;
+    private static final long CAROL = 3L;
 
     @Autowired
     private AskUsageRepository usageRepository;
@@ -90,8 +93,7 @@ class AskTypedSeamsTest {
     @BeforeEach
     void setUp() {
         properties.setRatePerMinute(600);
-        properties.setLimitLite(3);
-        properties.setLimitPro(30);
+        properties.setLimitPro(3);
         properties.setDailySpendCapUsd(0.5);
         AskSnapshot snapshot = ReadyFixtures.at(ReadyFixtures.FRIDAY_NOON,
                 day(oct(9), false, true, null, northumberland()),
@@ -108,7 +110,9 @@ class AskTypedSeamsTest {
         when(users.findByUsername("alice")).thenReturn(Optional.of(AppUserEntity.builder().id(ALICE)
                 .username("alice").role(UserRole.PRO_USER).build()));
         when(users.findByUsername("bob")).thenReturn(Optional.of(AppUserEntity.builder().id(BOB)
-                .username("bob").role(UserRole.LITE_USER).build()));
+                .username("bob").role(UserRole.PRO_USER).build()));
+        when(users.findByUsername("carol")).thenReturn(Optional.of(AppUserEntity.builder().id(CAROL)
+                .username("carol").role(UserRole.LITE_USER).build()));
         when(driveTimes.hasDriveTimes(ALICE)).thenReturn(true);
         when(driveTimes.hasDriveTimes(BOB)).thenReturn(false);
         when(jobRuns.accountingAvailable()).thenReturn(true);
@@ -177,6 +181,71 @@ class AskTypedSeamsTest {
 
     private AskUsageStore.Usage usage(long user) {
         return usageStore.read(user, DAY);
+    }
+
+    // -- the role gate: a LITE asker gets none of the free paths --------------------------------------
+    // These call ask() directly, skipping admit(), so each one pins ask()'s own guard against the real
+    // pre-filter, Ready matcher and cache.
+
+    private AskErrorCode liteRefusedDirectly(String question) {
+        AppUserEntity carol = AppUserEntity.builder().id(CAROL).username("carol").role(UserRole.LITE_USER).build();
+        try {
+            service.ask(carol, new AskRequest(question, null, List.of(), "map"));
+        } catch (AskRefusal e) {
+            return e.code();
+        }
+        throw new AssertionError("expected a refusal");
+    }
+
+    @Test
+    @DisplayName("a LITE asker is NOT_ENTITLED on the pre-filter path: no can't-answer, no suggestions, no log row")
+    void liteGetsNoPreFilterAnswer() {
+        assertThat(liteRefusedDirectly("Is the car park busy this weekend?")).isEqualTo(AskErrorCode.NOT_ENTITLED);
+
+        verify(engine, never()).run(any(), any(), any(), any());
+        assertThat(logged).isEmpty();
+        assertThat(usageRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("a LITE asker is NOT_ENTITLED on the Ready-match path, though the question matches a Ready one")
+    void liteGetsNoReadyMatch() {
+        assertThat(liteRefusedDirectly("Where's good this weekend?")).isEqualTo(AskErrorCode.NOT_ENTITLED);
+
+        verify(engine, never()).run(any(), any(), any(), any());
+        assertThat(logged).isEmpty();
+        assertThat(usageRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("a LITE asker is NOT_ENTITLED on the cache-hit path, though a PRO asker's identical question is "
+            + "cached")
+    void liteGetsNoCacheHit() {
+        ask("alice", "Which spot has the best light on the water at dusk?");
+        int loggedBefore = logged.size();
+
+        assertThat(liteRefusedDirectly("Which spot has the best light on the water at dusk?"))
+                .isEqualTo(AskErrorCode.NOT_ENTITLED);
+
+        ArgumentCaptor<AskQuestion> question = ArgumentCaptor.forClass(AskQuestion.class);
+        ArgumentCaptor<AskUserContext> context = ArgumentCaptor.forClass(AskUserContext.class);
+        verify(engine, times(1)).run(question.capture(), eq(world.snapshot()), context.capture(),
+                eq(AskRunOptions.none()));
+        assertThat(question.getValue().normalised()).isEqualTo("which spot has best light on water at dusk");
+        assertThat(context.getValue().userId()).isEqualTo(ALICE);
+        assertThat(context.getValue().role()).isEqualTo(UserRole.PRO_USER);
+        assertThat(logged).hasSize(loggedBefore);
+        assertThat(usage(CAROL)).isEqualTo(AskUsageStore.Usage.NONE);
+    }
+
+    @Test
+    @DisplayName("a LITE asker is NOT_ENTITLED on the engine path, and no ask_usage row is created for them")
+    void liteGetsNoEngineRun() {
+        assertThat(liteRefusedDirectly("Something new about the sky?")).isEqualTo(AskErrorCode.NOT_ENTITLED);
+
+        verify(engine, never()).run(any(), any(), any(), any());
+        assertThat(logged).isEmpty();
+        assertThat(usageRepository.count()).isZero();
     }
 
     // -- step 3 before step 5 ---------------------------------------------------------------------
@@ -272,7 +341,7 @@ class AskTypedSeamsTest {
         assertThat(first.allowanceLeft()).isEqualTo(2);
         assertThat(second.kind()).isEqualTo("own");
         assertThat(second.charged()).isFalse();
-        assertThat(second.allowanceLeft()).isEqualTo(30);
+        assertThat(second.allowanceLeft()).isEqualTo(3);
         assertThat(second.summary()).isEqualTo(first.summary());
         assertThat(usage(ALICE)).isEqualTo(AskUsageStore.Usage.NONE);
         verify(engine, times(1)).run(any(), any(), any(), any());

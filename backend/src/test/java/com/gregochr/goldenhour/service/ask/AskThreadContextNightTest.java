@@ -140,4 +140,35 @@ class AskThreadContextNightTest {
         assertThat(new AskThread(List.of(live, readyOld)).nightStaleAgainst(snapshot, true)).isTrue();
         assertThat(AskThread.EMPTY.nightStaleAgainst(snapshot, true)).isFalse();
     }
+
+    @Test
+    @DisplayName("nightStaleAgainst for an asker without aurora access ignores an echoed ;a= segment, so it cannot "
+            + "probe the alert state and causes no reset; the same echo is stale for an asker who may see aurora "
+            + "(moved from AskServiceTest, which LITE can no longer reach)")
+    void nightStaleAgainstIgnoresTheAuroraSegmentWithoutAccess() {
+        AskSnapshot quiet = nightsOnly(new AuroraState("QUIET", null),
+                astroNight(TONIGHT, astro(1L, "Whitby", "Coast", 5, 3)));
+        long generation = AskNightFixtures.GENERATION.toEpochMilli();
+        AskThread forged = new AskThread(List.of(night("s", "n1;2026-10-05=" + generation + ";a=STRONG")));
+
+        assertThat(forged.nightStaleAgainst(quiet, false)).isFalse();
+        assertThat(forged.nightStaleAgainst(quiet, true)).isTrue();
+    }
+
+    @Test
+    @DisplayName("a LITE user context cannot see aurora, and neither can a user-less one")
+    void liteContextCannotSeeAurora() {
+        assertThat(new AskUserContext(8L, UserRole.LITE_USER, false).canSeeAurora()).isFalse();
+        assertThat(AskUserContext.userLess().canSeeAurora()).isFalse();
+        assertThat(PRO.canSeeAurora()).isTrue();
+    }
+
+    @Test
+    @DisplayName("mayUseAsk is ADMIN and PRO_USER only: LITE and a null role may not")
+    void mayUseAskIsProAndAdminOnly() {
+        assertThat(AskUserContext.mayUseAsk(UserRole.ADMIN)).isTrue();
+        assertThat(AskUserContext.mayUseAsk(UserRole.PRO_USER)).isTrue();
+        assertThat(AskUserContext.mayUseAsk(UserRole.LITE_USER)).isFalse();
+        assertThat(AskUserContext.mayUseAsk(null)).isFalse();
+    }
 }

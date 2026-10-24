@@ -332,14 +332,21 @@ payload) are **census-set**, not placeholders: `ComingUpAnnualBadgeCensusTest` r
 year through the real sources and the real assembler, landing 11 badge arrivals/year with 1
 interrupt — the design's own ~10/year, one-or-two-interrupts target.
 
-### Ask PhotoCast (Bearer / ADMIN)
+### Ask PhotoCast (Bearer / PRO_USER and ADMIN)
 `GET /api/ask/ready?scope=all|<regionId>` | `POST /api/ask` | `GET /api/user/settings/ask` (listed under User Settings) | ADMIN: `POST /api/admin/ask/dry-run` | `POST /api/admin/ask/ready/precompute` | `GET /api/admin/ask/metrics?days=`
 
-> The three reader endpoints are Bearer with **no role gate**, by inheritance from `SecurityConfig`'s `/api/**` → `.authenticated()`: the
-> allowance is the gate (*Roles*). **With `photocast.ask.enabled` false every Ask endpoint answers 404 — except `GET /api/user/settings/ask`,
-> which is always 200** so the client can tell "off" from "unreachable" — from ONE place, `AskFlagInterceptor` (registered in `AskWebConfig` over
-> `/api/ask/**` and `/api/admin/ask/**`, ahead of the admission interceptor, before the body is read); no controller checks the flag. The admin
-> endpoints check the role first (403) and the flag second: the interceptor runs before method security, so its admin-route instance stands down
+> `GET /api/ask/ready` and `POST /api/ask` are **PRO_USER and ADMIN only** (owner decision 2026-10-24, `ask-pro-gating-plan.md`): a
+> `SecurityConfig` matcher on `/api/ask` and `/api/ask/**` sits above `/api/**` → `.authenticated()`, in the security chain and so ahead of
+> `AskBodyLimitFilter`, `AskFlagInterceptor` and `AskAdmissionInterceptor`; `AskController` also carries a class-level `@PreAuthorize`, and
+> `AskService.admit` and `ask` begin with the same `AskUserContext.mayUseAsk` guard (Ready matches, cache hits and pre-filter can't-answers
+> skip the allowance, so a limit of 0 alone would not refuse). A LITE caller is **403 `{error: "Ask PhotoCast is part of Pro.", code:
+> "NOT_ENTITLED"}`** (an `accessDeniedHandler` scoped to `/api/ask/**` writes Ask's own shape; every other 403 keeps Boot's default body),
+> **whatever the flag says, so the flag-off 404 is never shown to LITE**; a 403 never takes an ETag, so a LITE reader cannot revalidate a PRO
+> reader's body into a 304. `GET /api/user/settings/ask` is not under that matcher and stays 200 for every role; for LITE with the flag on it is
+> `{enabled: true, used: 0, limit: 0, left: 0, typedAvailable: false}`. **With `photocast.ask.enabled` false every Ask endpoint answers 404 for
+> an entitled caller — except `GET /api/user/settings/ask`, which is always 200** so the client can tell "off" from "unreachable" — from ONE place, `AskFlagInterceptor` (registered in `AskWebConfig` over
+> `/api/ask/**` and `/api/admin/ask/**`, ahead of the admission interceptor, before the body is read); no controller checks the flag. Every
+> Ask route checks the role first (403) and the flag second (the public routes in the security chain, the admin routes by method security): the interceptor runs before method security, so its admin-route instance stands down
 > unless the caller holds `ROLE_ADMIN` and `@PreAuthorize` answers everyone else; the order 401, 403, 404 is pinned through the real chain in
 > `AskFlagOffPrecedenceTest`. Controllers parse and delegate (`AskDryRunService` holds the dry-run).
 >
@@ -358,7 +365,8 @@ interrupt — the design's own ~10/year, one-or-two-interrupts target.
 > |---|---|---|---|
 > | 400 | `INVALID` | blank, over 200 characters, outside the allow-list, an unknown or disabled region id, an unreadable or wrongly typed body, a body over the derived limit (88 KiB at the default thread cap), a bad `thread` or a malformed `nightVersion` (see *Ask — the thread*) | nothing used |
 > | 401 | `UNAUTHENTICATED` | a token for a user that has since been deleted | — |
-> | 404 | — | the flag is off | — |
+> | 403 | `NOT_ENTITLED` | the caller is LITE_USER (flag on or off; refused in the security chain, before the body is read or anything is counted) | nothing used |
+> | 404 | — | the flag is off (PRO and ADMIN only) | — |
 > | 429 | `RATE_LIMITED` | more than 5 requests a minute for this user (counted before the body is read; anonymous callers are 401 first and never counted) | nothing used |
 > | 429 | `ALLOWANCE_EXHAUSTED` | `used` has reached the role's limit (named first when both ceilings are reached) | — |
 > | 429 | `DAILY_LIMIT` | the never-refunded `engine_calls` ceiling (3 × the limit) reached with the allowance not | — |
@@ -381,8 +389,8 @@ interrupt — the design's own ~10/year, one-or-two-interrupts target.
 `GET /api/user/settings` | `POST /api/user/settings/home/lookup` | `POST /api/user/settings/home/reverse` ("Use my location": `{latitude, longitude}` → the nearest UK postcode within 2 km, persisting nothing; 400 for a missing, non-finite or out-of-range value or a point with no postcode, 502 "Postcode lookup is unavailable right now" when postcodes.io fails — neither echoes the upstream) | `PUT /api/user/settings/home` |
 `POST /api/user/settings/drive-times/refresh` | `GET /api/user/settings/drive-times` |
 `GET /api/user/settings/reach` | `GET /api/user/settings/light` |
-`GET /api/user/settings/ask` (Ask PhotoCast's allowance read — `{enabled, used, limit, left, typedAvailable}`, always 200 and zeros with `enabled:false`
-when the flag is off; `typedAvailable` reads false while the accounting latch is set; pinned in `HttpCachingConfigTest.personalDataPathsAreNeverFiltered`) |
+`GET /api/user/settings/ask` (Ask PhotoCast's allowance read — `{enabled, used, limit, left, typedAvailable}`, always 200 for every role and zeros with `enabled:false`
+when the flag is off, and zeros with `enabled:true, typedAvailable:false` for a LITE reader; `typedAvailable` reads false while the accounting latch is set; pinned in `HttpCachingConfigTest.personalDataPathsAreNeverFiltered`) |
 `PUT /api/user/settings/map-colours` | `PUT /api/user/settings/map-tide-mode` (the Map tab's
 persisted phone tide mode — Auto/Always/Off, `map-mobile-sheet-plan.md` M4 — copies `map-colours`'
 shape exactly; read and written by the phone Layers section's Tide segment since M5) |

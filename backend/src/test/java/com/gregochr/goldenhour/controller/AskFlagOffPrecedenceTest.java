@@ -32,10 +32,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * "Ask is switched off" is one interceptor ({@code AskFlagInterceptor}), and this proves its
- * precedence through the real security chain on every Ask route: <b>401 (anonymous), then 403 (an
- * admin route without the admin role), then 404 (the flag)</b>. The admin routes are guarded by
+ * precedence through the real security chain on every Ask route: <b>401 (anonymous), then 403 (a
+ * role that may not use the route), then 404 (the flag)</b>. The public routes
+ * ({@code /api/ask}, {@code /api/ask/ready}) are PRO_USER and ADMIN only, refused 403 by the security
+ * chain's matcher (with {@code AskController}'s class-level {@code @PreAuthorize} as a second layer)
+ * before the interceptor runs, so a LITE caller never sees the 404. The admin routes are guarded by
  * method security, which runs inside the controller after any interceptor, so the interceptor must
- * stand down for a non-admin; the public routes are guarded by the filter chain alone.
+ * stand down for a non-admin.
  * {@code GET /api/user/settings/ask} is outside the interceptor and answers whatever the flag says.
  */
 class AskFlagOffPrecedenceTest extends AbstractControllerTest {
@@ -100,15 +103,15 @@ class AskFlagOffPrecedenceTest extends AbstractControllerTest {
 
     @ParameterizedTest(name = "{0} {1}")
     @CsvSource(textBlock = """
-            POST, /api/ask, 404
-            GET, /api/ask/ready, 404
+            POST, /api/ask, 403
+            GET, /api/ask/ready, 403
             POST, /api/admin/ask/dry-run, 403
             POST, /api/admin/ask/ready/precompute, 403
             GET, /api/admin/ask/metrics, 403
             """)
-    @DisplayName("then 403: a LITE caller with the flag off is 404 on the public routes and still 403 on the "
-            + "admin routes, which the interceptor leaves to the role check")
-    void liteCallerSeesTheRoleCheckBeforeTheFlag(String method, String path, int expected) throws Exception {
+    @DisplayName("then 403: a LITE caller with the flag off is 403 on every Ask route, the public routes by the "
+            + "security chain's role gate and the admin routes by @PreAuthorize; the 404 is never shown to them")
+    void liteCallerIsRefusedWhateverTheFlagSays(String method, String path, int expected) throws Exception {
         assertThat(statusOf(method, path, as("LITE_USER"))).isEqualTo(expected);
         verifyNoInteractions(engine, snapshotBuilder, readyServing, readyPrecompute, metricsService);
     }
@@ -122,17 +125,25 @@ class AskFlagOffPrecedenceTest extends AbstractControllerTest {
     }
 
     @ParameterizedTest(name = "{0} {1}")
-    @CsvSource(textBlock = """
-            POST, /api/admin/ask/dry-run
-            POST, /api/admin/ask/ready/precompute
-            GET, /api/admin/ask/metrics
-            """)
-    @DisplayName("control: with the flag on the same LITE caller is 403 on the admin routes, so the 403 above "
+    @CsvSource(textBlock = ROUTES)
+    @DisplayName("control: with the flag on the same LITE caller is 403 on every Ask route, so the 403 above "
             + "is the role check and not the flag")
     void liteIs403WithTheFlagOn(String method, String path) throws Exception {
         properties.setEnabled(true);
 
         assertThat(statusOf(method, path, as("LITE_USER"))).isEqualTo(403);
+        verifyNoInteractions(engine, snapshotBuilder, readyServing, readyPrecompute, metricsService, askService);
+    }
+
+    @ParameterizedTest(name = "{0} {1}")
+    @CsvSource(textBlock = """
+            POST, /api/ask
+            GET, /api/ask/ready
+            """)
+    @DisplayName("a PRO caller with the flag off is 404 on the public routes: the flag, not the role, answers")
+    void proSeesTheFlag(String method, String path) throws Exception {
+        assertThat(statusOf(method, path, as("PRO_USER"))).isEqualTo(404);
+        verifyNoInteractions(engine, snapshotBuilder, readyServing, readyPrecompute, metricsService, askService);
     }
 
     @Test

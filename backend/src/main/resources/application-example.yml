@@ -218,9 +218,7 @@ photocast:
   #     call-timeout-seconds: 20    # per model call, 1-60; must not exceed deadline-seconds
   #     deadline-seconds: 30        # whole conversation, 1-120
   #     rate-per-minute: 5          # per user, in memory, 1-600; checked before the body is read
-  #     limit-lite: 3               # typed questions a day, LITE_USER, 0-1000
-  #     limit-pro: 30               # typed questions a day, PRO_USER and ADMIN, 0-1000. The client's
-  #                                 # "Pro: 30 a day" copy is a constant: change both together
+  #     limit-pro: 30               # typed questions a day, PRO_USER and ADMIN (Ask is Pro-only), 0-1000
   #     engine-ceiling-multiplier: 3  # never-refunded engine calls a day = this x the role's limit, 1-20
   #     daily-spend-cap-usd: 0.50   # typed spend a day (UK date), above 0 and at most 1000; tripping
   #                                 # it answers 503 TYPED_UNAVAILABLE to everyone and emails the

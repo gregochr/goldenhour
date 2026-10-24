@@ -22,6 +22,10 @@ import org.springframework.web.servlet.HandlerInterceptor;
  * {@code ROLE_ADMIN}, so a non-admin gets the 403 {@code @PreAuthorize} gives them whatever the flag
  * says, and the 404 is only ever shown to someone who could have used the endpoint.
  *
+ * <p>The public routes ({@code /api/ask}, {@code /api/ask/**}) are role-gated to PRO_USER and ADMIN ahead of
+ * this interceptor by the security chain, so a LITE caller is 403 {@code NOT_ENTITLED} whatever the flag
+ * says, and only the admin routes stand down here.
+ *
  * <p>Work-level checks stay where the work is: {@code AskReadyPrecompute} (a precompute started by the
  * pipeline, not a request) and {@code AskSpendGuard} (typed spend) read the flag themselves.
  */

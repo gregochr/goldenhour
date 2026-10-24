@@ -78,7 +78,9 @@ class AskAdmissionTest {
     void setUp() {
         properties.setEnabled(true);
         when(users.findByUsername("reader")).thenReturn(Optional.of(
-                AppUserEntity.builder().id(41L).username("reader").role(UserRole.LITE_USER).build()));
+                AppUserEntity.builder().id(41L).username("reader").role(UserRole.PRO_USER).build()));
+        when(users.findByUsername("lite")).thenReturn(Optional.of(
+                AppUserEntity.builder().id(42L).username("lite").role(UserRole.LITE_USER).build()));
         when(snapshotBuilder.current()).thenReturn(Optional.empty());
         Clock clock = Clock.systemUTC();
         AskJobRunService jobRuns = mock(AskJobRunService.class);
@@ -97,7 +99,7 @@ class AskAdmissionTest {
                         new AskAdmissionInterceptor(service))
                 .addFilters(new AskBodyLimitFilter(properties))
                 .build();
-        auth = new TestingAuthenticationToken("reader", "n/a", "ROLE_LITE_USER");
+        auth = new TestingAuthenticationToken("reader", "n/a", "ROLE_PRO_USER");
         SecurityContextHolder.getContext().setAuthentication(auth);
     }
 
@@ -185,6 +187,23 @@ class AskAdmissionTest {
         mockMvc.perform(post(URL).principal(ghost).contentType(MediaType.APPLICATION_JSON).content(VALID))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+    }
+
+    @Test
+    @DisplayName("a LITE user's admit() is NOT_ENTITLED before the limiter counts: ten requests are all 403, "
+            + "never a 429, and nothing downstream runs (the chain-level refusal is pinned in "
+            + "AskTypedControllerTest; this is the service guard behind it)")
+    void liteIsRefusedBeforeTheLimiterCounts() throws Exception {
+        Authentication lite = new TestingAuthenticationToken("lite", "n/a", "ROLE_LITE_USER");
+        SecurityContextHolder.getContext().setAuthentication(lite);
+
+        for (int i = 0; i < 10; i++) {
+            mockMvc.perform(post(URL).principal(lite).contentType(MediaType.APPLICATION_JSON).content(VALID))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("NOT_ENTITLED"));
+        }
+
+        verifyNoInteractions(engine, usageStore, snapshotBuilder);
     }
 
     @Test

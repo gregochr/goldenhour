@@ -17,6 +17,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -41,8 +42,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * {@code GET /api/ask/ready} through the real security chain and the real JSON mapper: who may read it
- * (Bearer, no role gate), what the scope parameter accepts, the wire shape of plan §2.9, and that it is
- * ETag-revalidated.
+ * (PRO_USER and ADMIN only; LITE is 403 NOT_ENTITLED), what the scope parameter accepts, the wire shape of
+ * plan §2.9, and that it is ETag-revalidated.
  */
 class AskControllerTest extends AbstractControllerTest {
 
@@ -89,16 +90,57 @@ class AskControllerTest extends AbstractControllerTest {
                 LocalDateTime.of(2026, 10, 5, 5, 2, 11), "06:02", answer);
     }
 
+    private static SecurityMockMvcRequestPostProcessors.UserRequestPostProcessor user(String name) {
+        return SecurityMockMvcRequestPostProcessors.user(name);
+    }
+
     // -- who may read it --------------------------------------------------------------------
 
     @ParameterizedTest
-    @ValueSource(strings = {"LITE_USER", "PRO_USER", "ADMIN"})
-    @DisplayName("every role may read the Ready answers: Bearer, no role gate")
-    void everyRoleMayRead(String role) throws Exception {
-        mockMvc.perform(get(URL).with(org.springframework.security.test.web.servlet.request
-                        .SecurityMockMvcRequestPostProcessors.user("someone").roles(role)))
+    @ValueSource(strings = {"PRO_USER", "ADMIN"})
+    @DisplayName("PRO and ADMIN may read the Ready answers")
+    void proAndAdminMayRead(String role) throws Exception {
+        mockMvc.perform(get(URL).with(user("someone").roles(role)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.questions.length()").value(1));
+    }
+
+    @Test
+    @DisplayName("a LITE reader is 403 NOT_ENTITLED in Ask's own {error, code} shape, and nothing is read")
+    void liteIsNotEntitled() throws Exception {
+        mockMvc.perform(get(URL).with(user("someone").roles("LITE_USER")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_ENTITLED"))
+                .andExpect(jsonPath("$.error").value("Ask PhotoCast is part of Pro."));
+        verifyNoInteractions(readyServing);
+    }
+
+    @Test
+    @DisplayName("a 403 elsewhere keeps the default body: a LITE reader on an admin Ask route has no NOT_ENTITLED code")
+    void otherForbiddensKeepTheDefaultBody() throws Exception {
+        MvcResult denied = mockMvc.perform(get("/api/admin/ask/metrics").with(user("someone").roles("LITE_USER")))
+                .andExpect(status().isForbidden())
+                .andReturn();
+        assertThat(denied.getResponse().getContentType()).as("not Ask's JSON refusal").isNull();
+        assertThat(denied.getResponse().getContentAsString()).doesNotContain("NOT_ENTITLED");
+    }
+
+    @Test
+    @DisplayName("AskController carries the class-level @PreAuthorize for PRO_USER and ADMIN, the second layer "
+            + "behind the security chain's matcher")
+    void controllerCarriesTheRoleMarker() {
+        org.springframework.security.access.prepost.PreAuthorize marker = com.gregochr.goldenhour.controller
+                .AskController.class.getAnnotation(org.springframework.security.access.prepost.PreAuthorize.class);
+
+        assertThat(marker).isNotNull();
+        assertThat(marker.value()).isEqualTo("hasAnyRole('PRO_USER','ADMIN')");
+    }
+
+    @Test
+    @DisplayName("GET /api/user/settings/ask is not under the /api/ask/** gate: a LITE reader still gets 200")
+    void settingsRouteStaysOpenToLite() throws Exception {
+        mockMvc.perform(get("/api/user/settings/ask").with(user("someone").roles("LITE_USER")))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -123,7 +165,7 @@ class AskControllerTest extends AbstractControllerTest {
     // -- the wire shape ---------------------------------------------------------------------
 
     @Test
-    @WithMockUser(roles = {"LITE_USER"})
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("the body is the plan's wire contract: scope, questions with tabs, generatedAt as ISO text and "
             + "runLabel, an answer of kind ready with picks, events, missing null and try")
     void wireShape() throws Exception {
@@ -156,7 +198,7 @@ class AskControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = {"LITE_USER"})
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("an event's safetyNote is on the wire when the served topic has one and omitted when it has "
             + "none")
     void safetyNoteIsOnTheWireWhenPresent() throws Exception {
@@ -226,5 +268,19 @@ class AskControllerTest extends AbstractControllerTest {
 
         mockMvc.perform(get(URL).param("scope", "all").header("If-None-Match", etag))
                 .andExpect(status().isNotModified());
+    }
+
+    @Test
+    @DisplayName("a LITE reader replaying a PRO reader's ETag is 403 with no ETag, never a 304 of the PRO body")
+    void liteCannotRevalidateAProBody() throws Exception {
+        MvcResult pro = mockMvc.perform(get(URL).with(user("pro").roles("PRO_USER")))
+                .andExpect(status().isOk())
+                .andReturn();
+        String etag = pro.getResponse().getHeader("ETag");
+        assertThat(etag).isNotBlank();
+
+        mockMvc.perform(get(URL).with(user("lite").roles("LITE_USER")).header("If-None-Match", etag))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist("ETag"));
     }
 }

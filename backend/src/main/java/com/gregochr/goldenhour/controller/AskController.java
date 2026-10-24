@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,14 +32,16 @@ import java.util.Optional;
  * Ask PhotoCast's reader-facing endpoints (plan §2.9): {@code GET /api/ask/ready} and the typed
  * {@code POST /api/ask}.
  *
- * <p>Bearer, with <b>no role gate</b>, by inheritance from {@code SecurityConfig}'s
- * {@code /api/**} → {@code .authenticated()}: every role sees the same ratings in Ask as on the
- * Plan tab, and a Ready answer is the same for everyone, so a gate would deny nothing. It is pinned
- * across LITE, PRO, ADMIN and anonymous in {@code AskControllerTest}. While
- * {@code photocast.ask.enabled} is false every endpoint here is 404, answered by
- * {@code AskFlagInterceptor} before the request reaches this class, so a switched-off feature has no
- * surface and this class never checks the flag.
+ * <p>Bearer, <b>PRO_USER and ADMIN only</b> (Ask is a Pro feature). The real gate is
+ * {@code SecurityConfig}'s {@code /api/ask/**} matcher, which runs in the security chain ahead of
+ * {@code AskBodyLimitFilter}, {@code AskFlagInterceptor} and {@code AskAdmissionInterceptor}, so a
+ * LITE caller is refused 403 {@code NOT_ENTITLED} before the body is read, anything is counted, or the
+ * flag is consulted. The class-level {@code @PreAuthorize} is a second layer and the visible marker.
+ * While {@code photocast.ask.enabled} is false every endpoint here is 404 for an entitled caller,
+ * answered by {@code AskFlagInterceptor} before the request reaches this class, so a switched-off
+ * feature has no surface and this class never checks the flag.
  */
+@PreAuthorize("hasAnyRole('PRO_USER','ADMIN')")
 @RestController
 @RequestMapping("/api/ask")
 public class AskController {

@@ -81,6 +81,17 @@ public record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes, 
     }
 
     /**
+     * Whether a role may use Ask PhotoCast at all: ADMIN and PRO_USER. The one predicate behind the
+     * security chain's gate, the service guard and the settings read.
+     *
+     * @param role the account's role; may be null
+     * @return true when the role may use Ask
+     */
+    public static boolean mayUseAsk(UserRole role) {
+        return role == UserRole.ADMIN || role == UserRole.PRO_USER;
+    }
+
+    /**
      * Whether the asker has a saved home point, so {@code nearHome} can be resolved.
      *
      * @return true when a user is present and a home is saved

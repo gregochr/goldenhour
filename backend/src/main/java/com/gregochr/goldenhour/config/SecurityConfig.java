@@ -18,6 +18,9 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandlerImpl;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -69,7 +72,12 @@ public class SecurityConfig {
                             LOG.info("⚠ 401 {} — {}", LogSanitizer.sanitize(request.getRequestURI()),
                                     LogSanitizer.sanitize(authException.getMessage()));
                             response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
-                        }))
+                        })
+                        // Ask's 403 keeps Ask's one {error, code} shape; every other path keeps the default
+                        // handler. Two mappings are needed: Spring uses a lone mapping for every request.
+                        .defaultAccessDeniedHandlerFor(new AskAccessDeniedHandler(),
+                                PathPatternRequestMatcher.withDefaults().matcher("/api/ask/**"))
+                        .defaultAccessDeniedHandlerFor(new AccessDeniedHandlerImpl(), AnyRequestMatcher.INSTANCE))
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
@@ -77,6 +85,9 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                        // Ask PhotoCast is Pro and Admin only. In the chain, so the refusal precedes
+                        // AskBodyLimitFilter and the flag and admission interceptors.
+                        .requestMatchers("/api/ask", "/api/ask/**").hasAnyRole("PRO_USER", "ADMIN")
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter,
