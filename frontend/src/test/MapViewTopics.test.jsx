@@ -169,7 +169,7 @@ const HOT_TOPICS = [
  * and back and to hide and show the pane.
  */
 function Pane({
-  hotTopics, bigSeas, runId, origin = null, spots = [SPOT],
+  hotTopics, bigSeas, runId, origin = null, spots = [SPOT], extraLocations = [],
 }) {
   const [date, setDate] = React.useState(TODAY);
   const [paneVisible, setPaneVisible] = React.useState(true);
@@ -180,11 +180,11 @@ function Pane({
       <button type="button" data-testid="hide-pane" onClick={() => setPaneVisible(false)}>hide</button>
       <button type="button" data-testid="show-pane" onClick={() => setPaneVisible(true)}>show</button>
       <MapView
-        locations={[makeLocation()]}
+        locations={[makeLocation(), ...extraLocations]}
         date={date}
         forecastDates={[TODAY, SAT]}
         autoEventType="SUNSET"
-        heat={{ ...heatProp(), areaSpots: spots }}
+        heat={{ ...heatProp(), spots, areaSpots: spots }}
         origin={origin}
         paneVisible={paneVisible}
         runId={runId}
@@ -617,5 +617,94 @@ describe('MapView: the repaint key', () => {
     expect(lastKey('pins')).not.toBe(pinsBefore);
     await act(async () => { fireEvent.click(screen.getByTestId('wf-map-view-heat')); });
     expect(lastKey('labels')).toBe(lastKey('pins'));
+  });
+});
+
+describe('MapView: the ringed places are named (topic-ring-names-plan.md)', () => {
+  /** A place the default floor withholds (unrated for this window), yet one the topic rings. */
+  const HIDDEN = {
+    id: 2, name: 'Hidden-2', lat: 55.2, lng: -1.6, rid: NE, regionName: NE, bortleClass: 4,
+  };
+  const hiddenLocation = () => ({
+    id: HIDDEN.id, name: HIDDEN.name, lat: HIDDEN.lat, lon: HIDDEN.lng, regionName: NE,
+    bortleClass: 4, locationType: ['LANDSCAPE'], tideType: ['HIGH'], forecastsByDate: new Map(),
+  });
+  const surge = (names) => [
+    topic({
+      type: 'STORM_SURGE', label: 'Storm surge', eventType: 'SUNSET', locationNames: names,
+    }),
+    topic({ type: 'AURORA', label: 'Aurora', eventType: 'NIGHT', regions: [], locationNames: [] }),
+  ];
+  const withHidden = (names = [SPOT.name, HIDDEN.name]) => ({
+    hotTopics: surge(names), spots: [SPOT, HIDDEN], extraLocations: [hiddenLocation()],
+  });
+  const lastLabels = () => labelProps.labels[labelProps.labels.length - 1].spots;
+  const lastPins = () => labelProps.pins[labelProps.pins.length - 1].spots;
+  const namesOf = (spots) => spots.map((sp) => sp.name);
+
+  it('with no topic selected both layers get the plain label spots: nothing ringed, nothing appended', async () => {
+    await renderMap(withHidden());
+    expect(namesOf(lastLabels())).toEqual([SPOT.name]);
+    expect(lastLabels().some((sp) => sp.topicRing || sp.topicRingAdded)).toBe(false);
+    // (With no ring drawn `chipSpots` IS `labelSpots`, the very list the tide strip and counts read.)
+  });
+
+  it('⚠️ marks a ringed place that is already drawn and APPENDS the ringed one the floor withheld, in Heat', async () => {
+    await renderMap(withHidden());
+    const footer = screen.getByTestId('wf-map-counts-footer').textContent;
+    await press('STORM_SURGE');
+    // The counts footer (and the tide strip) read `labelSpots`: selecting a topic moves neither.
+    expect(screen.getByTestId('wf-map-counts-footer').textContent).toBe(footer);
+    const spots = lastLabels();
+    expect(namesOf(spots)).toEqual([SPOT.name, HIDDEN.name]);
+    expect(spots[0]).toMatchObject({ topicRing: true });
+    expect(spots[0].topicRingAdded).toBeUndefined();
+    expect(spots[1]).toMatchObject({
+      name: HIDDEN.name, topicRing: true, topicRingAdded: true, lat: HIDDEN.lat, lng: HIDDEN.lng, id: HIDDEN.id,
+    });
+    // Deselecting removes it again.
+    await press('STORM_SURGE');
+    expect(namesOf(lastLabels())).toEqual([SPOT.name]);
+  });
+
+  it('gives Pins the same spots: a pin for the withheld ringed place (no name is drawn there)', async () => {
+    await renderMap(withHidden());
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-view-pins')); });
+    await press('STORM_SURGE');
+    expect(namesOf(lastPins())).toEqual([SPOT.name, HIDDEN.name]);
+    expect(lastPins()[1]).toMatchObject({ topicRing: true, topicRingAdded: true });
+  });
+
+  it('skips a ringed place with no catalogue row, and one with no finite coordinates', async () => {
+    const broken = { ...hiddenLocation(), id: 3, name: 'Broken-3', lat: null };
+    await renderMap({
+      hotTopics: surge([SPOT.name, HIDDEN.name, 'Broken-3']),
+      spots: [SPOT, HIDDEN, { ...HIDDEN, id: 3, name: 'Broken-3' }],
+      extraLocations: [broken],
+    });
+    await press('STORM_SURGE');
+    expect(namesOf(lastLabels())).toEqual([SPOT.name]);
+  });
+
+  it('draws the ring past the filters and names it too: a drive filter drops nothing from the appended names', async () => {
+    await renderMap(withHidden());
+    await press('STORM_SURGE');
+    expect(baseRings()).toHaveLength(2);
+    expect(namesOf(lastLabels())).toHaveLength(2);
+  });
+
+  it('Big seas appends and marks nothing: its structures are named by the big-seas chips', async () => {
+    await renderMap({ bigSeas: [SEAS_TODAY] });
+    const before = lastLabels();
+    await press('BIG_SEAS');
+    expect(baseRings()).toHaveLength(1);
+    expect(lastLabels().some((sp) => sp.topicRing || sp.topicRingAdded)).toBe(false);
+    expect(namesOf(lastLabels())).toEqual(namesOf(before));
+  });
+
+  it('a whole-sky topic (no rings drawn) leaves the spots untouched', async () => {
+    await renderMap(withHidden());
+    await press('AURORA');
+    expect(lastLabels().some((sp) => sp.topicRing || sp.topicRingAdded)).toBe(false);
   });
 });

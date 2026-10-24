@@ -5,7 +5,7 @@
  * shaped `model` and a `BriefingWindowTide`-shaped `tide` — never through a real `MapView`.
  *
  * Covers T6 #8 and plan §7 checks 3–6: visibility both ways for the three conditions with the
- * footer/`--tsh` state cleaned up when hidden; `--tsh` clearance at stubbed heights 166 and 34; the
+ * no `--tsh`/class written on the pane; the
  * light dot's placement against `TY(windowLevel)` and the fixture's own curve/windowLevel agreement
  * (mirroring `TideSurfaceAgreementTest`'s server-side intent — see the note on {@link tideFixture}
  * below for why the two are derived independently rather than one from the other); footer copy for
@@ -13,7 +13,7 @@
  * through a real render; the `aria-hidden` chart (the WHOLE overlay, not only the svg) and the state
  * phrase as real text; the landmark role/label and the collapse toggle's accessible name (excluding
  * its decorative glyph); focus moving to the strip after the next-fit jump; collapse toggling;
- * `--tsh` written on mount and removed on unmount/hide.
+ * `onHeightChange` reported on mount and nulled on unmount/hide.
  */
 import React from 'react';
 import {
@@ -169,17 +169,13 @@ describe('MapTideStrip — visibility', () => {
   });
 });
 
-describe('MapTideStrip — --tsh clearance (plan §7 check 4)', () => {
+describe('MapTideStrip — no tab-root custom property or class is written (counts footer lifts by measurement)', () => {
   let restoreRO;
-  // Declared here and always restored in `afterEach`, never at the tail of the test body — a
-  // failed `expect` earlier in the test would otherwise skip the inline restore and leave
-  // `HTMLElement.prototype.offsetHeight` pinned for every later test in this file, since Vitest
-  // isolates by FILE, not by test (adversarial review, test-quality lens).
   let restoreHeight;
 
   beforeEach(() => {
     restoreRO = installResizeObserver();
-    restoreHeight = null;
+    restoreHeight = stubOffsetHeight(166);
   });
 
   afterEach(() => {
@@ -187,43 +183,20 @@ describe('MapTideStrip — --tsh clearance (plan §7 check 4)', () => {
     restoreHeight?.();
   });
 
-  it('publishes the strip\'s own offsetHeight as --tsh, open (166px)', () => {
-    restoreHeight = stubOffsetHeight(166);
+  it('leaves the pane without --tsh and without wf-tide-strip-on while the strip is showing', () => {
     const ref = mapPane();
     render(
       <MapTideStrip model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={ref} />,
     );
-    expect(ref.current.style.getPropertyValue('--tsh')).toBe('166px');
-    expect(ref.current.classList.contains('wf-tide-strip-on')).toBe(true);
-  });
-
-  it('publishes the strip\'s own offsetHeight as --tsh, collapsed (34px)', () => {
-    restoreHeight = stubOffsetHeight(34);
-    const ref = mapPane();
-    render(
-      <MapTideStrip
-        model={baseModel()} tide={tideFixture()} activeRow={activeRow} collapsed mapPaneRef={ref}
-      />,
-    );
-    expect(ref.current.style.getPropertyValue('--tsh')).toBe('34px');
-  });
-
-  it('removes --tsh and the class on unmount', () => {
-    restoreHeight = stubOffsetHeight(166);
-    const ref = mapPane();
-    const { unmount } = render(
-      <MapTideStrip model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={ref} />,
-    );
-    expect(ref.current.style.getPropertyValue('--tsh')).toBe('166px');
-    unmount();
+    expect(screen.getByTestId('wf-tide-strip')).toBeInTheDocument();
     expect(ref.current.style.getPropertyValue('--tsh')).toBe('');
     expect(ref.current.classList.contains('wf-tide-strip-on')).toBe(false);
   });
 });
 
 /**
- * `onHeightChange` (T7 follow-up, Codex P1 on the T7 PR) — the SAME write that publishes `--tsh`
- * also reports the number to this callback, so `MapView` can retrigger `MapCallout`'s own repaint
+ * `onHeightChange` (T7 follow-up, Codex P1 on the T7 PR) — the strip's resize callback
+ * reports the number to this callback, so `MapView` can retrigger `MapCallout`'s own repaint
  * when the strip's real rect changes. This suite pins the callback's own contract in isolation
  * (called with the right number, on the right occasions, `null` on cleanup) — `MapCallout.test.jsx`
  * pins the OTHER half, that a changing prop actually re-triggers that component's repaint.
@@ -255,7 +228,7 @@ describe('MapTideStrip — onHeightChange (T7 follow-up, Codex P1)', () => {
     expect(onHeightChange).toHaveBeenCalledWith(166);
   });
 
-  it('is called with the real height, collapsed — a DIFFERENT number from open, matching --tsh exactly', () => {
+  it('is called with the real height, collapsed — a DIFFERENT number from open, a real measurement', () => {
     restoreHeight = stubOffsetHeight(34);
     const ref = mapPane();
     const onHeightChange = vi.fn();
@@ -266,7 +239,6 @@ describe('MapTideStrip — onHeightChange (T7 follow-up, Codex P1)', () => {
       />,
     );
     expect(onHeightChange).toHaveBeenCalledWith(34);
-    expect(ref.current.style.getPropertyValue('--tsh')).toBe('34px');
   });
 
   it('is called with null on unmount — a stale height is exactly as wrong as no height', () => {

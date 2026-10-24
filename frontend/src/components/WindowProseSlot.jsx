@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import MovementMark from './MovementMark.jsx';
 import { movementChip } from '../utils/movement.js';
+import { glossLead } from '../utils/regionGloss.js';
 
 /**
  * The popup's prose slot — the one place on the window that explains rather than measures.
@@ -76,7 +77,7 @@ export default function WindowProseSlot({
   // The paragraph, and the headline above it only when there is a second sentence for it to head.
   // A lone headline is the prose; a lone detail is the prose; both means a lead and a body.
   const body = detail || headline || row.summary || null;
-  const lead = detail && headline ? headline : null;
+  const lead = detail && headline ? glossLead(headline) : null;
 
   return (
     <div data-testid="wf-prose" data-verdict={row.verdict} data-picked={picked ? 'true' : undefined} className="wf-prose">

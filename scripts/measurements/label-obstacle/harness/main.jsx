@@ -351,6 +351,7 @@ function Chips() {
             className="wf-maplab-chip"
             data-r5-chip={s.name}
             data-tide={s.onTheLight ? 'true' : undefined}
+            data-topic-ring={s.topicRing ? 'true' : undefined}
           >
             <i
               className="wf-maplab-chip-m"

@@ -912,3 +912,24 @@ describe('PinsLayer — the "you rated this" badge (outcome-rating-plan.md §2 #
     expect(document.querySelector('[data-ask="pick"]')).toHaveAttribute('aria-label', 'Pick 1');
   });
 });
+
+describe('PinsLayer — the places a selected hot topic rings (topic-ring-names-plan.md)', () => {
+  it('writes data-topic-ring on a ringed pin only, and keeps an unrated ringed pin under omitUnrated', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    const spots = [
+      ...SPOTS,
+      {
+        name: 'Ringed', lat: 55, lng: -2, rid: 'X', rating: null, topicRing: true, topicRingAdded: true,
+      },
+      {
+        name: 'Plain unrated', lat: 55.2, lng: -2, rid: 'X', rating: null,
+      },
+    ];
+    await mount({ spots, omitUnrated: true });
+    const pins = [...document.querySelectorAll('[data-testid="map-pin"]')];
+    const ringedPin = pins.find((el) => el.getAttribute('aria-label') === 'Ringed');
+    expect(ringedPin.getAttribute('data-topic-ring')).toBe('true');
+    expect(pins.some((el) => el.getAttribute('aria-label') === 'Plain unrated')).toBe(false);
+    expect(pins.filter((el) => el.hasAttribute('data-topic-ring'))).toHaveLength(1);
+  });
+});

@@ -393,6 +393,74 @@ class BriefingGlossServiceTest {
         assertThat(systemPrompt).contains("clearAllLayers is true");
     }
 
+    // ── Field-name leak guard ────────────────────────────────────────────────
+
+    private BriefingRegion glossFor(String json) {
+        stubModelSelection();
+        Message response = mockResponse(json);
+        when(anthropicApiClient.createMessage(argThat(
+                params -> requestNamesRegion(params, "Northumberland"))))
+                .thenReturn(response);
+        List<BriefingDay> enriched = glossService.generateGlosses(
+                List.of(dayWith(region("Northumberland", Verdict.GO))), 1L);
+        return enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+    }
+
+    @Test
+    @DisplayName("a leaked input key in the detail nulls the detail and keeps the headline")
+    void leakedKeyInDetail_nullsDetailOnly() {
+        BriefingRegion r = glossFor("{\"headline\": \"Clear skies limit colour\","
+                + " \"detail\": \"With clearAllLayers conditions and 21% low cloud.\"}");
+        assertThat(r.glossHeadline()).isEqualTo("Clear skies limit colour");
+        assertThat(r.glossDetail()).isNull();
+    }
+
+    @Test
+    @DisplayName("a leaked input key in the headline nulls only the headline")
+    void leakedKeyInHeadline_nullsHeadlineOnly() {
+        BriefingRegion r = glossFor("{\"headline\": \"buildingTrend limits colour\","
+                + " \"detail\": \"Cloud is building through the evening.\"}");
+        assertThat(r.glossHeadline()).isNull();
+        assertThat(r.glossDetail()).isEqualTo("Cloud is building through the evening.");
+    }
+
+    @Test
+    @DisplayName("clean text, including ordinary words like region and verdict, passes unchanged")
+    void cleanText_passesUnchanged() {
+        BriefingRegion r = glossFor("{\"headline\": \"High cirrus canvas\","
+                + " \"detail\": \"The region verdict is good for this event.\"}");
+        assertThat(r.glossHeadline()).isEqualTo("High cirrus canvas");
+        assertThat(r.glossDetail()).isEqualTo("The region verdict is good for this event.");
+    }
+
+    @Test
+    @DisplayName("a key embedded in a longer word does not trigger the guard")
+    void keyInsideLongerWord_doesNotTrigger() {
+        BriefingRegion r = glossFor("{\"headline\": \"High cirrus canvas\","
+                + " \"detail\": \"Seen as xgoCount2 and lowCoverageish.\"}");
+        assertThat(r.glossDetail()).isEqualTo("Seen as xgoCount2 and lowCoverageish.");
+    }
+
+    @Test
+    @DisplayName("a leaked key in an unparseable response nulls the truncated headline")
+    void leakedKeyInFallbackHeadline_isNulled() {
+        BriefingRegion r = glossFor("clearAllLayers means no canvas");
+        assertThat(r.glossHeadline()).isNull();
+    }
+
+    @Test
+    @DisplayName("the system prompt forbids input field names in the prose")
+    void systemPrompt_carriesFieldNameRule() {
+        glossFor("{\"headline\": \"High cirrus\", \"detail\": \"Fine.\"}");
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        String systemPrompt = captor.getValue().system().get()
+                .asTextBlockParams().get(0).text();
+        assertThat(systemPrompt).contains("FIELD NAMES:")
+                .contains("Never write a key in the headline or detail");
+    }
+
     // ── Hierarchy reassembly (immutable records) ─────────────────────────────
 
     @Test

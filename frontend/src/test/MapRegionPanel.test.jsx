@@ -234,6 +234,30 @@ describe('MapRegionPanel — the narrative', () => {
       .toHaveTextContent('A clean western horizon. High cloud thins by 19:00.');
   });
 
+  it('full-stops a bare headline ahead of the detail, and never doubles one', () => {
+    const { rerender } = renderPanel({ gloss: { headline: 'Clear skies limit colour', detail: 'Low cloud 21%.' } });
+    expect(screen.getByTestId('wf-reg-panel-gloss').textContent).toBe('Clear skies limit colour. Low cloud 21%.');
+
+    rerender(
+      <MapRegionPanel
+        row={ROW}
+        region={REGION}
+        locations={LOCATIONS}
+        gloss={{ headline: 'Big sky!', detail: 'Low cloud 21%.' }}
+        onBack={vi.fn()}
+        onClose={vi.fn()}
+        onZoomToRegion={vi.fn()}
+        onOpenLocationSheet={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('wf-reg-panel-gloss').textContent).toBe('Big sky! Low cloud 21%.');
+  });
+
+  it('leaves a lone headline as it is', () => {
+    renderPanel({ gloss: { headline: 'Clear skies limit colour', detail: null } });
+    expect(screen.getByTestId('wf-reg-panel-gloss').textContent).toBe('Clear skies limit colour');
+  });
+
   it('prints the half it has, and nothing at all when it has neither', () => {
     const { rerender } = renderPanel({ gloss: { headline: null, detail: 'High cloud thins.' } });
     expect(screen.getByTestId('wf-reg-panel-gloss')).toHaveTextContent('High cloud thins.');

@@ -28,6 +28,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Generates Claude-authored one-line glosses for briefing regions that have at least
@@ -53,6 +55,18 @@ public class BriefingGlossService {
     /** Maximum concurrent Haiku calls. */
     private static final int MAX_CONCURRENCY = 10;
 
+    /**
+     * The multi-word camelCase keys {@code buildUserMessage} writes into the model input. If the
+     * model echoes one into the prose it is a leak, and the affected half is dropped. A new
+     * {@code node.put} key of that shape must be added here. Single-word keys (region, event, date,
+     * verdict) are ordinary English and deliberately absent.
+     */
+    private static final Pattern LEAKED_FIELD_NAME = Pattern.compile(
+            "\\b(cloudLow|cloudMid|cloudHigh|clearAllLayers|buildingTrend|tideAlignedCount|hasKingTide"
+                    + "|hasSpringTide|coastalLocationCount|goCount|marginalCount|totalLocations"
+                    + "|claudeRatedCount|claudeHighRatedCount|claudeMediumRatedCount|claudeAverageRating"
+                    + "|claudeCoverageRatio|lowCoverage)\\b");
+
     private static final String SYSTEM_PROMPT = """
             You are a photography forecast assistant. Given weather and tide data for a \
             region at a sunrise or sunset, respond with a JSON object containing two fields:
@@ -75,6 +89,10 @@ public class BriefingGlossService {
             CRITICAL RULE: If clearAllLayers is true, BOTH headline and detail MUST be \
             cautionary — clear skies mean no cloud canvas to catch colour. Never describe \
             clear-all-layers conditions as good, promising, or colourful.
+            FIELD NAMES: The input's camelCase keys (clearAllLayers, buildingTrend, goCount, \
+            cloudLow and the rest) are data labels for you only. Never write a key in the \
+            headline or detail — say it in plain English ("clear skies at every level", \
+            "cloud building", "three spots rated Go").
             PHOTOCAST SCORES: The input may include claudeRatedCount, claudeHighRatedCount, \
             claudeMediumRatedCount, and claudeAverageRating fields. When present, these \
             are per-location PhotoCast evaluation scores from the full atmospheric analysis. \
@@ -393,16 +411,35 @@ public class BriefingGlossService {
             String cleaned = PromptUtils.stripCodeFences(raw);
             JsonNode node = objectMapper.readTree(cleaned);
             if (node.has("headline")) {
-                item.glossHeadline =
-                        PromptUtils.sanitizeBrand(truncateToWords(node.get("headline").asText(), 7));
+                item.glossHeadline = withoutLeakedFieldName(item,
+                        PromptUtils.sanitizeBrand(truncateToWords(node.get("headline").asText(), 7)));
             }
             if (node.has("detail")) {
-                item.glossDetail = PromptUtils.sanitizeBrand(node.get("detail").asText());
+                item.glossDetail = withoutLeakedFieldName(item,
+                        PromptUtils.sanitizeBrand(node.get("detail").asText()));
             }
         } catch (Exception e) {
             LOG.debug("Gloss JSON parse failed, falling back to truncation: {}", e.getMessage());
-            item.glossHeadline = PromptUtils.sanitizeBrand(truncateToWords(raw, 7));
+            item.glossHeadline = withoutLeakedFieldName(item,
+                    PromptUtils.sanitizeBrand(truncateToWords(raw, 7)));
         }
+    }
+
+    /**
+     * Returns the text unchanged, or null (with one warning) when it contains one of the input's
+     * camelCase field names as a whole word. The other half of the gloss is unaffected.
+     */
+    private String withoutLeakedFieldName(GlossWorkItem item, String text) {
+        if (text == null) {
+            return null;
+        }
+        Matcher m = LEAKED_FIELD_NAME.matcher(text);
+        if (m.find()) {
+            LOG.warn("Gloss for region {} leaked input field name '{}'; dropping that half",
+                    item.region.regionName(), m.group(1));
+            return null;
+        }
+        return text;
     }
 
     /**
