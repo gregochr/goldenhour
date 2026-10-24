@@ -178,7 +178,7 @@ class TideRunPeakHistoryTest {
 
     @Test
     @DisplayName("the same question asked twice scans the roster and reads the runs once — the "
-            + "entry and the conditions strip both ask it for every run in a build")
+            + "same history is asked for across builds")
     void anIdenticalQuestionIsComputedOnce() {
         stubOneRunOnJan10();
 

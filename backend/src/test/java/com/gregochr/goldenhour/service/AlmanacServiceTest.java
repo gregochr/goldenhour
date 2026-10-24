@@ -46,11 +46,16 @@ class AlmanacServiceTest {
                 new com.gregochr.solarutils.MoonriseMoonsetCalculator());
     }
 
-    /** An assembler whose build always fails, for the failed-build cases. */
-    private static ComingUpAssembler failingAssembler() {
+    /**
+     * An assembler whose build fails only for exactly this call: the build date, the eligible events
+     * and the Plan-owned events the service must hand it. A wrong date or partition falls through to
+     * the mock's default (null), which then fails the test's own assertions.
+     */
+    private static ComingUpAssembler failingAssembler(LocalDate builtFor, List<AlmanacEvent> eligible,
+            List<AlmanacEvent> planOwned) {
         ComingUpAssembler failing = mock(ComingUpAssembler.class);
-        org.mockito.Mockito.when(failing.assemble(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+        org.mockito.Mockito.when(failing.assemble(org.mockito.ArgumentMatchers.eq(builtFor),
+                org.mockito.ArgumentMatchers.eq(eligible), org.mockito.ArgumentMatchers.eq(planOwned)))
                 .thenThrow(new IllegalStateException("assembly broke"));
         return failing;
     }
@@ -388,9 +393,12 @@ class AlmanacServiceTest {
         ComingUpAssembler assembler = org.mockito.Mockito.spy(assembler());
         AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler);
         ComingUpResponse before = service.getFeed();
+        // DAY (2026-09-01) ends before Plan's window opens on the clock's date, so the lone event is
+        // Plan-owned (a merge partner) and nothing is eligible.
         org.mockito.Mockito.doThrow(new IllegalStateException("assembly broke")).when(assembler)
-                .assemble(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any());
+                .assemble(org.mockito.ArgumentMatchers.eq(LocalDate.of(2027, 3, 5)),
+                        org.mockito.ArgumentMatchers.eq(List.<AlmanacEvent>of()),
+                        org.mockito.ArgumentMatchers.eq(List.of(event(DAY, DAY, "x"))));
 
         assertThatThrownBy(service::refresh).isInstanceOf(IllegalStateException.class);
 
@@ -435,7 +443,8 @@ class AlmanacServiceTest {
     @Test
     @DisplayName("a startup warm that fails, or an executor that refuses it, is logged and ignored")
     void startupWarmNeverThrows() {
-        AlmanacService failing = new AlmanacService(List.of(), CLOCK, failingAssembler(), Runnable::run);
+        AlmanacService failing = new AlmanacService(List.of(), CLOCK,
+                failingAssembler(LocalDate.of(2027, 3, 5), List.of(), List.of()), Runnable::run);
         AlmanacService refused = new AlmanacService(List.of(), CLOCK, assembler(),
                 task -> {
                     throw new java.util.concurrent.RejectedExecutionException("shut down");

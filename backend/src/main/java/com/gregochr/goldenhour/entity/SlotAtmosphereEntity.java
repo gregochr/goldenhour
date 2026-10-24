@@ -113,9 +113,9 @@ public class SlotAtmosphereEntity {
      * calculator's own score, captured at the same collection-time seam as every other reading on
      * this row — unlike the Claude-echoed {@code forecast_score} INVERSION component, this is
      * populated (or set null) for a triaged-out or Gate-4-stood-down candidate too, since the
-     * calculator runs before both checks. Feeds {@code InversionHotTopicStrategy} and the Coming up
-     * "Valley inversions" condition, always paired with {@link #inversionScored} — a null reading
-     * alone does not mean "unscored"; see that field's own javadoc. The map popup's inversion badge
+     * calculator runs before both checks. Feeds {@code InversionHotTopicStrategy}, always paired with
+     * {@link #inversionScored} — a null reading alone does not mean "unscored"; see that field's
+     * own javadoc. The map popup's inversion badge
      * stays on Claude's echo ({@code forecast_evaluation.inversion_score}) and does not read this
      * column.
      */
