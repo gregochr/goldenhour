@@ -76,6 +76,8 @@ Two consequences worth internalising, because they end the recurring conversatio
 
 Running the app locally needs no Docker either (H2 file DB).
 
+**Local H2 and V190's columns.** An existing local H2 file gains `app_user.verification_reminders_sent` and `final_reminder_sent_at` through `ddl-auto: update` (the entity's `columnDefinition` carries the `DEFAULT 0`). If it ever refuses, delete `backend/data/goldenhour.mv.db`. Local profiles never run Flyway, so the `pending_registration_sweep` scheduler row is absent locally and the job never fires there: exercise it with its tests.
+
 Default local credentials: `admin` / `golden2026`
 
 H2 console: `http://localhost:8082/h2-console` (JDBC: `jdbc:h2:file:./data/goldenhour`, user: `sa`, pass: empty). Reset: delete `backend/data/goldenhour.mv.db` and `.lock.db`.

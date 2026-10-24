@@ -37,6 +37,9 @@
                         <p style="margin:0 0 16px;color:#ABA192;font-size:13px;line-height:1.5;">
                             This link expires in 24 hours.
                         </p>
+                        <p th:if="${holdDays != null}" style="margin:0 0 16px;color:#ABA192;font-size:13px;line-height:1.5;">
+                            We'll hold your place for <span th:text="${holdDays}">7</span> days.
+                        </p>
                         <p style="margin:0 0 8px;color:#ABA192;font-size:13px;line-height:1.5;">
                             If the button doesn't work, copy and paste this URL into your browser:
                         </p>

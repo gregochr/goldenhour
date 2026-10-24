@@ -4,9 +4,11 @@ import com.gregochr.goldenhour.entity.EmailVerificationTokenEntity;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.AppUserRepository.LockedAccount;
 import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -28,24 +30,42 @@ import java.util.Optional;
 public class VerificationTokenIssuer {
 
     /** Verification links expire after 24 hours. */
-    static final int TOKEN_EXPIRY_HOURS = 24;
+    public static final int TOKEN_EXPIRY_HOURS = 24;
 
     private final AppUserRepository userRepository;
     private final EmailVerificationTokenRepository tokenRepository;
     private final JwtService jwtService;
+    private final Clock clock;
 
     /**
-     * Constructs the issuer.
+     * Constructs the issuer on the system default zone — the frame {@code created_at} and the token
+     * {@code expires_at} columns are written in (zone-less {@code TIMESTAMP}, JVM default zone), which is
+     * why this is not the app's UTC {@code Clock} bean.
      *
      * @param userRepository  accounts
      * @param tokenRepository verification links
      * @param jwtService      token generation and hashing
      */
+    @Autowired
     public VerificationTokenIssuer(AppUserRepository userRepository,
             EmailVerificationTokenRepository tokenRepository, JwtService jwtService) {
+        this(userRepository, tokenRepository, jwtService, Clock.systemDefaultZone());
+    }
+
+    /**
+     * Constructs the issuer on a given clock (tests pass a fixed one).
+     *
+     * @param userRepository  accounts
+     * @param tokenRepository verification links
+     * @param jwtService      token generation and hashing
+     * @param clock           the clock {@code expiresAt} and {@code createdAt} are read from
+     */
+    VerificationTokenIssuer(AppUserRepository userRepository, EmailVerificationTokenRepository tokenRepository,
+            JwtService jwtService, Clock clock) {
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
         this.jwtService = jwtService;
+        this.clock = clock;
     }
 
     /**
@@ -78,7 +98,7 @@ public class VerificationTokenIssuer {
         }
         tokenRepository.deleteAll(tokenRepository.findByUserIdAndVerifiedFalse(userId));
         String rawToken = jwtService.generateRefreshToken();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         tokenRepository.save(EmailVerificationTokenEntity.builder()
                 .tokenHash(jwtService.hashToken(rawToken))
                 .userId(userId)

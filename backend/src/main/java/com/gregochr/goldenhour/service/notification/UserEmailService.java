@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.notification;
 
+import com.gregochr.goldenhour.config.RegistrationProperties;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -13,6 +14,10 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 /**
  * Sends transactional emails to users for account creation, verification and password resets.
@@ -30,9 +35,12 @@ public class UserEmailService {
 
     private static final Logger LOG = LoggerFactory.getLogger(UserEmailService.class);
     private static final String FROM_ADDRESS = "noreply@photocast.online";
+    private static final DateTimeFormatter LAPSES_ON_FORMAT =
+            DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.UK);
 
     private final JavaMailSender mailSender;
     private final TemplateEngine templateEngine;
+    private final RegistrationProperties registrationProperties;
 
     /** Base URL of the frontend app, used to build verification links. */
     @Value("${app.frontend-base-url:http://localhost:5173}")
@@ -43,12 +51,24 @@ public class UserEmailService {
      *
      * @param mailSender     Spring mail sender (optional — null when SMTP is not configured)
      * @param templateEngine Thymeleaf template engine for rendering HTML emails
+     * @param registrationProperties the hold window, for the day counts the sign-up emails speak in
      */
     public UserEmailService(
             @Autowired(required = false) JavaMailSender mailSender,
-            TemplateEngine templateEngine) {
+            TemplateEngine templateEngine,
+            RegistrationProperties registrationProperties) {
         this.mailSender = mailSender;
         this.templateEngine = templateEngine;
+        this.registrationProperties = registrationProperties;
+    }
+
+    /**
+     * Whether a mail sender is configured at all (false in local/dev without SMTP).
+     *
+     * @return true when emails can be sent
+     */
+    public boolean isConfigured() {
+        return mailSender != null;
     }
 
     /**
@@ -124,6 +144,7 @@ public class UserEmailService {
             Context context = new Context();
             context.setVariable("username", username);
             context.setVariable("verificationUrl", verificationUrl);
+            context.setVariable("holdDays", holdDays());
             String html = templateEngine.process("verification-email", context);
 
             sendHtmlEmail(email, "PhotoCast — Verify Your Email Address", html);
@@ -134,6 +155,52 @@ public class UserEmailService {
                     LogSanitizer.sanitize(email), LogSanitizer.sanitize(username),
                     LogSanitizer.sanitize(ex.getMessage()));
         }
+    }
+
+    /**
+     * Sends a reminder to a never-verified sign-up, with a FRESH verification link. SYNCHRONOUS (not
+     * {@link Async}): the pending-registration sweep needs to know whether the mail left, so it can revert
+     * its claim when it did not.
+     *
+     * @param email          the recipient's stored address
+     * @param username       the account's login name
+     * @param rawToken       the raw verification token (included in the link URL)
+     * @param finalReminder  true for the last-day copy, false for the first reminder
+     * @param placeLapsesAt  when the place is released, shown as a date
+     * @return true only when the mail sender accepted the message; false when no sender is configured, the
+     *         address is blank, or anything went wrong (logged at WARN)
+     */
+    public boolean sendVerificationReminderEmail(String email, String username, String rawToken,
+            boolean finalReminder, LocalDateTime placeLapsesAt) {
+        if (!canSend(email)) {
+            return false;
+        }
+        try {
+            Context context = new Context();
+            context.setVariable("username", username);
+            context.setVariable("verificationUrl", appLink("/verify", rawToken));
+            context.setVariable("finalReminder", finalReminder);
+            context.setVariable("daysLeft", registrationProperties.getFirstReminderHoursLeft()
+                    / RegistrationProperties.HOURS_PER_DAY);
+            context.setVariable("lapsesOn", placeLapsesAt.format(LAPSES_ON_FORMAT));
+            String html = templateEngine.process("verification-reminder-email", context);
+            String subject = finalReminder
+                    ? "PhotoCast — last day to claim your place"
+                    : "PhotoCast — your place is held for " + registrationProperties.getFirstReminderHoursLeft()
+                            / RegistrationProperties.HOURS_PER_DAY + " more days";
+            sendHtmlEmail(email, subject, html);
+            LOG.info("Verification reminder sent for user {}", LogSanitizer.sanitize(username));
+            LOG.debug("Verification reminder address {}", LogSanitizer.sanitize(email));
+            return true;
+        } catch (Exception ex) {
+            LOG.warn("Failed to send verification reminder for user {}: {}",
+                    LogSanitizer.sanitize(username), LogSanitizer.sanitize(ex.getMessage()));
+            return false;
+        }
+    }
+
+    private int holdDays() {
+        return registrationProperties.getPendingHoldHours() / RegistrationProperties.HOURS_PER_DAY;
     }
 
     /**

@@ -27,6 +27,9 @@ spring:
           auth: true
           starttls:
             enable: true
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
 notifications:
   schedule:
     cron: "0 30 7 * * *"
@@ -275,9 +278,15 @@ photocast:
                             # Falls back to biggest range when the anchor is not in the run or has
                             # no drawable day, so a Yorkshire-only topic is never mislabelled.
   registration:
-    max-users: 3             # early-access cap (excludes admin accounts)
-    default-role: PRO_USER   # role assigned to new self-registered users
+    max-users: 10            # early-access cap (excludes admin accounts; pending sign-ups count)
+    default-role: LITE_USER  # role assigned to new self-registered users
     enabled: true
+    # A never-verified sign-up holds its place for pending-hold-hours, is reminded with a fresh link when
+    # first-reminder-hours-left and final-reminder-hours-left remain, and is deleted 24 h after the final
+    # reminder. Each a positive multiple of 24; final >= 24; first - final >= 24; first < hold.
+    pending-hold-hours: 168
+    first-reminder-hours-left: 72
+    final-reminder-hours-left: 24
   best-bet:
     max-tokens: 4096        # response-token ceiling for the best-bet advisor JSON.
                             # A 1024 ceiling was observed truncating a verbose two-pick

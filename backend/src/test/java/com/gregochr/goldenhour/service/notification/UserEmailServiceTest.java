@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.notification;
 
+import com.gregochr.goldenhour.config.RegistrationProperties;
 import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -7,6 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.thymeleaf.TemplateEngine;
@@ -15,9 +17,13 @@ import org.thymeleaf.context.Context;
 import org.thymeleaf.context.IContext;
 import org.thymeleaf.templateresolver.ClassLoaderTemplateResolver;
 
+import java.time.LocalDateTime;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -38,7 +44,7 @@ class UserEmailServiceTest {
     @Test
     @DisplayName("sendWelcomeEmail skips silently when mailSender is null")
     void sendWelcomeEmail_nullMailSender_skips() {
-        UserEmailService service = new UserEmailService(null, templateEngine);
+        UserEmailService service = new UserEmailService(null, templateEngine, new RegistrationProperties());
 
         service.sendWelcomeEmail("test@example.com", "alice", "TempPass1!");
 
@@ -48,7 +54,7 @@ class UserEmailServiceTest {
     @Test
     @DisplayName("sendWelcomeEmail skips silently when email is blank")
     void sendWelcomeEmail_blankEmail_skips() {
-        UserEmailService service = new UserEmailService(mailSender, templateEngine);
+        UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
 
         service.sendWelcomeEmail("", "alice", "TempPass1!");
 
@@ -58,7 +64,7 @@ class UserEmailServiceTest {
     @Test
     @DisplayName("sendWelcomeEmail skips silently when email is null")
     void sendWelcomeEmail_nullEmail_skips() {
-        UserEmailService service = new UserEmailService(mailSender, templateEngine);
+        UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
 
         service.sendWelcomeEmail(null, "alice", "TempPass1!");
 
@@ -68,7 +74,7 @@ class UserEmailServiceTest {
     @Test
     @DisplayName("sendWelcomeEmail renders template and sends HTML email")
     void sendWelcomeEmail_validInput_sendsEmail() {
-        UserEmailService service = new UserEmailService(mailSender, templateEngine);
+        UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("welcome-email"), any(IContext.class)))
@@ -83,7 +89,7 @@ class UserEmailServiceTest {
     @Test
     @DisplayName("sendPasswordResetEmail renders template and sends HTML email")
     void sendPasswordResetEmail_validInput_sendsEmail() {
-        UserEmailService service = new UserEmailService(mailSender, templateEngine);
+        UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("password-reset-email"), any(IContext.class)))
@@ -98,7 +104,7 @@ class UserEmailServiceTest {
     @Test
     @DisplayName("sendWelcomeEmail catches and logs exceptions without propagating")
     void sendWelcomeEmail_sendFails_doesNotPropagate() {
-        UserEmailService service = new UserEmailService(mailSender, templateEngine);
+        UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
         when(mailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
 
         // Should not throw
@@ -106,7 +112,7 @@ class UserEmailServiceTest {
     }
 
     private UserEmailService serviceWithBaseUrl(String baseUrl) {
-        UserEmailService service = new UserEmailService(mailSender, templateEngine);
+        UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
         ReflectionTestUtils.setField(service, "frontendBaseUrl", baseUrl);
         return service;
     }
@@ -174,9 +180,10 @@ class UserEmailServiceTest {
     @Test
     @DisplayName("sendPasswordResetLinkEmail skips silently when mailSender is null or the address blank")
     void sendPasswordResetLinkEmail_skipsWhenItCannotSend() {
-        new UserEmailService(null, templateEngine)
+        new UserEmailService(null, templateEngine, new RegistrationProperties())
                 .sendPasswordResetLinkEmail("alice@example.com", "alice", "tok");
-        new UserEmailService(mailSender, templateEngine).sendPasswordResetLinkEmail(" ", "alice", "tok");
+        new UserEmailService(mailSender, templateEngine, new RegistrationProperties())
+                .sendPasswordResetLinkEmail(" ", "alice", "tok");
 
         verify(templateEngine, never()).process(any(String.class), any(IContext.class));
         verify(mailSender, never()).send(any(MimeMessage.class));
@@ -238,7 +245,7 @@ class UserEmailServiceTest {
     @Test
     @DisplayName("sendVerificationEmail skips silently when mailSender is null")
     void sendVerificationEmail_nullMailSender_skips() {
-        UserEmailService service = new UserEmailService(null, templateEngine);
+        UserEmailService service = new UserEmailService(null, templateEngine, new RegistrationProperties());
 
         service.sendVerificationEmail("test@example.com", "alice", "raw-token-uuid");
 
@@ -248,7 +255,7 @@ class UserEmailServiceTest {
     @Test
     @DisplayName("sendAccountDeletedEmail renders template and sends HTML email")
     void sendAccountDeletedEmail_validInput_sendsEmail() {
-        UserEmailService service = new UserEmailService(mailSender, templateEngine);
+        UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("account-deleted-email"), any(IContext.class)))
@@ -263,10 +270,113 @@ class UserEmailServiceTest {
     @Test
     @DisplayName("sendAccountDeletedEmail skips silently when mailSender is null")
     void sendAccountDeletedEmail_nullMailSender_skips() {
-        UserEmailService service = new UserEmailService(null, templateEngine);
+        UserEmailService service = new UserEmailService(null, templateEngine, new RegistrationProperties());
 
         service.sendAccountDeletedEmail("test@example.com", "alice");
 
         verify(templateEngine, never()).process(any(String.class), any(IContext.class));
+    }
+
+    /** Matches the reminder template's context exactly: link, flag, days left and the lapse date. */
+    private static IContext reminderContext(String token, boolean finalReminder) {
+        return argThat(ctx -> ctx instanceof Context c
+                && ("https://app.photocast.online/verify?token=" + token).equals(c.getVariable("verificationUrl"))
+                && Boolean.valueOf(finalReminder).equals(c.getVariable("finalReminder"))
+                && Integer.valueOf(3).equals(c.getVariable("daysLeft"))
+                && "Friday 14 March".equals(c.getVariable("lapsesOn")));
+    }
+
+    @Test
+    @DisplayName("isConfigured reports whether a mail sender exists")
+    void isConfigured_reflectsTheSender() {
+        assertThat(new UserEmailService(null, templateEngine, new RegistrationProperties()).isConfigured())
+                .isFalse();
+        assertThat(new UserEmailService(mailSender, templateEngine, new RegistrationProperties()).isConfigured())
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("sendVerificationEmail passes the hold in days (168 h -> 7)")
+    void sendVerificationEmail_carriesHoldDays() throws Exception {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+
+        Context context = renderedContext("verification-email",
+                () -> service.sendVerificationEmail("alice@example.com", "alice", "tok"));
+
+        assertThat(context.getVariable("holdDays")).isEqualTo(7);
+    }
+
+    @Test
+    @DisplayName("the reminder returns false with no sender and for a blank address, rendering nothing")
+    void reminder_cannotSend_returnsFalse() {
+        LocalDateTime lapses = LocalDateTime.of(2031, 3, 14, 10, 0);
+
+        assertThat(new UserEmailService(null, templateEngine, new RegistrationProperties())
+                .sendVerificationReminderEmail("a@example.com", "alice", "tok", false, lapses)).isFalse();
+        assertThat(new UserEmailService(mailSender, templateEngine, new RegistrationProperties())
+                .sendVerificationReminderEmail(" ", "alice", "tok", false, lapses)).isFalse();
+
+        verify(templateEngine, never()).process(any(String.class), any(IContext.class));
+    }
+
+    @Test
+    @DisplayName("the reminder returns false when the mailer throws a MailException")
+    void reminder_mailException_returnsFalse() {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("verification-reminder-email"), reminderContext("tok", true)))
+                .thenReturn("<html></html>");
+        doThrow(new MailSendException("SMTP down")).when(mailSender).send(mimeMessage);
+
+        assertThat(service.sendVerificationReminderEmail("a@example.com", "alice", "tok", true,
+                LocalDateTime.of(2031, 3, 14, 10, 0))).isFalse();
+    }
+
+    @Test
+    @DisplayName("the first reminder carries the fresh URL, the days left and its subject; true on send")
+    void firstReminder_carriesTheFreshUrlAndSubject() throws Exception {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("verification-reminder-email"), reminderContext("fresh-tok", false)))
+                .thenReturn("<html></html>");
+
+        boolean sent = service.sendVerificationReminderEmail("a@example.com", "alice", "fresh-tok", false,
+                LocalDateTime.of(2031, 3, 14, 10, 0));
+
+        assertThat(sent).isTrue();
+        ArgumentCaptor<IContext> captor = ArgumentCaptor.forClass(IContext.class);
+        verify(templateEngine).process(eq("verification-reminder-email"), captor.capture());
+        Context context = (Context) captor.getValue();
+        assertThat(context.getVariable("verificationUrl"))
+                .isEqualTo("https://app.photocast.online/verify?token=fresh-tok");
+        assertThat(context.getVariable("finalReminder")).isEqualTo(false);
+        assertThat(context.getVariable("daysLeft")).isEqualTo(3);
+        assertThat(context.getVariable("lapsesOn")).isEqualTo("Friday 14 March");
+        verify(mimeMessage).setSubject("PhotoCast — your place is held for 3 more days", "UTF-8");
+        verify(mailSender).send(mimeMessage);
+    }
+
+    @Test
+    @DisplayName("the final reminder carries the fresh URL and the last-day subject")
+    void finalReminder_carriesTheFreshUrlAndSubject() throws Exception {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("verification-reminder-email"), reminderContext("fresh-tok", true)))
+                .thenReturn("<html></html>");
+
+        boolean sent = service.sendVerificationReminderEmail("a@example.com", "alice", "fresh-tok", true,
+                LocalDateTime.of(2031, 3, 14, 10, 0));
+
+        assertThat(sent).isTrue();
+        ArgumentCaptor<IContext> captor = ArgumentCaptor.forClass(IContext.class);
+        verify(templateEngine).process(eq("verification-reminder-email"), captor.capture());
+        Context context = (Context) captor.getValue();
+        assertThat(context.getVariable("verificationUrl"))
+                .isEqualTo("https://app.photocast.online/verify?token=fresh-tok");
+        assertThat(context.getVariable("finalReminder")).isEqualTo(true);
+        verify(mimeMessage).setSubject("PhotoCast — last day to claim your place", "UTF-8");
     }
 }

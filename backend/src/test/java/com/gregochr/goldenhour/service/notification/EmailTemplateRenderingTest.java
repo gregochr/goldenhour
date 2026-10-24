@@ -15,7 +15,7 @@ import org.thymeleaf.templateresolver.ClassLoaderTemplateResolver;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Renders the five transactional email templates through a real Thymeleaf engine (the
+ * Renders the six transactional email templates through a real Thymeleaf engine (the
  * {@code UserEmailServiceTest} mocks the engine, so nothing else renders them) and checks they wear
  * the current brand through the shared {@code fragments/email-brand} fragments.
  */
@@ -41,8 +41,17 @@ class EmailTemplateRenderingTest {
     static Stream<Arguments> templates() {
         return Stream.of(
                 Arguments.of("verification-email", "Verify your email address",
-                        Map.of("username", "alice", "verificationUrl", "https://app.photocast.online/verify?token=v1"),
+                        Map.of("username", "alice", "verificationUrl", "https://app.photocast.online/verify?token=v1",
+                                "holdDays", 7),
                         "https://app.photocast.online/verify?token=v1"),
+                Arguments.of("verification-reminder-email", "Your place is still held",
+                        Map.of("username", "alice", "verificationUrl", "https://app.photocast.online/verify?token=f1",
+                                "finalReminder", false, "daysLeft", 3, "lapsesOn", "Friday 30 October"),
+                        "https://app.photocast.online/verify?token=f1"),
+                Arguments.of("verification-reminder-email", "Last day to claim your place",
+                        Map.of("username", "alice", "verificationUrl", "https://app.photocast.online/verify?token=f2",
+                                "finalReminder", true, "daysLeft", 3, "lapsesOn", "Friday 30 October"),
+                        "https://app.photocast.online/verify?token=f2"),
                 Arguments.of("welcome-email", "Your account is ready",
                         Map.of("username", "alice", "temporaryPassword", "Tmp-Pass-123"),
                         "Tmp-Pass-123"),
@@ -104,5 +113,18 @@ class EmailTemplateRenderingTest {
 
         assertThat(html).doesNotContain("text-align:center");
         assertThat(header).contains("text-align:left");
+    }
+
+    @org.junit.jupiter.api.Test
+    @DisplayName("the verification email says how long the place is held; the reminders end with the do-nothing line")
+    void holdAndDoNothingLines() {
+        assertThat(render("verification-email", Map.of("username", "alice", "verificationUrl", "u",
+                "holdDays", 7))).contains("We'll hold your place for").contains(">7<").contains("days.");
+        assertThat(render("verification-reminder-email", Map.of("username", "alice", "verificationUrl", "u",
+                "finalReminder", true, "daysLeft", 3, "lapsesOn", "Friday 30 October")))
+                .contains("released tomorrow").contains("the place lapses on its own");
+        assertThat(render("verification-reminder-email", Map.of("username", "alice", "verificationUrl", "u",
+                "finalReminder", false, "daysLeft", 3, "lapsesOn", "Friday 30 October")))
+                .contains("held until").contains("Friday 30 October");
     }
 }
