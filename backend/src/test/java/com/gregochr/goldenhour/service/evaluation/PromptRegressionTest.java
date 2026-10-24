@@ -610,6 +610,47 @@ class PromptRegressionTest {
                 "Golden Hour should be >= 55 (good light) but was " + result.goldenHourPotential());
     }
 
+    /**
+     * Steel Rigg &amp; Winshield Crags, 24 October 2026, SUNRISE 06:56 UTC — POSITIVE case (worth going:
+     * clear solar horizon, saturated high canvas).
+     *
+     * <p>Data sourced from production record id 119939 (Sonnet 5.5, batch near-term, run 2026-10-24
+     * 02:44 UTC), and the user message is the production prompt verbatim —
+     * {@link SteelRiggPromptFidelityTest} pins it to the stored text. An inland location (345 m,
+     * overlooking loughs), so there is no tide and it runs through the plain prompt. Solar horizon
+     * 0% low / 0% mid / 87% high, antisolar 60/100/100, far corridor (226 km) low 80%, upwind 78%
+     * at the event, 96% humidity with a 0.6°C dew gap (near-saturated). Production rated it 4 stars
+     * on all four runs for that sunrise (fiery 62–68, golden 55–66); the evaluated run gave 4 /
+     * fiery 68 / golden 62.
+     *
+     * <p>The owner photographed it from Hadrian's Wall at Steel Rigg, looking along Whinshield
+     * Crags: a sky lit deep orange, salmon and red across the whole high canvas — saturated colour,
+     * stronger than Low Hauxley's pastel. Verdict: "A solid 4". The owner went for the colour in the
+     * sky and did not stay for golden hour ("it was cold"), so Golden Hour is not judged. The bounds
+     * are the owner's:
+     * <ul>
+     *   <li>Rating: exactly 4</li>
+     *   <li>Fiery Sky: 60–90 (saturated colour across the canvas)</li>
+     *   <li>Golden Hour: no bound beyond the shared not-null check</li>
+     * </ul>
+     */
+    @Test
+    void steelRigg_24Oct2026_sunrise_clearSolarHorizonHighCanvas_worthGoing() {
+        AtmosphericData data = SteelRiggFixture.atmosphericData();
+
+        SunsetEvaluation result = strategy.evaluate(data);
+        System.out.println("[steelRigg_24Oct] rating=" + result.rating()
+                + " fiery=" + result.fierySkyPotential()
+                + " golden=" + result.goldenHourPotential() + " " + result.summary());
+
+        assertScoresNotNull(result);
+        assertEquals(4, result.rating(),
+                "Rating should be exactly 4 (a solid 4) but was " + result.rating());
+        assertTrue(result.fierySkyPotential() >= 60 && result.fierySkyPotential() <= 90,
+                "Fiery Sky should be 60-90 (saturated colour across the canvas) but was "
+                        + result.fierySkyPotential());
+    }
+
     private static void assertScoresNotNull(SunsetEvaluation result) {
         assertNotNull(result.rating(), "Rating should not be null");
         assertNotNull(result.fierySkyPotential(), "Fiery Sky should not be null");

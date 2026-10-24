@@ -1,0 +1,18 @@
+Location: Steel Rigg & Winshield Crags. SUNRISE: 2026-10-24T06:56:17 UTC.
+Cloud: Low 34%, Mid 86%, High 100%
+Visibility: 18,960m, Wind: 2.90 m/s (244°), Precip: 0.00mm
+Humidity: 96%, Precip probability: 0%
+Dew point: 2.6°C (gap 0.6°C)
+Weather code: 3
+Boundary layer: 410m, Shortwave: 0 W/m²
+PM2.5: 3.70µg/m³, Dust: 0.00µg/m³, AOD: 0.080
+Location orientation: sunrise-optimised (this location is best suited for sunrise photography)
+DIRECTIONAL CLOUD (113km sample):
+Solar horizon (toward sun): Low 0%, Mid 0%, High 87%
+Antisolar horizon (away from sun): Low 60%, Mid 100%, High 100%
+Beyond horizon (226km, solar azimuth): Low 80%
+CLOUD APPROACH RISK:
+Solar horizon cloud trend (113km) — low blocker / mid+high canvas: T-3h=low18%/mid0%/high100% T-2h=low0%/mid0%/high96% T-1h=low0%/mid0%/high98% event=low0%/mid0%/high87%
+Upwind sample (43km along 244° WSW): current=0%, at-event=78%
+MIST/VISIBILITY TREND (T-3h to T+2h): T-3h: vis=23,560m temp=2.8°C dew=2.2°C (gap=0.6°C) [AT/NEAR DEW POINT] T-2h: vis=22,720m temp=2.9°C dew=2.3°C (gap=0.6°C) [AT/NEAR DEW POINT] T-1h: vis=21,580m temp=2.9°C dew=2.4°C (gap=0.5°C) [AT/NEAR DEW POINT] event: vis=18,960m temp=3.2°C dew=2.6°C (gap=0.6°C) [AT/NEAR DEW POINT] T+1h: vis=29,840m temp=5.0°C dew=3.5°C (gap=1.5°C) [NEAR DEW POINT] T+2h: vis=33,980m temp=6.1°C dew=4.3°C (gap=1.8°C) [NEAR DEW POINT]
+Rate 1-5, estimate Fiery Sky Potential (0-100) and Golden Hour Potential (0-100), then summarise in exactly one sentence.

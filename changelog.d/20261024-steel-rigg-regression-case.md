@@ -1,0 +1,3 @@
+### Added — Steel Rigg sunrise (24 Oct 2026) as a prompt regression case
+
+A new prompt regression case from an observed sunrise: a sky lit deep orange, salmon and red across the whole high canvas above Whinshield Crags, which the owner rated "a solid 4". It is the first inland case built from a stored production prompt: the exact user message production sent for record 119939 lives in a test resource, and an untagged unit test (`SteelRiggPromptFidelityTest`) pins the fixture's output to that text in the normal build, so the regression case provably sends what production sent. The bounds are the owner's (rating exactly 4, Fiery Sky 60–90); Golden Hour is not judged because the owner did not stay for it.
