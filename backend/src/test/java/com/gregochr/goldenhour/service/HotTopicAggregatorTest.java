@@ -4,7 +4,9 @@ import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.GlanceLine;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
@@ -47,6 +49,8 @@ class HotTopicAggregatorTest {
     private HotTopicSimulationService simulationService;
     private final TravelDayService travelDayService = mock(TravelDayService.class);
     private final HotTopicEventEnricher eventEnricher = mock(HotTopicEventEnricher.class);
+    // Passthrough for the collect/filter/sort cases; the real decorator is used where glance matters.
+    private final HotTopicGlanceDecorator glanceDecorator = mock(HotTopicGlanceDecorator.class);
 
     @BeforeEach
     void setUp() {
@@ -54,13 +58,48 @@ class HotTopicAggregatorTest {
         // Passthrough — the enrichment of event type/time is exercised in its own test; here we
         // assert the aggregator's collect/filter/sort behaviour on the topics unchanged.
         when(eventEnricher.enrich(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        when(glanceDecorator.decorate(anyList())).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    @Test
+    @DisplayName("live branch — the real decorator runs last, after the enricher and travel filter")
+    void getHotTopics_liveBranch_returnsDecoratedTopics() {
+        HotTopic dust = new HotTopic("DUST", "Dust", "d", FROM, 1, null, List.of(), null, null)
+                .withScience(List.of(HotTopicFact.metric("AOD", "0.45 · thick")), null);
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(dust)),
+                simulationService, travelDayService, eventEnricher, new HotTopicGlanceDecorator());
+
+        List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.getFirst().glance())
+                .isEqualTo(new GlanceLine("0.45 · thick", "0.45", null, true));
+    }
+
+    @Test
+    @DisplayName("simulated branch — the real decorator runs there too")
+    void getHotTopics_simulatedBranch_returnsDecoratedTopics() {
+        simulationService.setEnabled(true);
+        simulationService.setTypeActive("SUPERMOON", true);
+        simulationService.setTypeActive("INVERSION", true);
+        simulationService.setTypeActive("MIST", true);
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(),
+                simulationService, travelDayService, eventEnricher, new HotTopicGlanceDecorator());
+
+        List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
+
+        assertThat(topics).extracting(HotTopic::type).contains("SUPERMOON", "INVERSION", "MIST");
+        assertThat(topics).filteredOn(t -> "SUPERMOON".equals(t.type()))
+                .singleElement().satisfies(t -> assertThat(t.glance().badge()).isEqualTo("FULL"));
+        assertThat(topics).filteredOn(t -> "INVERSION".equals(t.type()) || "MIST".equals(t.type()))
+                .allSatisfy(t -> assertThat(t.glance().weather()).isTrue());
     }
 
     @Test
     @DisplayName("empty detector list returns empty topics")
     void getHotTopics_noDetectors_returnsEmpty() {
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(), simulationService, travelDayService, eventEnricher);
+                List.of(), simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -79,7 +118,7 @@ class HotTopicAggregatorTest {
         HotTopicStrategy strategy2 = (from, to) -> List.of(topic2);
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(strategy1, strategy2),
-                simulationService, travelDayService, eventEnricher);
+                simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -98,7 +137,7 @@ class HotTopicAggregatorTest {
 
         HotTopicStrategy strategy = (from, to) -> List.of(away, workable);
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(strategy),
-                simulationService, travelDayService, eventEnricher);
+                simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -116,7 +155,7 @@ class HotTopicAggregatorTest {
         when(travelDayService.isTravelDay(FROM)).thenReturn(false);
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(running)),
-                simulationService, travelDayService, eventEnricher);
+                simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(running);
     }
@@ -129,7 +168,7 @@ class HotTopicAggregatorTest {
         when(travelDayService.isTravelDay(FROM)).thenReturn(true);
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(running)),
-                simulationService, travelDayService, eventEnricher);
+                simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).isEmpty();
         // Yesterday is behind the range and is never consulted — being away then changes nothing.
@@ -145,7 +184,7 @@ class HotTopicAggregatorTest {
         when(travelDayService.isTravelDay(FROM.plusDays(1))).thenReturn(false);
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(tonight)),
-                simulationService, travelDayService, eventEnricher);
+                simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(tonight);
     }
@@ -159,7 +198,7 @@ class HotTopicAggregatorTest {
         when(travelDayService.isTravelDay(FROM.plusDays(1))).thenReturn(true);
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(tonight)),
-                simulationService, travelDayService, eventEnricher);
+                simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).isEmpty();
     }
@@ -176,7 +215,7 @@ class HotTopicAggregatorTest {
         when(travelDayService.isTravelDay(FROM)).thenReturn(false);
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(bare)),
-                simulationService, travelDayService, eventEnricher);
+                simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(enriched);
     }
@@ -190,7 +229,7 @@ class HotTopicAggregatorTest {
 
         HotTopicStrategy strategy = (from, to) -> List.of(lowPriority, medPriorityLaterDate, highPriority);
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(strategy), simulationService, travelDayService, eventEnricher);
+                List.of(strategy), simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -204,7 +243,7 @@ class HotTopicAggregatorTest {
     void getHotTopics_detectorReturnsEmpty_noError() {
         HotTopicStrategy emptyStrategy = (from, to) -> List.of();
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(emptyStrategy), simulationService, travelDayService, eventEnricher);
+                List.of(emptyStrategy), simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -222,7 +261,7 @@ class HotTopicAggregatorTest {
         };
 
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(neverCalledStrategy), simulationService, travelDayService, eventEnricher);
+                List.of(neverCalledStrategy), simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -238,7 +277,7 @@ class HotTopicAggregatorTest {
         HotTopic realTopic = new HotTopic("SPRING_TIDE", "Spring tide", "real", FROM, 1, null, List.of(), null, null);
         HotTopicStrategy strategy = (from, to) -> List.of(realTopic);
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(strategy), simulationService, travelDayService, eventEnricher);
+                List.of(strategy), simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -259,7 +298,7 @@ class HotTopicAggregatorTest {
         when(mockStrategy1.detect(FROM, TO)).thenReturn(List.of());
         when(mockStrategy2.detect(FROM, TO)).thenReturn(List.of());
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(mockStrategy1, mockStrategy2),
-                simulationService, travelDayService, eventEnricher);
+                simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         aggregator.getHotTopics(FROM, TO);
 
@@ -273,7 +312,7 @@ class HotTopicAggregatorTest {
         simulationService.setEnabled(true);
         simulationService.setTypeActive("BLUEBELL", true);
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(mockStrategy1), simulationService, travelDayService, eventEnricher);
+                List.of(mockStrategy1), simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         aggregator.getHotTopics(FROM, TO);
 
@@ -338,7 +377,7 @@ class HotTopicAggregatorTest {
                 new InversionHotTopicStrategy(realReader, freshness);
 
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(realInversionStrategy), simulationService, travelDayService, eventEnricher);
+                List.of(realInversionStrategy), simulationService, travelDayService, eventEnricher, glanceDecorator);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 

@@ -59,6 +59,10 @@ import java.util.List;
  *                       to fit a solar filter is worse than none at all because it reads as
  *                       information being withheld rather than information needed. Its own field so
  *                       it can be rendered outside every tier gate and every narrow-viewport drop
+ * @param glance         the Coming up strip's chip for this topic: its second line (desktop and
+ *                       phone), an optional PEAK/FULL badge and whether it is weather-driven. Served
+ *                       so the client never composes it per type; null on a topic nothing has
+ *                       decorated (including cached JSON written before the field existed)
  */
 public record HotTopic(
         String type,
@@ -92,7 +96,9 @@ public record HotTopic(
         @JsonInclude(JsonInclude.Include.NON_NULL)
         String rarityNote,
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        String safetyNote) implements Comparable<HotTopic> {
+        String safetyNote,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        GlanceLine glance) implements Comparable<HotTopic> {
 
     /** The served anchor of a topic whose window runs from its date's dusk to the next dawn. */
     public static final String EVENT_NIGHT = "NIGHT";
@@ -145,7 +151,8 @@ public record HotTopic(
             @JsonProperty("tideRun") TideRunDay tideRun,
             @JsonProperty("surgeRun") SurgeRunDay surgeRun,
             @JsonProperty("rarityNote") String rarityNote,
-            @JsonProperty("safetyNote") String safetyNote) {
+            @JsonProperty("safetyNote") String safetyNote,
+            @JsonProperty("glance") GlanceLine glance) {
         this.type = type;
         this.label = label;
         this.detail = detail;
@@ -166,6 +173,7 @@ public record HotTopic(
         this.surgeRun = surgeRun;
         this.rarityNote = rarityNote;
         this.safetyNote = safetyNote;
+        this.glance = glance;
     }
 
     /**
@@ -195,7 +203,7 @@ public record HotTopic(
             String description,
             ExpandedHotTopicDetail expandedDetail) {
         this(type, label, detail, date, priority, filterAction, regions, description,
-                expandedDetail, null, null, null, null, null, null, null, null, null, null, null);
+                expandedDetail, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -209,7 +217,7 @@ public record HotTopic(
     public HotTopic withEvent(String eventType, String eventTime) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
     }
 
     /**
@@ -222,7 +230,7 @@ public record HotTopic(
     public HotTopic withLocations(List<String> locationNames) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
     }
 
     /**
@@ -235,7 +243,7 @@ public record HotTopic(
     public HotTopic withNlcWindows(NlcWindow eveningWindow, NlcWindow morningWindow) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
     }
 
     /**
@@ -249,7 +257,7 @@ public record HotTopic(
     public HotTopic withScience(List<HotTopicFact> facts, String note) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
     }
 
     /**
@@ -264,7 +272,7 @@ public record HotTopic(
     public HotTopic withExpandedDetail(ExpandedHotTopicDetail expandedDetail) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
     }
 
     /**
@@ -276,7 +284,7 @@ public record HotTopic(
     public HotTopic withTideRun(TideRunDay tideRun) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
     }
 
     /**
@@ -291,7 +299,7 @@ public record HotTopic(
     public HotTopic withSurgeRun(SurgeRunDay surgeRun) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
     }
 
     /**
@@ -304,7 +312,7 @@ public record HotTopic(
     public HotTopic withRarity(String rarityNote) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
     }
 
     /**
@@ -320,7 +328,20 @@ public record HotTopic(
     public HotTopic withSafety(String safetyNote) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
+    }
+
+    /**
+     * Returns a copy of this topic carrying its Coming up chip line.
+     *
+     * @param glance the chip line, or null
+     * @return a new {@link HotTopic} with {@code glance} set
+     */
+    public HotTopic withGlance(GlanceLine glance) {
+        return new HotTopic(type, label, detail, date, priority, filterAction, regions,
+                description, expandedDetail, eventType, eventTime, locationNames,
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
+                glance);
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.GlanceLine;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.MistPotential;
@@ -158,7 +159,12 @@ public class MistHotTopicStrategy implements HotTopicStrategy {
         String note = event == TargetType.SUNSET ? SUNSET_NOTE : SUNRISE_NOTE;
         // The time is left to HotTopicEventEnricher, which completes a detector-stamped event; see
         // its EVENT_STAMPED_BY_DETECTOR.
+        String when = event == TargetType.SUNSET ? "dusk" : "dawn";
+        String siteCount = sites + (sites == 1 ? " site" : " sites");
+        GlanceLine glance = new GlanceLine(when + " · likely, " + siteCount, "likely", null,
+                HotTopicGlanceDecorator.WEATHER_TYPES.contains(TYPE));
         return topic.withEvent(event.name(), null)
-                .withScience(List.of(HotTopicFact.metric("valley mist", value)), note);
+                .withScience(List.of(HotTopicFact.metric("valley mist", value)), note)
+                .withGlance(glance);
     }
 }

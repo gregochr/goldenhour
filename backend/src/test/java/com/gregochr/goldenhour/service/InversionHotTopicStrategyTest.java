@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.GlanceLine;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SlotSignals;
@@ -168,6 +169,7 @@ class InversionHotTopicStrategyTest {
         HotTopic topic = strategy.detect(FROM, TO).get(0);
 
         assertThat(factWithKey(topic, "inversion").value()).isEqualTo("9/10 · strong");
+        assertThat(topic.glance()).isEqualTo(new GlanceLine("dawn · 9/10", "9/10", null, true));
         assertThat(topic.facts()).noneMatch(f -> f.value() != null && f.value().contains(" m"));
         assertThat(topic.note())
                 .isEqualTo("climb above it — the valleys fill with cloud, burning off after sunrise");
@@ -184,6 +186,8 @@ class InversionHotTopicStrategyTest {
         HotTopic topic = strategy.detect(FROM, TO).get(0);
 
         assertThat(factWithKey(topic, "inversion").value()).isEqualTo("10/10 · strong");
+        assertThat(topic.glance().value()).isEqualTo("dawn · 10/10");
+        assertThat(topic.glance().shortValue()).isEqualTo("10/10");
     }
 
     @Test

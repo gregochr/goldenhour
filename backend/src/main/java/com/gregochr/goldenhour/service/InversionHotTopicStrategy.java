@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.GlanceLine;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SlotSignals;
@@ -96,6 +97,9 @@ import java.util.Locale;
 @Component
 public class InversionHotTopicStrategy implements HotTopicStrategy {
 
+    /** The {@link HotTopic#type()} this strategy emits. */
+    public static final String TYPE = "INVERSION";
+
     private static final String INVERSION_DESCRIPTION =
             "A temperature inversion traps cloud below elevated viewpoints, creating a"
                     + " 'sea of clouds' effect. Best seen from high ground overlooking"
@@ -114,6 +118,11 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     /** The italic "how to use it" cue on the enriched fact line. */
     private static final String INVERSION_NOTE =
             "climb above it — the valleys fill with cloud, burning off after sunrise";
+
+    /** The glance line's desktop prefix: an inversion is a dawn event. */
+    private static final String GLANCE_PREFIX = "dawn · ";
+
+    private static final String GLANCE_DENOMINATOR = "/10";
 
     private final SlotSignalReader slotSignalReader;
     private final SolarEventFreshness freshness;
@@ -153,7 +162,7 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
 
         return PerDateHotTopicBuilder.perDate(
                 strong,
-                "INVERSION",
+                TYPE,
                 "Cloud inversion",
                 "Strong inversion likely at elevated locations",
                 PRIORITY,
@@ -191,8 +200,12 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
         // prompt already applies.
         int reported = (int) Math.round(top.effectiveInversionScore());
         String value = reported + "/10 · " + bandLabel(reported);
+        GlanceLine glance = new GlanceLine(
+                GLANCE_PREFIX + reported + GLANCE_DENOMINATOR, reported + GLANCE_DENOMINATOR, null,
+                HotTopicGlanceDecorator.WEATHER_TYPES.contains(TYPE));
         return topic.withScience(
-                List.of(HotTopicFact.metric("inversion", value)), INVERSION_NOTE);
+                List.of(HotTopicFact.metric("inversion", value)), INVERSION_NOTE)
+                .withGlance(glance);
     }
 
     /**

@@ -32,6 +32,7 @@ public class HotTopicAggregator {
     private final HotTopicSimulationService simulationService;
     private final TravelDayService travelDayService;
     private final HotTopicEventEnricher eventEnricher;
+    private final HotTopicGlanceDecorator glanceDecorator;
 
     /**
      * Constructs a {@code HotTopicAggregator} with all registered strategies.
@@ -40,15 +41,18 @@ public class HotTopicAggregator {
      * @param simulationService admin simulation override service
      * @param travelDayService  suppresses topics dated on a travel day (operator is away)
      * @param eventEnricher     fills in each topic's photographic event type and time
+     * @param glanceDecorator   fills in each topic's Coming up chip line, last of all
      */
     public HotTopicAggregator(List<HotTopicStrategy> strategies,
                                HotTopicSimulationService simulationService,
                                TravelDayService travelDayService,
-                               HotTopicEventEnricher eventEnricher) {
+                               HotTopicEventEnricher eventEnricher,
+                               HotTopicGlanceDecorator glanceDecorator) {
         this.strategies = strategies;
         this.simulationService = simulationService;
         this.travelDayService = travelDayService;
         this.eventEnricher = eventEnricher;
+        this.glanceDecorator = glanceDecorator;
     }
 
     /**
@@ -64,7 +68,8 @@ public class HotTopicAggregator {
      */
     public List<HotTopic> getHotTopics(LocalDate fromDate, LocalDate toDate) {
         if (simulationService.isEnabled()) {
-            return eventEnricher.enrich(simulationService.getSimulatedTopics(fromDate, toDate));
+            return glanceDecorator.decorate(
+                    eventEnricher.enrich(simulationService.getSimulatedTopics(fromDate, toDate)));
         }
         List<HotTopic> topics = strategies.stream()
                 .flatMap(s -> s.detect(fromDate, toDate).stream())
@@ -72,9 +77,11 @@ public class HotTopicAggregator {
                 .toList();
         // Enriched BEFORE the travel filter: the filter reads the dates a topic covers, and a
         // NIGHT anchor is what the enricher adds.
-        return eventEnricher.enrich(topics).stream()
+        // Decorated LAST, in both branches: BriefingService keeps its cached briefing only when the
+        // cached topics equal the live ones, so the cache and every serve must see the same glance.
+        return glanceDecorator.decorate(eventEnricher.enrich(topics).stream()
                 .filter(topic -> actionableOutsideTravel(topic, fromDate))
-                .toList();
+                .toList());
     }
 
     /**

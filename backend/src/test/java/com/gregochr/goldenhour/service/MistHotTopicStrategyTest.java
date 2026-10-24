@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.GlanceLine;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.MistPotential;
@@ -104,6 +105,8 @@ class MistHotTopicStrategyTest {
         assertThat(fact.key()).isEqualTo("valley mist");
         assertThat(fact.value()).isEqualTo("likely at 1 site");
         assertThat(topic.note()).isEqualTo("get there before the sun — it burns off within the hour");
+        assertThat(topic.glance())
+                .isEqualTo(new GlanceLine("dawn · likely, 1 site", "likely", null, true));
     }
 
     @Test
@@ -118,6 +121,8 @@ class MistHotTopicStrategyTest {
         assertThat(topics).hasSize(1);
         assertThat(topics.getFirst().eventType()).isEqualTo("SUNSET");
         assertThat(topics.getFirst().note()).contains("blue hour");
+        assertThat(topics.getFirst().glance())
+                .isEqualTo(new GlanceLine("dusk · likely, 1 site", "likely", null, true));
     }
 
     @Test
@@ -185,6 +190,7 @@ class MistHotTopicStrategyTest {
         assertThat(topics).hasSize(1);
         assertThat(topics.getFirst().regions()).containsExactly("The Lake District");
         assertThat(topics.getFirst().facts().getFirst().value()).isEqualTo("likely at 2 sites");
+        assertThat(topics.getFirst().glance().value()).isEqualTo("dawn · likely, 2 sites");
     }
 
     @Test
