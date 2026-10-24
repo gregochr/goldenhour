@@ -3,23 +3,22 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /**
- * The lanes' stylesheet, asserted as TEXT — {@code vite.config.js} sets {@code css: false} and jsdom
- * has no layout engine, so nothing here can measure a box ({@code heatTokens.test.js} reads
- * {@code index.css} the same way). It replaces the old handoff row's geometry test: that row was a
- * {@code <button>} that shrink-wrapped and needed its width pinned against its own margin, and the
- * lanes are a block-level {@code <section>}, so the trap is gone — what is pinned now is the part a
- * later edit could quietly break:
+ * The day tiles' stylesheet, asserted as TEXT — {@code vite.config.js} sets {@code css: false} and
+ * jsdom has no layout engine, so nothing here can measure a box ({@code heatTokens.test.js} reads
+ * {@code index.css} the same way). What is pinned is the part a later edit could quietly break
+ * (coming-up-glance-plan T1):
  *
  * <ul>
- *   <li>the desktop grid is label + four days + a jump column, and the phone grid is the same shape
- *       with its narrower columns (hot-topics-by-day README §1);</li>
- *   <li>every phone-only rule lives inside {@code @media (max-width: 639px)}, so desktop and tablet
- *       are provably untouched (CLAUDE.md "phone-only work stays phone-only");</li>
- *   <li>the topic colour is only ever read from {@code --c}, never a literal hex.</li>
+ *   <li>the tiles are always four equal columns, and the phone changes only sizes inside
+ *       {@code @media (max-width: 639px)}, so desktop and tablet are provably untouched (CLAUDE.md
+ *       "phone-only work stays phone-only");</li>
+ *   <li>every desktop / phone span pair has exactly one half hidden per media query;</li>
+ *   <li>the topic colour is only ever read from {@code --c}, never a literal hex;</li>
+ *   <li>forced colours keep a swatch border, a dashed continuation chip and a real focus outline.</li>
  * </ul>
  *
- * <p>The geometry itself (a symmetric inset, no overflow at 390px) is a browser measurement and
- * belongs to the browser check.
+ * <p>The geometry itself (no overflow at 375px, no ellipsis on a phone name) is a browser
+ * measurement and belongs to the browser check.
  */
 // The path goes through a parameter, never a literal: Vite statically rewrites
 // `new URL('<literal>', import.meta.url)` into an asset reference, which is not a file URL.
@@ -48,109 +47,140 @@ const mediaBlock = (query, from = 0) => {
   throw new Error('unbalanced');
 };
 
-const lanesStart = css.indexOf('The "Next four days" lanes (hot-topics-by-day-plan C1');
-const lanesEnd = css.indexOf('.wf-cu-head {', lanesStart);
-const lanesCss = css.slice(lanesStart, lanesEnd);
+const tilesStart = css.indexOf('The "Next four days" day tiles (coming-up-glance-plan T1');
+const tilesEnd = css.indexOf('.wf-cu-head {', tilesStart);
+const tilesCss = css.slice(tilesStart, tilesEnd);
+const phone = mediaBlock('(max-width: 639px)', tilesStart);
+const outsidePhone = tilesCss.replace(phone, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
-describe('the "Next four days" lanes stylesheet', () => {
-  it('declares the desktop grid as label, four days and a 24px jump column', () => {
-    expect(ruleBody('.wf-cu-fd-grid'))
-      .toContain('grid-template-columns: 118px repeat(4, minmax(0, 1fr)) 24px;');
-  });
-
-  it('declares the phone grid as 76px label, four days and a 24px jump column, in the phone query only', () => {
-    const phone = mediaBlock('(max-width: 639px)', lanesStart);
-    expect(phone).toContain('.wf-cu-fd-grid { grid-template-columns: 76px repeat(4, minmax(0, 1fr)) 24px; }');
-    // The jump column stays a 24px target on the phone: no narrower width is declared there.
-    expect(phone).not.toMatch(/\.wf-cu-fd-jump \{[^}]*width/);
-    // Outside the query, the desktop columns are the only ones declared.
-    const outside = lanesCss.replace(phone, '').replace(/\/\*[\s\S]*?\*\//g, '');
-    expect(outside).not.toContain('76px');
-  });
-
-  it('hides the bar text and shows the short name only inside the phone query', () => {
-    const phone = mediaBlock('(max-width: 639px)', lanesStart);
-    expect(phone).toContain('.wf-cu-fd-bt { display: none; }');
-    expect(phone).toContain('.wf-cu-fd-ns { display: inline; }');
-    expect(phone).toContain('.wf-cu-fd-nl { display: none; }');
-    expect(phone).toContain('.wf-cu-fd-pk { font-size: 9px; }');
-    // The default hides the short name, so desktop reads the full one.
-    expect(lanesCss).toContain('.wf-cu-fd-ns { display: none; }');
-  });
-
-  it('never states a topic colour as a literal — only through --c', () => {
-    // The lanes block has hexes in no declaration at all: its colours are tokens, rgba washes and --c.
-    expect(lanesCss).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
-    expect(lanesCss).toContain('var(--c)');
-  });
-
-  it('gives bars and jump buttons a visible border in forced-colors mode', () => {
-    const forced = mediaBlock('(forced-colors: active)', lanesStart);
-    expect(forced).toContain('.wf-cu-fd-bar');
-    expect(forced).toContain('border-color: CanvasText;');
-  });
-
-  it('keeps every target at least 24x24: the dot button, the jump button and the bars', () => {
-    expect(ruleBody('.wf-cu-fd-dot')).toMatch(/width: 24px;[\s\S]*height: 24px;/);
-    const jump = ruleBody('.wf-cu-fd-jump');
-    expect(jump).toContain('width: 24px;');
-    expect(jump).toContain('height: 24px;');
-    expect(ruleBody('.wf-cu-fd-bar')).toContain('height: 24px;');
-  });
-
-  it('places the static items in CSS: day headers in row 1, columns 2–5, label in column 1, jump in column 6', () => {
-    expect(ruleBody('.wf-cu-fd-day')).toContain('grid-row: 1;');
-    for (const [col, track] of [['0', 2], ['1', 3], ['2', 4], ['3', 5]]) {
-      expect(lanesCss).toContain(`.wf-cu-fd-day[data-col='${col}'] { grid-column: ${track}; }`);
-    }
-    expect(ruleBody('.wf-cu-fd-n')).toContain('grid-column: 1;');
-    expect(ruleBody('.wf-cu-fd-jump')).toContain('grid-column: 6;');
-    expect(ruleBody('.wf-cu-fd-now')).toContain('grid-column: 2;');
-  });
-
-  it('keeps the today shade out of hit-testing', () => {
-    expect(ruleBody('.wf-cu-fd-now')).toContain('pointer-events: none;');
-  });
-
-  it('gives an open bar a dashed right edge, squared off and butting the jump button', () => {
-    const open = ruleBody(".wf-cu-fd-bar[data-open='true']");
-    expect(open).toContain('margin-right: 0;');
-    expect(open).toContain('border-right-style: dashed;');
-    expect(open).toContain('border-radius: 5px 0 0 5px;');
-  });
-
-  it('lets the bar text give way before the peak, and the label names ellipsise', () => {
-    const text = ruleBody('.wf-cu-fd-bt');
-    expect(text).toContain('flex: 0 1 auto;');
-    expect(text).toContain('text-overflow: ellipsis;');
-    expect(ruleBody('.wf-cu-fd-pk')).toContain('flex: none;');
-    expect(lanesCss).toMatch(/\.wf-cu-fd-nl,\s*\.wf-cu-fd-ns \{[^}]*text-overflow: ellipsis;/);
-  });
-
-  it('sets the day date in the sans face at 700 / 15px, as the design does', () => {
-    const date = ruleBody('.wf-cu-fd-day b');
-    expect(date).toContain('font-family: var(--font-sans);');
-    expect(date).toContain('font-weight: 700;');
-    expect(date).toContain('font-size: 15px;');
-  });
-
-  it('keeps the forced-colours cues: a dot border and a heavier today header', () => {
-    const forced = mediaBlock('(forced-colors: active)', lanesStart);
-    expect(forced).toContain('.wf-cu-fd-dv { border: 1px solid CanvasText; }');
-    expect(forced).toContain(".wf-cu-fd-day[data-today='true'] { border-width: 2px; }");
-  });
-
-  it('insets the emphasis outline so the popup\'s scroll box cannot clip it', () => {
-    expect(ruleBody(".wf-trow[data-emphasis='true']")).toContain('outline-offset: -2px;');
+describe('the "Next four days" day tiles stylesheet', () => {
+  it('declares the tiles as four equal columns, with the README\'s desktop and phone gaps', () => {
+    expect(ruleBody('.wf-cu-fd-tiles')).toContain('grid-template-columns: repeat(4, minmax(0, 1fr));');
+    expect(ruleBody('.wf-cu-fd-tiles')).toContain('gap: 8px;');
+    expect(phone).toContain('.wf-cu-fd-tiles { gap: 5px; }');
+    // No horizontal scroll, and the column count never changes.
+    expect(tilesCss).not.toContain('overflow-x');
+    expect(phone).not.toContain('grid-template-columns');
   });
 
   it('is a block-level container that funds its own inset with a margin and sets no width', () => {
     const body = ruleBody('.wf-cu-fd');
     expect(body).toContain('margin: 14px 14px 0;');
+    expect(body).toContain('padding: 12px 14px;');
+    expect(body).toContain('border-radius: 10px;');
     expect(body).not.toMatch(/\bwidth:/);
   });
 
-  it('leaves the retired handoff row\'s selectors out of the stylesheet', () => {
-    expect(css).not.toContain('.wf-cu-handoff');
+  it('sets the tile and chip geometry from the README', () => {
+    expect(ruleBody('.wf-cu-fd-tile')).toContain('padding: 8px 10px 10px;');
+    expect(ruleBody('.wf-cu-fd-tile')).toContain('border-radius: 9px;');
+    expect(ruleBody('.wf-cu-fd-chip')).toContain('padding: 4px 7px;');
+    expect(ruleBody('.wf-cu-fd-chip')).toContain('border-radius: 5px;');
+    expect(ruleBody('.wf-cu-fd-chip')).toContain('color-mix(in oklch, var(--c) 13%, transparent)');
+    expect(ruleBody('.wf-cu-fd-sw')).toContain('width: 7px;');
+    expect(ruleBody('.wf-cu-fd-sw')).toContain('border-radius: 2px;');
+  });
+
+  it('puts every phone-only size inside the phone query, and none outside it', () => {
+    expect(phone).toContain('.wf-cu-fd-tile { padding: 6px 5px 7px; }');
+    expect(phone).toContain('.wf-cu-fd-dnum { font-size: 16px; }');
+    expect(phone).toMatch(/\.wf-cu-fd-chip \{[^}]*padding: 3px 5px;/);
+    expect(phone).toContain('font-size: 10.5px;');
+    expect(phone).toContain('font-size: 8.5px;');
+    // Outside the query, nothing declares a phone value.
+    expect(outsidePhone).not.toContain('padding: 6px 5px 7px');
+    expect(outsidePhone).not.toContain('padding: 3px 5px');
+    expect(outsidePhone).not.toContain('font-size: 16px');
+  });
+
+  it('shows one half of each desktop / phone pair per media query', () => {
+    // Names, values and the relative label: the phone half is hidden by default and shown on the phone.
+    for (const [desktop, short] of [['nl', 'ns'], ['vl', 'vs'], ['rel-l', 'rel-s']]) {
+      expect(outsidePhone).toContain(`.wf-cu-fd-${short} { display: none; }`);
+      expect(phone).toContain(`.wf-cu-fd-${desktop} { display: none; }`);
+      expect(phone).toContain(`.wf-cu-fd-${short} { display: inline; }`);
+    }
+  });
+
+  it('hides the suffix and the badge and WX boxes on the phone only, and stacks the relative label', () => {
+    expect(phone).toContain('.wf-cu-fd-count { display: none; }');
+    expect(phone).toMatch(/\.wf-cu-fd-badge,\s*\.wf-cu-fd-wx \{ display: none; \}/);
+    expect(outsidePhone).not.toMatch(/\.wf-cu-fd-(badge|wx|count) \{[^}]*display: none/);
+    expect(phone).toMatch(/\.wf-cu-fd-rel \{[^}]*font-size: 9px;[^}]*text-align: left;/);
+    expect(phone).toMatch(/\.wf-cu-fd-dh \{ flex-direction: column; align-items: flex-start;/);
+  });
+
+  it('never hides a desktop half (nl, vl, rel-l) outside the phone query', () => {
+    for (const half of ['nl', 'vl', 'rel-l']) {
+      expect(outsidePhone, half).not.toMatch(new RegExp(`\\.wf-cu-fd-${half}\\b[^{]*\\{[^}]*display: none`));
+    }
+  });
+
+  it('keeps the phone value on one line, flush, and the wrap and overflow overrides phone-only', () => {
+    expect(phone).toMatch(/\.wf-cu-fd-val \{[^}]*padding-left: 0;[^}]*white-space: nowrap;/);
+    expect(phone).toMatch(/\.wf-cu-fd-val \{[^}]*overflow: visible;/);
+    expect(outsidePhone).not.toContain('overflow: visible');
+    expect(outsidePhone).not.toContain('white-space: normal');
+  });
+
+  it('keeps an ellipsis safety net on the phone name, for an unknown type\'s full-label fallback', () => {
+    expect(phone).toMatch(/\.wf-cu-fd-name \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;/);
+  });
+
+  it('gives the phone 24px tap targets for the chip and the At a Glance link', () => {
+    expect(phone).toMatch(/\.wf-cu-fd-chip \{[^}]*min-height: 24px;/);
+    expect(phone).toMatch(/\.wf-cu-fd-plan \{[^}]*min-height: 24px;/);
+  });
+
+  it('keeps the badge text mixed toward the ink for contrast, and the WX text on ink-2', () => {
+    expect(ruleBody('.wf-cu-fd-badge')).toContain(
+      'color: color-mix(in oklch, var(--c) 70%, var(--color-plex-text));',
+    );
+    expect(ruleBody('.wf-cu-fd-wx')).toContain('color: var(--fd-ink-2);');
+  });
+
+  it('gives forced colours a hover cue', () => {
+    expect(mediaBlock('(forced-colors: active)', tilesStart))
+      .toContain('.wf-cu-fd-chip:hover { outline: 1px solid Highlight; }');
+  });
+
+  it('never states a topic colour as a literal — only through --c', () => {
+    expect(tilesCss).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(tilesCss).toContain('var(--c)');
+  });
+
+  it('draws a continuation chip dashed and transparent', () => {
+    const body = ruleBody(".wf-cu-fd-chip[data-continuation='true']");
+    expect(body).toContain('border-style: dashed;');
+    expect(body).toContain('background: transparent;');
+    expect(body).toContain('color-mix(in oklch, var(--c) 45%, transparent)');
+  });
+
+  it('raises the border and background on hover and focus', () => {
+    const hover = ruleBody('.wf-cu-fd-chip:hover');
+    expect(hover).toContain('border-color: var(--c);');
+    expect(hover).toContain('color-mix(in oklch, var(--c) 20%, transparent)');
+  });
+
+  it('gives focus-visible a real outline, and keeps the forced-colours cues', () => {
+    // The outline rule is the one whose LAST selector is the plan link's.
+    expect(ruleBody('.wf-cu-fd-plan:focus-visible')).toContain('outline: 2px solid var(--color-plex-gold);');
+    expect(css).toContain('.wf-cu-fd-chip:focus-visible,\n.wf-cu-fd-plan:focus-visible {');
+    const forced = mediaBlock('(forced-colors: active)', tilesStart);
+    expect(forced).toContain('.wf-cu-fd-sw { border: 1px solid CanvasText; }');
+    expect(forced).toContain("border-style: dashed; border-color: CanvasText;");
+    expect(forced).toContain('outline: 2px solid Highlight;');
+    expect(forced).toContain(".wf-cu-fd-tile[data-today='true'] { border-width: 2px; }");
+  });
+
+  it('leaves no rule of the retired lanes in the stylesheet', () => {
+    for (const retired of ['.wf-cu-fd-grid', '.wf-cu-fd-bar', '.wf-cu-fd-dot', '.wf-cu-fd-jump',
+      '.wf-cu-fd-now', '.wf-cu-fd-seg', '.wf-cu-fd-bt', '.wf-cu-fd-pk', '.wf-cu-handoff']) {
+      expect(css, retired).not.toContain(retired);
+    }
+  });
+
+  it('insets the emphasis outline so the popup\'s scroll box cannot clip it', () => {
+    expect(ruleBody(".wf-trow[data-emphasis='true']")).toContain('outline-offset: -2px;');
   });
 });

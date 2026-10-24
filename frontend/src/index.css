@@ -10224,23 +10224,25 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   background: var(--color-plex-panel);
   overflow: hidden;
 }
-/* The "Next four days" lanes (hot-topics-by-day-plan C1; design README §1) — one row per hot topic,
-   four day columns, a bar for a topic spanning days and a dot for a single window. It replaced the
-   dashed handoff row (plan D14) and still states Plan's boundary out loud. A block-level `<section>`,
-   not a button, so it fills the panel width without the shrink-wrap trap the old row had to pin
-   around; it funds its own side inset with a margin, since `.wf-cu` carries no padding.
-   `--c` is the topic's colour, set per item from `utils/topicPalette.js` — never a literal here.
-   ⚠️ EVERY grid item is explicitly placed (row and column, inline from the component): auto-
-   placement broke the design's own prototype twice. */
+/* The "Next four days" day tiles (coming-up-glance-plan T1; design docs/design/coming-up-glance/README
+   §2) — four equal columns, one per day, each listing that day's hot topics as chips. They replaced
+   the hot-topics-by-day C1 lanes (a row per topic) and, before those, the dashed handoff row (plan
+   D14); they still state Plan's boundary out loud. A block-level `<section>`, not a button, so it fills
+   the panel width; it funds its own side inset with a margin, since `.wf-cu` carries no padding.
+   `--c` is the topic's colour, set per chip from `utils/topicPalette.js` — never a literal here.
+   `--fd-ink-2` / `--fd-ink-3` are the README's 70% and 50% bone inks (no existing token is either).
+   The phone rules live in `@media (max-width: 639px)` only, so desktop and tablet are untouched. */
 .wf-cu-fd {
+  --fd-ink-2: rgba(242, 231, 211, 0.7);
+  --fd-ink-3: rgba(242, 231, 211, 0.55); /* README says 50%; raised for contrast, in this strip only */
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   margin: 14px 14px 0;
-  padding: 10px 13px 12px;
+  padding: 12px 14px;
   border: 1px solid var(--color-plex-border-light);
-  border-radius: 9px;
-  background: rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.14);
 }
 .wf-cu-fd-head {
   display: flex;
@@ -10248,13 +10250,27 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   justify-content: space-between;
   gap: 12px;
 }
+.wf-cu-fd-title {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
 .wf-cu-fd-label {
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--color-plex-text-muted);
+  color: var(--fd-ink-2);
+  white-space: nowrap;
+}
+/* Desktop and tablet only — the phone has no room for it (see the phone block below). */
+.wf-cu-fd-count {
+  margin-left: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--fd-ink-3);
   white-space: nowrap;
 }
 .wf-cu-fd-plan {
@@ -10262,7 +10278,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   border: 0;
   background: none;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--color-close-to-home);
   white-space: nowrap;
   cursor: pointer;
@@ -10274,197 +10290,217 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   font-size: 10.5px;
   color: var(--color-plex-text-secondary);
 }
-.wf-cu-fd-grid {
-  position: relative;
+.wf-cu-fd-tiles {
   display: grid;
-  grid-template-columns: 118px repeat(4, minmax(0, 1fr)) 24px;
-  row-gap: 6px;
-  align-items: center;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
 }
-/* Today's column shade — under everything, never an event target. */
-.wf-cu-fd-now {
-  grid-column: 2;
-  align-self: stretch;
-  margin: 0 3px;
-  border-radius: 7px;
-  background: rgba(242, 231, 211, 0.05);
-  pointer-events: none;
-}
-/* Static placement lives here; only the row of a topic's items, and a bar's column span, are inline. */
-.wf-cu-fd-day { grid-row: 1; }
-.wf-cu-fd-day[data-col='0'] { grid-column: 2; }
-.wf-cu-fd-day[data-col='1'] { grid-column: 3; }
-.wf-cu-fd-day[data-col='2'] { grid-column: 4; }
-.wf-cu-fd-day[data-col='3'] { grid-column: 5; }
-.wf-cu-fd-day {
+.wf-cu-fd-tile {
   display: flex;
   flex-direction: column;
-  margin: 0 3px 3px;
-  padding: 3px 0 4px;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px 10px;
   border: 1px solid var(--color-plex-border-light);
-  border-radius: 7px;
+  border-radius: 9px;
   background: rgba(0, 0, 0, 0.2);
-  font-family: var(--font-mono);
-  text-align: center;
-  line-height: 1.15;
 }
-.wf-cu-fd-day[data-today='true'] { border-color: var(--color-plex-text-muted); }
-.wf-cu-fd-day i {
-  font-style: normal;
-  font-size: 8.5px;
+.wf-cu-fd-tile[data-today='true'] { border-color: var(--fd-ink-3); }
+.wf-cu-fd-dh {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+.wf-cu-fd-dow {
+  font-family: var(--font-mono);
+  font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--color-plex-text-muted);
+  color: var(--fd-ink-3);
 }
-.wf-cu-fd-day b {
+.wf-cu-fd-dnum {
   font-family: var(--font-sans);
-  font-weight: 700;
-  font-size: 15px;
-  color: var(--color-plex-text);
-}
-.wf-cu-fd-n {
-  grid-column: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--color-plex-text);
-  white-space: nowrap;
-}
-.wf-cu-fd-i { font-size: 12px; flex: none; }
-.wf-cu-fd-nl,
-.wf-cu-fd-ns {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.wf-cu-fd-ns { display: none; }
-.wf-cu-fd-seg {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-.wf-cu-fd-bar {
-  position: relative;
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  height: 24px;
-  margin: 0 3px;
-  padding: 0 8px;
-  overflow: hidden;
-  border: 1px solid color-mix(in oklch, var(--c) 45%, transparent);
-  border-radius: 5px;
-  background: color-mix(in oklch, var(--c) 22%, transparent);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-plex-text);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.wf-cu-fd-bar:hover {
-  border-color: var(--c);
-  background: color-mix(in oklch, var(--c) 32%, transparent);
-}
-/* A run that continues past the fourth day: dashed right edge, squared off, butting the jump button. */
-.wf-cu-fd-bar[data-open='true'] {
-  margin-right: 0;
-  border-right-style: dashed;
-  border-radius: 5px 0 0 5px;
-}
-/* The left text gives way before the peak: it shrinks and ellipsises, the peak never does. */
-.wf-cu-fd-bt {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.wf-cu-fd-pk {
-  flex: none;
-  margin-left: auto;
-  font-weight: 600;
-  color: var(--c);
-}
-/* The dot's button is a 24px target; the 16px disc inside is what is drawn. */
-.wf-cu-fd-dot {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin: 0 auto;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-}
-.wf-cu-fd-dv {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--c);
-  box-shadow: 0 0 0 4px color-mix(in oklch, var(--c) 18%, transparent);
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 19px;
   font-weight: 700;
   line-height: 1;
-  color: var(--color-plex-bg);
+  color: var(--color-plex-text);
 }
-.wf-cu-fd-dot:hover .wf-cu-fd-dv {
-  box-shadow: 0 0 0 5px color-mix(in oklch, var(--c) 32%, transparent);
-}
-/* An open dot (the run goes on past the fourth day) gets a dashed outer ring. */
-.wf-cu-fd-dot[data-open='true'] .wf-cu-fd-dv {
-  outline: 1px dashed var(--c);
-  outline-offset: 5px;
-}
-.wf-cu-fd-jump {
-  grid-column: 6;
-  height: 24px;
-  width: 24px;
-  padding: 0;
-  border: 1px dashed color-mix(in oklch, var(--c) 45%, transparent);
-  border-left: none;
-  border-radius: 0 5px 5px 0;
-  background: color-mix(in oklch, var(--c) 10%, transparent);
+.wf-cu-fd-rel {
+  margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--c);
+  font-size: 9px;
+  text-align: right;
+  color: var(--fd-ink-3);
+  white-space: nowrap;
+}
+.wf-cu-fd-tile[data-today='true'] .wf-cu-fd-rel { color: var(--color-plex-text); }
+.wf-cu-fd-rel-s { display: none; }
+/* No `<ul>` at all for an empty day, so this list only ever has chips. */
+.wf-cu-fd-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wf-cu-fd-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--c) 13%, transparent);
+  font: inherit;
+  text-align: left;
+  color: var(--color-plex-text);
   cursor: pointer;
 }
-.wf-cu-fd-jump:hover { background: color-mix(in oklch, var(--c) 26%, transparent); }
-.wf-cu-fd-plan:focus-visible,
-.wf-cu-fd-bar:focus-visible,
-.wf-cu-fd-dot:focus-visible,
-.wf-cu-fd-jump:focus-visible {
+.wf-cu-fd-chip:focus-visible,
+.wf-cu-fd-chip:hover {
+  border-color: var(--c);
+  background: color-mix(in oklch, var(--c) 20%, transparent);
+}
+/* A run's later days read as one thing with its first: transparent, dashed, lighter name. */
+.wf-cu-fd-chip[data-continuation='true'] {
+  border-style: dashed;
+  border-color: color-mix(in oklch, var(--c) 45%, transparent);
+  background: transparent;
+}
+.wf-cu-fd-chip[data-continuation='true']:hover,
+.wf-cu-fd-chip[data-continuation='true']:focus-visible {
+  border-color: var(--c);
+  background: color-mix(in oklch, var(--c) 20%, transparent);
+}
+.wf-cu-fd-chip[data-continuation='true'] .wf-cu-fd-name {
+  font-weight: 500;
+  color: var(--fd-ink-2);
+}
+.wf-cu-fd-chip:focus-visible,
+.wf-cu-fd-plan:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;
 }
-@media (forced-colors: active) {
-  .wf-cu-fd-bar,
-  .wf-cu-fd-jump { border-color: CanvasText; }
-  .wf-cu-fd-dv { border: 1px solid CanvasText; }
-  .wf-cu-fd-day[data-today='true'] { border-width: 2px; }
+.wf-cu-fd-l1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
-/* Phone only: label column 76px, jump column still 24px (a 24px target), the short name, and the bar's own text hidden so
-   only the peak label shows. Desktop and tablet are untouched. */
+.wf-cu-fd-sw {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--c);
+}
+.wf-cu-fd-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-cu-fd-ns { display: none; }
+.wf-cu-fd-badge {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* Pulled toward the ink so every palette colour (BLUEBELL violet is ~3.95:1 raw) reaches 4.5:1
+     as text, while still reading as the topic's colour. */
+  color: color-mix(in oklch, var(--c) 70%, var(--color-plex-text));
+}
+.wf-cu-fd-wx {
+  flex: none;
+  margin-left: auto;
+  padding: 0 3px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  text-transform: uppercase;
+  color: var(--fd-ink-2);
+}
+.wf-cu-fd-val {
+  padding-left: 13px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  color: var(--fd-ink-2);
+  white-space: nowrap;
+}
+.wf-cu-fd-vs { display: none; }
+.wf-cu-fd-foot {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--fd-ink-3);
+}
+/* Forced colours drop background colours: the swatch gets a border, a chip a real edge (a
+   continuation chip stays dashed against the solid default), and today a heavier one. */
+@media (forced-colors: active) {
+  .wf-cu-fd-chip { border-color: CanvasText; }
+  .wf-cu-fd-chip[data-continuation='true'] { border-style: dashed; border-color: CanvasText; }
+  .wf-cu-fd-sw { border: 1px solid CanvasText; }
+  .wf-cu-fd-tile[data-today='true'] { border-width: 2px; }
+  .wf-cu-fd-chip:focus-visible,
+  .wf-cu-fd-plan:focus-visible { outline: 2px solid Highlight; }
+  /* Forced colours flatten the hover background and border colour, so hover needs its own cue. */
+  .wf-cu-fd-chip:hover { outline: 1px solid Highlight; }
+}
+/* Phone only: five-pixel gutters, smaller type, the relative label stacked under the date, no
+   badge or WX boxes (the short value's " pk" / "full" carries the cue), and the phone names. Desktop
+   and tablet are untouched. */
 @media (max-width: 639px) {
-  .wf-cu-fd-grid { grid-template-columns: 76px repeat(4, minmax(0, 1fr)) 24px; }
-  .wf-cu-fd-n { font-size: 11.5px; }
+  .wf-cu-fd-count { display: none; }
+  .wf-cu-fd-tiles { gap: 5px; }
+  .wf-cu-fd-tile { padding: 6px 5px 7px; }
+  /* Weekday, date and relative label stack on three lines, flush left. The README's "8px" for the
+     relative label is the gap ABOVE it (its type is the mono 9px). */
+  .wf-cu-fd-dh { flex-direction: column; align-items: flex-start; gap: 1px; }
+  .wf-cu-fd-dnum { font-size: 16px; }
+  .wf-cu-fd-rel {
+    margin-left: 0;
+    margin-top: 8px;
+    font-size: 9px;
+    text-align: left;
+  }
+  .wf-cu-fd-rel-l { display: none; }
+  .wf-cu-fd-rel-s { display: inline; }
+  /* 24px tap targets on the phone (WCAG 2.5.8). */
+  .wf-cu-fd-chip { min-height: 24px; padding: 3px 5px; }
+  .wf-cu-fd-plan { min-height: 24px; padding: 4px 0; }
+  /* Known chipNames are six characters or fewer and never reach the ellipsis; it is the safety net
+     for an unknown type, whose fallback name is the full served label. */
+  .wf-cu-fd-name { flex: 1 1 auto; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; }
   .wf-cu-fd-nl { display: none; }
   .wf-cu-fd-ns { display: inline; }
-  .wf-cu-fd-day { margin: 0 2px 3px; }
-  .wf-cu-fd-bar { padding: 0 5px; }
-  .wf-cu-fd-bt { display: none; }
-  .wf-cu-fd-pk { font-size: 9px; }
+  .wf-cu-fd-badge,
+  .wf-cu-fd-wx { display: none; }
+  /* The value sits flush under the swatch (no indent, as the mock draws it), on one line, never
+     ellipsized: "+0.4 m pk" fits the ~52px content box. */
+  .wf-cu-fd-val {
+    padding-left: 0;
+    font-size: 8.5px;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+  .wf-cu-fd-vl { display: none; }
+  .wf-cu-fd-vs { display: inline; }
 }
 .wf-cu-head {
   display: flex;

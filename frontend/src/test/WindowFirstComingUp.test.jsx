@@ -406,7 +406,7 @@ describe('WindowFirstComingUp — the Recurring conditions panel is gone (coming
   });
 });
 
-describe('WindowFirstComingUp — the "Next four days" lanes (plan D14, hot-topics-by-day C1)', () => {
+describe('WindowFirstComingUp — the "Next four days" tiles (coming-up-glance-plan T1)', () => {
   // TODAY is Sun 9 Aug 2026, so the four days are Sun 9, Mon 10, Tue 11 and Wed 12.
   const DUST = { type: 'DUST', label: 'Saharan dust', date: '2026-08-10', eventType: 'SUNSET' };
   const SPRING = (date, over = {}) => ({
@@ -414,17 +414,23 @@ describe('WindowFirstComingUp — the "Next four days" lanes (plan D14, hot-topi
     tideRun: { dayNumber: 1, dayCount: 3, peak: false },
     ...over,
   });
+  const MIST = {
+    type: 'MIST', label: 'Valley mist', date: '2026-08-11', eventType: 'SUNRISE',
+    glance: { value: 'dawn · likely at 3 sites', shortValue: 'likely', weather: true },
+  };
+  const chipFor = (type) => screen.getAllByTestId('coming-up-fourdays-chip')
+    .find((c) => c.getAttribute('data-topic') === type);
 
-  it('renders the header and one row per topic, after the chips and before the chronology', () => {
+  it('renders the header and one chip per topic, after the chips and before the chronology', () => {
     renderPane({ hotTopics: [DUST] });
-    const lanes = screen.getByTestId('coming-up-fourdays');
-    expect(screen.getByTestId('coming-up-chips').compareDocumentPosition(lanes))
+    const tiles = screen.getByTestId('coming-up-fourdays');
+    expect(screen.getByTestId('coming-up-chips').compareDocumentPosition(tiles))
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(lanes).toHaveTextContent('Next four days');
-    expect(screen.getAllByTestId('coming-up-fourdays-label')).toHaveLength(1);
-    expect(screen.getByTestId('coming-up-fourdays-label')).toHaveTextContent('Dust');
+    expect(tiles).toHaveTextContent('Next four days');
+    expect(screen.getAllByTestId('coming-up-fourdays-chip')).toHaveLength(1);
+    expect(chipFor('DUST')).toHaveTextContent('Dust');
     expect(screen.getAllByTestId('coming-up-fourdays-day')).toHaveLength(4);
-    expect(lanes.compareDocumentPosition(screen.getAllByTestId('coming-up-entry')[0]))
+    expect(tiles.compareDocumentPosition(screen.getAllByTestId('coming-up-entry')[0]))
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
@@ -436,78 +442,95 @@ describe('WindowFirstComingUp — the "Next four days" lanes (plan D14, hot-topi
     expect(onGoToPlan).toHaveBeenCalledWith();
   });
 
-  it('a tap on a lane with a Plan window card opens that window, with the topic', () => {
+  it('a tap on a chip with a Plan window card opens that window, with the topic', () => {
     const onGoToPlanWindow = vi.fn();
     const { onGoToPlan } = renderPane({
       hotTopics: [DUST],
       openableKeys: new Set(['2026-08-10:SUNSET']),
       onGoToPlanWindow,
     });
-    fireEvent.click(screen.getByTestId('coming-up-fourdays-dot'));
+    fireEvent.click(chipFor('DUST'));
     expect(onGoToPlanWindow).toHaveBeenCalledWith('2026-08-10:SUNSET', 'DUST');
     expect(onGoToPlan).not.toHaveBeenCalled();
   });
 
-  it('a tap on a lane with no Plan window card is plain goToPlan', () => {
+  it('a tap on a chip with no Plan window card is plain goToPlan', () => {
     const onGoToPlanWindow = vi.fn();
     const { onGoToPlan } = renderPane({
       hotTopics: [DUST], openableKeys: new Set(), onGoToPlanWindow,
     });
-    fireEvent.click(screen.getByTestId('coming-up-fourdays-dot'));
+    fireEvent.click(chipFor('DUST'));
     expect(onGoToPlan).toHaveBeenCalledTimes(1);
     expect(onGoToPlanWindow).not.toHaveBeenCalled();
   });
 
-  it('degrades to the header and the day headers when the briefing has not supplied hotTopics',
+  it('hands a weather chip the pane\'s Map door: onShowOnMap with that morning\'s date and event', () => {
+    const { onShowOnMap } = renderPane({ hotTopics: [MIST] });
+    fireEvent.click(chipFor('MIST'));
+    expect(onShowOnMap).toHaveBeenCalledWith('2026-08-11', 'SUNRISE');
+  });
+
+  it('withholds the Map door for a date outside the reader\'s known forecast dates', () => {
+    const onGoToPlanWindow = vi.fn();
+    const { onShowOnMap, onGoToPlan } = renderPane({
+      hotTopics: [MIST], forecastDates: ['2026-08-09'], onGoToPlanWindow,
+    });
+    fireEvent.click(chipFor('MIST'));
+    expect(onShowOnMap).not.toHaveBeenCalled();
+    expect(onGoToPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('degrades to the header and four empty tiles when the briefing has not supplied hotTopics',
     () => {
       renderPane({ hotTopics: undefined });
       expect(screen.getByTestId('coming-up-fourdays')).toHaveTextContent('Next four days');
       expect(screen.getByRole('button', { name: /^At a Glance/ })).toBeInTheDocument();
       expect(screen.getAllByTestId('coming-up-fourdays-day')).toHaveLength(4);
-      expect(screen.queryByTestId('coming-up-fourdays-label')).toBeNull();
+      expect(screen.queryByTestId('coming-up-fourdays-chip')).toBeNull();
       expect(screen.queryByTestId('coming-up-fourdays-empty')).toBeNull();
     });
 
-  it('says explicitly that nothing is live once hotTopics has arrived empty', () => {
+  it('says explicitly that nothing is live once hotTopics has arrived empty, keeping the tiles', () => {
     renderPane({ hotTopics: [] });
     expect(screen.getByTestId('coming-up-fourdays-empty'))
       .toHaveTextContent('Nothing on those four days');
-    expect(screen.queryByTestId('coming-up-fourdays-day')).toBeNull();
+    expect(screen.getAllByTestId('coming-up-fourdays-day')).toHaveLength(4);
   });
 
-  it('offers a jump to the list entry for a run that continues, and only while that entry is '
+  it('scrolls to the list entry for a chip whose run covers its day, and only while that entry is '
       + 'in the rendered list', () => {
     renderPane({ hotTopics: [SPRING('2026-08-12')] });
-    const jump = screen.getByTestId('coming-up-fourdays-jump');
-    expect(jump).toHaveAccessibleName('Spring tide: show the run in the list, 12–13 Aug');
+    expect(chipFor('SPRING_TIDE')).toHaveAccessibleName(/shown in the list below$/);
 
     // The coastal chip keeps the spring-tide card; the other chip hides it, and a jump must never
     // aim at a card the filter has removed.
     const chip = (label) => screen.getAllByTestId('coming-up-chip')
       .find((c) => within(c).queryByText(label));
     fireEvent.click(chip('Coastal'));
-    expect(screen.getByTestId('coming-up-fourdays-jump')).toBeInTheDocument();
+    expect(chipFor('SPRING_TIDE')).toHaveAccessibleName(/shown in the list below$/);
     fireEvent.click(chip('Night sky'));
-    expect(screen.queryByTestId('coming-up-fourdays-jump')).toBeNull();
+    expect(chipFor('SPRING_TIDE')).toHaveAccessibleName(/opens At a Glance$/);
   });
 });
 
-describe('WindowFirstComingUp — the lanes\' jump never aims at a list that is not on screen', () => {
-  it('draws no jump button while a retry is loading, even with stale events still held', () => {
+describe('WindowFirstComingUp — a chip\'s jump never aims at a list that is not on screen', () => {
+  it('names no jump while a retry is loading, even with stale events still held', () => {
     const run = [{
       type: 'SPRING_TIDE', label: 'Spring tide', date: '2026-08-12', eventType: null,
       tideRun: { dayNumber: 1, dayCount: 1, peak: false },
     }];
-    // The same props, once ready: the button is there ...
+    const spring = () => screen.getAllByTestId('coming-up-fourdays-chip')
+      .find((c) => c.getAttribute('data-topic') === 'SPRING_TIDE');
+    // The same props, once ready: the chip jumps ...
     const ready = renderPane({ hotTopics: run, status: 'ready' });
-    expect(screen.getByTestId('coming-up-fourdays-jump')).toBeInTheDocument();
+    expect(spring()).toHaveAccessibleName(/shown in the list below$/);
     ready.unmount();
-    // ... and gone while loading or failed, because the month list is not rendered and the card
-    // the button would scroll to is not in the DOM.
+    // ... and not while loading or failed, because the month list is not rendered and the card the
+    // chip would scroll to is not in the DOM.
     for (const status of ['loading', 'error']) {
       const { unmount } = renderPane({ hotTopics: run, status });
       expect(screen.queryByTestId('coming-up-entry')).toBeNull();
-      expect(screen.queryByTestId('coming-up-fourdays-jump')).toBeNull();
+      expect(spring()).toHaveAccessibleName(/opens At a Glance$/);
       unmount();
     }
   });
@@ -534,8 +557,8 @@ describe('WindowFirstComingUp — card-click fires the entry’s action', () => 
   });
 });
 
-describe('WindowFirstComingUp — the lanes do not wait on the almanac feed', () => {
-  it('the lanes still render while the almanac feed is loading — they read only hotTopics', () => {
+describe('WindowFirstComingUp — the tiles do not wait on the almanac feed', () => {
+  it('the tiles still render while the almanac feed is loading — they read only hotTopics', () => {
     renderPane({ status: 'loading', events: undefined });
     expect(screen.getByTestId('coming-up-fourdays')).toBeInTheDocument();
   });

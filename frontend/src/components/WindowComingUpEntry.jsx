@@ -341,7 +341,7 @@ DayChips.propTypes = {
  * threshold line, which is why a screen-reader user got a one-line reading of "See the plan for 12
  * Sept →" for a full feature card and nothing else — the richer content ended up reachable only on
  * the entries that are NOT clickable. Leaving the name to compute from content is the fix (the same
- * approach the lanes' "On Plan" header button in {@code WindowComingUpFourDays} uses; its bar and dot buttons are the opposite case — their visible text is a few symbols, so they do take an {@code aria-label}), which is why the
+ * approach the strip's "At a Glance" header button in {@code WindowComingUpFourDays} uses; its chips are built from content too), which is why the
  * title-row spans below are interleaved with bare {@code {' '}} text-node siblings: JSX drops
  * whitespace-only text that contains a line break rather than collapsing it to a space, so they
  * are what keeps the phrases apart in that one computed name.

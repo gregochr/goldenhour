@@ -3,10 +3,10 @@ import { topicCoveredDates, topicWindowKeys } from './windowFirstTopics.js';
 
 /**
  * The Coming up tab's "Next four days" boundary helpers — plan D14, superseded in presentation by
- * the lanes (hot-topics-by-day-plan §3 C1).
+ * the lanes (hot-topics-by-day-plan §3 C1), then by the day tiles (coming-up-glance-plan T1).
  *
  * <p>This module used to build the one-line handoff row ({@code buildHandoff}); that row and its
- * builder are gone, and what remains is the part the lanes still share: {@link lastPlanDateStr}
+ * builder are gone, and what remains is the part the day tiles still share: {@link lastPlanDateStr}
  * (the last date Plan renders) and {@link laneDates} (the dates and windows a served topic lands on).
  * The D14 rule survives unchanged: everything is derived client-side from the live
  * {@code briefing.hotTopics}, never from {@code /api/almanac}.
@@ -22,7 +22,7 @@ function atMidday(dateStr) {
 
 /**
  * The dates one served topic lands on, each with the window it names — the one helper
- * {@code fourDayLanes.js}' rows are built from, so a topic is counted by one rule
+ * {@code fourDayTiles.js}' chips are built from, so a topic is counted by one rule
  * (hot-topics-by-day-plan §3 C1).
  *
  * <p>Anchored topics: one item per {@code topicWindowKeys} key, in the order that function
