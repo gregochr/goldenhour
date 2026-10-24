@@ -755,7 +755,7 @@ export default function MapCallout({
   // `evRows.findIndex` rather than a caller-supplied index: this component already receives
   // `evRows` and `event` and is the one place that knows where "now" sits in that list.
   const evIndex = Array.isArray(evRows) ? evRows.findIndex((row) => row.id === event?.id) : -1;
-  const nextFitRow = tideOnLight && !tideOnLight.aligned
+  const nextFitRow = tideOnLight && tideOnLight.aligned === false
     ? nextAlignedRow(evRows, tideAlignmentIndex, { id: location.id ?? null, name: location.name }, evIndex)
     : -1;
 

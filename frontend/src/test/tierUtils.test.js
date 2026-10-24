@@ -10,6 +10,12 @@ const alignedOf = (slot) => slot.tideAligned === true;
 describe('computeCellTier — the tide lookup is the predicate, not the slot', () => {
   const region = { displayVerdict: 'WORTH_IT', tideHighlights: [], slots: [{ locationId: 1, tideAligned: true }] };
 
+  it('ranks a slot whose match is unknown (predicate undefined/null) as no tide claim (F0)', () => {
+    expect(computeCellTier(region, () => undefined)).toBe(2);
+    expect(computeCellTier(region, () => null)).toBe(2);
+    expect(computeCellTier({ ...region, displayVerdict: 'MAYBE' }, () => null)).toBe(4);
+  });
+
   it('ignores a slot-side tideAligned when the predicate says no', () => {
     expect(computeCellTier(region, () => false)).toBe(2);
   });

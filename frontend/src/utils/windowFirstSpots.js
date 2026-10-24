@@ -279,7 +279,7 @@ export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null)
         // on an aligned fact (`@JsonInclude(NON_NULL)`), and `meanQuality` below already treats a
         // matched spot's quality as optional.
         tideState: fact?.tideState ?? null,
-        tideAligned: fact?.tideState != null ? Boolean(fact.tideAligned) : null,
+        tideAligned: fact?.tideState != null ? (fact.tideAligned ?? null) : null,
         tideQuality: fact?.tideAlignmentQuality ?? null,
       };
     })

@@ -1107,6 +1107,36 @@ describe('LocationFourDaySheet — the tide-fit block (T5)', () => {
     expect(within(row('2026-08-16:SUNRISE')).queryByTestId('tide-fit-block')).toBeNull();
   });
 
+  it('a fact with a tide state but no served match renders no block, no jump and no denial (F0)', () => {
+    // A payload with the per-location match withheld: `tideState` survives, `tideAligned` does not.
+    // That is "unknown", never a served miss — so no "wrong water" claim and no next-fit scan.
+    const STRIPPED = buildTideAlignmentIndex(withTideFacts([
+      {
+        date: '2026-08-15',
+        eventSummaries: [{
+          targetType: 'SUNRISE',
+          regions: [{
+            regionName: 'Northumberland',
+            slots: [{
+              locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-15T04:38:00',
+              tideState: 'LOW', tideDirection: 'RISING',
+              tideFitPhrase: 'low tide, rising at 04:10 · 1.1 m of 4.2 m',
+            }],
+          }],
+        }],
+      },
+      {
+        date: '2026-08-15',
+        eventSummaries: [TIDE_DAYS[1].eventSummaries[1]],
+      },
+    ]));
+    setup({ location: COASTAL, tideAlignmentIndex: STRIPPED });
+    const sunrise = within(row('2026-08-15:SUNRISE'));
+    expect(sunrise.queryByTestId('tide-fit-block')).toBeNull();
+    expect(sunrise.queryByTestId('tide-fit-jump')).toBeNull();
+    expect(sunrise.queryByTestId('tide-fit-denial')).toBeNull();
+  });
+
   it('renders no block at all with no tideAlignmentIndex — the honest degrade, never a guess', () => {
     setup({ location: COASTAL });
     for (const el of screen.getAllByTestId('location-sheet-row')) {

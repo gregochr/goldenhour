@@ -92,7 +92,7 @@ const WANT_WORD = STATE_WORD;
  */
 export function footerModel({
   namedCoastal, dimmed, matched, dominantWant, dominantWantCount, fitKnown = true,
-  unserved = false,
+  unserved = false, hasCurve = true,
 }) {
   // A window the pane's list does not carry (a D-13 filler) and for which no in-view coastal spot
   // has a served tier: the water above is real, but no per-spot fit exists for it (a standing gap —
@@ -118,7 +118,19 @@ export function footerModel({
       restText: ' coastal spots have the water they want',
     };
   }
+  // Neither a tier nor a curve: nothing was served to judge by (the per-spot match and the curve
+  // withheld), so "No coastal spot here has its water on this light" would be a negative match
+  // claim nobody can back. Say the plain no-fit sentence instead.
+  if (!fitKnown && !hasCurve) {
+    return { countText: null, restText: 'No per-spot tide fit for this window' };
+  }
   return { countText: null, restText: 'No coastal spot here has its water on this light' };
+}
+
+/** True when the tide block carries a drawable curve (two points or more). Absent for a payload
+ *  with the curve withheld; the chart, the height meta and the dot then all stay off. */
+export function hasTideCurve(tide) {
+  return Array.isArray(tide?.curve) && tide.curve.length >= 2;
 }
 
 /**
@@ -212,7 +224,7 @@ export function TideStripHeader({ tide, onToggleCollapse = undefined }) {
       <span className="wf-tide-strip-state" data-testid="wf-tide-strip-state">
         {statePhrase(tide)}
       </span>
-      <span className="wf-tide-strip-meta">{headerMeta(tide)}</span>
+      {headerMeta(tide) && <span className="wf-tide-strip-meta">{headerMeta(tide)}</span>}
       <button
         type="button"
         className="wf-tide-strip-toggle"
@@ -251,6 +263,8 @@ export function TideDayChart({
   tide, sunriseTime = null, sunsetTime = null, tall = false,
 }) {
   const vbHeight = tall ? 92 : 32;
+  // No curve, no chart: an empty frame with bands and an axis would read as a flat tide.
+  if (!hasTideCurve(tide)) return null;
   const yForLevel = (level) => yForAt(level, vbHeight);
 
   const curve = Array.isArray(tide?.curve) ? tide.curve : [];
@@ -420,9 +434,9 @@ TideDayChart.propTypes = {
  * @param {?Function} props.focusAfterJump called with no arguments right BEFORE `onSelectEv`
  */
 export function TideStripFooter({
-  model, activeRow = null, onSelectEv = undefined, focusAfterJump = undefined,
+  model, activeRow = null, onSelectEv = undefined, focusAfterJump = undefined, hasCurve = true,
 }) {
-  const footer = footerModel(model);
+  const footer = footerModel({ ...model, hasCurve });
   const nextFit = nextFitCopy(model, activeRow);
   return (
     <div className="wf-tide-strip-footer" data-testid="wf-tide-strip-footer">
@@ -473,6 +487,7 @@ TideStripFooter.propTypes = {
     fitKnown: PropTypes.bool,
     unserved: PropTypes.bool,
   }).isRequired,
+  hasCurve: PropTypes.bool,
   activeRow: PropTypes.object,
   onSelectEv: PropTypes.func,
   focusAfterJump: PropTypes.func,
@@ -589,6 +604,7 @@ export default function MapTideStrip({
       <TideDayChart tide={tide} sunriseTime={sunriseTime} sunsetTime={sunsetTime} />
       <TideStripFooter
         model={model} activeRow={activeRow} onSelectEv={onSelectEv} focusAfterJump={focusStrip}
+        hasCurve={hasTideCurve(tide)}
       />
     </div>
   );

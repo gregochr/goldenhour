@@ -137,6 +137,30 @@ describe('MapTideStrip — visibility', () => {
     restoreRO();
   });
 
+  it('with no curve and no positions: header without the missing meta, no chart, and never the negative match claim (F0)', () => {
+    const ref = mapPane();
+    const bare = tideFixture({
+      curve: [], windowPosition: undefined, windowLevel: undefined, heightAtWindow: undefined,
+      rangeAnomaly: undefined, locationName: undefined, extremes: [],
+    });
+    render(<MapTideStrip model={baseModel({ fitKnown: false })} tide={bare} activeRow={activeRow} mapPaneRef={ref} />);
+    expect(screen.getByTestId('wf-tide-strip-state')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-tide-strip-chart')).toBeNull();
+    expect(screen.queryByTestId('wf-tide-strip-svg')).toBeNull();
+    expect(screen.queryByTestId('wf-tide-strip-dot')).toBeNull();
+    expect(document.querySelector('.wf-tide-strip-meta')).toBeNull();
+    const footer = screen.getByTestId('wf-tide-strip-footer');
+    expect(footer).toHaveTextContent('No per-spot tide fit for this window');
+    expect(footer).not.toHaveTextContent('No coastal spot here has its water on this light');
+  });
+
+  it('keeps the "No coastal spot here" wording when the curve IS served (F0 does not change PRO)', () => {
+    const ref = mapPane();
+    render(<MapTideStrip model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={ref} />);
+    expect(screen.getByTestId('wf-tide-strip-footer'))
+      .toHaveTextContent('No coastal spot here has its water on this light');
+  });
+
   it('renders when the model is visible', () => {
     const ref = mapPane();
     render(

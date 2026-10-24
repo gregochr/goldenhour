@@ -579,6 +579,27 @@ describe('MapCallout — the tide-fit block (T5)', () => {
       .toHaveTextContent('Nothing in these four days puts high water on the light here.');
   });
 
+  it('a fact with a state but no served match (aligned null) renders no block, no jump, no denial (F0)', async () => {
+    const tideAlignmentIndex = {
+      byId: new Map([[`${LOCATION.id}|2026-06-17|SUNSET`, { aligned: true, state: 'HIGH' }]]),
+      byName: new Map(),
+    };
+    const LATER_EVENT = {
+      ...SUNSET_EVENT, id: 'solar:2026-06-17:SUNSET', date: '2026-06-17', dayLabel: 'Tomorrow', time: '20:25',
+    };
+    await mount({
+      tideOnLight: {
+        aligned: null, state: 'LOW', onTheLight: null, phrase: null, fitPhrase: 'low tide, rising at 05:42',
+      },
+      tideAlignmentIndex,
+      evRows: [SUNSET_EVENT, LATER_EVENT],
+    });
+    expect(screen.queryByTestId('tide-fit-block')).toBeNull();
+    expect(screen.queryByTestId('tide-fit-denial')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Next/ })).toBeNull();
+    expect(document.body).not.toHaveTextContent('Wrong water');
+  });
+
   it('omits the block entirely when no tideOnLight fact is supplied at all (an inland location)', async () => {
     await mount({ tideOnLight: null });
     expect(screen.queryByTestId('tide-fit-block')).toBeNull();

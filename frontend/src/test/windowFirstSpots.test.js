@@ -196,6 +196,12 @@ describe('buildWindowSpots', () => {
       expect(s.tideQuality).toBe(0.82);
     });
 
+    it('reads a coastal spot whose served match is absent as tideAligned null, not false (F0)', () => {
+      const [s] = buildWindowSpots(summary([slot({ tideState: 'HIGH' })]), new Map());
+      expect(s.tideState).toBe('HIGH');
+      expect(s.tideAligned).toBeNull();
+    });
+
     it('leaves all three null for an inland spot, which carries no tideState at all', () => {
       // `TideInfo.tideAligned` is a primitive `boolean` and defaults to `false` when the slot has
       // no tide facts at all (`TideInfo.NONE`) — so an inland spot with no `tideState` must not

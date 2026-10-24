@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import {
-  TIDE_KICKER_TEXT, TideDayChart, TideStripFooter, statePhrase,
+  TIDE_KICKER_TEXT, TideDayChart, TideStripFooter, hasTideCurve, statePhrase,
 } from './MapTideStrip.jsx';
 
 /**
@@ -78,6 +78,7 @@ export default function MapPeekTideSection({
           activeRow={activeRow}
           onSelectEv={onSelectEv}
           focusAfterJump={() => focusTargetRef?.current?.focus()}
+          hasCurve={hasTideCurve(tide)}
         />
       ) : (
         // Always mode only (§3 M5 task 1) — a served tide with no coastal spot in the padded

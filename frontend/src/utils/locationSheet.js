@@ -389,7 +389,8 @@ export function buildTideAlignmentIndex(days) {
           locationId: fact.locationId,
           locationName: fact.locationName,
           value: {
-            aligned: Boolean(fact.tideAligned),
+            // Absent/null `tideAligned` is "unknown, no fit claim" (null), never a served miss (false).
+            aligned: fact.tideAligned ?? null,
             // The served HIGH/MID/LOW state itself, beside the aggregate `aligned`: a spot wanting
             // {HIGH, LOW} is `aligned` in a LOW window too, so a scan for "the next HIGH window" has
             // to read WHICH water the alignment was to (a Codex P1 on #878).
