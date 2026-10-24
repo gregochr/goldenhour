@@ -772,3 +772,21 @@ One frame each, read by eye from a dusk composite, not a measurement. A second f
 - Of the slots the rule would release, ERA5 reads 44% (observer) or 47% (cone) as a real deck and 35% (observer) or 21% (cone) as clear; the rest are in the middle band. Claude would then see those slots and could rate or decline them. ERA5 is a reanalysis, and the phantom definition behind counts 1 and 2 is the observer point's while triage fires on the cone, so the headline mixes two readings; the report prints the cone table beside the observer one for that reason.
 - The cost is per-day counts under an assumed token count; it is not a forecast of spend, and the freshness cache and Gate 4 are not modelled.
 - Nothing here changes a rule or any §9 item.
+
+
+## 20. Replay of rated forecast-deck-under-canopy analogues (2026-10-22)
+
+**Why.** §19 sized the rule "do not stand down on low cloud alone when the forecast also shows a mid/high canopy >= 60" and could not say how Claude would rate the slots it releases. None of the 8,410 released slots has a stored prompt (weather triage stands a slot down before one is built), so they cannot be replayed. `scripts/far-cloud-p1/canopyreplay.py` replays the nearest stored thing: slots with the same FORECAST shape (observer low >= 60, observer mid or high >= 60) whose latest run was rated, so Claude saw them and a prompt was stored. No production change; measurement only.
+
+**Design.** `select` takes the latest eligible run per (location, date, event), sky, T+0/T+1, rated and not triaged, forecast shape as above, with a stored prompt: **428 prompts** (394 inland, 34 coastal; stored by Haiku 93, Sonnet 5.5 335; 2026-10-04 to 10-14, 7 dates with ERA5; 61 are phantom decks). One Sonnet 5.5 call each with the production prompt through the Batch API (`REPLAY_BATCH`, N=1; 428 requests plus 2 primers; harness estimate $1.27 expected and $9.22 ceiling; the harness's own tally $1.21 at batch prices, primers not in it). All 428 returned a rating. `report` tabulates the replayed sky rating against ERA5 and the stored rating. Files, outside the repo: `~/goldenhour-p1/canopy-replay/` (set), `canopy-replay-arm/` (runs.csv, summary.md, batches.json), `out/canopyreplay.md`.
+
+**Counts** (95% Wilson in the report; slots are not independent, 7 weather days):
+- **By the ERA5 observer low band** (the reading the phantom definition uses): ERA5 < 20, 61 analogues, replayed go (rating >= 4) 17 (27.9%); 20-59, 98, 10 (10.2%); >= 60, 269, 37 (13.8%).
+- **By the ERA5 cone low band** (the reading rule 1 uses): < 20, 210, 60 (28.6%); 20-59, 137, 4 (2.9%); >= 60, 81, **0 (0.0%, [0.0, 4.5])**.
+- **Within the phantom band, by ERA5 canopy overhead:** with a canopy 14 of 27 (51.9%), without 3 of 34 (8.8%). Within the obstructed band: with a canopy 37 of 235 (15.7%), without 0 of 34.
+- **Replay against the stored rating:** the stored and replayed go counts agree closely (observer bands 17/17, 9 against 10, 33 against 37), and the cross-tabulation is concentrated on the diagonal (53 of 59 stored 4s replayed at 4, 103 of 128 stored 3s at 3), so the Sonnet 5.5 replay does not move these slots much from the stored ratings, Haiku's included.
+
+**What this does and does not say.**
+- Shown these skies, Sonnet 5.5 gives a go to about 28% of the ones ERA5's cone reads clear and to none of the 81 where it reads obstructed. It separates them better on the cone (28.6% clear against 0% obstructed) than on the observer point (27.9% clear against 13.8% obstructed). That is an association between the prompt's inputs and ERA5, which share physics; it is not evidence that any of those skies lit.
+- It is not evidence about the released slots. The analogues have forecast cone low cloud of at most 80 (median 54) and the released slots are above 80 by definition, so the replay is an extrapolation in the one variable that defines the rule. Seven dates, all early-to-mid October, and no owner rating is joined.
+- Nothing here changes a rule or any §9 item.
