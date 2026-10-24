@@ -299,7 +299,7 @@ function AppInner() {
    */
   const {
     homePlace, homeCoords, comingUpLastSeenDate, setComingUpLastSeenDate, postcodePromptDue,
-    homeSettingsVersion, driveTimesVersion, mapColourScale, colourScaleDefaulted,
+    homeSettingsVersion, driveTimesVersion, mapColourScale,
     startSettingsRead, homeSaved, driveTimesRecalculated, colourSaved,
     // Threaded to the Map pane on the same route as `mapColourScale` (map-mobile-sheet-plan.md
     // M4) — unread by any UI until M5, which is why nothing here calls `saveTideMode` yet.
@@ -992,7 +992,6 @@ function AppInner() {
                     seasonalFeatures={seasonalFeatures}
                     homeCoords={homeCoords}
                     mapColourScale={mapColourScale}
-                    colourScaleDefaulted={colourScaleDefaulted}
                     mapTideMode={mapTideMode}
                     saveTideMode={saveTideMode}
                     onOpenSettings={() => setSettingsFocus('postcode')}

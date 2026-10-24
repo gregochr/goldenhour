@@ -93,9 +93,6 @@ import { isNightType } from '../utils/askNights.js';
 import { ranksPhrase } from '../utils/askPickChip.js';
 import { ASK_HEAT_DIM, NO_INSET } from '../utils/askCamera.js';
 
-/** localStorage key for the "colours changed" notice's one-time dismissal. */
-const COLOUR_SCALE_NOTICE_DISMISSED_KEY = 'colourScaleNoticeDismissed';
-
 /**
  * localStorage key for the landing card's "you have seen this run" stamp — map-landing-plan.md
  * §3 L4 step 8, §6 Q2 (the owner chose <b>once per forecast run</b>).
@@ -1259,7 +1256,7 @@ CentreOnHomeControl.propTypes = {
  *       and {@code PinsLayer} draw as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1851,20 +1848,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [viewlineUpsellDismissed, setViewlineUpsellDismissed] = useState(false);
   const showViewlineUpsell = role === 'LITE_USER' && !viewlineUpsellDismissed
     && auroraStatus != null && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
-  // The Stage 7 flip's one-time "colours changed" notice. Persisted (not session-only, unlike the
-  // viewline chip above): the reader who needs telling is exactly the one who will never open
-  // Settings to find out, so this has to survive across visits until they have actually seen it
-  // once. `readMapFilter`/`writeMapFilter` are the map's existing fail-soft localStorage helpers —
-  // a storage-denied browser must not crash on this any more than it may on the filter state they
-  // already guard, several of which are read inside a `useState` initializer exactly like this one.
-  const [colourScaleNoticeDismissed, setColourScaleNoticeDismissed] = useState(
-    () => readMapFilter(COLOUR_SCALE_NOTICE_DISMISSED_KEY) === '1',
-  );
-  const dismissColourScaleNotice = () => {
-    setColourScaleNoticeDismissed(true);
-    writeMapFilter(COLOUR_SCALE_NOTICE_DISMISSED_KEY, '1');
-  };
-
   /**
    * The landing card's open state — <b>derived, never an effect</b> (map-landing-plan.md §3 L4
    * step 8; §6 Q2, where the owner chose <em>once per forecast run</em>).
@@ -1967,13 +1950,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // the same `runId` this render read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [landingOpen, openMapMenu, selectedLocationName, selectedTopic, runId]);
-  // `colourScaleDefaulted` alone is not quite enough: it says the STORED preference was null, but
-  // the notice's own words ("cold to hot") only make sense while the live ramp is actually temp.
-  // Cheap and correct to check both rather than assume the one implies the other forever — if
-  // `DEFAULT_MODE` ever stops being `'temp'`, a defaulted reader would otherwise still get a
-  // notice describing a ramp they are not looking at.
-  const showColourScaleNotice = colourScaleDefaulted && getMode() === 'temp'
-    && !colourScaleNoticeDismissed;
   // Always live, forecast as the fallback, never both: the hook asks both viewline endpoints and
   // offers one line. It needs only whether to poll — the forecast endpoint reads NOAA's live forecast
   // per request, so the alert's trigger and Kp are no longer its input.
@@ -7269,25 +7245,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           </>
         )}
 
-        {showColourScaleNotice && (
-          <div
-            data-testid="colour-scale-notice"
-            className="absolute top-2 left-1/2 -translate-x-1/2 z-[1100] bg-plex-surface/80 backdrop-blur-sm
-              text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 flex items-center gap-2"
-            style={{ fontSize: '11px' }}
-          >
-            Colours now run cold to hot.
-            <button
-              data-testid="colour-scale-notice-dismiss"
-              onClick={dismissColourScaleNotice}
-              className="text-plex-text-muted hover:text-plex-text transition-colors"
-              aria-label="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
         {/* Bottom-left chrome (map-tab-v2-plan.md §3 P10) — the LITE viewline-upsell chip and
             the Legend chip STACK here rather than one suppressing the other. ⚠️ They are NOT
             mutually exclusive: `showViewlineUpsell` is keyed on `auroraStatus`'s ALERT LEVEL
@@ -7682,13 +7639,6 @@ MapView.propTypes = {
    * live state (`rampHex`, `getMode()`), never from this prop.
    */
   mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
-  /**
-   * Whether the loaded `mapColourScale` preference was never explicitly chosen — the signal the
-   * one-time "colours changed" notice needs to tell a defaulted reader apart from one who picked
-   * either scale on purpose. `false` (the safe, no-notice default) until the caller's own settings
-   * fetch resolves.
-   */
-  colourScaleDefaulted: PropTypes.bool,
   /**
    * The caller's persisted Map tab tide mode (map-mobile-sheet-plan.md M4) — threaded here from
    * `App.jsx`'s `useReaderSettings` through `WindowFirstMapPane`, on the same route as
