@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { regionStatSegments } from '../../utils/mapDrilldown.js';
+import { glossLead } from '../../utils/regionGloss.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { tideAccessibleClause } from '../../utils/mapTideFit.js';
 import { PICK_TEXT } from './WindowControl.jsx';
@@ -257,7 +258,9 @@ export default function MapRegionPanel({
 
       {gloss && (
         <p className="wf-reg-gloss" data-testid="wf-reg-panel-gloss">
-          {gloss.headline && <b>{gloss.headline}</b>}
+          {gloss.headline && (
+            <b>{gloss.detail ? glossLead(gloss.headline) : gloss.headline}</b>
+          )}
           {gloss.headline && gloss.detail ? ' ' : ''}
           {gloss.detail}
         </p>

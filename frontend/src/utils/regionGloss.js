@@ -82,3 +82,18 @@ export function regionGlossEntry(index, date, eventType, regionName) {
   if (!index || !regionName) return null;
   return index.get(`${date}|${eventType}|${regionName}`) ?? null;
 }
+
+/**
+ * A gloss headline as the lead sentence of its popup prose. The prompt asks the model for a
+ * headline with no closing punctuation, so printed bold directly in front of the detail the two
+ * run together; this ends the headline with a full stop unless it already ends in terminal
+ * punctuation.
+ *
+ * @param {?string} headline the served {@code glossHeadline}
+ * @returns {?string} the trimmed headline, full-stopped, or null when there is none
+ */
+export function glossLead(headline) {
+  const text = typeof headline === 'string' ? headline.trimEnd() : '';
+  if (!text) return null;
+  return /[.!?…]$/.test(text) ? text : `${text}.`;
+}
