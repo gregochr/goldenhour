@@ -1479,3 +1479,54 @@ describe('MapLabels — a stood-down region\'s label (big-seas plan F3)', () => 
   });
 });
 
+
+describe('MapLabels — the places a selected hot topic rings (topic-ring-names-plan.md)', () => {
+  const chipNames = () => [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+    .map((el) => el.querySelector('.wf-maplab-chip-n')?.textContent);
+  const ringed = (over) => ({
+    name: 'Ringed', lat: 55.0, lng: -1.0, rid: 'North East', rating: null, topicRing: true, ...over,
+  });
+
+  it('writes data-topic-ring on a ringed chip only', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({ spots: [...SPOTS, ringed()] });
+    await act(async () => { runFrames(); });
+    const chips = [...document.querySelectorAll('[data-testid="map-label-chip"]')];
+    const mark = (name) => chips.find((el) => el.textContent.includes(name));
+    expect(mark('Ringed').getAttribute('data-topic-ring')).toBe('true');
+    expect(mark('Bamburgh').hasAttribute('data-topic-ring')).toBe(false);
+  });
+
+  it('omitUnrated keeps an unrated ringed place, as it keeps an Ask pick', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({
+      spots: [...SPOTS, ringed(), {
+        name: 'Plain unrated', lat: 55.1, lng: -1.1, rid: 'North East', rating: null,
+      }],
+      omitUnrated: true,
+    });
+    await act(async () => { runFrames(); });
+    expect(chipNames()).toContain('Ringed');
+    expect(chipNames()).not.toContain('Plain unrated');
+  });
+
+  it('⚠️ an appended ringed place adds no region label and moves no region: regions read the filtered pool', async () => {
+    restoreMeasure = withMeasuredLabels(60, 12);
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount();
+    await act(async () => { runFrames(); });
+    const regionsOf = () => [...document.querySelectorAll('[data-testid="map-label-region"]')]
+      .map((r) => `${r.textContent}|${r.dataset.hot}`).sort();
+    const before = regionsOf();
+    cleanup();
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [...SPOTS, ringed({ rid: 'Appended region', rating: 5, topicRingAdded: true })],
+    });
+    await act(async () => { runFrames(); });
+    expect(regionsOf()).toEqual(before);
+    expect(chipNames()).toContain('Ringed');
+  });
+});

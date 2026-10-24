@@ -4,12 +4,13 @@ import {
   hottestRegion, regionLabelItems, REGION_LABEL_MAX_ZOOM,
   homeLabelItems, HOME_LABEL_MAX_ZOOM,
   ringLabelItems, RING_LABEL_MAX_ZOOM,
-  chipCandidates,
+  chipCandidates, fallbackChipSpots,
   placeLabelPass,
   BADGE_OVERHANG_X, BADGE_OVERHANG_Y, chipBoxWithinBadgedBox, hasRatedBadge, withBadgeOverhang,
   verdictWord, WORTH_IT_THRESHOLD, MAYBE_THRESHOLD,
   standDownRegionItems, withStandDownLabels,
 } from '../utils/mapLabels.js';
+import { withoutBigSeasDuplicates } from '../utils/bigSeasChips.js';
 import * as verdictWordModule from '../utils/verdictWord.js';
 
 const spot = (name, rid, rating, driveMinutes = null) => ({
@@ -297,6 +298,70 @@ describe('mapLabels — chipCandidates', () => {
     expect(result).toHaveLength(3);
   });
 
+});
+
+describe('mapLabels — chipCandidates: the places a selected topic rings (topic-ring-names-plan.md §5 A1)', () => {
+  const ringedSpot = (name, rid, rating) => ({ ...spot(name, rid, rating), topicRing: true });
+
+  it('offers in-view ringed spots after the region bests and before the ordinary budget, outside it', () => {
+    const crowd = Array.from({ length: 30 }, (_, i) => spot(`Crowd ${i}`, `R${i}`, 5));
+    const ringed = Array.from({ length: 60 }, (_, i) => ringedSpot(`Ring ${i}`, 'Ringed region', 1));
+    const spots = [...crowd, ...ringed];
+    const inViewNames = new Set(spots.map((s) => s.name));
+    const names = chipCandidates({ spots, inViewNames, zoom: 8 }).map((s) => s.name);
+    // Every ringed spot is offered, though the budget at zoom 8 is 6.
+    expect(ringed.every((s) => names.includes(s.name))).toBe(true);
+    // A region best survives with 60 ringed spots in play: all thirty R-regions' bests are present.
+    expect(crowd.every((s) => names.includes(s.name))).toBe(true);
+    // Order: the region bests lead, the ringed block follows.
+    const firstRing = names.findIndex((n) => n.startsWith('Ring '));
+    expect(names.slice(0, firstRing).every((n) => n.startsWith('Crowd '))).toBe(true);
+  });
+
+  it('puts ringed spots ahead of the ordinary spots and does not spend the ordinary budget', () => {
+    const ordinary = Array.from({ length: 10 }, (_, i) => spot(`O${i}`, 'A', 5 - i * 0.1));
+    const ring = ringedSpot('Stood down', 'A', null);
+    const names = chipCandidates({ spots: [...ordinary, ring], zoom: 8 }).map((s) => s.name);
+    expect(names.indexOf('Stood down')).toBeLessThan(names.indexOf('O1'));
+    // The budget at zoom 8 is 6: O0..O5 are all still offered.
+    expect(['O0', 'O1', 'O2', 'O3', 'O4', 'O5'].every((n) => names.includes(n))).toBe(true);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('does not offer an out-of-view ringed spot', () => {
+    const inside = spot('Inside', 'A', 4);
+    const outside = ringedSpot('Outside ring', 'B', 1);
+    const keep = spot('B best', 'B', 5);
+    const names = chipCandidates({
+      spots: [inside, outside, keep], inViewNames: new Set(['Inside']), zoom: 13,
+    }).map((s) => s.name);
+    expect(names).not.toContain('Outside ring');
+    expect(names).toContain('B best');
+  });
+
+  it('keeps picks first and the selected location before the ringed spots', () => {
+    const pick = { ...spot('Pick', 'A', 2), askPick: { rank: 1, selected: false } };
+    const sel = spot('Sel', 'B', 1);
+    const ring = ringedSpot('Ring', 'C', 4);
+    const names = chipCandidates({ spots: [ring, sel, pick], zoom: 13, selectedName: 'Sel' }).map((s) => s.name);
+    expect(names.slice(0, 3)).toEqual(['Pick', 'Sel', 'Ring']);
+  });
+
+  it('without topicRing the output is the same as before', () => {
+    const spots = [spot('a', 'A', 5), spot('b', 'A', 3), spot('c', 'B', 4)];
+    expect(chipCandidates({ spots, zoom: 13 }).map((s) => s.name)).toEqual(['a', 'c', 'b']);
+  });
+
+  it('a big-seas structure that is also ringed keeps its big-seas chip: the pool drops its ordinary chip', () => {
+    const structure = ringedSpot('Bamburgh', 'North', 3);
+    const all = [structure, spot('Other', 'North', 2)];
+    const pool = withoutBigSeasDuplicates(all, [{ name: 'Bamburgh' }]);
+    expect(chipCandidates({ spots: pool, zoom: 13 }).map((s) => s.name)).toEqual(['Other']);
+    // As the fallback it is offered once, for the case its big-seas chip fails to place.
+    expect(fallbackChipSpots({
+      spots: all, suppressedNames: new Set(['Bamburgh']), zoom: 13,
+    }).map((s) => s.name)).toEqual(['Bamburgh']);
+  });
 });
 
 describe('mapLabels — chipCandidates: Ask PhotoCast\'s picks (F3)', () => {

@@ -282,7 +282,10 @@ export function ringLabelItems({
  * below the rest (plan §3 T4 item 3, "dimmed, not dropped" applied to the label budget itself). The
  * best-in-region candidate for EVERY region is always included, from the FULL {@code spots} list,
  * not the in-view subset — "a named region always contains a named destination." The in-view
- * subset is then capped at {@link chipBudget}. Identity is the location NAME (this catalogue's
+ * subset is then capped at {@link chipBudget}. In-view spots carrying {@code topicRing} (the places a
+ * selected hot topic rings) come after the region guarantee and before that cap, all of them, outside
+ * the budget; the order overall is Ask picks, the selected location, region bests, ringed spots, then
+ * the budgeted rest. Identity is the location NAME (this catalogue's
  * stable join key — {@code utils/heatSpots.js}'s own convention), so a duplicate spot object can
  * never appear twice.
  *
@@ -332,7 +335,12 @@ export function chipCandidates({
     shown.push(spot);
   };
   for (const spot of bestPerRegion.values()) addUnique(spot);
-  for (const spot of inView.slice(0, budget)) addUnique(spot);
+  // ⚠️ The places a selected hot topic rings (topic-ring-names-plan.md §5 A1): every one IN VIEW is
+  // offered, after the region guarantee above and ahead of the ordinary budget, and does not spend that
+  // budget (the ordinary slice below skips them). An out-of-view ringed place is not offered; the
+  // placer's collision pass still arbitrates, so a crowd names what fits and zooming in names the rest.
+  for (const spot of inView) if (spot.topicRing) addUnique(spot);
+  for (const spot of inView.filter((s) => !s.topicRing).slice(0, budget)) addUnique(spot);
 
   if (selectedName != null) {
     const idx = shown.findIndex((s) => s.name === selectedName);
