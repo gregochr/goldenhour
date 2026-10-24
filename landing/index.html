@@ -57,6 +57,17 @@ section{padding:104px 0 0}
 .feat.ask .body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.9fr);gap:28px;align-items:start}
 .feat.ask .slot{min-height:320px}
 .feat.ask .shot-ask{display:block;width:100%;max-width:380px;height:auto;border:1px solid var(--rule);border-radius:11px}
+.zoom{display:block;cursor:zoom-in;text-decoration:none}
+.zoom:focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:12px}
+.feat.ask .zoom{max-width:380px}
+.viewer{padding:0;border:0;margin:0;width:100vw;max-width:100vw;height:100dvh;max-height:100dvh;background:transparent}
+.viewer[open]{display:flex;align-items:center;justify-content:center}
+.viewer::backdrop{background:rgba(24,18,16,.94)}
+.viewer img{display:block;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);width:auto;height:auto;object-fit:contain;border:1px solid var(--rule);border-radius:11px;cursor:zoom-out}
+.viewer-close{position:fixed;top:12px;right:12px;width:44px;height:44px;border-radius:999px;border:1px solid var(--rule-2);background:var(--card);color:var(--ink);font:500 24px/1 var(--body);cursor:pointer}
+.viewer-close:hover{background:var(--card-2)}
+.viewer-close:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+html:has(.viewer[open]){overflow:hidden}
 /* platforms */
 .plats{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:40px}
 .plat{border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--card);padding:22px 22px 24px;display:flex;flex-direction:column;gap:10px}
@@ -132,7 +143,7 @@ section{padding:104px 0 0}
 <span class="note">No payment card needed. Lite is free.</span>
 </div>
 <figure class="fig">
-<img src="shot-map.webp" width="1600" height="1001" alt="The PhotoCast map for today's sunrise over Northumberland and the Tyne valley, with colour-coded conditions and star ratings for named locations such as Alnmouth, Bothal Weir and Allen Banks.">
+<a class="zoom" href="shot-map.webp"><img src="shot-map.webp" width="1600" height="1001" alt="The PhotoCast map for today's sunrise over Northumberland and the Tyne valley, with colour-coded conditions and star ratings for named locations such as Alnmouth, Bothal Weir and Allen Banks."></a>
 <figcaption class="figcap">See where the light looks most promising, with colour-coded forecasts and ratings for individual locations. Explore the next few days or take a closer look at somewhere you have in mind.</figcaption>
 </figure>
 </div>
@@ -147,15 +158,15 @@ section{padding:104px 0 0}
 <p class="lead-in">The forecast suggested that the central section of Hadrian's Wall could be worth an early start. The map showed promising conditions across the crags, with several locations receiving four stars.</p>
 <div class="steps">
 <div class="step">
-<img src="field-map.webp" width="2244" height="1410" alt="PhotoCast sunrise map with the Hadrian's Wall crags rated four stars" loading="lazy">
+<a class="zoom" href="field-map.webp"><img src="field-map.webp" width="2244" height="1410" alt="PhotoCast sunrise map with the Hadrian's Wall crags rated four stars" loading="lazy"></a>
 <div class="cap"><span class="k">1</span><h3>Spotting the opportunity</h3><p>The sunrise forecast highlighted Hadrian's Wall as one of the more promising areas, making it a good place to start looking.</p></div>
 </div>
 <div class="step">
-<img src="field-decide.webp" width="2206" height="1416" alt="Location detail for Steel Rigg and Winshield Crags: sunrise, four stars" loading="lazy">
+<a class="zoom" href="field-decide.webp"><img src="field-decide.webp" width="2206" height="1416" alt="Location detail for Steel Rigg and Winshield Crags: sunrise, four stars" loading="lazy"></a>
 <div class="cap"><span class="k">2</span><h3>Choosing a location</h3><p>Steel Rigg and Winshield Crags stood out.</p><p>The forecast suggested a relatively clear eastern horizon, with mid-level and high cloud positioned to catch the colour as the sun rose.</p></div>
 </div>
 <div class="step result">
-<img src="field-steel-rigg.webp" width="2000" height="1496" alt="Sunrise over Hadrian's Wall from Steel Rigg, warm colour across the sky above the Wall and Crag Lough" loading="lazy">
+<a class="zoom" href="field-steel-rigg.webp"><img src="field-steel-rigg.webp" width="2000" height="1496" alt="Sunrise over Hadrian's Wall from Steel Rigg, warm colour across the sky above the Wall and Crag Lough" loading="lazy"></a>
 <div class="cap">
 <div class="t"><span class="k">3</span><h3>Seeing what happened</h3></div>
 <div class="b"><p>The morning rewarded the early start with warm colour spreading across the sky above the Wall and Crag Lough.</p><p class="reflect">A forecast can never guarantee the light. But on this occasion, it helped turn a promising outlook into a worthwhile morning with the camera.</p></div>
@@ -188,7 +199,7 @@ section{padding:104px 0 0}
 <div class="feat"><div class="n">/ 03</div><div>
 <h3>Find your next opportunity</h3>
 <p class="q">Not sure where to go this weekend?</p>
-<p>PhotoCast compares conditions across its locations over the next three days, helping you identify promising times and places.</p>
+<p>PhotoCast compares conditions across its locations over the next few days, helping you identify promising times and places.</p>
 <p>Explore the planning grid, compare the outlook and see which locations might be worth adding to your plans.</p>
 <p>With Pro, best-bet recommendations provide a little more guidance when you're deciding where to head. <span class="pro">Pro</span></p>
 </div></div>
@@ -197,12 +208,12 @@ section{padding:104px 0 0}
 <div class="body">
 <div>
 <p class="q">Curious about the forecast? Just ask.</p>
-<p>Wondering why a sunrise has a high rating, whether the cloud might clear, or what the conditions could mean for your photographs?</p>
+<p>Wondering why a sunrise has a high rating, or what the conditions could mean for your photographs?</p>
 <p>Ask PhotoCast lets you explore the forecast in your own words. Ask a question, get a straightforward explanation, and better understand what the weather might have in store.</p>
 <p>No need to decipher complicated weather charts — just a little more insight to help you plan your next outing.</p>
 <p>Available with PhotoCast Pro.</p>
 </div>
-<img class="shot-ask" src="shot-ask.webp" width="662" height="1358" alt="Ask PhotoCast answering &quot;What's the best opportunity over the next three days?&quot;: a written answer naming Monday's sunrise on the North York Moors &amp; Coast, with tomorrow's sunset in Northumberland &amp; Tyneside as the alternative, then ranked picks Alnmouth and Bamburgh Castle, each rated Worth it, 4 stars, with sunset time, drive time and tide." loading="lazy">
+<a class="zoom" href="shot-ask.webp"><img class="shot-ask" src="shot-ask.webp" width="662" height="1358" alt="Ask PhotoCast answering &quot;What's the best opportunity over the next three days?&quot;: a written answer naming Monday's sunrise on the North York Moors &amp; Coast, with tomorrow's sunset in Northumberland &amp; Tyneside as the alternative, then ranked picks Alnmouth and Bamburgh Castle, each rated Worth it, 4 stars, with sunset time, drive time and tide." loading="lazy"></a>
 </div>
 </div></div>
 <div class="feat"><div class="n">/ 05</div><div>
@@ -231,7 +242,7 @@ section{padding:104px 0 0}
 </div></div>
 </div>
 <figure class="fig">
-<img src="shot-detail.webp" width="1600" height="1115" alt="Location sheet for Derwent Water East Shore: sunrise rating, Fiery Sky and Golden Hour scores, blue and golden hour times, and an explanation of the conditions." loading="lazy">
+<a class="zoom" href="shot-detail.webp"><img src="shot-detail.webp" width="1600" height="1115" alt="Location sheet for Derwent Water East Shore: sunrise rating, Fiery Sky and Golden Hour scores, blue and golden hour times, and an explanation of the conditions." loading="lazy"></a>
 <figcaption class="figcap">Take a closer look at an individual location, with sunrise and sunset times, golden and blue hour, detailed light scores and an explanation of the conditions behind the forecast.</figcaption>
 </figure>
 </div>
@@ -298,7 +309,7 @@ section{padding:104px 0 0}
 <div class="amt">Free</div>
 <p class="desc">A straightforward way to see where conditions look promising.</p>
 <ul>
-<li>Three-day sunrise and sunset forecasts</li>
+<li>Sunrise and sunset forecasts for the next few days</li>
 <li>Star ratings for locations</li>
 <li>At-a-glance forecast guidance</li>
 <li>Colour-coded planning grid</li>
@@ -354,7 +365,7 @@ section{padding:104px 0 0}
 </div>
 <div class="qa">
 <h3>What's the difference between Lite and Pro?</h3>
-<p>Lite gives you free access to the forecast map, location ratings and three-day planning information.</p>
+<p>Lite gives you free access to the forecast map, location ratings and planning information for the next few days.</p>
 <p>Pro adds deeper forecast analysis, Ask PhotoCast, location recommendations and additional tools for photographers who want to explore the conditions in more detail.</p>
 </div>
 <p class="all"><a href="faq.html">Read all frequently asked questions →</a></p>
@@ -391,5 +402,6 @@ section{padding:104px 0 0}
 </div>
 </div>
 </footer>
+<script src="viewer.js" defer></script>
 </body>
 </html>
