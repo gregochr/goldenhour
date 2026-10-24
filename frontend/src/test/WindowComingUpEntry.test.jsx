@@ -1084,3 +1084,18 @@ describe('WindowComingUpEntry — a served lunar eclipse entry (L5, plan §2.8)'
     expect(screen.queryByTestId('coming-up-aside')).toBeNull();
   });
 });
+
+describe('WindowComingUpEntry — the "In next 4 days" tag', () => {
+  it('renders the tag in the title row when the entry falls in the window', () => {
+    renderEntry({ inNext4Days: true });
+    expect(screen.getByTestId('coming-up-tag-next4')).toHaveTextContent('In next 4 days');
+    expect(screen.getByTestId('coming-up-kindtag')).toBeInTheDocument();
+    // The tags read in order, space-separated, as before the wrapper existed.
+    expect(screen.getByTestId('coming-up-tags')).toHaveTextContent('Almanac In next 4 days');
+  });
+
+  it('renders no tag otherwise', () => {
+    renderEntry({ inNext4Days: false });
+    expect(screen.queryByTestId('coming-up-tag-next4')).toBeNull();
+  });
+});

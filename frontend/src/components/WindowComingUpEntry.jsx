@@ -469,31 +469,41 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
         )}
         <span className="wf-cu-nm" data-testid="coming-up-title">{entry.title}</span>
         {' '}
-        {/* Between the name and the kind tag, matching the design's title-row order (plan §6/P5).
-            Clears together with the badge and the fresh box-shadow above — all three read the same
-            `entry.isNew`, computed once by comingUpArrivals.js's isNewEntry and threaded through
-            buildEntryView (plan D3/D12). */}
-        {entry.isNew && (
-          <>
-            <span className="wf-cu-new" data-testid="coming-up-new-flag">New</span>
-            {' '}
-          </>
-        )}
-        <span className="wf-cu-kindtag" data-testid="coming-up-kindtag">{entry.kindTag}</span>
-        {entry.superlative && (
-          <>
-            {' '}
-            <span className="wf-cu-superlative" data-testid="coming-up-superlative">
-              {entry.superlative}
-            </span>
-          </>
-        )}
-        {entry.metric && (
-          <>
-            {' '}
-            <span className="wf-cu-metric" data-testid="coming-up-metric">{entry.metric}</span>
-          </>
-        )}
+        {/* The tags wrap in one row under the title on a phone, indented under the title text; the
+            wrapper is `display: contents` elsewhere, so desktop and tablet lay out as before. */}
+        <span className={glyph ? 'wf-cu-tags wf-cu-tags-g' : 'wf-cu-tags'} data-testid="coming-up-tags">
+          {/* Between the name and the kind tag, matching the design's title-row order (plan §6/P5).
+              Clears together with the badge and the fresh box-shadow above — all three read the same
+              `entry.isNew`, computed once by comingUpArrivals.js's isNewEntry and threaded through
+              buildEntryView (plan D3/D12). */}
+          {entry.isNew && (
+            <>
+              <span className="wf-cu-new" data-testid="coming-up-new-flag">New</span>
+              {' '}
+            </>
+          )}
+          <span className="wf-cu-kindtag" data-testid="coming-up-kindtag">{entry.kindTag}</span>
+          {entry.inNext4Days && (
+            <>
+              {' '}
+              <span className="wf-cu-next4" data-testid="coming-up-tag-next4">In next 4 days</span>
+            </>
+          )}
+          {entry.superlative && (
+            <>
+              {' '}
+              <span className="wf-cu-superlative" data-testid="coming-up-superlative">
+                {entry.superlative}
+              </span>
+            </>
+          )}
+          {entry.metric && (
+            <>
+              {' '}
+              <span className="wf-cu-metric" data-testid="coming-up-metric">{entry.metric}</span>
+            </>
+          )}
+        </span>
       </div>
       {' '}
 
@@ -715,6 +725,7 @@ WindowComingUpEntry.propTypes = {
     })),
     joinNote: PropTypes.string,
     isNew: PropTypes.bool.isRequired,
+    inNext4Days: PropTypes.bool,
   }).isRequired,
   onGoToPlan: PropTypes.func.isRequired,
   onShowOnMap: PropTypes.func.isRequired,

@@ -845,3 +845,47 @@ describe('FOOTER', () => {
     expect(FOOTER).not.toMatch(/orbital/i);
   });
 });
+
+describe('buildEntryView — inNext4Days (coming-up-glance-plan §2.3)', () => {
+  // TODAY is 2026-08-09, so the four plan days are 09, 10, 11, 12 Aug.
+  const tagged = (over) => buildEntryView(entry(over), TODAY, null, null).inNext4Days;
+
+  it('tags an entry that starts on day 4', () => {
+    expect(tagged({ startDate: '2026-08-12', endDate: '2026-08-14' })).toBe(true);
+  });
+
+  it('tags an entry spanning today', () => {
+    expect(tagged({ startDate: '2026-08-07', endDate: '2026-08-11' })).toBe(true);
+  });
+
+  it('does not tag an entry starting on day 5', () => {
+    expect(tagged({ startDate: '2026-08-13', endDate: '2026-08-15' })).toBe(false);
+  });
+
+  it('reads a merged entry\'s union dates, not the first part\'s', () => {
+    // The first part (a 13-14 Aug run) starts on day 5, outside the window; the union starts on day 3.
+    const merged = {
+      startDate: '2026-08-11',
+      endDate: '2026-08-20',
+      dayRanges: [{ start: '2026-08-13', end: '2026-08-14' }, { start: '2026-08-18', end: '2026-08-20' }],
+      coincidence: [{ type: 'spring-tide' }],
+    };
+    expect(tagged(merged)).toBe(true);
+  });
+
+  it('yields false when both dates are missing', () => {
+    expect(tagged({ startDate: null, endDate: null })).toBe(false);
+  });
+
+  it('DEFENSIVE: tags an entry ending today (the server never serves one ending inside the window)', () => {
+    expect(tagged({ startDate: '2026-08-05', endDate: TODAY })).toBe(true);
+  });
+
+  it('does not tag an entry that ended yesterday', () => {
+    expect(tagged({ startDate: '2026-08-05', endDate: '2026-08-08' })).toBe(false);
+  });
+
+  it('yields false before a usable "today" exists', () => {
+    expect(buildEntryView(entry({ startDate: '2026-08-12' }), '', null, null).inNext4Days).toBe(false);
+  });
+});

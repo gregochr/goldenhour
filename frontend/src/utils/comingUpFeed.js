@@ -1,4 +1,5 @@
 import { isNewEntry } from './comingUpArrivals.js';
+import { lastPlanDateStr } from './comingUpHandoff.js';
 
 /**
  * The "Coming up" chronology's presentation layer — {@code ComingUpEntry[]} from
@@ -60,6 +61,17 @@ function monthName(dateStr) {
 /** `Wed` — short weekday, en-GB form. Rail-only: nothing else in this file needs a day name. */
 function weekday(dateStr) {
   return atMidday(dateStr).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
+}
+
+/**
+ * Whether an entry's own span (the union span of a merged card) overlaps the four-day plan window
+ * (coming-up-glance-plan §2.3). The `endDate >= todayStr` half is DEFENSIVE: the server never serves
+ * an entry that ends inside the window. Reachable guard: when BOTH dates are missing (`buildDateRail`
+ * tolerates that), or before a usable `todayStr` exists, the answer is false.
+ */
+function overlapsNext4Days(entry, todayStr) {
+  if (!entry.startDate || !entry.endDate || !todayStr) return false;
+  return entry.startDate <= lastPlanDateStr(todayStr) && entry.endDate >= todayStr;
 }
 
 /**
@@ -439,6 +451,7 @@ export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
     id: entry.id,
     type: entry.type,
     startDate: entry.startDate,
+    inNext4Days: overlapsNext4Days(entry, todayStr),
     family: entry.family,
     isForecast: entry.kind === 'FORECAST',
     rail: buildDateRail(entry.startDate, entry.endDate, todayStr),
