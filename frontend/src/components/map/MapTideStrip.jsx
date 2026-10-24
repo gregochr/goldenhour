@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { STATE_WORD, DIRECTION_WORD } from '../../utils/windowFirstRows.js';
 import { eventWord } from '../../utils/windowFirstCards.js';
@@ -486,6 +486,23 @@ export default function MapTideStrip({
   const [node, setNode] = useState(null);
 
   /**
+   * The collapsed and open forms are separate returns, so the toggle button is a DIFFERENT element in each:
+   * pressing it remounts it and focus drops to {@code <body>}. The click handler raises this flag; the
+   * layout effect on {@code collapsed} then focuses the new toggle and clears it. A collapse that came from
+   * elsewhere (the four-day grid's header) never raises it, so focus is not stolen.
+   */
+  const refocusToggleRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!refocusToggleRef.current) return;
+    refocusToggleRef.current = false;
+    node?.querySelector('[data-testid="wf-tide-strip-toggle"]')?.focus({ preventScroll: true });
+  }, [collapsed, node]);
+  const onToggle = () => {
+    refocusToggleRef.current = true;
+    onToggleCollapse?.();
+  };
+
+  /**
    * Moves focus to the strip's own root after the next-fit jump (adversarial review, accessibility
    * lens) — the strip's own {@code focusAfterJump} target, handed to {@link TideStripFooter}. See
    * that component's own doc for why the target is now a caller-owned callback rather than a fixed
@@ -557,7 +574,7 @@ export default function MapTideStrip({
             type="button"
             className="wf-tide-strip-toggle"
             data-testid="wf-tide-strip-toggle"
-            onClick={onToggleCollapse}
+            onClick={onToggle}
           >
             {/* The design's `Open ▴` — visible text plus a decorative caret, the caret alone
                 carrying no meaning a screen reader should announce (`TideWave.jsx`'s own house
@@ -575,7 +592,7 @@ export default function MapTideStrip({
       className="wf-map-tide-strip" ref={setNode} tabIndex={-1}
       role="group" aria-label="Tide" data-testid="wf-tide-strip"
     >
-      <TideStripHeader tide={tide} onToggleCollapse={onToggleCollapse} />
+      <TideStripHeader tide={tide} onToggleCollapse={onToggle} />
       <TideDayChart tide={tide} sunriseTime={sunriseTime} sunsetTime={sunsetTime} />
       <TideStripFooter
         model={model} activeRow={activeRow} onSelectEv={onSelectEv} focusAfterJump={focusStrip}

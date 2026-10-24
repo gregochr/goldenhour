@@ -15,6 +15,7 @@
  * its decorative glyph); focus moving to the strip after the next-fit jump; collapse toggling;
  * `--tsh` written on mount and removed on unmount/hide.
  */
+import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
@@ -715,6 +716,46 @@ describe('MapTideStrip — collapse', () => {
     );
     fireEvent.click(screen.getByTestId('wf-tide-strip-toggle'));
     expect(onToggleCollapse).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves focus on the new toggle after "Open" and after "Collapse" (the button remounts between forms)', () => {
+    const ref = mapPane();
+    function Host() {
+      const [collapsed, setCollapsed] = React.useState(true);
+      return (
+        <MapTideStrip
+          model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={ref}
+          collapsed={collapsed} onToggleCollapse={() => setCollapsed((v) => !v)}
+        />
+      );
+    }
+    render(<Host />);
+    screen.getByTestId('wf-tide-strip-toggle').focus();
+    fireEvent.click(screen.getByTestId('wf-tide-strip-toggle'));
+    expect(screen.queryByTestId('wf-tide-strip-collapsed')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-tide-strip-toggle'));
+    fireEvent.click(screen.getByTestId('wf-tide-strip-toggle'));
+    expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-tide-strip-toggle'));
+  });
+
+  it('does not take focus when the collapse came from elsewhere', () => {
+    const ref = mapPane();
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    const { rerender } = render(
+      <MapTideStrip
+        model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={ref} collapsed={false}
+      />,
+    );
+    outside.focus();
+    rerender(
+      <MapTideStrip
+        model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={ref} collapsed
+      />,
+    );
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
   });
 
   // ⚠️ This proves the CONTROLLED-COMPONENT half of "collapse does not reset on window change"

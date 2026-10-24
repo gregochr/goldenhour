@@ -233,8 +233,10 @@ const SEAS_EVENTS = [
  * inversion on day 4) drawn by the REAL `MapTopicStrip` from the REAL `fourDayGrid`, current window the
  * Sunday sunset. The strip's states: `stripOpen` / `stripClosed` (the header only) with no tide strip,
  * `tideOnly` (the tide strip alone, the baseline for the next two), `tideStripClosed` (what the app
- * draws when the tide strip shows, Q8) and `tideStripOpen` (NOT reachable in the app, measured as the
- * ceiling it was designed to avoid).
+ * draws when the tide strip shows, Q8: before the yield, the forced-closed grid; now the HELD grid, the
+ * same pixels), `tideStripOpen` (NOT reachable in the app: an open tide strip always holds the grid) and
+ * `tideCollapsedOpen` (the reader's yield, topic-strip-tide-yield-plan: the grid OPEN over the tide
+ * strip's collapsed row, reached by pressing the held header).
  */
 const STRIP_DAY = '2026-09-06';
 const stripTopic = (type, label, date, eventType, extra = {}) => ({
@@ -281,7 +283,7 @@ const TIDE_MODEL = {
 // would otherwise start `stripOpen` collapsed): '1' for the open states, '0' for the closed one.
 try {
   const w = window.__R5_SURFACE__;
-  if (w === 'stripOpen' || w === 'tideStripOpen') localStorage.setItem('mapTopicStripOpen', '1');
+  if (w === 'stripOpen' || w === 'tideStripOpen' || w === 'tideCollapsedOpen') localStorage.setItem('mapTopicStripOpen', '1');
   else if (w === 'stripClosed' || w === 'tideStripClosed') localStorage.setItem('mapTopicStripOpen', '0');
 } catch { /* no storage */ }
 
@@ -289,8 +291,8 @@ try {
 function BottomLeftStack({ which, paneRef }) {
   const [blRef] = useChromeBlHeight();
   const wide = window.innerWidth >= 640;
-  const stripOn = wide && ['stripOpen', 'stripClosed', 'tideStripClosed', 'tideStripOpen'].includes(which);
-  const tideOn = wide && ['tideOnly', 'tideStripClosed', 'tideStripOpen'].includes(which);
+  const stripOn = wide && ['stripOpen', 'stripClosed', 'tideStripClosed', 'tideStripOpen', 'tideCollapsedOpen'].includes(which);
+  const tideOn = wide && ['tideOnly', 'tideStripClosed', 'tideStripOpen', 'tideCollapsedOpen'].includes(which);
   // The app collapses the strip while the tide strip shows (Q8); `tideStripOpen` forces it open to
   // measure the ceiling that rule avoids. `stripClosed` is the reader's own stored "closed".
   const collapsed = which === 'stripClosed' || which === 'tideStripClosed';
@@ -323,6 +325,7 @@ function BottomLeftStack({ which, paneRef }) {
           sunriseTime="06:22"
           sunsetTime="20:14"
           mapPaneRef={paneRef}
+          collapsed={which === 'tideCollapsedOpen'}
         />
       )}
     </div>
@@ -526,7 +529,7 @@ function Harness() {
   const which = window.__R5_SURFACE__;
   const paneRef = React.useRef(null);
   const stripMounted = window.innerWidth >= 640
-    && ['stripOpen', 'stripClosed', 'tideStripClosed', 'tideStripOpen'].includes(which);
+    && ['stripOpen', 'stripClosed', 'tideStripClosed', 'tideStripOpen', 'tideCollapsedOpen'].includes(which);
   useFooterLift(stripMounted);
   return (
     // ⚠️ The map frame is NOT the viewport. `App.jsx` pads `<main>` by `sm:px-4` (32px total, at

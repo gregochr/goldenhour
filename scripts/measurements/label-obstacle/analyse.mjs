@@ -107,12 +107,15 @@ function configsFor(vpName) {
     // The four-day strip (hot-topics-by-day-plan M2): the SAME always-on chrome with the bottom-left stack
     // and the counts footer (which it lifts) measured in each state. `bl+tide` is the tide strip alone,
     // the baseline for the last two; `bl+tide+closed` is what the app draws when the tide strip shows
-    // (Q8), `bl+tide+open` is the unreachable ceiling that rule avoids.
+    // (Q8: the held grid), `bl+tide+open` is the ceiling that rule avoids (still unreachable: an open tide
+    // strip always holds the grid), and `bl+tide-collapsed+open` is the reader's yield (topic-strip-tide-
+    // yield-plan): the grid open over the tide strip's collapsed row, reached by pressing the held header.
     'bl+open': [tl, ...chromeIn('stripOpen')],
     'bl+closed': [tl, ...chromeIn('stripClosed')],
     'bl+tide': [tl, ...chromeIn('tideOnly')],
     'bl+tide+closed': [tl, ...chromeIn('tideStripClosed')],
     'bl+tide+open': [tl, ...chromeIn('tideStripOpen')],
+    'bl+tide-collapsed+open': [tl, ...chromeIn('tideCollapsedOpen')],
   };
 }
 
@@ -339,7 +342,7 @@ const PAIRS = [
   ['tl-504', 'tl+win'], ['tl-504', 'tl+win9'], ['tl-504', 'tl+reg'], ['tl-504', 'tl+seas'],
   ['tl-504', 'tl+topics'], ['tl-504', 'tl+topicsEmpty'], ['tl-504', 'tl+seas+topics'],
   ['tl-504', 'bl+open'], ['tl-504', 'bl+closed'], ['tl-504', 'bl+tide'],
-  ['bl+tide', 'bl+tide+closed'], ['bl+tide', 'bl+tide+open'],
+  ['bl+tide', 'bl+tide+closed'], ['bl+tide', 'bl+tide+open'], ['bl+tide', 'bl+tide-collapsed+open'],
 ];
 
 /**
@@ -449,7 +452,8 @@ for (const fk of FRAMES) {
       'bl+open', 'bl+closed', 'bl+tide']
       .map((n) => `${n} ${(((tot[n] - base) / base) * 100).toFixed(1)}%`).join('  ')
     + `  | vs bl+tide: tide+closed ${(((tot['bl+tide+closed'] - tot['bl+tide']) / tot['bl+tide']) * 100).toFixed(1)}%`
-    + `  tide+open ${(((tot['bl+tide+open'] - tot['bl+tide']) / tot['bl+tide']) * 100).toFixed(1)}%`,
+    + `  tide+open ${(((tot['bl+tide+open'] - tot['bl+tide']) / tot['bl+tide']) * 100).toFixed(1)}%`
+    + `  tide-collapsed+open ${(((tot['bl+tide-collapsed+open'] - tot['bl+tide']) / tot['bl+tide']) * 100).toFixed(1)}%`,
   );
 }
 

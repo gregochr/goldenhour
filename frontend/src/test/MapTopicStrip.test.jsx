@@ -310,7 +310,7 @@ describe('MapTopicStrip: focus when the grid or the strip goes away', () => {
     expect(document.activeElement).toBe(bar('KING_TIDE', 2));
     rerender(
       <MapTopicStrip
-        grid={gridFor()} selectedType={null} currentTypes={[]} forceCollapsed forceReason="the tide strip is showing"
+        grid={gridFor()} selectedType={null} currentTypes={[]} forceCollapsed forceReason="the welcome card is open"
         onToggleType={onToggleType} onPick={onPick}
       />,
     );
@@ -385,16 +385,22 @@ describe('MapTopicStrip: collapse', () => {
     expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('renders collapsed while forced (tide strip showing, landing card open) WITHOUT changing the stored preference', () => {
+  it('renders collapsed while forced (landing card open) WITHOUT changing the stored preference', () => {
     localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
-    const { rerender, onToggleType, onPick } = renderStrip({ forceCollapsed: true, forceReason: 'the tide strip is showing' });
+    const { rerender, onToggleType, onPick } = renderStrip({ forceCollapsed: true, forceReason: 'the welcome card is open' });
     const header = screen.getByTestId('wf-topic-strip-toggle');
     expect(header).toHaveAttribute('aria-expanded', 'false');
     expect(header).toHaveAttribute('aria-disabled', 'true');
     expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
-    // Why it is closed is said, the chevron (an invitation to open) is gone and nothing is controlled.
-    expect(header).toHaveAccessibleDescription('Closed while the tide strip is showing');
-    expect(header.querySelector('.wf-tl-cv')).toBeNull();
+    // Why it is closed is said, the chevron (an invitation to open) is replaced by a visible `· closed`
+    // cue that is decorative, and nothing is controlled.
+    expect(header).toHaveAccessibleDescription('Closed while the welcome card is open');
+    const cue = screen.getByTestId('wf-topic-strip-closed-cue');
+    expect(cue).toHaveTextContent('· closed');
+    expect(cue).toHaveAttribute('aria-hidden', 'true');
+    expect(header).toContainElement(cue);
+    expect(header).toHaveAccessibleName('Hot topics · next four days');
+    expect(header.textContent).not.toMatch(/[▾▴]/);
     expect(header).not.toHaveAttribute('aria-controls');
     // Pressing the header while forced neither opens it nor rewrites the preference.
     fireEvent.click(header);
@@ -679,5 +685,116 @@ describe('MapTopicStrip: the sheet variant (M4)', () => {
       Element.prototype.scrollIntoView = original;
       window.matchMedia = mm;
     }
+  });
+});
+
+describe('MapTopicStrip: held (an open tide strip holds the grid; a press yields it)', () => {
+  const HELD = { held: true, heldReason: 'the tide strip' };
+
+  it('draws closed with an enabled header, the up chevron and its reason as a description', () => {
+    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
+    renderStrip(HELD);
+    const header = screen.getByTestId('wf-topic-strip-toggle');
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+    expect(header).not.toHaveAttribute('aria-disabled');
+    expect(header).not.toHaveAttribute('aria-controls');
+    expect(header.querySelector('.wf-tl-cv')).toHaveTextContent('▴');
+    expect(screen.queryByTestId('wf-topic-strip-closed-cue')).toBeNull();
+    expect(header).toHaveAccessibleDescription('Opening it collapses the tide strip');
+    expect(header).toHaveAccessibleName('Hot topics · next four days');
+    expect(screen.getByTestId('wf-topic-strip')).toHaveAttribute('data-open', 'false');
+  });
+
+  it('a press stores 1 and calls onOpenHeld once, but opens only when the owner stops holding it', () => {
+    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
+    const onOpenHeld = vi.fn();
+    const { rerender, onToggleType, onPick } = renderStrip({ ...HELD, onOpenHeld });
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    expect(onOpenHeld).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    rerender(
+      <MapTopicStrip
+        grid={gridFor()} selectedType={null} currentTypes={[]} onToggleType={onToggleType} onPick={onPick}
+        held={false} heldReason="the tide strip" onOpenHeld={onOpenHeld}
+      />,
+    );
+    expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('a press with a stored 0 stores 1 and calls onOpenHeld', () => {
+    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '0');
+    const onOpenHeld = vi.fn();
+    renderStrip({ ...HELD, onOpenHeld });
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    expect(onOpenHeld).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+  });
+
+  it('closing an open strip stores 0 and calls onCloseYielded', () => {
+    const onCloseYielded = vi.fn();
+    renderStrip({ onCloseYielded });
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('0');
+    expect(onCloseYielded).toHaveBeenCalledTimes(1);
+    // Opening it again is not a close.
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    expect(onCloseYielded).toHaveBeenCalledTimes(1);
+  });
+
+  it('forced beats held: inert, the welcome reason, no onOpenHeld', () => {
+    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
+    const onOpenHeld = vi.fn();
+    renderStrip({
+      ...HELD, forceCollapsed: true, forceReason: 'the welcome card is open', onOpenHeld,
+    });
+    const header = screen.getByTestId('wf-topic-strip-toggle');
+    expect(header).toHaveAttribute('aria-disabled', 'true');
+    expect(header).toHaveAccessibleDescription('Closed while the welcome card is open');
+    expect(screen.queryByTestId('wf-topic-strip-held-reason')).toBeNull();
+    expect(screen.getByTestId('wf-topic-strip-closed-cue')).toBeInTheDocument();
+    fireEvent.click(header);
+    expect(onOpenHeld).not.toHaveBeenCalled();
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+  });
+
+  it('moves focus from a bar to the header when the strip becomes held', () => {
+    const { rerender, onToggleType, onPick } = renderStrip();
+    bar('KING_TIDE', 2).focus();
+    expect(document.activeElement).toBe(bar('KING_TIDE', 2));
+    rerender(
+      <MapTopicStrip
+        grid={gridFor()} selectedType={null} currentTypes={[]} onToggleType={onToggleType} onPick={onPick}
+        held heldReason="the tide strip"
+      />,
+    );
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-topic-strip-toggle'));
+  });
+
+  it('keeps focus on the header through a held press', () => {
+    renderStrip({ ...HELD, onOpenHeld: vi.fn() });
+    const header = screen.getByTestId('wf-topic-strip-toggle');
+    header.focus();
+    fireEvent.click(header);
+    expect(document.activeElement).toBe(header);
+  });
+
+  it('the sheet variant ignores held, onOpenHeld and onCloseYielded', () => {
+    const onOpenHeld = vi.fn();
+    const onCloseYielded = vi.fn();
+    renderStrip({
+      ...HELD, variant: 'sheet', openByDefault: true, onOpenHeld, onCloseYielded,
+    });
+    const header = screen.getByTestId('wf-topic-strip-toggle');
+    expect(header).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-topic-strip-held-reason')).toBeNull();
+    fireEvent.click(header);
+    expect(onOpenHeld).not.toHaveBeenCalled();
+    expect(onCloseYielded).not.toHaveBeenCalled();
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_SHEET_KEY)).toBe('0');
   });
 });

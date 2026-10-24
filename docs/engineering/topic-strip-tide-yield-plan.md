@@ -162,7 +162,19 @@ phone sheet `@media (max-width: 639px)` rules.
 
 ## 5. Measured label cost
 
-(Filled in by the build: `bl+tide-collapsed+open` vs `bl+tide`, per frame.)
+Measured 2026-10-24 with `scripts/measurements/label-obstacle/` (`measure.mjs` then `analyse.mjs`, the
+real placer; new surface `tideCollapsedOpen` = the open grid over the tide strip's collapsed row, a 474x315
+bottom-left stack). Labels removed against the tide strip alone (`bl+tide`), at scroll @0 / @175:
+
+| Frame | tide + held header (`bl+tide+closed`) | **tide collapsed + grid open** (`bl+tide-collapsed+open`) | tide + open (unreachable) |
+|---|---|---|---|
+| desktop-1280 | −2.9 / −2.6 | **−5.7 / −7.3** | −13.5 / −25.0 |
+| laptop-1024 | −1.5 / −4.2 | **−6.3 / −15.0** | −17.0 / −37.1 |
+| tablet-820 | −2.6 / −6.5 | **−4.5 / −9.1** | −12.4 / −16.1 |
+| phone-390 | not mounted | not mounted | not mounted |
+
+The new combination costs between −4.5% and −15.0%, well under the −37.1% an open tide strip with an open
+grid would cost. Recorded, not gated.
 
 ## 6. Gates
 
