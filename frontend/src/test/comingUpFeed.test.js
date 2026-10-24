@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildDateRail, chipCounts, buildEntryView, groupEntriesByMonth, buildChronology, footerCopy,
+  buildDateRail, chipCounts, buildEntryView, groupEntriesByMonth, buildChronology, FOOTER,
   FILTER_CHIPS, formatArrivalDate, MAX_CHIP_DAYS,
 } from '../utils/comingUpFeed.js';
 
@@ -833,26 +833,15 @@ describe('formatArrivalDate', () => {
   });
 });
 
-describe('footerCopy', () => {
-  it('states every date is fixed when there are no forecast entries', () => {
-    const text = footerCopy({ fixed: 9, forecast: 0 });
-    expect(text).toContain('Every date here is fixed in advance');
-    expect(text).not.toMatch(/orbital/i);
-  });
-
-  it('states both counts, singular, when there is exactly one of each type possible', () => {
-    const text = footerCopy({ fixed: 1, forecast: 1 });
-    expect(text).toContain('1 of these dates is fixed');
-    expect(text).toContain('1 is a forecast peak');
-  });
-
-  it('states both counts, plural, for more than one', () => {
-    const text = footerCopy({ fixed: 8, forecast: 2 });
-    expect(text).toContain('8 of these dates are fixed');
-    expect(text).toContain('2 are forecast peaks');
+describe('FOOTER', () => {
+  it('is the one fixed sentence, naming where the list starts and where weather topics live', () => {
+    expect(FOOTER).toBe(
+      'This list starts where the four-day forecast stops and shows dates fixed in advance. '
+      + "Weather-driven topics can't be known that far out, so they appear only in Next four days.",
+    );
   });
 
   it('never claims the dates come from orbital mechanics', () => {
-    expect(footerCopy({ fixed: 8, forecast: 1 })).not.toMatch(/orbital/i);
+    expect(FOOTER).not.toMatch(/orbital/i);
   });
 });

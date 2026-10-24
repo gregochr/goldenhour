@@ -310,7 +310,7 @@ ETag-revalidated; safe to share because it carries no per-user data.
 **The feed is cached per UK day and refreshed, not just filled.** `AlmanacService.refresh()` builds the default
 90-day feed and swaps it in whole (never evict-then-build), and runs from the pipeline's tail
 (`PipelineOrchestrator.dispatchAlmanacRefresh`, after `finishRun`, on the background executor, nothing it throws reaches the run)
-and once on `ApplicationReadyEvent`, so the conditions strip follows each cycle's data and a restart or a new day does not leave
+and once on `ApplicationReadyEvent`, so the conditions payload (its Coming up panel was removed by coming-up-glance P2; the backend half goes in B2) follows each cycle's data and a restart or a new day does not leave
 the first reader to pay for the build. There is no midnight job: the first reader after midnight still builds, which the memos
 below keep short. `TideService.getTideStats` is memoised per location per UTC cutoff day and `TideSizeIndex.measure` and
 `TideRunPeakHistory.peakRanges` per question per day (`DayScopedMemo`, whose in-flight loads are discarded if an eviction lands

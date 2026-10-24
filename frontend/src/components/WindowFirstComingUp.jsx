@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import WindowComingUpEntry from './WindowComingUpEntry.jsx';
-import WindowComingUpConditions from './WindowComingUpConditions.jsx';
 import WindowComingUpSinceLine from './WindowComingUpSinceLine.jsx';
 import WindowComingUpFourDays from './WindowComingUpFourDays.jsx';
-import { buildChronology, chipCounts, footerCopy, FOOTER_LEAD } from '../utils/comingUpFeed.js';
+import { buildChronology, chipCounts, FOOTER } from '../utils/comingUpFeed.js';
 import { CHIP_GLYPHS } from '../utils/comingUpGlyphs.js';
 import { deriveBadge, selectSinceEntry } from '../utils/comingUpArrivals.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
@@ -34,17 +33,6 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * have to repeat it on every row. P2 gives every entry a real {@code kindTag} ("Almanac" or
  * "Forecast · peak"), so the card now carries its own word and the footer's old job — see plan §6:
  * "the old vocabulary job now lives on the per-card kind tag, so delete it rather than ship both".
- *
- * <h2>Recurring conditions strip (plan §7 P4)</h2>
- *
- * <p>{@code WindowComingUpConditions} renders {@code events.conditions} between the filter chips
- * and the handoff row — the design of record's own DOM order ({@code Coming Up.html}: header →
- * since-line → chips → conditions → handoff → chronology). It degrades to nothing for an empty or
- * absent list rather than an omission. Its own header sub-line — not this pane's — grows the quiet
- * "figures are provisional" suffix while any visible condition is {@code interim} (plan §7: the
- * strip's header, "too frequent to list · open one to see every date"; README's
- * "say so in the UI" clause): the marker is about the STRIP's scoring, not the chronology dates
- * this pane's own sub-line describes.
  *
  * <h2>Still no ROW count on the tab — the fetch went eager, the reasoning did not (D13's other
  * half, P5)</h2>
@@ -102,7 +90,6 @@ export default function WindowFirstComingUp({
 
   const counts = events?.counts ?? EMPTY_COUNTS;
   const totalEntries = events?.entries?.length ?? 0;
-  const conditions = events?.conditions;
   const chips = useMemo(() => chipCounts(counts), [counts]);
   const activeChipLabel = chips.find((chip) => chip.id === activeFilter)?.label ?? 'active';
   const monthGroups = useMemo(
@@ -234,11 +221,11 @@ export default function WindowFirstComingUp({
           )}
 
           {/* ⚠️ SCOPED TO THE DATED LIST — "No dates", never a bare "Nothing coming up".
-              `totalEntries` counts `events.entries` alone, and the recurring-conditions strip
-              below (gated on `ready`, not on this count) routinely has rows when the chronology
-              has none. A broader sentence here therefore prints a denial directly above live
-              content — which is what the pre-copy-pass wording avoided with the word "dated", and
-              what a Codex review of #748 caught when the copy pass dropped it. */}
+              `totalEntries` counts `events.entries` alone, and the "Next four days" strip below (not
+              gated on `ready`, since it reads `hotTopics`) can still show content when the
+              chronology has none. A broader sentence here therefore prints a denial directly above
+              live content — which is what the pre-copy-pass wording avoided with the word "dated",
+              and what a Codex review of #748 caught when the copy pass dropped it. */}
           {status === 'ready' && totalEntries === 0 && (
             <p className="wf-cu-note" data-testid="coming-up-empty">
               {`No dates coming up in the next ${ALMANAC_DAYS} days beyond the four-day forecast.`}
@@ -304,16 +291,9 @@ export default function WindowFirstComingUp({
           </div>
         )}
 
-        {/* Recurring conditions, in the design of record's own DOM order (its `#chips` → `#conds`
-            sequence, `docs/design/coming-up/Coming Up.html`) — gated on `ready` alongside the
-            chips, since its rows read `events.conditions`, which does not exist before then. */}
-        {status === 'ready' && (
-          <WindowComingUpConditions conditions={conditions} onGoToPlan={onGoToPlan} />
-        )}
-
         {/* The "Next four days" lanes (hot-topics-by-day-plan C1; they replaced the design's dashed
-            `.hoff` handoff row, plan D14) sit after conditions in the design's own order but —
-            unlike chips/conditions — are NOT gated on the almanac fetch: they read `hotTopics`, a
+            `.hoff` handoff row, plan D14) sit after the chips but —
+            unlike the chips — are NOT gated on the almanac fetch: they read `hotTopics`, a
             wholly separate data source. Gating them on `ready` would make the tab's own boundary
             statement vanish during a slow or failed almanac load. Only the jump button needs the
             feed, and `renderedEntryIds` is empty until it arrives, so it simply does not render. */}
@@ -360,13 +340,8 @@ export default function WindowFirstComingUp({
           </div>
         ))}
 
-        {/* Before `ready` there is no served count to state — {@link FOOTER_LEAD} alone is the
-            one sentence true regardless (the general rule, not a claim about how many of what).
-            The full paragraph, naming actual counts, renders only once the feed has answered;
-            without this split the pane claimed "every date here is fixed in advance" beneath
-            "Looking ahead…" and under "Could not load what is coming up." alike. */}
         <p className="wf-cu-foot" data-testid="coming-up-footer">
-          {status === 'ready' ? footerCopy(counts) : FOOTER_LEAD}
+          {FOOTER}
         </p>
       </div>
     </div>
@@ -385,7 +360,6 @@ WindowFirstComingUp.propTypes = {
       forecast: PropTypes.number,
       byFamily: PropTypes.object,
     }),
-    conditions: PropTypes.array,
     bands: PropTypes.shape({
       list: PropTypes.number,
       announce: PropTypes.number,

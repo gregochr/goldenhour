@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { FAMILY_GLYPHS, CHIP_GLYPHS, entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
 import { FILTER_CHIPS } from '../utils/comingUpFeed.js';
-import { CONDITION_FAMILY } from '../utils/comingUpConditions.js';
 
 describe('comingUpGlyphs — entryGlyph', () => {
   it.each([
@@ -71,10 +70,9 @@ describe('comingUpGlyphs — completeness (honestly scoped, not a literal-copy c
   // A copy of FAMILY_GLYPHS' own keys would be circular — it can never fail no matter what family
   // is deleted or misspelled. This derives the family universe from the OTHER live exports that
   // actually name a family client-side, so registering a family anywhere without a glyph fails here.
-  it('covers every family named by a live chip, a live condition mapping, and aurora', () => {
+  it('covers every family named by a live chip and aurora', () => {
     const chipFamilies = FILTER_CHIPS.flatMap((chip) => chip.families ?? []);
-    const conditionFamilies = Object.values(CONDITION_FAMILY);
-    const universe = new Set([...chipFamilies, ...conditionFamilies, 'aurora']);
+    const universe = new Set([...chipFamilies, 'aurora']);
     for (const family of universe) {
       expect(FAMILY_GLYPHS[family], `FAMILY_GLYPHS missing an entry for "${family}"`).toBeTruthy();
     }

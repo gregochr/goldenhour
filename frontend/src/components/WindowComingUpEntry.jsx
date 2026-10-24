@@ -612,8 +612,8 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
   );
 
   return (
-    // `data-entry-id` is the recurring-conditions strip's scroll-to-entry anchor (plan §7 P4):
-    // `see it below →` on a promoted occurrence queries this attribute directly rather than reaching
+    // `data-entry-id` is the scroll-to-entry anchor:
+    // the lanes' jump button queries this attribute directly rather than reaching
     // for a real DOM `id`, so a run of numeric almanac ids can never collide with another element's.
     <div
       className="wf-cu-ent"

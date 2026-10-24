@@ -49,8 +49,8 @@ Door.propTypes = {
 /**
  * The one door at the foot of the Plan pane, and what it opens.
  *
- * <p>Coming-up redesign plan §9 (P6) removed the Hot topics door and its panel — the strip's
- * recurring conditions and the "Coming up" chronology now cover the topics it used to hold
+ * <p>Coming-up redesign plan §9 (P6) removed the Hot topics door and its panel — the
+ * "Coming up" chronology now covers the topics it used to hold
  * (`docs/engineering/coming-up-plan.md` D7). This leaves the Regional planner as the pane's only
  * door; `.wf-doors` is a flex row and `.wf-door` is `flex: 1`, so a single child already goes
  * full-width with no CSS change.
