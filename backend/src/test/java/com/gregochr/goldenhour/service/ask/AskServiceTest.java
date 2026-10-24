@@ -1627,7 +1627,10 @@ class AskServiceTest {
         submit(new AskRequest("Is it any good?", "2026-10-05_aurora", null, "map"));
 
         ArgumentCaptor<AskQuestion> captured = ArgumentCaptor.forClass(AskQuestion.class);
-        verify(engine, times(2)).run(captured.capture(), any(), any(), any());
+        ArgumentCaptor<AskUserContext> contexts = ArgumentCaptor.forClass(AskUserContext.class);
+        verify(engine, times(2)).run(captured.capture(), eq(withNights), contexts.capture(),
+                eq(AskRunOptions.none()));
+        assertThat(contexts.getAllValues()).extracting(AskUserContext::role).containsOnly(UserRole.PRO_USER);
         assertThat(captured.getAllValues()).extracting(AskQuestion::windowId)
                 .containsExactly("2026-10-05_astro", "2026-10-05_aurora");
     }

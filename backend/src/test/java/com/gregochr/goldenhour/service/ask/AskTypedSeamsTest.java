@@ -17,6 +17,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.security.authentication.TestingAuthenticationToken;
@@ -38,6 +39,7 @@ import static com.gregochr.goldenhour.service.ask.ReadyFixtures.northumberland;
 import static com.gregochr.goldenhour.service.ask.ReadyFixtures.oct;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -225,7 +227,13 @@ class AskTypedSeamsTest {
         assertThat(liteRefusedDirectly("Which spot has the best light on the water at dusk?"))
                 .isEqualTo(AskErrorCode.NOT_ENTITLED);
 
-        verify(engine, times(1)).run(any(), any(), any(), any());
+        ArgumentCaptor<AskQuestion> question = ArgumentCaptor.forClass(AskQuestion.class);
+        ArgumentCaptor<AskUserContext> context = ArgumentCaptor.forClass(AskUserContext.class);
+        verify(engine, times(1)).run(question.capture(), eq(world.snapshot()), context.capture(),
+                eq(AskRunOptions.none()));
+        assertThat(question.getValue().normalised()).isEqualTo("which spot has best light on water at dusk");
+        assertThat(context.getValue().userId()).isEqualTo(ALICE);
+        assertThat(context.getValue().role()).isEqualTo(UserRole.PRO_USER);
         assertThat(logged).hasSize(loggedBefore);
         assertThat(usage(CAROL)).isEqualTo(AskUsageStore.Usage.NONE);
     }
