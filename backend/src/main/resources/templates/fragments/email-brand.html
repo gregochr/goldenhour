@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>PhotoCast email brand fragments</title>
+</head>
+<body>
+<!--/* Shared Kodachrome Field Guide chrome for every transactional email. Inline styles only. */-->
+
+<!--/* Extra head content: colour-scheme hints and web fonts (Apple Mail honours them; others fall back). */-->
+<th:block th:fragment="brandHead">
+    <meta name="color-scheme" content="dark"/>
+    <meta name="supported-color-schemes" content="dark"/>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&amp;family=IBM+Plex+Sans:wght@400;600&amp;family=Newsreader:wght@600&amp;display=swap"/>
+</th:block>
+
+<!--/* Header lockup, always flush left: perforated film spine, serif wordmark, coral kicker. */-->
+<tr th:fragment="brandHeader">
+    <td style="padding:28px 32px;text-align:left;border-bottom:1px solid #3A2C23;">
+        <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+            <tr>
+                <td width="11" valign="top" style="width:11px;border-right:1px solid #3A2C23;font-size:0;line-height:0;mso-line-height-rule:exactly;">
+                    <div style="height:7px;line-height:0;font-size:0;mso-line-height-rule:exactly;background-color:#4A3A2E;">&nbsp;</div><div style="height:8px;line-height:0;font-size:0;mso-line-height-rule:exactly;">&nbsp;</div><div style="height:7px;line-height:0;font-size:0;mso-line-height-rule:exactly;background-color:#4A3A2E;">&nbsp;</div><div style="height:8px;line-height:0;font-size:0;mso-line-height-rule:exactly;">&nbsp;</div><div style="height:7px;line-height:0;font-size:0;mso-line-height-rule:exactly;background-color:#4A3A2E;">&nbsp;</div><div style="height:8px;line-height:0;font-size:0;mso-line-height-rule:exactly;">&nbsp;</div>
+                </td>
+                <td width="14" style="width:14px;font-size:0;line-height:0;">&nbsp;</td>
+                <td valign="middle" style="text-align:left;">
+                    <h1 style="margin:0;color:#F2E7D3;font-family:'Newsreader',Georgia,'Times New Roman',serif;font-size:28px;font-weight:600;letter-spacing:-0.6px;line-height:1;">PhotoCast</h1>
+                    <p style="margin:6px 0 0;color:#E8593F;font-family:'IBM Plex Mono','Courier New',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;line-height:1.2;">Field guide to light</p>
+                </td>
+            </tr>
+        </table>
+    </td>
+</tr>
+
+<!--/* Footer, left-aligned. */-->
+<tr th:fragment="brandFooter">
+    <td style="padding:16px 32px;border-top:1px solid #3A2C23;text-align:left;">
+        <p style="margin:0;color:#ABA192;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;">PhotoCast &mdash; Golden hour, forecast and ranked by AI</p>
+    </td>
+</tr>
+</body>
+</html>
