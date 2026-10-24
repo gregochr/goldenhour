@@ -13,7 +13,7 @@
 #   --host HOST   ssh target (default: $LANDING_HOST, else gregochr@100.76.73.16)
 #   --yes         skip the go-ahead question
 #   --dry-run     preflight and show the diff, then stop before the question
-#   --force       deploy even when the host's landing/ already matches REF
+#   --force       rebuild even when the host's files and deployed marker already match REF
 #   --rollback    with no TAG: list the host's rollback images (newest first).
 #                 with TAG: put that image back and re-run the smoke test.
 #
@@ -193,7 +193,7 @@ if [[ $ROLLBACK -eq 1 ]]; then
 tag="$1"
 docker tag "photocast-landing:$tag" landing-landing:latest
 cd ~/goldenhour/landing
-docker compose up -d --no-build </dev/null
+docker compose up -d --no-build --force-recreate </dev/null
 echo "Smoke test:"
 smoke "" / /photocast.css
 REMOTE
@@ -244,11 +244,15 @@ else
     echo "  previously deployed: unknown (no ~/.photocast-landing-deployed marker yet)"
 fi
 if [[ -z "$DIFFSTAT" ]]; then
-    if [[ $FORCE -eq 0 ]]; then
-        echo "  host landing/ already matches $SHORT: nothing to deploy (--force to rebuild anyway)."
+    if [[ "$PREV" == "$SHA" && $FORCE -eq 0 ]]; then
+        echo "  host files match and the marker says $SHORT is deployed: nothing to deploy (--force to rebuild anyway)."
         exit 0
+    elif [[ "$PREV" == "$SHA" ]]; then
+        echo "  host landing/ already matches; --force given."
+    else
+        MARKER="${PREV:0:8}"
+        echo "  host files already match but the marker says ${MARKER:-unknown} is deployed; rebuilding."
     fi
-    echo "  host landing/ already matches; --force given."
 else
     echo "  host working tree vs $SHORT:"
     printf '%s\n' "$DIFFSTAT" | sed 's/^/    /'
@@ -288,7 +292,7 @@ git fetch -q origin "$ref"
 git checkout FETCH_HEAD -- landing/
 cd landing
 docker compose build --no-cache </dev/null
-docker compose up -d </dev/null
+docker compose up -d --force-recreate </dev/null
 echo "Smoke test:"
 if ! smoke "$css" "$@"; then
     echo "SMOKE_FAILED"

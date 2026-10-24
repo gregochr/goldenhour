@@ -63,7 +63,7 @@ docker tag "$(docker inspect -f '{{.Image}}' photocast-landing)" photocast-landi
 git fetch origin main                  # or a branch, to deploy before merge
 git checkout FETCH_HEAD -- landing/    # ONLY landing/; HEAD does not move
 
-cd landing && docker compose build --no-cache && docker compose up -d
+cd landing && docker compose build --no-cache && docker compose up -d --force-recreate
 
 for p in / faq.html privacy.html terms.html acknowledgements.html photocast.css; do
   printf "%-24s %s\n" "$p" "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8085/$p)"
@@ -71,7 +71,7 @@ done
 ```
 
 All 200; `photocast.css` returning 404 means the `COPY` line is missing again. To roll back, retag
-the saved image as `landing-landing:latest` and `docker compose up -d --no-build`.
+the saved image as `landing-landing:latest` and `docker compose up -d --no-build --force-recreate`.
 
 The container listens on **8085**; Cloudflare Tunnel maps `photocast.online` to it. The tunnel's
 routing config lives on the host (`~/.cloudflared/`), not in this repo.
