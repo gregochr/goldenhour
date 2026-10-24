@@ -19,5 +19,17 @@ COPY screenshot.png /usr/share/nginx/html/
 COPY screenshot-map.png /usr/share/nginx/html/
 COPY screenshot-popup.png /usr/share/nginx/html/
 COPY nginx.conf /etc/nginx/nginx.conf
+# Cloudflare and browsers cache css/js/images for 30 days under fixed URLs (nginx.conf), so a
+# changed file would never be re-fetched. Give every asset a content-fingerprinted URL: rewrite each
+# exact quoted reference "file" in the pages to "file?v=<10 hex of md5>". The source HTML keeps plain
+# URLs, so local previews are unaffected; the plain paths are still served, bytes unchanged.
+RUN cd /usr/share/nginx/html && \
+    for f in *.css *.js *.webp *.png; do \
+        [ -f "$f" ] || continue; \
+        h=$(md5sum "$f" | cut -c1-10); \
+        e=$(printf '%s' "$f" | sed 's/[.]/\\./g'); \
+        sed -i "s|\"$e\"|\"$f?v=$h\"|g" *.html; \
+    done
+
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

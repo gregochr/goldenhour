@@ -87,6 +87,14 @@ in the container, and only the container is short a file. This has already bitte
 
 Add the `COPY` line in the same commit as the file.
 
+**Asset URLs are fingerprinted at image build.** nginx and Cloudflare cache css/js/images for 30
+days under fixed URLs, so a changed file would be masked. A `RUN` step in `Dockerfile` hashes each
+`*.css *.js *.webp *.png` and rewrites its exact quoted reference in the pages to `"file?v=<hash>"`.
+The source HTML keeps plain URLs (local previews are unchanged), and plain paths are still served.
+
+The live `photocast.css` still needs a one-off Cloudflare purge to clear the copy cached under the
+old plain URL. That only matters for the plain URL: once fingerprinted URLs ship, nothing requests it.
+
 ## A note on the skin
 
 `photocast.css` is deliberately written as one-line rules; do not reformat or minify it.
