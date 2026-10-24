@@ -4,53 +4,47 @@
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Welcome to PhotoCast</title>
+    <th:block th:replace="~{fragments/email-brand :: brandHead}"></th:block>
 </head>
-<body style="margin:0;padding:0;background-color:#181A1E;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#181A1E;padding:32px 16px;">
+<body style="margin:0;padding:0;background-color:#181210;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#181210;padding:32px 16px;">
     <tr>
         <td align="center">
-            <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color:#252830;border:1px solid #3A3D45;border-radius:12px;overflow:hidden;">
+            <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color:#221A15;border:1px solid #3A2C23;border-radius:12px;overflow:hidden;">
                 <!-- Header -->
-                <tr>
-                    <td style="padding:28px 32px;text-align:center;border-bottom:1px solid #3A3D45;">
-                        <h1 style="margin:0;color:#E5A00D;font-size:24px;font-weight:700;letter-spacing:0.5px;">PhotoCast</h1>
-                        <p style="margin:6px 0 0;color:#A0A0A0;font-size:14px;">Your account is ready</p>
-                    </td>
-                </tr>
+                <tr th:replace="~{fragments/email-brand :: brandHeader}"></tr>
                 <!-- Body -->
                 <tr>
-                    <td style="padding:32px;">
-                        <p style="margin:0 0 16px;color:#EBEBEB;font-size:15px;line-height:1.6;">
-                            Hi <strong th:text="${username}" style="color:#EBEBEB;">user</strong>,
+                    <td style="padding:32px;text-align:left;">
+                        <h2 style="margin:0 0 20px;color:#F2E7D3;font-family:'Newsreader',Georgia,'Times New Roman',serif;font-size:22px;font-weight:600;line-height:1.2;">Your account is ready</h2>
+                        <p style="margin:0 0 16px;color:#F2E7D3;font-size:15px;line-height:1.6;">
+                            Hi <strong th:text="${username}" style="color:#F2E7D3;">user</strong>,
                         </p>
-                        <p style="margin:0 0 24px;color:#A0A0A0;font-size:15px;line-height:1.6;">
+                        <p style="margin:0 0 24px;color:#ABA192;font-size:15px;line-height:1.6;">
                             Your PhotoCast account has been created. Use the credentials below to sign in for the first time.
                         </p>
                         <!-- Credentials box -->
-                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#2F323A;border:1px solid #3A3D45;border-radius:8px;margin-bottom:24px;">
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#181210;border:1px solid #3A2C23;border-radius:8px;margin-bottom:24px;">
                             <tr>
                                 <td style="padding:20px 24px;">
-                                    <p style="margin:0 0 8px;color:#6B6B6B;font-size:12px;text-transform:uppercase;letter-spacing:1px;">Username</p>
-                                    <p th:text="${username}" style="margin:0 0 16px;color:#EBEBEB;font-size:16px;font-weight:600;">user</p>
-                                    <p style="margin:0 0 8px;color:#6B6B6B;font-size:12px;text-transform:uppercase;letter-spacing:1px;">Temporary Password</p>
-                                    <p th:text="${temporaryPassword}" style="margin:0;color:#E5A00D;font-size:18px;font-weight:700;font-family:'Courier New',Courier,monospace;letter-spacing:1px;">password</p>
+                                    <p style="margin:0 0 8px;color:#ABA192;font-family:'IBM Plex Mono','Courier New',monospace;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;">Username</p>
+                                    <p th:text="${username}" style="margin:0 0 16px;color:#F2E7D3;font-size:16px;font-weight:600;">user</p>
+                                    <p style="margin:0 0 8px;color:#ABA192;font-family:'IBM Plex Mono','Courier New',monospace;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;">Temporary Password</p>
+                                    <p th:text="${temporaryPassword}" style="margin:0;color:#F2E7D3;font-size:18px;font-weight:700;font-family:'IBM Plex Mono','Courier New',monospace;letter-spacing:1px;">password</p>
                                 </td>
                             </tr>
                         </table>
-                        <p style="margin:0 0 8px;color:#A0A0A0;font-size:15px;line-height:1.6;">
+                        <p style="margin:0 0 8px;color:#ABA192;font-size:15px;line-height:1.6;">
                             You will be asked to choose a new password when you first sign in.
                         </p>
-                        <p style="margin:0;color:#6B6B6B;font-size:13px;line-height:1.5;">
+                        <p style="margin:0;color:#ABA192;font-size:13px;line-height:1.5;">
                             If you did not expect this email, you can safely ignore it.
                         </p>
+
                     </td>
                 </tr>
                 <!-- Footer -->
-                <tr>
-                    <td style="padding:16px 32px;border-top:1px solid #3A3D45;text-align:center;">
-                        <p style="margin:0;color:#6B6B6B;font-size:12px;">PhotoCast &mdash; AI Forecasts for Fiery Skies &amp; Golden Light</p>
-                    </td>
-                </tr>
+                <tr th:replace="~{fragments/email-brand :: brandFooter}"></tr>
             </table>
         </td>
     </tr>
