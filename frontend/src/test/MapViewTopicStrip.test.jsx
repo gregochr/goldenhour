@@ -413,10 +413,11 @@ describe('MapView: a door that names a topic (T3)', () => {
 
   it('a door to a window with no row is spent, not left waiting: nothing is selected', async () => {
     await renderMap({ planHandoff: door({ eventType: 'SUNRISE', topicType: 'DUST' }) });
-    expect(document.querySelectorAll('[data-testid^="wf-topic-chip-"][aria-pressed="true"]')).toHaveLength(0);
+    expect(screen.queryByTestId('wf-topic-chip-DUST')).toBeNull();
     // Reaching the door's topic by hand afterwards is the reader's own press, not the door firing late.
     await press('wf-topic-bar-DUST-1');
-    expect(document.querySelectorAll('[data-testid^="wf-topic-chip-"][aria-pressed="true"]')).toHaveLength(1);
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('wf-topic-bar-DUST-1')).toHaveAttribute('data-selected', 'true');
   });
 
   it('a door the map did not land on is spent: navigating to its window by hand selects nothing', async () => {
@@ -435,29 +436,47 @@ describe('MapView: a door that names a topic (T3)', () => {
     await act(async () => {
       rerender(<Pane hotTopics={HOT_TOPICS} planHandoff={mismatched} externalDate={SAT} />);
     });
-    expect(document.querySelectorAll('[data-testid^="wf-topic-chip-"][aria-pressed="true"]')).toHaveLength(0);
+    expect(chip('KING_TIDE')).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('a reader\'s window change before the door applies cancels it', async () => {
-    const { rerender } = await renderMap({ planHandoff: door({ topicType: 'INVERSION' }) });
-    await press('wf-topic-bar-KING_TIDE-4');
-    await press('wf-topic-bar-DUST-1');
+  it('a reader\'s window step (the pill\'s stepper) before the door applies cancels it', async () => {
+    const waiting = door({ topicType: 'INVERSION' });
+    const { rerender } = await renderMap({ hotTopics: undefined, planHandoff: waiting });
+    await press('wf-win-next');
+    await press('wf-win-prev');
     await act(async () => {
-      rerender(<Pane hotTopics={[...HOT_TOPICS, INVERSION]} planHandoff={door({ topicType: 'INVERSION' })} />);
+      rerender(<Pane hotTopics={[...HOT_TOPICS, INVERSION]} planHandoff={waiting} />);
     });
     expect(chip('INVERSION')).toHaveAttribute('aria-pressed', 'false');
-    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('a reader\'s own topic pick cancels a waiting door: a late chip does not override it', async () => {
-    const { rerender } = await renderMap({ planHandoff: door({ topicType: 'INVERSION' }) });
+  it('Escape, pressed while the door waits for its data, cancels it', async () => {
+    const waiting = door({ topicType: 'INVERSION' });
+    const { rerender } = await renderMap({ hotTopics: undefined, planHandoff: waiting });
+    await act(async () => { fireEvent.keyDown(screen.getByTestId('wf-map-pane'), { key: 'Escape' }); });
+    await act(async () => {
+      rerender(<Pane hotTopics={[...HOT_TOPICS, INVERSION]} planHandoff={waiting} />);
+    });
+    expect(chip('INVERSION')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('a door waits for data that has not been served, then applies when it arrives', async () => {
+    const waiting = door({ topicType: 'INVERSION' });
+    const { rerender } = await renderMap({ hotTopics: undefined, planHandoff: waiting });
+    await act(async () => {
+      rerender(<Pane hotTopics={[...HOT_TOPICS, INVERSION]} planHandoff={waiting} />);
+    });
+    expect(chip('INVERSION')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('a landed door with its data loaded decides once: an absent chip is spent, a later poll adding it is ignored', async () => {
+    const decided = door({ topicType: 'INVERSION' });
+    const { rerender } = await renderMap({ planHandoff: decided });
     expect(screen.queryByTestId('wf-topic-chip-INVERSION')).toBeNull();
-    await press('wf-topic-chip-DUST');
     await act(async () => {
-      rerender(<Pane hotTopics={[...HOT_TOPICS, INVERSION]} planHandoff={door({ topicType: 'INVERSION' })} />);
+      rerender(<Pane hotTopics={[...HOT_TOPICS, INVERSION]} planHandoff={decided} />);
     });
     expect(chip('INVERSION')).toHaveAttribute('aria-pressed', 'false');
-    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('selects again for a new nonce (a repeat arrival)', async () => {

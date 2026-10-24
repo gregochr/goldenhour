@@ -1934,6 +1934,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // hears the key, so this clears the topic ITSELF - exactly one level - and the NEXT press
         // dismisses the card as it always did. Deferring unconditionally left Escape doing nothing.
         if (!mapPaneRef.current?.contains(e.target)) {
+          spendTopicDoor();
           setSelectedTopic(null);
           setTopicAnnounce('Topic selection cleared.');
         }
@@ -4388,13 +4389,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // window with that topic's chip selected. The door gets ONE chance, keyed on the handoff nonce; the nonce is
   // spent (`appliedTopicNonce`) by whichever comes first:
   //   (a) the selection is applied (through `pickTopicFromStrip`, only when the landed window carries the type);
-  //   (b) the reader changes the window (`selectEvRow` - the pill, the steppers, the strip's moves -
-  //       `followWindowRow`, the aurora jump);
-  //   (c) the reader makes any topic choice (`toggleTopic`, `pickTopicFromStrip`, Escape clearing it);
+  //   (b) the reader changes the window (`selectEvRow` - the pill, the steppers, the strip's moves - or
+  //       `followWindowRow`; the aurora auto-jump does not spend, (d) covers wherever it lands);
+  //   (c) the reader makes any topic choice (`toggleTopic`, `pickTopicFromStrip`, either Escape path clearing it);
   //   (d) the effect evaluates once the door's event is the map's event and rows exist, and the active window is
-  //       NOT the door's date and event (the map landed elsewhere, or the door's row is absent): spent, no selection.
-  // Until one of those, the door only WAITS - for rows not yet loaded, or for the landed window's chips to carry
-  // the type. A re-render of the same nonce never re-selects, so a reader's deselect stays.
+  //       NOT the door's date and event (the map landed elsewhere, or the door's row is absent): spent, no selection;
+  //   (e) the door's window has landed and the topic data is loaded: DECIDED at once - applied if the chip is
+  //       there, otherwise spent with no selection, so a later poll or scope change that adds the chip is ignored.
+  // The door WAITS only for data that is not there yet: rows not loaded, or `hotTopics` not served (a null or
+  // absent list). A re-render of the same nonce never re-selects, so a reader's deselect stays.
   useEffect(() => {
     const type = planHandoff?.source === 'plan' ? planHandoff.topicType : null;
     if (!type || appliedTopicNonce.current === planHandoff.nonce) return;
@@ -4407,12 +4410,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       if (activeMapEvent != null || mapEvents.length > 0) appliedTopicNonce.current = planHandoff.nonce;
       return;
     }
-    if (!topicChips.some((chip) => chip.type === type)) return;
+    // The topic data has not been served yet (an absent list reads as the shared empty default): wait for it.
+    if (!Array.isArray(hotTopics) || hotTopics === NO_HOT_TOPICS || topicRoster.length === 0) return;
     appliedTopicNonce.current = planHandoff.nonce;
-    pickTopicFromStrip(type, null);
+    if (topicChips.some((chip) => chip.type === type)) pickTopicFromStrip(type, null);
     // `pickTopicFromStrip` is re-made each render; the nonce, the landed row and the chips are the triggers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planHandoff?.nonce, activeMapEvent, topicChips, eventType]);
+  }, [planHandoff?.nonce, activeMapEvent, topicChips, eventType, hotTopics, topicRoster]);
   const hwRingsOn = heatOffered && (heatOn || heatPinsOn);
   useEffect(() => {
     if (!onHighWaterRow) {
@@ -6141,8 +6145,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       return;
     }
     // A selected hot topic is the LAST layer to go, after the callout: one press, one level.
+    // Reaching this layer is the reader's own dismissal: a door still waiting for its data is spent by it.
+    spendTopicDoor();
     if (selectedTopic != null) {
-      spendTopicDoor();
       setSelectedTopic(null);
       setTopicAnnounce('Topic selection cleared.');
     }
