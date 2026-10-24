@@ -3,7 +3,7 @@
 **Written 2026-10-17 UTC, after in-app account deletion existed, from the code on `main` at `979d8275` (login/registration
 series R5b) plus R7.** It describes what the *server and the web client in this repository* do. No native app code is in this
 repository: the iOS app, when it exists, calls the same API, so this is the inventory its App Store privacy questionnaire is
-answered from. It is also the source for `landing/privacy.html` (which is redeployed by hand — `landing/README.md`).
+answered from. It is also the source for `landing/privacy.html` (which is redeployed with `./release-landing.sh` — `landing/README.md`).
 
 **How to use it.** Every row names the table and column, or the class, that does the thing, so a reviewer can check a claim by
 opening the file. Where a fact is *not* provable from this repository it says **not verified** — nothing here is a promise the
@@ -212,4 +212,4 @@ Administrator deletion (`DELETE /api/users/{id}`) does the same purge and the sa
 7. **A recommended code follow-up (not made here, R7 writes documents):** make `PostcodesIoClient` log the exception class,
    not its message, so a failed lookup can never put a postcode or the device's coordinates in the log; consider an nginx log
    format without the query string so one-time tokens stay out of the access log; consider rotating `pre-release/`.
-8. **`landing/privacy.html` is not live until it is redeployed by hand** (`landing/README.md`).
+8. **`landing/privacy.html` is not live until it is redeployed** (`./release-landing.sh`, see `landing/README.md`).

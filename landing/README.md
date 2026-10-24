@@ -22,9 +22,22 @@ looks at this directory. So cutting a version tag does not publish a landing cha
 and publishing a landing change does not need a version tag. The two are independent.
 
 There is no CI for it either. The container is built **on the production host** from the
-files in this directory, which means the release is a manual step.
+files in this directory, and the release is a command you run from your laptop:
 
-⚠️ **Do not run a full `git pull` on the host, and be careful with `~/goldenhour/deploy-landing.sh`,
+```bash
+./release-landing.sh                  # deploy origin/main
+./release-landing.sh --ref my-branch  # deploy an unmerged branch (it warns you)
+./release-landing.sh --dry-run        # preflight + show the diff, change nothing
+./release-landing.sh --rollback       # list the host's rollback images; --rollback TAG restores one
+```
+
+It checks that every asset the pages reference has a `COPY` line, shows what will change on the
+host, asks one question, tags the running image for rollback, rebuilds, smoke-tests every page and
+asset (and the served stylesheet's hash) on the host, then checks `https://photocast.online`. A
+failed smoke test prints the rollback command and does not roll back by itself. Rollback restores
+the image, not the host's `landing/` files.
+
+⚠️ **Do not run a full `git pull` on the host, and delete `~/goldenhour/deploy-landing.sh`,
 which does.** Verified on the host 2026-09-05: `~/goldenhour` sits on `main` roughly **1,235
 commits behind** `origin/main`, and carries four *hand-edited, uncommitted* production config
 files — `docker-compose.yml`, `nginx.conf`, `backend/src/main/resources/application-prod.yml`
@@ -32,9 +45,13 @@ and `scripts/backup-postgres.sh`. A `git pull origin main` would try to merge 1,
 across exactly those paths, and `deploy-landing.sh` runs under `set -e`, so a conflict aborts
 it part-way. Production config is the last thing that should be in a half-finished merge. This
 is the same staleness `.github/workflows/deploy.yml` works around by reading files out of the
-tag (`git show "$TAG":nginx.conf`) rather than trusting the checkout.
+tag (`git show "$TAG":nginx.conf`) rather than trusting the checkout. (The script is named
+`release-landing.sh` so it cannot collide with that host file.)
 
-Check out **only this directory**, which needs no merge and cannot touch those files:
+### Fallback: by hand
+
+`release-landing.sh` does exactly this and never anything more. Check out **only this directory**,
+which needs no merge and cannot touch those files:
 
 ```bash
 ssh gregochr@100.76.73.16
@@ -46,22 +63,15 @@ docker tag "$(docker inspect -f '{{.Image}}' photocast-landing)" photocast-landi
 git fetch origin main                  # or a branch, to deploy before merge
 git checkout FETCH_HEAD -- landing/    # ONLY landing/; HEAD does not move
 
-cd landing
-docker compose build --no-cache
-docker compose up -d
-```
+cd landing && docker compose build --no-cache && docker compose up -d --force-recreate
 
-Then confirm — the stylesheet is the thing worth checking, for the reason in the next section:
-
-```bash
 for p in / faq.html privacy.html terms.html acknowledgements.html photocast.css; do
   printf "%-24s %s\n" "$p" "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8085/$p)"
 done
 ```
 
-All 200. `photocast.css` returning 404 means the `COPY` line is missing again.
-
-To roll back, retag that saved image as `landing-landing:latest` and `docker compose up -d`.
+All 200; `photocast.css` returning 404 means the `COPY` line is missing again. To roll back, retag
+the saved image as `landing-landing:latest` and `docker compose up -d --no-build --force-recreate`.
 
 The container listens on **8085**; Cloudflare Tunnel maps `photocast.online` to it. The tunnel's
 routing config lives on the host (`~/.cloudflared/`), not in this repo.
