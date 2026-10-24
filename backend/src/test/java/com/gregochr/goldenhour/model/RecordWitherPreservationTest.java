@@ -216,7 +216,8 @@ class RecordWitherPreservationTest {
      * is built and compared here.
      */
     @Test
-    @DisplayName("tripwire: BriefingWindow has no withers; the canonical constructor carries every component")
+    @DisplayName("tripwire: BriefingWindow's withers are exactly withTide/withTideFacts; the canonical "
+            + "constructor carries every component")
     void briefingWindow_canonicalConstructorCarriesEveryComponent() throws Exception {
         // The role shaper's withers (tide Pro gate B1) are registered in WITHERS and preservation-
         // checked by the table tests; any other wither must join them.

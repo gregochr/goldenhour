@@ -64,11 +64,11 @@ import java.util.List;
  *                       value-comparability requirement
  * @param windowPosition where the solar event falls through the local day, 0.0 at midnight to 1.0 at
  *                       the next; null on the Lite wire, where the curve is a Pro fact
- * @param windowLevel    (null on the Lite wire) the normalised water level at that instant, on the same 0–1 scale as
+ * @param windowLevel    the normalised water level at that instant, on the same 0–1 scale as
  *                       {@link #curve} so the mark sits on the line by construction. Clamped: the
  *                       curve is normalised over its own samples, and the event rarely falls on
  *                       one, so a peak between two samples could otherwise place the mark a
- *                       fraction outside the range this contract promises
+ *                       fraction outside the range this contract promises; null on the Lite wire
  * @param sunrisePosition where the representative's own sunrise falls through the local day, on
  *                       the same 0–1 axis as {@link #windowPosition} — computed independently of
  *                       which event this window itself is, so a sunset window still states where

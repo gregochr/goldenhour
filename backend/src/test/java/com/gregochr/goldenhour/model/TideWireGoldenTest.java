@@ -12,10 +12,16 @@ import tools.jackson.databind.json.JsonMapper;
  * Golden wire shapes of the window tide block and the per-location tide fact, through the Jackson 3
  * ({@code tools.jackson}) mapper the HTTP response chain uses.
  *
- * <p>The PRO and ADMIN strings below are the pre-gate shapes, byte for byte: widening
- * {@code tideAligned} to {@code Boolean} and {@code windowPosition}/{@code windowLevel} to
- * {@code Double} must change nothing for a reader who is served them (tide-pro-gate-plan.md §7.1
- * #3). The LITE strings pin what the strip leaves on the wire.
+ * <p>The PRO and ADMIN strings pin the shape a Pro reader is served: field names, declaration order,
+ * and that a false {@code tideAligned} is still written. They were written from the pre-gate field
+ * order and have not been run against the old primitive-typed records, so they pin the shape rather
+ * than prove a before/after byte comparison; the widening to {@code Boolean}/{@code Double} cannot
+ * change how a non-null value is written. The LITE strings pin what the strip leaves on the wire.
+ *
+ * <p>A bare {@code JsonMapper} is used rather than Spring's configured wire mapper: these records
+ * hold only strings, numbers, booleans, an enum and lists, and their inclusion rules are per-field
+ * {@code @JsonInclude} annotations, none of which depend on mapper configuration. (The controller
+ * tests in {@code BriefingControllerTest} exercise the real configured chain.)
  */
 class TideWireGoldenTest {
 

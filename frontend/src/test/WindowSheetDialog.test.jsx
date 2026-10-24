@@ -7,6 +7,8 @@ import {
 } from '@testing-library/react';
 import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
 import { buildTopicIndex } from '../utils/windowFirstTopics.js';
+import { buildWindowCards } from '../utils/windowFirstCards.js';
+import { factsOf } from './tideFactsFixture.js';
 import { drawGeo } from '../utils/heatField.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { buildEclipseIndex } from '../utils/locationSheet.js';
@@ -1143,6 +1145,51 @@ describe('WindowSheetDialog — the rows below', () => {
     const facts = within(screen.getByTestId('window-attribute-row'))
       .getAllByTestId('window-attribute-fact');
     expect(facts).toHaveLength(1);
+  });
+
+  // tide-pro-gate-plan.md §7.2: the tide fit as the REAL pipeline derives it from a pool, for a
+  // PRO-shaped pool (tideAligned served) and a LITE-shaped one (tideState only), then drawn.
+  describe('the coastal-pool fact over a pool run through buildWindowCards', () => {
+    const coastal = (id, extra) => ({
+      locationId: id,
+      locationName: `Spot ${id}`,
+      claudeRating: 3,
+      canopy: false,
+      tideState: 'HIGH',
+      tideAlignmentQuality: null,
+      ...extra,
+    });
+
+    function tideFitOf(slots) {
+      const days = [{
+        date: TODAY,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{ regionName: 'Coast', slots }],
+          unregioned: [],
+          window: { verdict: 'WORTH_IT', badges: [], tideFacts: factsOf(slots) },
+        }],
+      }];
+      const [built] = buildWindowCards(
+        [{ date: TODAY, targetType: 'SUNSET' }], days, TODAY, '2026-08-21', new Set(),
+      );
+      return built.tideFit;
+    }
+
+    it('LITE shape: no coastal spot counted, not live, and the dialog prints no "of N coastal" text', () => {
+      const tideFit = tideFitOf([1, 2, 3, 4, 5].map((id) => coastal(id)));
+      expect(tideFit.coastal).toBe(0);
+      expect(tideFit.live).toBe(false);
+      renderDialog({ card: card({ rows: [TIDE_ROW], tideFit }) });
+      expect(screen.getByTestId('window-attribute-row')).not.toHaveTextContent(/of \d+ coastal/);
+    });
+
+    it('PRO twin: the same pool with the match served prints "3 of 5 coastal locations on tide"', () => {
+      const tideFit = tideFitOf([1, 2, 3, 4, 5].map((id) => coastal(id, { tideAligned: id <= 3 })));
+      expect(tideFit).toMatchObject({ coastal: 5, matched: 3 });
+      renderDialog({ card: card({ rows: [TIDE_ROW], tideFit, reachMeasured: false }) });
+      expect(screen.getByTestId('window-attribute-row')).toHaveTextContent('3 of 5 coastal locations on tide');
+    });
   });
 
   it('joins topics through the shared util, including the NIGHT bucketing', () => {
