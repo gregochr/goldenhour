@@ -203,4 +203,16 @@ describe('the "In next 4 days" tag stylesheet (coming-up-glance-plan T2)', () =>
     expect(phoneBlock).toContain('.wf-cu-nm { flex: 1 1 calc(100% - 28px); min-width: 0; }');
     expect(css.replace(phoneBlock, '')).not.toContain('flex: 1 1 calc(100% - 28px)');
   });
+
+  it('keeps the tag-row wrapper layout-neutral outside the phone and indented only inside it', () => {
+    const start = css.indexOf('\n.wf-cu-next4 {');
+    const phoneBlock = mediaBlock('(max-width: 639px)', start);
+    expect(ruleBody('.wf-cu-tags')).toContain('display: contents;');
+    expect(phoneBlock).toContain('.wf-cu-tags {');
+    expect(phoneBlock).toContain('flex: 1 1 100%;');
+    expect(phoneBlock).toContain('.wf-cu-tags-g { padding-left: 21.5px; }');
+    const outside = css.replace(phoneBlock, '');
+    expect(outside).not.toContain('.wf-cu-tags-g');
+    expect(outside).not.toContain('flex: 1 1 100%;\n    flex-wrap');
+  });
 });

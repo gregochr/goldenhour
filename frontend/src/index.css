@@ -10916,6 +10916,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   border-radius: 4px;
   padding: 1px 5px;
 }
+/* Layout-neutral outside the phone query: the tags stay direct flex items of the title row. */
+.wf-cu-tags { display: contents; }
 .wf-cu-next4 {
   font-family: var(--font-mono);
   font-size: 8.5px;
@@ -10933,6 +10935,17 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    two-line title never overlaps the tags, which wrap in a row underneath. */
 @media (max-width: 639px) {
   .wf-cu-nm { flex: 1 1 calc(100% - 28px); min-width: 0; }
+  /* The tags sit in one wrapping row under the title, indented by the glyph (12.5px, 14px on a feature
+     card) plus the title row's 9px gap, so they line up under the title text. */
+  .wf-cu-tags {
+    display: flex;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 9px;
+  }
+  .wf-cu-tags-g { padding-left: 21.5px; }
+  .wf-cu-card-feat .wf-cu-tags-g { padding-left: 23px; }
 }
 .wf-cu-superlative {
   font-family: var(--font-mono);

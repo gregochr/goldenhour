@@ -863,8 +863,18 @@ describe('buildEntryView — inNext4Days (coming-up-glance-plan §2.3)', () => {
   });
 
   it('reads a merged entry\'s union dates, not the first part\'s', () => {
-    expect(tagged({ startDate: '2026-08-11', endDate: '2026-08-20', coincidence: [{ type: 'spring-tide' }] }))
-      .toBe(true);
+    // The first part (a 13-14 Aug run) starts on day 5, outside the window; the union starts on day 3.
+    const merged = {
+      startDate: '2026-08-11',
+      endDate: '2026-08-20',
+      dayRanges: [{ start: '2026-08-13', end: '2026-08-14' }, { start: '2026-08-18', end: '2026-08-20' }],
+      coincidence: [{ type: 'spring-tide' }],
+    };
+    expect(tagged(merged)).toBe(true);
+  });
+
+  it('yields false when both dates are missing', () => {
+    expect(tagged({ startDate: null, endDate: null })).toBe(false);
   });
 
   it('DEFENSIVE: tags an entry ending today (the server never serves one ending inside the window)', () => {

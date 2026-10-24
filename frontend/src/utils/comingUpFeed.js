@@ -66,7 +66,8 @@ function weekday(dateStr) {
 /**
  * Whether an entry's own span (the union span of a merged card) overlaps the four-day plan window
  * (coming-up-glance-plan §2.3). The `endDate >= todayStr` half is DEFENSIVE: the server never serves
- * an entry that ends inside the window. Missing dates yield false.
+ * an entry that ends inside the window. Reachable guard: when BOTH dates are missing (`buildDateRail`
+ * tolerates that), or before a usable `todayStr` exists, the answer is false.
  */
 function overlapsNext4Days(entry, todayStr) {
   if (!entry.startDate || !entry.endDate || !todayStr) return false;

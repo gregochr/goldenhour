@@ -1090,6 +1090,8 @@ describe('WindowComingUpEntry — the "In next 4 days" tag', () => {
     renderEntry({ inNext4Days: true });
     expect(screen.getByTestId('coming-up-tag-next4')).toHaveTextContent('In next 4 days');
     expect(screen.getByTestId('coming-up-kindtag')).toBeInTheDocument();
+    // The tags read in order, space-separated, as before the wrapper existed.
+    expect(screen.getByTestId('coming-up-tags')).toHaveTextContent('Almanac In next 4 days');
   });
 
   it('renders no tag otherwise', () => {
