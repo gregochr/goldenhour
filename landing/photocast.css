@@ -83,6 +83,7 @@ em{font-style:normal;color:var(--brand)}
    outside it on index.html's teaser, so without this the same component renders --ink-soft on
    one page and --ink on the other. */
 .qa p{margin-bottom:0;color:var(--ink-soft)}
+.qa p+p{margin-top:12px}
 /* ── tables ── */
 /* `tabindex=0` + `role=region` + a name in the markup: at 375px the 600px table leaves ~45%
    off-screen, and neither Chrome nor Safari makes an overflow:auto div focusable, so a
