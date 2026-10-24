@@ -4133,73 +4133,76 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * this FILTERED one got a ring and a callout with no chip to anchor beside. Pushed rather than
    * unshifted: {@code chipCandidates}' own selected-name handling already moves it to the front.
    */
-  const labelSpots = useMemo(() => {
-    const spotOf = (loc) => {
-      const tide = getTideOnLightForLocation(loc);
-      const rating = getRatingForLocation(loc);
-      return {
-        // ⚠️ Load-bearing for `mapTideFit.nextAlignedRow`'s id-first lookup (tide-window-plan.md
-        // T3, `docs/engineering/tide-window-plan.md`) — without this, every strip next-fit scan
-        // silently falls through to a name-only join, which two roster entries sharing a display
-        // name would conflate (the exact failure class `locationSheet.js#lookupForWindow`'s own
-        // id-first design exists to avoid). Null rather than omitted, matching `lookupForWindow`'s
-        // own "id-first, falls back to name" contract when a caller has no id to offer.
-        id: loc.id ?? null,
-        name: loc.name,
-        lat: loc.lat,
-        lng: loc.lon,
-        rid: loc.regionName || '',
-        rating,
-        bortleClass: loc.bortleClass ?? null,
-        driveMinutes: driveMinutesFor(loc.id),
-        // `PinsLayer`'s own stand-down/no-data distinction (adversarial review C8) — a triaged
-        // location is not merely "nothing scored yet", the same distinction the medallion markers
-        // already draw via `resolveStandDown`/`STAND_DOWN_COLOUR`, so a pin should not collapse the
-        // two into one grey.
-        isStandDown: isStandDownLocation(loc),
-        // Bundle rev 2's tide-chip tweak — the glyph, the label-budget tiebreaker
-        // (`chipCandidates`) and the tooltip's third line all read `onTheLight`; the phrase is
-        // carried alongside rather than re-derived so the tooltip never formats a tide clock time
-        // itself (CLAUDE.md: backend formats all clock/offset prose).
-        onTheLight: Boolean(tide?.onTheLight),
-        nearestSolarOffsetPhrase: tide?.onTheLight ? (tide.phrase ?? null) : null,
-        // Tide-window increment (T3, tide-window-plan.md §3): the location's own configured want,
-        // whether it is coastal-and-tidal at all, and this WINDOW's served preference-axis tier —
-        // never derived here, only read off `tide` (the extended `buildTideAlignmentIndex` entry)
-        // via `mapTideFit.tierOf`, which answers the axis this increment cares about
-        // (`tideAligned`), never the on-the-light one above.
-        tideTypes: loc.tideType ?? [],
-        coastal: isCoastalTidalLocation(loc),
-        // ⚠️ The phone tide-visibility rule's ONE gate (map-mobile-sheet-plan.md §1 #6, §3 M5 task
-        // 2) — `tideCuesOn` is `true` unconditionally on desktop/tablet (computed above,
-        // `!isMobile || tideVisible(...)`), so this null only ever fires on a phone whose mode/
-        // verdict/viewport combination says "hide". `tideShortfall`/`tideFitPhrase` follow it so a
-        // tooltip clause can never read a real phrase behind a glyph the chip isn't drawing; every
-        // consumer (`MapLabels`, `PinsLayer`) already gates on `tideTier` first, so this is the
-        // single null they all inherit — never a second flag threaded to any of them.
-        tideTier: tideCuesOn ? tierOf(tide) : null,
-        tideShortfall: tideCuesOn ? (tide?.shortfall ?? null) : null,
-        // The served state at the light this window (tide-window-plan.md §4 #21) — the match
-        // glyph's own letter reads this, never a level or threshold computed here.
-        tideState: tide?.state ?? null,
-        // Whether the light was ASSESSED for this location in this window (window-tide-facts-plan
-        // §4.2): a sky rating or a combined rating exists. Only then may a tide miss be headed
-        // "wrong water, not wrong light"; on a window nothing scored (T+3/T+4, a travel day) the
-        // heading makes no claim about the light.
-        tideAssessed: tide?.skyRating != null || rating != null,
-        // The block body T4's tooltip reads for BOTH tiers (tide-window-plan.md §3 T4 item 4) —
-        // carried here rather than left for that phase to add, since it is the same `tide` object
-        // this function already has in hand and the plan's own goal for this phase is that every
-        // fact reaches the components that will draw it.
-        tideFitPhrase: tideCuesOn ? (tide?.fitPhrase ?? null) : null,
-        // The reader's OWN outcome rating for this place in the window on screen — `1..5`,
-        // `'NOT_SEEN'` or null (outcome-rating-plan.md §2 #6, O4b). Set ONLY on a past window (a
-        // served one has no outcome to rate) and only when the reader's ratings for that date have
-        // been read successfully (`myRatingOf` answers null otherwise, so a failed read draws no
-        // badge rather than implying nothing was rated). A per-user join, never a derivation.
-        myRating: activeWindowPast ? myRatingOf(outcomeRatings, loc.id, date, eventType) : null,
-      };
+  const spotOf = useCallback((loc) => {
+    const tide = getTideOnLightForLocation(loc);
+    const rating = getRatingForLocation(loc);
+    return {
+      // ⚠️ Load-bearing for `mapTideFit.nextAlignedRow`'s id-first lookup (tide-window-plan.md
+      // T3, `docs/engineering/tide-window-plan.md`) — without this, every strip next-fit scan
+      // silently falls through to a name-only join, which two roster entries sharing a display
+      // name would conflate (the exact failure class `locationSheet.js#lookupForWindow`'s own
+      // id-first design exists to avoid). Null rather than omitted, matching `lookupForWindow`'s
+      // own "id-first, falls back to name" contract when a caller has no id to offer.
+      id: loc.id ?? null,
+      name: loc.name,
+      lat: loc.lat,
+      lng: loc.lon,
+      rid: loc.regionName || '',
+      rating,
+      bortleClass: loc.bortleClass ?? null,
+      driveMinutes: driveMinutesFor(loc.id),
+      // `PinsLayer`'s own stand-down/no-data distinction (adversarial review C8) — a triaged
+      // location is not merely "nothing scored yet", the same distinction the medallion markers
+      // already draw via `resolveStandDown`/`STAND_DOWN_COLOUR`, so a pin should not collapse the
+      // two into one grey.
+      isStandDown: isStandDownLocation(loc),
+      // Bundle rev 2's tide-chip tweak — the glyph, the label-budget tiebreaker
+      // (`chipCandidates`) and the tooltip's third line all read `onTheLight`; the phrase is
+      // carried alongside rather than re-derived so the tooltip never formats a tide clock time
+      // itself (CLAUDE.md: backend formats all clock/offset prose).
+      onTheLight: Boolean(tide?.onTheLight),
+      nearestSolarOffsetPhrase: tide?.onTheLight ? (tide.phrase ?? null) : null,
+      // Tide-window increment (T3, tide-window-plan.md §3): the location's own configured want,
+      // whether it is coastal-and-tidal at all, and this WINDOW's served preference-axis tier —
+      // never derived here, only read off `tide` (the extended `buildTideAlignmentIndex` entry)
+      // via `mapTideFit.tierOf`, which answers the axis this increment cares about
+      // (`tideAligned`), never the on-the-light one above.
+      tideTypes: loc.tideType ?? [],
+      coastal: isCoastalTidalLocation(loc),
+      // ⚠️ The phone tide-visibility rule's ONE gate (map-mobile-sheet-plan.md §1 #6, §3 M5 task
+      // 2) — `tideCuesOn` is `true` unconditionally on desktop/tablet (computed above,
+      // `!isMobile || tideVisible(...)`), so this null only ever fires on a phone whose mode/
+      // verdict/viewport combination says "hide". `tideShortfall`/`tideFitPhrase` follow it so a
+      // tooltip clause can never read a real phrase behind a glyph the chip isn't drawing; every
+      // consumer (`MapLabels`, `PinsLayer`) already gates on `tideTier` first, so this is the
+      // single null they all inherit — never a second flag threaded to any of them.
+      tideTier: tideCuesOn ? tierOf(tide) : null,
+      tideShortfall: tideCuesOn ? (tide?.shortfall ?? null) : null,
+      // The served state at the light this window (tide-window-plan.md §4 #21) — the match
+      // glyph's own letter reads this, never a level or threshold computed here.
+      tideState: tide?.state ?? null,
+      // Whether the light was ASSESSED for this location in this window (window-tide-facts-plan
+      // §4.2): a sky rating or a combined rating exists. Only then may a tide miss be headed
+      // "wrong water, not wrong light"; on a window nothing scored (T+3/T+4, a travel day) the
+      // heading makes no claim about the light.
+      tideAssessed: tide?.skyRating != null || rating != null,
+      // The block body T4's tooltip reads for BOTH tiers (tide-window-plan.md §3 T4 item 4) —
+      // carried here rather than left for that phase to add, since it is the same `tide` object
+      // this function already has in hand and the plan's own goal for this phase is that every
+      // fact reaches the components that will draw it.
+      tideFitPhrase: tideCuesOn ? (tide?.fitPhrase ?? null) : null,
+      // The reader's OWN outcome rating for this place in the window on screen — `1..5`,
+      // `'NOT_SEEN'` or null (outcome-rating-plan.md §2 #6, O4b). Set ONLY on a past window (a
+      // served one has no outcome to rate) and only when the reader's ratings for that date have
+      // been read successfully (`myRatingOf` answers null otherwise, so a failed read draws no
+      // badge rather than implying nothing was rated). A per-user join, never a derivation.
+      myRating: activeWindowPast ? myRatingOf(outcomeRatings, loc.id, date, eventType) : null,
     };
+  }, [
+    getRatingForLocation, getTideOnLightForLocation, driveMinutesFor, isStandDownLocation, tideCuesOn,
+    activeWindowPast, outcomeRatings, date, eventType,
+  ]);
+  const labelSpots = useMemo(() => {
     const spots = scopedVisibleLocations.map(spotOf);
     if (selectedLoc && !spots.some((s) => s.name === selectedLoc.name)) {
       spots.push(spotOf(selectedLoc));
@@ -4250,9 +4253,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     }
     return spots;
   }, [
-    scopedVisibleLocations, getRatingForLocation, getTideOnLightForLocation, driveMinutesFor,
-    selectedLoc, isStandDownLocation, tideCuesOn, locations, askPicks, askSelectedRank,
-    activeWindowPast, outcomeRatings, date, eventType,
+    scopedVisibleLocations, selectedLoc, spotOf, locations, askPicks, askSelectedRank,
   ]);
   /** The pick spots that actually reached the map — what dims the rest and what the camera frames. */
   const askPickSpots = labelSpots.filter((spot) => spot.askPick);
@@ -4539,6 +4540,42 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const ringsAvailable = heatOffered && (heatOn || heatPinsOn);
   const topicRingPlaces = ringsAvailable ? (activeTopicChip?.places ?? null) : null;
   const topicRingsDrawn = (topicRingPlaces?.length ?? 0) > 0;
+  // ── The ringed places' names (topic-ring-names-plan.md) ───────────────────────────────────────────
+  // What `MapLabels` and `PinsLayer` draw from while a hot topic's rings are up: `labelSpots` with each
+  // ringed place marked `topicRing` (offered first by `chipCandidates`, exempt from `omitUnrated`, not
+  // dimmed), plus a spot APPENDED for each ringed place the reader's filters dropped (stand-down, star
+  // floor, subject chips, drive filter ...), because the ring itself is drawn past those filters and a
+  // ring with no name does not say where to go. Appended spots carry `topicRingAdded` so the region labels
+  // ignore them. Identity is id first, name second, and a place is "already there" if EITHER its id or its
+  // name is (every downstream key is the name). The catalogue row feeds `spotOf` (a heat roster entry
+  // lacks `lon` and `tideType`); no row or no finite coordinates, no spot. Nothing else reads this list:
+  // the tide strip, counts, Ask and the big-seas suppression keep `labelSpots`. Big seas is excluded:
+  // its structures are already named by the big-seas chips. With nothing to ring this IS `labelSpots`
+  // (same reference, so nothing downstream re-runs).
+  const chipSpots = useMemo(() => {
+    if (!topicRingsDrawn || activeTopicChip?.type === BIG_SEAS_TYPE) return labelSpots;
+    const ringedIds = new Set();
+    const ringedNames = new Set();
+    for (const place of topicRingPlaces) {
+      if (place.id != null) ringedIds.add(place.id);
+      ringedNames.add(place.name);
+    }
+    const isRinged = (spot) => ringedNames.has(spot.name) || (spot.id != null && ringedIds.has(spot.id));
+    const spots = labelSpots.map((spot) => (isRinged(spot) ? { ...spot, topicRing: true } : spot));
+    const haveIds = new Set(labelSpots.map((spot) => spot.id).filter((id) => id != null));
+    const haveNames = new Set(labelSpots.map((spot) => spot.name));
+    for (const place of topicRingPlaces) {
+      const loc = (place.id != null ? locationsById.get(place.id) : undefined)
+        ?? locations.find((l) => l.name === place.name);
+      if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) continue;
+      if (haveNames.has(place.name) || haveNames.has(loc.name)
+        || (place.id != null && haveIds.has(place.id)) || (loc.id != null && haveIds.has(loc.id))) continue;
+      haveNames.add(loc.name);
+      if (loc.id != null) haveIds.add(loc.id);
+      spots.push({ ...spotOf(loc), topicRing: true, topicRingAdded: true });
+    }
+    return spots;
+  }, [topicRingsDrawn, activeTopicChip, topicRingPlaces, labelSpots, locationsById, locations, spotOf]);
   /** Toggles a chip: pressing the selected one clears it. The outcome goes to the status region. */
   function toggleTopic(type) {
     const chip = topicChips.find((c) => c.type === type);
@@ -6353,7 +6390,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           {heatOn && (
             <Suspense fallback={null}>
               <MapLabels
-                spots={labelSpots}
+                spots={chipSpots}
                 standRegions={standGround.regions}
                 homeCoords={homeGeo}
                 rings={ringsEnabled}
@@ -6375,7 +6412,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           {heatPinsOn && (
             <Suspense fallback={null}>
               <PinsLayer
-                spots={labelSpots}
+                spots={chipSpots}
                 homeCoords={homeGeo}
                 selectedName={selectedLocationName}
                 onSelect={selectMapLocation}

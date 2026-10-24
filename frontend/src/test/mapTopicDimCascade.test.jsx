@@ -89,6 +89,13 @@ describe.each([['chip', 'wf-maplab-chip'], ['pin', 'wf-pin']])('an ordinary %s',
     expect(opacityOf(mark('button', className, { 'data-ask': 'fade', 'data-tide': 'miss' }))).toBe('0.25');
   });
 
+  it('⚠️ never dims a place the selected topic rings (data-topic-ring); Ask\'s fade still wins on it', () => {
+    expect(opacityOf(mark('button', className, { 'data-topic-ring': 'true' }))).not.toBe('0.5');
+    expect(opacityOf(mark('button', className, { 'data-topic-ring': 'true', 'data-ask': 'fade' }))).toBe('0.25');
+    // And an ordinary one beside it still reads .5.
+    expect(opacityOf(mark('button', className))).toBe('0.5');
+  });
+
   it('never dims an Ask pick', () => {
     expect(opacityOf(mark('button', className, { 'data-ask': 'pick' }))).not.toBe('0.5');
   });

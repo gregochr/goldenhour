@@ -196,10 +196,11 @@ export default function PinsLayer({
 
   // Aurora only (aurora-heat-plan.md §4 #8): an unrated spot is not drawn. The aurora 1-star fill
   // (#384262) is 1.10:1 against the no-data grey, so a poor night and no data would be the same
-  // pixels — the spec's own "no data is not 1 star" rule. A pick is always kept.
+  // pixels — the spec's own "no data is not 1 star" rule. A pick is always kept, and so is a place a
+  // selected hot topic rings (a located night topic's unrated place keeps its pin).
   const spots = useMemo(
     () => (omitUnrated
-      ? allSpots.filter((spot) => Number.isFinite(spot.rating) || spot.askPick)
+      ? allSpots.filter((spot) => Number.isFinite(spot.rating) || spot.askPick || spot.topicRing)
       : allSpots),
     [allSpots, omitUnrated],
   );
@@ -512,6 +513,7 @@ export default function PinsLayer({
               data-ask-rank={pick.rank}
               data-ask-ranks={isMultiRank(pick) ? ranksOf(pick).join(',') : undefined}
               data-ask-selected={pick.selected ? 'true' : undefined}
+              data-topic-ring={spot.topicRing ? 'true' : undefined}
               data-selected={selectedName === spot.name ? 'true' : undefined}
               aria-label={pick.label}
               aria-current={pick.selected ? 'true' : undefined}
@@ -564,6 +566,9 @@ export default function PinsLayer({
             // by it (§7 check 12's rule, the CSS opacity dims the whole dot rather than re-colours
             // it).
             data-tide={spot.tideTier ?? undefined}
+            // A place the selected hot topic rings keeps full strength while the rest step back
+            // (index.css's topic dim rule excludes it).
+            data-topic-ring={spot.topicRing ? 'true' : undefined}
             // While an answer's picks are on the map every OTHER pin steps back (opacity .25, which
             // beats the tide rule's .72 — see the cascade in index.css).
             data-ask={askActive ? 'fade' : undefined}
@@ -712,6 +717,8 @@ PinsLayer.propTypes = {
      * .md §2 #6): {@code 1..5}, or {@code 'NOT_SEEN'}. Null/absent on a served window and for a spot
      * the reader has not rated — the badge is drawn only when this is set. */
     myRating: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    /** A place the selected hot topic rings: exempt from `omitUnrated`, not dimmed. */
+    topicRing: PropTypes.bool,
     /** Ask PhotoCast's pick (F3) — the answer's own facts for the pick's window. */
     askPick: PropTypes.shape({
       rank: PropTypes.number.isRequired,

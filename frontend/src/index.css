@@ -6957,11 +6957,14 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    ⚠️ THE OVERLAP WITH ASK'S FADE is written into the selector, not left to source order: `:not([data-ask])`
    leaves a faded chip (`data-ask='fade'`, .25) and an Ask pick (`data-ask='pick'`) to the Ask rules, so a
    chip that is both reads .25 and a pick is never dimmed whichever block comes last. Big-seas chips
-   (`.wf-bsc`) never dim - they are the ringed answer on a big-seas day. Written at (0,x,0) above
+   (`.wf-bsc`) never dim - they are the ringed answer on a big-seas day. Nor does a chip or pin for a
+   place the selected topic rings (`data-topic-ring`, written by `MapLabels`/`PinsLayer` from the spot's
+   `topicRing`; topic-ring-names-plan.md): the ringed names stand out and the rest step back, while an
+   Ask fade (`data-ask='fade'`, .25) still wins on a ringed chip, since `:not([data-ask])` is untouched. Written at (0,x,0) above
    `.wf-maplab-chip[data-tide='miss']` / `.wf-pin[data-tide='miss']` (.72), so a coastal miss dims to .5
    too. Pinned against this stylesheet by `mapTopicDimCascade.test.jsx`. */
-.wf-map-tab[data-topic-selected] .wf-maplab-layer .wf-maplab-chip:not(.wf-bsc):not([data-ask]):not([data-selected='true']):not(:hover):not(:focus-visible),
-.wf-map-tab[data-topic-selected] .wf-maplab-layer .wf-pin:not([data-ask]):not([data-selected='true']):not(:hover):not(:focus-visible) {
+.wf-map-tab[data-topic-selected] .wf-maplab-layer .wf-maplab-chip:not(.wf-bsc):not([data-ask]):not([data-topic-ring]):not([data-selected='true']):not(:hover):not(:focus-visible),
+.wf-map-tab[data-topic-selected] .wf-maplab-layer .wf-pin:not([data-ask]):not([data-topic-ring]):not([data-selected='true']):not(:hover):not(:focus-visible) {
   opacity: 0.5;
   transition: opacity 0.2s;
 }

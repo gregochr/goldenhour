@@ -304,10 +304,11 @@ export default function MapLabels({
 
   // Aurora only (aurora-heat-plan.md §4 #8): an unrated spot is not drawn. The aurora 1-star fill
   // (#384262) is 1.10:1 against the no-data grey, so a poor night and no data would be the same
-  // pixels — the spec's own "no data is not 1 star" rule. A pick is always kept.
+  // pixels — the spec's own "no data is not 1 star" rule. A pick is always kept, and so is a place a
+  // selected hot topic rings (a located night topic's unrated place is still named).
   const spots = useMemo(
     () => (omitUnrated
-      ? allSpots.filter((spot) => Number.isFinite(spot.rating) || spot.askPick)
+      ? allSpots.filter((spot) => Number.isFinite(spot.rating) || spot.askPick || spot.topicRing)
       : allSpots),
     [allSpots, omitUnrated],
   );
@@ -442,7 +443,9 @@ export default function MapLabels({
       // A qualified stood-down region's label replaces its ordinary one (big-seas plan F3), in the
       // same tier and under the same zoom gate; the cause word was decided by the caller.
       regionItems: withStandDownLabels(
-        regionLabelItems(spots, project, zoom),
+        // ⚠️ Not the places a topic ring APPENDED (`topicRingAdded`): a region's label and its hottest-
+        // region pick read the pool the reader's filters left, and a ring must not move either.
+        regionLabelItems(spots.filter((s) => !s.topicRingAdded), project, zoom),
         standDownRegionItems(standRegions, project, zoom),
       ),
       ringItems: ringsActive ? ringLabelItems({
@@ -875,6 +878,7 @@ export default function MapLabels({
               data-ask-rank={pick.rank}
               data-ask-ranks={isMultiRank(pick) ? ranksOf(pick).join(',') : undefined}
               data-ask-selected={pick.selected ? 'true' : undefined}
+              data-topic-ring={spot.topicRing ? 'true' : undefined}
               data-compact={isMeasured && placement.compact?.has(spot.name) ? 'true' : undefined}
               data-selected={selectedName === spot.name ? 'true' : undefined}
               style={styleFor(key)}
@@ -933,6 +937,9 @@ export default function MapLabels({
             data-testid="map-label-chip"
             data-selected={selectedName === spot.name ? 'true' : undefined}
             data-tide={tideTier ?? undefined}
+            // A place the selected hot topic rings keeps full strength while the rest step back
+            // (index.css's topic dim rule excludes it).
+            data-topic-ring={spot.topicRing ? 'true' : undefined}
             // While an answer's picks are on the map every OTHER chip steps back (opacity .25, which
             // beats the tide rule's .72 — see the cascade in index.css).
             data-ask={askActive ? 'fade' : undefined}
@@ -1121,6 +1128,10 @@ MapLabels.propTypes = {
      * .md §2 #6): {@code 1..5}, or {@code 'NOT_SEEN'}. Null/absent on a served window and for a spot
      * the reader has not rated — the badge is drawn only when this is set. */
     myRating: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    /** A place the selected hot topic rings: offered first, exempt from `omitUnrated`, not dimmed. */
+    topicRing: PropTypes.bool,
+    /** With {@code topicRing}: the spot was appended because the reader's filters had dropped it. */
+    topicRingAdded: PropTypes.bool,
     /** Ask PhotoCast's pick (F3) — the answer's own facts for the pick's window, which the chip
      * draws instead of the window on screen's. Absent for every ordinary spot. */
     askPick: PropTypes.shape({
