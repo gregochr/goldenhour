@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PhotoCast — Know before you go</title>
-<meta name="description" content="PhotoCast reads cloud layers, aerosols, humidity and light direction to score every sunrise and sunset across northern England — and opens on a map that has already made the call.">
+<meta name="description" content="PhotoCast helps landscape photographers find the most promising conditions for sunrise and sunset across northern England.">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,6 +18,11 @@
 .hero h1 .go{color:var(--brand);font-style:italic;font-weight:700}
 .lede{font-size:clamp(17px,2.1vw,21px);line-height:1.5;color:var(--ink-soft);max-width:600px;margin:26px 0 0}
 .lede b{color:var(--ink);font-weight:500}
+.lede+.lede{margin-top:16px}
+.hero .sub{font-family:var(--disp);font-size:clamp(20px,2.6vw,28px);font-weight:500;letter-spacing:-.02em;color:var(--ink);margin:22px 0 0;max-width:640px}
+.feat p+p{margin-top:10px}
+.feat .more{font-size:14.5px}
+.pnote{font-size:15px;color:var(--ink-soft);max-width:640px;margin-top:22px}
 .ctas{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:34px 0 0}
 .ctas .note{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim)}
 /* ── figure / screenshot placeholder ── */
@@ -119,20 +124,22 @@ section{padding:96px 0 0}
 <main>
 <div class="hero">
 <div class="wrap">
-<div class="eyebrow">For landscape photographers · Northern England</div>
+<div class="eyebrow">For landscape photographers across northern England</div>
 <h1>Know before<br>you <span class="go">go</span>.</h1>
-<p class="lede">PhotoCast reads cloud layers, aerosols, humidity and light direction to score every sunrise and sunset across northern England — and <b>tells you why</b>.</p>
+<p class="sub">Make the most of the light, wherever you're heading.</p>
+<p class="lede">PhotoCast helps landscape photographers find the most promising conditions for sunrise and sunset across northern England.</p>
+<p class="lede">By looking beyond a standard weather forecast — at cloud layers, atmospheric conditions and the direction of the light — it gives you a clearer picture of what to expect, where to go, and why it might be worth the early start.</p>
 <div class="ctas">
-<a class="btn" href="https://app.photocast.online/register">Start free</a>
+<a class="btn" href="https://app.photocast.online/register">Start exploring for free</a>
 <a class="btn ghost" href="#platforms">See the apps</a>
-<span class="note">No card. Lite is free.</span>
+<span class="note">No payment card needed. Lite is free.</span>
 </div>
 
 <div class="fig">
 <div class="shot has-img">
 <img src="shot-map.webp" width="1600" height="1001" alt="The PhotoCast map tab for today's sunrise: a heat field over Northumberland and the Tyne valley, warmest along the coast and the North Pennines, with named locations such as Alnmouth, Bothal Weir and Allen Banks rated four stars, and drive-time rings from home.">
 </div>
-<p class="figcap">The map opens on the next window with the call already made: a heat field of where the colour should be, the strongest locations named with their stars, and drive-time rings from home. Step through the windows with the arrows; the next four days' hot topics sit underneath.</p>
+<p class="figcap">See at a glance whether tonight's sunset or tomorrow's sunrise looks promising, and which areas offer the best conditions. Explore the map for more detail, or simply use the overview to help plan your next outing.</p>
 </div>
 </div>
 </div>
@@ -141,24 +148,24 @@ section{padding:96px 0 0}
 <div class="wrap">
 <div class="shead">
 <div class="lab">01 · Where to get it</div>
-<h2>Browser first. iPad and iPhone next.</h2>
-<p>The same forecast, three places to read it. The browser build is very nearly there; the iPad and iPhone apps are in the works.</p>
+<h2>Use PhotoCast wherever you plan your photography.</h2>
+<p>Start with PhotoCast in your web browser, whether you're planning at home or checking conditions on your phone. Dedicated iPad and iPhone apps are also in development.</p>
 </div>
 <div class="plats">
 <div class="plat live">
 <span class="status">Very close</span>
-<h3>Browser</h3>
-<p>The full product in any browser, desktop or phone. Early access is open now while we finish it off.</p>
+<h3>Web browser</h3>
+<p>Explore forecasts, compare locations and plan your next outing from your computer, tablet or phone.</p>
 </div>
 <div class="plat">
 <span class="status">Coming soon</span>
 <h3>iPad</h3>
-<p>Built for the big map — the field, the week and a location side by side.</p>
+<p>A larger view of the forecast map, with room to explore locations and compare conditions.</p>
 </div>
 <div class="plat">
 <span class="status">Coming soon</span>
 <h3>iPhone</h3>
-<p>The verdict in your pocket, for the car park at 5am.</p>
+<p>A quick way to check the latest outlook when you're out and about.</p>
 </div>
 </div>
 </div>
@@ -168,36 +175,58 @@ section{padding:96px 0 0}
 <div class="wrap">
 <div class="shead">
 <div class="lab">02 · What it does</div>
-<h2>A forecast for the shot, not the weather.</h2>
+<h2>A forecast for the shot, not just the weather.</h2>
+<p>Good light depends on more than whether the forecast says sunny or cloudy. PhotoCast brings together the atmospheric conditions that can make a difference to your photographs, helping you decide when and where to head out.</p>
 </div>
 <div class="feats">
 <div class="feat"><div class="n">/ 01</div><div>
-<h3>The map has already made the call</h3>
-<p>PhotoCast opens on the map with the answer on it: should you go tonight or in the morning, which region is strongest, and where the week's best bet sits. Heat over the ground says poor, middling or worth it before you touch anything.</p>
+<h3>See where the light looks most promising</h3>
+<p>Explore a map of northern England showing the outlook for sunrise and sunset across hundreds of photographic locations.</p>
+<p>Colour-coded forecasts make it easy to spot promising areas, compare conditions and decide where you might like to go — without having to check each location individually.</p>
 </div></div>
 <div class="feat"><div class="n">/ 02</div><div>
-<h3>AI reads the atmosphere so you don't have to</h3>
-<p>AI evaluates cloud cover, humidity, light direction, and even Saharan dust to rate every sunrise and sunset — with dual Fiery Sky and Golden Hour scores <span class="pro">Pro</span> plus a plain-English explanation of why.</p>
+<h3>Look beyond the cloud forecast</h3>
+<p>Not all cloudy skies are the same. The height and thickness of cloud layers, atmospheric moisture and particles in the air can all influence the colours and quality of the light.</p>
+<p>PhotoCast brings these factors together to assess the potential for colourful skies and golden-hour light, with separate scores and straightforward explanations to help you understand the forecast.</p>
+<p>Detailed Fiery Sky and Golden Hour scores are available with Pro. <span class="pro">Pro</span></p>
 </div></div>
 <div class="feat"><div class="n">/ 03</div><div>
-<h3>AI picks your best bet — you just show up</h3>
-<p>AI evaluates every location across the next three days and recommends exactly where and when to go — factoring in day of week and conditions. A heatmap grid shows the full picture at a glance.</p>
+<h3>Find your best opportunities</h3>
+<p>Not sure where to head this weekend?</p>
+<p>PhotoCast compares forecast conditions across its locations to highlight the most promising opportunities over the next three days.</p>
+<p>Whether you have somewhere particular in mind or you're happy to follow the light, it's a useful starting point for planning your next outing.</p>
+<p>Best-bet recommendations are available with Pro. <span class="pro">Pro</span></p>
 </div></div>
 <div class="feat"><div class="n">/ 04</div><div>
-<h3>Catch the dramatic tides at the best light</h3>
-<p>Spring tides, king tides, and storm surge — flagged and aligned with sunrise and sunset so you're there when the water levels tell a story.</p>
+<h3>Ask PhotoCast <span class="pro">Pro</span></h3>
+<p>Curious about the forecast? Just ask.</p>
+<p>Wondering why a sunrise has a high rating, whether the cloud might clear, or what conditions could mean for your photographs?</p>
+<p>Ask PhotoCast lets you explore the forecast in your own words. Ask a question, get a straightforward explanation, and better understand what the weather might have in store.</p>
+<p>No need to decipher complicated weather charts — just a little more insight to help you plan your next outing.</p>
 </div></div>
 <div class="feat"><div class="n">/ 05</div><div>
-<h3>Know about aurora before dark, not after</h3>
-<p>NOAA space weather data, interpreted by AI. When conditions line up for northern lights, you'll get a forecast with enough time to plan your evening.</p>
+<h3>Plan coastal photography around the tides</h3>
+<p>For coastal photographers, the tide can be just as important as the light.</p>
+<p>PhotoCast brings tidal information together with sunrise and sunset forecasts, highlighting unusually high tides and potentially interesting combinations of water levels and light.</p>
+<p>It gives you another useful piece of information when planning a coastal shoot.</p>
+<p class="more"><a href="terms.html">Coastal safety information →</a></p>
 </div></div>
 <div class="feat"><div class="n">/ 06</div><div>
-<h3>Find the mist before it lifts</h3>
-<p>AI scores inversion potential for valley and lakeside locations — reading temperature, dew point, wind, and elevation to predict where cloud inversions will create other-worldly scenes.</p>
+<h3>Keep an eye on the northern lights</h3>
+<p>Aurora sightings are never guaranteed, but knowing when conditions are favourable can make all the difference.</p>
+<p>PhotoCast brings together space weather information and local viewing conditions to help you identify nights when the northern lights may be worth looking out for.</p>
+<p>Aurora forecasting is available with Pro. <span class="pro">Pro</span></p>
 </div></div>
 <div class="feat"><div class="n">/ 07</div><div>
+<h3>Look out for misty mornings and cloud inversions</h3>
+<p>Some of the most memorable landscape photographs happen when mist settles into valleys or low cloud fills the landscape beneath the hills.</p>
+<p>PhotoCast examines temperature, humidity, wind and terrain to identify conditions that may favour mist and cloud inversions.</p>
+<p>It's another way to spot opportunities that might not be obvious from a standard weather forecast.</p>
+</div></div>
+<div class="feat"><div class="n">/ 08</div><div>
 <h3>Built for the North</h3>
-<p>Not a global weather app pretending to know your coast. 200+ handpicked locations across Northumberland, the Lakes, and North Yorkshire.</p>
+<p>PhotoCast focuses on the landscapes of northern England, with more than 200 carefully selected locations across Northumberland, the Lake District, North Yorkshire and the surrounding areas.</p>
+<p>From exposed coastlines and sweeping moorland to lakes, valleys and mountain viewpoints, it's designed around the places photographers actually want to visit.</p>
 </div></div>
 </div>
 
@@ -205,7 +234,7 @@ section{padding:96px 0 0}
 <div class="shot has-img">
 <img src="shot-detail.webp" width="1600" height="1115" alt="A location sheet for Derwent Water East Shore: the next three days, a four-star sunrise with Fiery Sky 72 and Golden Hour 68 score bars, blue and golden hour times, and a written explanation of the conditions.">
 </div>
-<p class="figcap">Per-location detail with Fiery Sky and Golden Hour score bars, golden and blue hour times, and a plain-English AI explanation.</p>
+<p class="figcap">Explore the forecast for an individual location, including sunrise and sunset times, golden and blue hour, detailed light scores and an explanation of the conditions behind them.</p>
 </div>
 </div>
 </section>
@@ -242,10 +271,14 @@ section{padding:96px 0 0}
 <h2>It started with one question about one sunrise.</h2>
 </div>
 <div>
-<p>One evening last spring, I asked Claude — Anthropic's Artificial Intelligence platform — whether tomorrow's sunrise was worth getting up for. It said yes. So I asked what actually makes a great sunrise: cloud layers, aerosol depth, humidity, light direction.</p>
-<p>Then I asked whether a tool existed that combined all of it into a simple <span class="pull">go or don't go</span> answer for photographers. Nothing did quite what I had in mind. The best you could do was approximate from cloud cover at the location at the time — nothing about the layers that catch the light, the aerosols that scatter it, or the humidity that kills it.</p>
-<p>I decided not to risk the early alarm and the wasted drive. So with 25 years of building production systems for global banks, I started building a better answer. PhotoCast now analyses 10+ atmospheric variables for every sunrise and sunset across 200+ locations — scoring the light, explaining the reasoning, and telling you exactly where to be.</p>
-<p>The long summer days are behind us and autumn is on the march. As the landscape photography season returns, we're ready to launch.</p>
+<p>One evening, I found myself wondering whether the following morning's sunrise would be worth the early alarm and the drive.</p>
+<p>Like many landscape photographers, I'd spent plenty of time checking weather forecasts, looking at cloud cover and hoping the conditions would come together. Sometimes they did. Sometimes they didn't.</p>
+<p>I started looking more closely at what makes a promising sunrise: the different layers of cloud, moisture in the atmosphere, particles that scatter the light, and the direction of the rising sun.</p>
+<p>I wondered whether all that information could be brought together into something genuinely useful for photographers. <span class="pull">Not a guarantee of a beautiful sunrise, but a better-informed idea of what might happen, and where.</span></p>
+<p>That was the beginning of PhotoCast.</p>
+<p>Using AI alongside detailed weather and atmospheric data, I began developing a forecasting tool that could assess conditions across hundreds of locations and explain its reasoning in everyday language.</p>
+<p>My background is in software engineering, with 25 years spent building reliable systems for major financial institutions. PhotoCast is a rather different sort of project, but I've brought the same care and attention to how it works.</p>
+<p>It's still growing, and there's plenty more I want to add. But the aim remains the same: to help photographers spend less time piecing together forecasts and more time making the most of the light.</p>
 </div>
 </div>
 </div>
@@ -255,36 +288,39 @@ section{padding:96px 0 0}
 <div class="wrap">
 <div class="shead">
 <div class="lab">05 · Pricing</div>
-<h2>Simple pricing.</h2>
-<p>Lite is genuinely free. Pro pricing is still being settled — early access users will hear it from us first.</p>
+<h2>Choose how much detail you need.</h2>
+<p>Start with PhotoCast Lite for free. If you'd like more detailed forecasts and planning tools, Pro will offer a little more insight.</p>
 </div>
 <div class="prices">
 <div class="price">
 <div class="tier">Lite</div>
 <div class="amt">Free</div>
+<p class="pnote" style="margin-top:6px">A useful overview of the conditions, with no commitment.</p>
 <ul>
-<li>3-day forecast horizon</li>
-<li>AI star ratings</li>
-<li>AI weather triage verdicts</li>
-<li>Planner heatmap grid</li>
-<li>Map view with scored locations</li>
+<li>3-day forecasts</li>
+<li>Sunrise and sunset ratings</li>
+<li>At-a-glance forecast guidance</li>
+<li>Forecast map and planning grid</li>
+<li>Mist and cloud inversion outlook</li>
 </ul>
 </div>
 <div class="price hi">
-<div class="tier">Pro · recommended</div>
-<div class="amt">TBC <small>/month</small></div>
+<div class="tier">Pro</div>
+<div class="amt">Pricing to follow</div>
+<p class="pnote" style="margin-top:6px">For photographers who want to explore the forecast in greater depth.</p>
 <ul>
-<li>AI-powered best-bet picks</li>
+<li>Detailed light scores</li>
+<li>Explanations of forecast conditions</li>
+<li>Recommended locations and times</li>
 <li>Ask PhotoCast — questions about the forecast in plain English</li>
-<li>Per-location AI scoring</li>
-<li>AI-written forecast explanations</li>
-<li>Aurora forecasting and viewline</li>
-<li>Fiery Sky and Golden Hour score bars</li>
-<li>Storm surge forecasting for extra high tides</li>
+<li>Aurora forecasting</li>
+<li>Advanced coastal information</li>
 <li>Personalised drive times</li>
 </ul>
 </div>
 </div>
+<p class="pnote">For those who enjoy understanding the conditions in more detail, Pro adds deeper analysis, individual location forecasts and additional tools to help plan more ambitious outings.</p>
+<p class="pnote">Lite is free to use. Pro pricing will be announced ahead of launch, so you can decide whether it's right for you.</p>
 </div>
 </section>
 
@@ -296,16 +332,27 @@ section{padding:96px 0 0}
 </div>
 <div class="qs">
 <div class="qa">
-<h3>How accurate is it?</h3>
-<p>Forecasts are based on third-party weather data and AI interpretation. They're most reliable for tomorrow and the day after. We never claim to predict the sky perfectly — we just give you much better odds than checking a generic weather app.</p>
+<h3>How accurate is PhotoCast?</h3>
+<p>Weather and light are never completely predictable, so PhotoCast can't guarantee a spectacular sunrise or sunset.</p>
+<p>It uses weather forecasts, atmospheric data and AI analysis to help identify promising conditions. Forecasts are generally more useful closer to the event, particularly for the following day.</p>
+<p>Think of PhotoCast as another tool to help you make an informed decision, rather than a promise of what the sky will do.</p>
 </div>
 <div class="qa">
-<h3>What areas do you cover?</h3>
-<p>Northumberland, the Lake District, North Yorkshire Coast, Yorkshire Dales, North York Moors, Tyne and Wear, and Teesdale. Over 200 named locations.</p>
+<h3>Where can I use PhotoCast?</h3>
+<p>PhotoCast currently covers more than 200 locations across northern England, including Northumberland, the Lake District, North Yorkshire, the Yorkshire Dales, the North York Moors, Tyne and Wear and Teesdale.</p>
+<p>Locations include coastal viewpoints, lakes, mountains, valleys and other popular landscape photography spots.</p>
 </div>
 <div class="qa">
 <h3>What's the difference between Lite and Pro?</h3>
-<p>Lite is free and gives you the planner heatmap, weather triage verdicts, and star ratings. Pro adds AI-powered best-bet picks, AI-powered per-location scoring with written explanations, aurora forecasting, and personalised drive times. There are more features in the pipeline.</p>
+<p>Lite gives you a free three-day overview of sunrise and sunset conditions, with location ratings, a forecast map and a planning grid.</p>
+<p>Pro is designed for photographers who'd like to explore the detail behind those forecasts. It adds more in-depth light analysis, written explanations, recommended locations, aurora forecasts and additional planning tools.</p>
+<p>You can start with Lite and decide later whether Pro would be useful to you.</p>
+</div>
+<div class="qa">
+<h3>Do I need to understand weather charts to use PhotoCast?</h3>
+<p>Not at all. PhotoCast is designed to give you a straightforward overview of the conditions, even if you're new to landscape photography.</p>
+<p>If you're more experienced, you can explore the detailed forecasts and atmospheric information behind the ratings.</p>
+<p>Use as much or as little detail as you find helpful.</p>
 </div>
 <p style="margin-top:22px"><a href="faq.html">See all questions →</a></p>
 </div>
@@ -314,12 +361,14 @@ section{padding:96px 0 0}
 
 <div class="close">
 <div class="wrap">
-<h2>Tomorrow's sunrise is already brewing.</h2>
-<p>Early access is open, and Lite stays free. Weather warnings and a good deal more are on the way.</p>
+<h2>Your next sunrise is worth a look.</h2>
+<p>Whether you're planning a weekend in the Lakes, an early start on the coast or simply wondering what tomorrow's light might bring, PhotoCast can help you explore the possibilities.</p>
+<p>Start with the free version, see how it works, and decide whether it's useful for your photography.</p>
 <div class="ctas">
-<a class="btn" href="https://app.photocast.online/register">Start free</a>
+<a class="btn" href="https://app.photocast.online/register">Explore PhotoCast for free</a>
 <a class="btn ghost" href="faq.html">Read the FAQ</a>
 </div>
+<p class="pnote" style="margin:16px auto 0;font-size:13px">No payment card required.</p>
 </div>
 </div>
 
