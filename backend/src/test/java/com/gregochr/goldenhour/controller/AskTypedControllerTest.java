@@ -30,6 +30,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.web.servlet.MockMvc;
@@ -43,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -96,6 +98,12 @@ class AskTypedControllerTest extends AbstractControllerTest {
     @AfterEach
     void tearDown() {
         properties.setEnabled(false);
+    }
+
+    /** Matches the authentication {@code @WithMockUser} supplies: its default name and the given role. */
+    private static Authentication authedAs(String role) {
+        return argThat(auth -> auth != null && "user".equals(auth.getName())
+                && auth.getAuthorities().stream().anyMatch(a -> ("ROLE_" + role).equals(a.getAuthority())));
     }
 
     private static AskResponse answer() {
@@ -578,6 +586,9 @@ class AskTypedControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("the allowance body is {enabled, used, limit, left, typedAvailable}")
     void settingsShape() throws Exception {
+        when(askService.settings(authedAs("PRO_USER"))).thenReturn(
+                new com.gregochr.goldenhour.service.ask.AskSettingsResponse(true, 1, 30, 29, true));
+
         mockMvc.perform(get(SETTINGS_URL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(true))
@@ -591,7 +602,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"LITE_USER"})
     @DisplayName("a LITE reader's allowance is 200 with Ask on: enabled, zeros, typedAvailable false, no extra field")
     void settingsShapeForLite() throws Exception {
-        when(askService.settings(any())).thenReturn(
+        when(askService.settings(authedAs("LITE_USER"))).thenReturn(
                 new com.gregochr.goldenhour.service.ask.AskSettingsResponse(true, 0, 0, 0, false));
 
         mockMvc.perform(get(SETTINGS_URL))
@@ -609,7 +620,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
     @DisplayName("with Ask off the allowance is still 200, enabled false and zeros: the endpoint has no flag gate")
     void settingsWithAskOffIs200() throws Exception {
         properties.setEnabled(false);
-        when(askService.settings(any())).thenReturn(
+        when(askService.settings(authedAs("LITE_USER"))).thenReturn(
                 com.gregochr.goldenhour.service.ask.AskSettingsResponse.off());
 
         mockMvc.perform(get(SETTINGS_URL))
@@ -625,7 +636,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"LITE_USER"})
     @DisplayName("a token for a user that no longer exists is 401 in the shared error shape")
     void settingsUnknownUser() throws Exception {
-        when(askService.settings(any())).thenThrow(new AskRefusal(AskErrorCode.UNAUTHENTICATED));
+        when(askService.settings(authedAs("LITE_USER"))).thenThrow(new AskRefusal(AskErrorCode.UNAUTHENTICATED));
 
         mockMvc.perform(get(SETTINGS_URL))
                 .andExpect(status().isUnauthorized())
