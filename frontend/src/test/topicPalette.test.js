@@ -1,0 +1,79 @@
+import { describe, it, expect } from 'vitest';
+import {
+  DEFAULT_SWATCH_COLOR, SWATCH_COLOR, TOPIC_PALETTE_TYPES, topicStyle,
+} from '../utils/topicPalette.js';
+
+/**
+ * The one hot-topic palette (hot-topics-by-day-plan §1.7). This file holds its OWN literal copy of
+ * the backend's eighteen types — the {@code windowFirstTopics.test.js} precedent — so adding a name
+ * to the module cannot satisfy the test on its own, and neither can adding it to this list.
+ */
+const EIGHTEEN = [
+  'KING_TIDE', 'SPRING_TIDE', 'STORM_SURGE', 'INVERSION', 'MIST', 'DUST',
+  'SNOW_TOPS', 'SNOW_MIST', 'SNOW_FRESH', 'CLEARANCE', 'BLUEBELL',
+  'AURORA', 'NLC', 'METEOR', 'SUPERMOON', 'EQUINOX', 'ECLIPSE', 'LUNAR_ECLIPSE',
+];
+
+describe('topicStyle', () => {
+  it('has an explicit entry for every one of the eighteen types, and no others', () => {
+    expect(EIGHTEEN).toHaveLength(18);
+    expect([...TOPIC_PALETTE_TYPES].sort()).toEqual([...EIGHTEEN].sort());
+  });
+
+  it.each(EIGHTEEN)('%s has a real colour, glyph, name and short name — never the fallback', (type) => {
+    const style = topicStyle(type);
+    expect(style.colour).toBe(SWATCH_COLOR[type]);
+    expect(style.colour).toMatch(/^#[0-9a-fA-F]{6}$/);
+    expect(style.glyph).not.toBe('•');
+    expect(style.name).toBeTruthy();
+    expect(style.shortName).toBeTruthy();
+  });
+
+  it('uses the names the plan gives', () => {
+    expect(topicStyle('AURORA')).toMatchObject({ name: 'Aurora', glyph: '🌌' });
+    expect(topicStyle('NLC')).toMatchObject({ name: 'NLC', glyph: '✦' });
+    expect(topicStyle('KING_TIDE')).toMatchObject({ name: 'King tide', glyph: '🌊' });
+    expect(topicStyle('SPRING_TIDE')).toMatchObject({
+      name: 'Spring tide', shortName: 'Tide', glyph: '🌊',
+    });
+    expect(topicStyle('INVERSION')).toMatchObject({ name: 'Inversion', glyph: '☁️' });
+    expect(topicStyle('DUST')).toMatchObject({ name: 'Dust', glyph: '🏜️' });
+    expect(topicStyle('MIST').name).toBe('Mist');
+    expect(topicStyle('STORM_SURGE').name).toBe('Storm surge');
+  });
+
+  it('gives placeNoun "coastal" to the tide and surge types, and no other type one', () => {
+    const coastal = EIGHTEEN.filter((type) => topicStyle(type).placeNoun === 'coastal');
+    expect(coastal.sort()).toEqual(['KING_TIDE', 'SPRING_TIDE', 'STORM_SURGE']);
+    expect(topicStyle('AURORA').placeNoun).toBeUndefined();
+  });
+
+  it('keeps the live swatch colours — the app\'s, not either mock\'s', () => {
+    expect(topicStyle('AURORA').colour).toBe('#8E86D6');
+    expect(topicStyle('KING_TIDE').colour).toBe('#6FA8B0');
+    expect(topicStyle('DUST').colour).toBe('#f97316');
+  });
+
+  it('shows an unknown type with the fallback colour, a bullet and its served label', () => {
+    expect(topicStyle('SOLAR_HALO', 'Solar halo')).toEqual({
+      colour: DEFAULT_SWATCH_COLOR, glyph: '•', name: 'Solar halo', shortName: 'Solar halo',
+    });
+    expect(topicStyle('SOLAR_HALO').name).toBe('SOLAR_HALO');
+  });
+
+  it('is case-insensitive on the type, as the scope helpers are', () => {
+    expect(topicStyle('aurora').name).toBe('Aurora');
+  });
+});
+
+describe('the live swatch colours survive the move from comingUpHandoff', () => {
+  it('gives LUNAR_ECLIPSE the same colour as ECLIPSE — one channel, two types', () => {
+    expect(topicStyle('LUNAR_ECLIPSE').colour).toBe('#C4787F');
+    expect(topicStyle('LUNAR_ECLIPSE').colour).toBe(topicStyle('ECLIPSE').colour);
+  });
+
+  it('gives valley mist its own air-family colour, not the unrecognised-type default', () => {
+    expect(topicStyle('MIST').colour).toBe('#8FA3B8');
+    expect(topicStyle('MIST').colour).not.toBe(DEFAULT_SWATCH_COLOR);
+  });
+});

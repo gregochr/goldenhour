@@ -33,6 +33,17 @@ import { MAYBE_THRESHOLD, WORTH_IT_THRESHOLD, verdictWord } from './verdictWord.
  */
 export { MAYBE_THRESHOLD, WORTH_IT_THRESHOLD, verdictWord };
 
+/**
+ * The big-seas chips (big-seas plan F2) live in the leaf `utils/bigSeasChips.js` for the same reason:
+ * `MapView` needs the chip list for the legend key without reaching `d3-geo`. Re-exported here so the
+ * label pass's vocabulary stays in one place, including the collision tier order.
+ */
+export {
+  BIG_SEAS_CHIP_MAX_ZOOM, NO_BIG_SEAS_CHIPS, bigSeasChipAriaLabel, bigSeasChipItems,
+  bigSeasChipTipLines, dropProtectedBigSeasChips, labelTierOrder, selectedBigSeasFirst,
+  withFallbackChips, withoutBigSeasDuplicates,
+} from './bigSeasChips.js';
+
 // ── Zoom thresholds (README "Zoom thresholds") ──────────────────────────────────────────────────
 
 /** The home marker is placed below this zoom — README §6 priority order item 1. */
@@ -130,6 +141,53 @@ export function regionLabelItems(spots, project, zoom) {
     });
   }
   return items;
+}
+
+/**
+ * The "stood down · cause" region labels (big-seas plan F3): one per qualified region, at the
+ * projected centroid of its STOOD places, tier and zoom gate those of {@link regionLabelItems}.
+ * Each carries the ordinary region label's key, so {@link withStandDownLabels} can replace it.
+ *
+ * @param {Array<{rid: string, cause: string, points: Array<object>}>} regions the qualified regions
+ *        ({@code utils/mapStandDown.js standDownRegions})
+ * @param {Function} project {@code (spot) => [x, y]} — a projected point in frame px
+ * @param {number} zoom the map's current zoom
+ * @returns {Array<{key: string, rid: string, x: number, y: number, hot: boolean, standDown: string}>}
+ */
+export function standDownRegionItems(regions, project, zoom) {
+  if (zoom >= REGION_LABEL_MAX_ZOOM) return [];
+  const items = [];
+  for (const region of Array.isArray(regions) ? regions : []) {
+    const at = centroid(region.points, region.rid, project);
+    if (!at || !Number.isFinite(at[0]) || !Number.isFinite(at[1])) continue;
+    items.push({
+      key: `region:${region.rid}`, rid: region.rid, x: at[0], y: at[1], hot: false, standDown: region.cause,
+    });
+  }
+  return items;
+}
+
+/**
+ * The region label list with each stood-down region's label REPLACING that region's ordinary one.
+ *
+ * @param {Array<{key: string}>} ordinary {@link regionLabelItems}' output
+ * @param {Array<{key: string}>} standDown {@link standDownRegionItems}' output
+ * @returns {Array<object>} the combined list
+ */
+export function withStandDownLabels(ordinary, standDown) {
+  if (!standDown.length) return ordinary;
+  // In place by key: the stood label takes the ordinary label's slot, so the greedy pass meets it at
+  // the same priority and the region order is unchanged. Only a stood label with no ordinary
+  // counterpart (every place of its region stood down) is appended.
+  const byKey = new Map(standDown.map((it) => [it.key, it]));
+  const used = new Set();
+  const merged = ordinary.map((it) => {
+    const swap = byKey.get(it.key);
+    if (!swap) return it;
+    used.add(it.key);
+    return swap;
+  });
+  return [...merged, ...standDown.filter((it) => !used.has(it.key))];
 }
 
 // ── Home marker ──────────────────────────────────────────────────────────────────────────────────
@@ -294,6 +352,21 @@ export function chipCandidates({
     || (a.askPick.rank - b.askPick.rank));
   const pickNames = new Set(picks.map((s) => s.name));
   return [...picks, ...shown.filter((s) => !pickNames.has(s.name))];
+}
+
+/**
+ * The ordinary chips to offer a place whose big-seas chip failed to place: {@link chipCandidates}
+ * over the FULL pool (so the density budget, the in-view filter and the ranking apply exactly as for
+ * any ordinary chip), restricted to the suppressed places. A low-ranked structure at a low zoom gets
+ * none, as it would not have had a chip without the big-seas chip either.
+ *
+ * @param {object} args {@link chipCandidates}' arguments, over the unsuppressed pool
+ * @param {Set<string>} args.suppressedNames the places a big-seas chip stands for
+ * @returns {Array<object>} the candidate spots, in ranking order
+ */
+export function fallbackChipSpots({ suppressedNames, ...rest }) {
+  if (suppressedNames.size === 0) return [];
+  return chipCandidates(rest).filter((spot) => suppressedNames.has(spot.name));
 }
 
 // ── The placement pass ───────────────────────────────────────────────────────────────────────────

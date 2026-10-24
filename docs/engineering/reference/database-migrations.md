@@ -1,0 +1,77 @@
+# Database migrations (notable ranges; read the latest number from the tree)
+
+> Moved verbatim from `CLAUDE.md` on 2026-10-22 to keep the always-loaded file small.
+> Read the section you need; this file is not loaded automatically.
+
+## Database Migrations
+
+| Range | Key tables/changes |
+|-------|-------------------|
+| V1–V3 | `forecast_evaluation`, `actual_outcome`, azimuth |
+| V5–V9 | `locations` table (**plural** — `V5__create_locations.sql`, `@Table(name = "locations")`; the singular sent a hand-written query to a table that does not exist) + metadata side-tables `location_tide_type`, `location_location_type`, `location_solar_event_type` (all **singular**) |
+| V10–V12 | `app_user`, `refresh_token`, password change gate |
+| V13–V15 | Tide columns on forecast_evaluation, `tide_extreme` table, FK constraints |
+| V16–V19 | evaluation_model, fiery_sky/golden_hour scores, rating, comfort fields |
+| V20–V21 | `job_run` + `api_call_log`, location failure tracking |
+| V22–V30 | model_selection, job_run enhancements, email on user, RunType refactor, location enabled |
+| V31–V35 | `regions`, email_verification_token, `model_test_run/result`, marketing opt-in |
+| V36–V39 | last_active_at, token columns + micro-dollar costs + exchange_rate, determinism re-run |
+| V41–V43 | optimisation_strategy, TideType enum refactor |
+| V44–V46 | prompt_test_run/result, SolarEventType refactor |
+| V47–V48 | location_id FK, directional cloud columns + basic-tier scores |
+| V49–V50 | NEXT_EVENT_ONLY strategy, WATERFALL location type + reclassification |
+| V51 | Cloud approach risk columns (solar trend, upwind sample) on forecast_evaluation |
+| V52 | SENTINEL_SAMPLING optimisation strategy rows; remove stale REQUIRE_PRIOR rows |
+| V53 | far_solar_low_cloud column on forecast_evaluation (strip vs blanket detection) |
+| V54 | TIDE_ALIGNMENT optimisation strategy rows for all colour run types |
+| V55 | drive_duration_minutes column on locations |
+| V56 | bortle_class column on locations (nullable integer) |
+| V57 | aurora_forecast_result table |
+| V58 | dew_point column on forecast_evaluation |
+| V59 | daily_briefing_cache table |
+| V60 | storm surge coastal parameters on locations |
+| V61 | storm surge forecast columns on forecast_evaluation |
+| V62 | sky_brightness_sqm column on locations |
+| V63 | briefing_model_test_run + briefing_model_test_result tables |
+| V64 | `astro_conditions` table (cloud/visibility/moon modifiers + explanations) |
+| V65 | `elevation_m` and `overlooks_water` columns on locations (inversion detection) |
+| V66 | `inversion_score` and `inversion_potential` columns on forecast_evaluation |
+| V67 | User home location (postcode, lat/lon) + `user_drive_time` table |
+| V68 | `scheduler_job_config` table + 5 seed rows (tide, briefing, aurora, met office, cleanup) |
+| V89–V96 | Batch job run costs, cached evaluation, batch near/far term model, forecast triage |
+| V97 | `evaluation_delta_log` table for empirical freshness threshold refinement |
+| V98 | `stability_snapshot` table for persisting stability state across restarts |
+| V99 | Batch observability: `custom_id`, `error_type`, `batch_id` on `api_call_log`; widen `error_message` to TEXT; partial indexes |
+| V100+ | (not individually listed here — `ls backend/src/main/resources/db/migration/ \| sort -V` for the full set) |
+| V127 | `forecast_evaluation.confidence` — durable horizon-derived per-evaluation confidence (nullable `VARCHAR(20)`, enum name); rides analytics, gates nothing |
+| V145 | `regions.base_name/base_lat/base_lon` (nullable — a baseless region cannot be a Plan-tab origin) + `region_drive_time`, the **shared** base→roster matrix, keyed on `region_id` rather than on the region name; seeds the `region_drive_time_refresh` job at 03:10 |
+| V153 | Retires six optimisation strategies unable to act since v2.7.2, plus the never-built `BATCH_API` (`DELETE` by `strategy_type`, the shape of V42) — paired with removing their enum values, so a row left behind would make Hibernate throw on read. Local dev runs no migrations, so `OptimisationStrategyService` deletes the same explicit list at startup (never "every unknown type" — that would eat a newer type's rows on a rollback) and fills any missing default row |
+| V163 | `pipeline_run.disposition_job_run_id BIGINT` (the job run holding the cycle's dispositions, anchor or first batch's) and `failures_settled_at TIMESTAMPTZ` (when location failures were settled; the conditional-update claim that makes the settle exactly-once; null until settled, which is what the sweep looks for). Both nullable, `updatable = false` on the entity, written only by `PipelineRunRepository` scoped updates |
+| V164 | `forecast_evaluation_prompt` (the batch sky user message per `forecast_evaluation` row, FK `ON DELETE CASCADE`, pruned nightly by `forecast_prompt_cleanup` at 03:50 UTC, `photocast.forecast-prompt.retention-days` default 30) + nullable `forecast_evaluation.sky_rating` |
+| V165 | `ask_ready_answer` — Ask PhotoCast's precomputed Ready answers, one row per (`scope_key`, `question_id`) (unique), `answer_json` holding each pick's rating and verdict as they were when written, `pipeline_run_id` deliberately not a foreign key; upserted, never pruned (at most (regions + 1) × 7 rows) |
+| V166 | `ask_usage` — per user per UK day, `used` (refundable) and `engine_calls` (never refunded), unique `(user_id, usage_date)`, `ON DELETE CASCADE` (deleting a user must not be blocked), a non-negative check; one conditional `UPDATE` takes both counters |
+| V167 | `ask_log` — one row per ANSWERED Ask request (`user_id` `ON DELETE SET NULL`, a check constraint keeping `normalised_question` to `CLAUDE_OK`/`CLAUDE_CANT`, an index on `created_at`) plus the `ask_log_cleanup` scheduler seed (03:55 UTC, 90-day retention). V165–V167 are proven only by CI's Backend job (`AskReadyAnswerMigrationTest`, `AskUsageMigrationTest`, `AskLogMigrationTest`); `RunType.ASK`/`ASK_READY` need no migration |
+| V168 | `api_call_log.cache_diagnostics TEXT NULL` — the Anthropic prompt-cache diagnostics a logged call's response carried, as compact JSON (see the *Batch cache primer* bullet); NULL for every call that carries none and every earlier row |
+| V170 | `scheduler_job_config` seed for `astro_conditions_refresh` (daily 15:30 UTC, ACTIVE) — see the *Astro conditions* bullet. Proven by CI only |
+| V173 | moves `briefing_model_comparison` from `0 0 5 * * *` to `0 30 6 * * *` UTC, only while it still holds the V79 seeded value (a hand-edited cron is left alone); solar-relative-refresh-plan P4. Proven by CI only (`BriefingModelComparisonRescheduleMigrationTest`) |
+| V174 | rewords the `intraday_forecast_refresh` row's description from "mid-afternoon" to "ahead of tonight's sunset (a set time before it on the sun-relative schedule, else at its cron time)", only while it still holds V141's exact text (a hand-edited description is left alone); writes nothing but `description`. Proven by CI only (`IntradayJobDescriptionMigrationTest`) |
+| V171 | `scheduler_job_config.solar_event VARCHAR(10)` and `solar_offset_minutes INTEGER`, both nullable, with CHECKs (event in SUNRISE/SUNSET, offset 0..720). Columns only, no row touched. Proven by CI only (`SchedulerSolarOffsetColumnsMigrationTest`) |
+| V172 | `scheduler_job_config` seed for `forecast_cycle_watchdog` (FIXED_DELAY 600000 ms, initial delay 600000 ms, ACTIVE) — exactly one row, no existing schedule touched. Proven by CI only (`ForecastCycleWatchdogSeedMigrationTest`) |
+| V175 | far-point cloud capture (far-cloud-lid-plan P2): five nullable `INTEGER` columns on `forecast_evaluation` (`far_solar_mid_cloud`, `far_solar_high_cloud`, `far_solar_low/mid/high_cloud_dark`) and five on `cloud_verification` (`far_mid_cloud`, `far_high_cloud`, `far_low/mid/high_cloud_dark`), one `ALTER TABLE` each, no backfill. Proven by CI only (`FarSolarCloudCaptureMigrationTest`) |
+| V176 | pressure-level cloud at the far point (far-cloud-lid-plan P2, S0): six nullable `INTEGER` columns on `forecast_evaluation` (`far_solar_cloud_850hpa` … `far_solar_cloud_300hpa`), one `ALTER TABLE`, no backfill, no `cloud_verification` change (the ERA5 archive returns null for these). Proven by CI only (`FarSolarPressureLevelCloudMigrationTest`) |
+| V177 | `outcome_rating` — a reader's rating of a past sunrise or sunset (outcome-rating plan §2 #1): one row per (`user_id`, `location_id`, `event_date`, `event_type`) (unique `uq_outcome_rating_slot`), `rating` 1–5 or NULL for "didn't see it", the server-computed per-location `event_time`, and the provenance of the forecast the reader was shown (`pipeline_run_id`, `forecast_run_at`, `forecast_evaluation_id` `ON DELETE SET NULL`, `forecast_rating` — the star seen, NULL when not recoverable); `user_id` `ON DELETE CASCADE`, `location_id` not; three indexes, one on `forecast_evaluation_id` for the calibration join. Proven by CI only (`OutcomeRatingMigrationTest`) |
+| V178 | `forecast_evaluation.scored_at TIMESTAMPTZ NULL` — when a row GOT its rating or triage reason (the availability instant; `forecast_run_at` is a submission instant). Nullable, no backfill in V178 itself: a NULL stamp is never a candidate for the as-of-event resolution (V183 stamps the pre-V178 rows once, below). Proven by CI only |
+| V179 | `password_reset_token` (`token_hash` SHA-256 UNIQUE, `user_id` `ON DELETE CASCADE`, `expires_at`, `used_at`, an index on `(user_id, created_at)`) and `app_user_email_claim` (`email_lower` PRIMARY KEY — a reservation of the lower-cased address, owned by no one account and with NO cascade, backfilled `SELECT DISTINCT LOWER(email)` from `app_user`). Proven by CI only (`PasswordResetTokenMigrationTest`, `EmailClaimMigrationTest`) |
+| V180 | `app_user.credentials_version BIGINT NOT NULL DEFAULT 0` and `credentials_changed_at TIMESTAMPTZ NULL` — token invalidation (login-registration plan §2 #13); no backfill, so every token already issued stays valid until it expires. Proven by CI only (`CredentialsChangedAtMigrationTest`) |
+| V181 | `app_user.postcode_prompt_dismissed_at TIMESTAMPTZ NULL` — the one-time sign-in postcode prompt's only stored state; no default, no backfill (null is "never dismissed", so an existing account without a postcode is asked once). Proven by CI only (`PostcodePromptDismissedMigrationTest`) |
+| V182 | build and prompt provenance (forecast-build-provenance): nullable `forecast_evaluation.app_build VARCHAR(40)` and `prompt_hash VARCHAR(64)`, nullable `outcome_rating.app_build VARCHAR(40)`, no backfill. Proven by CI only (`BuildProvenanceMigrationTest`) |
+| V183 | one-off, bounded backfill of `forecast_evaluation.scored_at` (owner decision 2026-10-17): rows with something to say, no stamp and `forecast_run_at` before V178's `flyway_schema_history.installed_on` get `scored_at = forecast_run_at`. Without it every slot scored before the v2.28.0 deploy resolved to no row and could not be rated. Proven by CI only (`ForecastEvaluationScoredAtBackfillMigrationTest`) |
+| V185 | valley mist reading (valley-mist-plan M1a): `locations.mist_prone BOOLEAN NOT NULL DEFAULT FALSE`, `slot_atmosphere.mist_score DOUBLE PRECISION NULL`, `mist_scored BOOLEAN NOT NULL DEFAULT FALSE` (V158's pair) and `mist_potential VARCHAR(10) NULL` (the band name); four `ALTER TABLE`s, no backfill, nothing flagged. Proven by CI only (`ValleyMistReadingMigrationTest`) |
+| V186 | valley mist star (valley-mist-plan M2): `forecast_evaluation.mist_potential VARCHAR(10) NULL` (Claude's band, a plain String) and the `MIST` `forecast_type` seed (id 8, `Valley Mist Forecast`, scale 10) that lets `ForecastScoreWriter` upsert the echo as a `forecast_score` component; one `ALTER TABLE`, one `INSERT`, no backfill. Proven by CI only (`ValleyMistStarMigrationTest`) |
+| V187 | valley mist loop (valley-mist-plan M3): `outcome_rating.seen VARCHAR(10) NULL` (the `SeenTag` name) with a CHECK on the five values and a second CHECK that `NOT_SEEN` goes with a null rating and only with it; `cloud_verification.observer_temp_c` and `observer_dew_point_c DOUBLE PRECISION NULL` (the ERA5 saturation proxy, recorded never required). Columns and constraints only, no backfill. Proven by CI only (`OutcomeRatingMigrationTest`) |
+| V184 | `scheduler_job_config` seed for `evening_sunrise_refresh` (CRON `0 0 20 * * *` UTC, status **PAUSED**, no solar columns) — exactly one row, no existing schedule touched; the owner resumes it from the Scheduler screen. Proven by CI only (`EveningSunriseRefreshSeedMigrationTest`) |
+| V188 | big seas B1 (big-seas-plan): `locations.coastal_structure VARCHAR(20)`, `structure_faces_deg INTEGER` (CHECK 0-359) and `structure_label VARCHAR(40)`, all nullable, seeded BY NAME for the seven structures (Roker Pier & Lighthouse, St. Mary's Lighthouse, Amble, Saltburn-by-the-Sea, Whitby Piers, Seaham North Pier & Lighthouse, Hartlepool Headland) with a `RAISE WARNING` (not EXCEPTION) post-flight count; and the new `marine_high_water` table (`UNIQUE (location_id, hw_time)`, FK to `locations`, index on `hw_time`), one row per daylight high water with the peak wave, period and swell figures. Its header corrects V123's stale "sampled at the aligned high-water time" wording in prose (V123 is never edited): `marine_wave` is sampled at sunrise and sunset. Proven by CI only (`BigSeasHighWaterMigrationTest`). |
+| V189 | named areas (ask-named-areas-plan A1): `area` (`name VARCHAR(80)`, `created_at TIMESTAMP`, case-insensitive unique index `uq_area_name_lower`), `area_alias`, `area_location` (member location ids, cascade from `locations`) and `location_alias`; no association from `LocationEntity`. Seeds the area "Hadrian's Wall" (aliases "Hadrian Wall", "Roman Wall") with members BY NAME from a list of candidate spellings (a missing spelling inserts nothing) and the three Heugh aliases on Hartlepool Headland. The file is UTF-8 (curly apostrophe). Proven by CI only (`NamedAreasMigrationTest`; the `validate` boot proves the entity mappings) |
+| **latest** | **Deliberately not written down — every number recorded here has rotted.** Read it from the tree before adding a migration: `ls backend/src/main/resources/db/migration/ \| sort -V \| tail -1` |
+
+---

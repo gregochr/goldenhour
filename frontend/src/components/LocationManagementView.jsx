@@ -3,6 +3,9 @@ import PropTypes from 'prop-types';
 import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace, enrichLocation } from '../api/forecastApi.js';
 import { fetchRegions } from '../api/regionApi.js';
 import { fetchTideStats } from '../api/tideApi.js';
+import { fetchLocationAliases, setLocationAliases } from '../api/areaApi.js';
+import { parseAliases, formatAliases } from '../utils/aliasText.js';
+import AreasSection from './AreasSection.jsx';
 import LocationAlerts from './LocationAlerts.jsx';
 import InfoTip from './InfoTip.jsx';
 import { formatTimestampUk } from '../utils/conversions';
@@ -268,6 +271,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [editValues, setEditValues] = useState(null);
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  // Other names per location id; null until loaded, and stays null if the load fails so the field is
+  // disabled rather than offering to overwrite names it never saw.
+  const [aliasesByLocation, setAliasesByLocation] = useState(null);
+  const [aliasesFailed, setAliasesFailed] = useState(false);
+  const [aliasDetail, setAliasDetail] = useState('');
 
   // Add form state
   const [placeName, setPlaceName] = useState('');
@@ -333,6 +341,19 @@ export default function LocationManagementView({ onLocationsChanged }) {
     Promise.all([fetchLocations(), fetchRegions()])
       .then(([locs, regs]) => { setLocations(locs); setRegions(regs); })
       .finally(() => setLoading(false));
+    fetchLocationAliases()
+      .then((aliases) => {
+        const map = aliases ?? {};
+        setAliasesByLocation(map);
+        // An editor opened before the names landed starts the field (and its baseline) now; it was disabled,
+        // so nothing the admin typed can be lost.
+        setEditValues((prev) => {
+          if (!prev || prev.aliasesLoaded) return prev;
+          const text = formatAliases(map[prev.locId]);
+          return { ...prev, aliases: text, aliasesBaseline: text, aliasesLoaded: true };
+        });
+      })
+      .catch(() => { setAliasesFailed(true); });
   }, []);
 
   // Cancel inline edit when page changes (edited row may no longer be visible)
@@ -380,8 +401,13 @@ export default function LocationManagementView({ onLocationsChanged }) {
       tideTypes: Array.isArray(loc.tideType) ? [...loc.tideType] : [],
       regionId: loc.region?.id ? String(loc.region.id) : '',
       mistProne: loc.mistProne === true,
+      locId: loc.id,
+      aliases: formatAliases(aliasesByLocation?.[loc.id]),
+      aliasesBaseline: formatAliases(aliasesByLocation?.[loc.id]),
+      aliasesLoaded: aliasesByLocation !== null,
     });
     setEditError('');
+    setAliasDetail('');
   }
 
   async function handleShowTideStats(loc) {
@@ -398,6 +424,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setEditingRowId(null);
     setEditValues(null);
     setEditError('');
+    setAliasDetail('');
   }
 
   function handleEditChange(field, value) {
@@ -442,6 +469,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
     }
     setEditSaving(true);
     setEditError('');
+    setAliasDetail('');
     try {
       await updateLocation(editingRowId, {
         name: editValues.name.trim(),
@@ -453,6 +481,22 @@ export default function LocationManagementView({ onLocationsChanged }) {
         regionId: editValues.regionId ? Number(editValues.regionId) : null,
         mistProne: editValues.mistProne === true,
       });
+      // Other names are a separate write, AFTER the location's own save succeeds, and only when the field
+      // was edited: an unedited field must never overwrite names it may not have seen.
+      // The comparison is against the text the field STARTED with (recorded when the editor opened, or when
+      // the names landed), never the live map: an editor opened before the load must not read as "cleared".
+      if (editValues.aliasesLoaded && editValues.aliases !== editValues.aliasesBaseline) {
+        try {
+          const savedAliases = await setLocationAliases(editingRowId, parseAliases(editValues.aliases));
+          setAliasesByLocation((prev) => ({ ...prev, [editingRowId]: savedAliases }));
+        } catch (aliasErr) {
+          await refreshLocations();
+          onLocationsChanged();
+          setEditError('Location saved; its other names were not');
+          setAliasDetail(aliasErr?.response?.data?.error ?? '');
+          return;
+        }
+      }
       await refreshLocations();
       handleEditCancel();
       onLocationsChanged();
@@ -978,6 +1022,23 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   data-testid="inline-edit-lon"
                                 />
                               </div>
+                              <div className="mt-1.5 flex items-center gap-2 text-xs">
+                                <label htmlFor={`inline-edit-aliases-${loc.id}`} className="text-plex-text-muted shrink-0">
+                                  Also known as
+                                </label>
+                                <input
+                                  id={`inline-edit-aliases-${loc.id}`}
+                                  type="text"
+                                  className={inlineInputClass}
+                                  value={editValues.aliases}
+                                  onChange={(e) => handleEditChange('aliases', e.target.value)}
+                                  disabled={!editValues.aliasesLoaded}
+                                  placeholder={!editValues.aliasesLoaded
+                                    ? (aliasesFailed ? 'Other names could not be loaded' : 'Loading other names...')
+                                    : 'Other names, comma-separated (e.g. The Heugh)'}
+                                  data-testid="inline-edit-aliases"
+                                />
+                              </div>
                             </td>
                           </tr>
                         )}
@@ -985,6 +1046,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
                           <tr>
                             <td colSpan={10} className="py-1 text-xs text-red-400 pl-1" data-testid="inline-edit-error">
                               {editError}
+                              {aliasDetail && (
+                                <span className="ml-1 text-plex-text-secondary" data-testid="inline-edit-alias-detail">
+                                  ({aliasDetail})
+                                </span>
+                              )}
                             </td>
                           </tr>
                         )}
@@ -1024,6 +1090,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
           {!loading && locations.length === 0 && (
             <p className="text-sm text-plex-text-muted">No locations configured. Add one to get started.</p>
           )}
+
+          {!loading && <AreasSection locations={locations} />}
         </>
       )}
 

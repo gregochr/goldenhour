@@ -279,6 +279,17 @@ photocast:
   #     min-rating: 3               # lowest sky rating that can be flagged, 3-5 (a floor below 3 is
   #                                 # unreachable at margin 2); raise it to guard only 4-star claims
   #     max-elevation-gap-m: 150    # two places closer in height than this are "at a similar height", 0-1000
+  # Big seas (docs/engineering/big-seas-plan.md §3 B2). A high water at a pier, breakwater or lighthouse
+  # is a "big sea" when the wave is tall enough, long enough in period and comes from within
+  # `max-onshore-angle-deg` of the way the structure faces. Judged at serve time from the numbers
+  # `marine_high_water` stores, so retuning needs no refetch. Every key is optional; each default is
+  # shown. Uncomment to change one. A value outside its stated range fails startup.
+  #   big-seas:
+  #     min-wave-height-m: 3.0      # significant wave height, metres, 0.5-15
+  #     max-onshore-angle-deg: 60   # widest angle between wave direction and the structure's bearing, 0-180
+  #     min-wave-period-s: 8.0      # mean wave period, seconds, 1-30
+  #     half-window-minutes: 90     # half-width sampled around each high water, 15-180 (later refreshes only)
+  #     max-sample-age-hours: 30    # stored samples older than this are not served, 1-168
   tide-run:
     preferred-anchor: "St. Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
                             # chart is drawn for. Blank restores pure biggest-range selection.

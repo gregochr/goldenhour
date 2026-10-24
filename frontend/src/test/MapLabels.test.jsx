@@ -1309,6 +1309,27 @@ describe('MapLabels — re-paints on the same rAF-guarded cadence as the field',
     expect(projectSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('⚠️ repaints when `chromeKey` changes: the chrome group changed height under labels that were already placed', async () => {
+    // The key is the MapView's `useChromeTlHeight` nonce. Nothing else here changes (stable `spots` and
+    // `homeCoords`), so a repaint on the key alone can only come from the key being in the repaint
+    // effect's dependencies. The same-key rerender is the control: it must NOT repaint.
+    restoreMeasure = withMeasuredLabels(30, 14);
+    currentMap = makeFullMap({ zoom: 9 });
+    const projectSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const none = [];
+    const { rerender } = await mount({ spots: none, homeCoords: HOME, chromeKey: 0 });
+    await act(async () => { runFrames(); });
+    projectSpy.mockClear();
+
+    await act(async () => { rerender(<MapLabels spots={none} homeCoords={HOME} chromeKey={0} />); });
+    await act(async () => { runFrames(); });
+    expect(projectSpy).not.toHaveBeenCalled();
+
+    await act(async () => { rerender(<MapLabels spots={none} homeCoords={HOME} chromeKey={1} />); });
+    await act(async () => { runFrames(); });
+    expect(projectSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('stops listening on unmount', async () => {
     restoreMeasure = withMeasuredLabels(30, 14);
     currentMap = makeFullMap({ zoom: 9 });
@@ -1413,6 +1434,48 @@ describe('MapLabels — the "you rated this" badge (outcome-rating-plan.md §2 #
     }]);
     expect(document.querySelector('.wf-rated-badge')).toBeNull();
     expect(document.querySelector('[data-ask="pick"]')).toHaveAttribute('aria-label', 'Pick 1');
+  });
+});
+
+describe('MapLabels — a stood-down region\'s label (big-seas plan F3)', () => {
+  const STOOD_REGIONS = [{
+    rid: 'North East',
+    cause: 'rain',
+    points: [{ lat: 55.0, lng: -1.5, rid: 'North East' }, { lat: 55.2, lng: -1.7, rid: 'North East' }],
+  }];
+
+  it('replaces that region\'s ordinary label with its name over "stood down · cause"', async () => {
+    restoreMeasure = withMeasuredLabels(60, 12);
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ standRegions: STOOD_REGIONS });
+    await act(async () => { runFrames(); });
+    const regions = [...document.querySelectorAll('[data-testid="map-label-region"]')];
+    expect(regions).toHaveLength(2);
+    const stood = regions.find((r) => r.dataset.standdown);
+    expect(stood.dataset.standdown).toBe('rain');
+    expect(stood.querySelector('.wf-maplab-standdown-name')).toHaveTextContent('North East');
+    expect(stood.querySelector('.wf-maplab-standdown-cause')).toHaveTextContent('stood down · rain');
+    expect(stood).toHaveAttribute('aria-hidden', 'true');
+    // The other region keeps its ordinary label.
+    const other = regions.find((r) => !r.dataset.standdown);
+    expect(other).toHaveTextContent('The Lakes');
+    expect(other.className).not.toContain('wf-maplab-standdown');
+  });
+
+  it('is absent at or above the region zoom gate, like every region label', async () => {
+    restoreMeasure = withMeasuredLabels(60, 12);
+    currentMap = makeFullMap({ zoom: 12 });
+    await mount({ standRegions: STOOD_REGIONS });
+    await act(async () => { runFrames(); });
+    expect(document.querySelectorAll('[data-testid="map-label-region"]')).toHaveLength(0);
+  });
+
+  it('changes nothing without the prop', async () => {
+    restoreMeasure = withMeasuredLabels(60, 12);
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount();
+    await act(async () => { runFrames(); });
+    expect(document.querySelector('[data-standdown]')).toBeNull();
   });
 });
 

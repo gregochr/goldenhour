@@ -76,7 +76,7 @@ const SOLAR_KIND = 'solar';
  * @param {string} regionName
  * @returns {string}
  */
-function keyOf(date, targetType, regionName) {
+export function keyOf(date, targetType, regionName) {
   return `${date}|${targetType}|${regionName}`;
 }
 

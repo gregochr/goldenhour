@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import WindowComingUpEntry from './WindowComingUpEntry.jsx';
 import WindowComingUpConditions from './WindowComingUpConditions.jsx';
 import WindowComingUpSinceLine from './WindowComingUpSinceLine.jsx';
-import WindowFirstComingUpHandoff from './WindowFirstComingUpHandoff.jsx';
+import WindowComingUpFourDays from './WindowComingUpFourDays.jsx';
 import { buildChronology, chipCounts, footerCopy, FOOTER_LEAD } from '../utils/comingUpFeed.js';
 import { CHIP_GLYPHS } from '../utils/comingUpGlyphs.js';
 import { deriveBadge, selectSinceEntry } from '../utils/comingUpArrivals.js';
@@ -88,10 +88,15 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  *                                     §11.24). Three-valued: null/absent is "not known yet" and
  *                                     withholds nothing; an array, even empty, is known
  * @param {function} props.onMarkSeen  clears the badge and every NEW flag (plan §6/P5)
+ * @param {?Set<string>} [props.openableKeys] the `date:TYPE` keys of Plan's window cards — the
+ *                                     windows a lane's tap can open (Plan renders only six)
+ * @param {function} [props.onGoToPlanWindow] `(key, topicType)` — a lane's tap on a window Plan
+ *                                     has a card for: switches to Plan and opens that popup
  */
 export default function WindowFirstComingUp({
   id, labelledBy, hidden, status, events, hotTopics, todayStr, onRetry, onGoToPlan, onShowOnMap,
-  comingUpLastSeenDate, onMarkSeen, forecastDates = null,
+  comingUpLastSeenDate, onMarkSeen, forecastDates = null, openableKeys = null,
+  onGoToPlanWindow = undefined,
 }) {
   const [activeFilter, setActiveFilter] = useState('all');
 
@@ -105,6 +110,17 @@ export default function WindowFirstComingUp({
       events?.entries, todayStr, activeFilter, comingUpLastSeenDate, forecastDates,
     ),
     [events, todayStr, activeFilter, comingUpLastSeenDate, forecastDates],
+  );
+  // The ids the month list is RENDERING right now, under the ACTIVE chip — the lanes' jump button
+  // may target only these, so it can never scroll to a card the filter has hidden (plan §1.9).
+  // ⚠️ Empty unless `status === 'ready'`: the list renders only then, but `events` can be stale
+  // while a retry is `loading` (or after a failure), and ids from a list that is not on screen
+  // would draw a jump button whose target is not in the DOM.
+  const renderedEntryIds = useMemo(
+    () => (status === 'ready'
+      ? new Set(monthGroups.flatMap((group) => group.entries.map((entry) => entry.id)))
+      : new Set()),
+    [status, monthGroups],
   );
   // The since-line's own two derivations (plan D3/D12) — read straight off the UNFILTERED served
   // entries/bands, never the active chip's filtered subset: the badge and the since-line describe
@@ -295,16 +311,20 @@ export default function WindowFirstComingUp({
           <WindowComingUpConditions conditions={conditions} onGoToPlan={onGoToPlan} />
         )}
 
-        {/* The handoff row (design's `.hoff`, plan D14) sits after conditions in the design's own
-            order, but — unlike chips/conditions — is NOT gated on the almanac fetch: it reads only
-            `hotTopics`, a wholly separate data source, and used to render unconditionally before
-            this reorder. Gating it on `ready` would make the tab's own boundary statement vanish
-            during a slow or failed almanac load, which is a worse degrade than an ungated row
-            sitting one place lower than the chips it can no longer follow. */}
-        <WindowFirstComingUpHandoff
+        {/* The "Next four days" lanes (hot-topics-by-day-plan C1; they replaced the design's dashed
+            `.hoff` handoff row, plan D14) sit after conditions in the design's own order but —
+            unlike chips/conditions — are NOT gated on the almanac fetch: they read `hotTopics`, a
+            wholly separate data source. Gating them on `ready` would make the tab's own boundary
+            statement vanish during a slow or failed almanac load. Only the jump button needs the
+            feed, and `renderedEntryIds` is empty until it arrives, so it simply does not render. */}
+        <WindowComingUpFourDays
           todayStr={todayStr}
           hotTopics={hotTopics}
+          openableKeys={openableKeys}
+          entries={events?.entries}
+          renderedEntryIds={renderedEntryIds}
           onGoToPlan={onGoToPlan}
+          onGoToPlanWindow={onGoToPlanWindow}
         />
 
         {status === 'ready' && monthGroups.map((group, i) => (
@@ -380,4 +400,6 @@ WindowFirstComingUp.propTypes = {
   comingUpLastSeenDate: PropTypes.string,
   forecastDates: PropTypes.arrayOf(PropTypes.string),
   onMarkSeen: PropTypes.func.isRequired,
+  openableKeys: PropTypes.instanceOf(Set),
+  onGoToPlanWindow: PropTypes.func,
 };

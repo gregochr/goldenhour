@@ -129,7 +129,7 @@ Net: production scoring is unchanged. The owner's app rates the same sky the sam
 
 1. **ERA5 as arbiter.** F4, F6, F7, F8 and F9 all rest on ERA5 cloud. If ERA5 shares the forecast model's low-cloud bias over north-east England, the phantom-deck rate (F8) is overstated and the "4.6 withdraws clean gos" reading (F4) is weakened. The only non-model evidence is two Meteosat frames per evening and three owner ratings, all from 15 October.
 2. **Selection in the replay (F2).** Stored ratings are the selection criterion for the arms; the control (4.3% / 2.5%) is the only correction. Is a same-model control of 150 enough, and does "median of one attempt" overstate stability beyond the one prompt P0 measured at 20 runs?
-3. **Date clustering.** Every rate in F6–F8 is over slots that share weather days (15 October alone is 100 of 128 in F6 and 28 of 137 in F7). The Wilson intervals in §18 are too narrow by construction; no block-bootstrapped interval was computed for those two tools (Part B's `premise.py` does block-bootstrap).
+3. **Date clustering.** Every rate in F6–F8 is over slots that share weather days (15 October alone is 100 of 128 in F6 and 28 of 137 in F7). The Wilson intervals in §18 are too narrow by construction; no block-bootstrapped interval was computed for those two tools when this was written (Part B's `premise.py` does block-bootstrap); `canvas.py` and `lowdeck.py` print one beside each Wilson interval since plan §19.
 4. **The 226 km single point.** F3 reads a continuous lid from a transect; production stores one point. F5 shows the one point cannot separate the two evenings. Is there any stored figure that could (the dark-hour far readings, the pressure levels, which read < 25% on both evenings)?
 5. **Two evenings.** F5's refutation is n = 2 with opposite outcomes. It rules the far-high cover reading out as a *sufficient* detector; it does not measure how often a lid matters when the overhead is clear.
 6. **Model-era confound.** Every Sonnet 5.5 figure is October 2026; every Haiku figure is mostly earlier. "Sonnet 5.5 produces the weak-canvas shape twice as often" (F7) and "Sonnet 5.5's phantom rate is lower" (F8) may both be weather, not model.
@@ -141,7 +141,7 @@ Net: production scoring is unchanged. The owner's app rates the same sky the sam
 ## 5. Open candidates, in the order the data supports them
 
 1. **Weak-canvas rule** (§9 item 7): wait for owner ratings on weak-canvas gos (`canvas.py --ratings` with `export_outcome_ratings.sql` once ratings exist beyond 15 October). Cannot ship on n = 1.
-2. **Phantom low deck under a forecast canopy** (F8): size, on the verified history, how often a slot with forecast observer low ≥ 60 AND forecast mid or high ≥ 60 turns out lit (ERA5 low < 20 with canopy present), and what a narrow triage change ("do not stand down on low cloud alone when a canopy is forecast") would send to Claude instead. Costs Claude calls; needs the replay harness and owner ratings before shipping. Not yet sized.
+2. **Phantom low deck under a forecast canopy** (F8): size, on the verified history, how often a slot with forecast observer low ≥ 60 AND forecast mid or high ≥ 60 turns out lit (ERA5 low < 20 with canopy present), and what a narrow triage change ("do not stand down on low cloud alone when a canopy is forecast") would send to Claude instead. Costs Claude calls; needs the replay harness and owner ratings before shipping. Sized offline in plan §19 (`canopydeck.py`); the released slots have no stored prompt, so plan §20 replayed a proxy set instead (#1298).
 3. **A forecast-time signal for the phantom deck**: per-model low cloud (ukmo_seamless vs ecmwf vs icon) at the observer point for phantom-deck slots, to see whether model disagreement predicts the phantom. Open-Meteo's free daily limit (~600 weighted calls) makes this a multi-day sampling job.
 4. **Part B again** when ERA5 verification passes the end of October, to double the Sonnet 5.5 sample.
 5. **Part C** (how common far decks are) is deprioritised by F5.
@@ -173,7 +173,7 @@ combined-vs-sky cross-tabulation on `select`; `lowdeck.py` to assert rather than
 `HIGH_CLOUD` message and to show every outcome category in its headline; `canvas.py` and
 `lowdeck.py` to add a date-block-bootstrap interval beside the Wilson one (as `premise.py` already
 does) with a sensitivity that drops 15 October; `canvas.py` to report the strict (antisolar) form
-beside the broad one in its headline. Not yet done.
+beside the broad one in its headline. Done in #1296.
 
 ## 7. Pointers
 

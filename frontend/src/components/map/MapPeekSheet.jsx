@@ -8,6 +8,7 @@ import { isNightRow } from '../../utils/mapPeek.js';
 import { EVENT_KIND } from '../../utils/mapEvents.js';
 import { meridiemOf } from '../../utils/askModel.js';
 import { KindChip, RatedCell } from './WindowControl.jsx';
+import BoltIcon from './BoltIcon.jsx';
 import { noStoredForecast } from './outcomeRatingCopy.js';
 
 /**
@@ -370,7 +371,7 @@ export function MapPeekWindowsSection({
   heading, rows, verdicts = null, activeId = null, onSelect, onOpenDrilldown = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
   emptyOlderDayLabel = null,
-  ratedCounts = null,
+  ratedCounts = null, topics = null,
 }) {
   // The same EARLIER group the dropdown draws (WindowControl): every PAST row under a sub-header per
   // day, the Load row first. ⚠️ The Load row and the header sit OUTSIDE the listbox (it chooses no
@@ -470,7 +471,12 @@ export function MapPeekWindowsSection({
               onClick={() => onSelect(row)}
             >
               <KindChip row={row} />
-              <span className="wf-map-peek-wr-day">{row.dayLabel ?? row.label}</span>
+              <span className="wf-map-peek-wr-day">
+                {row.dayLabel ?? row.label}
+                {/* The daylight High-water row (hot-topics-by-day M3): the bolt is decoration, so the
+                    row's name carries the fact itself. */}
+                {row.kind === EVENT_KIND.HW && <span className="sr-only">, big seas</span>}
+              </span>
               <span className="wf-map-peek-wr-time">{row.time}</span>
               {night ? (
                 row.scored && row.bestRating != null ? (
@@ -481,6 +487,13 @@ export function MapPeekWindowsSection({
                 ) : (
                   <span className="wf-map-peek-wr-verdict wf-map-peek-wr-unscored">&mdash;</span>
                 )
+              ) : row.kind === EVENT_KIND.HW ? (
+                // No score on the High-water row: a dash and the bolt (aria-hidden), like the week menu.
+                <span className="wf-map-peek-wr-verdict wf-map-peek-wr-unscored" data-testid="wf-map-peek-wr-hw">
+                  &mdash;
+                  {' '}
+                  <span className="wf-win-row-bigseas" aria-hidden="true"><BoltIcon /></span>
+                </span>
               ) : (
                 verdict ? (
                   <b className="wf-map-peek-wr-verdict" data-tier={verdict.tier}>
@@ -506,6 +519,8 @@ export function MapPeekWindowsSection({
           This window, region by region
         </button>
       )}
+      {/* The four-day hot-topics strip, sheet variant (hot-topics-by-day M4): the phone's way to topics. */}
+      {topics}
     </div>
   );
 }
@@ -535,4 +550,6 @@ MapPeekWindowsSection.propTypes = {
   onLoadOlderDay: PropTypes.func,
   /** Row id to the reader's rated-location count for a PAST window; an absent id is unknown. */
   ratedCounts: PropTypes.instanceOf(Map),
+  /** The phone's four-day hot-topics section (`MapTopicStrip variant="sheet"`), after the list; null when none. */
+  topics: PropTypes.node,
 };

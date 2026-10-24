@@ -45,6 +45,7 @@ public class LocationService {
     private final RegionRepository regionRepository;
     private final TideService tideService;
     private final LocationEnrichmentService locationEnrichmentService;
+    private final NameNamespaceGuard nameGuard;
 
     /**
      * Constructs a {@code LocationService}.
@@ -54,11 +55,14 @@ public class LocationService {
      * @param tideService        used to fetch tide extremes for coastal locations
      * @param locationEnrichmentService supplies the Open-Meteo snapped grid cell when a location
      *                                  is saved without one, or is moved
+     * @param nameGuard          the shared name rules: a location name may not shadow a named area or an alias
      */
     public LocationService(LocationRepository locationRepository,
                            RegionRepository regionRepository,
                            TideService tideService,
-                           LocationEnrichmentService locationEnrichmentService) {
+                           LocationEnrichmentService locationEnrichmentService,
+                           NameNamespaceGuard nameGuard) {
+        this.nameGuard = nameGuard;
         this.locationRepository = locationRepository;
         this.regionRepository = regionRepository;
         this.tideService = tideService;
@@ -128,6 +132,9 @@ public class LocationService {
         if (locationRepository.existsByName(request.name())) {
             throw new IllegalArgumentException("A location named '" + request.name() + "' already exists");
         }
+        nameGuard.locationNameClash(request.name().trim(), null).ifPresent(clash -> {
+            throw new IllegalArgumentException(clash);
+        });
 
         Set<SolarEventType> solarEventTypes = request.solarEventTypes() != null
                 && !request.solarEventTypes().isEmpty()
@@ -207,6 +214,9 @@ public class LocationService {
                 throw new IllegalArgumentException(
                         "A location named '" + newName + "' already exists.");
             }
+            nameGuard.locationNameClash(newName, location.getId()).ifPresent(clash -> {
+                throw new IllegalArgumentException(clash);
+            });
             String oldName = location.getName();
             location.setName(newName);
             LOG.info("Renamed location '{}' → '{}'", oldName, newName);

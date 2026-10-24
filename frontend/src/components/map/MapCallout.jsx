@@ -5,7 +5,7 @@ import PropTypes from 'prop-types';
 import { createPortal } from 'react-dom';
 import { useMap } from 'react-leaflet';
 import {
-  anchorCallout, calloutBand, calloutFacts, filterCalloutTopics, isCoastalTidalLocation,
+  anchorCallout, CALLOUT_MARGIN, calloutBand, calloutFacts, filterCalloutTopics, isCoastalTidalLocation,
   NIGHT_RETRY_LINE, regionGlossFor,
 } from '../../utils/mapCallout.js';
 import { verdictWord } from '../../utils/verdictWord.js';
@@ -86,11 +86,14 @@ const COUNTS_FOOTER_SELECTOR = '[data-testid="wf-map-counts-footer"]';
  * nothing asked this band to treat the desktop strip as a floor and `.wf-map-chrome-bl` itself
  * still is not in this list either (an existing, separate omission this phase does not touch).
  */
+const TOPIC_STRIP_SELECTOR = '[data-testid="wf-topic-strip"]';
+
 const BAND_BAR_SELECTOR = [
   '[data-testid="wf-map-chrome-tl"]',
   '[data-testid="wf-map-chrome-tr"]',
   COUNTS_FOOTER_SELECTOR,
   '[data-testid="wf-tide-strip"]',
+  TOPIC_STRIP_SELECTOR,
 ].join(', ');
 
 /** Leaflet's own bottom-right corner (zoom control + `CentreOnHomeControl`) — see `MapLabels.jsx`'s
@@ -128,6 +131,8 @@ function pastUnratedWord(word, past) {
  * chip vocabulary (that file's own comment on `.wf-hc-sun`). */
 function kindClass(event) {
   if (event.kind === 'solar') return event.eventType === 'SUNRISE' ? 'am' : 'pm';
+  // The daylight High-water row (hot-topics-by-day M3) is its own kind, in the tide light.
+  if (event.kind === 'hw') return 'hw';
   return 'night';
 }
 
@@ -136,6 +141,7 @@ function kindClass(event) {
  * call sites), used verbatim for the main verdict chip (which has room for it). */
 function kindWord(event) {
   if (event.kind === 'solar') return event.eventType === 'SUNRISE' ? 'Sunrise' : 'Sunset';
+  if (event.kind === 'hw') return 'High water';
   return event.eventType === 'ASTRO' ? 'Astro' : 'Aurora';
 }
 
@@ -149,6 +155,7 @@ function kindWord(event) {
  */
 function kindShort(event) {
   if (event.kind === 'solar') return event.eventType === 'SUNRISE' ? 'RISE' : 'SET';
+  if (event.kind === 'hw') return 'HW';
   return event.eventType === 'ASTRO' ? 'AST' : 'AUR';
 }
 
@@ -260,6 +267,10 @@ function kindShort(event) {
  *        every other repaint-trigger prop in this list already takes (Codex P1 on the T7 PR: the
  *        strip toggling open/collapsed changed its real rect with nothing in this component's
  *        listeners to notice, so the callout's card kept the stale band until an unrelated pan/zoom)
+ * @param {?number} [props.topicStripHeight] the four-day hot-topics strip's own measured height in px
+ *        (hot-topics-by-day-plan §3 M2), or `null` when it is not on screen. The same shape and the
+ *        same use as `tideStripHeight`: only its IDENTITY changing matters, as a repaint trigger,
+ *        because `BAND_BAR_SELECTOR` includes the strip and `paint()` re-measures it off the DOM.
  * @param {?number} [props.bandKey] the phone peek sheet's RESTING height in px (74 with no Ask row, 126
  *        with one, 112 under a minimised answer — the `--psh` `MapView` publishes on the pane), or null
  *        off the phone. Like {@code tideStripHeight} it is read for NOTHING but its identity changing: a
@@ -318,6 +329,9 @@ function kindShort(event) {
  *        `alertLevel`, the same row `MarkerPopupContent` read it from; overlay convergence C2). Drawn
  *        as one "Alert level" line under the verdict on an aurora window only; null or any other
  *        window draws nothing. The callout showed the stars alone before
+ * @param {?string} [props.highWaterLead] the daylight High-water row's lead copy ({@code bigSeasCopy().lead}),
+ *        printed in the body on that row; the row has no score, so the verdict cell says "Big seas" and
+ *        the every-window strip leaves the row out
  * @param {boolean} [props.travelDay] true when the window's date falls in one of the operator's travel
  *        ranges (overlay convergence C2): the overnight batch skips Claude forecasts on those days,
  *        so a solar window says why it has no rating rather than reading as a pipeline gap. Honoured
@@ -329,9 +343,10 @@ export default function MapCallout({
   scoreIndex = null, slotIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
   regionGlossIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
-  tideStripHeight = null, bandKey = null, hourlyRows = null, now = null, dayMode = false,
+  tideStripHeight = null, topicStripHeight = null, bandKey = null, hourlyRows = null, now = null,
+  dayMode = false,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
-  userRole = null, ratings = null, auroraAlertLevel = null, travelDay = false,
+  userRole = null, ratings = null, auroraAlertLevel = null, travelDay = false, highWaterLead = null,
 }) {
   const map = useMap();
   const isMobile = useIsMobile();
@@ -385,11 +400,15 @@ export default function MapCallout({
       return {
         top: r.top - containerRect.top,
         bottom: r.bottom - containerRect.top,
+        left: r.left - containerRect.left,
+        right: r.right - containerRect.left,
         width: r.width,
         height: r.height,
         // The one opt-out — see `COUNTS_FOOTER_SELECTOR`. `matches` rather than a index/order test,
         // because `barEls` is built from two separate queries whose own order is not a contract.
         always: typeof el.matches === 'function' && el.matches(COUNTS_FOOTER_SELECTOR),
+        // The four-day strip is narrow on a wide frame: it floors the band only under the card's span.
+        overlapOnly: typeof el.matches === 'function' && el.matches(TOPIC_STRIP_SELECTOR),
       };
     });
     // ⚠️ **The peek sheet is a FIXED obstacle on the phone, never a measured one**
@@ -412,7 +431,16 @@ export default function MapCallout({
         top: size.y - psh, bottom: size.y, width: size.x, height: psh, always: true,
       });
     }
-    const band = calloutBand({ frameWidth: size.x, frameHeight: size.y, bars });
+    // The card's horizontal span, which `anchorCallout` will clamp to the same margin: it does not depend
+    // on the band, so it can be known first and lets a narrow bar floor the band only where it is met.
+    const spanWidth = isMobile ? CALLOUT_WIDTH_MOBILE : CALLOUT_WIDTH;
+    const spanLeft = Math.min(
+      Math.max(point.x - spanWidth / 2, CALLOUT_MARGIN),
+      Math.max(CALLOUT_MARGIN, size.x - spanWidth - CALLOUT_MARGIN),
+    );
+    const band = calloutBand({
+      frameWidth: size.x, frameHeight: size.y, bars, cardSpan: { left: spanLeft, right: spanLeft + spanWidth },
+    });
     setFrame({
       point, frameWidth: size.x, frameHeight: size.y, band,
     });
@@ -579,7 +607,7 @@ export default function MapCallout({
   // poll hands a new array with the same contents and this fires once — one extra measure, no loop.
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, event?.past, rating, ratingKnown, ratingRetrying,
-    tideAlignmentIndex, tideStripHeight, bandKey, hourlyRows, ratingLayout, changing, adminOpen,
+    tideAlignmentIndex, tideStripHeight, topicStripHeight, bandKey, hourlyRows, ratingLayout, changing, adminOpen,
     adminLayout, travelDay, auroraAlertLevel, repaintNow,
   ]);
 
@@ -768,7 +796,9 @@ export default function MapCallout({
   // night and, after midnight, the night still in progress. Past nights are no longer rows, and the
   // night in progress — and an ended night still on screen — are in the preview since D-14:
   // `mapEvents.nightPreviewDates`.)
-  const stripRows = (Array.isArray(evRows) ? evRows : []).map((row) => {
+  // The daylight High-water row is left out: it is not scored, so a place has no figure for it, and the
+  // night branch below would read it as an aurora night.
+  const stripRows = (Array.isArray(evRows) ? evRows : []).filter((row) => row.kind !== 'hw').map((row) => {
     if (row.id === event?.id) return { row, rowRating: rating, rowKnown: ratingKnown };
     if (row.kind === 'solar') {
       const entry = lookupForWindow(scoreIndex, location.id, location.name, row.date, row.eventType);
@@ -798,7 +828,9 @@ export default function MapCallout({
   // day). A hide on a night window renders what it always did — its rating if one is served, the
   // unscored line otherwise — plus a pointer to the daylight forecast.
   const comfortDay = isHide && (event?.kind === 'solar' || isDay);
-  const comfortNight = isHide && !comfortDay;
+  const isHighWater = event?.kind === 'hw';
+  // Neither a solar window nor a night: the High-water row says nothing about a hide's comfort hours.
+  const comfortNight = isHide && !comfortDay && !isHighWater;
   // A rating that IS served is never covered by "never scored": the star wins the verdict slot (below)
   // and the note is withheld. A hide with a solar rating should not exist; this keeps the card honest
   // if one does.
@@ -896,7 +928,13 @@ export default function MapCallout({
           <span className="wf-callout-verdict-label">
             {event.time ? `${eventDayLabel} · ${event.time}` : eventDayLabel}
           </span>
-          {ratingRounded != null ? (
+          {isHighWater ? (
+            // The daylight High-water row carries no light score, so nothing here may say "Not scored
+            // yet" or borrow a sunset's stars: the neutral word, as on the window pill.
+            <span className="wf-callout-verdict-score wf-callout-verdict-comfort" data-testid="map-callout-hw-word">
+              Big seas
+            </span>
+          ) : ratingRounded != null ? (
             <span
               className="wf-callout-verdict-score"
               data-testid="map-callout-score"
@@ -946,6 +984,9 @@ export default function MapCallout({
             rating badge, and a fourth item would wrap or push the badge off the 266px phone card.
             `'aur'` matches this file's existing literal kind tests (`'solar'`, `'astro'`); the value
             is pinned against `mapEvents.EVENT_KIND.AURORA` by a test. */}
+        {!isDay && isHighWater && highWaterLead && (
+          <p className="wf-callout-note" data-testid="map-callout-hw-lead">{highWaterLead}</p>
+        )}
         {!isDay && event?.kind === 'aur' && alertWord && (
           <p className="wf-callout-note" data-testid="map-callout-aurora-level">
             {`Alert level: ${alertWord}`}
@@ -1083,7 +1124,7 @@ export default function MapCallout({
                 drops a whitespace-only line between two tags, so it has to be an explicit
                 expression. (A flex `gap` would not reach the name; a `::before` WOULD — generated
                 content is in the accessible name, a bare-space `content` included. This comment
-                used to say neither could. See `WindowFirstComingUpHandoff`'s class doc.) */}
+                used to say neither could. See `WindowComingUpFourDays`'s class doc.) */}
             {' '}
             <span className="sr-only">{`${location.name} — four days here`}</span>
           </button>
@@ -1323,6 +1364,7 @@ MapCallout.propTypes = {
   auroraResultsByDate: PropTypes.instanceOf(Map),
   pendingNightRowIds: PropTypes.instanceOf(Set),
   tideStripHeight: PropTypes.number,
+  topicStripHeight: PropTypes.number,
   bandKey: PropTypes.number,
   /** A hide's served hourly comfort rows for the active window's date — see the JSDoc above. */
   hourlyRows: PropTypes.arrayOf(PropTypes.object),
@@ -1340,6 +1382,8 @@ MapCallout.propTypes = {
   auroraAlertLevel: PropTypes.string,
   /** True on a travel day — see the JSDoc above. */
   travelDay: PropTypes.bool,
+  /** The High-water row's lead copy (`bigSeasCopy().lead`); drawn on that row only, null elsewhere. */
+  highWaterLead: PropTypes.string,
   /** `useOutcomeRatings`'s return value, or null — see the JSDoc above. */
   ratings: PropTypes.shape({
     loaded: PropTypes.bool,

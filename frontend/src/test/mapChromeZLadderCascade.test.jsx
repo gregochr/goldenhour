@@ -87,9 +87,11 @@ function sliceRules(needle) {
 // child of `.wf-map-chrome-bl`, never separately `position: absolute` in the real DOM (it inherits
 // the wrapper's stacking context by flex order alone, §4 #6), but it declares the SAME chrome-tier
 // `z-index: 1100` directly on itself so this file's isolated-element probe reads it correctly too.
+// `wf-topic-strip` joined at hot-topics-by-day M2 - the four-day strip is the tide strip's sibling in the
+// same flex column and declares the same chrome-tier `z-index: 1100` on itself for the same reason.
 const CHROME_CLASSES = [
   'wf-map-chrome-tl', 'wf-map-chrome-tr', 'wf-map-chrome-bl', 'wf-map-counts-footer',
-  'wf-map-tide-strip',
+  'wf-map-tide-strip', 'wf-topic-strip',
 ];
 const CALLOUT_CLASSES = ['wf-selmk', 'wf-callout'];
 // `wf-legend-panel` joined at P10 (map-tab-v2-plan.md §3 P10) — the Legend popover must beat chrome

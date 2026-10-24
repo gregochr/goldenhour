@@ -609,6 +609,55 @@ class AskSnapshotBuilderTest {
         verify(briefingService, times(2)).getCachedBriefingForApi();
     }
 
+    // -- named areas and location aliases ----------------------------------------------------
+
+    private AskSnapshotBuilder builderWith(AskAreas areas) {
+        return new AskSnapshotBuilder(briefingService, travelDayService, almanacService, freshness, clock,
+                astroRepository, auroraRepository, astroService, nightSelector, auroraStateCache, areas);
+    }
+
+    @Test
+    @DisplayName("the areas are read once per build, and a memoised current() does not read them again")
+    void build_readsTheAreasOncePerBuild() {
+        stub(AskFixtures.briefing(List.of(), List.of()));
+        AskAreas areas = org.mockito.Mockito.mock(AskAreas.class);
+        AskSnapshot.Area wall = new AskSnapshot.Area("Hadrian's Wall", List.of("Roman Wall"), java.util.Set.of(1L));
+        when(areas.load()).thenReturn(new AskAreas.Names(List.of(wall), Map.of(5L, List.of("The Heugh"))));
+        AskSnapshotBuilder withAreas = builderWith(areas);
+
+        AskSnapshot built = withAreas.build().orElseThrow();
+        withAreas.current();
+        withAreas.current();
+
+        assertThat(built.areas()).containsExactly(wall);
+        assertThat(built.locationAliases()).containsEntry(5L, List.of("The Heugh"));
+        verify(areas, times(2)).load();
+    }
+
+    @Test
+    @DisplayName("an AskAreas that throws gives empty areas and aliases, and the snapshot is still built")
+    void build_aThrowingAreaReaderStillBuilds() {
+        stub(AskFixtures.briefing(List.of(), List.of()));
+        AskAreas areas = org.mockito.Mockito.mock(AskAreas.class);
+        when(areas.load()).thenThrow(new IllegalStateException("database is down"));
+
+        AskSnapshot built = builderWith(areas).build().orElseThrow();
+
+        assertThat(built.areas()).isEmpty();
+        assertThat(built.locationAliases()).isEmpty();
+        assertThat(built.today()).isEqualTo(TODAY);
+    }
+
+    @Test
+    @DisplayName("the ten-argument builder, and a reader that returns null, read as no areas and no aliases")
+    void build_noAreasByDefault() {
+        stub(AskFixtures.briefing(List.of(), List.of()));
+        AskAreas nothing = () -> null;
+
+        assertThat(builder.build().orElseThrow().areas()).isEmpty();
+        assertThat(builderWith(nothing).build().orElseThrow().locationAliases()).isEmpty();
+    }
+
     private void stub(DailyBriefingResponse briefing) {
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
         when(freshness.now()).thenReturn(NOW);

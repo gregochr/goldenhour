@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import L from 'leaflet';
 import { useMap } from 'react-leaflet';
 import {
-  clamp, drawTiles, fit, land, load, radiusFor,
+  clamp, drawStandDownTiles, drawTiles, fit, land, load, radiusFor,
 } from '../utils/heatField.js';
 import { createLandMask } from '../utils/landMask.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
@@ -118,6 +118,14 @@ const LAND_CLIP_SOFT_PX = 4;
 const COAST_ERROR_METRES = 4200;
 const COAST_ERROR_MIN_PX = 3;
 const COAST_ERROR_MAX_PX = 120;
+
+/**
+ * The stand-down hatch's disc radius (big-seas plan F3): the design's `radiusFor(map, 6500, 22, 150)`.
+ * Smaller than the field's own radius, so a stood place's hatch hugs the place.
+ */
+const STAND_RADIUS_METRES = 6500;
+const STAND_RADIUS_MIN_PX = 22;
+const STAND_RADIUS_MAX_PX = 150;
 
 /**
  * The coastline stroke's own fade-out, independent of the land clip's own threshold above: the
@@ -390,8 +398,8 @@ function restoreMarkerPanes(map) {
  *        colour-scale preference is (plan D3); null leaves the temperature-only rule.
  */
 export default function MapHeatLayer({
-  points, unrated = null, conf = null, colourMode = null, homeCoords = null, rings = false,
-  fieldEnabled = true, dim = 1, ramp = null, bloom = null,
+  points, unrated = null, stood = null, stoodRated = null, conf = null, colourMode = null,
+  homeCoords = null, rings = false, fieldEnabled = true, dim = 1, ramp = null, bloom = null,
 }) {
   const map = useMap();
 
@@ -503,6 +511,7 @@ export default function MapHeatLayer({
     L.DomUtil?.setPosition?.(canvas, map.containerPointToLayerPoint([0, 0]));
     const zoom = map.getZoom();
     const fade = fadeAt(zoom);
+    const standRadius = () => radiusFor(map, STAND_RADIUS_METRES, STAND_RADIUS_MIN_PX, STAND_RADIUS_MAX_PX);
     // Unconditional, and the block above is why: BOTH of the tab's views bring their own location
     // vocabulary — `PinsLayer`'s dots in Pins, `MapLabels`' chips in Heat — so a location renders
     // in exactly one place, never two, at every zoom and on every window. `restoreMarkerPanes` is
@@ -554,6 +563,9 @@ export default function MapHeatLayer({
         // `opacity` above is the hatch's too: `paintUnknown` reads it from these same options, so the
         // hatch fades with the field at the handover and under Ask's dim.
         ...(unrated?.length ? { unrated } : null),
+        // The stand-down hatch (big-seas plan F3), the same absence rule; it fades and dims with the
+        // field through the same `opacity`.
+        ...(stood?.length ? { stood, standRadius: standRadius() } : null),
         // Same rule as the bloom above: below LAND_CLIP_MAX_ZOOM this spreads all five clip keys
         // (clipPath may still be null); at/above it, none at all — absence, not a falsy value.
         ...(clipOpts || null),
@@ -564,6 +576,21 @@ export default function MapHeatLayer({
       // lingering under the coastline stroke below whenever the reader switches views mid-session.
       const ctx = fit(canvas, width, height);
       ctx.clearRect(0, 0, width, height);
+      // Pins view shows the stand-down hatch too (big-seas plan F3, owner Q11), painted AFTER the
+      // clear above and before the coastline stroke below. The mask yields to the rated places the
+      // host hands in (`stoodRated`: Pins carries no field points of its own).
+      if (stood?.length) {
+        drawStandDownTiles(canvas, map, stoodRated ?? points, POINT_SCORE_INDEX, {
+          stood,
+          standRadius: standRadius(),
+          // The same dials the Heat view's draw takes, so the hatch reads identically in both views.
+          grid: GRID,
+          blur: BLUR,
+          conf,
+          opacity: HEAT_OPACITY * fade.heat * dim,
+          ...(clipOpts || null),
+        });
+      }
     }
 
     /* Coastline stroke, from the SAME Path2D the clip uses (never a second geometry) — drawn on
@@ -610,7 +637,8 @@ export default function MapHeatLayer({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [map, points, unrated, conf, colourMode, landMask, rings, homeCoords, fieldEnabled, dim, ramp, bloom]);
+  }, [map, points, unrated, stood, stoodRated, conf, colourMode, landMask, rings, homeCoords,
+    fieldEnabled, dim, ramp, bloom]);
 
   const {
     attachFrame, canvasRef, geoFailed, repaint, repaintNow,
@@ -763,6 +791,18 @@ MapHeatLayer.propTypes = {
     lat: PropTypes.number,
     lng: PropTypes.number,
     rid: PropTypes.string,
+  })),
+  stood: PropTypes.arrayOf(PropTypes.shape({
+    lat: PropTypes.number,
+    lng: PropTypes.number,
+    rid: PropTypes.string,
+  })),
+  /** The rated points the stand-down mask yields to when {@code points} is not them (Pins view). */
+  stoodRated: PropTypes.arrayOf(PropTypes.shape({
+    lat: PropTypes.number,
+    lng: PropTypes.number,
+    rid: PropTypes.string,
+    r: PropTypes.arrayOf(PropTypes.number),
   })),
   conf: PropTypes.number,
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),

@@ -74,6 +74,23 @@ function hasTriageReason(row) {
 }
 
 /**
+ * The stand-down reason a row carries, normalised the way {@link hasTriageReason} reads it: a
+ * string trimmed, or an object's {@code name} / {@code reason} field. A reason that is present but
+ * unreadable (an object with neither) is {@code GENERIC}, the served enum's own catch-all, so a
+ * stood place never loses its reason to a shape. Null when the row is not a stand-down at all.
+ *
+ * @param {object} row a score row
+ * @returns {?string} the reason (e.g. {@code HIGH_CLOUD}), or null
+ */
+function triageReasonOf(row) {
+  if (!hasTriageReason(row)) return null;
+  const raw = row.triageReason;
+  if (typeof raw === 'string') return raw.trim();
+  const named = raw.name ?? raw.reason;
+  return typeof named === 'string' && named.trim() !== '' ? named.trim() : 'GENERIC';
+}
+
+/**
  * What a window knows about one place — the layer's four states, beside its score.
  *
  * <ul>
@@ -159,7 +176,9 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
     if (!wanted.has(tail)) continue;
     // The rating plus whether the row is a weather stand-down (a triage reason) — one entry, so
     // the score and its state are read off the SAME row and cannot come from different indexes.
-    const entry = { rating: validRating(row.rating), stood: hasTriageReason(row) };
+    const entry = {
+      rating: validRating(row.rating), stood: hasTriageReason(row), reason: triageReasonOf(row),
+    };
     if (row.locationId != null) putFirst(byId, `${row.locationId}|${tail}`, entry);
     if (row.locationName) putFirst(byName, `${row.locationName}|${tail}`, entry);
   }
@@ -188,6 +207,9 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
     });
     const scores = found.map((entry) => (entry ? entry.rating : null));
     const states = found.map((entry) => windowState(skySubject, entry));
+    // The stand-down reason beside each window's state (big-seas plan F3): null unless the window
+    // state is `stood`, so a rated place can never carry one however its rows collided.
+    const reasons = found.map((entry, i) => (states[i] === 'stood' ? entry.reason : null));
     spots.push({
       id: location.id ?? null,
       name: location.name ?? '',
@@ -204,6 +226,7 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
       scores,
       // Beside each score, what the window knows about the place — see windowState.
       states,
+      reasons,
     });
   }
   return spots;
@@ -280,6 +303,32 @@ export function unratedPointsFor(spots, windowIndex) {
 }
 
 /**
+ * The places a window stood down, with why — the ground the stand-down hatch is drawn around
+ * (big-seas plan F3). A spot whose state in that window is exactly {@code stood}; every reason is
+ * kept, {@code TIDE_MISALIGNED} included (the Map decides which of them it draws).
+ *
+ * <p>Unlike {@link unratedPointsFor} this carries no evidence gate: a stood place IS evidence.
+ *
+ * @param {Array<object>} spots spots from {@link buildHeatSpots}
+ * @param {number} windowIndex which of the rendered windows to build the list for
+ * @returns {Array<{lat: number, lng: number, reason: ?string, rid: string, key: string}>}
+ */
+export function stoodPointsFor(spots, windowIndex) {
+  const list = [];
+  for (const spot of Array.isArray(spots) ? spots : []) {
+    if (spot?.states?.[windowIndex] !== 'stood') continue;
+    list.push({
+      lat: spot.lat,
+      lng: spot.lng,
+      reason: spot.reasons?.[windowIndex] ?? null,
+      rid: spot.rid,
+      key: heatSpotKey(spot),
+    });
+  }
+  return list;
+}
+
+/**
  * The point arrays for every rendered window, keyed {@code date:targetType}.
  *
  * <p><b>Keyed, not positional, and that is a correctness choice rather than a convenience.</b>
@@ -348,7 +397,8 @@ export function heatSpotKey(spot) {
  *
  * @param {Array<object>} spots spots from {@link buildHeatSpots}
  * @param {Array<{date: string, targetType: string}>} renderedEvents the windows, in render order
- * @returns {Map<string, {unrated: Array<object>, states: Map<string, string>}>} window key to entry
+ * @returns {Map<string, {unrated: Array<object>, stood: Array<object>, states: Map<string, string>}>}
+ *   window key to entry; {@code stood} is {@link stoodPointsFor}'s list (big-seas plan F3)
  */
 export function buildHeatWindowStates(spots, renderedEvents) {
   const out = new Map();
@@ -362,6 +412,7 @@ export function buildHeatWindowStates(spots, renderedEvents) {
     }
     out.set(windowKey(event.date, event.targetType), {
       unrated: unratedPointsFor(spots, index),
+      stood: stoodPointsFor(spots, index),
       states,
     });
   });

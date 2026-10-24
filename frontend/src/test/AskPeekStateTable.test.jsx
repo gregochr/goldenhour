@@ -43,8 +43,9 @@ vi.mock('leaflet', () => {
     }
   }
   const DomEvent = { disableClickPropagation: () => {}, disableScrollPropagation: () => {} };
+  const svg = (options) => ({ options });
   const L = {
-    icon, divIcon, point, Control, DomEvent,
+    icon, divIcon, point, Control, DomEvent, svg,
   };
   return { default: L, ...L };
 });
@@ -77,6 +78,7 @@ const mapLabelsCalls = [];
 vi.mock('../components/map/MapLabels.jsx', () => ({
   default: (props) => { mapLabelsCalls.push(props); return null; },
 }));
+vi.mock('../components/map/MapTopicRings.jsx', () => ({ default: () => null }));
 vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => null }));
 const cameraCalls = [];
 vi.mock('../components/map/AskCameraController.jsx', () => ({
@@ -1157,6 +1159,18 @@ describe('answers arriving, and focus, around the buttons', () => {
 
     await setPhase('answer');
 
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-mini-lay'));
+  });
+
+  it('a hot-topics bar press folds the sheet over a settled answer: focus lands on the Layers door, not <body>', async () => {
+    const dust = {
+      type: 'DUST', label: 'Dust', date: TODAY, eventType: 'SUNSET', regions: [], locationNames: ['Near'],
+    };
+    await mount('answer', { hotTopics: [dust] });
+    pressPill();
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    fireEvent.click(screen.getByTestId('wf-topic-bar-DUST-1'));
+    expect(mode()).toBe('minimised');
     expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-mini-lay'));
   });
 

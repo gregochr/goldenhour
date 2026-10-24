@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BestBetStatus;
+import com.gregochr.goldenhour.model.BigSeasDay;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
@@ -70,6 +71,7 @@ class ServedBriefingAssembler {
     private final LocationPointProvider locationPointProvider;
     private final NeighbourGuardProperties neighbourGuardProperties;
     private final NeighbourGuardLog neighbourGuardLog;
+    private final BigSeasBuilder bigSeasBuilder;
 
     ServedBriefingAssembler(BestBetFallbackService bestBetFallbackService,
             BriefingRegionSnapshotService regionSnapshotService,
@@ -79,7 +81,8 @@ class ServedBriefingAssembler {
             BriefingScoreEnricher scoreEnricher,
             LocationPointProvider locationPointProvider,
             NeighbourGuardProperties neighbourGuardProperties,
-            NeighbourGuardLog neighbourGuardLog) {
+            NeighbourGuardLog neighbourGuardLog,
+            BigSeasBuilder bigSeasBuilder) {
         this.bestBetFallbackService = bestBetFallbackService;
         this.regionSnapshotService = regionSnapshotService;
         this.windowTideRollupBuilder = windowTideRollupBuilder;
@@ -89,6 +92,7 @@ class ServedBriefingAssembler {
         this.locationPointProvider = locationPointProvider;
         this.neighbourGuardProperties = neighbourGuardProperties;
         this.neighbourGuardLog = neighbourGuardLog;
+        this.bigSeasBuilder = bigSeasBuilder;
     }
 
     /**
@@ -178,7 +182,14 @@ class ServedBriefingAssembler {
                 tideFacts);
         // LAST, after the projector, so nothing the projector reads is stripped from under it (the
         // facts themselves come from the raw snapshot above). See stripSlotTide.
-        return stripSlotTide(projected);
+        DailyBriefingResponse stripped = stripSlotTide(projected);
+        // Big seas is attached LAST of all, after stripSlotTide, and only here: it is serve-path only, so
+        // it never reaches daily_briefing_cache. Fail-soft inside the builder (a null block is omitted).
+        if (stripped == null) {
+            return null;
+        }
+        List<BigSeasDay> bigSeas = bigSeasBuilder.build(stripped.days());
+        return stripped.withBigSeas(bigSeas == null || bigSeas.isEmpty() ? null : bigSeas);
     }
 
     /**

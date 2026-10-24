@@ -1,7 +1,10 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.CoastalStructure;
 import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BigSeasDay;
+import com.gregochr.goldenhour.model.BigSeasStructure;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
@@ -60,6 +63,8 @@ class ServedBriefingAssemblerTest {
     @Mock
     private WindowTideRollupBuilder windowTideRollupBuilder;
     @Mock
+    private BigSeasBuilder bigSeasBuilder;
+    @Mock
     private EvaluationViewService evaluationViewService;
     @Mock
     private LocationPointProvider locationPointProvider;
@@ -82,7 +87,7 @@ class ServedBriefingAssemblerTest {
         assembler = new ServedBriefingAssembler(bestBetFallbackService, regionSnapshotService,
                 windowTideRollupBuilder, evaluationViewService, CLOCK,
                 (days, resolver, triaged) -> days, locationPointProvider, neighbourGuardProperties,
-                new NeighbourGuardLog(line -> { }));
+                new NeighbourGuardLog(line -> { }), bigSeasBuilder);
     }
 
     private static DailyBriefingResponse snapshot(BriefingEventSummary... summaries) {
@@ -150,6 +155,64 @@ class ServedBriefingAssemblerTest {
     @DisplayName("a null snapshot still assembles to null")
     void nullSnapshot() {
         assertThat(assembler.assembleForPlan(null, 0.5)).isNull();
+    }
+
+    private static BigSeasDay bigSeasDay() {
+        LocalDateTime hw = LocalDateTime.of(2026, 10, 11, 7, 30);
+        return new BigSeasDay(D, hw.minusMinutes(90), hw.plusMinutes(90), hw, BigSeasDay.AlignedEvent.SUNRISE,
+                12L, BigSeasDay.GapSide.AFTER, 4.2, 80, 9.5,
+                List.of(new BigSeasStructure(243L, "Roker Pier", CoastalStructure.PIER, 4.2, 80, 9.5, 90, hw, true)),
+                0, false, null, null);
+    }
+
+    @Test
+    @DisplayName("big seas is attached last on the served payload, built from the served days; "
+            + "the cached snapshot and the unprojected assembly never carry it")
+    void bigSeasIsAttachedOnServeAndNeverCached() {
+        DailyBriefingResponse cached = snapshot(summary(TargetType.SUNRISE,
+                List.of(region("North East", 0, coastal(1L, "Bamburgh", "HIGH"))), List.of()));
+        List<BigSeasDay> block = List.of(bigSeasDay());
+        when(bigSeasBuilder.build(any())).thenReturn(block);
+
+        DailyBriefingResponse served = assembler.assembleForPlan(cached, 0.5);
+
+        assertThat(served.bigSeas()).isEqualTo(block);
+        org.mockito.ArgumentCaptor<List<BriefingDay>> built = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(bigSeasBuilder).build(built.capture());
+        assertThat(built.getValue()).as("built from the final days").isEqualTo(served.days());
+        assertThat(cached.bigSeas()).as("the cached payload has no big seas").isNull();
+        assertThat(assembler.assembleWithoutPlan(cached, 0.5).bigSeas()).isNull();
+        assertThat(served.withDays(served.days()).bigSeas()).as("a later wither keeps it").isEqualTo(block);
+    }
+
+    @Test
+    @DisplayName("a builder that has nothing to say (null) leaves the served block absent, not empty")
+    void bigSeasAbsentWhenBuilderReturnsNull() {
+        when(bigSeasBuilder.build(any())).thenReturn(null);
+
+        DailyBriefingResponse served = assembler.assembleForPlan(snapshot(summary(TargetType.SUNRISE,
+                List.of(region("North East", 0, coastal(1L, "Bamburgh", "HIGH"))), List.of())), 0.5);
+
+        assertThat(served.bigSeas()).isNull();
+    }
+
+    @Test
+    @DisplayName("an empty block is served as absent, never as an empty array")
+    void bigSeasEmptyIsServedAsAbsent() {
+        when(bigSeasBuilder.build(any())).thenReturn(List.of());
+
+        DailyBriefingResponse served = assembler.assembleForPlan(snapshot(summary(TargetType.SUNRISE,
+                List.of(region("North East", 0, coastal(1L, "Bamburgh", "HIGH"))), List.of())), 0.5);
+
+        assertThat(served.bigSeas()).isNull();
+    }
+
+    @Test
+    @DisplayName("a null snapshot never asks for big seas")
+    void nullSnapshotSkipsBigSeas() {
+        assertThat(assembler.assembleForPlan(null, 0.5)).isNull();
+
+        verify(bigSeasBuilder, never()).build(any());
     }
 
     @Test

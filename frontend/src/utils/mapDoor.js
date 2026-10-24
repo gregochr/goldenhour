@@ -6,6 +6,7 @@
 // Overlay convergence C5 retired the overlay's renderer; its pure RESOLUTION (which spot a door
 // opens, which spot set it narrows to, what it is called) lives here as `resolveDoor`.
 import { DARK_SKY_THRESHOLD } from './darkSky.js';
+import { NEIGHBOUR_NAMED_FLOOR } from './windowFirstCards.js';
 
 /** Formats an ISO datetime's clock time as "HH:MM" (local London), or '' when absent. */
 function formatClock(iso) {
@@ -39,8 +40,42 @@ function briefingScoreFor(briefingScores, loc, date, eventType) {
   return null;
 }
 
+/** The key {@link outlierKeysOf} and {@link resolveDoor} share: one slot, by name, date and event. */
+function outlierKey(locationName, date, eventType) {
+  return `${locationName}|${date}|${eventType}`;
+}
+
+/**
+ * The served briefing's neighbour-outlier marks, as a Set of `name|date|targetType` keys, for
+ * {@link resolveDoor}'s `ctx.outlierKeys`. The flag exists only on the served briefing's slots
+ * (`BriefingSlot.neighbourOutlier`, `TRUE` or absent, set at serve time by the neighbour guard);
+ * `GET /api/briefing/evaluate/scores`, which `briefingScores` comes from, carries no such flag.
+ * Keyed by location NAME because the door resolves spots by name. A filter over a served flag.
+ *
+ * @param {?{days: ?Array}} briefing the served briefing (`days -> eventSummaries -> regions -> slots`)
+ * @returns {Set<string>} possibly empty; never null
+ */
+export function outlierKeysOf(briefing) {
+  const keys = new Set();
+  for (const day of briefing?.days || []) {
+    for (const es of day?.eventSummaries || []) {
+      for (const region of es?.regions || []) {
+        for (const slot of region?.slots || []) {
+          if (slot?.neighbourOutlier === true && slot.locationName) {
+            keys.add(outlierKey(slot.locationName, day.date, es.targetType));
+          }
+        }
+      }
+    }
+  }
+  return keys;
+}
+
 /** Star rating for a location on a date+event: briefing score wins, else the forecast rating. */
 function ratingFor(loc, date, eventType, briefingScores) {
+  // The daylight High-water row is never a door's window and carries no light score; without this the
+  // `: sunset` fallback below would hand it the sunset's.
+  if (eventType === 'HIGH_WATER') return null;
   const bs = briefingScoreFor(briefingScores, loc, date, eventType);
   if (bs?.rating != null) return bs.rating;
   const day = loc.forecastsByDate?.get?.(date);
@@ -50,9 +85,28 @@ function ratingFor(loc, date, eventType, briefingScores) {
 
 /** The solar event instant a location serves for a date+event, or null. */
 function solarTimeFor(loc, date, eventType) {
+  if (eventType === 'HIGH_WATER') return null;
   const day = loc.forecastsByDate?.get?.(date);
   const forecast = eventType === 'SUNRISE' ? day?.sunrise : day?.sunset;
   return forecast?.solarEventTime ?? null;
+}
+
+/**
+ * The spots of a roster whose {@code name} is in {@code names} — the one name-to-spot join the
+ * Map's doors and the topic chips' rings share (hot-topics-by-day-plan §1.1: M1 extends this
+ * joiner rather than writing a second). Names are compared byte-identically, never normalised
+ * ({@code heatSpots.js} records why); a name with no spot in the roster (a disabled place) simply
+ * does not join.
+ *
+ * @param {?Array<{name: string}>} spots the roster to join against
+ * @param {?Array<string>} names the served {@code locationNames}
+ * @returns {Array<object>} the roster's spots named in {@code names}, in roster order; empty when
+ *          {@code names} is empty
+ */
+export function spotsNamed(spots, names) {
+  const wanted = new Set(Array.isArray(names) ? names : []);
+  if (wanted.size === 0) return [];
+  return (Array.isArray(spots) ? spots : []).filter((spot) => wanted.has(spot?.name));
 }
 
 /**
@@ -63,12 +117,23 @@ function solarTimeFor(loc, date, eventType) {
  * @param {Object} trigger  normalised trigger ({@link normalizeMapTrigger}):
  *   { kind: 'region'|'event'|'location'|'coming-up'|'aurora', region?, locationName?, filterAction?,
  *     darkSky?, label?, date, eventType }
- * @param {Object} ctx  { locations, briefingScores, todayStr, tomorrowStr }
+ * @param {Object} ctx  { locations, briefingScores, todayStr, tomorrowStr, outlierKeys? } -
+ *   `outlierKeys` ({@link outlierKeysOf}) is absent on a caller with no briefing, which reads as
+ *   none marked.
+ *
+ * <p>⚠️ The single-region branch never NAMES a neighbour outlier, mirroring
+ * `PlanWindowProjector.topSlot` (and the client twin `windowFirstCards.bestReachOf`): a marked spot
+ * keeps its star but is skipped (the mark alone decides - see the in-body note on why it never depends
+ * on the local rating); if one was skipped and the next rated spot is below
+ * {@link NEIGHBOUR_NAMED_FLOOR} (or none is rated) NO spot is named and the door lands on the region
+ * alone. The mark must come from the served briefing, not `briefingScores`, which carries no flag.
  * @returns {{title: ?string, subLine: ?string, focus: ?{points: number[][], names?: string[]},
  *   handoff: Object}}
  */
 export function resolveDoor(trigger, ctx) {
-  const { locations = [], briefingScores = new Map(), todayStr, tomorrowStr } = ctx;
+  const {
+    locations = [], briefingScores = new Map(), todayStr, tomorrowStr, outlierKeys = null,
+  } = ctx;
   const { date, eventType } = trigger;
   const enabled = locations.filter((l) => l.enabled !== false && l.lat != null && l.lon != null);
   const dl = date ? dayLabel(date, todayStr, tomorrowStr) : '';
@@ -151,7 +216,7 @@ export function resolveDoor(trigger, ctx) {
     ? new Set(trigger.locationNames)
     : null;
   if (qualifying) {
-    const restricted = candidates.filter((l) => qualifying.has(l.name));
+    const restricted = spotsNamed(candidates, trigger.locationNames);
     if (restricted.length > 0) candidates = restricted;
   }
 
@@ -187,9 +252,29 @@ export function resolveDoor(trigger, ctx) {
     };
   }
 
-  // Single region -> focus it and open the top-rated location.
-  const top = pool.reduce((best, r) => (best == null || (r.rating ?? -1) > (best.rating ?? -1) ? r : best), null);
-  if (!titleRegion) titleRegion = top?.loc.regionName ?? '';
+  // Single region -> focus it and open the top-rated location, unless it is a neighbour outlier.
+  // ⚠️ The served mark is AUTHORITATIVE and is tested on its own key, never on the local rating:
+  // `briefingScores` (the scores endpoint) and the served briefing can disagree in time (initial
+  // load, a failed or lagging scores fetch), and a marked place with no local rating must still
+  // not be named. A marked place the scores endpoint has not rated may also be absent from `pool`
+  // (rated spots only), so `skipped` looks at every candidate, not just the pool.
+  const marked = (loc) => !!outlierKeys?.has(outlierKey(loc.name, date, eventType));
+  const best = pool.reduce((b, r) => (b == null || (r.rating ?? -1) > (b.rating ?? -1) ? r : b), null);
+  const bestUnmarked = pool.reduce(
+    (b, r) => (marked(r.loc) || (b != null && (r.rating ?? -1) <= (b.rating ?? -1)) ? b : r),
+    null,
+  );
+  // An unrated marked place counts as skipped (its served rating was at least the guard's minimum,
+  // so it would have outranked anything the floor rejects); a rated one only when it ties or beats
+  // the best unmarked spot.
+  const skipped = candidates.some((l) => marked(l) && (
+    ratingFor(l, date, eventType, briefingScores) == null
+    || ratingFor(l, date, eventType, briefingScores) >= (bestUnmarked?.rating ?? -1)
+  ));
+  const top = skipped && (bestUnmarked?.rating == null || bestUnmarked.rating < NEIGHBOUR_NAMED_FLOOR)
+    ? null
+    : bestUnmarked;
+  if (!titleRegion) titleRegion = best?.loc.regionName ?? '';
   return {
     title: titleRegion || (top?.loc.name ?? 'On the map'),
     subLine: trigger.label

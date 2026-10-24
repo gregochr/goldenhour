@@ -82,9 +82,15 @@ final class AskFixtures {
     /** A coastal slot carrying a served tide state and the location's own preference fact. */
     static BriefingSlot coastal(Long id, String name, Integer rating, String tideState,
             boolean tideAligned) {
+        return coastal(id, name, rating, tideState, tideAligned, tideAligned ? "Tide suits this spot" : "Wrong water");
+    }
+
+    /** As {@link #coastal(Long, String, Integer, String, boolean)} with the served tide-fit sentence given. */
+    static BriefingSlot coastal(Long id, String name, Integer rating, String tideState,
+            boolean tideAligned, String fitPhrase) {
         BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo(tideState, tideAligned, null, null,
                 false, false, null, null, null, null, null, null, null, null, null, null, null,
-                tideAligned ? "Tide suits this spot" : "Wrong water", null);
+                fitPhrase, null);
         return slotWith(id, name, rating, false, tide, null);
     }
 

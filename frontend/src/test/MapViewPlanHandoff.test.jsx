@@ -694,6 +694,30 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
     expect(heatLayerCalls.at(-1).unrated.map((p) => p.name).sort()).toEqual(['Far', 'Near']);
   });
 
+  it('narrows the stand-down hatch by the same lens as the colour (big-seas F3)', async () => {
+    const stood = SUNSET_POINTS.map((p) => ({
+      lat: p.lat, lng: p.lng, reason: 'HIGH_CLOUD', rid: p.rid, key: `#${p.id}`,
+    }));
+    const heat = {
+      ...HEAT_WITH_POINTS,
+      pointsByKey: new Map([[`${TODAY}:SUNSET`, []], [`${TODAY}:SUNRISE`, []]]),
+      windowStates: new Map([[`${TODAY}:SUNSET`, {
+        unrated: [],
+        stood,
+        states: new Map(stood.map((p) => [p.key, 'stood'])),
+      }]]),
+    };
+    const { rerender } = await renderTab({ heat, planHandoff: null });
+    expect(heatLayerCalls.at(-1).stood.map((p) => p.key).sort()).toEqual(['#1', '#2', '#3', '#4']);
+
+    await rerenderWith(rerender, {
+      heat,
+      planHandoff: { ...DOOR_BASE, focusNames: ['Near', 'Far'], nonce: 1 },
+    });
+
+    expect(heatLayerCalls.at(-1).stood.map((p) => p.key).sort()).toEqual(['#1', '#3']);
+  });
+
   it('clear restores the field whole: the points handed to the kernel are the count they were before', async () => {
     const { rerender } = await renderTab({ heat: HEAT_WITH_POINTS, planHandoff: null });
     const before = heatLayerCalls.at(-1).points.length;

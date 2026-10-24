@@ -32,6 +32,7 @@ import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.Rewind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -106,6 +107,7 @@ public class AskSnapshotBuilder {
     private final AstroConditionsService astroService;
     private final AuroraForecastRunService nightSelector;
     private final AuroraStateCache auroraStateCache;
+    private final AskAreas areas;
 
     private Instant memoBuiltAt;
     private AskSnapshot memo;
@@ -129,6 +131,31 @@ public class AskSnapshotBuilder {
             AstroConditionsRepository astroRepository, AuroraForecastResultRepository auroraRepository,
             AstroConditionsService astroService, AuroraForecastRunService nightSelector,
             AuroraStateCache auroraStateCache) {
+        this(briefingService, travelDayService, almanacService, freshness, clock, astroRepository,
+                auroraRepository, astroService, nightSelector, auroraStateCache, () -> AskAreas.Names.NONE);
+    }
+
+    /**
+     * Creates the builder, with the named areas and location aliases Ask understands.
+     *
+     * @param briefingService  the source of the served briefing
+     * @param travelDayService the away-date test
+     * @param almanacService   the source of the "Coming up" entries
+     * @param freshness        the project's single answer to "now" for solar events
+     * @param clock            the application clock, for the memo and the UK civil date
+     * @param astroRepository  the astro conditions rows, read with their location fetched
+     * @param auroraRepository the stored (non-simulated) aurora results, read with their location fetched
+     * @param astroService     resolves the window a stored astro row was scored over
+     * @param nightSelector    the one owner of "which night is current"
+     * @param auroraStateCache the aurora alert state, reported for tonight only and never while simulated
+     * @param areas            the named areas and location aliases, read once per build
+     */
+    @Autowired
+    public AskSnapshotBuilder(BriefingService briefingService, TravelDayService travelDayService,
+            AlmanacService almanacService, SolarEventFreshness freshness, Clock clock,
+            AstroConditionsRepository astroRepository, AuroraForecastResultRepository auroraRepository,
+            AstroConditionsService astroService, AuroraForecastRunService nightSelector,
+            AuroraStateCache auroraStateCache, AskAreas areas) {
         this.briefingService = briefingService;
         this.travelDayService = travelDayService;
         this.almanacService = almanacService;
@@ -139,6 +166,7 @@ public class AskSnapshotBuilder {
         this.astroService = astroService;
         this.nightSelector = nightSelector;
         this.auroraStateCache = auroraStateCache;
+        this.areas = areas;
     }
 
     /**
@@ -204,9 +232,22 @@ public class AskSnapshotBuilder {
         }
         windows.sort(CHRONOLOGICAL);
         LocalDateTime generatedAt = briefing.generatedAt();
+        AskAreas.Names names = areaNames();
         return Optional.of(new AskSnapshot(generatedAt, AskClock.londonHHmm(generatedAt),
                 ForecastHorizon.today(clock), windows, topics(briefing), comingUp(), briefing.stale(),
-                nights()));
+                nights(), names.areas(), names.locationAliases()));
+    }
+
+    /** The named areas and location aliases, or none when they cannot be read: Ask must still answer. */
+    private AskAreas.Names areaNames() {
+        try {
+            AskAreas.Names names = areas.load();
+            return names == null ? AskAreas.Names.NONE : names;
+        } catch (RuntimeException e) {
+            LOG.warn("[ASK] Could not read the named areas and aliases; building the snapshot without them: {}",
+                    e.toString());
+            return AskAreas.Names.NONE;
+        }
     }
 
     // -- the nights ---------------------------------------------------------------------------

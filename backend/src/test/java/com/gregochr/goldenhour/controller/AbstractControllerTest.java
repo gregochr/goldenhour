@@ -167,6 +167,14 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected LocationService locationService;
 
+    /** Backs {@code AreaController}. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.AreaService areaService;
+
+    /** Backs {@code LocationAliasController}. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.LocationAliasService locationAliasService;
+
     @MockitoBean
     protected ModelSelectionService modelSelectionService;
 

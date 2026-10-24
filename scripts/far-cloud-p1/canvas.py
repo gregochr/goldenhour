@@ -31,6 +31,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import premise  # noqa: E402
+import stats  # noqa: E402
 
 OVERHEAD_MAX = 20     # weak canvas: observer mid and high below this
 CONE_LOW_MAX = 20     # weak canvas: cone low below this
@@ -42,6 +43,7 @@ DECK_ERA5_MAX = 20       # ... where ERA5 reads below this
 CLEAR_FORECAST_MAX = 20  # reverse direction: forecast clear below this ...
 DECK_ERA5_MIN = 60       # ... where ERA5 reads at or above this
 LIST_LIMIT = 200      # slot keys printed in the report; the CSV holds all
+SENSITIVITY_EXCLUDE_DATE = '2026-10-15'   # the densest single date among the weak-canvas gos
 
 WEAK_INPUTS = ('mid_cloud', 'high_cloud', 'solar_low_cloud', 'solar_high_cloud')
 
@@ -99,6 +101,22 @@ def share(k: int, n: int) -> str:
     return '-' if n == 0 else '%d (%.1f%%)' % (k, 100.0 * k / n)
 
 
+def bshare(units: Sequence[dict], pred: Callable[[dict], bool]) -> str:
+    """'k (p%) W[lo, hi] B[lo, hi]': the share of ``units`` satisfying ``pred``, Wilson beside the 5-day
+    date-block bootstrap interval (premise.block_rate; units carry u['date'])."""
+    return premise.wilson_block_txt(sum(1 for u in units if pred(u)), len(units), units, pred)
+
+
+def agree_txt(known: Sequence[dict], pred: Callable[[dict], bool]) -> str:
+    """'k of n (p%) W[lo, hi] B[lo, hi]' over ``known`` units (the ones ERA5 can answer for); '0 of 0' when none."""
+    n = len(known)
+    w = stats.wilson(sum(1 for u in known if pred(u)), n)
+    if w is None:
+        return '0 of 0'
+    return '%d of %d (%s) W%s B%s' % (sum(1 for u in known if pred(u)), n, premise.pct(w[0]),
+                                      premise.ci_txt((w[1], w[2])), premise.block_txt(known, pred))
+
+
 def kn(units: Sequence[dict], pred: Callable[[dict], Optional[bool]]) -> Tuple[int, int]:
     known = [u for u in units if pred(u) is not None]
     return sum(1 for u in known if pred(u)), len(known)
@@ -122,7 +140,8 @@ def by_model_event(gos: Sequence[dict]) -> List[List[object]]:
             test = [s for s in sel if weak_testable(s['row'])]
             hit = [s for s in test if weak_canvas(s['row'])]
             dates = sorted({s['date'] for s in sel})
-            out.append([model, ev, len(sel), len(test), share(len(hit), len(test)), len([s for s in hit if s['angel']]),
+            out.append([model, ev, len(sel), len(test), bshare(test, lambda s: weak_canvas(s['row'])),
+                        len([s for s in hit if s['angel']]),
                         len({s['date'] for s in hit}), '%s .. %s' % (dates[0], dates[-1]) if dates else '-'])
     return out
 
@@ -156,8 +175,8 @@ def era5_view(hits: Sequence[dict]) -> List[List[object]]:
         row: List[object] = [label]
         for m in models + ['all']:
             sel = [s for s in hits if m == 'all' or s['model'] == m]
-            k, n = kn(sel, lambda s, key=key: era5_checks(s['row'])[key])
-            row.append('%s of %d' % (k, n))
+            known = [s for s in sel if era5_checks(s['row'])[key] is not None]
+            row.append(agree_txt(known, lambda s, key=key: era5_checks(s['row'])[key]))
         out.append(row)
     return out
 
@@ -198,9 +217,45 @@ def low_deck_rows(missed: Sequence[dict]) -> List[List[object]]:
         both = [s for s in missed if s['row'][fc] is not None and s['row'][cv] is not None]
         over = [s for s in both if s['row'][fc] >= DECK_FORECAST_MIN and s['row'][cv] < DECK_ERA5_MAX]
         under = [s for s in both if s['row'][fc] < CLEAR_FORECAST_MAX and s['row'][cv] >= DECK_ERA5_MIN]
+        over_set, under_set = {id(s) for s in over}, {id(s) for s in under}
         out.append([label, len(both), med([s['row'][fc] for s in both]), med([s['row'][cv] for s in both]),
-                    share(len(over), len(both)), share(len(under), len(both))])
+                    bshare(both, lambda s: id(s) in over_set), bshare(both, lambda s: id(s) in under_set)])
     return out
+
+
+def headline_rows(gos: Sequence[dict]) -> List[List[object]]:
+    """The weak-canvas rate among gos, broad and strict, with Wilson, the 5-day date-block interval and the 3- and
+    7-day sensitivity. The strict shape needs the antisolar inputs too, so it has its own (smaller) testable set;
+    the broad rate on that same set is printed so the two are like for like."""
+    rows: List[List[object]] = []
+
+    def add(label: str, units: Sequence[dict], pred: Callable[[dict], bool]) -> None:
+        k = sum(1 for u in units if pred(u))
+        w = stats.wilson(k, len(units))
+        rows.append([label, k, len(units), '-' if w is None else premise.pct(w[0]),
+                     '-' if w is None else premise.ci_txt((w[1], w[2])),
+                     premise.block_sensitivity_txt(units, pred)])
+
+    broad = [s for s in gos if weak_testable(s['row'])]
+    strict = [s for s in gos if s['angel_testable']]
+    add('weak canvas (broad), of testable gos', broad, lambda s: weak_canvas(s['row']))
+    add('strict Angel shape (antisolar mid/high < 20 too), of strict-testable gos', strict, lambda s: s['angel'])
+    add('weak canvas (broad), of the same strict-testable gos', strict, lambda s: weak_canvas(s['row']))
+    return rows
+
+
+def sensitivity_line(gos: Sequence[dict], exclude: str = SENSITIVITY_EXCLUDE_DATE) -> str:
+    """The broad and strict headline rates with and without one date (default 2026-10-15)."""
+    parts = []
+    for label, sel, pred in (('broad', lambda s: weak_testable(s['row']), lambda s: weak_canvas(s['row'])),
+                             ('strict', lambda s: s['angel_testable'], lambda s: s['angel'])):
+        cells = []
+        for tag, units in (('all dates', gos), ('without %s' % exclude, [s for s in gos if s['date'] != exclude])):
+            test = [s for s in units if sel(s)]
+            cells.append('%s %s' % (tag, bshare(test, pred) if test else '-'))
+        parts.append('%s: %s' % (label, '; '.join(cells)))
+    return 'Sensitivity (%d of the gos are dated %s): %s.' % (
+        sum(1 for s in gos if s['date'] == exclude), exclude, '. '.join(parts))
 
 
 def load_ratings(path: str) -> Dict[tuple, dict]:
@@ -226,6 +281,13 @@ def slot_line(s: dict) -> List[object]:
 # ------------------------------------------------------------------ report
 
 def render(rows: Sequence[dict], ratings: Optional[Dict[tuple, list]] = None) -> Tuple[str, List[dict]]:
+    """The report text and the weak-canvas gos. Every date-block interval resamples the calendar days of the go
+    window (premise.study_span), subgroups included."""
+    with premise.study_span([s['date'] for s in population(rows)['gos']]):
+        return _render(rows, ratings)
+
+
+def _render(rows: Sequence[dict], ratings: Optional[Dict[tuple, list]] = None) -> Tuple[str, List[dict]]:
     p = population(rows)
     gos, rated = p['gos'], p['rated']
     test = [s for s in gos if weak_testable(s['row'])]
@@ -245,6 +307,13 @@ def render(rows: Sequence[dict], ratings: Optional[Dict[tuple, list]] = None) ->
              % (OVERHEAD_MAX, OVERHEAD_MAX, CONE_LOW_MAX, CONE_HIGH_MIN))
     L.append('- **Strict Angel shape (subset):** premise.angel_shape, which also needs antisolar mid and high < %d.'
              % OVERHEAD_MAX)
+    L.append('- **Intervals:** W is the 95%% Wilson interval, which treats slots as independent; they are not (many '
+             'locations share one weather day), so beside it B is a 95%% percentile interval from a date-block bootstrap '
+             '(premise.block_rate: 5-day moving blocks of calendar days over the go window even for a subgroup, %d draws, '
+             'seed %d; 3 and 7 days as sensitivity '
+             'in the headline table; "drop" is the share of draws holding no unit of the subgroup). '
+             'Cells read "k (p%%) W[lo, hi] B[lo, hi]".'
+             % (stats.DEFAULT_DRAWS, stats.DEFAULT_SEED))
     L.append('- **ERA5 view:** `cloud_verification` observer mid/high, cone low/mid/high, far low, where a row exists. '
              'ERA5 is a reanalysis, not an observation.')
     L.append('- **Canopy overhead:** forecast observer mid >= %d OR high >= %d. **Missed-opportunity class:** a canopy-overhead '
@@ -255,6 +324,12 @@ def render(rows: Sequence[dict], ratings: Optional[Dict[tuple, list]] = None) ->
     L.append('- Rows %d; slots with an eligible run %d; prompted batch sky T+0/T+1 slots %d; rated %d; gos %d; '
              'gos testable for the shape %d.'
              % (len(rows), len(p['slots']), len(p['base']), len(rated), len(gos), len(test)))
+    L.append('')
+    L.append('## Headline rates with date-block intervals')
+    L.append('')
+    L += table(['rate', 'k', 'n', 'p', 'Wilson', 'date-block bootstrap (5-day first; 3 and 7 sensitivity)'],
+               headline_rows(gos))
+    L.append(sensitivity_line(gos))
     L.append('')
     L.append('## 1. Gos matching the weak-canvas shape')
     L.append('')
@@ -312,7 +387,8 @@ def render(rows: Sequence[dict], ratings: Optional[Dict[tuple, list]] = None) ->
     L.append('%d rated slots with a canopy overhead; %s rated <= %d. A rating of %d or less is the ordinary outcome for '
              'most slots, so this class is large by construction. The low-cloud tables below set the forecast '
              'against ERA5, which is itself a model.'
-             % (len(m['canopy']), share(len(m['missed']), len(m['canopy'])), MISSED_MAX, MISSED_MAX))
+             % (len(m['canopy']), bshare(m['canopy'], lambda s: s['row']['rating'] <= MISSED_MAX), MISSED_MAX,
+                MISSED_MAX))
     L.append('')
     L.append('### By date and model (dates with at least one)')
     L.append('')

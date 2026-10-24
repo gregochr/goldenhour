@@ -15,8 +15,12 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Predicate;
 
@@ -46,10 +50,14 @@ import java.util.function.Predicate;
  * @param nights      tonight's and tomorrow night's astro and aurora forecasts (ask-night plan §2.1);
  *                    {@link Nights#NONE} when there are none. User-less like the rest of the snapshot:
  *                    aurora figures are in it and are withheld by role where an asker is known
+ * @param areas       the named areas ("Hadrian's Wall") look_up_place and rank_spots understand; empty when
+ *                    there are none or they could not be read
+ * @param locationAliases other names for a location, by location id, each list in the deterministic order of
+ *                    {@link AskAreas#sortAliases}; empty when there are none
  */
 public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
         List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp,
-        boolean briefingStale, Nights nights) {
+        boolean briefingStale, Nights nights, List<Area> areas, Map<Long, List<String>> locationAliases) {
 
     /** The least served rating a slot may carry and still be offered as a pick. */
     public static final int MIN_PICK_RATING = 3;
@@ -73,6 +81,61 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
         hotTopics = hotTopics == null ? List.of() : List.copyOf(hotTopics);
         comingUp = comingUp == null ? List.of() : List.copyOf(comingUp);
         nights = nights == null ? Nights.NONE : nights;
+        areas = areas == null ? List.of() : List.copyOf(areas);
+        locationAliases = locationAliases == null ? Map.of() : copyAliases(locationAliases);
+    }
+
+    /**
+     * A snapshot with no named areas and no location aliases.
+     *
+     * @param generatedAt   when the briefing was built (UTC), or null
+     * @param runLabel      {@code HH:mm} Europe/London of {@code generatedAt}, or null
+     * @param today         today on the UK civil calendar
+     * @param windows       the window set
+     * @param hotTopics     the served hot topics
+     * @param comingUp      the almanac entries
+     * @param briefingStale whether the served briefing is the last-known-good one
+     * @param nights        the night forecasts
+     */
+    public AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
+            List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp,
+            boolean briefingStale, Nights nights) {
+        this(generatedAt, runLabel, today, windows, hotTopics, comingUp, briefingStale, nights, List.of(),
+                Map.of());
+    }
+
+    /**
+     * This snapshot with these named areas and location aliases.
+     *
+     * @param newAreas   the named areas
+     * @param newAliases other names by location id
+     * @return the snapshot, otherwise unchanged
+     */
+    public AskSnapshot withNames(List<Area> newAreas, Map<Long, List<String>> newAliases) {
+        return new AskSnapshot(generatedAt, runLabel, today, windows, hotTopics, comingUp, briefingStale, nights,
+                newAreas, newAliases);
+    }
+
+    private static Map<Long, List<String>> copyAliases(Map<Long, List<String>> aliases) {
+        Map<Long, List<String>> out = new java.util.LinkedHashMap<>();
+        aliases.forEach((id, names) -> out.put(id, names == null ? List.of() : List.copyOf(names)));
+        return java.util.Collections.unmodifiableMap(out);
+    }
+
+    /**
+     * A named area: a landmark or district such as "Hadrian's Wall" that groups places.
+     *
+     * @param name        the area's name
+     * @param aliases     other names for it, in the deterministic order of {@link AskAreas#sortAliases}
+     * @param locationIds the member locations' ids
+     */
+    public record Area(String name, List<String> aliases, Set<Long> locationIds) {
+
+        /** Canonical constructor: takes immutable copies; null reads as empty. */
+        public Area {
+            aliases = aliases == null ? List.of() : List.copyOf(aliases);
+            locationIds = locationIds == null ? Set.of() : Set.copyOf(locationIds);
+        }
     }
 
     /**
@@ -242,6 +305,27 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      */
     public record Topic(String type, String label, String detail, LocalDate date,
             List<String> regions, String safetyNote, String eventType) {
+
+        /**
+         * This topic standing for itself and a later topic of the same kind and date: its own
+         * fields, the union of both region lists (empty, meaning region-less, if either is), and
+         * the first non-null safety note.
+         *
+         * @param later the later topic of the same kind and date
+         * @return the folded topic
+         */
+        Topic foldedWith(Topic later) {
+            List<String> merged;
+            if (regions.isEmpty() || later.regions().isEmpty()) {
+                merged = List.of();
+            } else {
+                Set<String> union = new LinkedHashSet<>(regions);
+                union.addAll(later.regions());
+                merged = List.copyOf(union);
+            }
+            return new Topic(type, label, detail, date, merged,
+                    safetyNote != null ? safetyNote : later.safetyNote(), eventType);
+        }
 
         /**
          * A topic with no safety note and no solar anchor.
@@ -994,9 +1078,10 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
                 .filter(e -> !e.endDate().isBefore(from) && !e.startDate().isAfter(to))
                 .toList());
         List<ComingUp> almanac = List.copyOf(entries);
-        hotTopics.stream()
+        onePerKindAndDay(hotTopics.stream()
                 .filter(t -> t.coversAnyOf(from, to))
                 .filter(t -> t.inScope(scope))
+                .toList()).stream()
                 .filter(t -> almanac.stream().noneMatch(e -> listedBy(e, t)))
                 .map(t -> new ComingUp(t.type(), t.label(), t.date(), t.date(), t.detail(),
                         t.safetyNote()))
@@ -1006,6 +1091,33 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
                 .thenComparing(ComingUp::type)
                 .thenComparing(ComingUp::endDate));
         return List.copyOf(entries);
+    }
+
+    /**
+     * The topics with every repeat of a kind on one date folded into the first, order unchanged.
+     *
+     * <p>A detector may emit one topic per (date, event): valley mist and storm surge both carry a
+     * sunrise and a sunset topic on a day that qualifies at both. That split is what puts each badge
+     * on its own Plan window, but to Ask the two are one event, and listed twice they spend two of a
+     * tool's few result slots, so a run of such days could crowd every other topic out of
+     * {@code get_hot_topics} and {@code get_coming_up} (a Codex review of #1300). The kind is
+     * {@link AskEventType#key}, the identity every Ask comparison of types uses.
+     *
+     * <p>The first topic of a kind and date stands for the day, but its {@code regions} become the
+     * union of every folded topic's, so a sunset-only region is not dropped from what Ask is told
+     * (the same review's second round). An empty list means region-less, true of everywhere, so it
+     * wins the union; the first non-null safety note is kept. Call it after the scope filter, so
+     * only in-scope topics are folded.
+     *
+     * @param topics the topics, in the order they will be offered
+     * @return one topic per kind and date, in first-seen order
+     */
+    static List<Topic> onePerKindAndDay(List<Topic> topics) {
+        Map<String, Topic> byKindAndDay = new LinkedHashMap<>();
+        for (Topic t : topics) {
+            byKindAndDay.merge(AskEventType.key(t.type()) + "|" + t.date(), t, Topic::foldedWith);
+        }
+        return List.copyOf(byKindAndDay.values());
     }
 
     /**

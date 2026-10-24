@@ -135,7 +135,7 @@ describe('the window panel sits in the frame, not in the chrome box', () => {
     // the tab bar, and the difference is exactly what clipped the rows.
     const maxHeight = decl(ruleFor('.wf-win-panel'), 'max-height');
 
-    expect(maxHeight).toBe('calc(100% - 102px)');
+    expect(maxHeight).toBe('calc(100% - var(--wf-chrome-tl-h, 36px) - 66px)');
     expect(maxHeight).not.toMatch(/vh/);
   });
 
@@ -144,7 +144,8 @@ describe('the window panel sits in the frame, not in the chrome box', () => {
 
     expect(decl(body, 'width')).toBe('504px');
     expect(decl(body, 'max-width')).toBe(decl(ruleFor('.wf-map-tab .wf-map-chrome-tl'), 'max-width'));
-    expect(decl(body, 'top')).toBe('50px');
+    // 36px fallback + 14px = the old 50px; `bigSeasCascade.test.js` evaluates it both ways.
+    expect(decl(body, 'top')).toBe('calc(var(--wf-chrome-tl-h, 36px) + 14px)');
     expect(decl(body, 'left')).toBe(decl(ruleFor('.wf-map-chrome-tl'), 'left'));
   });
 
@@ -157,7 +158,7 @@ describe('the window panel sits in the frame, not in the chrome box', () => {
 
     expect(decl(body, 'width')).toBe('auto');
     expect(decl(body, 'max-width')).toBe('none');
-    expect(decl(body, 'max-height')).toBe('calc(100% - 194px)');
+    expect(decl(body, 'max-height')).toBe('calc(100% - var(--wf-chrome-tl-h, 40px) - 154px)');
   });
 });
 

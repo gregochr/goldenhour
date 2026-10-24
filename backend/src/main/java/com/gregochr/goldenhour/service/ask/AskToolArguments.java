@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.gregochr.goldenhour.service.ask.AskTools.ComingUpArgs;
 import com.gregochr.goldenhour.service.ask.AskTools.HotTopicsArgs;
+import com.gregochr.goldenhour.service.ask.AskTools.LookUpPlaceArgs;
 import com.gregochr.goldenhour.service.ask.AskTools.RankNightSpotsArgs;
 import com.gregochr.goldenhour.service.ask.AskTools.RankSpotsArgs;
 
@@ -45,7 +46,19 @@ final class AskToolArguments {
         JsonNode in = object(input);
         return new RankSpotsArgs(strings(in, "windowIds"), strings(in, "regionNames"),
                 bool(in, "coastalOnly"), text(in, "tideState"), whole(in, "maxDriveMinutes"),
-                bool(in, "nearHome"), whole(in, "limit"));
+                bool(in, "nearHome"), whole(in, "limit"), text(in, "areaName"));
+    }
+
+    /**
+     * Reads {@code look_up_place} arguments. A missing name is not an error here: the tool says so itself.
+     *
+     * @param input the tool input
+     * @return the arguments
+     * @throws BadArguments when a field has the wrong type
+     */
+    static LookUpPlaceArgs lookUpPlace(JsonNode input) throws BadArguments {
+        JsonNode in = object(input);
+        return new LookUpPlaceArgs(text(in, "name"), strings(in, "windowIds"));
     }
 
     /**

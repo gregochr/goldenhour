@@ -128,7 +128,7 @@ describe('WindowFirstShell — the Regional planner\'s doors, through the REAL c
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
       kind: 'event', date: NEXT, eventType: 'SUNSET',
-      inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60,
+      inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
     });
   });
 
@@ -140,7 +140,7 @@ describe('WindowFirstShell — the Regional planner\'s doors, through the REAL c
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
       kind: 'location', locationName: 'Bamburgh', date: NEXT, eventType: 'SUNSET',
-      inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60,
+      inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
     });
   });
 

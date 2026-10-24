@@ -861,6 +861,12 @@ export default function WindowFirstMapPane({
         // that granularity is the intended one and not a bug to sharpen.
         runId={briefing?.generatedAt ?? null}
         tideAlignmentIndex={tideAlignmentIndex}
+        // The served big-seas days (big-seas plan F1) — `undefined` when none qualifies, so
+        // `MapView`'s stable empty default applies.
+        bigSeas={briefing?.bigSeas}
+        // The served hot topics (hot-topics-by-day-plan M1) - the chips' and rings' source, joined to
+        // windows by the SAME index Plan and Coming up read.
+        hotTopics={briefing?.hotTopics}
         eclipseIndex={eclipseIndex}
         reachById={reachById}
         onOpenLocationSheet={onOpenLocationSheet}

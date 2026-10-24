@@ -129,7 +129,13 @@ const browser = await chromium.launch(executablePath ? { executablePath } : {});
 const { VIEWPORTS } = await import('./lib.mjs');
 /** `none` is the baseline (chrome only); the other three each open one of the seeded surfaces. */
 /** `win9` is the SAME panel at a production-shaped region count — see the harness's own note. */
-const SURFACES = ['none', 'land', 'win', 'win9', 'reg'];
+/** `seas` is the chrome group with the big-seas line under the control (big-seas plan F1). */
+/** `topics` / `topicsEmpty` / `seasTopics` add the hot-topic chips row (hot-topics-by-day-plan M1). */
+/** `stripOpen` / `stripClosed` / `tideOnly` / `tideStripClosed` / `tideStripOpen` add the four-day strip (M2). */
+const SURFACES = [
+  'none', 'land', 'win', 'win9', 'reg', 'seas', 'topics', 'topicsEmpty', 'seasTopics',
+  'stripOpen', 'stripClosed', 'tideOnly', 'tideStripClosed', 'tideStripOpen',
+];
 const REGION_COUNT_FOR = { win9: 9 };
 const OBSTACLE_TESTIDS = [
   // The transient surfaces under test…
@@ -171,6 +177,8 @@ for (const vp of FRAMES) {
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
     await page.waitForSelector('#r5-frame', { state: 'attached', timeout: 15000 });
     await page.evaluate(() => document.fonts.ready.then(() => true));
+    // The strip reports its frame and the footer lifts on timers and observers: let them settle.
+    await page.waitForTimeout(400);
 
     const data = await page.evaluate((testids) => {
       const frame = document.getElementById('r5-frame');

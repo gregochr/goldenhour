@@ -7,6 +7,7 @@ import { rampGradientCss } from '../../utils/scoreRamp.js';
 import { AURORA_RAMP } from '../../utils/auroraRamp.js';
 import { RING_TIERS } from '../../utils/reachRings.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
+import BoltIcon from './BoltIcon.jsx';
 
 /** Below this handover fraction the field is still whole — README §8's first zoom state. */
 const HANDOVER_FIELD_MAX = 0.05;
@@ -90,14 +91,18 @@ export function handoverPhase(t) {
 export default function MapLegendPanel({
   open, onOpenChange, handoverFraction, ringsEnabled, onToggleRings,
   hasHome = false, reachMeasured = false, variant = 'solar', viewlineShown = false,
-  groundKey = true,
+  groundKey = true, stoodKey = false, seasKey = false,
 }) {
   const aurora = variant === 'aurora';
+  // The Pins view's legend (big-seas plan F3): no field is painted there, so there is no ramp, no
+  // handover, no reach-ring toggle and no note, only the keys of the layers Pins does draw.
+  const pins = variant === 'pins';
   const rootRef = useRef(null);
   const panelRef = useRef(null);
 
-  // Opens UP from the bottom-left chip, so it is the frame's TOP edge it can run past.
-  useFitToFrame(panelRef, rootRef, { direction: 'up', open });
+  // Opens UP from the bottom-left chip, so it is the frame's TOP edge it can run past: the room stops under
+  // the top-left chrome group (window pill, big-seas line, topic chips), not at the frame's top.
+  useFitToFrame(panelRef, rootRef, { direction: 'up', open, clearTopChrome: true });
 
 
   // A press on the MAP dismisses nothing — `useOutsideDismiss` carries that rule for all four map
@@ -153,31 +158,36 @@ export default function MapLegendPanel({
       {open && (
         <div ref={panelRef} id="wf-legend-panel" data-testid="wf-legend-panel" className="wf-legend-panel" role="dialog" aria-label="Map legend">
           {aurora && <div className="wf-legend-ramp-label">COLOUR = AURORA RATING</div>}
-          <div
-            data-testid="wf-legend-ramp"
-            className={aurora ? 'wf-legend-ramp wf-legend-ramp-aurora' : 'wf-legend-ramp'}
-            style={{ background: aurora ? AURORA_RAMP.gradientCss() : rampGradientCss() }}
-          />
-          <div className="wf-legend-ramp-row">
-            {aurora ? (
-              <>
-                <span>1&#9733; dark sky, no show</span>
-                <span>3&#9733;</span>
-                <span>5&#9733; aurora green</span>
-              </>
-            ) : (
-              <>
-                <span>1&#9733; poor</span>
-                <span>3&#9733;</span>
-                <span>5&#9733; worth it</span>
-              </>
-            )}
-          </div>
+          {!pins && (
+            <>
+              <div
+                data-testid="wf-legend-ramp"
+                className={aurora ? 'wf-legend-ramp wf-legend-ramp-aurora' : 'wf-legend-ramp'}
+                style={{ background: aurora ? AURORA_RAMP.gradientCss() : rampGradientCss() }}
+              />
+              <div className="wf-legend-ramp-row">
+                {aurora ? (
+                  <>
+                    <span>1&#9733; dark sky, no show</span>
+                    <span>3&#9733;</span>
+                    <span>5&#9733; aurora green</span>
+                  </>
+                ) : (
+                  <>
+                    <span>1&#9733; poor</span>
+                    <span>3&#9733;</span>
+                    <span>5&#9733; worth it</span>
+                  </>
+                )}
+              </div>
+            </>
+          )}
 
           {/* thin-sample plan F4: the two ground states beside the ramp's "rated" — the hatch is drawn
               around places nobody has rated for this window, plain ground where there are no places.
-              Solar windows only; an aurora night draws no hatch, so its key has none. */}
-          {!aurora && groundKey && (
+              Solar windows only; an aurora night draws no hatch, so its key has none. Heat view only:
+              Pins draws no unrated hatch. */}
+          {!aurora && !pins && groundKey && (
             <div data-testid="wf-legend-ground" className="wf-legend-ground">
               <span className="wf-legend-ground-item">
                 <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-hatch" />
@@ -190,17 +200,50 @@ export default function MapLegendPanel({
             </div>
           )}
 
-          <div data-testid="wf-legend-hand" className="wf-legend-hand">
-            <span className="wf-legend-hand-bar">
-              <i style={{ width: `${barWidthPct}%` }} />
-            </span>
-            <span className="wf-legend-hand-txt">
-              <b>{phase.label}</b>
-              {phase.detail}
-            </span>
-          </div>
+          {/* Big-seas plan F3: the stand-down hatch's key, while the hatch is drawn (solar, with a
+              weather stand-down in the window) — in Heat beside the ground key, in Pins on its own. */}
+          {stoodKey && !aurora && (
+            <div data-testid="wf-legend-standdown">
+              <div className="wf-legend-ramp-label">Stood down</div>
+              <div className="wf-legend-ground">
+                <span className="wf-legend-ground-item">
+                  <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-standdown" />
+                  ruled out by the weather, cause named on the ground
+                </span>
+              </div>
+            </div>
+          )}
 
-          {hasHome && (
+          {/* Big-seas plan F2: the chip's key, while chips are drawn (one condition with the chip mount,
+              the `viewlineShown` pattern). The swatch is the chip's own plate and bolt, so the key
+              reads as the thing it names; "ringed" is the aligned chip's second ring. */}
+          {seasKey && !aurora && (
+            <div data-testid="wf-legend-bigseas">
+              <div className="wf-legend-ramp-label">Big seas</div>
+              <div className="wf-legend-ground">
+                <span className="wf-legend-ground-item">
+                  <i aria-hidden="true" className="wf-legend-swatch-seas">
+                    <BoltIcon />
+                  </i>
+                  waves onto a pier or lighthouse at high water &middot; ringed when high water is on the light
+                </span>
+              </div>
+            </div>
+          )}
+
+          {!pins && (
+            <div data-testid="wf-legend-hand" className="wf-legend-hand">
+              <span className="wf-legend-hand-bar">
+                <i style={{ width: `${barWidthPct}%` }} />
+              </span>
+              <span className="wf-legend-hand-txt">
+                <b>{phase.label}</b>
+                {phase.detail}
+              </span>
+            </div>
+          )}
+
+          {hasHome && !pins && (
             <button
               type="button"
               data-testid="wf-legend-rings-toggle"
@@ -213,7 +256,7 @@ export default function MapLegendPanel({
             </button>
           )}
 
-          {aurora ? (
+          {pins ? null : aurora ? (
             <div data-testid="wf-legend-note" className="wf-legend-note">
               <b>Rating, not Kp.</b> Each location&rsquo;s score already folds in latitude, cloud and
               sky darkness.
@@ -239,8 +282,12 @@ MapLegendPanel.propTypes = {
   onToggleRings: PropTypes.func.isRequired,
   hasHome: PropTypes.bool,
   reachMeasured: PropTypes.bool,
-  variant: PropTypes.oneOf(['solar', 'aurora']),
+  variant: PropTypes.oneOf(['solar', 'aurora', 'pins']),
   viewlineShown: PropTypes.bool,
   /** Whether the hatch is drawn for this window (solar, and rated); the ground key is withheld otherwise. */
   groundKey: PropTypes.bool,
+  /** Whether the stand-down hatch is drawn for this window (big-seas plan F3). */
+  stoodKey: PropTypes.bool,
+  /** Whether big-seas chips are drawn (big-seas plan F2); the key is withheld otherwise. */
+  seasKey: PropTypes.bool,
 };

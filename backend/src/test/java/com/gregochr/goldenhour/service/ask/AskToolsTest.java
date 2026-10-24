@@ -29,6 +29,7 @@ import java.util.Map;
 
 import static com.gregochr.goldenhour.service.ask.AskFixtures.TODAY;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -825,6 +826,90 @@ class AskToolsTest {
                 .containsExactly("AURORA", "SNOW");
     }
 
+    /**
+     * Three days of a surge at sunrise and at sunset, as {@code StormSurgeHotTopicStrategy} emits
+     * them since #1300 (one topic per date and event), plus an aurora after them.
+     */
+    private static AskSnapshot splitSurgeSnapshot() {
+        List<com.gregochr.goldenhour.model.HotTopic> topics = new ArrayList<>();
+        for (int day = 0; day < 3; day++) {
+            topics.add(AskFixtures.topic("STORM_SURGE", "Storm surge", "dawn tide", TODAY.plusDays(day),
+                    List.of()).withEvent("SUNRISE", null));
+            topics.add(AskFixtures.topic("STORM_SURGE", "Storm surge", "evening tide", TODAY.plusDays(day),
+                    List.of()).withEvent("SUNSET", null));
+        }
+        topics.add(AskFixtures.topic("AURORA", "Aurora", "Kp 6", TODAY.plusDays(2), List.of()));
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), topics));
+    }
+
+    @Test
+    @DisplayName("get_hot_topics: a kind split by event is listed once per day, so it cannot crowd out the rest")
+    void getHotTopics_onePerKindAndDay() {
+        AskTools tools = tools(splitSurgeSnapshot());
+
+        HotTopicsResult result = (HotTopicsResult) tools.getHotTopics(null).payload();
+
+        assertThat(result.topics()).extracting(AskTools.TopicInfo::type, AskTools.TopicInfo::date)
+                .containsExactlyInAnyOrder(
+                        tuple("STORM_SURGE", TODAY.toString()),
+                        tuple("STORM_SURGE", TODAY.plusDays(1).toString()),
+                        tuple("STORM_SURGE", TODAY.plusDays(2).toString()),
+                        tuple("AURORA", TODAY.plusDays(2).toString()));
+        assertThat(result.topics()).filteredOn(t -> t.type().equals("STORM_SURGE"))
+                .extracting(AskTools.TopicInfo::detail).containsOnly("dawn tide");
+    }
+
+    @Test
+    @DisplayName("get_hot_topics: the kept topic of a split pair is one in scope")
+    void getHotTopics_onePerKindAndDay_keepsTheInScopeHalf() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("STORM_SURGE", "Storm surge", "dawn tide", TODAY, List.of("Cornwall"))
+                        .withEvent("SUNRISE", null),
+                AskFixtures.topic("STORM_SURGE", "Storm surge", "evening tide", TODAY, List.of("Coast"))
+                        .withEvent("SUNSET", null))));
+
+        HotTopicsResult result = (HotTopicsResult) tools(snapshot, USER, TestScopes.of("coast"))
+                .getHotTopics(null).payload();
+
+        assertThat(result.topics()).extracting(AskTools.TopicInfo::detail).containsExactly("evening tide");
+    }
+
+    @Test
+    @DisplayName("get_hot_topics: the folded topic names every region either half covered")
+    void getHotTopics_onePerKindAndDay_unionsRegions() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("STORM_SURGE", "Storm surge", "dawn tide", TODAY,
+                        List.of("Cornwall", "Coast")).withEvent("SUNRISE", null),
+                AskFixtures.topic("STORM_SURGE", "Storm surge", "evening tide", TODAY,
+                        List.of("Coast", "Northumberland")).withEvent("SUNSET", null),
+                AskFixtures.topic("MIST", "Valley mist", "dawn", TODAY, List.of("Dales"))
+                        .withEvent("SUNRISE", null),
+                AskFixtures.topic("MIST", "Valley mist", "dusk", TODAY, List.of())
+                        .withEvent("SUNSET", null))));
+
+        HotTopicsResult result = (HotTopicsResult) tools(snapshot).getHotTopics(null).payload();
+
+        assertThat(result.topics()).extracting(AskTools.TopicInfo::type, AskTools.TopicInfo::detail,
+                        AskTools.TopicInfo::regions)
+                .containsExactlyInAnyOrder(
+                        tuple("STORM_SURGE", "dawn tide", List.of("Cornwall", "Coast", "Northumberland")),
+                        // A region-less half is true of everywhere, so the fold is region-less too.
+                        tuple("MIST", "dawn", List.of()));
+    }
+
+    @Test
+    @DisplayName("get_coming_up: a kind split by event stands in the timeline once per day")
+    void getComingUp_onePerKindAndDay() {
+        List<AskTools.ComingUpInfo> served = tools(splitSurgeSnapshot()).getComingUp(null).payload().entries();
+
+        assertThat(served).extracting(AskTools.ComingUpInfo::type, AskTools.ComingUpInfo::start)
+                .containsExactly(
+                        tuple("STORM_SURGE", TODAY.toString()),
+                        tuple("STORM_SURGE", TODAY.plusDays(1).toString()),
+                        tuple("AURORA", TODAY.plusDays(2).toString()),
+                        tuple("STORM_SURGE", TODAY.plusDays(2).toString()));
+    }
+
     @Test
     @DisplayName("get_hot_topics limit defaults to 5 and is capped at 10")
     void getHotTopics_limitClamp() {
@@ -1298,6 +1383,38 @@ class AskToolsTest {
             days.add(AskFixtures.sunsetDay(date, null, regions));
         }
         return AskFixtures.snapshotOf(AskFixtures.briefing(days, List.of()));
+    }
+
+    @Test
+    @DisplayName("on one conversation: the busy-day list_windows first, then look_up_place for a name matching two "
+            + "places in every window with no windowIds, is not cut off by the shared character cap")
+    void lookUpPlace_afterABusyDayListWindowsIsNotCutOff() {
+        List<com.gregochr.goldenhour.model.BriefingDay> days = new ArrayList<>();
+        String[] names = {"Northumberland", "North York Moors & Coast", "Lake District", "Yorkshire Dales"};
+        for (int d = 0; d < 6; d++) {
+            BriefingRegion[] regions = new BriefingRegion[5];
+            for (int r = 0; r < 4; r++) {
+                regions[r] = AskFixtures.bandedRegion(names[r], 1_000L * (d * 4 + r + 1), 2, 8, 20, 25 + r, 6);
+            }
+            regions[4] = AskFixtures.region("Northumberland Coast", false,
+                    AskFixtures.withHeadline(AskFixtures.coastal(1L, "Alnmouth", 4, "HIGH", true,
+                            "T".repeat(160)), "H".repeat(200)),
+                    AskFixtures.withHeadline(AskFixtures.coastal(2L, "St Cuthbert's Cross, Alnmouth", 3, "MID",
+                            false, "T".repeat(160)), "H".repeat(200)));
+            days.add(AskFixtures.sunsetDay(TODAY.plusDays(d), null, regions));
+        }
+        AskTools tools = tools(AskFixtures.snapshotOf(AskFixtures.briefing(days, List.of())));
+
+        AskToolResult listed = tools.listWindows();
+        AskToolResult<AskTools.LookUpPlaceResult> lookup = tools.lookUpPlace(
+                new AskTools.LookUpPlaceArgs("Alnmouth", null));
+
+        assertThat(listed.error()).isFalse();
+        assertThat(listed.content().length()).isLessThan(AskTools.RESULT_CHAR_CAP / 2);
+        assertThat(lookup.error()).as(lookup.content()).isFalse();
+        assertThat(lookup.payload().places()).hasSize(AskTools.MAX_PLACE_ROWS);
+        assertThat(lookup.payload().places()).extracting(AskTools.PlaceInfo::locationId).containsOnly(1L);
+        assertThat(tools.charsUsed()).isLessThan(AskTools.RESULT_CHAR_CAP);
     }
 
     @Test

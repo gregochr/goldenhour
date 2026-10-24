@@ -1278,14 +1278,14 @@ describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7
   });
 });
 
-describe('WindowFirstShell — the Coming up handoff row (plan P1/D14)', () => {
+describe('WindowFirstShell — the Coming up lanes On Plan door (plan P1/D14)', () => {
   it('switches to Plan and moves focus to the Plan tab, not just selection', async () => {
     // selectTab hides the panel the row was inside immediately — without an imperative focus move
     // afterwards, focus falls to <body> and a keyboard reader loses their place entirely.
     renderShell();
     await openComingUp();
 
-    fireEvent.click(screen.getByTestId('coming-up-handoff'));
+    fireEvent.click(screen.getByTestId('coming-up-fourdays-plan'));
     await act(async () => { await Promise.resolve(); });
 
     expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
@@ -1378,6 +1378,7 @@ describe('WindowFirstShell — the REAL Coming up card and day chip reach onOpen
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
       kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run',
       date: '2026-08-12', inPlace: false, from: 'coming-up', minRating: null, limitMinutes: 45,
+      outlierKeys: expect.any(Set),
     });
   });
 

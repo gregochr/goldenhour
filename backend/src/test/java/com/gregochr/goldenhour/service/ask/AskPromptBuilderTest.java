@@ -92,6 +92,57 @@ class AskPromptBuilderTest {
     }
 
     @Test
+    @DisplayName("a typed prompt tells the model to call look_up_place for one named place and never to give it "
+            + "as a pick; the investigation bullet points to it; the Ready prompt is RULES untouched")
+    void typedPromptCarriesThePlaceLookupRule() {
+        String typed = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true));
+        String ready = builder.systemPrompt(MONDAY, TestScopes.of(), null, false);
+
+        assertThat(typed)
+                .contains("Questions this does not fit (one place: call look_up_place; one tide, one event, the "
+                        + "night) need none of it.")
+                .contains("When the question is about one named place (\"why is Alnmouth 4★\", \"how is "
+                        + "Bamburgh on Saturday\"), call look_up_place with its name.")
+                .contains("call look_up_place with its name. Pass the windowIds the question is about (the window "
+                        + "the reader is looking at, or the day it names); leave them out only when it asks about "
+                        + "every window.")
+                .contains("If its status is not PICK, explain the rating and say in one clause why PhotoCast is "
+                        + "not suggesting the place, using the reason given for its status. Never give it as a "
+                        + "pick.")
+                .contains("If the reader also wants somewhere to go, call rank_spots.")
+                .contains("If look_up_place returns no places and no named area, read its note and answer "
+                        + "answerable false: when the note says the place is outside the regions this question "
+                        + "is about, say exactly that, never that it is not in the forecast; "
+                        + "otherwise the place is not in the forecast.")
+                .contains(AskTools.PLACE_OUT_OF_SCOPE_NOTE.replace(".", "").replace("That place", "the place"));
+        assertThat(typed.indexOf("When the question is about one named place"))
+                .isGreaterThan(typed.indexOf("A good investigation usually runs"));
+        assertThat(ready).startsWith(AskPromptBuilder.RULES).doesNotContain("look_up_place");
+        assertThat(AskPromptBuilder.RULES).contains(AskPromptBuilder.PLACE_FIT_BEFORE)
+                .doesNotContain("look_up_place");
+    }
+
+    @Test
+    @DisplayName("a typed prompt knows named areas: 'no places and no named area' is the answerable-false trigger, "
+            + "and areaName and other names are explained; the Ready prompt has none of it")
+    void typedPromptCarriesTheNamedAreaRule() {
+        String typed = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true));
+        String ready = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false));
+
+        assertThat(typed)
+                .contains("returns no places and no named area, read its note and answer answerable false")
+                .doesNotContain("returns no places, read its note")
+                .contains("The name may be a named area, a group of places such as a landmark (\"Hadrian's "
+                        + "Wall\"): look_up_place then returns how its places rate in each window; answer from "
+                        + "those stars, never as picks.")
+                .contains("To suggest places in a named area, call rank_spots with areaName.")
+                .contains("A place may also be found by another name (\"the Heugh\"); call it by its listed "
+                        + "name, adding the name the reader used.");
+        assertThat(ready).doesNotContain("named area").doesNotContain("areaName");
+        assertThat(AskPromptBuilder.RULES).doesNotContain("named area");
+    }
+
+    @Test
     @DisplayName("a user-less prompt says nothing of nearHome")
     void userLessPromptDoesNotMentionNearHome() {
         assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false)).doesNotContain("nearHome");

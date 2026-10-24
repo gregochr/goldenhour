@@ -5,6 +5,240 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.32.0] - 2026-10-24
+
+### Changed — frontend dev dependency undici bumped past the 8.12.1 advisories
+
+The transitive dev dependency `undici` (pulled in by `jsdom`) moves from 8.10.2 to 8.12.2 in the
+lockfile, clearing the high-severity EventSource, SRI and content-encoding advisories that were failing
+`npm audit` in the frontend CI job. No runtime code is affected.
+
+### Added — the four-day hot-topics strip on the phone's Map
+
+On a phone, the Map's "Other windows" panel now ends with a collapsible "Hot topics · next four days" section: the same eight-window grid as the desktop strip (a 70px label column, the High-water tick included), closed until you open it, except on big-seas days, when it starts open. It remembers its own open state separately from the desktop strip. Pressing a bar, or a label that has to move you to another window, selects the topic and the window and then folds the panel down so the rings on the map can be seen. On days when the big-seas line replaces the topic chips, this section is the way to the other topics. Desktop and tablet are unchanged. Frontend only.
+
+### Added — a daylight "High water" event on the Map for big-seas days
+
+When the big waves peak at high water in the middle of the day, between sunrise and sunset, the Map's window list now has its own "High water" entry for that day, sitting between the sunrise and the sunset. Choosing it shows the day's piers and lighthouses ringed, with Big seas selected for you (it clears again when you step away unless you chose it yourself), and says plainly that it is not a light window: no stars, no heat colours, no "not scored yet", and your saved star filter is left alone. The big-seas line gains an "At high water 12:40 ›" button from the day's other windows and now reads "high water 12:40, between the lights". On desktop and tablet the four-day strip draws a small tick on the Big seas bar where high water falls between that day's sunrise and sunset, and pressing it opens the event. When the window ends the Map moves on to that day's sunset by itself. Frontend only.
+
+### Added — a four-day hot-topics strip on the Map
+
+On desktop and tablet the bottom-left of the Map now carries a docked "Hot topics · next four days" strip: today and the next three days across, a sunrise and a sunset column each, and one row per hot topic with a bar over the windows it is on (a night topic such as aurora is one bar from Friday's sunset to Saturday's sunrise; Big seas leads and covers both windows of its day). The window on screen is shaded, and pressing a bar opens that window with the topic selected, so the chips and rings above show where it applies; pressing a topic's name toggles it on this window or jumps to the first window it is on. The strip folds to its header while the tide strip or the landing card is showing, remembers whether you closed it, and lifts the counts footer and caps the landing card so nothing sits underneath it. It is not drawn on a phone. Frontend only.
+
+### Added — hot-topic chips and rings on the Map
+
+Under the window control the Map now shows a chip for each hot topic that fires on the window on screen (a king tide, dust, an aurora; Big seas first on a big-seas day), with how many places it is for ("66 coastal", "12 places", "sky-wide"). Pressing a chip rings the places it applies to and steps every other name label back, the ringed places' own labels included (a topic that draws no rings leaves the labels alone); pressing it again, or Escape after the callout, clears it. A topic that is sky-wide, such as an aurora, draws no rings and prints a one-line notice in the chips row instead. The selection follows you to another window that carries the same topic and clears when it does not, and the toggle is announced through the tab's existing status line. The chips come from the same served topics and window index as Plan and Coming up, so a window with no forecast row still lists what is happening on it. On a phone the row is under the pill with the place count hidden and no "no hot topics" text, and it is left out altogether while the big-seas line is showing, since Big seas is already that line. The chrome height that the landing card, window panel, phone toast and Ask's camera sit below is now published on every day, not only on big-seas days.
+
+## [v2.31.0] - 2026-10-23
+
+### Changed — frontend dev dependency zod bumped past GHSA-mrhx-c7xc-m3w5
+
+The transitive dev dependency `zod` (pulled in by `eslint-plugin-react-hooks`) moves from 4.4.3 to
+4.6.6 in the lockfile, clearing the high-severity memory-exhaustion advisory that was failing
+`npm audit` in the frontend CI job. No runtime code is affected.
+
+### Added — named areas and location aliases (data)
+
+V189 adds the tables for named areas ("Hadrian's Wall") and location aliases ("the Heugh" for Hartlepool Headland): `area`, `area_alias`, `area_location` and `location_alias`, with the matching `AreaEntity`, `LocationAliasEntity` and repositories. Hadrian's Wall is seeded with its aliases and, by name, the Wall locations that exist; Hartlepool Headland gets its three Heugh aliases. Data only: Ask does not read them until the next phase (`docs/engineering/ask-named-areas-plan.md`, A1).
+
+### Added — admin editing of named areas and location aliases
+
+The Operations tab's location management view gets an "Areas" section (create, rename, other names, a filterable member picker, delete with a confirm) and an "Also known as" field on the location edit form, so an admin can teach Ask "Hadrian's Wall" or "the Heugh" without a migration. Endpoints are ADMIN-only: `GET|POST /api/areas`, `PUT|DELETE /api/areas/{id}`, `PUT /api/areas/{id}/locations`, `GET /api/locations/aliases`, `PUT /api/locations/{id}/aliases`. A rename never touches an area's members, and a location's aliases are saved by their own request after the location itself, so saving a location can never rewrite them. Location names, location aliases, area names and area aliases are now one normalised namespace (`NameNamespaceGuard`): no two may be equal, an area name or alias may not sit inside a place's name or alias, and a place may not be renamed to hide a named area (clashes answer 409 for areas and aliases, and the existing 400 for a location add or rename). (`docs/engineering/ask-named-areas-plan.md`, A3).
+
+### Added — Coming up "Next four days" lanes, and a tap-through to the Plan window
+
+The dashed one-line handoff row at the top of Coming up is replaced by a small grid: one row per hot topic, four day columns, a bar for a topic that spans days and a dot for a single window. A tide run that goes on past the fourth day ends in a dashed edge and a jump button that scrolls to its entry in the list below,, and a tide run that ends inside the four days is labelled with its biggest day and the light it falls in. Tapping a bar or dot now opens that window's popup on Plan with the topic's row outlined and scrolled into view (or plain Plan when Plan has no card for that window, which the button's name says). The lanes still read only the live briefing, so they appear before the 90-day list has loaded. Topic colours, glyphs and names now come from one palette module that later Map phases will share too, and the scope filter the Plan popup applies to topics is factored out so other surfaces can call the same rule.
+
+### Changed — big seas leads with the daylight high water, and serves its bounds
+
+On a day when no big-sea high water lines up with sunrise or sunset, the big-seas block used to lead with whichever group had the most structures, and with high waters about twelve and a half hours apart that was often the night one, burying the daylight high water. The lead order is now aligned first, then a daylight group, then most structures, highest wave and earliest start. `BigSeasDay` also serves `daylightHighWater` (omitted when false: the group's whole window and its high water lie between the lights), and `daylightStart` / `daylightEnd`, the anchor structure's own sunrise and sunset (UTC, no zone), only when the flag is true. Backend only; the Map reads them in a later phase (`docs/engineering/hot-topics-by-day-plan.md`, B1).
+
+### Added — Ask understands named areas such as Hadrian's Wall and other names such as the Heugh
+
+Ask can now answer "Does Hadrian's Wall look good this weekend?" and "How's the Heugh looking?". `look_up_place` matches a named area (by its name or an alias) as well as a place, and a place by its other names; an area answer lists how its places rate in each window, as an explanation that can never become a pick. `rank_spots` takes an optional `areaName` (typed questions only), so "where on the Wall should I go?" gets real picks. An exact place match always beats a named area. The typed prompt's "no places" rule now reads "no places and no named area", which was the defect: an area result has no `places`. Ready answers, their tool list and prompt bytes are unchanged (`docs/engineering/ask-named-areas-plan.md`, A2).
+
+### Docs — api-endpoints.md lists the real location routes
+
+`docs/engineering/reference/api-endpoints.md` documented `PUT /api/locations/{name}/reset-failures` where the code maps `PUT /api/locations/reset-failures?name=`, and omitted several `LocationController` routes (`PUT /{id}`, `PUT /{id}/enabled`, `GET /grid-cells`, `GET /enrich`); it now lists them all, with the new named-area and alias endpoints and their status codes.
+
+## [v2.30.5] - 2026-10-23
+
+### Fixed — an expired sign-in froze the app behind a false "service unavailable" banner
+
+After 30 days unused (the refresh-token expiry) the app's token refresh was itself refused. The refresh request re-entered the client's own refresh handling and waited on itself, so every request hung, the session-expired prompt never came and the health stream showed DOWN until a manual sign-out and sign-in.
+
+A refresh request (and login and logout) now never re-enters the refresh path, a failed refresh rejects the waiting requests straight away and shows the session-expired prompt, and no request is retried with an empty token.
+
+### Fixed — HeatmapGrid solar-times test no longer breaks when the UK clocks change
+
+The "day header solar times" tests built their fixtures from `futureDateStr(n)` (wall-clock relative) and hard-coded a +1 h BST offset, so once a fixture day crossed the October clock change (25 Oct 2026) the expected UK times were wrong and `main`'s frontend job went red. The block now uses fixed summer (BST) and winter (GMT) civil dates, so it passes on every day of the year and still fails if the component stops converting UTC to UK time.
+
+### Fixed — waking the app after a day no longer shows a false "service unavailable" banner
+
+The live status stream can't tell an expired sign-in from an outage, so after 24 h in the background it showed DOWN until the next routine request renewed the token, up to ten minutes later. When the stream fails it now makes one ordinary signed-in request, which renews the sign-in (and reconnects the stream) or shows the session-expired prompt; a real outage still shows DOWN, with at most one extra request per client.
+
+### Added — Plan thumbnails and the popup map hatch ground the weather stood down (big seas F4)
+
+- The Plan tab's card thumbnails and the open window's field map now draw the same dark hatched patch the Map shows for a place a solar window stood down for the weather, under the colour, so a rated neighbour keeps its own colour. A window where every place stood down still shows it. Tide stand-downs are not hatched, and nothing is drawn on a travel day or before the scores have loaded.
+- The legend under the Plan grid gains a third swatch, "Stood down — ruled out by the weather", shown only while a visible thumbnail has stood ground.
+- A thumbnail's screen-reader sentence ends with "N locations stood down by the weather" ("1 location" for one), counted over the places inside the thumbnail's frame. A window where every place stood down no longer wears the whole-plate "not rated yet" hatch or reads "not scored"; it reads "stood down by the weather — no place rated", as on the Map.
+- The Plan and the Map agree on stood ground again; `plan-tab.md` and the thin-sample plan are updated.
+
+### Added — The Map hatches ground the weather stood down, names the cause, and counts it (big seas F3)
+
+- A place a solar window stood down for the weather (cloud, rain, poor visibility, or the general case) is now drawn on the Map as a dark hatched patch with cool diagonal lines, in Heat and Pins, past windows included. It sits under the colour, so a rated neighbour keeps its own colour. Tide stand-downs are not hatched. This reverses the earlier rule that stand-downs stay plain ground (owner, 2026-10-22).
+- A region where something stood down, nothing is rated and no rating is served for it, is labelled on the ground with its name over `stood down · cloud`, `rain`, `murk` or `weather` (any mix of causes reads `weather`). It replaces that region's ordinary label.
+- When every place in the window stood down, the key slot reads "Stood down by the weather — no place rated for this event" instead of "not scored yet", and the hatch is still drawn.
+- A new legend key, "ruled out by the weather, cause named on the ground", in the desktop Legend (Heat, and a new Pins legend) and the phone Layers `Ground` row.
+- The counts footer gains ` · N stood down` beside "N of K shown".
+- New tokens `--color-standdown-ink`, `--color-standdown-ink-2` and `--color-standdown-count`.
+- Documented as licensed client reads (g)–(i) in `architecture-decisions.md`; `map-tab.md` and the thin-sample plan are amended.
+
+### Added — Map: big-seas chips on the piers and lighthouses
+
+On a day with big seas, each pier or lighthouse the waves reach now carries a small teal chip on the Map tab: a bolt, the structure's short name and the wave height ("Roker Pier  4.3 m"). When the window on screen is the sunrise or sunset that high water lands on, the chip is ringed. Hovering a chip shows the window, the high-water time and how far it falls from the light, the wave height, direction and period, which way the structure faces, and the region and drive time. The chip stands in for the place's ordinary label (the selected place and any Ask pick keep theirs), wins space over ordinary labels, steps back while Ask's picks are showing, and hides from street level. It shows in both Heat and Pins, on desktop and phone, for every role, and only on sunrise and sunset windows. A new Legend key explains it ("waves onto a pier or lighthouse at high water · ringed when high water is on the light"): in the Legend panel, in the Pins legend, and in the phone Layers section. With no big-seas day, nothing changes.
+
+### Added — Map: the big-seas line and the week-menu marker
+
+When high water on a pier or lighthouse coast lines up with big waves, the Map tab now says so. A line under the window control reads, for the day on screen, the window to drive for, the high-water time (with how many minutes it falls before or after sunrise or sunset when it lands on the light) and the sea: height, direction and how many piers and lighthouses it reaches. On the days before, a shorter line points ahead ("Saturday 15:30–18:15 · high water near sunset") with a button that jumps to the right sunrise or sunset. In the window menu, the sunrise or sunset the high water lands on carries a ⚡. Every role sees the line, on desktop and phone alike; the menu marker is in the desktop and tablet dropdown only. The window panel and landing card now sit below the line when it shows; with no big-seas day nothing changes.
+
+This builds on the served `bigSeas` block in the briefing; the chips on the map itself come next.
+
+### Added — the big-seas rule and the served `bigSeas` block (big seas, phase B2)
+
+`GET /api/briefing` now carries an optional `bigSeas` array: for each of the next five days, the one window
+in which a big sea breaks on a pier, breakwater or lighthouse. A high water qualifies when the wave is at
+least 3.0 m, its period at least 8 s and it comes from within 60 degrees of the way the structure faces
+(`photocast.big-seas.*`, all optional, judged at serve time from the stored numbers so retuning needs no
+refetch). Overlapping high-water windows are merged into groups and the lead group is served, with its
+structures, the nearest sunrise or sunset it lines up with (and the gap in minutes, before or after) and the
+count of other windows that day. It is built on every serve, never cached, fail-soft (a database error
+omits the block instead of failing the briefing), and carries no personal data. The high-water half-window
+the marine refresh samples is now `photocast.big-seas.half-window-minutes` (default still 90). Nothing in the
+app draws it yet.
+
+### Added — the sea is sampled at every daylight high water (big seas, phase B1)
+
+The briefing's marine fetch now also asks Open-Meteo for wave and swell period, and for the seven pier,
+breakwater and lighthouse locations (Roker, St Mary's, Amble, Saltburn, Whitby piers, Seaham, Hartlepool)
+it records the peak wave inside a 90-minute window either side of every daylight high water, clipped to
+civil dawn and dusk, in a new `marine_high_water` table (V188). Every daylight high water is kept,
+qualifying or not, so the "big seas" thresholds can be tuned over the winter; the rule itself lands in the
+next phase. A failed or land-cell fetch clears a location's rows rather than leaving last cycle's waves to
+be served as this cycle's. The existing sunrise and sunset sea-state rows are untouched. Data only: nothing
+reaches a user surface yet.
+
+### Fixed — a dead sign-in always ends in the sign-in prompt
+
+A refused request with no renewal pass stored now signs the dead session out instead of leaving the app half signed-in. Account-recovery and sign-up calls no longer disturb another user's session on a shared browser. A renewed sign-in that the browser couldn't save is still used for the requests waiting on it.
+
+### Docs — Big seas and stand-down hatch: build plan
+
+Adds `docs/engineering/big-seas-plan.md`, the phased plan for two Map tab additions. **Big seas**
+flags waves breaking over piers and lighthouses at daylight high water, with a line under the window
+control and chips on the structures. **The stand-down hatch** draws ground the weather ruled out,
+names its region and cause, and also covers the Plan-tab thumbnails. The design handoff is vendored
+under `docs/design/big-seas/`. The plan records the owner's answers of 2026-10-22, including
+overruling the thin-sample "stand-downs stay plain ground" decision. No code changes.
+
+## [v2.30.4] - 2026-10-22
+
+### Fixed — storm surge reaches its Plan card again
+
+Storm surge has been dropped from every Plan card since 29 Aug 2026: #404 made the Plan projector drop any
+topic with no solar event, and #692 removed the Hot topics strip that still showed it. The surge detector
+never named an event, so on 22 Oct a HIGH surge risk at about 15 coastal places for Saturday's sunset showed
+nowhere. `StormSurgeHotTopicStrategy` now emits one topic per (date, event), stamped with its own event like
+valley mist, and `HotTopicEventEnricher` completes the clock time. A topic's figures are sampled at the next
+high water after its event, so the badge means a surge on the tide following that event.
+
+A new roster test, `HotTopicWindowAnchorRosterTest`, fails if any hot-topic type with a live strategy has no
+window to land on. `CLEARANCE` is the one rostered type with no strategy at all and is named as the exception.
+
+Ask lists a kind of topic once per day: `get_hot_topics` and `get_coming_up` keep the first of a valley mist
+or storm surge pair split by event, so a run of such days can no longer fill the five result slots and hide
+everything else (`AskSnapshot.onePerKindAndDay`, after the scope filter and before the limit).
+
+### Docs — CLAUDE.md cut from 481 KB to ~16 KB
+
+CLAUDE.md is loaded into every Claude Code session and subagent, and at about 120k tokens it had become the
+largest fixed cost of every turn. Its detail moved verbatim into fifteen topic files under
+`docs/engineering/reference/` (pipeline, Plan tab, Map tab, Ask, aurora, tides, conditions, platform,
+architecture decisions, rating stores, API endpoints, roles, migrations, configuration, dev and testing).
+CLAUDE.md keeps the overview, an index of those files, the cross-cutting invariants, dev commands, the
+no-Docker rule, code standards and git conventions, plus a rule to stop it growing back.
+
+The test standards gained three rules that had only lived in session memory: a fixed `Clock` or date
+literal must never depend on the day the suite runs (both documents), keyboard tests fire keys at
+`document.activeElement` after a transition that replaces the pressed control (frontend), and
+mutation checks never restore with `git checkout --` (both documents, plus one line in CLAUDE.md).
+
+### Docs — CLAUDE.md states the code-change workflow
+
+CLAUDE.md now opens with the owner's workflow for every code change: Opus or Fable plans and
+adversarially reviews, a Sonnet subagent writes all code, then commit, push, open a PR, wait for CI and
+Codex, fix findings, and squash-merge once CI is green and Codex has given 👍, repeating per phase.
+The git convention "never push to remote" is replaced by "push only feature branches, as part of that
+workflow"; tags, releases and prompt-regression assertions remain the owner's.
+
+### Added — Ask explains a named place's rating
+
+Asking "Why is Alnmouth a 4 on Saturday morning?" used to be answered "Not in the forecast", because Ask's only
+tool for a place's rating, `rank_spots`, returns places PhotoCast would recommend, and a 4★ place in a
+thin-sample region (hatched on the Map) or one the neighbour guard holds back is not one. A new typed-question
+tool, `look_up_place`, returns one named place's served rating, verdict, headline and tide fit at each window,
+with a status saying whether PhotoCast recommends it and why not. The answer explains the rating and never
+offers the place as a pick: a lookup adds nothing the validator accepts as evidence, so recommendations,
+`rank_spots`, the Ready answers and the Plan and Map picks are unchanged. A neighbour outlier the reader names
+is now given its star, with a note that it is rated well above the places beside it. Explanation answers are
+not cached.
+
+### Fixed — Ask PhotoCast accepts star ratings in a question
+
+A typed question such as "Why is Alnmouth 4* on Saturday morning?" was refused with "Questions can only use
+letters, numbers and ordinary punctuation", although every rating PhotoCast shows is in stars. The question
+allow-list in `AskQuestionSanitiser` now also takes `*`, `★` and `☆`; the cache-key form treats them as a word
+break after a digit, so "4*", "4★" and "4" share a key, and reads a run of stars on its own as the rating it
+draws ("★★★★☆" is "4star"), so two glyph ratings never share a cached answer. The ⭐ emoji stays refused, like every other emoji.
+
+## [v2.30.3] - 2026-10-22
+
+### Fixed — a region door on the Map tab never opens a neighbour outlier's callout
+
+A "Show {region} on map" door (and the Regional planner's single-region map button) chose the region's top spot from the batch scores endpoint, which carries no `neighbourOutlier` flag, so it could open the very spot every Plan surface refuses to name. The shell now hands the door the served briefing's outlier marks and `resolveDoor` applies the Plan tab's own rule: a marked spot is skipped, and if the next rated spot is below 3 stars (or none is rated) the door lands on the region alone with no callout. Also corrected two stale comments that said a map-sourced door is "a window change only".
+
+Two accepted behaviours: an outlier tied with the best unmarked spot counts as skipped, so a tie below 3 stars names no spot (the safe side). And an `inPlace` press of a region door on the Map tab now selects nothing when the region's top spot is an outlier; no Map-tab producer of a region trigger was found, so this is believed unreachable today.
+
+### Docs — far-cloud P1: findings summary for peer review (2026-10-22)
+
+- `docs/engineering/far-cloud-p1-findings-2026-10-22.md` states the investigation's ten findings (F1–F10)
+  with their evidence, numbers, sources and weakest points, the decisions taken and not taken, what a
+  reviewer should attack, and the open candidates — written for a reviewer who has not read the plan.
+- Nothing in production scoring changed as a result of the investigation; the document says why.
+
+### Added — far-cloud P1: Codex follow-ups and the forecast-canopy sizing (plan §19)
+
+- `scripts/far-cloud-p1/canopydeck.py` sizes the candidate triage relaxation "do not stand down on low cloud alone when
+  the forecast also shows a mid/high canopy >= 60" offline: phantom decks with a forecast canopy, what the latest run
+  did on them, the ERA5-obstructed exposure among all forecast-deck-plus-canopy slots, and the extra Claude
+  evaluations a day by model era at the `application-example.yml` rates (with an assumed token count). No network,
+  no spend, no verdict; recorded in plan §19.
+- Measurement-quality fixes from the peer review: `replay_set.py select` and `compare` print the basis-against-combined
+  rating cross-tabulation (how many gos a reader would also see as a go); `lowdeck.py` reports HIGH_CLOUD triage
+  without a low-cloud message as its own outcome category and lists every category in its headline so they sum to
+  the total; `canvas.py` and `lowdeck.py` print a 5-day date-block bootstrap interval (3 and 7 days as sensitivity)
+  beside each Wilson interval and a sensitivity line without 2026-10-15; `canvas.py` reports the strict Angel shape
+  beside the broad one. `stats.bootstrap_counts_ex` now sums blocks by prefix sums (the same draws, the same results).
+- Production scoring is unchanged.
+
+### Docs — CLAUDE.md records that the Far-Term batch bucket runs on Sonnet 5.5
+
+Two passages still said only Batch Near-Term had moved to Sonnet 5.5 and that the Gate 4 FAR bucket
+(T+2, T+3 when SETTLED) was Haiku. The owner switched Far-Term on the Models screen on 2026-10-20,
+on the same-cell rating spread measurement (`docs/engineering/same-cell-rating-spread-plan.md`), so
+both now name the date of each switch and say the `model_selection` row, not the code, decides the
+model per bucket. No code change.
+
 ## [v2.30.2] - 2026-10-22
 
 ### Added — the Map tab shows where nobody has rated yet (thin-sample F4)

@@ -125,6 +125,20 @@ describe('the fit', () => {
     expect(options.paddingBottomRight).toEqual([60, 60]);
   });
 
+  it('clears the whole chrome group when the big-seas line makes it taller (top = published height + 44)', () => {
+    // `BigSeasLine` publishes the group's height on the frame; here the map's own parent stands in.
+    const frame = document.createElement('div');
+    frame.style.setProperty('--wf-chrome-tl-h', '101px');
+    frame.appendChild(testMap.getContainer());
+    const flyToBounds = vi.spyOn(testMap, 'flyToBounds');
+
+    render(controller());
+
+    const options = flyToBounds.mock.calls[0][1];
+    expect(options.paddingTopLeft).toEqual([60, 145]);
+    expect(options.paddingBottomRight).toEqual([60, 60]);
+  });
+
   it('never zooms past 10 for a single pick', () => {
     const flyToBounds = vi.spyOn(testMap, 'flyToBounds');
 

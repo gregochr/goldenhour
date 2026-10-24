@@ -29,6 +29,33 @@ public class AskPromptBuilder {
      */
     private static final DateTimeFormatter DAY_MONTH = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH);
 
+    /** The sentence of {@link #RULES} that a typed question's prompt rewords for {@code look_up_place}. */
+    static final String PLACE_FIT_BEFORE =
+            "Questions this does not fit (one place, one tide, one event, the night) need none of it.\n";
+
+    /**
+     * What a typed question's prompt reads in its place: the reworded sentence, then the {@code look_up_place}
+     * bullet (look-up plan §4.4). The Ready precompute has no such tool, so it gets {@link #RULES} untouched.
+     */
+    static final String PLACE_FIT_AFTER = """
+            Questions this does not fit (one place: call look_up_place; one tide, one event, the night) \
+            need none of it.
+            - When the question is about one named place ("why is Alnmouth 4★", "how is Bamburgh on \
+            Saturday"), call look_up_place with its name. Pass the windowIds the question is about \
+            (the window the reader is looking at, or the day it names); leave them out only when it \
+            asks about every window. Answer from what it returns: the rating, verdict, headline and \
+            tide fit. If its status is not PICK, explain the rating and say in one clause why \
+            PhotoCast is not suggesting the place, using the reason given for its status. Never give \
+            it as a pick. If the reader also wants somewhere to go, call rank_spots. If look_up_place \
+            returns no places and no named area, read its note and answer answerable false: when the \
+            note says the place is outside the regions this question is about, say exactly that, never \
+            that it is not in the forecast; otherwise the place is not in the forecast. The name may be \
+            a named area, a group of places such as a landmark ("Hadrian's Wall"): look_up_place then \
+            returns how its places rate in each window; answer from those stars, never as picks. To \
+            suggest places in a named area, call rank_spots with areaName. A place may also be found by \
+            another name ("the Heugh"); call it by its listed name, adding the name the reader used.
+            """;
+
     /** The rules every conversation runs under. */
     static final String RULES = """
             You are PhotoCast's question box, answering questions from UK landscape photographers \
@@ -227,7 +254,10 @@ public class AskPromptBuilder {
     public String systemPrompt(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
             AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread,
             List<String> coveredWindowIds) {
-        StringBuilder sb = new StringBuilder(RULES).append('\n');
+        // A typed question (a user behind it) is given look_up_place; the Ready precompute is not, so its rules
+        // are RULES byte for byte (AskToolSchemas.tools' withPlaceLookup is the same split).
+        String rules = hasUser ? RULES.replace(PLACE_FIT_BEFORE, PLACE_FIT_AFTER) : RULES;
+        StringBuilder sb = new StringBuilder(rules).append('\n');
         sb.append(hasUser ? WITH_USER : USER_LESS).append('\n');
         sb.append("Today is ").append(LONG_DATE.format(today)).append(" in the UK.\n");
         if (scope.isEverywhere()) {

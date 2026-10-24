@@ -9,9 +9,12 @@ import { pxPerKmAtHome, RING_MIN_PX, RING_TIERS } from '../../utils/reachRings.j
 import { seedObstacles } from '../../utils/labelPlacement.js';
 import {
   chipBoxWithinBadgedBox, chipCandidates, hasRatedBadge, homeLabelItems, placeLabelPass,
-  regionLabelItems, ringLabelItems, verdictWord, withBadgeOverhang,
+  fallbackChipSpots, labelTierOrder, regionLabelItems, ringLabelItems, standDownRegionItems, verdictWord,
+  selectedBigSeasFirst, withBadgeOverhang, withFallbackChips, withoutBigSeasDuplicates,
+  withStandDownLabels, NO_BIG_SEAS_CHIPS,
   REGION_TINY_FRAME_WIDTH,
 } from '../../utils/mapLabels.js';
+import BigSeasChip, { BigSeasTipLines } from './BigSeasChip.jsx';
 import { badgeAccessibleClause } from '../../utils/outcomeRatingJoin.js';
 import RatedBadge from './RatedBadge.jsx';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
@@ -40,6 +43,9 @@ import TideWave from './TideWave.jsx';
  */
 const LABEL_PANE = 'wf-labels';
 const LABEL_PANE_Z = 650;
+
+/** No stood-down region labels: one stable identity, so the default never repaints the pass. */
+const NO_STAND_REGIONS = [];
 
 /**
  * Live chrome to seed as obstacles (README §6: "the window bar, Regions/Heat/Pins/Filters bar,
@@ -169,11 +175,16 @@ const PICK_DOT_PX = 25;
  * @param {Array<{spot: object}>} chips `frame.chips`, in placement order
  * @returns {Array<{spot: object}>} the same entries, in DOM order
  */
-function inDomOrder(chips) {
-  if (!chips.some(({ spot }) => spot.askPick)) return chips;
+function inDomOrder(chips, seas = []) {
   const picks = chips.filter(({ spot }) => spot.askPick)
     .sort((a, b) => a.spot.askPick.rank - b.spot.askPick.rank);
-  return [...picks, ...chips.filter(({ spot }) => !spot.askPick)];
+  // Big-seas chips (F2) follow the picks and precede the ordinary chips: keyboard order matches
+  // placement priority.
+  return [
+    ...picks,
+    ...seas.map((item) => ({ seas: item })),
+    ...chips.filter(({ spot }) => !spot.askPick),
+  ];
 }
 
 /**
@@ -276,11 +287,18 @@ const TOOLTIP_WIDTH_FALLBACK = 240;
  *   would hide is the failure: a numbered card with its marker under a 112px line is worse than one
  *   shifted a little. Without the answer the sheet stays what it has always been to this layer, a
  *   thing a label may sit under
+ * @param {number|string} [props.chromeKey] a repaint key for the TWO chrome groups the placer reads as
+ *   obstacles: `MapView` passes `${tl}.${bl}`, the nonces `useChromeTlHeight` and `useChromeBlHeight`
+ *   bump whenever the top-left group's (the topic chips row growing, a sky-wide line, a wrapped row) or
+ *   the bottom-left stack's (the four-day strip opening or collapsing, the tide strip, the legend chip)
+ *   published height changes. This layer repaints only on map move, zoom and resize or on a prop change,
+ *   so a group that grew under labels already placed would otherwise leave them under it; a change of
+ *   this key re-runs placement
  */
 export default function MapLabels({
-  spots: allSpots, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
-  onSelect = null, onSelectAskPick = null, eventLabel = '', bottomInset = 0, rampHex = defaultRampHex,
-  omitUnrated = false,
+  spots: allSpots, standRegions = NO_STAND_REGIONS, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
+  onSelect = null, onSelectAskPick = null, eventLabel = '', bottomInset = 0, chromeKey = '', rampHex = defaultRampHex,
+  omitUnrated = false, bigSeasChips = NO_BIG_SEAS_CHIPS,
 }) {
   const map = useMap();
 
@@ -321,6 +339,8 @@ export default function MapLabels({
    * node gets no {@code mouseleave} either.
    */
   const [hoverName, setHoverName] = useState(null);
+  /** The hovered big-seas chip's location id (its own card, same rule as {@code hoverName}). */
+  const [hoverSeasId, setHoverSeasId] = useState(null);
   const [tipPos, setTipPos] = useState({ x: 0, y: 0 });
 
   const rootRef = useRef(null);
@@ -351,6 +371,7 @@ export default function MapLabels({
   const ringRefs = useRef(new Map());
   const regionRefs = useRef(new Map());
   const chipRefs = useRef(new Map());
+  const seasRefs = useRef(new Map());
   const tipRef = useRef(null);
 
   /**
@@ -391,16 +412,24 @@ export default function MapLabels({
         .filter((ring) => ring.r >= RING_MIN_PX && ring.r <= Math.max(width, height) * RING_OFFFRAME_FACTOR)
       : [];
 
+    // On a full big-seas day the structure's ordinary chip is not offered at all (the big-seas chip
+    // stands for the place), so it does not spend the density budget either. `bigSeasChips` arrives
+    // already without the Ask picks and the selection, whose ordinary chips are never suppressed.
+    const pool = withoutBigSeasDuplicates(spots, bigSeasChips);
     let inViewNames = null;
+    let inViewAll = null;
     if (typeof map.getBounds === 'function') {
       const bounds = map.getBounds();
       inViewNames = new Set(
+        pool.filter((s) => bounds.contains([s.lat, s.lng])).map((s) => s.name),
+      );
+      inViewAll = new Set(
         spots.filter((s) => bounds.contains([s.lat, s.lng])).map((s) => s.name),
       );
     }
 
     const chips = chipCandidates({
-      spots, inViewNames, zoom, selectedName,
+      spots: pool, inViewNames, zoom, selectedName,
     }).map((spot) => {
       const [x, y] = project(spot);
       return { spot, x, y };
@@ -410,16 +439,37 @@ export default function MapLabels({
       width,
       height,
       home,
-      regionItems: regionLabelItems(spots, project, zoom),
+      // A qualified stood-down region's label replaces its ordinary one (big-seas plan F3), in the
+      // same tier and under the same zoom gate; the cause word was decided by the caller.
+      regionItems: withStandDownLabels(
+        regionLabelItems(spots, project, zoom),
+        standDownRegionItems(standRegions, project, zoom),
+      ),
       ringItems: ringsActive ? ringLabelItems({
         homePoint: home, zoom, ringsWithRadius, frameHeight: height, reachMeasured,
         formatDuration: formatDriveDuration,
       }) : [],
       homeItems: home ? homeLabelItems(home, zoom) : [],
       chips,
+      // The places a big-seas chip stands for. Their ordinary chips are drawn only if that big-seas
+      // chip cannot be placed (see the placement effect), so a place never loses both labels.
+      fallbackChips: fallbackChipSpots({
+        spots,
+        suppressedNames: new Set(bigSeasChips.map((it) => it.name)),
+        inViewNames: inViewAll,
+        zoom,
+        selectedName,
+      }).map((spot) => {
+        const [x, y] = project(spot);
+        return { spot, x, y };
+      }),
+      bigSeasItems: selectedBigSeasFirst(bigSeasChips, selectedName).map((it) => {
+        const [x, y] = project(it);
+        return { ...it, x, y };
+      }),
       tiny: width < REGION_TINY_FRAME_WIDTH,
     });
-  }, [map, spots, homeCoords, rings, reachMeasured, selectedName]);
+  }, [map, spots, standRegions, homeCoords, rings, reachMeasured, selectedName, bigSeasChips]);
 
   /**
    * The rAF-guarded throttle/settle pair, mirroring `MapHeatLayer.jsx`'s own — "never their own
@@ -462,7 +512,7 @@ export default function MapLabels({
   // list, above), and `paintRef` is already pointed at the fresh closure by the layout effect
   // above by the time this runs. `repaintNow` rather than a bare call so a frame the throttle
   // already owes is not doubled.
-  useEffect(() => { repaintNow(); }, [paint, repaintNow, bottomInset]);
+  useEffect(() => { repaintNow(); }, [paint, repaintNow, bottomInset, chromeKey]);
 
   /**
    * The measure-then-place pass (see the class doc). Keyed on the `frame` OBJECT's identity, the
@@ -472,20 +522,15 @@ export default function MapLabels({
    */
   useLayoutEffect(() => {
     if (!frame || placement?.frame === frame) return;
-    const items = [];
-
-    for (const it of frame.homeItems) {
-      const node = homeRef.current;
+    const measure = (it, node) => {
       const w = node?.offsetWidth ?? 0;
       const h = node?.offsetHeight ?? 0;
-      if (w > 0 && h > 0) items.push({ ...it, w, h });
-    }
-    for (const it of frame.ringItems) {
-      const node = ringRefs.current.get(it.key);
-      const w = node?.offsetWidth ?? 0;
-      const h = node?.offsetHeight ?? 0;
-      if (w > 0 && h > 0) items.push({ ...it, w, h });
-    }
+      return w > 0 && h > 0 ? { ...it, w, h } : null;
+    };
+    const home = frame.homeItems
+      .map((it) => measure(it, homeRef.current)).filter(Boolean);
+    const rings = frame.ringItems
+      .map((it) => measure(it, ringRefs.current.get(it.key))).filter(Boolean);
     // Ask PhotoCast's picks are placed BEFORE the region names (F3): they are the answer, and a
     // region name is the first thing the pass may do without. `chipCandidates` already put them first
     // among the chips; this lifts them over the regions too. Every other order is unchanged.
@@ -500,47 +545,74 @@ export default function MapLabels({
       // cannot be placed under it. The chip itself is drawn back at its own place below.
       return hasRatedBadge(spot) ? withBadgeOverhang(item) : item;
     };
-    for (const chip of frame.chips) {
-      const item = chip.spot.askPick ? measuredChip(chip) : null;
-      if (item) items.push(item);
-    }
-    for (const it of frame.regionItems) {
-      const node = regionRefs.current.get(it.key);
-      const w = node?.offsetWidth ?? 0;
-      const h = node?.offsetHeight ?? 0;
-      if (w > 0 && h > 0) items.push({ ...it, w, h });
-    }
-    for (const chip of frame.chips) {
-      const item = chip.spot.askPick ? null : measuredChip(chip);
-      if (item) items.push(item);
-    }
-
-    let obstacles = [];
-    const containerEl = map?.getContainer?.();
-    if (containerEl) {
-      const containerRect = containerEl.getBoundingClientRect();
-      // Two roots, because the two kinds of chrome sit on opposite sides of the container: the
-      // React-rendered pieces are its SIBLINGS (queried from its parent), while Leaflet's own
-      // bottom-right corner (zoom + ⌂) is a CHILD of the container itself.
-      const siblingChrome = containerEl.parentElement
-        ? [...containerEl.parentElement.querySelectorAll(OBSTACLE_SELECTOR)]
-        : [];
-      const leafletChrome = [...containerEl.querySelectorAll(LEAFLET_CORNER_SELECTOR)];
-      const rects = [...siblingChrome, ...leafletChrome].map((el) => el.getBoundingClientRect());
-      // Clamped as the sheet's own CSS is (`calc(100% - 64px)`): it never covers the window pill.
-      const covered = Math.min(bottomInset, Math.max(containerRect.height - PEEK_PILL_CLEARANCE, 0));
-      if (covered > 0) {
-        // A box standing on the frame's bottom edge, in the page's coordinates like the rects above.
-        rects.push({
-          left: containerRect.left,
-          top: containerRect.top + containerRect.height - covered,
-          width: containerRect.width,
-          height: covered,
-        });
+    const picks = frame.chips
+      .map((chip) => (chip.spot.askPick ? measuredChip(chip) : null)).filter(Boolean);
+    const regions = frame.regionItems
+      .map((it) => measure(it, regionRefs.current.get(it.key))).filter(Boolean);
+    // The big-seas chips (F2) sit between the regions and the ordinary chips: they win space over
+    // every ordinary chip, but a region name or an Ask pick still keeps its own.
+    const bigSeas = frame.bigSeasItems
+      .map((it) => measure(
+        { key: it.key, x: it.x, y: it.y },
+        seasRefs.current.get(it.locationId),
+      )).filter(Boolean);
+    const chips = frame.chips
+      .map((chip) => (chip.spot.askPick ? null : measuredChip(chip))).filter(Boolean);
+    const seedFor = () => {
+      let obstacles = [];
+      const containerEl = map?.getContainer?.();
+      if (containerEl) {
+        const containerRect = containerEl.getBoundingClientRect();
+        // Two roots, because the two kinds of chrome sit on opposite sides of the container: the
+        // React-rendered pieces are its SIBLINGS (queried from its parent), while Leaflet's own
+        // bottom-right corner (zoom + ⌂) is a CHILD of the container itself.
+        const siblingChrome = containerEl.parentElement
+          ? [...containerEl.parentElement.querySelectorAll(OBSTACLE_SELECTOR)]
+          : [];
+        const leafletChrome = [...containerEl.querySelectorAll(LEAFLET_CORNER_SELECTOR)];
+        const rects = [...siblingChrome, ...leafletChrome].map((el) => el.getBoundingClientRect());
+        // Clamped as the sheet's own CSS is (`calc(100% - 64px)`): it never covers the window pill.
+        const covered = Math.min(bottomInset, Math.max(containerRect.height - PEEK_PILL_CLEARANCE, 0));
+        if (covered > 0) {
+          // A box standing on the frame's bottom edge, in the page's coordinates like the rects above.
+          rects.push({
+            left: containerRect.left,
+            top: containerRect.top + containerRect.height - covered,
+            width: containerRect.width,
+            height: covered,
+          });
+        }
+        obstacles = seedObstacles(rects, containerRect, 5);
       }
-      obstacles = seedObstacles(rects, containerRect, 5);
-    }
+      return obstacles;
+    };
+    // A big-seas chip the pass cannot fit leaves its place with no label at all (its ordinary chip
+    // was withheld), so the place's ordinary chip comes back as a candidate in the ordinary tier. The
+    // greedy pass is deterministic and the big-seas tier precedes the ordinary one, so a first pass
+    // over the tiers up to the big-seas chips says exactly which of them will fail.
+    const bigPlaced = placeLabelPass(
+      labelTierOrder({
+        home, rings, picks, regions, bigSeas,
+      }),
+      frame.width,
+      frame.height,
+      seedFor(),
+    );
+    const failedNames = new Set(frame.bigSeasItems
+      .filter((it) => !bigPlaced.has(it.key)).map((it) => it.name));
+    const fallbacks = frame.fallbackChips
+      .filter(({ spot }) => failedNames.has(spot.name))
+      .map(measuredChip).filter(Boolean);
+    const items = labelTierOrder({
+      home,
+      rings,
+      picks,
+      regions,
+      bigSeas,
+      chips: withFallbackChips(chips, fallbacks, selectedName == null ? null : `chip:${selectedName}`),
+    });
 
+    const obstacles = seedFor();
     const placed = placeLabelPass(items, frame.width, frame.height, obstacles);
 
     // ⚠️ No pick is ever unmarked. A pick chip the greedy pass could not fit falls back to its BARE
@@ -567,7 +639,7 @@ export default function MapLabels({
     }
     // A badged chip was placed as its badge-inclusive box (above); the chip is DRAWN inside it. Done
     // last, so every later pass above saw the whole reserved box and only the style reads this one.
-    for (const { spot } of frame.chips) {
+    for (const { spot } of [...frame.chips, ...frame.fallbackChips]) {
       const key = `chip:${spot.name}`;
       const box = placed.get(key);
       if (box && hasRatedBadge(spot)) {
@@ -580,7 +652,6 @@ export default function MapLabels({
     // cannot be computed from props — the DOM has to be laid out and read first. The write is
     // idempotent and bounded by the guard above (once per genuinely new `frame`), and it is a
     // LAYOUT effect so the off-screen measuring pass is never painted.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPlacement({ frame, placed, compact });
     // `placement` is read only as the guard on its own write (above) — listing it here would make
     // this effect re-run on the write it just made. `frame` is the identity that actually decides
@@ -641,13 +712,23 @@ export default function MapLabels({
   // events say what the pointer is, so touch never reaches the tooltip at all.
   const showTip = useCallback((name, event) => {
     if (event.pointerType !== 'mouse') return;
+    setHoverSeasId(null);
     setHoverName(name);
+    positionTip(event);
+  }, [positionTip]);
+  const showSeasTip = useCallback((locationId, event) => {
+    if (event.pointerType !== 'mouse') return;
+    setHoverName(null);
+    setHoverSeasId(locationId);
     positionTip(event);
   }, [positionTip]);
   const moveTip = useCallback((event) => {
     if (event.pointerType === 'mouse') positionTip(event);
   }, [positionTip]);
-  const hideTip = useCallback(() => setHoverName(null), []);
+  const hideTip = useCallback(() => {
+    setHoverName(null);
+    setHoverSeasId(null);
+  }, []);
 
   /**
    * The spot the tooltip describes, resolved from {@code hoverName} on every render: read off the
@@ -677,11 +758,17 @@ export default function MapLabels({
    */
   // A pick has no tooltip (it would speak for the window on screen): a chip that BECOMES one under a
   // resting pointer — an answer landing — is forgotten like one that unmounted.
-  const hoverSpot = (hoverName != null && frame?.chips.some(({ spot }) => spot.name === hoverName))
+  const hoverSpot = (hoverName != null && frame && [...frame.chips, ...frame.fallbackChips].some(({ spot }) => spot.name === hoverName))
     ? (spots.find((spot) => spot.name === hoverName) ?? null)
     : null;
   const hover = hoverSpot?.askPick ? null : hoverSpot;
   if (hoverName != null && hover == null) setHoverName(null);
+  // A big-seas chip's card, resolved off the LIVE chips the layer mounts and forgotten once its chip
+  // has gone (zoomed out of range, window stepped), by the same guarded-setState idiom.
+  const hoverSeas = hoverSeasId == null
+    ? null
+    : (frame?.bigSeasItems.find((it) => it.locationId === hoverSeasId) ?? null);
+  if (hoverSeasId != null && hoverSeas == null) setHoverSeasId(null);
 
   if (!pane || !frame) return null;
 
@@ -724,18 +811,48 @@ export default function MapLabels({
             if (node) regionRefs.current.set(it.key, node);
             else regionRefs.current.delete(it.key);
           }}
-          className="wf-maplab-region"
+          className={it.standDown ? 'wf-maplab-region wf-maplab-standdown' : 'wf-maplab-region'}
           aria-hidden="true"
           data-hot={it.hot ? 'true' : undefined}
           data-tiny={frame.tiny ? 'true' : undefined}
+          data-standdown={it.standDown || undefined}
           data-testid="map-label-region"
           style={styleFor(it.key)}
         >
-          {it.rid}
+          {it.standDown ? (
+            <>
+              <span className="wf-maplab-standdown-name">{it.rid}</span>
+              <span className="wf-maplab-standdown-cause">{`stood down · ${it.standDown}`}</span>
+            </>
+          ) : it.rid}
         </span>
       ))}
 
-      {inDomOrder(frame.chips).map(({ spot }) => {
+      {inDomOrder([...frame.chips, ...frame.fallbackChips], frame.bigSeasItems).map((entry) => {
+        if (entry.seas) {
+          const it = entry.seas;
+          return (
+            <BigSeasChip
+              key={it.key}
+              item={it}
+              style={styleFor(it.key)}
+              // Only a PLACED chip may carry the selected mark: a hidden one is the first match for
+              // `closeCallout`'s lookup and would take focus nowhere. Unplaced, the visible fallback
+              // ordinary chip of the same place carries it.
+              selected={selectedName === it.name && boxFor(it.key) != null}
+              fade={askActive}
+              refCallback={(node) => {
+                if (node) seasRefs.current.set(it.locationId, node);
+                else seasRefs.current.delete(it.locationId);
+              }}
+              onSelect={onSelect}
+              onTipEnter={(e) => showSeasTip(it.locationId, e)}
+              onTipMove={moveTip}
+              onTipLeave={hideTip}
+            />
+          );
+        }
+        const { spot } = entry;
         const key = `chip:${spot.name}`;
         const pick = spot.askPick ?? null;
         if (pick) {
@@ -853,6 +970,7 @@ export default function MapLabels({
           </button>
         );
       })}
+
     </div>,
     pane,
   );
@@ -908,15 +1026,57 @@ export default function MapLabels({
     chromeRoot,
   );
 
+  const seasTooltip = hoverSeas && chromeRoot && createPortal(
+    <div
+      ref={tipRef}
+      className="wf-maplab-tip"
+      data-testid="map-label-tip"
+      data-kind="big-seas"
+      style={{ left: `${tipPos.x}px`, top: `${tipPos.y}px` }}
+    >
+      <BigSeasTipLines item={hoverSeas} />
+    </div>,
+    chromeRoot,
+  );
+
   return (
     <>
       {labelLayer}
       {tooltip}
+      {seasTooltip}
     </>
   );
 }
 
 MapLabels.propTypes = {
+  /**
+   * The big-seas chips to draw (big-seas plan F2, {@code bigSeasChipItems} minus the Ask picks and the
+   * selection): placed between the regions and the ordinary chips, each REPLACING that place's
+   * ordinary chip. Default none.
+   */
+  bigSeasChips: PropTypes.arrayOf(PropTypes.shape({
+    key: PropTypes.string.isRequired,
+    locationId: PropTypes.number.isRequired,
+    name: PropTypes.string.isRequired,
+    label: PropTypes.string.isRequired,
+    lat: PropTypes.number.isRequired,
+    lng: PropTypes.number.isRequired,
+    heightM: PropTypes.number.isRequired,
+    ringed: PropTypes.bool,
+  })),
+  /**
+   * The regions whose label reads "stood down · cause" (big-seas plan F3, `standDownRegions`'
+   * output): each replaces that region's ordinary label. Default none.
+   */
+  standRegions: PropTypes.arrayOf(PropTypes.shape({
+    rid: PropTypes.string.isRequired,
+    cause: PropTypes.string.isRequired,
+    points: PropTypes.arrayOf(PropTypes.shape({
+      lat: PropTypes.number,
+      lng: PropTypes.number,
+      rid: PropTypes.string,
+    })).isRequired,
+  })),
   /** A `(score) => '#rrggbb'` for the chip swatch; defaults to the shared ramp (aurora passes its own). */
   rampHex: PropTypes.func,
   /** Aurora only: spots with no rating get no chip (an Ask pick is always kept). Default false. */
@@ -984,4 +1144,5 @@ MapLabels.propTypes = {
   onSelectAskPick: PropTypes.func,
   eventLabel: PropTypes.string,
   bottomInset: PropTypes.number,
+  chromeKey: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
 };

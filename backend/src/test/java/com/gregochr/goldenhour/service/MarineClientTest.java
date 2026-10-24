@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.client.OpenMeteoMarineApi;
+import com.gregochr.goldenhour.model.MarineWavePeak;
 import com.gregochr.goldenhour.model.MarineWaveSample;
 import com.gregochr.goldenhour.model.OpenMeteoMarineResponse;
 import com.gregochr.goldenhour.model.SeaState;
@@ -93,5 +94,147 @@ class MarineClientTest {
         OpenMeteoMarineResponse response = response(
                 List.of("2026-07-11T06:00"), List.of(3.9), List.of(1.0), List.of(240));
         assertThat(client.sampleAt(response, null)).isEmpty();
+    }
+
+    // -- peakInWindow (big seas) --------------------------------------------------------------
+
+    private static OpenMeteoMarineResponse withPeriods(List<String> times, List<Double> waveHeights,
+            List<Integer> directions, List<Double> periods, List<Double> swellPeriods) {
+        OpenMeteoMarineResponse response = response(times, waveHeights,
+                waveHeights.stream().map(h -> h == null ? null : h - 1.0).toList(), directions);
+        response.getHourly().setWavePeriod(periods);
+        response.getHourly().setSwellWavePeriod(swellPeriods);
+        return response;
+    }
+
+    private static final List<String> FIVE_HOURS = List.of("2026-12-10T10:00", "2026-12-10T11:00",
+            "2026-12-10T12:00", "2026-12-10T13:00", "2026-12-10T14:00");
+
+    @Test
+    @DisplayName("the peak is the highest hour inside the window, carrying that hour's direction and periods")
+    void peakInWindow_highestInside() {
+        OpenMeteoMarineResponse response = withPeriods(FIVE_HOURS,
+                List.of(9.0, 3.0, 4.2, 3.5, 9.0), List.of(10, 20, 30, 40, 50),
+                List.of(5.0, 8.0, 11.0, 9.0, 5.0), List.of(6.0, 9.0, 12.0, 10.0, 6.0));
+
+        // 11:00-13:00 inclusive: the 9.0 m hours at 10:00 and 14:00 are outside and must not win.
+        Optional<MarineWavePeak> peak = client.peakInWindow(response,
+                LocalDateTime.of(2026, 12, 10, 11, 0), LocalDateTime.of(2026, 12, 10, 13, 0));
+
+        assertThat(peak).contains(new MarineWavePeak(
+                LocalDateTime.of(2026, 12, 10, 12, 0), 4.2, 30, 11.0, 3.2, 12.0));
+    }
+
+    @Test
+    @DisplayName("a tie goes to the earlier hour")
+    void peakInWindow_tieGoesToEarlier() {
+        OpenMeteoMarineResponse response = withPeriods(FIVE_HOURS,
+                List.of(1.0, 4.0, 3.0, 4.0, 1.0), List.of(10, 20, 30, 40, 50),
+                List.of(5.0, 8.0, 11.0, 9.0, 5.0), List.of(6.0, 9.0, 12.0, 10.0, 6.0));
+
+        Optional<MarineWavePeak> peak = client.peakInWindow(response,
+                LocalDateTime.of(2026, 12, 10, 10, 0), LocalDateTime.of(2026, 12, 10, 14, 0));
+
+        assertThat(peak).isPresent();
+        assertThat(peak.get().peakTime()).isEqualTo(LocalDateTime.of(2026, 12, 10, 11, 0));
+        assertThat(peak.get().direction()).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("a window holding no hourly stamp falls back to the hour nearest its midpoint")
+    void peakInWindow_fallsBackToNearestHour() {
+        OpenMeteoMarineResponse response = withPeriods(FIVE_HOURS,
+                List.of(1.0, 2.0, 3.0, 4.0, 5.0), List.of(10, 20, 30, 40, 50),
+                List.of(5.0, 8.0, 11.0, 9.0, 5.0), List.of(6.0, 9.0, 12.0, 10.0, 6.0));
+
+        // 12:10-12:40 holds no stamp; the midpoint 12:25 is nearest 12:00 (not the higher 13:00 hour).
+        Optional<MarineWavePeak> peak = client.peakInWindow(response,
+                LocalDateTime.of(2026, 12, 10, 12, 10), LocalDateTime.of(2026, 12, 10, 12, 40));
+
+        assertThat(peak).isPresent();
+        assertThat(peak.get().peakTime()).isEqualTo(LocalDateTime.of(2026, 12, 10, 12, 0));
+        assertThat(peak.get().waveHeight()).isEqualTo(3.0);
+    }
+
+    @Test
+    @DisplayName("the fallback rounds the midpoint to the NEAREST hour: 12:45 reaches 13:00, not 12:00")
+    void peakInWindow_fallbackRoundsUp() {
+        OpenMeteoMarineResponse response = withPeriods(FIVE_HOURS,
+                List.of(1.0, 2.0, 3.0, 4.0, 5.0), List.of(10, 20, 30, 40, 50),
+                List.of(5.0, 8.0, 11.0, 9.0, 5.0), List.of(6.0, 9.0, 12.0, 10.0, 6.0));
+
+        Optional<MarineWavePeak> peak = client.peakInWindow(response,
+                LocalDateTime.of(2026, 12, 10, 12, 35), LocalDateTime.of(2026, 12, 10, 12, 55));
+
+        assertThat(peak).isPresent();
+        assertThat(peak.get().peakTime()).isEqualTo(LocalDateTime.of(2026, 12, 10, 13, 0));
+    }
+
+    @Test
+    @DisplayName("a peak exactly on the window's start stamp is inside it (the bounds are inclusive)")
+    void peakInWindow_peakOnFromStamp() {
+        OpenMeteoMarineResponse response = withPeriods(FIVE_HOURS,
+                List.of(9.0, 9.5, 3.0, 2.0, 1.0), List.of(10, 20, 30, 40, 50),
+                List.of(5.0, 8.0, 11.0, 9.0, 5.0), List.of(6.0, 9.0, 12.0, 10.0, 6.0));
+
+        Optional<MarineWavePeak> peak = client.peakInWindow(response,
+                LocalDateTime.of(2026, 12, 10, 11, 0), LocalDateTime.of(2026, 12, 10, 13, 0));
+
+        assertThat(peak).isPresent();
+        assertThat(peak.get().peakTime()).isEqualTo(LocalDateTime.of(2026, 12, 10, 11, 0));
+        assertThat(peak.get().waveHeight()).isEqualTo(9.5);
+    }
+
+    @Test
+    @DisplayName("the fallback is empty when the nearest hour is outside the fetched series")
+    void peakInWindow_fallbackOutsideSeriesIsEmpty() {
+        OpenMeteoMarineResponse response = withPeriods(FIVE_HOURS,
+                List.of(1.0, 2.0, 3.0, 4.0, 5.0), List.of(10, 20, 30, 40, 50),
+                List.of(5.0, 8.0, 11.0, 9.0, 5.0), List.of(6.0, 9.0, 12.0, 10.0, 6.0));
+
+        assertThat(client.peakInWindow(response,
+                LocalDateTime.of(2026, 12, 11, 12, 10), LocalDateTime.of(2026, 12, 11, 12, 40))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("empty for a land cell, where every wave value is null")
+    void peakInWindow_landCell() {
+        OpenMeteoMarineResponse response = withPeriods(FIVE_HOURS,
+                Arrays.asList(null, null, null, null, null), Arrays.asList(null, null, null, null, null),
+                Arrays.asList(null, null, null, null, null), Arrays.asList(null, null, null, null, null));
+
+        assertThat(client.peakInWindow(response,
+                LocalDateTime.of(2026, 12, 10, 10, 0), LocalDateTime.of(2026, 12, 10, 14, 0))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a missing period list gives a peak with null periods, not an empty result")
+    void peakInWindow_missingPeriodLists() {
+        OpenMeteoMarineResponse response = response(FIVE_HOURS,
+                List.of(1.0, 2.0, 3.0, 4.0, 5.0), List.of(0.5, 1.0, 1.5, 2.0, 2.5), List.of(10, 20, 30, 40, 50));
+
+        Optional<MarineWavePeak> peak = client.peakInWindow(response,
+                LocalDateTime.of(2026, 12, 10, 10, 0), LocalDateTime.of(2026, 12, 10, 14, 0));
+
+        assertThat(peak).contains(new MarineWavePeak(
+                LocalDateTime.of(2026, 12, 10, 14, 0), 5.0, 50, null, 2.5, null));
+    }
+
+    @Test
+    @DisplayName("empty for null inputs, an inverted window, no series, or an unparseable stamp")
+    void peakInWindow_degenerateInputs() {
+        LocalDateTime from = LocalDateTime.of(2026, 12, 10, 10, 0);
+        LocalDateTime to = LocalDateTime.of(2026, 12, 10, 14, 0);
+        OpenMeteoMarineResponse response = response(FIVE_HOURS,
+                List.of(1.0, 2.0, 3.0, 4.0, 5.0), List.of(0.5, 1.0, 1.5, 2.0, 2.5), List.of(10, 20, 30, 40, 50));
+
+        assertThat(client.peakInWindow(null, from, to)).isEmpty();
+        assertThat(client.peakInWindow(new OpenMeteoMarineResponse(), from, to)).isEmpty();
+        assertThat(client.peakInWindow(response, null, to)).isEmpty();
+        assertThat(client.peakInWindow(response, from, null)).isEmpty();
+        assertThat(client.peakInWindow(response, to, from)).isEmpty();
+        assertThat(client.peakInWindow(response(List.of(), List.of(), List.of(), List.of()), from, to)).isEmpty();
+        assertThat(client.peakInWindow(
+                response(List.of("not-a-time"), List.of(4.0), List.of(1.0), List.of(10)), from, to)).isEmpty();
     }
 }

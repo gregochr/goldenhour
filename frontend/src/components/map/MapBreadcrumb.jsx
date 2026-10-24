@@ -13,6 +13,8 @@ const KIND_WORD = {
   SUNSET: 'sunset',
   ASTRO: 'astro',
   AURORA: 'aurora',
+  // The daylight High-water row (hot-topics-by-day M3): without it the strip printed "high_water".
+  HIGH_WATER: 'high water',
 };
 
 /**
@@ -134,7 +136,7 @@ const RETURN_LABEL = { plan: 'Plan', 'coming-up': 'Coming up', operations: 'Oper
  * by text, which merges into that text when a DOM is re-parsed. The rule predicts it.) This note
  * also used to say a pseudo-element could not do the job and that accname
  * trims each element's whitespace — neither holds in a browser: generated content IS in the name,
- * and only jsdom's polyfill trims. `WindowFirstComingUpHandoff`'s class doc has the rule.
+ * and only jsdom's polyfill trims. `WindowComingUpFourDays`'s class doc has the rule.
  *
  * @param {object} props
  * @param {{region: ?string, minRating: ?number, limitMinutes: ?number}} props.carried the door's

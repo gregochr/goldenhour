@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 // `resolveDoor` is the pure resolution the retired overlay's builder became (overlay convergence C5):
 // the door's headline and field resolution are read off its output.
 import {
-  normalizeMapTrigger, resolveDoor, doorHeadline, doorFromTrigger,
+  normalizeMapTrigger, resolveDoor, doorHeadline, doorFromTrigger, outlierKeysOf,
 } from '../utils/mapDoor.js';
 
 const DATE = '2026-07-04';
@@ -509,5 +509,170 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
     );
     expect(door.focusNames).toEqual(['Wood A', 'Wood B']);
     expect(door.filterAction).toBe('BLUEBELL');
+  });
+});
+
+describe('resolveDoor - a neighbour outlier is never the NAMED spot (neighbour guard)', () => {
+  const trigger = { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' };
+  const withKeys = (locations, ...names) => ({
+    ...ctx(locations),
+    outlierKeys: new Set(names.map((n) => `${n}|${DATE}|SUNSET`)),
+  });
+
+  it('skips a marked top spot and names the next one when it is rated at the floor or above', () => {
+    const locations = [loc('Outlier', 'Tyne and Wear', 5), loc('Next', 'Tyne and Wear', 3), loc('Low', 'Tyne and Wear', 2)];
+    const ov = resolveDoor(trigger, withKeys(locations, 'Outlier'));
+    expect(ov.handoff.locationName).toBe('Next');
+  });
+
+  it('names NO spot - the region alone - when the next spot is below the floor', () => {
+    const locations = [loc('Outlier', 'Tyne and Wear', 5), loc('Low', 'Tyne and Wear', 2)];
+    const ov = resolveDoor(trigger, withKeys(locations, 'Outlier'));
+    expect(ov.handoff.locationName).toBeUndefined();
+    expect(ov.handoff.region).toBe('Tyne and Wear');
+  });
+
+  it('names NO spot when every rated spot is marked', () => {
+    const locations = [loc('A', 'Tyne and Wear', 5), loc('B', 'Tyne and Wear', 4)];
+    const ov = resolveDoor(trigger, withKeys(locations, 'A', 'B'));
+    expect(ov.handoff.locationName).toBeUndefined();
+    expect(ov.handoff.region).toBe('Tyne and Wear');
+  });
+
+  it('keeps the region on the structured door while naming no spot', () => {
+    const locations = [loc('Outlier', 'Tyne and Wear', 5), loc('Low', 'Tyne and Wear', 2)];
+    const door = doorFromTrigger(trigger, withKeys(locations, 'Outlier'));
+    expect(door.locationName).toBeNull();
+    expect(door.region).toBe('Tyne and Wear');
+  });
+
+  it('an event trigger over one region never falls back to an outlier\'s name in the title', () => {
+    const locations = [loc('Outlier', 'Tyne and Wear', 5), loc('Low', 'Tyne and Wear', 2)];
+    const ov = resolveDoor({ kind: 'event', date: DATE, eventType: 'SUNSET' }, withKeys(locations, 'Outlier'));
+    expect(ov.title).toBe('Tyne and Wear');
+    expect(ov.handoff.locationName).toBeUndefined();
+  });
+
+  it('is unchanged when nothing is marked (the existing top-rated behaviour)', () => {
+    const locations = [loc('Top', 'Tyne and Wear', 5), loc('Low', 'Tyne and Wear', 2)];
+    expect(resolveDoor(trigger, withKeys(locations)).handoff.locationName).toBe('Top');
+  });
+
+  it('ignores a mark for a different date', () => {
+    const locations = [loc('Top', 'Tyne and Wear', 5), loc('Low', 'Tyne and Wear', 2)];
+    const other = { ...ctx(locations), outlierKeys: new Set(['Top|2026-07-05|SUNSET']) };
+    expect(resolveDoor(trigger, other).handoff.locationName).toBe('Top');
+  });
+
+  it('ignores a mark for a different event type', () => {
+    const locations = [loc('Top', 'Tyne and Wear', 5), loc('Low', 'Tyne and Wear', 2)];
+    const other = { ...ctx(locations), outlierKeys: new Set([`Top|${DATE}|SUNRISE`]) };
+    expect(resolveDoor(trigger, other).handoff.locationName).toBe('Top');
+  });
+
+  it('with two spots tied at the top and one marked, names the unmarked one', () => {
+    const locations = [loc('Marked', 'Tyne and Wear', 4), loc('Clean', 'Tyne and Wear', 4)];
+    expect(resolveDoor(trigger, withKeys(locations, 'Marked')).handoff.locationName).toBe('Clean');
+  });
+
+  it('treats a tie below the floor as skipped: names nothing (the safe side)', () => {
+    const locations = [loc('Marked', 'Tyne and Wear', 2), loc('Clean', 'Tyne and Wear', 2)];
+    const ov = resolveDoor(trigger, withKeys(locations, 'Marked'));
+    expect(ov.handoff.locationName).toBeUndefined();
+    expect(ov.handoff.region).toBe('Tyne and Wear');
+  });
+
+  it('a marked top spot with no local rating is still skipped (the served mark is authoritative)', () => {
+    const locations = [loc('Marked', 'Tyne and Wear', null), loc('Next', 'Tyne and Wear', 4)];
+    expect(resolveDoor(trigger, withKeys(locations, 'Marked')).handoff.locationName).toBe('Next');
+  });
+
+  it('a marked unrated spot beside only a low-rated one withholds (it cannot drop out of the pool)', () => {
+    const locations = [loc('Marked', 'Tyne and Wear', null), loc('Low', 'Tyne and Wear', 2)];
+    const ov = resolveDoor(trigger, withKeys(locations, 'Marked'));
+    expect(ov.handoff.locationName).toBeUndefined();
+    expect(ov.handoff.region).toBe('Tyne and Wear');
+  });
+
+  it('with every candidate unrated and one marked, names no spot - the region alone', () => {
+    const locations = [loc('Marked', 'Tyne and Wear', null), loc('Other', 'Tyne and Wear', null)];
+    const ov = resolveDoor(trigger, withKeys(locations, 'Marked'));
+    expect(ov.handoff.locationName).toBeUndefined();
+    expect(ov.handoff.region).toBe('Tyne and Wear');
+  });
+
+  it('a lone unrated candidate that is not marked is still named (unchanged)', () => {
+    const locations = [loc('Unrated', 'Tyne and Wear', null)];
+    expect(resolveDoor(trigger, withKeys(locations)).handoff.locationName).toBe('Unrated');
+  });
+
+  it('an event trigger titles a withheld door by the best spot\'s region, not by a spot name', () => {
+    // Two regions would be a multi-region fit, so use one region but a title that would read as the
+    // OUTLIER'S NAME if the fallback used the (null) named spot.
+    const locations = [loc('Outlier', 'Tyne and Wear', 5), loc('Low', 'Tyne and Wear', 1)];
+    const ov = resolveDoor({ kind: 'event', date: DATE, eventType: 'SUNSET' }, withKeys(locations, 'Outlier'));
+    expect(ov.title).toBe('Tyne and Wear');
+    expect(ov.title).not.toBe('On the map');
+  });
+
+  it('feeds outlierKeysOf\'s OUTPUT (not hand-built keys) into the door', () => {
+    const briefing = {
+      days: [{
+        date: DATE,
+        eventSummaries: [{ targetType: 'SUNSET', regions: [{ slots: [
+          { locationName: 'Outlier', neighbourOutlier: true },
+        ] }] }],
+      }],
+    };
+    const locations = [loc('Outlier', 'Tyne and Wear', 5), loc('Low', 'Tyne and Wear', 2)];
+    const ov = resolveDoor(trigger, { ...ctx(locations), outlierKeys: outlierKeysOf(briefing) });
+    expect(ov.handoff.locationName).toBeUndefined();
+    expect(ov.handoff.region).toBe('Tyne and Wear');
+  });
+
+  it('reads a ctx without outlierKeys as none marked', () => {
+    const locations = [loc('Top', 'Tyne and Wear', 5)];
+    expect(resolveDoor(trigger, ctx(locations)).handoff.locationName).toBe('Top');
+  });
+
+  it('does not skip a marked spot that is not the top one', () => {
+    const locations = [loc('Top', 'Tyne and Wear', 5), loc('Marked', 'Tyne and Wear', 2)];
+    expect(resolveDoor(trigger, withKeys(locations, 'Marked')).handoff.locationName).toBe('Top');
+  });
+});
+
+describe('outlierKeysOf', () => {
+  it('collects name|date|targetType for slots flagged neighbourOutlier only', () => {
+    const briefing = {
+      days: [{
+        date: DATE,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{ slots: [
+            { locationName: 'A', neighbourOutlier: true },
+            { locationName: 'B' },
+          ] }],
+        }],
+      }],
+    };
+    expect([...outlierKeysOf(briefing)]).toEqual([`A|${DATE}|SUNSET`]);
+  });
+
+  it('ignores a slot with no locationName and a flag that is not exactly true', () => {
+    const briefing = {
+      days: [{
+        date: DATE,
+        eventSummaries: [{ targetType: 'SUNSET', regions: [{ slots: [
+          { neighbourOutlier: true },
+          { locationName: 'A', neighbourOutlier: 'true' },
+          { locationName: 'B', neighbourOutlier: 1 },
+        ] }] }],
+      }],
+    };
+    expect(outlierKeysOf(briefing).size).toBe(0);
+  });
+
+  it('is empty for a missing briefing', () => {
+    expect(outlierKeysOf(null).size).toBe(0);
   });
 });

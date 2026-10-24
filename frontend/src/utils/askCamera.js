@@ -80,16 +80,51 @@ export function clampPadding(size, padding, maxFraction = ASK_PADDING_MAX_FRACTI
 }
 
 /**
+ * Clearance below the top of the frame that a fit keeps under the chrome group, in px: the group's
+ * own 8px inset plus a 36px margin (so {@link ASK_BASE_PADDING}'s 80 is the 36px window control
+ * plus 44).
+ */
+export const ASK_CHROME_CLEARANCE = 44;
+
+/** The custom property {@code useChromeTlHeight} keeps current: the top-left chrome group's height, px. */
+export const CHROME_HEIGHT_VAR = '--wf-chrome-tl-h';
+
+/**
+ * The published chrome-group height above {@code el}, in px, or null when none is published.
+ *
+ * <p>{@code useChromeTlHeight} (in {@code MapView}) sets {@link CHROME_HEIGHT_VAR} on the map frame
+ * on every day: the group is taller than its 36px control whenever the big-seas line or the topic
+ * chips row shows. Read off the INLINE style of each ancestor, nearest first, so it needs
+ * no layout and no computed-style inheritance.
+ *
+ * @param {?Element} el any element inside the frame, such as the Leaflet container
+ * @returns {?number}
+ */
+export function chromeHeightOf(el) {
+  for (let node = el; node; node = node.parentElement) {
+    const raw = node.style?.getPropertyValue?.(CHROME_HEIGHT_VAR);
+    const h = parseFloat(raw);
+    if (Number.isFinite(h) && h > 0) return h;
+  }
+  return null;
+}
+
+/**
  * The padding for fitting an answer's picks: the chrome's clearance plus what a surface covers,
- * clamped to the frame.
+ * clamped to the frame. When the chrome group is taller than its 36px control (the big-seas line is
+ * showing) the top clearance grows to clear the whole group, so a pick never lands under the line.
  *
  * @param {{x: number, y: number}} size {@code map.getSize()}
  * @param {?{top: number, right: number, bottom: number, left: number}} [inset] what a surface covers
+ * @param {?number} [chromeHeight] the published chrome-group height, or null
  * @returns {{top: number, right: number, bottom: number, left: number}}
  */
-export function fitPadding(size, inset = NO_INSET) {
+export function fitPadding(size, inset = NO_INSET, chromeHeight = null) {
+  const chromeTop = chromeHeight > 0
+    ? Math.max(ASK_BASE_PADDING.top, chromeHeight + ASK_CHROME_CLEARANCE)
+    : ASK_BASE_PADDING.top;
   return clampPadding(size, {
-    top: ASK_BASE_PADDING.top + px(inset?.top),
+    top: chromeTop + px(inset?.top),
     right: ASK_BASE_PADDING.right + px(inset?.right),
     bottom: ASK_BASE_PADDING.bottom + px(inset?.bottom),
     left: ASK_BASE_PADDING.left + px(inset?.left),

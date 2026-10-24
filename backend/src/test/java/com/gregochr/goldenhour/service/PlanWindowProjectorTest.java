@@ -928,13 +928,26 @@ class PlanWindowProjectorTest {
         @Test
         @DisplayName("a window-scoped topic with no solar anchor is bucketed nowhere")
         void aTopicWithNoEventTypeIsDropped() {
-            // Storm surge and clearance carry no anchor at all. NOT a tide: a null eventType there
-            // means the alignment has passed or no water reached the light, which says nothing
-            // about whether the day is tidal — see the day-scoped tests below.
+            // A made-up type: any non-day-scoped topic whose detector and the enricher both leave
+            // without an event lands nowhere (HotTopicWindowAnchorRosterTest keeps real types from
+            // being in that state). NOT a tide: a null eventType there means the alignment has
+            // passed or no water reached the light, which says nothing about whether the day is
+            // tidal — see the day-scoped tests below.
             DailyBriefingResponse out =
-                    project(twoWindowDay(), List.of(topic("STORM_SURGE", null)));
+                    project(twoWindowDay(), List.of(topic("UNANCHORED_TEST_TYPE", null)));
 
             assertThat(windowOf(out, TargetType.SUNSET).badges()).isEmpty();
+            assertThat(windowOf(out, TargetType.SUNRISE).badges()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a STORM_SURGE topic stamped SUNSET lands on the sunset window only")
+        void aStampedStormSurgeLandsOnItsOwnWindow() {
+            DailyBriefingResponse out =
+                    project(twoWindowDay(), List.of(topic("STORM_SURGE", "SUNSET")));
+
+            assertThat(windowOf(out, TargetType.SUNSET).badges())
+                    .extracting(BriefingWindow.Badge::type).containsExactly("STORM_SURGE");
             assertThat(windowOf(out, TargetType.SUNRISE).badges()).isEmpty();
         }
 

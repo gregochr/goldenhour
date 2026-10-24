@@ -5,6 +5,8 @@
     "time": ["2026-07-26T19:00", "2026-07-26T20:00"],
     "wave_height": [1.24, 1.31],
     "swell_wave_height": [0.82, 0.87],
-    "wave_direction": [48, 52]
+    "wave_direction": [48, 52],
+    "wave_period": [6.5, 6.8],
+    "swell_wave_period": [9.1, 9.4]
   }
 }

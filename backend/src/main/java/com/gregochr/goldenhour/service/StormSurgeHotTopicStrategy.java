@@ -1,10 +1,12 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SlotSignals;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
@@ -21,6 +23,13 @@ import java.util.List;
  * for every candidate whose weather was fetched, not only the ones that went on to a Claude
  * rating — a storm surge is a fact about the tide and the weather, independent of whether the sky
  * above the coast is worth photographing. Makes no external API calls.
+ *
+ * <p>⚠️ <b>Topics are per (date, event), each stamped with its own event.</b> A non-day-scoped
+ * topic with no event lands on no Plan window ({@code PlanWindowProjector.keysFor}), which is how
+ * surge vanished from every card once the Hot topics strip went. The reading is sampled at the next
+ * high water AFTER the event ({@code ForecastDataAugmentor}), so a topic's badge means "a surge on
+ * the tide following this event" &mdash; hence "at high water" in its facts. The clock time is left
+ * to {@link HotTopicEventEnricher}.
  */
 @Component
 public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
@@ -30,11 +39,16 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
                     + " Combined with high tide, this creates crashing waves and"
                     + " dramatic coastal conditions — even midday.";
 
+    /** The {@link HotTopic#type()} this strategy emits. */
+    public static final String TYPE = "STORM_SURGE";
+
     /** Topic priority — most act-on-it, sorts at the top alongside aurora and king tide. */
     private static final int PRIORITY = 1;
 
     /** The only surge risk level that fires the topic. */
     private static final String HIGH_RISK = "HIGH";
+
+    private static final List<TargetType> EVENTS = List.of(TargetType.SUNRISE, TargetType.SUNSET);
 
     private final SlotSignalReader slotSignalReader;
     private final StormSurgeFactsBuilder stormSurgeFactsBuilder;
@@ -54,14 +68,16 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Emits one topic per high-surge-risk day in the window (a persistent coastal condition, so
-     * no solar-event cutoff applies), each dated to that day and carrying only its coastal regions,
-     * so a multi-day blow surfaces as an adjacent run of day cards. Returns empty when no row in the
-     * window is classified high risk.
+     * <p>Emits one topic per high-surge-risk (date, event), sunrise before sunset within a date,
+     * each dated to that day, anchored to that event and carrying only the regions, locations and
+     * facts of that event's rows, so a multi-day blow surfaces as an adjacent run of cards. No
+     * freshness cutoff is applied here (the passed window is hidden downstream). Returns empty when
+     * no sunrise or sunset row in the window is classified high risk.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
         List<SlotSignals> highRisk = slotSignalReader.read(fromDate, toDate).stream()
+                .filter(s -> EVENTS.contains(s.eventType()))
                 .filter(s -> HIGH_RISK.equals(s.readings().surgeRiskLevel()))
                 .sorted(Comparator.comparing(SlotSignals::date))
                 .toList();
@@ -69,13 +85,23 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        return PerDateHotTopicBuilder.perDate(
-                highRisk,
-                "STORM_SURGE",
-                "Storm surge",
-                "High surge risk — dramatic coastal conditions",
-                PRIORITY,
-                STORM_SURGE_DESCRIPTION,
-                stormSurgeFactsBuilder::attach);
+        List<HotTopic> topics = new ArrayList<>();
+        for (TargetType event : EVENTS) {
+            List<SlotSignals> rows = highRisk.stream().filter(s -> s.eventType() == event).toList();
+            if (!rows.isEmpty()) {
+                topics.addAll(PerDateHotTopicBuilder.perDate(
+                        rows,
+                        TYPE,
+                        "Storm surge",
+                        "High surge risk — dramatic coastal conditions",
+                        PRIORITY,
+                        STORM_SURGE_DESCRIPTION,
+                        // Stamp BEFORE attach; withScience/withSurgeRun carry the event through.
+                        (topic, dayRows) -> stormSurgeFactsBuilder.attach(
+                                topic.withEvent(event.name(), null), dayRows)));
+            }
+        }
+        topics.sort(Comparator.comparing(HotTopic::date));
+        return topics;
     }
 }

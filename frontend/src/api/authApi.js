@@ -1,4 +1,4 @@
-import apiClient from './axiosClient.js';
+import apiClient, { SKIP_AUTH_REFRESH } from './axiosClient.js';
 
 const BASE_URL = '/api/auth';
 
@@ -11,7 +11,8 @@ const BASE_URL = '/api/auth';
  * @returns {Promise<{accessToken: string, refreshToken: string, role: string, expiresAt: string}>}
  */
 export async function login(username, password, turnstileToken) {
-  const response = await apiClient.post(`${BASE_URL}/login`, { username, password, turnstileToken });
+  const response = await apiClient.post(`${BASE_URL}/login`, { username, password, turnstileToken },
+    { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }
 
@@ -22,7 +23,7 @@ export async function login(username, password, turnstileToken) {
  * @returns {Promise<{accessToken: string, expiresAt: string}>}
  */
 export async function refreshAccessToken(refreshToken) {
-  const response = await apiClient.post(`${BASE_URL}/refresh`, { refreshToken });
+  const response = await apiClient.post(`${BASE_URL}/refresh`, { refreshToken }, { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }
 
@@ -33,7 +34,7 @@ export async function refreshAccessToken(refreshToken) {
  * @returns {Promise<void>}
  */
 export async function logout(refreshToken) {
-  await apiClient.post(`${BASE_URL}/logout`, { refreshToken });
+  await apiClient.post(`${BASE_URL}/logout`, { refreshToken }, { [SKIP_AUTH_REFRESH]: true });
 }
 
 /**
@@ -63,7 +64,7 @@ export async function register(username, email, turnstileToken, marketingEmailOp
   const response = await apiClient.post(`${BASE_URL}/register`, {
     username, email, turnstileToken, marketingEmailOptIn: String(marketingEmailOptIn),
     termsAccepted: String(termsAccepted),
-  });
+  }, { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }
 
@@ -85,7 +86,7 @@ export async function updateMarketingEmailOptIn(optIn) {
  * @returns {Promise<{message: string}>}
  */
 export async function resendVerification(email) {
-  const response = await apiClient.post(`${BASE_URL}/resend-verification`, { email });
+  const response = await apiClient.post(`${BASE_URL}/resend-verification`, { email }, { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }
 
@@ -96,7 +97,7 @@ export async function resendVerification(email) {
  * @returns {Promise<{userId: number, verified: boolean}>}
  */
 export async function verifyEmail(token) {
-  const response = await apiClient.post(`${BASE_URL}/verify-email`, { token });
+  const response = await apiClient.post(`${BASE_URL}/verify-email`, { token }, { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }
 
@@ -112,7 +113,7 @@ export async function verifyEmail(token) {
  * @returns {Promise<{accessToken: string, refreshToken: string, role: string, expiresAt: string}>}
  */
 export async function setPasswordForNewUser(token, password) {
-  const response = await apiClient.post(`${BASE_URL}/set-password`, { token, password });
+  const response = await apiClient.post(`${BASE_URL}/set-password`, { token, password }, { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }
 
@@ -123,7 +124,7 @@ export async function setPasswordForNewUser(token, password) {
  * @returns {Promise<{message: string}>}
  */
 export async function submitWaitlist(email) {
-  const response = await apiClient.post('/api/waitlist', { email });
+  const response = await apiClient.post('/api/waitlist', { email }, { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }
 
@@ -138,7 +139,7 @@ export async function submitWaitlist(email) {
  * @returns {Promise<{message: string}>}
  */
 export async function requestPasswordReset(email, turnstileToken) {
-  const response = await apiClient.post(`${BASE_URL}/forgot-password`, { email, turnstileToken });
+  const response = await apiClient.post(`${BASE_URL}/forgot-password`, { email, turnstileToken }, { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }
 
@@ -152,6 +153,6 @@ export async function requestPasswordReset(email, turnstileToken) {
  * @returns {Promise<{accessToken: string, refreshToken: string, role: string, username: string}>}
  */
 export async function resetPassword(token, password) {
-  const response = await apiClient.post(`${BASE_URL}/reset-password`, { token, password });
+  const response = await apiClient.post(`${BASE_URL}/reset-password`, { token, password }, { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }

@@ -1253,6 +1253,65 @@ describe('MapCallout — the tide strip is a band floor too (tide-window-plan.md
   });
 });
 
+describe('MapCallout — the four-day hot-topics strip is a band bar too (hot-topics-by-day-plan §3 M2)', () => {
+  beforeEach(() => { currentMap = makeMap(); });
+
+  it('clamps the placement band above a real topic-strip element', async () => {
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    const strip = document.createElement('div');
+    strip.setAttribute('data-testid', 'wf-topic-strip');
+    currentMap.container.parentElement.appendChild(strip);
+    // Over `calloutBand`'s >= 50%-of-the-frame-width test, as the tide strip's identical test above.
+    vi.spyOn(strip, 'getBoundingClientRect').mockReturnValue({
+      left: 10, right: 790, top: 400, bottom: 450, width: 780, height: 50,
+    });
+    await mount();
+    expect(screen.getByTestId('map-callout').style.maxHeight).toBe('384px');
+  });
+
+  // The strip is 440px: narrow on an 800px frame, so the width test alone skipped it and the card (z 1350)
+  // painted over it. A narrow strip floors the band exactly where the card's own span meets it.
+  function narrowStrip() {
+    // A 1000px frame: the 440px strip is 44% of it, under `calloutBand`'s half-width test.
+    currentMap = makeMap({ size: { x: 1000, y: 500 } });
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 1000, height: 500,
+    });
+    const strip = document.createElement('div');
+    strip.setAttribute('data-testid', 'wf-topic-strip');
+    currentMap.container.parentElement.appendChild(strip);
+    vi.spyOn(strip, 'getBoundingClientRect').mockReturnValue({
+      left: 8, right: 448, top: 400, bottom: 450, width: 440, height: 50,
+    });
+  }
+
+  it('a card on the strip\'s side clears a narrow strip (band floor = strip top - 8)', async () => {
+    narrowStrip();
+    // Bamburgh projects to x = 130: the card spans 8..294, over the strip.
+    await mount();
+    expect(screen.getByTestId('map-callout').style.maxHeight).toBe('384px');
+  });
+
+  it('a card on the far side ignores the narrow strip (band is the frame\'s own)', async () => {
+    narrowStrip();
+    // x = 850: the card spans 706..992, clear of the strip's 8..448.
+    await mount({ location: { ...LOCATION, lon: 5.5 } });
+    expect(screen.getByTestId('map-callout').style.maxHeight).toBe('484px');
+  });
+
+  it('re-measures the anchor when topicStripHeight changes (the strip opening or collapsing under the card)', async () => {
+    const { rerender } = await mount({ topicStripHeight: 28 });
+    const paintSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const callsBefore = paintSpy.mock.calls.length;
+    await act(async () => {
+      rerender(<MapCallout location={LOCATION} event={SUNSET_EVENT} rating={4} topicStripHeight={150} />);
+    });
+    expect(paintSpy.mock.calls.length).toBeGreaterThan(callsBefore);
+  });
+});
+
 describe('MapCallout — phone width (map-tab-v2-plan.md §3 P12, README §7: "286px (266px mobile)")', () => {
   let restore;
   beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });

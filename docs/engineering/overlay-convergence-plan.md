@@ -309,7 +309,7 @@ the region panel (`MapRegionPanel`) already shows the served narrative, so proba
 **Follow-ups:**
 
 - **O-7** admin *Run forecast* on the callout's actions row (see 2).
-- **Noticed in C6: a region door CAN open a neighbour outlier's callout.** `resolveDoor`'s single-region branch opens the top-rated spot by `ratingFor` (the `GET /api/briefing/evaluate/scores` rating, else the forecast row's), and `neighbourOutlier` exists only on `BriefingSlot`/`BriefingWindow`, never on that payload, so the outlier the neighbour guard keeps every Plan surface from naming can be the spot a region door opens. Inherited from `buildMapOverlay`, not new in this series.
+- **DONE 2026-10-22 (branch `fix/region-door-neighbour-outlier`): the served briefing's outlier marks now reach `resolveDoor` as `outlierKeys`, which skips a marked spot and names no spot when the next is below the floor of 3.** Noticed in C6: a region door CAN open a neighbour outlier's callout.** `resolveDoor`'s single-region branch opens the top-rated spot by `ratingFor` (the `GET /api/briefing/evaluate/scores` rating, else the forecast row's), and `neighbourOutlier` exists only on `BriefingSlot`/`BriefingWindow`, never on that payload, so the outlier the neighbour guard keeps every Plan surface from naming can be the spot a region door opens. Inherited from `buildMapOverlay`, not new in this series.
 - Done during the series, kept for the record: the stale `handoffEventType`-era comments (gone with their props in C5); `fetchTravelDayRanges` (kept, the callout's travel-day notice reads it, C2 (f)).
 
 ## §8 Browser verification recipe (as shipped)

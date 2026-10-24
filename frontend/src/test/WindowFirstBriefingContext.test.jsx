@@ -164,7 +164,7 @@ const heatPointIdentities = [];
 function Consumer() {
   const {
     briefing, loading, heatStripCards, windowCards, evaluationScores, reachLens: lens, ratingLens,
-    homePlace, heatSpots, heatPointSets, heatUnratedSets,
+    homePlace, heatSpots, heatPointSets, heatUnratedSets, heatStoodSets,
     origin, setOrigin, regions, effectiveReachById,
   } = useWindowFirstBriefing();
   // Identity, not content: plan §5.4 requires the join to be memoised on its real inputs, and a
@@ -234,6 +234,11 @@ function Consumer() {
       <span data-testid="heat-unrated">
         {[...heatUnratedSets.entries()]
           .map(([key, set]) => `${key}=${set.map((p) => p.name).join(',') || '-'}`)
+          .join(' ') || 'none'}
+      </span>
+      <span data-testid="heat-stood">
+        {[...heatStoodSets.entries()]
+          .map(([key, set]) => `${key}=${set.map((p) => p.key).join(',')}`)
           .join(' ') || 'none'}
       </span>
       {lens && ratingLens && (
@@ -1275,6 +1280,40 @@ describe('WindowFirstBriefingProvider', () => {
         .map((e) => `${e.date}:${e.targetType}=${e === scored ? 'Alnmouth' : '-'}`)
         .join(' ');
       await waitFor(() => expect(screen.getByTestId('heat-unrated').textContent).toBe(expected));
+    });
+
+    it('publishes heatStoodSets (big-seas F4): weather-stood places of a window with evidence, tide excluded', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getAllEvaluationScores.mockResolvedValue([
+        scoreRow(7, 'Bamburgh', null),
+        { ...scoreRow(8, 'Alnmouth', null), triageReason: 'HIGH_CLOUD' },
+      ]);
+      renderProviderWithLocations(ROSTER);
+      await waitFor(() => expect(screen.getByTestId('heat-stood').textContent).toBe(`${TODAY}:SUNSET=#8`));
+
+      cleanup();
+      getAllEvaluationScores.mockResolvedValue([
+        scoreRow(7, 'Bamburgh', 4),
+        { ...scoreRow(8, 'Alnmouth', null), triageReason: 'TIDE_MISALIGNED' },
+      ]);
+      renderProviderWithLocations(ROSTER);
+      await waitFor(() => expect(screen.getByTestId('heat-scores')).toHaveTextContent('4'));
+      expect(screen.getByTestId('heat-stood').textContent).toBe('none');
+    });
+
+    it('documents a DEFENSIVE gate: no stood ground while scores are in flight or failed (equivalent to the evidence gate by construction)', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getAllEvaluationScores.mockReturnValue(new Promise(() => {}));
+      renderProviderWithLocations(ROSTER);
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
+      expect(screen.getByTestId('heat-stood').textContent).toBe('none');
+
+      cleanup();
+      getAllEvaluationScores.mockRejectedValue(new Error('502'));
+      renderProviderWithLocations(ROSTER);
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
+      await act(async () => {});
+      expect(screen.getByTestId('heat-stood').textContent).toBe('none');
     });
 
     it('does not rebuild the catalogue when an unrelated provider state changes', async () => {

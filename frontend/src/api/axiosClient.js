@@ -25,6 +25,35 @@ const TOKEN_KEY = 'goldenhour_token';
 const REFRESH_KEY = 'goldenhour_refresh';
 /** The backend's rewind header (`RewindFilter.HEADER`). */
 export const REWIND_HEADER = 'X-Rewind-To';
+/**
+ * Per-request config flag: a 401 on this request must never trigger refresh-and-retry. Set by the
+ * auth calls (login, refresh, logout), which the access token does not authenticate.
+ */
+export const SKIP_AUTH_REFRESH = 'skipAuthRefresh';
+/**
+ * Internal config field: the access token a retried request must carry. Set from the refresh
+ * result so the retry does not depend on the token having been persisted to storage.
+ */
+const ACCESS_TOKEN_FIELD = '_accessToken';
+
+/**
+ * Ends the session: clears the stored credentials and tells AuthContext, which does the rest. The
+ * stored username is deliberately kept (it pre-fills the sign-in form).
+ */
+function expireSession() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem('goldenhour_role');
+  window.dispatchEvent(new Event('goldenhour:session-expired'));
+}
+
+/** Reads the bearer token a request was sent with, or null. Handles plain objects and AxiosHeaders. */
+function sentBearerToken(config) {
+  const headers = config?.headers;
+  const value = headers?.Authorization ?? headers?.authorization ?? headers?.get?.('Authorization');
+  if (typeof value !== 'string' || !value.startsWith('Bearer ')) return null;
+  return value.slice('Bearer '.length) || null;
+}
 
 // Attach the JWT access token to every outgoing request — and, while an admin has the app rewound
 // (`utils/rewind.js`), the instant it is rendering as of. On GETs only: the backend honours the
@@ -33,7 +62,7 @@ export const REWIND_HEADER = 'X-Rewind-To';
 // per request rather than once, because the briefing provider polls every ten minutes and a rewind
 // has to hold for every poll, not only the first fetch after it was set.
 apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem(TOKEN_KEY);
+  const token = config[ACCESS_TOKEN_FIELD] ?? localStorage.getItem(TOKEN_KEY);
   if (token) {
     config.headers = config.headers ?? {};
     config.headers['Authorization'] = `Bearer ${token}`;
@@ -54,9 +83,24 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config;
+    // The refresh request goes through this same client, so its own 401 (an expired refresh
+    // token) must never re-enter the refresh path below, or it would await itself and hang
+    // every request. Login and logout opt out too: a refresh cannot fix their 401.
+    if (original?.[SKIP_AUTH_REFRESH]) {
+      return Promise.reject(error);
+    }
     const storedRefresh = localStorage.getItem(REFRESH_KEY);
 
-    if (error.response?.status !== 401 || original._retried || !storedRefresh) {
+    if (error.response?.status !== 401 || original._retried) {
+      return Promise.reject(error);
+    }
+    if (!storedRefresh) {
+      // A refused request with no renewal pass: the session is dead. Expire it only if the request
+      // carried the token still in storage — that dedupes concurrent 401s (the first clears
+      // storage) and stops a stale in-flight 401 wiping a newer token from a fresh sign-in or
+      // another tab.
+      const sent = sentBearerToken(original);
+      if (sent && sent === localStorage.getItem(TOKEN_KEY)) expireSession();
       return Promise.reject(error);
     }
 
@@ -64,8 +108,11 @@ apiClient.interceptors.response.use(
 
     // If a refresh is already in flight, wait for it then retry with the new token.
     if (refreshPromise) {
-      await refreshPromise;
-      original.headers['Authorization'] = `Bearer ${localStorage.getItem(TOKEN_KEY)}`;
+      const token = await refreshPromise;
+      // A failed refresh already cleared the tokens and raised session-expired; retrying would
+      // only send `Bearer null`, so surface the original 401.
+      if (!token) return Promise.reject(error);
+      original[ACCESS_TOKEN_FIELD] = token;
       return apiClient(original);
     }
 
@@ -77,7 +124,12 @@ apiClient.interceptors.response.use(
         // below, which cannot tell it from a rejected refresh — so it would clear the tokens and
         // fire session-expired, logging the user out at the exact moment the server had just
         // issued them a valid token. The refresh succeeded; a failure to cache it is not an auth
-        // failure, and the in-memory retry below still carries the new token.
+        // failure. The requests waiting on this refresh are retried with the new token held in
+        // memory (`_accessToken`). Later requests read storage, so if persistence failed they will
+        // end in session-expired (rotation revoked the old refresh token): an honest sign-in
+        // prompt. A shared in-memory token store was deliberately not built: sign-in itself writes
+        // storage unguarded (AuthContext), so a browser whose storage is unusable cannot sign in at
+        // all, and this only bites if storage fills between sign-in and a refresh.
         try {
           localStorage.setItem(TOKEN_KEY, data.accessToken);
           if (data.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken);
@@ -88,19 +140,19 @@ apiClient.interceptors.response.use(
         // Long-lived consumers keyed on the AuthContext token (e.g. the health SSE
         // stream) otherwise stay bound to the now-expired token until a page reload.
         window.dispatchEvent(new Event('goldenhour:token-refreshed'));
+        return data.accessToken;
       })
       .catch(() => {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(REFRESH_KEY);
-        localStorage.removeItem('goldenhour_role');
-        window.dispatchEvent(new Event('goldenhour:session-expired'));
+        expireSession();
+        return null;
       })
       .finally(() => {
         refreshPromise = null;
       });
 
-    await refreshPromise;
-    original.headers['Authorization'] = `Bearer ${localStorage.getItem(TOKEN_KEY)}`;
+    const token = await refreshPromise;
+    if (!token) return Promise.reject(error);
+    original[ACCESS_TOKEN_FIELD] = token;
     return apiClient(original);
   }
 );

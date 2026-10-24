@@ -135,6 +135,14 @@ class AskReadyClaudeEngineTest {
             assertThat(t.runId()).isEqualTo(JOB_RUN_ID);
         });
         verify(askJobRuns, org.mockito.Mockito.never()).dailyRunId();
+        // look_up_place is a typed-question tool: no Ready request offers it, and no Ready prompt mentions it.
+        assertThat(sent).hasSize(7).allSatisfy(params -> {
+            assertThat(params.tools().orElseThrow()).extracting(t -> t.asTool().name()).containsExactly(
+                    "list_windows", "rank_spots", "rank_night_spots", "get_hot_topics", "get_coming_up",
+                    "submit_answer");
+            assertThat(params.system().orElseThrow().asTextBlockParams().getFirst().text())
+                    .doesNotContain("look_up_place");
+        });
     }
 
     private List<MessageCreateParams> sent() {

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -17,7 +18,9 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -47,13 +50,19 @@ class StormSurgeHotTopicStrategyTest {
 
     /** A slot composite carrying only a surge risk-level reading. */
     private static SlotSignals signal(LocalDate date, String regionName, String riskLevel) {
+        return signal(date, regionName, riskLevel, TargetType.SUNSET);
+    }
+
+    /** As {@link #signal(LocalDate, String, String)}, for a chosen solar event. */
+    private static SlotSignals signal(LocalDate date, String regionName, String riskLevel,
+            TargetType event) {
         RegionEntity region = new RegionEntity();
         region.setName(regionName);
         LocationEntity location = new LocationEntity();
         location.setRegion(region);
         SlotSignals.Readings readings = new SlotSignals.Readings(
                 null, null, null, riskLevel, null, null, null, null, null, null, null, null, false);
-        return new SlotSignals(location, date, TargetType.SUNSET,
+        return new SlotSignals(location, date, event,
                 SlotSignals.Scores.EMPTY, readings);
     }
 
@@ -71,6 +80,51 @@ class StormSurgeHotTopicStrategyTest {
         assertThat(topic.priority()).isEqualTo(1);
         assertThat(topic.date()).isEqualTo(FROM);
         assertThat(topic.regions()).containsExactly("Northumberland");
+        assertThat(topic.eventType()).isEqualTo("SUNSET");
+    }
+
+    @Test
+    @DisplayName("HIGH at both events on one date: two topics, each with only its own regions")
+    void detect_bothEvents_twoTopicsEachWithOwnRegions() {
+        when(slotSignalReader.read(FROM, TO))
+                .thenReturn(List.of(
+                        signal(FROM, "Northumberland", "HIGH", TargetType.SUNRISE),
+                        signal(FROM, "Tyne and Wear", "HIGH", TargetType.SUNSET)));
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).extracting(HotTopic::eventType).containsExactly("SUNRISE", "SUNSET");
+        assertThat(topics.get(0).regions()).containsExactly("Northumberland");
+        assertThat(topics.get(1).regions()).containsExactly("Tyne and Wear");
+    }
+
+    @Test
+    @DisplayName("the facts builder receives only the rows of the topic's own event")
+    void detect_attachReceivesOnlyThatEventsRows() {
+        SlotSignals sunrise = signal(FROM, "Northumberland", "HIGH", TargetType.SUNRISE);
+        SlotSignals sunset = signal(FROM, "Tyne and Wear", "HIGH", TargetType.SUNSET);
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(sunrise, sunset));
+
+        strategy.detect(FROM, TO);
+
+        ArgumentCaptor<HotTopic> topic = ArgumentCaptor.forClass(HotTopic.class);
+        verify(stormSurgeFactsBuilder).attach(topic.capture(), eq(List.of(sunrise)));
+        assertThat(topic.getValue().eventType()).isEqualTo("SUNRISE");
+        verify(stormSurgeFactsBuilder).attach(any(), eq(List.of(sunset)));
+    }
+
+    @Test
+    @DisplayName("every emitted topic carries the event its rows are for, so a Plan window can take it")
+    void detect_everyTopicIsStampedWithItsRowsEvent() {
+        when(slotSignalReader.read(FROM, TO))
+                .thenReturn(List.of(
+                        signal(FROM, "Northumberland", "HIGH", TargetType.SUNRISE),
+                        signal(FROM.plusDays(1), "Northumberland", "HIGH", TargetType.SUNSET)));
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(2);
+        assertThat(topics).extracting(HotTopic::eventType).containsExactly("SUNRISE", "SUNSET");
     }
 
     @Test

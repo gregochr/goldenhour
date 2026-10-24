@@ -43,6 +43,17 @@
 
   /* Tide facts (objective, independent of the sky verdict). */
   --color-tide: #6FA8B0;
+  /* Big seas on the Map (big-seas plan F1): the badge fill, the ringed chip rule and the height text
+     on the dark plate. The same teal family as --color-tide; never the storm-surge amber on the map. */
+  --color-tide-light: #8FC0C7;
+  --color-tide-pale: #A9D6DC;
+
+  /* Stood-down ground on the Map (big-seas plan F3). A cool grey-blue, deliberately OFF the red-amber-
+     green ramp so it cannot be read as a score: the region label's name, its cause line, and the
+     footer's "· N stood down" count. The hatch itself is canvas (`heatField.js` paintStandDown). */
+  --color-standdown-ink: #D3DAE8;
+  --color-standdown-ink-2: #B8C5DC;
+  --color-standdown-count: #C9D2E4;
 
   /* "Close to home" — the local/proximity channel's warm gold (the regional panel's "all" filter,
      the location sheet's kicker). Deliberately NOT --color-plex-gold (which is bone, identical to
@@ -257,7 +268,7 @@
 
   /* map-tab-v2-plan.md §3 P6 — the window control's night (astro/aurora) kind-chip colour, from
      docs/design/map-tab-v2/README.md's kind-colours table (`--astro #8E86D6`). Not a fresh mint:
-     `utils/comingUpHandoff.js`'s `NIGHTGLOW_VIOLET` constant is this exact hex already, so this
+     `utils/topicPalette.js`'s `NIGHTGLOW_VIOLET` constant is this exact hex already, so this
      names the app's existing "night" accent as a token rather than inventing a second one.
      `-bright` is the chip-TEXT-safe lift, the same relationship `--color-plex-coral-bright` has to
      `--color-plex-coral` two lines up. */
@@ -1939,6 +1950,19 @@ button.wf-hc.on:hover {
   background: color-mix(in srgb, var(--color-plex-astro) 18%, var(--color-plex-panel));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-plex-astro) 34%, transparent);
 }
+/* hot-topics-by-day-plan §3 M3 — the daylight High-water row's kind chip, in the tide light (16% fill, 34%
+   inset border; docs/design/hot-topics-by-day/README.md §2D). Same idiom as `.night` above. */
+.wf-hc-sun.hw {
+  color: var(--color-tide-light);
+  background: color-mix(in srgb, var(--color-tide-light) 16%, var(--color-plex-panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-tide-light) 34%, transparent);
+}
+/* The neutral verdict word on that row ("Big seas"): no tier, so no tier hue; the pill's secondary ink. */
+.wf-win-verdict-hw .wf-win-verdict-word { color: var(--color-plex-text-secondary); }
+/* "HIGH WATER" is the widest kind word; it must never be the thing that clips when the pill is short of room
+   (the day label and the verdict word yield first). */
+.wf-win-pill .wf-hc-sun,
+.wf-map-peek-wr .wf-hc-sun { flex-shrink: 0; }
 /* `.wf-hc.on .wf-hc-sun` used to recolor the caption gold when a card was open — deleted
    (matrix-axis plan D15): at (0,3,0) it would out-specify `.wf-hc-sun.am`/`.pm` (0,2,0) and
    gold-recolor a dawn-blue or coral chip. The chip's tint is the axis signal now and must not
@@ -3797,7 +3821,19 @@ button.wf-hc.also.on:hover {
   top: 8px;
   left: 60px;
   z-index: 1100;
+  /* The group lets presses through; its controls opt back in just below. */
+  pointer-events: none;
 }
+/* ⚠️ The GROUP is `pointer-events: none` and its CONTROLS opt back in (the `.wf-map-toolbar-row`
+   precedent above, applied one level up). The group is a sibling of the Leaflet container, not a
+   child, and it is as wide as its widest row: with the topic chips row it is 504px (the whole width
+   of a phone) by up to three rows tall, and a hit-testable box that size swallowed every drag begun
+   in a gap or beside a short row. Setting `none` on `.wf-topics` alone could not help - the group
+   itself was the thing being hit. Pressed controls: the window control (its dropdown and steppers
+   inherit it), the big-seas line and the topic chips. Pinned by `mapTopicDimCascade.test.jsx`. */
+.wf-map-chrome-tl .wf-win-control,
+.wf-map-chrome-tl .wf-big-seas,
+.wf-map-chrome-tl .wf-tch { pointer-events: auto; }
 /* ⚠️ The control group is BOUNDED on the tab — with `max-width`, which is the design bundle's own
    form (`calc(100% - 344px)`) after all. Two earlier attempts got this wrong and both are recorded
    because the second was worse than the first: map-landing-plan.md §4 #3 originally dismissed the
@@ -4113,6 +4149,335 @@ button.wf-hc.also.on:hover {
   bottom: calc(var(--tsh, 120px) + 16px);
 }
 
+/* ── The four-day hot-topics strip (hot-topics-by-day-plan §3 M2; docs/design/hot-topics-by-day/README.md §2C) ──
+   A plain flex child of `.wf-map-chrome-bl`, BEFORE the tide strip (never separately positioned), 440px,
+   desktop and tablet only (the component is not mounted at <= 639px; M4 owns the phone).
+
+   While it is mounted `MapView` writes `data-topic-strip` on `.wf-map-tab` and publishes the WHOLE
+   bottom-left stack's height as `--wf-chrome-bl-h` (`hooks/useChromeBlHeight.js`). The landing card reads
+   it: its `max-height` assumed a 36px legend chip at the bottom (the strip is collapsed to its header
+   while that card is open, but the stack is then the legend chip plus that header), and the 36px
+   fallback makes an unset variable give back the old `- 76px` exactly (24 + 36 + 16).
+
+   The counts footer is NOT lifted from here: it moves only where its span meets the strip's, which is a
+   measurement `MapView` makes and writes as an inline `bottom` on the footer. */
+@media (min-width: 640px) {
+  .wf-map-tab[data-topic-strip] .wf-land {
+    max-height: calc(100% - var(--wf-chrome-tl-h, 36px) - 24px - var(--wf-chrome-bl-h, 36px) - 16px);
+  }
+}
+.wf-topic-strip {
+  position: relative;
+  z-index: 1100;
+  /* A fixed 440px, with no `max-width`: `.wf-map-chrome-bl` is shrink-to-fit, so a `100% - 24px` here
+     resolves against a box this very child sized (the strip measured 416px in the browser), and a
+     viewport cap never binds at the >= 640px this is mounted at. */
+  width: 440px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: rgba(20, 15, 12, 0.94);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(7px);
+  font-family: var(--font-mono);
+  overflow: hidden;
+}
+.wf-topic-strip:focus-visible {
+  outline: 2px solid var(--color-tide-light);
+  outline-offset: 2px;
+}
+.wf-tl-head {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 8px 11px;
+  background: none;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-tl-head[aria-disabled='true'] { cursor: default; }
+.wf-tl-head:focus-visible,
+.wf-tl-n:focus-visible,
+.wf-tl-b:focus-visible {
+  outline: 2px solid var(--color-tide-light);
+  outline-offset: 1px;
+}
+.wf-tl-cv { margin-left: auto; }
+/* Every item is placed with an inline `grid-area`; the two header rows size to content and every topic
+   row after them is 24px. 92 + 8 x 41 = the 420px the 440px panel leaves inside its padding. */
+.wf-tl-grid {
+  display: grid;
+  grid-template-columns: 92px repeat(8, minmax(0, 1fr));
+  grid-template-rows: auto auto;
+  grid-auto-rows: 24px;
+  row-gap: 4px;
+  padding: 0 10px 10px;
+  position: relative;
+}
+.wf-tl-now {
+  background: rgba(242, 231, 211, 0.07);
+  border-radius: 5px;
+  margin: 0 1px;
+  pointer-events: none;
+}
+/* A past column of today: drawn, but there is no window to open, so it steps back. */
+.wf-tl-past {
+  background: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.28) 0 3px, transparent 3px 6px);
+  border-radius: 5px;
+  margin: 0 1px;
+  pointer-events: none;
+}
+.wf-tl-d {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 0 2px;
+  padding: 2px 0 3px;
+  text-align: center;
+  line-height: 1.15;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.wf-tl-d i {
+  font-style: normal;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+}
+.wf-tl-d b {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--color-plex-text);
+}
+.wf-tl-d[data-today='true'] { border-color: var(--color-plex-text-muted); }
+.wf-tl-x {
+  position: relative;
+  text-align: center;
+  font-size: 9px;
+  color: var(--color-plex-text-muted);
+}
+.wf-tl-n {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wf-tl-n[aria-disabled='true'] { cursor: default; opacity: 0.6; }
+.wf-tl-n[data-selected='true'] { color: var(--wf-tc); }
+.wf-tl-g { font-size: 11px; }
+/* A bar is blank by design (its name is on its row's label); a 1px border is always drawn so the shape
+   survives forced colours, which drop the background. */
+.wf-tl-b {
+  position: relative;
+  box-sizing: border-box;
+  margin: 3px 2px;
+  padding: 0;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--wf-tc) 26%, transparent);
+  border: 1px solid color-mix(in srgb, var(--wf-tc) 50%, transparent);
+  cursor: pointer;
+}
+span.wf-tl-b { cursor: default; }
+button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transparent); }
+.wf-tl-b[data-current='true'] { border-color: var(--wf-tc); }
+.wf-tl-b[data-selected='true'] {
+  background: var(--wf-tc);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--wf-tc) 55%, transparent);
+}
+/* The daylight High-water tick (M3): placed over the Big seas row's two columns for its day, `--x` the
+   percent along them. The wrapper lets pointer events through; the BUTTON is the target and is 24px wide
+   (the row is 24px tall), so the hit area meets the minimum while the drawn line stays 2px. The label rides
+   above the row, in the header band's gap. */
+.wf-tl-hw {
+  position: relative;
+  /* The Big seas track is 36px while a tick is drawn: the tick keeps the bottom 24px (the row proper),
+     and its label rides in the 12px above, clear of the arrow row. */
+  align-self: end;
+  height: 24px;
+  pointer-events: none;
+}
+/* The Big seas row's own label and bars sit in that same bottom 24px. */
+.wf-tl-tall { align-self: end; }
+.wf-tl-n.wf-tl-tall { height: 24px; }
+.wf-tl-b.wf-tl-tall { height: 18px; }
+.wf-tl-hw button {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--x);
+  width: 24px;
+  margin-left: -12px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.wf-tl-hw button::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 1px;
+  bottom: 1px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--color-plex-text);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-tide-light) 90%, transparent);
+}
+/* The current tick must contrast with a selected solid-teal bar under it: dark core, bone outline. */
+.wf-tl-hw button[data-current='true']::before {
+  left: 10.5px;
+  width: 3px;
+  background: var(--color-plex-bg);
+  box-shadow: 0 0 0 1.5px var(--color-plex-text);
+}
+.wf-tl-hw button:focus-visible {
+  outline: 2px solid var(--color-tide-light);
+  outline-offset: 1px;
+}
+/* The printed label is INSIDE the button (it is the button's visible text; the name restates it), lifted
+   into the track's top 12px. */
+.wf-tl-hw .wf-tl-hwl {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 1px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--color-tide-light);
+}
+/* Forced colours drop background and box-shadow: the current and selected bars keep a real outline. */
+@media (forced-colors: active) {
+  /* The tick is drawn by BORDER, not background, so it survives (plan §3 M2/M3). */
+  .wf-tl-hw button::before { background: none; box-shadow: none; border-left: 2px solid CanvasText; width: 0; }
+  .wf-tl-hw button[data-current='true']::before { border-left: 4px double Highlight; width: 0; left: 10px; }
+  .wf-tl-hw .wf-tl-hwl { color: CanvasText; }
+  .wf-tl-b { border: 1px solid CanvasText; }
+  .wf-tl-b[data-current='true'] { outline: 2px solid Highlight; outline-offset: 0; }
+  .wf-tl-b[data-selected='true'] { outline: 3px double Highlight; outline-offset: 1px; }
+  .wf-tl-n[data-selected='true'] { outline: 2px solid Highlight; }
+  /* The focus ring on those same states, which the outlines above would otherwise replace (equal
+     specificity, later wins): a heavier, offset ring in a different system colour. */
+  .wf-tl-b[data-current='true']:focus-visible,
+  .wf-tl-b[data-selected='true']:focus-visible,
+  .wf-tl-n[data-selected='true']:focus-visible { outline: 3px solid CanvasText; outline-offset: 3px; }
+  .wf-tl-now { border-left: 1px dashed CanvasText; border-right: 1px dashed CanvasText; }
+}
+
+/* The phone's strip (hot-topics-by-day M4): the same grid inside the peek sheet's Windows body. Full width of
+   the body, the design's 70px label column, no footer (the strip has none). Touch metrics: 32px rows, the Big
+   seas track 44px (32 + the 12px label band) while a tick is drawn, bars 24px tall. The inline
+   `gridTemplateRows` the component writes for a tick uses the same 32/44. Phone only. */
+@media (max-width: 639px) {
+  .wf-topic-strip.wf-topic-strip-sheet {
+    z-index: auto;
+    width: 100%;
+    box-shadow: none;
+    backdrop-filter: none;
+    background: transparent;
+    border-radius: 8px;
+  }
+  .wf-topic-strip-sheet .wf-tl-head {
+    min-height: 44px;
+    font-size: 10px;
+  }
+  .wf-topic-strip-sheet .wf-tl-grid {
+    grid-template-columns: 70px repeat(8, minmax(0, 1fr));
+    grid-auto-rows: 32px;
+    row-gap: 4px;
+    padding: 0 8px 10px;
+  }
+  .wf-topic-strip-sheet .wf-tl-n {
+    height: 32px;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 11px;
+    gap: 4px;
+  }
+  .wf-topic-strip-sheet .wf-tl-n > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wf-topic-strip-sheet .wf-tl-b { margin: 4px 2px; }
+  .wf-topic-strip-sheet .wf-tl-n.wf-tl-tall { height: 32px; }
+  .wf-topic-strip-sheet .wf-tl-b.wf-tl-tall { height: 24px; }
+  /* The High-water tick: the wrapper is the Big seas track; its line is drawn by the wrapper at the true
+     place (pointer-events none), and the BUTTON is a 44x16 label band above the bar row (the bar starts 16px
+     down), clamped to stay inside the day's two columns, so it never covers a bar or the next day. */
+  .wf-topic-strip-sheet .wf-tl-hw {
+    height: 44px;
+    align-self: end;
+  }
+  .wf-topic-strip-sheet .wf-tl-hw::before {
+    content: '';
+    position: absolute;
+    left: var(--x);
+    top: 14px;
+    bottom: 4px;
+    width: 2px;
+    margin-left: -1px;
+    border-radius: 1px;
+    background: var(--color-plex-text);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--color-tide-light) 90%, transparent);
+    pointer-events: none;
+  }
+  .wf-topic-strip-sheet .wf-tl-hw:has(button[data-current='true'])::before {
+    width: 3px;
+    margin-left: -1.5px;
+    background: var(--color-plex-bg);
+    box-shadow: 0 0 0 1.5px var(--color-plex-text);
+  }
+  .wf-topic-strip-sheet .wf-tl-hw button {
+    top: 0;
+    bottom: auto;
+    height: 16px;
+    width: 44px;
+    margin-left: 0;
+    left: clamp(0px, calc(var(--x) - 22px), calc(100% - 44px));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .wf-topic-strip-sheet .wf-tl-hw button::before { content: none; }
+  .wf-topic-strip-sheet .wf-tl-hw .wf-tl-hwl {
+    position: static;
+    transform: none;
+    margin: 0;
+  }
+  @media (forced-colors: active) {
+    .wf-topic-strip-sheet .wf-tl-hw::before { background: none; box-shadow: none; width: 0; border-left: 2px solid CanvasText; }
+    .wf-topic-strip-sheet .wf-tl-hw:has(button[data-current='true'])::before { border-left: 4px double Highlight; width: 0; }
+  }
+}
+
 /* ── The counts footer (README "§9 Count footer") ──────────────────────────────────────────────
    Bottom-centre, matching `.wf-map-key`'s pill treatment so the new chrome reads as one family
    with the old. `--color-plex-panel` opaque for the same reason every map-floating chip is: a
@@ -4137,6 +4502,10 @@ button.wf-hc.also.on:hover {
   text-align: center;
   max-width: calc(100% - 16px);
   pointer-events: none;
+}
+/* The footer's stood-down count (big-seas plan F3). */
+.wf-map-counts-standdown {
+  color: var(--color-standdown-count);
 }
 .wf-map-counts-flag {
   color: #EBD9A8;
@@ -4460,7 +4829,8 @@ button.wf-hc.also.on:hover {
      key last changed (`wf-map-scored-legend-gone`, set via a `useEffect` with cleanup — never CSS
      alone, since the class has to survive a window change resetting the clock). */
   .wf-map-tab .wf-map-scored-legend {
-    top: 62px;
+    /* 62px when `--wf-chrome-tl-h` is unset; below the big-seas line when it shows (F1). */
+    top: calc(var(--wf-chrome-tl-h, 40px) + 22px);
     left: 50%;
     bottom: auto;
     right: auto;
@@ -4568,7 +4938,7 @@ button.wf-hc.also.on:hover {
   flex-direction: column;
   height: 74px;
   /* Every height below is clamped to the frame — never over the window pill (see `.wf-map-peek-open`). */
-  max-height: calc(100% - 64px);
+  max-height: calc(100% - var(--wf-chrome-tl-h, 44px) - 20px);
   transition: height .28s cubic-bezier(.3, .7, .2, 1);
 }
 /* Clamped to the frame (plan §4 #7): 356px is the reference frame's own figure, but an iPhone SE
@@ -4576,13 +4946,13 @@ button.wf-hc.also.on:hover {
    pill (`top: 10px; height: 44px` — 10 + 44 + 10 = 64px it must stay clear of). */
 .wf-map-peek-open {
   height: 356px;
-  max-height: calc(100% - 64px);
+  max-height: calc(100% - var(--wf-chrome-tl-h, 44px) - 20px);
 }
 /* ── The sheet's Ask states (Ask PhotoCast F4, plan §2.7's phone paragraph) ───────────────────────
    `data-ask` is `utils/askPeek.js#askPeekMode`'s answer, written by `MapView`; `off` — the sheet
    before Ask existed — has no rule here at all, so with Ask off the heights above are all there is.
    The numbers are `PEEK_HEIGHT` in `utils/askPeek.js` and `askPeekCss.test.js` reads this file to
-   hold the two together. All clamp to `calc(100% - 64px)` (the base rule's), so the pill is never
+   hold the two together. All clamp to `calc(100% - var(--wf-chrome-tl-h, 44px) - 20px)` (the base rule's; 64px when unset), so the pill is never
    covered on a 667px phone. Specificity (0,2,0) beats `.wf-map-peek-open` (0,1,0), whatever the order.
    The transition is the README's `.28s cubic-bezier(.3,.7,.2,1)` ("Sheet height transition"; the mock's
    own CSS says `.26s`, which is what this sheet had before Ask — the README is the stated figure), set on
@@ -5469,7 +5839,9 @@ button.wf-hc.also.on:hover {
    */
 .wf-land {
   position: absolute;
-  top: 60px;
+  /* 36px control + `top: 8` + 16px of air; `--wf-chrome-tl-h` is the chrome group's height while the
+     big-seas line shows (big-seas plan F1), the 36px fallback gives the old 60px exactly. */
+  top: calc(var(--wf-chrome-tl-h, 36px) + 24px);
   left: 12px;
   z-index: 1050;
   width: 376px;
@@ -5483,7 +5855,7 @@ button.wf-hc.also.on:hover {
      edge, which put a capped card's bottom edge 16px up, INSIDE `.wf-map-chrome-bl`'s band (the
      Legend chip, `bottom: 8px` × ~36px tall) and the counts footer's. 112 = `top: 60` + `bottom: 8`
      + a 44px chip. Measured overlaps before the fix: 4px at a 340px frame, 30px at 260px. */
-  max-height: calc(100% - 112px);
+  max-height: calc(100% - var(--wf-chrome-tl-h, 36px) - 76px);
   overflow: hidden auto;
   border-radius: 12px;
   /* The same plate `.wf-callout` uses, so the two cards over one map read as one family. */
@@ -5810,8 +6182,10 @@ button.wf-hc.also.on:hover {
    it, below the callout (1350) and the tooltip (1400). The landing card is 1050. */
 .wf-win-panel {
   position: absolute;
-  /* Under the control: chrome `top: 8` + a 36px control + the 6px the dropdown also uses. */
-  top: 50px;
+  /* Under the control: chrome `top: 8` + a 36px control + the 6px the dropdown also uses.
+     `--wf-chrome-tl-h` is the chrome group's height, published by `useChromeTlHeight` on every day
+     (big-seas plan F1); unset, the 36px fallback gives the old 50px exactly. */
+  top: calc(var(--wf-chrome-tl-h, 36px) + 14px);
   left: 60px;
   z-index: 1150;
   /* The control's own box, so the panel and the dropdown it replaces share both edges — including
@@ -5820,7 +6194,7 @@ button.wf-hc.also.on:hover {
   max-width: calc(100% - 308px);
   /* 102 = this panel's own `top: 50` + the bottom band the landing card's 112 also clears
      (`bottom: 8` + a ~44px Legend chip). A percentage of the FRAME, which is the point. */
-  max-height: calc(100% - 102px);
+  max-height: calc(100% - var(--wf-chrome-tl-h, 36px) - 66px);
   overflow: hidden auto;
   border: 1px solid var(--color-plex-border-light);
   border-radius: 10px;
@@ -6170,12 +6544,14 @@ button.wf-hc.also.on:hover {
    the lifted-stack reckoning the landing card's own phone rule derives (top 54 + 140). */
 @media (max-width: 639px) {
   .wf-win-panel {
-    top: 54px;
+    /* The phone control is 40px tall: 8 + 40 + 6. `--wf-chrome-tl-h` replaces the 40 while the
+       big-seas line shows (big-seas plan F1); `max-height` keeps its 140px bottom reckoning. */
+    top: calc(var(--wf-chrome-tl-h, 40px) + 14px);
     left: 8px;
     right: 8px;
     width: auto;
     max-width: none;
-    max-height: calc(100% - 194px);
+    max-height: calc(100% - var(--wf-chrome-tl-h, 40px) - 154px);
   }
 }
 
@@ -6184,7 +6560,8 @@ button.wf-hc.also.on:hover {
    `top: 56px` clears the full-width window control the ≤639px chrome rule puts across the top. */
 @media (max-width: 639px) {
   .wf-land {
-    top: 56px;
+    /* The phone control is 40px tall: 8 + 40 + 8 = the old 56px, which the 40px fallback keeps. */
+    top: calc(var(--wf-chrome-tl-h, 40px) + 16px);
     left: 8px;
     right: 8px;
     width: auto;
@@ -6194,7 +6571,7 @@ button.wf-hc.also.on:hover {
        scored legend, LITE viewline chip), and a card allowed to reach 74px from the bottom passes
        through it. 196 = `top: 56` + 140, clearing the bar and the two rows a reader always has. The
        cap engages only below a ~540px frame; the card's natural height is ~341px. */
-    max-height: calc(100% - 196px);
+    max-height: calc(100% - var(--wf-chrome-tl-h, 40px) - 156px);
   }
 }
 
@@ -6375,6 +6752,209 @@ button.wf-hc.also.on:hover {
   font-size: 11px;
   min-width: 14px;
   text-align: right;
+}
+/* The week menu's big-seas marker on the row whose event the high water lands on (big-seas plan F1).
+   Teal, not the storm-surge amber: that colour is banned on the map. It is an inline-SVG bolt
+   (`BoltIcon`) that takes `currentColor`: the U+26A1 character is an emoji on macOS, iOS and Windows
+   and ignores `color`, which showed it yellow. */
+.wf-win-row-bigseas {
+  color: var(--color-tide);
+}
+.wf-bolt {
+  display: inline-block;
+  vertical-align: -0.12em;
+}
+
+/* ── The big-seas line (big-seas plan F1; docs/design/big-seas/README.md "Big-seas line") ───────────
+   Its own row INSIDE `.wf-map-chrome-tl`, under the window control. Bounded at the control's 504px,
+   not the handoff's 580: the chrome group is the first label-placement obstacle (the note on
+   `.wf-map-chrome-tl`), so the group must not widen. It does grow TALLER, which the label-obstacle
+   measurement in the plan's §6 covers. On a phone the group's own bound is released, so the line
+   runs the control's full width and wraps; the badge never wraps. */
+.wf-big-seas {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 504px;
+  min-height: 36px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(24, 18, 15, 0.94);
+  border: 1px solid color-mix(in srgb, var(--color-tide) 50%, transparent);
+  border-radius: 9px;
+  backdrop-filter: blur(7px);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text);
+}
+.wf-big-seas:focus-visible {
+  outline: 2px solid var(--color-tide-light);
+  outline-offset: 2px;
+}
+.wf-big-seas-badge {
+  flex: none;
+  white-space: nowrap;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--color-tide-light);
+  color: #12100E;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+.wf-big-seas-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.35;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.wf-big-seas-l1 { font-weight: 600; }
+.wf-big-seas-l2 {
+  font-size: 9.5px;
+  color: var(--color-plex-text-secondary);
+  text-wrap: pretty;
+}
+.wf-big-seas-go {
+  flex: none;
+  white-space: nowrap;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--color-tide);
+  cursor: pointer;
+}
+.wf-big-seas-go:hover { color: #8FC4CC; }
+.wf-big-seas-go:focus-visible {
+  outline: 2px solid var(--color-tide-light);
+  outline-offset: 2px;
+}
+@media (max-width: 639px) {
+  .wf-big-seas { max-width: none; }
+  /* A touch target taller than its text, without growing the row (the negative margin gives the
+     room back). */
+  .wf-big-seas-go { padding: 6px 0; margin: -6px 0; }
+}
+
+/* ── The hot-topic chips (hot-topics-by-day-plan §3 M1; docs/design/hot-topics-by-day/README.md §2A) ──
+   A row INSIDE `.wf-map-chrome-tl`, under the window control and the big-seas line. Bounded at the
+   control's 504px like `.wf-big-seas`, because the group is the first label-placement obstacle (the
+   note on `.wf-map-chrome-tl`): the row grows the group TALLER, never wider, and the label-obstacle
+   measurement in the plan's §6 covers it.
+
+   ⚠️ The ROW is `pointer-events: none` and the CHIPS `auto` (the `.wf-map-toolbar-row` precedent
+   above). A wrapped row spans the union of its chips, so on a phone the gaps between them would
+   otherwise swallow every drag begun there. The empty-state text and the sky-wide line are not
+   controls and stay `none`.
+
+   Colours are the codebase's tokens; the topic's own colour arrives as `--wf-tc` (from the one
+   palette, `utils/topicPalette.js`), never a hex from the design mock. */
+.wf-topics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 504px;
+  margin-top: 6px;
+  pointer-events: none;
+}
+.wf-topics:focus-visible {
+  outline: 2px solid var(--color-tide-light);
+  outline-offset: 2px;
+}
+.wf-tch {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-height: 30px;
+  padding: 4px 10px 4px 8px;
+  background: rgba(24, 18, 15, 0.92);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 999px;
+  backdrop-filter: blur(7px);
+  color: var(--color-plex-text);
+  cursor: pointer;
+}
+.wf-tch:hover {
+  border-color: var(--wf-tc);
+}
+.wf-tch[aria-pressed='true'] {
+  border-color: var(--wf-tc);
+  background: color-mix(in srgb, var(--wf-tc) 20%, var(--color-plex-panel));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--wf-tc) 18%, transparent);
+}
+.wf-tch:focus-visible {
+  outline: 2px solid var(--color-tide-light);
+  outline-offset: 2px;
+}
+.wf-tch-g {
+  font-size: 12px;
+  line-height: 1;
+}
+.wf-tch-n {
+  font-family: var(--font-sans, inherit);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.wf-tch-w {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  white-space: nowrap;
+}
+.wf-topics-none,
+.wf-topics-sky {
+  margin: 0;
+  padding: 4px 10px;
+  background: rgba(24, 18, 15, 0.92);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 9px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-topics-sky {
+  flex: 1 1 100%;
+  line-height: 1.35;
+}
+/* Forced colours drop box-shadow and colour-mix backgrounds: the selected chip keeps a real outline. */
+@media (forced-colors: active) {
+  .wf-tch[aria-pressed='true'] { outline: 2px solid Highlight; }
+}
+/* The ring pane is a picture: it never takes a press from the map or a chip. */
+.wf-topic-rings-pane { pointer-events: none; }
+@media (max-width: 639px) {
+  .wf-topics { max-width: none; }
+  /* Phone only: the "where" text goes (the design's responsive table); the accessible name keeps it. */
+  .wf-tch-w { display: none; }
+}
+
+/* ── Dimming while a topic is selected (hot-topics-by-day-plan §3 M1 "Dim") ─────────────────────────
+   `MapView` writes `data-topic-selected` on `.wf-map-tab`. Ordinary name chips and the pin labels step
+   back to .5 and are restored on hover, keyboard focus and the selected place, the Ask fade's restore
+   set (below, "Ask PhotoCast's picks on the map").
+
+   ⚠️ THE OVERLAP WITH ASK'S FADE is written into the selector, not left to source order: `:not([data-ask])`
+   leaves a faded chip (`data-ask='fade'`, .25) and an Ask pick (`data-ask='pick'`) to the Ask rules, so a
+   chip that is both reads .25 and a pick is never dimmed whichever block comes last. Big-seas chips
+   (`.wf-bsc`) never dim - they are the ringed answer on a big-seas day. Written at (0,x,0) above
+   `.wf-maplab-chip[data-tide='miss']` / `.wf-pin[data-tide='miss']` (.72), so a coastal miss dims to .5
+   too. Pinned against this stylesheet by `mapTopicDimCascade.test.jsx`. */
+.wf-map-tab[data-topic-selected] .wf-maplab-layer .wf-maplab-chip:not(.wf-bsc):not([data-ask]):not([data-selected='true']):not(:hover):not(:focus-visible),
+.wf-map-tab[data-topic-selected] .wf-maplab-layer .wf-pin:not([data-ask]):not([data-selected='true']):not(:hover):not(:focus-visible) {
+  opacity: 0.5;
+  transition: opacity 0.2s;
 }
 
 /* ── The EARLIER group (outcome-rating-plan.md §2 #2, O3b) ──────────────────────────────────────
@@ -6581,11 +7161,40 @@ button.wf-hc.also.on:hover {
 .wf-maplab-region[data-hot='true'] {
   color: #F9F1E2;
 }
+/* A stood-down region's label (big-seas plan F3): the name over `stood down · cause`, in the cool ink
+   the hatch is ruled in. Replaces the region's ordinary label, so it keeps that label's box rules
+   (mono, uppercase, nowrap); two lines, centred, the cause a size smaller. */
+.wf-maplab-region.wf-maplab-standdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1.2;
+  color: var(--color-standdown-ink);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .95), 0 0 9px rgba(0, 0, 0, .85);
+}
+.wf-maplab-standdown-cause {
+  font-size: 8.5px;
+  color: var(--color-standdown-ink-2);
+}
 /* README §6: "Short names below 430px width" — CSS truncation of the served name for now; a
    curated short form is decision D-11. Capped rather than left to wrap, because a wrapped region
    name grows the label's own measured box mid-placement, which the greedy pass has already sized
    it against. */
 .wf-maplab-region[data-tiny='true'] {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A stood-down label is a two-line flex column: the 90px clip must not take its cause line, so the
+   box is released and only the NAME truncates (big-seas plan F3). Later than the rule above, same
+   specificity, so it wins. */
+.wf-maplab-standdown[data-tiny='true'] {
+  max-width: none;
+  overflow: visible;
+}
+.wf-maplab-standdown[data-tiny='true'] .wf-maplab-standdown-name {
+  display: block;
   max-width: 90px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6711,6 +7320,102 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text);
   padding-left: 5px;
   border-left: 1px solid var(--color-plex-border);
+}
+/* The big-seas chip (big-seas plan F2; docs/design/big-seas/README.md "Big-seas chip (.bsc)"): a
+   `.wf-maplab-chip` in the teal family, so every shared behaviour (placement, the Ask fade, focus, the
+   selected-chip lookup) is the ordinary chip's. Plate `rgba(14,22,24,.92)`, a 1px teal ring, the bolt
+   (`BoltIcon`, never the U+26A1 emoji), the name in the ink and the height behind a left rule in
+   `--color-tide-pale`. IBM Plex Mono 9.5px, 10px on a phone. Every teal is a `--color-tide*` token.
+   ALIGNED (high water on the light, `data-aligned`) takes the 1.5px lighter ring plus a 3px halo.
+   ⚠️ Written at (0,2,0) AFTER `.wf-maplab-chip:hover` and `[data-selected]` (same specificity), so these
+   override their gold ring: the teal ring is this chip's identity, and hover only lifts the plate. */
+.wf-maplab-chip.wf-bsc {
+  gap: 5px;
+  padding: 2px 6px 2px 4px;
+  background: rgba(14, 22, 24, 0.92);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-tide) 70%, transparent),
+    0 2px 8px rgba(0, 0, 0, 0.55);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
+.wf-maplab-chip.wf-bsc:hover,
+.wf-maplab-chip.wf-bsc[data-selected='true'] {
+  background: rgba(14, 22, 24, 0.98);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-tide) 70%, transparent),
+    0 2px 8px rgba(0, 0, 0, 0.55);
+}
+.wf-maplab-chip.wf-bsc[data-aligned='true'],
+.wf-maplab-chip.wf-bsc[data-aligned='true']:hover,
+.wf-maplab-chip.wf-bsc[data-aligned='true'][data-selected='true'] {
+  box-shadow:
+    inset 0 0 0 1.5px var(--color-tide-light),
+    0 0 0 3px color-mix(in srgb, var(--color-tide) 18%, transparent),
+    0 2px 10px rgba(0, 0, 0, 0.6);
+}
+/* In Pins the chips come BEFORE the ordinary pins in the DOM (tab order), so paint order is explicit:
+   above the unstacked pins, below an Ask pick's own z-index (up to 99). */
+[data-testid='pins-layer'] .wf-maplab-chip.wf-bsc {
+  z-index: 1;
+}
+.wf-bsc-bolt {
+  flex: none;
+  font-size: 10px;
+  color: var(--color-tide);
+}
+.wf-bsc-n {
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-bsc-h {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--color-tide-pale);
+  padding-left: 5px;
+  border-left: 1px solid color-mix(in srgb, var(--color-tide) 45%, transparent);
+}
+@media (max-width: 639px) {
+  .wf-maplab-chip.wf-bsc {
+    font-size: 10px;
+  }
+}
+/* Forced colours drop box-shadow, which is all that draws the ring: the chip takes a 1px border, and
+   the aligned ring becomes a 2px outline (outside the border, so the two read apart). */
+@media (forced-colors: active) {
+  .wf-maplab-chip.wf-bsc {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+  .wf-maplab-chip.wf-bsc[data-aligned='true'] {
+    box-shadow: none;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+  .wf-maplab-chip.wf-bsc:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+/* The legend's big-seas swatch: the chip's own plate and ring around the bolt. */
+.wf-legend-swatch-seas {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 14px;
+  border-radius: 4px;
+  background: rgba(14, 22, 24, 0.92);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-tide) 70%, transparent);
+  color: var(--color-tide);
+  font-size: 10px;
+}
+@media (forced-colors: active) {
+  .wf-legend-swatch-seas {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
 }
 /* The desktop hover tooltip — README §6/"Interactions": name, event, N★ verdict,
    region · drive · sky Bortle. z-index 1400, the P7 chrome comment's own reserved "tooltip" slot;
@@ -7315,8 +8020,17 @@ button.wf-hc.also.on:hover {
     repeating-linear-gradient(-45deg, rgba(242, 231, 211, 0.32) 0 0.8px, transparent 0.8px 5px),
     #241d18;
 }
-/* Forced colours drop backgrounds and box-shadows, so both swatches would vanish: a CanvasText border
-   on each, and the hatch swatch keeps its own colours so it stays distinguishable from the plain one. */
+/* The stand-down key (big-seas plan F3): 20x9, the map's own veil with the cool 45 degree rule. */
+.wf-legend-swatch-standdown {
+  width: 20px;
+  height: 9px;
+  background:
+    repeating-linear-gradient(-45deg, rgba(184, 197, 220, 0.5) 0 1px, transparent 1px 4px),
+    rgba(16, 15, 19, 0.66);
+}
+/* Forced colours drop backgrounds and box-shadows, so all three swatches would vanish: a CanvasText
+   border on each, and the hatch swatches keep their own colours so they stay distinguishable from the
+   plain one (dashed for "not rated yet", dotted for "stood down"). */
 @media (forced-colors: active) {
   .wf-legend-swatch {
     border: 1px solid CanvasText;
@@ -7325,6 +8039,10 @@ button.wf-hc.also.on:hover {
   .wf-legend-swatch-hatch {
     forced-color-adjust: none;
     border-style: dashed;
+  }
+  .wf-legend-swatch-standdown {
+    forced-color-adjust: none;
+    border-style: dotted;
   }
 }
 .wf-legend-ring-toggle {
@@ -9497,54 +10215,31 @@ button.wf-hc.also.on:hover {
   background: var(--color-plex-panel);
   overflow: hidden;
 }
-/* The handoff row (design README §1, plan D14) — states Plan's boundary out loud, above the
-   head rather than inside it, so it reads before the chronology's own subtitle rather than
-   competing with it. A `<button>`, so the dashed-border/hover treatment below is `:hover` on a
-   real interactive element rather than a `:hover` that has to be paired with a click handler on
-   a `<div>` to mean anything to a keyboard or screen-reader user. */
-.wf-cu-handoff {
-  /* One source for the side inset, because it has to appear in BOTH the margin and the width.
-     When it did not, this row overran the panel: `width: 100%` resolves against the containing
-     block and the horizontal margins are ADDED to it, so the button's margin box came out 28px
-     wider than `.wf-cu` — whose `overflow: hidden` then clipped the dashed border's right edge
-     away entirely, leaving a row that reads as running off the right of the screen.
-     ⚠️ `width: auto` is NOT the fix: a `<button>` shrink-wraps even as a block-level flex
-     container (measured 39.6px against a 388px panel), which is why the width was pinned here in
-     the first place. The design of record needs no width at all — its `.pane` carries the padding
-     and `.hoff` has only a `margin-top` (`docs/design/coming-up/Coming Up.html`) — but the port
-     gives each child of the bordered `.wf-cu` its own inset, so this row has to fund its own. */
-  --wf-cu-handoff-inset: 14px;
+/* The "Next four days" lanes (hot-topics-by-day-plan C1; design README §1) — one row per hot topic,
+   four day columns, a bar for a topic spanning days and a dot for a single window. It replaced the
+   dashed handoff row (plan D14) and still states Plan's boundary out loud. A block-level `<section>`,
+   not a button, so it fills the panel width without the shrink-wrap trap the old row had to pin
+   around; it funds its own side inset with a margin, since `.wf-cu` carries no padding.
+   `--c` is the topic's colour, set per item from `utils/topicPalette.js` — never a literal here.
+   ⚠️ EVERY grid item is explicitly placed (row and column, inline from the component): auto-
+   placement broke the design's own prototype twice. */
+.wf-cu-fd {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 13px;
-  /* Subtracted twice rather than multiplied by 2: `calc(a - var() - var())` is the exact shape
-     four sticky rules in this file already ship (`.wf-dhrow`, `.wf-rail`, and two
-     `scroll-margin-top`s), so this adds no compatibility surface beyond what already runs on
-     every reader's device. A `var()` under multiplication would have been the only such
-     construct in the stylesheet, and WebKit cannot be exercised from the dev environment. */
-  width: calc(100% - var(--wf-cu-handoff-inset) - var(--wf-cu-handoff-inset));
-  min-height: 40px;
-  margin: 12px var(--wf-cu-handoff-inset) 0;
-  padding: 9px 13px;
-  border: 1px dashed var(--color-plex-border-light);
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 14px 0;
+  padding: 10px 13px 12px;
+  border: 1px solid var(--color-plex-border-light);
   border-radius: 9px;
   background: rgba(0, 0, 0, 0.12);
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.14s, background 0.14s;
 }
-.wf-cu-handoff:hover,
-.wf-cu-handoff:focus-visible {
-  border-color: var(--color-close-to-home);
-  background: rgba(201, 162, 75, 0.05);
+.wf-cu-fd-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
 }
-.wf-cu-handoff:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-}
-.wf-cu-handoff-when {
+.wf-cu-fd-label {
   font-family: var(--font-mono);
   font-size: 9.5px;
   font-weight: 600;
@@ -9553,32 +10248,214 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text-muted);
   white-space: nowrap;
 }
-.wf-cu-handoff-summary {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-plex-text-secondary);
-}
-.wf-cu-handoff-topic {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.wf-cu-handoff-swatch {
-  width: 6px;
-  height: 6px;
-  border-radius: 2px;
-  flex: none;
-}
-.wf-cu-handoff-link {
-  margin-left: auto;
+.wf-cu-fd-plan {
+  padding: 0;
+  border: 0;
+  background: none;
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--color-close-to-home);
   white-space: nowrap;
+  cursor: pointer;
+}
+.wf-cu-fd-plan:hover { text-decoration: underline; }
+.wf-cu-fd-empty {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-fd-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: 118px repeat(4, minmax(0, 1fr)) 24px;
+  row-gap: 6px;
+  align-items: center;
+}
+/* Today's column shade — under everything, never an event target. */
+.wf-cu-fd-now {
+  grid-column: 2;
+  align-self: stretch;
+  margin: 0 3px;
+  border-radius: 7px;
+  background: rgba(242, 231, 211, 0.05);
+  pointer-events: none;
+}
+/* Static placement lives here; only the row of a topic's items, and a bar's column span, are inline. */
+.wf-cu-fd-day { grid-row: 1; }
+.wf-cu-fd-day[data-col='0'] { grid-column: 2; }
+.wf-cu-fd-day[data-col='1'] { grid-column: 3; }
+.wf-cu-fd-day[data-col='2'] { grid-column: 4; }
+.wf-cu-fd-day[data-col='3'] { grid-column: 5; }
+.wf-cu-fd-day {
+  display: flex;
+  flex-direction: column;
+  margin: 0 3px 3px;
+  padding: 3px 0 4px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.2);
+  font-family: var(--font-mono);
+  text-align: center;
+  line-height: 1.15;
+}
+.wf-cu-fd-day[data-today='true'] { border-color: var(--color-plex-text-muted); }
+.wf-cu-fd-day i {
+  font-style: normal;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+}
+.wf-cu-fd-day b {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--color-plex-text);
+}
+.wf-cu-fd-n {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+  white-space: nowrap;
+}
+.wf-cu-fd-i { font-size: 12px; flex: none; }
+.wf-cu-fd-nl,
+.wf-cu-fd-ns {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-cu-fd-ns { display: none; }
+.wf-cu-fd-seg {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.wf-cu-fd-bar {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 24px;
+  margin: 0 3px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--c) 45%, transparent);
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--c) 22%, transparent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wf-cu-fd-bar:hover {
+  border-color: var(--c);
+  background: color-mix(in oklch, var(--c) 32%, transparent);
+}
+/* A run that continues past the fourth day: dashed right edge, squared off, butting the jump button. */
+.wf-cu-fd-bar[data-open='true'] {
+  margin-right: 0;
+  border-right-style: dashed;
+  border-radius: 5px 0 0 5px;
+}
+/* The left text gives way before the peak: it shrinks and ellipsises, the peak never does. */
+.wf-cu-fd-bt {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-cu-fd-pk {
+  flex: none;
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--c);
+}
+/* The dot's button is a 24px target; the 16px disc inside is what is drawn. */
+.wf-cu-fd-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.wf-cu-fd-dv {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--c) 18%, transparent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-plex-bg);
+}
+.wf-cu-fd-dot:hover .wf-cu-fd-dv {
+  box-shadow: 0 0 0 5px color-mix(in oklch, var(--c) 32%, transparent);
+}
+/* An open dot (the run goes on past the fourth day) gets a dashed outer ring. */
+.wf-cu-fd-dot[data-open='true'] .wf-cu-fd-dv {
+  outline: 1px dashed var(--c);
+  outline-offset: 5px;
+}
+.wf-cu-fd-jump {
+  grid-column: 6;
+  height: 24px;
+  width: 24px;
+  padding: 0;
+  border: 1px dashed color-mix(in oklch, var(--c) 45%, transparent);
+  border-left: none;
+  border-radius: 0 5px 5px 0;
+  background: color-mix(in oklch, var(--c) 10%, transparent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--c);
+  cursor: pointer;
+}
+.wf-cu-fd-jump:hover { background: color-mix(in oklch, var(--c) 26%, transparent); }
+.wf-cu-fd-plan:focus-visible,
+.wf-cu-fd-bar:focus-visible,
+.wf-cu-fd-dot:focus-visible,
+.wf-cu-fd-jump:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+@media (forced-colors: active) {
+  .wf-cu-fd-bar,
+  .wf-cu-fd-jump { border-color: CanvasText; }
+  .wf-cu-fd-dv { border: 1px solid CanvasText; }
+  .wf-cu-fd-day[data-today='true'] { border-width: 2px; }
+}
+/* Phone only: label column 76px, jump column still 24px (a 24px target), the short name, and the bar's own text hidden so
+   only the peak label shows. Desktop and tablet are untouched. */
+@media (max-width: 639px) {
+  .wf-cu-fd-grid { grid-template-columns: 76px repeat(4, minmax(0, 1fr)) 24px; }
+  .wf-cu-fd-n { font-size: 11.5px; }
+  .wf-cu-fd-nl { display: none; }
+  .wf-cu-fd-ns { display: inline; }
+  .wf-cu-fd-day { margin: 0 2px 3px; }
+  .wf-cu-fd-bar { padding: 0 5px; }
+  .wf-cu-fd-bt { display: none; }
+  .wf-cu-fd-pk { font-size: 9px; }
 }
 .wf-cu-head {
   display: flex;
@@ -12108,6 +12985,19 @@ button.wf-mchip:hover {
   border-left: 2px solid var(--trow-accent, var(--color-plex-border-light));
   border-radius: 8px;
   padding: 7px 11px;
+}
+/* A Coming up lane's tap-through (hot-topics-by-day-plan C1): the row the reader tapped is outlined
+   in its topic colour for 1.6 s. The animation ENDS at zero width, in every mode including forced
+   colours, so the attribute can stay on the row while the shell holds the emphasis without leaving a
+   permanent ring. */
+.wf-trow[data-emphasis='true'] {
+  outline: 2px solid var(--c);
+  outline-offset: -2px;
+  animation: wf-trow-emphasis 1.6s ease-out forwards;
+}
+@keyframes wf-trow-emphasis {
+  0%, 70% { outline-width: 2px; }
+  100% { outline-width: 0; }
 }
 /* ⚠️ The CHANNEL tokens on the stripe, never the `--color-badge-*` family: `@theme static`'s own
    note says "never use a `--color-badge-*` as a fill or a border". ⚠️ The matrix card's own topic
