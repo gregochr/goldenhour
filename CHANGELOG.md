@@ -5,6 +5,111 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.32.1] - 2026-10-24
+
+### Changed — a weather chip in Next four days opens the Map with its topic selected
+
+Tapping a weather chip (inversion, mist, dust and the like) in Coming up's "Next four days"
+strip opens the Map at that date and event with the topic's chip already selected, so its places
+are ringed on arrival. A topic that is not on the landed window selects nothing.
+
+### Fixed — the window popup's "Close · Esc" button no longer crowds its border
+
+The Plan tab's window popup close button had no horizontal padding, so its text ran right up to the button's border. It now carries the same 9px side padding as the location sheet's close button, so the two dialogs' close buttons read alike. The square ‹ › step buttons beside it are unchanged.
+
+### Added — Steel Rigg sunrise (24 Oct 2026) as a prompt regression case
+
+A new prompt regression case from an observed sunrise: a sky lit deep orange, salmon and red across the whole high canvas above Whinshield Crags, which the owner rated "a solid 4". It is the first inland case built from a stored production prompt: the exact user message production sent for record 119939 lives in a test resource, and an untagged unit test (`SteelRiggPromptFidelityTest`) pins the fixture's output to that text in the normal build, so the regression case provably sends what production sent. The bounds are the owner's (rating exactly 4, Fiery Sky 60–90); Golden Hour is not judged because the owner did not stay for it.
+
+### Removed — the Recurring conditions backend
+
+`GET /api/almanac` no longer serves a `conditions` array. `ComingUpConditionsBuilder`, the three
+`ComingUpCondition*` records, the unused `ForecastEvaluationRepository` range query and the
+builder-only `coming-up.scoring` settings (dust, inversion and mist sub-configs, the evidentiary
+bar, cadence words and the peak-light window) are deleted; the frontend stopped reading the array
+in the previous change. `recurrent.trailing-window-days` stays (the slot-atmosphere retention
+guard reads it), as do `topic_daily_log` and `TopicDailyLogJob`. The almanac cache warm after each
+cycle stays for the chronology.
+
+### Added — a served glance line on every hot topic
+
+Each hot topic now carries an optional `glance` (`value`, `shortValue`, `badge`, `weather`): the
+second line of a Coming up chip, composed on the backend so the client never builds it per topic
+type. Inversion and mist stamp their own; a new `HotTopicGlanceDecorator` fills the rest (surge
+peak and PEAK badge, tide range and "run starts", supermoon rise time and FULL, dust AOD, and the
+first fact for the remaining types) at the end of `HotTopicAggregator.getHotTopics`, so the
+briefing cache's equality check still holds. Backend only; nothing renders it yet. Cached
+briefings without the field still load.
+
+Also fixed: the build-time bluebell gloss rebuilt each glossed BLUEBELL topic through the
+9-argument constructor, silently dropping its event, facts, note, rarity and (now) glance from the
+cached briefing. It now carries every field through. Simulated inversion and mist topics are marked
+weather-driven too.
+
+### Removed — the Recurring conditions panel on the Coming up tab
+
+The Coming up tab no longer shows the "Recurring conditions" panel between the filter chips and the
+"Next four days" strip. Its footer is now one fixed sentence in every state: the list starts where
+the four-day forecast stops, shows dates fixed in advance, and weather-driven topics appear only in
+Next four days. The filter chips are unchanged. The served `conditions` field stays until a later
+backend phase; the client simply stops reading it (coming-up-glance plan P2).
+
+### Added — Coming up entries show an "In next 4 days" tag
+
+A dated Coming up entry whose dates overlap the next four days now carries an "In next 4 days" tag beside its kind tag. On a phone the entry title takes its own line, with the tags wrapping underneath, so a two-line title no longer crowds them. Desktop and tablet layouts are unchanged.
+
+### Docs — Coming up tidy and "At a Glance": build plan
+
+Adds `docs/engineering/coming-up-glance-plan.md`, the phased plan for the "Coming Up Tweaks" handoff:
+
+- remove the Recurring conditions panel and its backend plumbing;
+- rebuild Next four days as day tiles, with chips the server describes through a new
+  `HotTopic.glance` line;
+- add an "In next 4 days" tag to dated entries;
+- rename the Plan tab to "At a Glance" ("Glance" on phones).
+
+Each of the seven phases is briefed for a Sonnet build. Two adversarial lenses reviewed the plan,
+and their findings are folded in. Nine owner questions each carry a default. The handoff is
+vendored under `docs/design/coming-up-glance/`. No code changes.
+
+### Changed — Coming up's "Next four days" is now four day tiles with topic chips
+
+The strip that used to draw one row per topic, with bars and dots across the four days, is now four day tiles. Each tile lists that day's topics as chips: the topic's name, its colour, and a second line served by the backend (a tide's range and "run starts", a supermoon's rise time, a surge's high water, a valley inversion's score). A run's later days are dashed so it reads as one thing across tiles, a PEAK or FULL badge marks its big day, and weather-driven topics (mist, inversion, dust) carry a WX box. Tapping a chip scrolls the list to its entry when that entry's own dates cover the day, opens that morning or evening on the Map for a weather chip, and otherwise opens the window in At a Glance. The header gains a "{n} topics · from the forecast" count on desktop, and phones get shorter topic names and no badge boxes. Desktop and tablet are unchanged outside the strip.
+
+### Changed — the Plan tab is now called At a Glance
+
+The first tab reads "At a Glance" from 640px and "Glance" on a phone, in the tab bar, the Map's
+"← At a Glance" return, the "Open in At a Glance" doors on the Map callout and in Ask, Ask's
+view chip and the Coming up "next four days" door. The words are one CSS-switched pair
+(`GlanceLabel`), so a screen reader always hears the word on screen. On a phone the tabs now share
+the bar's width, each with a 36px body inside a 44px hit area. Verbs ("Plan this", "Plan from X"),
+"Plan A / Plan B" and every internal id are unchanged.
+
+### Docs — far-cloud P1: findings summary for peer review (2026-10-22)
+
+- `docs/engineering/far-cloud-p1-findings-2026-10-22.md` states the investigation's ten findings (F1–F10)
+  with their evidence, numbers, sources and weakest points, the decisions taken and not taken, what a
+  reviewer should attack, and the open candidates — written for a reviewer who has not read the plan.
+- Nothing in production scoring changed as a result of the investigation; the document says why.
+
+### Docs — far-cloud P1: findings summary corrected after Codex peer review (2026-10-22)
+
+- F2 now states the replay set is selected on the sky rating: 602 of its 658 gos are also combined-rating
+  gos, 56 (all coastal) are sky 4★ with a tide-penalised star below 4.
+- F8 now lists all five outcome categories (the 122 "triaged for another reason" were omitted) and records
+  that every `HIGH_CLOUD` triage row in the export carries a low-cloud message, so the null-message
+  branch never fires.
+- F1, F5 and F7 reworded (a missing far measurement is not a measured clear sky; the lid is refuted as a
+  detector, not as a contributing cause; the 137 is the broad shape, 68 the strict one), and a new §6
+  records each review point, what it was checked against, and the result.
+
+### Added — far-cloud P1: replay of rated forecast-deck-under-canopy analogues (plan §20)
+
+- `scripts/far-cloud-p1/canopyreplay.py` selects the stored prompts of rated slots with a forecast low-cloud deck under a
+  forecast mid/high canopy (the slots the §19 rule would release have no stored prompt, so they cannot be replayed) and
+  reports a replay of them against ERA5. One Sonnet 5.5 batch of 428 prompts was run (about $1.2); plan §20 records the
+  counts. Measurement only; production scoring is unchanged.
+
 ## [v2.32.0] - 2026-10-24
 
 ### Changed — frontend dev dependency undici bumped past the 8.12.1 advisories
