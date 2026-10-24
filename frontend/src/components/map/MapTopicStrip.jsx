@@ -5,6 +5,9 @@ import PropTypes from 'prop-types';
 import BoltIcon from './BoltIcon.jsx';
 import { barTarget, columnWord, labelTarget } from '../../utils/mapTopics.js';
 
+/** No locked types: every row is an ordinary topic door (PRO, Admin, and every bare render). */
+const NO_LOCKED_TYPES = [];
+
 /** The per-viewer preference: '1' (open), '0' (closed) or absent (the frame height decides). */
 export const TOPIC_STRIP_OPEN_KEY = 'mapTopicStripOpen';
 
@@ -103,12 +106,17 @@ function spanWords(grid, bar) {
  *   presses are the panel's own.
  * @param {boolean} [props.openByDefault] sheet only: start OPEN when no preference is stored (the phone's
  *   big-seas days, where the chips row is hidden and this is the way to topics)
+ * @param {Array<string>} [props.lockedTopicTypes] the types that are a Pro map view for this reader (the tide
+ *   topics, for LITE; docs/engineering/tide-pro-gate-plan.md §6.2). A press on a locked row never moves the
+ *   window or picks: it parks focus on the strip and calls {@code onToggleType(type, stripRoot)}, so the owner
+ *   can open the upsell and return focus to the strip. The row's name says it is a Pro map view.
+ * @param {boolean} [props.upsellOpen] whether the upsell popover is open (a locked row's {@code aria-expanded})
  */
 export default function MapTopicStrip({
   grid, selectedType = null, currentTypes, forceCollapsed = false, forceReason = '', held = false,
   heldReason = '', onOpenHeld = undefined, onCloseYielded = undefined, onToggleType,
   onPick, onSelectHw = undefined, onHeightChange = undefined, fallbackFocus = null, variant = 'panel',
-  openByDefault = false,
+  openByDefault = false, lockedTopicTypes = NO_LOCKED_TYPES, upsellOpen = false,
 }) {
   const inSheet = variant === 'sheet';
   const storageKey = inSheet ? TOPIC_STRIP_OPEN_SHEET_KEY : TOPIC_STRIP_OPEN_KEY;
@@ -218,7 +226,19 @@ export default function MapTopicStrip({
     return `${topicRow.name} selected; window moved to ${columnWord(grid, column)}`;
   }
 
+  const isLockedType = (type) => lockedTopicTypes.includes(type);
+
+  /** A locked row is a popover door: the window does not move and nothing is picked. */
+  function pressLocked(topicRow) {
+    parkFocus();
+    onToggleType(topicRow.type, node);
+  }
+
   function pressLabel(topicRow) {
+    if (isLockedType(topicRow.type)) {
+      pressLocked(topicRow);
+      return;
+    }
     const target = labelTarget(grid, topicRow, onCurrent(topicRow.type));
     if (!target) return;
     if (target.toggle) {
@@ -231,6 +251,10 @@ export default function MapTopicStrip({
   }
 
   function pressBar(topicRow, bar) {
+    if (isLockedType(topicRow.type)) {
+      pressLocked(topicRow);
+      return;
+    }
     const target = barTarget(grid, bar, onCurrent(topicRow.type));
     if (!target) return;
     if (target.stay) {
@@ -357,24 +381,29 @@ export default function MapTopicStrip({
             // The Big seas track is taller while ticks are drawn: its label rides in the top of the track,
             // the label, bars and tick keep the bottom 24px, and nothing overlaps the arrow row above.
             const tall = topicRow.bigSeas && hwTicks.length > 0;
-            const isSelected = topicRow.type === selectedType;
+            const rowLocked = isLockedType(topicRow.type);
+            const isSelected = !rowLocked && topicRow.type === selectedType;
             const onHere = onCurrent(topicRow.type);
             const labelGo = labelTarget(grid, topicRow, onHere);
             const first = topicRow.on.findIndex((on, c) => on && grid.columns[c]?.interactive);
             let jump = 'no window to open';
             if (first >= 0) jump = `jump to ${columnWord(grid, first)}`;
             // The toggle's name must not flip with its state: `aria-pressed` carries that.
-            const labelName = onHere
+            let labelName = onHere
               ? `${topicRow.shortName}: show on the map`
               : `${topicRow.shortName}: ${jump}`;
+            // A locked row opens the upsell: "show on the map" / "jump to ..." would be false.
+            if (rowLocked) labelName = `${topicRow.name}, a Pro map view`;
             return (
               <React.Fragment key={topicRow.type}>
                 <button
                   type="button"
                   className={`wf-tl-n${tall ? ' wf-tl-tall' : ''}`}
                   aria-label={labelName}
-                  aria-pressed={onHere ? isSelected : undefined}
-                  aria-disabled={labelGo ? undefined : 'true'}
+                  aria-pressed={onHere && !rowLocked ? isSelected : undefined}
+                  aria-haspopup={rowLocked ? 'dialog' : undefined}
+                  aria-expanded={rowLocked ? upsellOpen : undefined}
+                  aria-disabled={labelGo || rowLocked ? undefined : 'true'}
                   data-testid={`wf-topic-strip-label-${topicRow.type}`}
                   data-selected={isSelected ? 'true' : undefined}
                   style={{ gridArea: `${gridRow} / 1`, '--wf-tc': topicRow.colour }}
@@ -402,6 +431,19 @@ export default function MapTopicStrip({
                     },
                   };
                   const key = `${topicRow.type}-${bar.start}`;
+                  if (rowLocked) {
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        {...barProps}
+                        aria-label={`${topicRow.name}, ${span}, a Pro map view`}
+                        aria-haspopup="dialog"
+                        aria-expanded={upsellOpen}
+                        onClick={() => pressBar(topicRow, bar)}
+                      />
+                    );
+                  }
                   if (!target) {
                     return (
                       <span key={key} {...barProps} data-interactive="false">
@@ -512,4 +554,6 @@ MapTopicStrip.propTypes = {
   fallbackFocus: PropTypes.func,
   openByDefault: PropTypes.bool,
   variant: PropTypes.oneOf(['panel', 'sheet']),
+  lockedTopicTypes: PropTypes.arrayOf(PropTypes.string),
+  upsellOpen: PropTypes.bool,
 };

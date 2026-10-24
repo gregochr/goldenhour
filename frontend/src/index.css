@@ -4135,6 +4135,102 @@ button.wf-hc.also.on:hover {
   gap: 10px;
   padding: 7px 10px;
   white-space: nowrap;
+  /* F2 (tide-pro-gate-plan.md §6.1): the row is a <button> that opens the upsell, so it sheds the
+     button chrome. The border is transparent at rest so the hover/open border does not move the row. */
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wf-tide-strip-locked:hover,
+.wf-tide-strip-locked[aria-expanded="true"] {
+  border-color: var(--color-plex-border-light);
+}
+/* An INSET ring: the strip root is `overflow: hidden`, which would clip an outset outline. */
+.wf-tide-strip-locked:focus-visible {
+  outline: 2px solid var(--color-plex-text);
+  outline-offset: -4px;
+}
+/* The tide upsell popover (tide-pro-gate-plan.md §6.1): a non-modal dialog anchored ABOVE the teaser in
+   `.wf-map-chrome-bl`. The zero-height anchor takes the teaser's column width and no flow height, so the
+   popover overlays the hot-topics strip (intended) rather than pushing the stack up. */
+.wf-tide-upsell-anchor {
+  position: relative;
+  z-index: 1100;
+  width: 474px;
+  max-width: calc(100% - 24px);
+  height: 0;
+}
+.wf-tide-upsell {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 14px;
+  background: rgba(20, 15, 12, 0.96);
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(7px);
+}
+.wf-tide-upsell-heading {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--color-plex-text);
+}
+/* A programmatic focus target only (never a tab stop), so it carries no ring of its own. */
+.wf-tide-upsell-heading:focus { outline: none; }
+.wf-tide-upsell-body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--color-plex-text-secondary);
+}
+.wf-tide-upsell-preview {
+  display: block;
+  width: 100%;
+  height: 70px;
+}
+.wf-tide-upsell-dismiss {
+  align-self: flex-end;
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--color-plex-text);
+  background: none;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.wf-tide-upsell-dismiss:hover { background: rgba(255, 255, 255, 0.04); }
+.wf-tide-upsell-dismiss:focus-visible {
+  outline: 2px solid var(--color-plex-text);
+  outline-offset: 2px;
+}
+/* The phone's inline copy of the same content, inside the peek Tide section (no popover, no "Not now"). */
+.wf-tide-upsell-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
 }
 .wf-tide-strip-locked-spacer { flex: 1; min-width: 0; }
 /* Decorative only (aria-hidden): a fixed sine, one teal with the state, softened. */

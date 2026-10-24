@@ -3,6 +3,9 @@ import PropTypes from 'prop-types';
 import BoltIcon from './BoltIcon.jsx';
 import { skyWideNotice } from '../../utils/mapTopics.js';
 
+/** No locked types: every chip is an ordinary toggle (PRO, Admin, and every bare render). */
+const NO_LOCKED_TYPES = [];
+
 /** The empty-state words (desktop and tablet only; the phone renders nothing, Q11). */
 const EMPTY_TEXT = 'No hot topics on this window';
 
@@ -42,10 +45,17 @@ const EMPTY_TEXT = 'No hot topics on this window';
  *   Big seas is already the line there); the focus rule still runs
  * @param {?Function} [props.fallbackFocus] where focus goes when a focused chip is removed and there
  *   is no group to take it
+ * @param {Array<string>} [props.lockedTopicTypes] the types that are a Pro map view for this reader (the
+ *   tide topics, for LITE; docs/engineering/tide-pro-gate-plan.md §6.2). A locked chip is a popover door,
+ *   not a toggle: it drops {@code aria-pressed}, gains {@code aria-haspopup="dialog"} and
+ *   {@code aria-expanded}, and {@code onToggle} is called with the chip's element as a second argument
+ *   so focus can return to it when the upsell closes
+ * @param {boolean} [props.upsellOpen] whether the upsell popover is open (a locked chip's
+ *   {@code aria-expanded})
  */
 export default function MapTopicChips({
   chips, selectedType, onToggle, isMobile = false, hasWindow = true, suppressed = false,
-  fallbackFocus = null,
+  fallbackFocus = null, lockedTopicTypes = NO_LOCKED_TYPES, upsellOpen = false,
 }) {
   const groupRef = useRef(null);
   const focusedNodeRef = useRef(null);
@@ -101,19 +111,22 @@ export default function MapTopicChips({
       data-testid="wf-topics"
     >
       {chips.map((chip) => {
-        const isSelected = chip.type === selectedType;
+        const isLocked = lockedTopicTypes.includes(chip.type);
+        const isSelected = !isLocked && chip.type === selectedType;
         return (
           <button
             key={chip.type}
             type="button"
             className="wf-tch"
-            aria-pressed={isSelected}
+            aria-pressed={isLocked ? undefined : isSelected}
+            aria-haspopup={isLocked ? 'dialog' : undefined}
+            aria-expanded={isLocked ? upsellOpen : undefined}
             aria-label={chip.label}
             data-testid={`wf-topic-chip-${chip.type}`}
             data-topic-type={chip.type}
             data-selected={isSelected ? 'true' : undefined}
             style={{ '--wf-tc': chip.colour }}
-            onClick={() => onToggle(chip.type)}
+            onClick={(e) => (isLocked ? onToggle(chip.type, e.currentTarget) : onToggle(chip.type))}
           >
             <span className="wf-tch-g" aria-hidden="true">
               {chip.bigSeas ? <BoltIcon /> : chip.glyph}
@@ -155,4 +168,6 @@ MapTopicChips.propTypes = {
   hasWindow: PropTypes.bool,
   suppressed: PropTypes.bool,
   fallbackFocus: PropTypes.func,
+  lockedTopicTypes: PropTypes.arrayOf(PropTypes.string),
+  upsellOpen: PropTypes.bool,
 };
