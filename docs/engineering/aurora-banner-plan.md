@@ -50,7 +50,7 @@ already-merged #1056 work (topic dating), not this feature.
 
 ## §0 Status
 
-**Status: ✅ SERIES COMPLETE — B0 #1120, B1 #1121, B2 #1122 merged 2026-10-12, B3 #1124 merged 2026-10-13 (the viewline-enabled amendment was #1123), B4 follow-ups on branch `fix/aurora-banner-followups` (2026-10-13). Unreleased at close-out; the owner cuts the release. Nothing seen in a browser by anyone — §8 is the owner's checklist.**
+**Status: ✅ SERIES COMPLETE — B0 #1120, B1 #1121, B2 #1122 merged 2026-10-12, B3 #1124 merged 2026-10-13 (the viewline-enabled amendment was #1123), B4 follow-ups on branch `fix/aurora-banner-followups` (2026-10-13). Released: B0–B3 in v2.26.6, B4 (#1156) in v2.27.1. Nothing seen in a browser by anyone — §8 is the owner's checklist.**
 Phase log (every phase appends its own row in the same commit as
 its code; the `PR` column names the PR, not a SHA, because the repo squash-merges):
 

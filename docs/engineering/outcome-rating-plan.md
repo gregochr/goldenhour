@@ -41,7 +41,7 @@ bump, #843 and #815 docs), none touching any file this plan names.
 **Status: COMPLETE 2026-10-16.** O0 (this plan, #1185), O1 (#1187), O2 (#1190), O3a (#1186), O3b
 (#1192), O3c (#1188), O4a (#1191), O4b (#1193), O5a (#1194), O5b (#1189) and O6 (the docs sweep, this
 row's PR) are all merged; every §6 owner question is closed (by what shipped or by the plan's default). Written 2026-10-15 against `origin/main`
-at `015d93fb` (#1184) and reviewed by four prosecutor lenses (§5a). **Shipped but UNRELEASED and never
+at `015d93fb` (#1184) and reviewed by four prosecutor lenses (§5a). **Released v2.28.0 but never
 seen signed-in**: every phase was tested in jsdom, by reading the real stylesheet and (O3b, O4a, O5a)
 in headless Chromium over a fixture, but a session cannot sign in, so the owner's browser check is
 owed (§7). The maintained description is CLAUDE.md's *Map tab — past windows* and *Map tab — rating a past window* bullets; this document is the port plan and its history. §1 describes the codebase AT PLAN TIME
