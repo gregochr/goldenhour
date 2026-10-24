@@ -413,7 +413,8 @@ public class AskService {
      * ({@code yyyy-MM-dd_astro} / {@code _aurora}) for a night the snapshot does not hold: the Map keeps an
      * ended night row on screen and publishes its id as the question's context, so such an id is routine and is
      * never a 400. A night the snapshot does hold is kept, except an aurora night for a role that may not see
-     * aurora (the window's existence is itself aurora data).
+     * aurora (the window's existence is itself aurora data). The LITE branch is unreachable over HTTP since the
+     * role gate refuses LITE before this runs; it stays as a second layer.
      */
     private static AskQuestion withWindow(AskQuestion question, AskSnapshot snapshot, UserRole role) {
         String id = question.windowId();
