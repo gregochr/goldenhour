@@ -4312,12 +4312,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     locationsById,
   }), [activeMapEvent, topicIndex, hotTopics, topicScopeNames, bigSeasDay, topicRoster, locationsById]);
   const activeTopicChip = topicChips.find((chip) => chip.type === selectedTopic) ?? null;
-  // The four-day strip (M2): desktop and tablet only (M4 owns the phone). Built from the same index and
+  // The four-day strip (M2): desktop and tablet; the phone shows the same grid in the peek sheet (M4). Built from the same index and
   // scope as the chips, never from `row.badges`; no rows means no strip.
   // The clock the Big seas test reads is the one `bigSeasFor` reads (`appNow()`), re-evaluated each minute
   // (`gridClock`), so a Big seas bar cannot outlive the chip.
   const gridClock = Math.floor(appNow().getTime() / 60000);
-  const topicGrid = useMemo(() => (isMobile ? null : fourDayGrid({
+  const topicGrid = useMemo(() => (fourDayGrid({
     events: mapEvents,
     topicIndex,
     hotTopics,
@@ -4327,9 +4327,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     activeRow: activeMapEvent,
     nightDate: auroraNight,
     now: new Date(gridClock * 60000),
-  })), [isMobile, mapEvents, topicIndex, hotTopics, topicScopeNames, bigSeas, mapTodayStr, activeMapEvent,
+  })), [mapEvents, topicIndex, hotTopics, topicScopeNames, bigSeas, mapTodayStr, activeMapEvent,
     auroraNight, gridClock]);
-  const topicStripMounted = topicGrid != null && topicGrid.rows.length > 0;
+  const topicStripMounted = !isMobile && topicGrid != null && topicGrid.rows.length > 0;
+  // The phone's section of the same grid, inside the peek sheet's Windows body (M4). Never both mounts.
+  const phoneTopicsMounted = isMobile && topicGrid != null && topicGrid.rows.length > 0;
   const topicChipTypes = useMemo(() => topicChips.map((chip) => chip.type), [topicChips]);
   const topicRowId = activeMapEvent?.id ?? null;
   const pendingTopicAnnounce = useRef(null);
@@ -4580,6 +4582,33 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (!row || row.id === activeMapEvent?.id) return;
     pendingTopicAnnounce.current = movedMessage;
     selectEvRow(row);
+  }
+  /**
+   * The phone's strip lives in the peek sheet, so a press that selects a topic ends with the sheet
+   * collapsing to peek, where the rings can be seen (M4). Called AFTER the press handler has set or parked
+   * its announcement, in the same handler. Focus goes to the Windows button, the section's own door, which
+   * stays mounted unless an Ask answer has replaced the buttons (then the sheet's own fallback, set by the
+   * body's unmount, takes it). The strip has parked focus before calling.
+   */
+  function collapseSheetAfterTopicPress() {
+    setOpenMapMenu(null);
+    windowsPeekBtnRef.current?.focus({ preventScroll: true });
+  }
+  /** The sheet strip's bar or moving-label press: the strip's own pick, then the sheet folds to peek. */
+  function pickTopicFromSheet(type, row, movedMessage = null) {
+    pickTopicFromStrip(type, row, movedMessage);
+    collapseSheetAfterTopicPress();
+  }
+  /** The sheet strip's High-water tick press: the strip's own move, then the sheet folds to peek. */
+  function selectHwFromSheet(row, movedMessage = null) {
+    selectHwFromStrip(row, movedMessage);
+    collapseSheetAfterTopicPress();
+  }
+  /** The sheet strip's label toggle: turning a topic ON folds the sheet (rings visible); OFF leaves it. */
+  function toggleTopicFromSheet(type) {
+    const turningOn = selectedTopic !== type;
+    toggleTopic(type);
+    if (turningOn) collapseSheetAfterTopicPress();
   }
   // On a phone, while the big-seas line shows, the chips row is not drawn (owner, 2026-10-23): Big seas
   // is already the line there and the row cost labels. A selection made before that stays (the rings
@@ -6911,6 +6940,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   olderDayLoadingLabel={olderDayLoadingLabel}
                   onLoadOlderDay={loadOlderFromPeek}
                   ratedCounts={ratedCounts}
+                  topics={phoneTopicsMounted ? (
+                    <MapTopicStrip
+                      variant="sheet"
+                      grid={topicGrid}
+                      selectedType={activeTopicChip?.type ?? null}
+                      currentTypes={topicChipTypes}
+                      openByDefault={topicsSuppressed}
+                      fallbackFocus={() => (windowsPeekBtnRef.current ?? mapPaneRef.current)?.focus({ preventScroll: true })}
+                      onToggleType={toggleTopicFromSheet}
+                      onPick={pickTopicFromSheet}
+                      onSelectHw={selectHwFromSheet}
+                    />
+                  ) : null}
                 />
               )}
               layersBody={(

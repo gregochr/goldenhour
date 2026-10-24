@@ -94,8 +94,9 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
 import MapView from '../components/MapView.jsx';
-import { TOPIC_STRIP_OPEN_KEY } from '../components/map/MapTopicStrip.jsx';
+import { TOPIC_STRIP_OPEN_KEY, TOPIC_STRIP_OPEN_SHEET_KEY } from '../components/map/MapTopicStrip.jsx';
 import { windowKey } from '../utils/windowKeys.js';
+import { FRIDAY_HW } from './bigSeasFixtures.js';
 
 const TODAY = '2026-10-22';
 const SAT = '2026-10-24';
@@ -175,19 +176,20 @@ const HOT_TOPICS = [
 ];
 
 function Pane({
-  hotTopics, runId = null, tide = null, startDate = TODAY,
+  hotTopics, runId = null, tide = null, startDate = TODAY, bigSeas = undefined, forecastDates = [TODAY, SAT],
 }) {
   const [date, setDate] = React.useState(startDate);
   return (
     <MapView
       locations={[makeLocation()]}
       date={date}
-      forecastDates={[TODAY, SAT]}
+      forecastDates={forecastDates}
       autoEventType="SUNSET"
       heat={heatProp({ tide })}
       paneVisible
       runId={runId}
       hotTopics={hotTopics}
+      bigSeas={bigSeas}
       onSelectDate={(d) => setDate(d)}
     />
   );
@@ -243,11 +245,20 @@ describe('MapView: the four-day strip mount', () => {
     expect(screen.getByTestId('wf-map-pane')).not.toHaveAttribute('data-topic-strip');
   });
 
-  it('is NOT mounted on a phone (M4 owns the phone)', async () => {
+  it('is NOT mounted in the bottom-left chrome on a phone (M4 puts it in the peek sheet)', async () => {
     mockIsMobile = true;
     await renderMap();
     expect(screen.queryByTestId('wf-topic-strip')).toBeNull();
+    expect(screen.queryByTestId('wf-map-chrome-bl')).toBeNull();
     expect(screen.getByTestId('wf-map-pane')).not.toHaveAttribute('data-topic-strip');
+  });
+
+  it('desktop markup is exactly the panel variant: no sheet class, no variant attribute', async () => {
+    await renderMap();
+    expect(strip().className).toBe('wf-topic-strip');
+    expect(strip().hasAttribute('data-variant')).toBe(false);
+    expect(screen.queryByTestId('wf-map-peek')).toBeNull();
+    expect(document.querySelectorAll('.wf-topic-strip-sheet')).toHaveLength(0);
   });
 
   it('marks the pane while mounted, so the footer and the landing card clear the stack', async () => {
@@ -511,5 +522,175 @@ describe('MapView: the strip and the rest of the chrome', () => {
     await renderMap();
     await act(async () => { fireEvent.click(screen.getByTestId('probe-chip')); });
     expect(screen.getByTestId('probe-callout')).toHaveTextContent('150');
+  });
+});
+
+describe('MapView: the phone\'s hot-topics section in the peek sheet (M4)', () => {
+  const openWindows = () => press('wf-map-peek-btn-win');
+  const SHEET_OPEN = () => localStorage.setItem(TOPIC_STRIP_OPEN_SHEET_KEY, '1');
+  const winBtn = () => screen.getByTestId('wf-map-peek-btn-win');
+
+  beforeEach(() => { mockIsMobile = true; });
+
+  it('sits in the Windows body after the list, as the sheet variant, closed until the reader opens it', async () => {
+    await renderMap();
+    expect(screen.queryByTestId('wf-topic-strip')).toBeNull();
+    await openWindows();
+    const body = screen.getByTestId('wf-map-peek-windows');
+    expect(body.contains(strip())).toBe(true);
+    expect(strip().className).toContain('wf-topic-strip-sheet');
+    expect(strip()).toHaveAttribute('data-variant', 'sheet');
+    expect(body.lastElementChild).toBe(strip());
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    await act(async () => { fireEvent.click(toggle()); });
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_SHEET_KEY)).toBe('1');
+    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBeNull();
+  });
+
+  it('keeps its own storage key: the panel\'s stored choice does not open the sheet strip', async () => {
+    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
+    await renderMap();
+    await openWindows();
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('is not mounted when the four days carry no topic', async () => {
+    await renderMap({ hotTopics: [] });
+    await openWindows();
+    expect(screen.queryByTestId('wf-topic-strip')).toBeNull();
+  });
+
+  it('tolerates a storage failure when opening', async () => {
+    await renderMap();
+    await openWindows();
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied'); });
+    await act(async () => { fireEvent.click(toggle()); });
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+    spy.mockRestore();
+  });
+
+  it('a bar press that MOVES the window selects, announces, collapses and focuses the Windows button (unfocused bar)', async () => {
+    SHEET_OPEN();
+    await renderMap();
+    await openWindows();
+    await press('wf-topic-bar-KING_TIDE-4');
+    expect(screen.getByTestId('map-status')).toHaveTextContent('King tide selected; window moved to Saturday sunrise');
+    expect(screen.queryByTestId('wf-map-peek-body')).toBeNull();
+    expect(winBtn()).toHaveAttribute('aria-expanded', 'false');
+    expect(document.activeElement).toBe(winBtn());
+    expect(chip('KING_TIDE')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('a moving LABEL press collapses the sheet too', async () => {
+    SHEET_OPEN();
+    await renderMap();
+    await openWindows();
+    await press('wf-topic-strip-label-KING_TIDE');
+    expect(screen.queryByTestId('wf-map-peek-body')).toBeNull();
+    expect(chip('KING_TIDE')).toHaveAttribute('aria-pressed', 'true');
+    expect(document.activeElement).toBe(winBtn());
+  });
+
+  it('a press in place (the current window) selects and still collapses the sheet', async () => {
+    SHEET_OPEN();
+    await renderMap();
+    await openWindows();
+    await press('wf-topic-bar-DUST-1');
+    expect(screen.getByTestId('map-status')).toHaveTextContent('Dust selected');
+    expect(screen.queryByTestId('wf-map-peek-body')).toBeNull();
+    expect(document.activeElement).toBe(winBtn());
+  });
+
+  it('a label that turns the topic ON collapses the sheet; turning it OFF leaves the sheet open', async () => {
+    SHEET_OPEN();
+    await renderMap();
+    await openWindows();
+    await press('wf-topic-strip-label-DUST');
+    expect(screen.queryByTestId('wf-map-peek-body')).toBeNull();
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'true');
+    await openWindows();
+    await press('wf-topic-strip-label-DUST');
+    expect(screen.getByTestId('wf-map-peek-body')).toBeInTheDocument();
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('crossing 640 with a selection and focus in the strip keeps the selection and never drops focus to <body>', async () => {
+    SHEET_OPEN();
+    const { rerender } = await renderMap();
+    await openWindows();
+    await press('wf-topic-strip-label-DUST');
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'true');
+    await openWindows();
+    screen.getByTestId('wf-topic-bar-DUST-1').focus();
+    mockIsMobile = false;
+    await act(async () => { rerender(<Pane hotTopics={HOT_TOPICS} />); });
+    expect(document.activeElement).not.toBe(document.body);
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('wf-map-peek')).toBeNull();
+    expect(strip().className).toBe('wf-topic-strip');
+    mockIsMobile = true;
+    await act(async () => { rerender(<Pane hotTopics={HOT_TOPICS} />); });
+    expect(document.activeElement).not.toBe(document.body);
+    expect(chip('DUST')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('wf-map-chrome-bl')).toBeNull();
+  });
+
+  it('an HW tick press collapses the sheet, moves to the High-water row, auto-selects Big seas and announces', async () => {
+    SHEET_OPEN();
+    const FRI = '2026-10-23';
+    await renderMap({ bigSeas: [FRIDAY_HW], forecastDates: [TODAY, FRI, SAT] });
+    await openWindows();
+    const tick = screen.getByTestId(`wf-topic-strip-hw-tick-${FRI}`);
+    expect(tick).toHaveAttribute('aria-label', 'HW 12:40, high water Friday');
+    await act(async () => { fireEvent.click(tick); });
+    expect(screen.queryByTestId('wf-map-peek-body')).toBeNull();
+    expect(document.activeElement).toBe(winBtn());
+    expect(screen.getByTestId('map-status')).toHaveTextContent(/Window moved to Friday high water/);
+    // The chips row is hidden on a big-seas day (Q13), so read the selection off the strip itself.
+    await openWindows();
+    expect(screen.getByTestId(`wf-topic-strip-hw-tick-${FRI}`)).toHaveAttribute('data-current', 'true');
+    expect(screen.getByTestId('wf-topic-strip-label-BIG_SEAS')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('defaults OPEN on a big-seas day (the chips row is hidden there)', async () => {
+    const day = { ...FRIDAY_HW, date: TODAY, daylightHighWater: false };
+    await renderMap({ bigSeas: [day] });
+    await openWindows();
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('opening the grid scrolls it into view (smooth, or instant under reduced motion)', async () => {
+    const original = Element.prototype.scrollIntoView;
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const mm = window.matchMedia;
+    try {
+      window.matchMedia = () => ({ matches: false });
+      await renderMap();
+      await openWindows();
+      await act(async () => { fireEvent.click(toggle()); });
+      expect(scroll).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+      await act(async () => { fireEvent.click(toggle()); });
+      window.matchMedia = () => ({ matches: true });
+      await act(async () => { fireEvent.click(toggle()); });
+      expect(scroll).toHaveBeenLastCalledWith({ block: 'nearest', behavior: 'auto' });
+    } finally {
+      Element.prototype.scrollIntoView = original;
+      window.matchMedia = mm;
+    }
+  });
+});
+
+describe('MapView: desktop chrome-bl carries no sheet markup (M4)', () => {
+  it('holds the panel strip only', async () => {
+    await renderMap();
+    const chromeBl = screen.getByTestId('wf-map-chrome-bl');
+    expect(chromeBl.querySelector('[data-variant]')).toBeNull();
+    expect(chromeBl.querySelector('.wf-topic-strip-sheet')).toBeNull();
+    expect(chromeBl.querySelector('.wf-topic-strip').className).toBe('wf-topic-strip');
+    expect(chromeBl.innerHTML).not.toContain('sheet');
   });
 });

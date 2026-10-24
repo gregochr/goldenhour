@@ -371,7 +371,7 @@ export function MapPeekWindowsSection({
   heading, rows, verdicts = null, activeId = null, onSelect, onOpenDrilldown = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
   emptyOlderDayLabel = null,
-  ratedCounts = null,
+  ratedCounts = null, topics = null,
 }) {
   // The same EARLIER group the dropdown draws (WindowControl): every PAST row under a sub-header per
   // day, the Load row first. ⚠️ The Load row and the header sit OUTSIDE the listbox (it chooses no
@@ -519,6 +519,8 @@ export function MapPeekWindowsSection({
           This window, region by region
         </button>
       )}
+      {/* The four-day hot-topics strip, sheet variant (hot-topics-by-day M4): the phone's way to topics. */}
+      {topics}
     </div>
   );
 }
@@ -548,4 +550,6 @@ MapPeekWindowsSection.propTypes = {
   onLoadOlderDay: PropTypes.func,
   /** Row id to the reader's rated-location count for a PAST window; an absent id is unknown. */
   ratedCounts: PropTypes.instanceOf(Map),
+  /** The phone's four-day hot-topics section (`MapTopicStrip variant="sheet"`), after the list; null when none. */
+  topics: PropTypes.node,
 };

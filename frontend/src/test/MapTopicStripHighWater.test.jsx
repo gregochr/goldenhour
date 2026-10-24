@@ -209,3 +209,22 @@ describe('the High-water tick\'s stylesheet', () => {
     expect(block).toMatch(/\.wf-tl-hw button\[data-current='true'\]::before \{[^}]*border-left:\s*4px double Highlight/);
   });
 });
+
+describe('MapTopicStrip: the High-water tick, sheet variant (M4)', () => {
+  beforeEach(() => { localStorage.setItem('mapTopicStripOpenSheet', '1'); });
+
+  it('draws the Big seas track at 44px and every other row at 32px inline (the panel keeps 36 and 24)', () => {
+    const { unmount } = renderStrip(undefined, undefined, { variant: 'sheet' });
+    const rows = screen.getByTestId('wf-topic-strip-grid').style.gridTemplateRows;
+    expect(rows).toBe('auto auto 44px');
+    unmount();
+    renderStrip();
+    expect(screen.getByTestId('wf-topic-strip-grid').style.gridTemplateRows).toBe('auto auto 36px');
+  });
+
+  it('keeps the tick\'s name and the printed label inside the button', () => {
+    renderStrip(undefined, undefined, { variant: 'sheet' });
+    expect(tick()).toHaveAttribute('aria-label', 'HW 12:40, high water Friday');
+    expect(tick()).toHaveTextContent('HW 12:40');
+  });
+});

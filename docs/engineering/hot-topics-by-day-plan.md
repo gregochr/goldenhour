@@ -885,8 +885,8 @@ changes".
 | C1 | #1322 | ✅ merged 2026-10-23 (`8661a732`) and released in v2.31.0. One Codex round: the tide continuation now reads the tide's own span. Not seen in the real app behind sign-in |
 | M1 | #1328 | ✅ merged 2026-10-23 (`ebf1be9e`); Codex 👍 on the first round. Q13 applied; the label-obstacle numbers are below |
 | M2 | #1329 | ✅ merged 2026-10-24 (`5717cbb1`); Codex 👍 on the first round. The label-obstacle numbers are below |
-| M3 | — | built 2026-10-24 by Sonnet. Four review lenses, one of them on the sweep alone; one fix round. Fixes: expiry never fights a door, no night reading, the exemption scoped to HW↔solar, the breadcrumb word, the counts footer, and tick placement |
-| M4 | — | after M2, if Q5 |
+| M3 | #1331 | ✅ merged 2026-10-24 (`eca3f443`); Codex 👍 on the first round. An `undici` audit fix (#1330) landed first |
+| M4 | — | built 2026-10-24 by Sonnet; two review lenses, one fix round. Placement: the strip sits at the end of the peek sheet's Windows section rather than as its own section, because the sheet shows one section at a time and a fourth peek button would crowd 320px. It has its own storage key and starts open on big-seas days (when Q13 hides the chips). Phone touch metrics: 32px rows, 24px bars, and the HW tick's hit area in the band above the bar |
 
 **M1 label-obstacle measurement** (2026-10-23):
 - Method: headless Chromium, the dev-seed roster, `scripts/measurements/label-obstacle/` with the
