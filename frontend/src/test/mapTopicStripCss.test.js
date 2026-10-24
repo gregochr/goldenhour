@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
  * pinned is what a later edit could quietly break:
  *
  * <ul>
- *   <li>the footer and the landing card clear the whole bottom-left stack, desktop and tablet only,
- *       and AFTER the tide rule they must beat at equal specificity;</li>
+ *   <li>the landing card clears the whole bottom-left stack, declared only inside the desktop and
+ *       tablet query (the counts footer is lifted by measurement in MapView, not CSS);</li>
  *   <li>forced colours: every bar keeps a 1px border, and the current and selected states are an
  *       {@code outline} (background and box-shadow are removed in that mode);</li>
  *   <li>the colours are tokens, rgba washes and {@code --wf-tc}, never a hex from the design mock.</li>
@@ -40,13 +40,12 @@ const ruleBody = (selector) => {
   return css.slice(start, css.indexOf('}', start));
 };
 
-const tideRuleAt = css.indexOf('.wf-map-tab.wf-tide-strip-on .wf-map-counts-footer {');
 const stripStart = css.indexOf('.wf-topic-strip {');
 const stripEnd = css.indexOf('.wf-map-counts-footer {', stripStart);
 const stripCss = css.slice(stripStart, stripEnd);
 
 describe('the four-day strip stylesheet: clearing the stack', () => {
-  const lift = mediaBlock('(min-width: 640px)', tideRuleAt);
+  const lift = mediaBlock('(min-width: 640px)', css.lastIndexOf('@media (min-width: 640px) {', css.indexOf('.wf-map-tab[data-topic-strip] .wf-land')));
 
   it('does NOT lift the counts footer from CSS: MapView moves it by measurement, only where it overlaps', () => {
     expect(css).not.toMatch(/data-topic-strip\][^{]*wf-map-counts-footer/);
