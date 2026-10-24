@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { MapContainer, TileLayer, Marker, Polyline, useMapEvents, useMap } from 'react-leaflet';
@@ -1510,8 +1510,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [tideStripCollapsed, setTideStripCollapsed] = useState(false);
   /**
    * The tide strip's own real, measured height (T7 follow-up, Codex P1) — written from
-   * `MapTideStrip`'s `onHeightChange`, the same `ResizeObserver` callback that already publishes
-   * `--tsh` onto `.wf-map-tab`. `null` while the strip is not on screen. Exists ONLY to retrigger
+   * `MapTideStrip`'s `onHeightChange`, its `ResizeObserver` callback. `null` while the strip is not on screen. Exists ONLY to retrigger
    * `MapCallout`'s repaint when the strip's own rect changes (open ⇄ collapsed, or it appearing/
    * disappearing) — `MapCallout` treats the strip as one of its placement-band bars
    * (`BAND_BAR_SELECTOR`, T7) and re-measures it fresh off the DOM every time it repaints, but
@@ -4558,7 +4557,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // own `bottom` does not change it, so measuring lifted or unlifted gives the same answer: no
   // oscillation.
   const [footerLift, setFooterLift] = useState(null);
-  useEffect(() => {
+  // A layout effect, so a lift is applied before paint: no frame of the footer sitting over the strip.
+  useLayoutEffect(() => {
     const pane = mapPaneRef.current;
     if (isMobile || !pane) {
       // Nothing to clear (the phone clips the footer away): the one-shot reset of a stale measurement.
@@ -4605,7 +4605,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       window.removeEventListener('resize', measure);
       observer?.disconnect();
     };
-  }, [isMobile, topicStripMounted, topicStripHeight, tideStripHeight]);
+  }, [isMobile, heatOffered, topicStripMounted, topicStripHeight, tideStripHeight]);
   /**
    * A press on the four-day strip that selects a topic (a bar, or a label whose topic is not on this
    * window): the topic is selected and, when the press names a window, the reader moves to it through the
@@ -7419,8 +7419,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         {/* ⚠️ The phone MapTideStrip mount that used to live here (tide-window-plan.md §3 T7)
             is RETIRED (map-mobile-sheet-plan.md §3 M3 task 5) — its content is now the peek
             sheet's Tide section (`MapPeekTideSection`, mounted above inside `MapPeekSheet`'s
-            `tideBody`), and `--tsh` is desktop-only from here: the desktop mount below is the
-            ONLY caller left that can ever set it or `wf-tide-strip-on`. */}
+            `tideBody`); the desktop mount below is the only `MapTideStrip` caller left. */}
       </div>
     </div>
   );

@@ -242,6 +242,6 @@ describe('the counts footer is a quiet caption that no CSS rule lifts (map-count
     expect(body).not.toMatch(/background/);
     expect(body).not.toMatch(/plex-panel/);
     expect(body).toMatch(/text-shadow:[^;]*var\(--color-plex-bg\)/);
-    expect(body).toMatch(/color:\s*var\(--color-plex-text-secondary\)/);
+    expect(body).toMatch(/[^-]color:\s*var\(--color-plex-text\);/);
   });
 });
