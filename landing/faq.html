@@ -8,15 +8,15 @@
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400..600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="photocast.css">
 </head>
 <body>
 <header class="mast">
 <div class="wrap">
-<a class="mark" href="index.html"><span class="wm">PhotoCast</span> <span class="kicker">Field guide to light</span></a>
+<a class="mark" href="index.html" aria-label="PhotoCast home"><span class="wm">PhotoCast</span><span class="kicker">Field guide to light</span></a>
 <nav>
-<a href="index.html#platforms">Apps</a>
+<a href="index.html#field">From the field</a>
 <a href="index.html#features">Features</a>
 <a href="index.html#pricing">Pricing</a>
 <a href="faq.html">FAQ</a>
@@ -46,13 +46,14 @@
 <p>If you later decide you'd like more detailed forecasts and additional planning tools, you can explore Pro.</p>
 </div>
 <div class="qa">
-<h2>Where can I use PhotoCast?</h2>
+<h2>Where does PhotoCast cover?</h2>
 <p>PhotoCast currently covers more than 200 locations across northern England, including Northumberland, the Lake District, North Yorkshire, the Yorkshire Dales, the North York Moors, Tyne and Wear and Teesdale.</p>
 <p>Locations include coastal viewpoints, lakes, mountains, valleys and other popular landscape photography spots.</p>
 </div>
 <div class="qa">
 <h2>Which platforms can I use it on?</h2>
-<p>PhotoCast runs in the browser — that build is very close to ready, and early access is open now. iPad and iPhone apps are coming soon.</p>
+<p>PhotoCast is available through your web browser, on your computer, tablet or phone. Early access is open now.</p>
+<p>Dedicated iPad and iPhone apps are in development.</p>
 </div>
 <div class="qa">
 <h2>What do the star ratings mean?</h2>
@@ -70,7 +71,8 @@
 <div class="qa">
 <h2>What's the difference between Lite and Pro?</h2>
 <p>Lite gives you a free three-day overview of sunrise and sunset conditions, with location ratings, a forecast map and a planning grid.</p>
-<p>Pro is designed for photographers who'd like to explore the detail behind those forecasts. It adds more in-depth light analysis, written explanations, recommended locations, Ask PhotoCast, aurora forecasts and additional planning tools.</p>
+<p>Pro adds deeper forecast analysis, Ask PhotoCast, location recommendations and additional tools for photographers who want to explore the conditions in more detail. That includes separate Fiery Sky and Golden Hour scores, explanations for individual locations, aurora forecasts, advanced coastal and tidal information and personalised drive times.</p>
+<p>Pro pricing will be announced before paid subscriptions begin.</p>
 <p>You can start with Lite and decide later whether Pro would be useful to you.</p>
 </div>
 <div class="qa">
@@ -85,10 +87,10 @@
 <p>The three-day view gives you enough time to think about where you might go, while recognising that the weather can still change.</p>
 </div>
 <div class="qa">
-<h2>How accurate is PhotoCast?</h2>
+<h2>How accurate are the forecasts?</h2>
 <p>Weather and light are never completely predictable, so PhotoCast can't guarantee a spectacular sunrise or sunset.</p>
-<p>It uses weather forecasts, atmospheric data and AI analysis to help identify promising conditions. Forecasts are generally more useful closer to the event, particularly for the following day.</p>
-<p>Think of PhotoCast as another tool to help you make an informed decision, rather than a promise of what the sky will do.</p>
+<p>It uses weather forecasts and atmospheric information to help identify promising conditions. Forecasts are generally more useful closer to the event, particularly for the following day.</p>
+<p>Think of it as another tool to help you make an informed decision, rather than a promise of what the sky will do.</p>
 </div>
 <div class="qa">
 <h2>Can PhotoCast guarantee a good sunrise or sunset?</h2>
@@ -98,10 +100,10 @@
 </div>
 <div class="qa">
 <h2>Where does PhotoCast get its forecasts?</h2>
-<p>PhotoCast brings together information from several established weather, atmospheric and environmental data sources.</p>
-<p>These include detailed cloud forecasts, humidity, wind, airborne particles, sunrise and sunset calculations, tidal predictions and space weather information.</p>
-<p>AI helps interpret this information, assess the potential for photographic light and explain the reasoning behind the forecast.</p>
-<p>For photographers who enjoy the technical detail, the table below shows the individual data sources and how PhotoCast uses them.</p>
+<p>In short: PhotoCast starts with the same kind of weather forecast you'd find elsewhere, then looks more closely at the parts that matter for light.</p>
+<p>That means which layers of cloud are forecast and where they sit relative to the rising or setting sun, how much moisture and dust is in the air, and where the sun will be. Near the coast it adds the tides; at night, space weather for the northern lights.</p>
+<p>PhotoCast weighs these together to judge how promising a sunrise or sunset looks, and explains its reasoning in plain language. Anthropic's Claude helps with that assessment and with the written explanations.</p>
+<p>You don't need any of this to use the ratings. For photographers who enjoy the technical detail, the table below shows the individual data sources and how PhotoCast uses them.</p>
 <div class="tw" tabindex="0" role="region" aria-label="Data sources, scrollable"><table><thead><tr><th>Data source</th><th>Information provided</th><th>How PhotoCast uses it</th></tr></thead><tbody>
 <tr><td>Open-Meteo Forecast</td><td>Cloud cover (low, mid, high), humidity, wind, temperature, precipitation, visibility, pressure</td><td>Examines cloud cover in the direction of the rising or setting sun, tracks how conditions are developing, and gives each window an at-a-glance verdict</td></tr>
 <tr><td>Open-Meteo / CAMS</td><td>Aerosol optical depth, PM2.5, dust concentration</td><td>Detects Saharan dust, and tells warm dust (which can intensify colour) from grey smoke (which tends to cause haze)</td></tr>
@@ -131,12 +133,13 @@
 <h2>Is PhotoCast a safety tool?</h2>
 <p>No. PhotoCast provides forecasts for planning purposes only. Always check official weather warnings and tide tables before visiting coastal or remote locations. Conditions can change rapidly. You are responsible for your own safety at all times.</p>
 </div>
-<p style="margin-top:26px"><a class="btn" href="https://app.photocast.online/register">Start exploring for free</a></p>
+<p style="margin-top:26px"><a class="btn" href="https://app.photocast.online/register">Explore PhotoCast for free</a></p>
 </div></div>
 </main>
 
 <footer class="foot">
 <div class="wrap">
+<div class="tag"><b>PhotoCast</b> — A field guide to light.</div>
 <div class="foot-links">
 <a href="privacy.html">Privacy</a>
 <a href="terms.html">Terms</a>
@@ -148,7 +151,7 @@
 <a href="https://www.instagram.com/photocastuk" target="_blank" rel="noopener noreferrer" aria-label="Instagram"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg></a>
 <a href="https://www.facebook.com/profile.php?id=61572234291376" target="_blank" rel="noopener noreferrer" aria-label="Facebook"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg></a>
 </div>
-<span class="foot-copy">© 2026 PhotoCast · Powered by AI</span>
+<span class="foot-copy">© 2026 PhotoCast</span>
 </div>
 </div>
 </footer>

@@ -89,11 +89,17 @@ Add the `COPY` line in the same commit as the file.
 ## A note on the skin
 
 `photocast.css` is deliberately written as one-line rules; do not reformat or minify it.
-Colours come from the app's own verdict vocabulary — lichen green for *Worth it*, amber
-for *Maybe*, red for *Stand down* — defined in `oklch` at matched chroma.
+Its tokens are the app's own `@theme` (`frontend/src/index.css`), re-synced from there rather than
+re-tuned here: Newsreader for headings and the wordmark, IBM Plex Sans for body text, IBM Plex
+Mono for labels (all from Google Fonts; Bricolage Grotesque and DM Mono are gone). The
+interactive accent is bone (`--brand` = `--color-plex-gold` = `#F2E7D3`, hover `#FBF4E6`);
+coral appears only in the brand lockup's kicker. The only other colour is the verdict
+vocabulary, which carries meaning: `--go` `#8AAE72` for *Worth it*, `--maybe` `#E0A542` for
+*Maybe*, `--poor` `#C8452F` for *Stand down*. `--ink-dim` is decoration only (bullets, dots),
+never text. No shadows, no gradients.
 
 The masthead nav rules are scoped `.mast nav a:not(.btn)` rather than `.mast nav a`.
 That `:not(.btn)` is load-bearing: without it the descendant selector (specificity 0,1,2)
 out-specifies `.btn` (0,1,0) and repaints the sticky "Start free" call to action in
-`--ink-soft` beige on amber, which measures **1.24:1**. Keep the exclusion on any rule
-under `.mast nav a` that sets colour.
+`--ink-soft` (bone at 66% alpha) on its bone fill, which is effectively bone on bone, about
+1:1 and unreadable. Keep the exclusion on any rule under `.mast nav a` that sets colour.

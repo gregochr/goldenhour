@@ -4,115 +4,113 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PhotoCast — Know before you go</title>
-<meta name="description" content="PhotoCast helps landscape photographers find the most promising conditions for sunrise and sunset across northern England.">
+<meta name="description" content="PhotoCast helps landscape photographers find promising conditions for sunrise, sunset and golden-hour photography across northern England.">
+<meta name="theme-color" content="#181210">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400..600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="photocast.css">
 <style>
-/* ── hero ── */
-.hero{padding:88px 0 0;position:relative;overflow:hidden}
-.hero::before{content:'';position:absolute;inset:-40% 0 auto -10%;height:520px;background:radial-gradient(60% 60% at 22% 40%,color-mix(in oklab,var(--brand) 9%,transparent),transparent 70%);pointer-events:none}
-.hero h1{font-size:clamp(46px,9vw,96px);letter-spacing:-.04em;margin:26px 0 0}
-.hero h1 .go{color:var(--brand);font-style:italic;font-weight:700}
-.lede{font-size:clamp(17px,2.1vw,21px);line-height:1.5;color:var(--ink-soft);max-width:600px;margin:26px 0 0}
-.lede b{color:var(--ink);font-weight:500}
-.lede+.lede{margin-top:16px}
-.hero .sub{font-family:var(--disp);font-size:clamp(20px,2.6vw,28px);font-weight:500;letter-spacing:-.02em;color:var(--ink);margin:22px 0 0;max-width:640px}
-.feat p+p{margin-top:10px}
-.feat .more{font-size:14.5px}
-.pnote{font-size:15px;color:var(--ink-soft);max-width:640px;margin-top:22px}
-.ctas{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:34px 0 0}
-.ctas .note{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim)}
-/* ── figure / screenshot placeholder ── */
+.hero{padding:88px 0 0}
+.hero h1{font-size:clamp(50px,9.5vw,104px);font-weight:500;letter-spacing:-.03em;line-height:.98;margin:26px 0 0}
+.hero h1 i{font-weight:400}
+.hero .sub{font-family:var(--disp);font-size:clamp(21px,2.6vw,28px);font-weight:400;font-style:italic;color:var(--ink);margin:24px 0 0;max-width:640px;line-height:1.3}
+.lede{font-size:clamp(17px,2vw,19px);line-height:1.55;color:var(--ink-soft);max-width:600px;margin:22px 0 0}
+.lede+.lede{margin-top:14px}
+.ctas{display:flex;flex-wrap:wrap;gap:14px 18px;align-items:center;margin:34px 0 0}
+.ctas .note{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft)}
 .fig{margin:56px 0 0;border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--ground-2);padding:14px}
-.shot{position:relative;border:1px solid var(--rule);border-radius:12px;background:
-repeating-linear-gradient(52deg,color-mix(in oklab,var(--ink) 4%,transparent) 0 2px,transparent 2px 11px),var(--card);
-aspect-ratio:16/9;display:flex;align-items:flex-end;justify-content:center;padding:22px;overflow:hidden}
-.shot .slot{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);border:1px dashed var(--rule-2);border-radius:6px;padding:7px 12px;background:color-mix(in oklab,var(--ground) 70%,transparent)}
-.shot.tall{aspect-ratio:3/4}
-/* A .shot holding a real image drops the placeholder's padding, centring and 16/9 box: the
-   image IS the content, so the well takes the image's own ratio rather than cropping it.
-   The hero is the whole capture, masthead included, so nothing needs object-fit. */
-.shot.has-img{padding:0;display:block;background:var(--card);aspect-ratio:auto}
-.shot.has-img img{display:block;width:100%;height:auto;border-radius:11px}
-.figcap{font-family:var(--mono);font-size:12px;line-height:1.6;letter-spacing:.03em;color:var(--ink-dim);padding:14px 6px 4px;max-width:620px}
-/* ── sections ── */
-section{padding:96px 0 0}
+.fig img{display:block;width:100%;height:auto;border:1px solid var(--rule);border-radius:11px;background:var(--card)}
+.figcap{font-family:var(--mono);font-size:12px;line-height:1.65;letter-spacing:.02em;color:var(--ink-soft);padding:14px 6px 4px;max-width:640px}
+.slot{position:relative;border:1px solid var(--rule);border-radius:11px;background:repeating-linear-gradient(52deg,rgba(242,231,211,.035) 0 2px,transparent 2px 11px),var(--card);display:flex;align-items:center;justify-content:center;padding:22px;min-height:280px}
+.slot span{font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);border:1px dashed var(--rule-2);border-radius:6px;padding:7px 12px;background:var(--ground);text-align:center;max-width:280px}
+section{padding:104px 0 0}
 .shead{display:grid;gap:18px;max-width:760px}
-.shead h2{font-size:clamp(30px,4.6vw,50px);letter-spacing:-.03em}
+.shead h2{font-size:clamp(34px,5vw,56px);letter-spacing:-.025em}
+.shead .dateline{font-family:var(--disp);font-style:italic;font-size:21px;color:var(--ink)}
 .shead p{font-size:17.5px;color:var(--ink-soft);max-width:640px}
-/* ── platforms ── */
-.plats{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:40px}
-.plat{border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--card);padding:22px 22px 24px;display:flex;flex-direction:column;gap:10px}
-.plat.live{background:linear-gradient(to bottom,color-mix(in oklab,var(--brand) 7%,transparent),var(--card)),var(--card);border-color:color-mix(in oklab,var(--brand) 28%,transparent)}
-.status{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;display:inline-flex;align-items:center;gap:7px;color:var(--ink-dim)}
-.status::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--ink-dim)}
-.plat.live .status{color:var(--brand)}
-.plat.live .status::before{background:var(--brand);box-shadow:0 0 0 3px color-mix(in oklab,var(--brand) 20%,transparent)}
-.plat h3{font-family:var(--disp);font-size:24px;font-weight:600;letter-spacing:-.025em}
-.plat p{font-size:15px;color:var(--ink-soft)}
-/* ── features ── */
-.feats{margin-top:40px;border-top:1px solid var(--rule)}
-.feat{display:grid;grid-template-columns:64px minmax(0,1fr);gap:0 24px;padding:26px 0;border-bottom:1px solid var(--rule);align-items:start}
-.feat .n{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--ink-dim);padding-top:5px}
-.feat h3{font-family:var(--disp);font-size:23px;font-weight:600;letter-spacing:-.025em;margin-bottom:7px}
-.feat p{font-size:16px;color:var(--ink-soft);max-width:640px}
-.pro{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;padding:3px 7px;border-radius:5px;background:var(--maybe-wash);color:var(--maybe);border:1px solid color-mix(in oklab,var(--maybe) 30%,transparent);vertical-align:2px;margin-left:2px}
-/* ── story ── */
-.story{background:var(--ground-2);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin-top:96px;padding:80px 0}
-.story-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:56px;align-items:start}
-.story-grid h2{font-size:clamp(30px,4.2vw,44px);letter-spacing:-.03em}
-.story-grid p{font-size:16.5px;color:var(--ink-soft);margin-bottom:16px}
-.story-grid p:last-child{margin-bottom:0}
-.story-grid p .pull{color:var(--ink)}
-/* ── pricing ── */
-/* ── field report ── */
+.shead p+p{margin-top:-6px}
+/* field */
+.lead-in{font-size:17.5px;color:var(--ink-soft);max-width:640px;margin-top:26px}
 .steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:40px}
 .step{border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--ground-2);padding:14px;display:flex;flex-direction:column}
 .step img{display:block;width:100%;height:auto;border:1px solid var(--rule);border-radius:10px}
-.step .cap{padding:16px 6px 6px;display:grid;gap:6px}
-.step .k{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--brand)}
-.step h3{font-family:var(--disp);font-size:22px;font-weight:600;letter-spacing:-.025em}
-.step p{font-size:15.5px;color:var(--ink-soft);max-width:620px;text-wrap:pretty}
+.step .cap{padding:18px 6px 8px;display:grid;gap:8px}
+.step .k{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+.step h3{font-size:25px}
+.step p{font-size:15.5px;color:var(--ink-soft);max-width:640px}
 .step.result{grid-column:1/-1}
-.step.result img{border-radius:10px}
-@media(max-width:820px){.steps{grid-template-columns:minmax(0,1fr)}}
+.step.result .cap{grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:8px 40px;align-items:start;padding:22px 8px 10px}
+.step.result .cap .t{display:grid;gap:8px}
+.step.result .cap .b{display:grid;gap:12px}
+.step.result .reflect{font-family:var(--disp);font-style:italic;font-size:19px;line-height:1.45;color:var(--ink)}
+/* features */
+.feats{margin-top:44px;border-top:1px solid var(--rule)}
+.feat{display:grid;grid-template-columns:64px minmax(0,1fr);gap:0 24px;padding:30px 0;border-bottom:1px solid var(--rule);align-items:start}
+.feat .n{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--ink-soft);padding-top:8px}
+.feat h3{font-size:27px;margin-bottom:10px}
+.feat p{font-size:16px;color:var(--ink-soft);max-width:640px}
+.feat p+p{margin-top:10px}
+.feat p.q{font-family:var(--disp);font-style:italic;font-size:19px;color:var(--ink)}
+.feat .more{font-size:14.5px}
+.feat.ask .body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.9fr);gap:28px;align-items:start}
+.feat.ask .slot{min-height:320px}
+/* platforms */
+.plats{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:40px}
+.plat{border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--card);padding:22px 22px 24px;display:flex;flex-direction:column;gap:10px}
+.plat.live{border-color:var(--rule-2);background:var(--card-2)}
+.status{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;display:inline-flex;align-items:center;gap:8px;color:var(--ink-soft)}
+.status::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--ink-dim)}
+.plat.live .status{color:var(--go)}
+.plat.live .status::before{background:var(--go);box-shadow:0 0 0 3px var(--go-wash)}
+.plat h3{font-size:27px}
+.plat p{font-size:15px;color:var(--ink-soft)}
+/* story */
+.story{background:var(--ground-2);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin-top:104px;padding:88px 0}
+.story-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:56px;align-items:start}
+.story-grid h2{font-size:clamp(34px,4.4vw,48px);letter-spacing:-.025em}
+.story-grid p{font-family:var(--serif);font-size:19px;line-height:1.6;color:var(--ink-soft);margin-bottom:18px}
+.story-grid p:last-child{margin-bottom:0;color:var(--ink)}
+.story-grid p.beat{color:var(--ink)}
+/* pricing */
 .prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:40px}
-.price{border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--card);padding:26px}
-.price.hi{border-color:color-mix(in oklab,var(--brand) 30%,transparent);background:linear-gradient(to bottom,color-mix(in oklab,var(--brand) 6%,transparent),var(--card)),var(--card)}
+.price{border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--card);padding:28px;display:flex;flex-direction:column}
 .price .tier{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft)}
-.price .amt{font-family:var(--disp);font-size:42px;font-weight:600;letter-spacing:-.035em;margin:8px 0 2px}
-.price .amt small{font-family:var(--body);font-size:15px;font-weight:400;color:var(--ink-dim);letter-spacing:0}
-.price ul{list-style:none;margin-top:20px;display:grid;gap:9px}
-.price li{font-size:14.5px;color:var(--ink-soft);display:grid;grid-template-columns:16px 1fr;gap:8px;align-items:baseline}
+.price .amt{font-family:var(--disp);font-size:44px;font-weight:500;letter-spacing:-.025em;margin:8px 0 4px;line-height:1.05}
+.price .amt.tba{font-size:30px;font-style:italic;font-weight:400;padding:8px 0 5px}
+.price .desc{font-size:15px;color:var(--ink-soft);margin-top:4px}
+.price .plus{font-size:14.5px;color:var(--ink);margin-top:20px}
+.price ul{list-style:none;margin-top:16px;display:grid;gap:9px}
+.price .plus+ul{margin-top:10px}
+.price li{font-size:14.5px;color:var(--ink-soft);display:grid;grid-template-columns:14px 1fr;gap:8px;align-items:baseline}
 .price li::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--ink-dim);transform:translateY(-3px)}
-.price.hi li::before{background:var(--brand)}
-/* ── faq teaser ── */
+.price .foot-cta{margin-top:auto;padding-top:26px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.price .fine{font-size:13.5px;color:var(--ink-soft)}
+.price .pnote{margin-top:auto;padding-top:26px;font-size:14px;color:var(--ink-soft);border-top:1px solid var(--rule);margin-top:26px}
 .qs{margin-top:40px}
-/* ── closing ── */
-.close{margin-top:96px;border-top:1px solid var(--rule);padding:80px 0 0;text-align:center}
-.close h2{font-size:clamp(30px,5vw,54px);letter-spacing:-.035em}
-.close p{font-size:17px;color:var(--ink-soft);max-width:520px;margin:20px auto 0}
-.close .ctas{justify-content:center}
+.qs .all{margin-top:24px;font-size:15px}
+/* closing */
+.close{margin-top:104px;border-top:1px solid var(--rule);padding:88px 0 0;text-align:center}
+.close h2{font-size:clamp(36px,5.4vw,60px);letter-spacing:-.025em}
+.close p{font-size:17px;color:var(--ink-soft);max-width:540px;margin:20px auto 0}
+.close .ctas{justify-content:center;flex-direction:column;gap:12px}
 @media(max-width:820px){
+.steps{grid-template-columns:minmax(0,1fr)}
+.step.result .cap{grid-template-columns:minmax(0,1fr)}
 .story-grid{grid-template-columns:minmax(0,1fr);gap:28px}
 .feat{grid-template-columns:minmax(0,1fr);gap:6px}
 .feat .n{padding-top:0}
-.shot{aspect-ratio:auto;min-height:340px;align-items:flex-start;flex-direction:column;justify-content:space-between;gap:18px}
-.shot.has-img{min-height:0;aspect-ratio:auto}
-.shot .slot{align-self:center}
+.feat.ask .body{grid-template-columns:minmax(0,1fr)}
 }
 </style>
 </head>
 <body>
-
 <header class="mast">
 <div class="wrap">
-<a class="mark" href="index.html"><span class="wm">PhotoCast</span> <span class="kicker">Field guide to light</span></a>
+<a class="mark" href="index.html" aria-label="PhotoCast home"><span class="wm">PhotoCast</span><span class="kicker">Field guide to light</span></a>
 <nav>
-<a href="#platforms">Apps</a>
+<a href="#field">From the field</a>
 <a href="#features">Features</a>
 <a href="#pricing">Pricing</a>
 <a href="faq.html">FAQ</a>
@@ -120,262 +118,263 @@ section{padding:96px 0 0}
 </nav>
 </div>
 </header>
-
 <main>
-<div class="hero">
+<div class="hero" data-screen-label="Hero">
 <div class="wrap">
 <div class="eyebrow">For landscape photographers across northern England</div>
-<h1>Know before<br>you <span class="go">go</span>.</h1>
-<p class="sub">Make the most of the light, wherever you're heading.</p>
-<p class="lede">PhotoCast helps landscape photographers find the most promising conditions for sunrise and sunset across northern England.</p>
-<p class="lede">By looking beyond a standard weather forecast — at cloud layers, atmospheric conditions and the direction of the light — it gives you a clearer picture of what to expect, where to go, and why it might be worth the early start.</p>
+<h1>Know before<br>you <i>go</i>.</h1>
+<p class="sub">A little more insight into the weather. A better idea of where to be.</p>
+<p class="lede">PhotoCast helps you find promising conditions for sunrise, sunset and golden-hour photography.</p>
+<p class="lede">By looking beyond an ordinary weather forecast — at cloud layers, atmospheric conditions and the direction of the light — it helps you understand what might happen, where the opportunities are, and whether that early start could be worthwhile.</p>
 <div class="ctas">
-<a class="btn" href="https://app.photocast.online/register">Start exploring for free</a>
-<a class="btn ghost" href="#platforms">See the apps</a>
+<a class="btn" href="https://app.photocast.online/register">Explore PhotoCast for free</a>
 <span class="note">No payment card needed. Lite is free.</span>
 </div>
-
-<div class="fig">
-<div class="shot has-img">
-<img src="shot-map.webp" width="1600" height="1001" alt="The PhotoCast map tab for today's sunrise: a heat field over Northumberland and the Tyne valley, warmest along the coast and the North Pennines, with named locations such as Alnmouth, Bothal Weir and Allen Banks rated four stars, and drive-time rings from home.">
-</div>
-<p class="figcap">See at a glance whether tonight's sunset or tomorrow's sunrise looks promising, and which areas offer the best conditions. Explore the map for more detail, or simply use the overview to help plan your next outing.</p>
+<figure class="fig">
+<img src="shot-map.webp" width="1600" height="1001" alt="The PhotoCast map for today's sunrise over Northumberland and the Tyne valley, with colour-coded conditions and star ratings for named locations such as Alnmouth, Bothal Weir and Allen Banks.">
+<figcaption class="figcap">See where the light looks most promising, with colour-coded forecasts and ratings for individual locations. Explore the next few days or take a closer look at somewhere you have in mind.</figcaption>
+</figure>
 </div>
 </div>
-</div>
-
-<section id="platforms">
+<section id="field" data-screen-label="01 From the field">
 <div class="wrap">
 <div class="shead">
-<div class="lab">01 · Where to get it</div>
-<h2>Use PhotoCast wherever you plan your photography.</h2>
-<p>Start with PhotoCast in your web browser, whether you're planning at home or checking conditions on your phone. Dedicated iPad and iPhone apps are also in development.</p>
+<div class="lab">01 · From the field</div>
+<h2>From forecast to photograph.</h2>
+<p class="dateline">A sunrise on Hadrian's Wall. Saturday 24 October.</p>
 </div>
-<div class="plats">
-<div class="plat live">
-<span class="status">Very close</span>
-<h3>Web browser</h3>
-<p>Explore forecasts, compare locations and plan your next outing from your computer, tablet or phone.</p>
+<p class="lead-in">The forecast suggested that the central section of Hadrian's Wall could be worth an early start. The map showed promising conditions across the crags, with several locations receiving four stars.</p>
+<div class="steps">
+<div class="step">
+<img src="field-map.webp" width="2244" height="1410" alt="PhotoCast sunrise map with the Hadrian's Wall crags rated four stars" loading="lazy">
+<div class="cap"><span class="k">1</span><h3>Spotting the opportunity</h3><p>The sunrise forecast highlighted Hadrian's Wall as one of the more promising areas, making it a good place to start looking.</p></div>
 </div>
-<div class="plat">
-<span class="status">Coming soon</span>
-<h3>iPad</h3>
-<p>A larger view of the forecast map, with room to explore locations and compare conditions.</p>
+<div class="step">
+<img src="field-decide.webp" width="2206" height="1416" alt="Location detail for Steel Rigg and Winshield Crags: sunrise, four stars" loading="lazy">
+<div class="cap"><span class="k">2</span><h3>Choosing a location</h3><p>Steel Rigg and Winshield Crags stood out.</p><p>The forecast suggested a relatively clear eastern horizon, with mid-level and high cloud positioned to catch the colour as the sun rose.</p></div>
 </div>
-<div class="plat">
-<span class="status">Coming soon</span>
-<h3>iPhone</h3>
-<p>A quick way to check the latest outlook when you're out and about.</p>
+<div class="step result">
+<img src="field-steel-rigg.webp" width="2000" height="1496" alt="Sunrise over Hadrian's Wall from Steel Rigg, warm colour across the sky above the Wall and Crag Lough" loading="lazy">
+<div class="cap">
+<div class="t"><span class="k">3</span><h3>Seeing what happened</h3></div>
+<div class="b"><p>The morning rewarded the early start with warm colour spreading across the sky above the Wall and Crag Lough.</p><p class="reflect">A forecast can never guarantee the light. But on this occasion, it helped turn a promising outlook into a worthwhile morning with the camera.</p></div>
+</div>
 </div>
 </div>
 </div>
 </section>
-
-<section id="features">
+<section id="features" data-screen-label="02 Features">
 <div class="wrap">
 <div class="shead">
-<div class="lab">02 · What it does</div>
+<div class="lab">02 · What PhotoCast does</div>
 <h2>A forecast for the shot, not just the weather.</h2>
-<p>Good light depends on more than whether the forecast says sunny or cloudy. PhotoCast brings together the atmospheric conditions that can make a difference to your photographs, helping you decide when and where to head out.</p>
+<p>A weather forecast can tell you whether it's likely to be sunny, cloudy or raining. But good photographic light depends on a little more than that.</p>
+<p>PhotoCast brings together the conditions that can influence the light, helping you explore the possibilities before you set off.</p>
 </div>
 <div class="feats">
 <div class="feat"><div class="n">/ 01</div><div>
-<h3>See where the light looks most promising</h3>
-<p>Explore a map of northern England showing the outlook for sunrise and sunset across hundreds of photographic locations.</p>
-<p>Colour-coded forecasts make it easy to spot promising areas, compare conditions and decide where you might like to go — without having to check each location individually.</p>
+<h3>See where the light looks promising</h3>
+<p class="q">Start with the map.</p>
+<p>PhotoCast shows the outlook for sunrise and sunset across more than 200 locations in northern England, using colour-coded forecasts and star ratings to highlight promising areas.</p>
+<p>Whether you're planning a particular location or looking for inspiration, it's an easy way to see where conditions might be worth exploring.</p>
 </div></div>
 <div class="feat"><div class="n">/ 02</div><div>
-<h3>Look beyond the cloud forecast</h3>
-<p>Not all cloudy skies are the same. The height and thickness of cloud layers, atmospheric moisture and particles in the air can all influence the colours and quality of the light.</p>
-<p>PhotoCast brings these factors together to assess the potential for colourful skies and golden-hour light, with separate scores and straightforward explanations to help you understand the forecast.</p>
-<p>Detailed Fiery Sky and Golden Hour scores are available with Pro. <span class="pro">Pro</span></p>
+<h3>Understand what makes the light</h3>
+<p>Cloud isn't always a bad thing. In fact, the right cloud in the right place can make all the difference to a sunrise or sunset.</p>
+<p>PhotoCast examines cloud layers, humidity, airborne particles and the direction of the light to assess the potential for colourful skies and golden-hour conditions.</p>
+<p>Simple ratings give you the overview. With Pro, you can explore separate Fiery Sky and Golden Hour scores, along with explanations of what's influencing the forecast. <span class="pro">Pro</span></p>
 </div></div>
 <div class="feat"><div class="n">/ 03</div><div>
-<h3>Find your best opportunities</h3>
-<p>Not sure where to head this weekend?</p>
-<p>PhotoCast compares forecast conditions across its locations to highlight the most promising opportunities over the next three days.</p>
-<p>Whether you have somewhere particular in mind or you're happy to follow the light, it's a useful starting point for planning your next outing.</p>
-<p>Best-bet recommendations are available with Pro. <span class="pro">Pro</span></p>
+<h3>Find your next opportunity</h3>
+<p class="q">Not sure where to go this weekend?</p>
+<p>PhotoCast compares conditions across its locations over the next three days, helping you identify promising times and places.</p>
+<p>Explore the planning grid, compare the outlook and see which locations might be worth adding to your plans.</p>
+<p>With Pro, best-bet recommendations provide a little more guidance when you're deciding where to head. <span class="pro">Pro</span></p>
 </div></div>
-<div class="feat"><div class="n">/ 04</div><div>
+<div class="feat ask"><div class="n">/ 04</div><div>
 <h3>Ask PhotoCast <span class="pro">Pro</span></h3>
-<p>Curious about the forecast? Just ask.</p>
-<p>Wondering why a sunrise has a high rating, whether the cloud might clear, or what conditions could mean for your photographs?</p>
+<div class="body">
+<div>
+<p class="q">Curious about the forecast? Just ask.</p>
+<p>Wondering why a sunrise has a high rating, whether the cloud might clear, or what the conditions could mean for your photographs?</p>
 <p>Ask PhotoCast lets you explore the forecast in your own words. Ask a question, get a straightforward explanation, and better understand what the weather might have in store.</p>
 <p>No need to decipher complicated weather charts — just a little more insight to help you plan your next outing.</p>
+<p>Available with PhotoCast Pro.</p>
+</div>
+<div class="slot"><span>Screenshot · a real Ask PhotoCast question and answer</span></div>
+</div>
 </div></div>
 <div class="feat"><div class="n">/ 05</div><div>
-<h3>Plan coastal photography around the tides</h3>
+<h3>Plan around the tides</h3>
 <p>For coastal photographers, the tide can be just as important as the light.</p>
 <p>PhotoCast brings tidal information together with sunrise and sunset forecasts, highlighting unusually high tides and potentially interesting combinations of water levels and light.</p>
-<p>It gives you another useful piece of information when planning a coastal shoot.</p>
+<p>It's another useful consideration when planning a morning or evening on the coast.</p>
 <p class="more"><a href="terms.html">Coastal safety information →</a></p>
 </div></div>
 <div class="feat"><div class="n">/ 06</div><div>
-<h3>Keep an eye on the northern lights</h3>
+<h3>Keep an eye on the northern lights <span class="pro">Pro</span></h3>
 <p>Aurora sightings are never guaranteed, but knowing when conditions are favourable can make all the difference.</p>
-<p>PhotoCast brings together space weather information and local viewing conditions to help you identify nights when the northern lights may be worth looking out for.</p>
-<p>Aurora forecasting is available with Pro. <span class="pro">Pro</span></p>
+<p>PhotoCast uses space weather information to help identify nights when the northern lights may be worth looking out for, giving you time to consider where to go.</p>
+<p>Aurora forecasting is available with Pro.</p>
 </div></div>
 <div class="feat"><div class="n">/ 07</div><div>
-<h3>Look out for misty mornings and cloud inversions</h3>
-<p>Some of the most memorable landscape photographs happen when mist settles into valleys or low cloud fills the landscape beneath the hills.</p>
-<p>PhotoCast examines temperature, humidity, wind and terrain to identify conditions that may favour mist and cloud inversions.</p>
-<p>It's another way to spot opportunities that might not be obvious from a standard weather forecast.</p>
+<h3>Look out for misty mornings</h3>
+<p>Some of the most atmospheric landscape photographs happen when mist settles into valleys or low cloud fills the landscape beneath the hills.</p>
+<p>PhotoCast examines temperature, humidity, wind and elevation to identify conditions that may favour mist and cloud inversions.</p>
+<p>Another way to spot photographic opportunities that aren't always obvious from a standard weather forecast.</p>
 </div></div>
 <div class="feat"><div class="n">/ 08</div><div>
 <h3>Built for the North</h3>
 <p>PhotoCast focuses on the landscapes of northern England, with more than 200 carefully selected locations across Northumberland, the Lake District, North Yorkshire and the surrounding areas.</p>
-<p>From exposed coastlines and sweeping moorland to lakes, valleys and mountain viewpoints, it's designed around the places photographers actually want to visit.</p>
+<p>From exposed coastlines and sweeping moorland to lakes, valleys and mountain viewpoints, it's built around places that landscape photographers love to explore.</p>
 </div></div>
 </div>
-
-<div class="fig">
-<div class="shot has-img">
-<img src="shot-detail.webp" width="1600" height="1115" alt="A location sheet for Derwent Water East Shore: the next three days, a four-star sunrise with Fiery Sky 72 and Golden Hour 68 score bars, blue and golden hour times, and a written explanation of the conditions.">
-</div>
-<p class="figcap">Explore the forecast for an individual location, including sunrise and sunset times, golden and blue hour, detailed light scores and an explanation of the conditions behind them.</p>
-</div>
+<figure class="fig">
+<img src="shot-detail.webp" width="1600" height="1115" alt="Location sheet for Derwent Water East Shore: sunrise rating, Fiery Sky and Golden Hour scores, blue and golden hour times, and an explanation of the conditions." loading="lazy">
+<figcaption class="figcap">Take a closer look at an individual location, with sunrise and sunset times, golden and blue hour, detailed light scores and an explanation of the conditions behind the forecast.</figcaption>
+</figure>
 </div>
 </section>
-
-<section id="field">
+<section id="platforms" data-screen-label="03 Where to use it">
 <div class="wrap">
 <div class="shead">
-<div class="lab">03 · From the field</div>
-<h2>This morning on Hadrian's Wall.</h2>
-<p>Saturday 24 October. Sunrise at 07:44, home in Durham.</p>
+<div class="lab">03 · Where to use it</div>
+<h2>Plan at home. Check when you're out.</h2>
+<p>PhotoCast is available through your web browser, with dedicated iPad and iPhone apps in development.</p>
 </div>
-<div class="steps">
-<div class="step">
-<img src="field-map.webp" width="2244" height="1410" alt="PhotoCast map at sunrise, the Hadrian's Wall crags all scored 4 stars under a warm heat field" loading="lazy">
-<div class="cap"><span class="k">1 · The map</span><h3>The heat was over the Wall</h3><p>The sunrise window lit up the central section of Hadrian's Wall. Every crag along it scored four stars.</p></div>
+<div class="plats">
+<div class="plat live">
+<span class="status">Early access</span>
+<h3>Browser</h3>
+<p>Explore the map, compare locations and check forecasts from your computer, tablet or phone.</p>
+<p>Early access is open now.</p>
 </div>
-<div class="step">
-<img src="field-decide.webp" width="2206" height="1416" alt="Steel Rigg and Winshield Crags detail: Sunrise, Today 07:44, 4 stars, Worth it" loading="lazy">
-<div class="cap"><span class="k">2 · Deciding on a location</span><h3>Steel Rigg &amp; Winshield Crags</h3><p>Worth it, with the reasoning: a clear horizon to the east for the sun to rise through, and a thick mid and high cloud deck overhead and to the west to catch the colour.</p></div>
+<div class="plat">
+<span class="status">Coming soon</span>
+<h3>iPad</h3>
+<p>A larger view of the forecast, with room to explore the map and compare locations in more detail.</p>
 </div>
-<div class="step result">
-<img src="field-steel-rigg.webp" width="2000" height="1496" alt="Sunrise over Hadrian's Wall from Steel Rigg, orange sky over the wall and Crag Lough" loading="lazy">
-<div class="cap"><span class="k">3 · The result</span><h3>Worth it.</h3></div>
+<div class="plat">
+<span class="status">Coming soon</span>
+<h3>iPhone</h3>
+<p>A convenient way to check the outlook when you're heading out with your camera.</p>
 </div>
 </div>
 </div>
 </section>
-
-<div class="story" id="story">
+<div class="story" id="story" data-screen-label="04 The story">
 <div class="wrap">
 <div class="story-grid">
 <div>
-<div class="lab" style="margin-bottom:16px">04 · The story</div>
+<div class="lab" style="margin-bottom:18px">04 · The story</div>
 <h2>It started with one question about one sunrise.</h2>
 </div>
 <div>
-<p>One evening, I found myself wondering whether the following morning's sunrise would be worth the early alarm and the drive.</p>
-<p>Like many landscape photographers, I'd spent plenty of time checking weather forecasts, looking at cloud cover and hoping the conditions would come together. Sometimes they did. Sometimes they didn't.</p>
-<p>I started looking more closely at what makes a promising sunrise: the different layers of cloud, moisture in the atmosphere, particles that scatter the light, and the direction of the rising sun.</p>
-<p>I wondered whether all that information could be brought together into something genuinely useful for photographers. <span class="pull">Not a guarantee of a beautiful sunrise, but a better-informed idea of what might happen, and where.</span></p>
-<p>That was the beginning of PhotoCast.</p>
-<p>Using AI alongside detailed weather and atmospheric data, I began developing a forecasting tool that could assess conditions across hundreds of locations and explain its reasoning in everyday language.</p>
-<p>My background is in software engineering, with 25 years spent building reliable systems for major financial institutions. PhotoCast is a rather different sort of project, but I've brought the same care and attention to how it works.</p>
-<p>It's still growing, and there's plenty more I want to add. But the aim remains the same: to help photographers spend less time piecing together forecasts and more time making the most of the light.</p>
+<p>One evening last spring, I found myself wondering whether the following morning's sunrise would be worth getting up for.</p>
+<p>I asked Claude, Anthropic's AI assistant, what the conditions looked like. It thought they were promising. That got me curious about what actually makes a good sunrise — not just the amount of cloud, but its height and position, the moisture in the air, and the particles that scatter the light.</p>
+<p>I started looking for a tool that brought all those things together for photographers. There were plenty of weather forecasts, of course, but nothing quite like what I had in mind.</p>
+<p class="beat">In the end, I decided against the early start. But the question stayed with me.</p>
+<p>I've spent 25 years building software systems for major financial institutions, so I began exploring whether I could build something myself.</p>
+<p class="beat">That experiment became PhotoCast.</p>
+<p>Today, it brings together more than ten atmospheric variables to assess sunrise and sunset conditions across over 200 locations, helping photographers understand where the light might be worth pursuing.</p>
+<p>It's still evolving, and there's plenty more I'd like to add. But the original idea hasn't changed.</p>
+<p>I wanted a little more confidence when deciding whether to set that early alarm. Hopefully PhotoCast can help other photographers with the same decision.</p>
 </div>
 </div>
 </div>
 </div>
-
-<section id="pricing">
+<section id="pricing" data-screen-label="05 Pricing">
 <div class="wrap">
 <div class="shead">
 <div class="lab">05 · Pricing</div>
-<h2>Choose how much detail you need.</h2>
-<p>Start with PhotoCast Lite for free. If you'd like more detailed forecasts and planning tools, Pro will offer a little more insight.</p>
+<h2>Start free. Explore further when you're ready.</h2>
+<p>PhotoCast Lite is free and gives you a useful overview of sunrise and sunset conditions.</p>
+<p>For photographers who'd like to understand the forecasts in greater depth, Pro adds more detailed analysis and planning tools.</p>
 </div>
 <div class="prices">
 <div class="price">
 <div class="tier">Lite</div>
 <div class="amt">Free</div>
-<p class="pnote" style="margin-top:6px">A useful overview of the conditions, with no commitment.</p>
+<p class="desc">A straightforward way to see where conditions look promising.</p>
 <ul>
-<li>3-day forecasts</li>
-<li>Sunrise and sunset ratings</li>
+<li>Three-day sunrise and sunset forecasts</li>
+<li>Star ratings for locations</li>
 <li>At-a-glance forecast guidance</li>
-<li>Forecast map and planning grid</li>
+<li>Colour-coded planning grid</li>
+<li>Map of forecast locations</li>
 <li>Mist and cloud inversion outlook</li>
 </ul>
+<div class="foot-cta">
+<a class="btn" href="https://app.photocast.online/register">Explore PhotoCast for free</a>
+<span class="fine">No payment card required.</span>
 </div>
-<div class="price hi">
+</div>
+<div class="price">
 <div class="tier">Pro</div>
-<div class="amt">Pricing to follow</div>
-<p class="pnote" style="margin-top:6px">For photographers who want to explore the forecast in greater depth.</p>
+<div class="amt tba">Pricing to be announced</div>
+<p class="desc">For photographers who enjoy exploring the detail behind the forecast.</p>
+<p class="plus">Everything in Lite, plus:</p>
 <ul>
-<li>Detailed light scores</li>
-<li>Explanations of forecast conditions</li>
-<li>Recommended locations and times</li>
-<li>Ask PhotoCast — questions about the forecast in plain English</li>
-<li>Aurora forecasting</li>
-<li>Advanced coastal information</li>
+<li>Best-bet location recommendations</li>
+<li>Ask PhotoCast — questions about the forecast in everyday language</li>
+<li>Detailed forecasts and explanations for individual locations</li>
+<li>Fiery Sky and Golden Hour scores</li>
+<li>Aurora forecasts and viewing information</li>
+<li>Advanced coastal and tidal information</li>
 <li>Personalised drive times</li>
 </ul>
+<p class="pnote">Pro pricing will be announced before paid subscriptions begin. You can continue using Lite without upgrading.</p>
 </div>
 </div>
-<p class="pnote">For those who enjoy understanding the conditions in more detail, Pro adds deeper analysis, individual location forecasts and additional tools to help plan more ambitious outings.</p>
-<p class="pnote">Lite is free to use. Pro pricing will be announced ahead of launch, so you can decide whether it's right for you.</p>
 </div>
 </section>
-
-<section id="faq">
+<section id="faq" data-screen-label="06 Questions">
 <div class="wrap">
 <div class="shead">
-<div class="lab">06 · Common questions</div>
-<h2>Questions we hear at 4am.</h2>
+<div class="lab">06 · A few common questions</div>
+<h2>A little more about PhotoCast.</h2>
 </div>
 <div class="qs">
 <div class="qa">
-<h3>How accurate is PhotoCast?</h3>
+<h3>How accurate are the forecasts?</h3>
 <p>Weather and light are never completely predictable, so PhotoCast can't guarantee a spectacular sunrise or sunset.</p>
-<p>It uses weather forecasts, atmospheric data and AI analysis to help identify promising conditions. Forecasts are generally more useful closer to the event, particularly for the following day.</p>
-<p>Think of PhotoCast as another tool to help you make an informed decision, rather than a promise of what the sky will do.</p>
+<p>It uses weather forecasts and atmospheric information to help identify promising conditions. Forecasts are generally more useful closer to the event, particularly for the following day.</p>
+<p>Think of it as another tool to help you make an informed decision, rather than a promise of what the sky will do.</p>
 </div>
 <div class="qa">
-<h3>Where can I use PhotoCast?</h3>
+<h3>Do I need to understand weather charts?</h3>
+<p>Not at all.</p>
+<p>The map and star ratings provide a simple overview, even if you're new to landscape photography.</p>
+<p>If you enjoy exploring the technical detail, PhotoCast Pro lets you look more closely at the conditions behind the forecast.</p>
+</div>
+<div class="qa">
+<h3>Where does PhotoCast cover?</h3>
 <p>PhotoCast currently covers more than 200 locations across northern England, including Northumberland, the Lake District, North Yorkshire, the Yorkshire Dales, the North York Moors, Tyne and Wear and Teesdale.</p>
-<p>Locations include coastal viewpoints, lakes, mountains, valleys and other popular landscape photography spots.</p>
 </div>
 <div class="qa">
 <h3>What's the difference between Lite and Pro?</h3>
-<p>Lite gives you a free three-day overview of sunrise and sunset conditions, with location ratings, a forecast map and a planning grid.</p>
-<p>Pro is designed for photographers who'd like to explore the detail behind those forecasts. It adds more in-depth light analysis, written explanations, recommended locations, aurora forecasts and additional planning tools.</p>
-<p>You can start with Lite and decide later whether Pro would be useful to you.</p>
+<p>Lite gives you free access to the forecast map, location ratings and three-day planning information.</p>
+<p>Pro adds deeper forecast analysis, Ask PhotoCast, location recommendations and additional tools for photographers who want to explore the conditions in more detail.</p>
 </div>
-<div class="qa">
-<h3>Do I need to understand weather charts to use PhotoCast?</h3>
-<p>Not at all. PhotoCast is designed to give you a straightforward overview of the conditions, even if you're new to landscape photography.</p>
-<p>If you're more experienced, you can explore the detailed forecasts and atmospheric information behind the ratings.</p>
-<p>Use as much or as little detail as you find helpful.</p>
-</div>
-<p style="margin-top:22px"><a href="faq.html">See all questions →</a></p>
+<p class="all"><a href="faq.html">Read all frequently asked questions →</a></p>
 </div>
 </div>
 </section>
-
-<div class="close">
+<div class="close" data-screen-label="Final invitation">
 <div class="wrap">
 <h2>Your next sunrise is worth a look.</h2>
 <p>Whether you're planning a weekend in the Lakes, an early start on the coast or simply wondering what tomorrow's light might bring, PhotoCast can help you explore the possibilities.</p>
 <p>Start with the free version, see how it works, and decide whether it's useful for your photography.</p>
 <div class="ctas">
 <a class="btn" href="https://app.photocast.online/register">Explore PhotoCast for free</a>
-<a class="btn ghost" href="faq.html">Read the FAQ</a>
-</div>
-<p class="pnote" style="margin:16px auto 0;font-size:13px">No payment card required.</p>
+<span class="note">No payment card required.</span>
 </div>
 </div>
-
+</div>
 </main>
-
 <footer class="foot">
 <div class="wrap">
+<div class="tag"><b>PhotoCast</b> — A field guide to light.</div>
 <div class="foot-links">
 <a href="privacy.html">Privacy</a>
 <a href="terms.html">Terms</a>
@@ -387,10 +386,9 @@ section{padding:96px 0 0}
 <a href="https://www.instagram.com/photocastuk" target="_blank" rel="noopener noreferrer" aria-label="Instagram"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg></a>
 <a href="https://www.facebook.com/profile.php?id=61572234291376" target="_blank" rel="noopener noreferrer" aria-label="Facebook"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg></a>
 </div>
-<span class="foot-copy">© 2026 PhotoCast · Powered by AI</span>
+<span class="foot-copy">© 2026 PhotoCast</span>
 </div>
 </div>
 </footer>
-
 </body>
 </html>
