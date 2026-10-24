@@ -66,4 +66,33 @@ public interface EmailVerificationTokenRepository extends JpaRepository<EmailVer
     @Transactional
     @Query("DELETE FROM EmailVerificationTokenEntity t WHERE t.userId = :userId")
     int deleteAllByUserIdInBulk(@Param("userId") Long userId);
+
+    /**
+     * Whether the account holds a verification link, verified or not, that has not yet expired.
+     *
+     * @param userId the account's primary key
+     * @param now    the instant to compare against (JVM default zone)
+     * @return true if any such token exists
+     */
+    boolean existsByUserIdAndExpiresAtAfter(Long userId, LocalDateTime now);
+
+    /**
+     * Whether the account holds an UNVERIFIED link that has not yet expired.
+     *
+     * @param userId the account's primary key
+     * @param now    the instant to compare against (JVM default zone)
+     * @return true if any such token exists
+     */
+    boolean existsByUserIdAndVerifiedFalseAndExpiresAtAfter(Long userId, LocalDateTime now);
+
+    /**
+     * Deletes one token by its hash.
+     *
+     * @param tokenHash the SHA-256 hex digest
+     * @return the number of tokens deleted
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("DELETE FROM EmailVerificationTokenEntity t WHERE t.tokenHash = :tokenHash")
+    int deleteByTokenHashInBulk(@Param("tokenHash") String tokenHash);
 }

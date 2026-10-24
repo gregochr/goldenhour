@@ -228,6 +228,100 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
     int deletePendingById(@Param("id") Long id);
 
     /**
+     * Lists the pending registrations (disabled, empty password, not ADMIN) created at or before a cutoff,
+     * with the sweep's bookkeeping: the pending-registration sweep's candidate query.
+     *
+     * @param cutoff the latest {@code created_at} considered (now minus the hold minus the first reminder's
+     *               hours left), in the JVM default zone
+     * @param admin  {@link UserRole#ADMIN}, which is never swept
+     * @return the candidates, as scalar projections (no entity is held)
+     */
+    @Query("SELECT u.id AS id, u.createdAt AS createdAt, u.verificationRemindersSent AS remindersSent, "
+            + "u.finalReminderSentAt AS finalReminderSentAt FROM AppUserEntity u "
+            + "WHERE u.enabled = false AND u.password = '' AND u.role <> :admin AND u.createdAt <= :cutoff")
+    List<PendingStage> findPendingSweepCandidates(@Param("cutoff") LocalDateTime cutoff,
+            @Param("admin") UserRole admin);
+
+    /**
+     * Reads one account's sweep bookkeeping as a scalar projection (never the managed entity).
+     *
+     * @param id the user's primary key
+     * @return the account's stage, or empty if it is gone
+     */
+    @Query("SELECT u.id AS id, u.createdAt AS createdAt, u.verificationRemindersSent AS remindersSent, "
+            + "u.finalReminderSentAt AS finalReminderSentAt FROM AppUserEntity u WHERE u.id = :id")
+    Optional<PendingStage> findPendingStage(@Param("id") Long id);
+
+    /**
+     * Claims a reminder stage: a compare-and-set whose row count is the answer. The final-reminder stamp is
+     * written only when {@code next} is 2.
+     *
+     * @param id       the pending user's primary key
+     * @param expected the stage the row must be at
+     * @param next     the stage to move to (1 or 2)
+     * @param now      the stamp for {@code final_reminder_sent_at} when {@code next} is 2
+     * @return 1 if claimed; 0 if the stage moved, the account activated or it is gone
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.verificationRemindersSent = :next, "
+            + "u.finalReminderSentAt = CASE WHEN :next = 2 THEN :now ELSE u.finalReminderSentAt END "
+            + "WHERE u.id = :id AND u.verificationRemindersSent = :expected "
+            + "AND u.enabled = false AND u.password = ''")
+    int advanceReminderStage(@Param("id") Long id, @Param("expected") int expected, @Param("next") int next,
+            @Param("now") LocalDateTime now);
+
+    /**
+     * Undoes {@link #advanceReminderStage} after a failed send.
+     *
+     * @param id              the user's primary key
+     * @param expected        the stage to restore
+     * @param next            the stage the row must currently be at
+     * @param previousFinalAt the {@code final_reminder_sent_at} to restore, or null
+     * @return 1 if reverted; 0 if the stage had moved on
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.verificationRemindersSent = :expected, "
+            + "u.finalReminderSentAt = :previousFinalAt WHERE u.id = :id AND u.verificationRemindersSent = :next")
+    int revertReminderStage(@Param("id") Long id, @Param("expected") int expected, @Param("next") int next,
+            @Param("previousFinalAt") LocalDateTime previousFinalAt);
+
+    /**
+     * A pending account's sweep bookkeeping.
+     */
+    interface PendingStage {
+
+        /**
+         * Returns the primary key.
+         *
+         * @return the user id
+         */
+        Long getId();
+
+        /**
+         * Returns when the sign-up was created.
+         *
+         * @return {@code created_at}, JVM default zone
+         */
+        LocalDateTime getCreatedAt();
+
+        /**
+         * Returns how many reminders have been sent.
+         *
+         * @return 0, 1 or 2
+         */
+        int getRemindersSent();
+
+        /**
+         * Returns when the final reminder was sent.
+         *
+         * @return the stamp, or null
+         */
+        LocalDateTime getFinalReminderSentAt();
+    }
+
+    /**
      * Applies a credential change — a new password, the account-state flags, the version bump and its
      * stamp — in ONE statement, as a compare-and-set whose row count is the answer
      * (login-registration plan §2 #14 rule 1(a)). Called only by

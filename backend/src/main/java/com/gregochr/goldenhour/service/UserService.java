@@ -371,6 +371,37 @@ public class UserService implements UserDetailsService {
     }
 
     /**
+     * Deletes a never-verified sign-up the pending-registration sweep has finished with (no email is sent).
+     *
+     * <p>One transaction, the admin delete's order (user row first): the row is locked; the method stops if
+     * the account is no longer a pending non-admin sign-up, or if it holds ANY unexpired verification link
+     * (verified or not — a reader mid-flow keeps the place until that link expires); then the dependent rows
+     * are purged ({@link #purgeUserRows}), the row is deleted by the conditional
+     * {@code deletePendingById}, and the email claim is released.
+     *
+     * @param id  the account's primary key
+     * @param now the sweep's instant, in the JVM default zone (the frame the token {@code expires_at} is in)
+     * @return true if a row was deleted
+     */
+    @Transactional
+    public boolean purgeAbandonedPending(Long id, LocalDateTime now) {
+        LockedAccount account = userRepository.lockAccount(id).orElse(null);
+        if (account == null || !account.pending() || account.role() == UserRole.ADMIN) {
+            return false;
+        }
+        if (verificationTokenRepository.existsByUserIdAndExpiresAtAfter(id, now)) {
+            return false;
+        }
+        purgeUserRows(id);
+        if (userRepository.deletePendingById(id) != 1) {
+            throw new IllegalStateException("Pending user " + id + " vanished under its row lock");
+        }
+        releaseEmailClaim(account.email());
+        LOG.info("Abandoned pending registration purged: id={}", id);
+        return true;
+    }
+
+    /**
      * Checks a signed-in reader's password for a destructive request, with no transaction and no connection
      * held through the BCrypt hash.
      *

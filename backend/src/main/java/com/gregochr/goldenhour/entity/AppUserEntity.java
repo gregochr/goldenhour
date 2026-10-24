@@ -247,6 +247,24 @@ public class AppUserEntity implements UserDetails {
     private long credentialsVersion;
 
     /**
+     * How many reminders the pending-registration sweep has sent this never-verified sign-up (0, 1 or 2).
+     * Written only by {@code AppUserRepository#advanceReminderStage} / {@code #revertReminderStage}.
+     * A primitive {@code int} (Postgres {@code INTEGER}, which {@code ddl-auto: validate} requires) with a
+     * column default, the {@link #credentialsVersion} precedent: local and test H2 build the column from
+     * this mapping, and without the default every insert would fail NOT NULL.
+     */
+    @Column(name = "verification_reminders_sent", nullable = false, updatable = false, insertable = false,
+            columnDefinition = "INTEGER NOT NULL DEFAULT 0")
+    private int verificationRemindersSent;
+
+    /**
+     * When the final reminder was sent (JVM default zone, zone-less like {@code created_at}), or null. The
+     * purge waits for it. Written only by the sweep's conditional updates.
+     */
+    @Column(name = "final_reminder_sent_at", updatable = false, insertable = false)
+    private LocalDateTime finalReminderSentAt;
+
+    /**
      * Returns a single {@link GrantedAuthority} derived from {@link #role}.
      * Spring Security requires the {@code ROLE_} prefix for {@code hasRole()} expressions.
      *
