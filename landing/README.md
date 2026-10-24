@@ -7,6 +7,7 @@ Plain static HTML and one stylesheet. **No build step, no bundler, no tests.** O
 index.html              the marketing page
 faq.html                privacy.html   terms.html   acknowledgements.html
 photocast.css           the shared skin for all five pages
+viewer.js               the screenshot viewer (index.html only; plain JS, no dependencies)
 favicon.png             logo.png       screenshot*.png
 Dockerfile              docker-compose.yml   nginx.conf
 ```
