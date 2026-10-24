@@ -22,6 +22,3 @@ GlanceLabel.propTypes = {
   className: PropTypes.string,
 };
 
-GlanceLabel.defaultProps = {
-  className: undefined,
-};

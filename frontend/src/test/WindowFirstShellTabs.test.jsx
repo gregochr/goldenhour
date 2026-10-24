@@ -150,7 +150,37 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
+
+/**
+ * jsdom applies no Tailwind and evaluates no media query in `getComputedStyle`, so the pair's two
+ * states are simulated with the plain rules each breakpoint resolves to. From 640px `.hidden` and
+ * `.sm:hidden` both apply and `.sm:inline` shows the long name; on a phone only `.hidden` applies, so the
+ * long name is off and the short one shows. Exact accessible names then prove one span, not both.
+ */
+function withBreakpoint(band) {
+  const style = document.createElement('style');
+  style.textContent = band === 'desktop'
+    ? '.hidden{display:none}.sm\\:inline{display:inline}.sm\\:hidden{display:none}'
+    : '.hidden{display:none}';
+  document.head.appendChild(style);
+  return () => style.remove();
+}
+
 describe('WindowFirstShell — the tab bar', () => {
+  it.each([['desktop', 'At a Glance'], ['phone', 'Glance']])(
+    'names the first tab exactly the visible word on %s', (band, word) => {
+      const off = withBreakpoint(band);
+      renderShell();
+      expect(screen.getAllByRole('tab')[0]).toHaveAccessibleName(word);
+      off();
+    },
+  );
+
+  it('names the tablist "Sections", not after one tab', () => {
+    renderShell();
+    expect(screen.getByRole('tablist', { name: 'Sections' })).toBeInTheDocument();
+  });
+
   it('offers exactly Plan and Coming up, and no tab whose pane does not exist', () => {
     // The design draws four. Map and Manage arrive when this subtree takes over view state; a tab
     // that renders nothing is a demo control and §6 bans those.

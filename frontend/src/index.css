@@ -1475,11 +1475,14 @@
   .wf-tabs { padding: 10px var(--wf-gutter) 4px; }
   .wf-tab { padding: 8px 11px; font-size: 12px; }
   /* At a Glance → "Glance" rename (coming-up-glance-plan.md R1): the tabs share the bar's width
-     instead of huddling left, and each keeps a 36px body inside a 44px hit area (the 4px above and
-     below come from the pseudo-element, inside the bar's own 10px/4px padding). `overflow-x: auto`
+     instead of huddling left, and each keeps a 36px body plus 4px of hit area ABOVE it (40px in
+     all, from the pseudo-element, inside the bar's 10px top padding). It extends upward only: the
+     bar's `margin-bottom: -4px` puts the pane's top edge under the tab's foot. `overflow-x: auto`
      above stays: an admin sees four tabs. Phone only, so tablet and desktop are untouched. */
   .wf-tab { flex: 1 1 auto; min-height: 36px; position: relative; }
-  .wf-tab::before { content: ''; position: absolute; inset: -4px 0; }
+  .wf-tab::before { content: ''; position: absolute; inset: -4px 0 0; }
+  /* `flex: 1 1 auto` above would cancel the admin tab's `margin-left: auto` push to the right. */
+  .wf-tab-gated { flex-grow: 0; }
   .wf-body { padding: 12px var(--wf-gutter) 18px; }
 }
 

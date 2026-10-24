@@ -2294,7 +2294,7 @@ export default function WindowFirstShell({
       <div
         data-testid="window-first-tabs"
         role="tablist"
-        aria-label={`${GLANCE_LABEL} sections`}
+        aria-label="Sections"
         className="wf-tabs flex gap-1.5"
       >
         {tabs.map((tab, index) => {

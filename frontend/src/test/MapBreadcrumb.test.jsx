@@ -36,7 +36,32 @@ function renderCrumb(props = {}) {
   return { ...view, ...handlers };
 }
 
+
+/**
+ * jsdom applies no Tailwind and evaluates no media query in `getComputedStyle`, so the pair's two
+ * states are simulated with the plain rules each breakpoint resolves to. From 640px `.hidden` and
+ * `.sm:hidden` both apply and `.sm:inline` shows the long name; on a phone only `.hidden` applies, so the
+ * long name is off and the short one shows. Exact accessible names then prove one span, not both.
+ */
+function withBreakpoint(band) {
+  const style = document.createElement('style');
+  style.textContent = band === 'desktop'
+    ? '.hidden{display:none}.sm\\:inline{display:inline}.sm\\:hidden{display:none}'
+    : '.hidden{display:none}';
+  document.head.appendChild(style);
+  return () => style.remove();
+}
+
 describe('MapBreadcrumb — the ← At a Glance control', () => {
+  it.each([['desktop', 'At a Glance'], ['phone', 'Glance']])(
+    'is named exactly the visible word on %s', (band, word) => {
+      const off = withBreakpoint(band);
+      renderCrumb();
+      expect(screen.getByTestId('wf-map-breadcrumb-back')).toHaveAccessibleName(word);
+      off();
+    },
+  );
+
   it('names itself with the visible words alone, long and short — the arrow is aria-hidden', () => {
     renderCrumb();
     // jsdom applies no Tailwind, so both spans of the pair are in the name.
