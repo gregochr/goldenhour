@@ -1,3 +1,0 @@
-### Added — the four-day hot-topics strip on the phone's Map
-
-On a phone, the Map's "Other windows" panel now ends with a collapsible "Hot topics · next four days" section: the same eight-window grid as the desktop strip (a 70px label column, the High-water tick included), closed until you open it, except on big-seas days, when it starts open. It remembers its own open state separately from the desktop strip. Pressing a bar, or a label that has to move you to another window, selects the topic and the window and then folds the panel down so the rings on the map can be seen. On days when the big-seas line replaces the topic chips, this section is the way to the other topics. Desktop and tablet are unchanged. Frontend only.
