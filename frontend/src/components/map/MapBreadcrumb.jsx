@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import PropTypes from 'prop-types';
 import { DRIVE_TIME_TIERS } from './FiltersPopover.jsx';
 import { watchDeparture } from '../../utils/watchDeparture.js';
+import GlanceLabel from '../GlanceLabel.jsx';
 
 /**
  * The plain word for an EV row's kind, mirroring the design bundle's `e.name.toLowerCase()`
@@ -22,7 +23,7 @@ const KIND_WORD = {
  * every door was before the return learned to go back to where the reader came from (overlay
  * convergence C4, an extension of the doors plan's D2).
  */
-const RETURN_LABEL = { plan: 'Plan', 'coming-up': 'Coming up', operations: 'Operations' };
+const RETURN_LABEL = { plan: <GlanceLabel />, 'coming-up': 'Coming up', operations: 'Operations' };
 
 /**
  * A door's landing strip (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 3) — mounted by
@@ -115,8 +116,9 @@ const RETURN_LABEL = { plan: 'Plan', 'coming-up': 'Coming up', operations: 'Oper
  *
  * <h2>Accessible-name traps this file has to avoid</h2>
  *
- * <p>`← Plan`'s arrow is `aria-hidden` (the increment's own instruction, plan task 3) — the
- * accessible name is "Plan" alone, the plain trailing text node. Every sibling run that has to read
+ * <p>`← At a Glance`'s arrow is `aria-hidden` (the increment's own instruction, plan task 3) — the
+ * accessible name is the visible word alone ("At a Glance" or, below 640px, "Glance": the CSS pair
+ * `GlanceLabel` renders, one of which is always `display: none`). Every sibling run that has to read
  * as ONE space-separated sentence uses a literal `{' '}` text node between elements, and the `/`
  * and `·` separators are bare text — both so the boundary is stated in the DOM, where jsdom (which
  * computes no layout, so every span reads as inline to it) can see it. JSX drops whitespace-only

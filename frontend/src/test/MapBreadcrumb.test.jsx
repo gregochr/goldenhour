@@ -36,15 +36,18 @@ function renderCrumb(props = {}) {
   return { ...view, ...handlers };
 }
 
-describe('MapBreadcrumb — the ← Plan control', () => {
-  it('has "Plan" alone as its accessible name — the arrow is aria-hidden', () => {
+describe('MapBreadcrumb — the ← At a Glance control', () => {
+  it('names itself with the visible words alone, long and short — the arrow is aria-hidden', () => {
     renderCrumb();
-    expect(screen.getByRole('button', { name: 'Plan' })).toBeInTheDocument();
+    // jsdom applies no Tailwind, so both spans of the pair are in the name.
+    expect(screen.getByRole('button', { name: 'At a GlanceGlance' })).toBeInTheDocument();
+    expect(screen.getByTestId('glance-label-long')).toHaveTextContent('At a Glance');
+    expect(screen.getByTestId('glance-label-short')).toHaveTextContent('Glance');
   });
 
   it('calls onBack when pressed', () => {
     const { onBack } = renderCrumb();
-    fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: /^At a Glance/ }));
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 });
@@ -53,9 +56,9 @@ describe('MapBreadcrumb — the return names the tab the door came from (C4, an 
   it.each([
     ['coming-up', 'Coming up'],
     ['operations', 'Operations'],
-    ['plan', 'Plan'],
-    [undefined, 'Plan'],
-    ['nowhere', 'Plan'],
+    ['plan', /^At a Glance/],
+    [undefined, /^At a Glance/],
+    ['nowhere', /^At a Glance/],
   ])('from %s reads "%s" and is pressed as the same single control', (from, label) => {
     const { onBack } = renderCrumb({ carried: { from } });
     const back = screen.getByRole('button', { name: label });
@@ -144,10 +147,10 @@ describe('MapBreadcrumb — the window clause', () => {
       minStars: 4,
     });
     const { textContent } = screen.getByTestId('wf-map-breadcrumb');
-    expect(textContent).not.toMatch(/Plan\//);
+    expect(textContent).not.toMatch(/Glance\//);
     expect(textContent).not.toMatch(/\/Tonight/);
     expect(textContent).not.toMatch(/sunsetcarrying/);
-    expect(textContent).toMatch(/Plan \/ Tonight sunset carrying/);
+    expect(textContent).toMatch(/At a GlanceGlance \/ Tonight sunset carrying/);
   });
 });
 
@@ -293,10 +296,10 @@ describe('MapBreadcrumb — clear', () => {
 });
 
 describe('MapBreadcrumb — the door\'s headline and temporary lenses (overlay convergence C1)', () => {
-  it('prints the door\'s title and caption as "title · caption", after ← Plan', () => {
+  it('prints the door\'s title and caption as "title · caption", after ← At a Glance', () => {
     renderCrumb({ carried: { title: 'Aurora tonight', caption: 'Today · 21:49' } });
     expect(screen.getByTestId('wf-map-breadcrumb-title')).toHaveTextContent('Aurora tonight · Today · 21:49');
-    expect(screen.getByTestId('wf-map-breadcrumb').textContent).toMatch(/Plan \/ Aurora tonight/);
+    expect(screen.getByTestId('wf-map-breadcrumb').textContent).toMatch(/At a GlanceGlance \/ Aurora tonight/);
   });
 
   it('prints a title with no caption alone - no dangling separator', () => {
@@ -307,7 +310,7 @@ describe('MapBreadcrumb — the door\'s headline and temporary lenses (overlay c
   it('draws no headline at all for a plain door (no title, no caption) - the strip is unchanged', () => {
     renderCrumb({ carried: { minRating: 4 }, minStars: 4 });
     expect(screen.queryByTestId('wf-map-breadcrumb-title')).toBeNull();
-    expect(screen.getByTestId('wf-map-breadcrumb').textContent).toMatch(/^← ?Plan carrying 4★\+ clear$/);
+    expect(screen.getByTestId('wf-map-breadcrumb').textContent).toMatch(/^← ?At a GlanceGlance carrying 4★\+ clear$/);
   });
 
   it('names every active lens in the carrying group, after the carried clauses', () => {

@@ -211,7 +211,7 @@ describe('App — where Ask PhotoCast is mounted', () => {
     installViewport(1280);
     renderApp('PRO_USER');
     // The app opens on the Map at this width, which draws no footer: Plan is where it is.
-    fireEvent.click(await screen.findByRole('tab', { name: 'Plan' }));
+    fireEvent.click(await screen.findByRole('tab', { name: /^At a Glance/ }));
     fireEvent.click(await screen.findByTestId('ask-field'));
     const dock = await screen.findByRole('complementary', { name: 'Ask PhotoCast' });
     expect(screen.queryByRole('dialog')).toBeNull();

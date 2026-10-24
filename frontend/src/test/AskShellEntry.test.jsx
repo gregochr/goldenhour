@@ -50,7 +50,8 @@ import { ask, getAskSettings, getReady } from '../api/askApi.js';
 const bar = () => screen.getByTestId('ask-bar');
 const field = () => screen.getByTestId('ask-field');
 const sheet = () => screen.getByRole('dialog', { name: 'Ask PhotoCast' });
-const tab = (name) => screen.getByRole('tab', { name });
+// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
+const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 const shellRoot = () => screen.getByTestId('window-first-shell');
 /**
  * The React app's container — the ancestor of the shell that is a direct child of <body> (`#root` in
@@ -113,7 +114,7 @@ describe('the phone bar (below 640px)', () => {
     expect(screen.queryByTestId('ask-bar')).toBeNull();
     fireEvent.click(tab('Operations'));
     expect(screen.queryByTestId('ask-bar')).toBeNull();
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
     expect(bar()).toBeInTheDocument();
   });
 
@@ -175,7 +176,7 @@ describe('the tablet field (640 to 1023px)', () => {
     expect(field()).toHaveAccessibleName('Ask about rare events…');
   });
 
-  it.each(['Plan', 'Coming up', 'Map'])('is drawn on %s', async (name) => {
+  it.each(['At a Glance', 'Coming up', 'Map'])('is drawn on %s', async (name) => {
     renderAskShell({ width: 800, props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
     await fieldReady();
     fireEvent.click(tab(name));
@@ -197,7 +198,7 @@ describe('the tablet field (640 to 1023px)', () => {
     expect(field().parentElement).toBe(tablist.parentElement);
     // The roving-tab-index widget holds exactly its tabs and nothing of Ask's.
     expect(within(tablist).getAllByRole('tab').map((t) => t.textContent))
-      .toEqual(['◉ Plan', 'Coming up', '◍ Map']);
+      .toEqual(['◉ At a GlanceGlance', 'Coming up', '◍ Map']);
     expect(within(tablist).queryByRole('button', { name: /ask/i })).toBeNull();
   });
 
@@ -421,7 +422,7 @@ describe('the sheet', () => {
     await openSheet();
     expect(await screen.findByTestId('ask-ready-BEST_NEXT')).toBeInTheDocument();
     expect(screen.queryByTestId('ask-ready-RARE_EVENTS')).toBeNull();
-    expect(screen.getByTestId('ask-context')).toHaveTextContent('Plan · all regions');
+    expect(screen.getByTestId('ask-context')).toHaveTextContent('At a Glance · all regions');
     expect(screen.queryByTestId('ask-chip-window')).toBeNull();
   });
 
@@ -657,7 +658,7 @@ describe('the sheet', () => {
       await openSheet();
       rerenderShell({ settingsOpen: true });
       expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
-      expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+      expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     });
 
     it('mid-request: the sheet closes, the answer still lands, and it is waiting on return', async () => {
@@ -671,7 +672,7 @@ describe('the sheet', () => {
       fireEvent.click(tab('Coming up'));
       expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
       await act(async () => { pending.resolve(ownResponse()); });
-      fireEvent.click(tab('Plan'));
+      fireEvent.click(tab('At a Glance'));
 
       await openSheet();
       expect(screen.getByTestId('ask-picks')).toBeInTheDocument();
@@ -683,7 +684,7 @@ describe('the sheet', () => {
       fireEvent.click(await screen.findByTestId('ask-ready-BEST_NEXT'));
       await screen.findByTestId('ask-picks');
       fireEvent.click(tab('Coming up'));
-      fireEvent.click(tab('Plan'));
+      fireEvent.click(tab('At a Glance'));
 
       await openSheet();
       expect(screen.getByTestId('ask-picks')).toBeInTheDocument();
@@ -725,7 +726,7 @@ describe('"Show on map ›"', () => {
   it('keeps the answer: back on Plan the sheet reopens on it', async () => {
     await openAnswer();
     fireEvent.click(screen.getByTestId('ask-show-on-map-1'));
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
 
     await openSheet();
     expect(screen.getByTestId('ask-picks')).toBeInTheDocument();
@@ -736,7 +737,7 @@ describe('"Show on map ›"', () => {
     await openAnswer();
     expect(screen.getByTestId('ask-pick-select-2')).not.toHaveAttribute('aria-current');
     fireEvent.click(screen.getByTestId('ask-show-on-map-2'));
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
 
     await openSheet();
     expect(screen.getByTestId('ask-pick-select-2')).toHaveAttribute('aria-current', 'true');

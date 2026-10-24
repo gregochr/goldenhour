@@ -61,7 +61,8 @@ async function fieldReady() {
   return found;
 }
 const field = () => screen.getByTestId('ask-field');
-const tab = (name) => screen.getByRole('tab', { name });
+// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
+const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 
 /** Presses `/` on `target` and returns the event, so a test can read `defaultPrevented`. */
 function slash(target = document, init = {}) {
@@ -166,8 +167,8 @@ describe('what / does at 1024px and up', () => {
   it('is not tied to the field being the thing in focus: it works with focus on the tab list', async () => {
     renderAskShell({ width: 1280 });
     await fieldReady();
-    tab('Plan').focus();
-    slash(tab('Plan'));
+    tab('At a Glance').focus();
+    slash(tab('At a Glance'));
     expect(await screen.findByTestId('ask-dock')).toBeInTheDocument();
   });
 

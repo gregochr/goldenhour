@@ -149,7 +149,7 @@ class PlanErrorBoundary extends React.Component {
             real design call on whether a decorative, non-interactive landing heading wants a ring at
             all, not a mechanical substitution. */}
         <h2 ref={this.headingRef} tabIndex={-1} className="text-red-400 font-medium mb-2 outline-none">
-          The Plan stopped working
+          At a Glance stopped working
         </h2>
         {/* The message, not the stack. Enough to quote into a bug report; the rest is in the console. */}
         <p data-testid="plan-error-detail" className="text-plex-text-secondary text-sm mb-4">

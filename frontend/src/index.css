@@ -1474,6 +1474,12 @@
      zeroed a focus-ring reservation while its paired negative margin still applied. */
   .wf-tabs { padding: 10px var(--wf-gutter) 4px; }
   .wf-tab { padding: 8px 11px; font-size: 12px; }
+  /* At a Glance → "Glance" rename (coming-up-glance-plan.md R1): the tabs share the bar's width
+     instead of huddling left, and each keeps a 36px body inside a 44px hit area (the 4px above and
+     below come from the pseudo-element, inside the bar's own 10px/4px padding). `overflow-x: auto`
+     above stays: an admin sees four tabs. Phone only, so tablet and desktop are untouched. */
+  .wf-tab { flex: 1 1 auto; min-height: 36px; position: relative; }
+  .wf-tab::before { content: ''; position: absolute; inset: -4px 0; }
   .wf-body { padding: 12px var(--wf-gutter) 18px; }
 }
 

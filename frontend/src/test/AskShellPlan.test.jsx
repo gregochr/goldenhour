@@ -50,7 +50,8 @@ import { getAstroConditions } from '../api/astroApi.js';
 
 const TOMORROW = '2026-10-06';
 
-const tab = (name) => screen.getByRole('tab', { name });
+// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
+const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 const modalCount = () => document.querySelectorAll('[aria-modal="true"]').length;
 const dock = () => screen.queryByTestId('ask-dock');
 const askSheet = () => screen.queryByRole('dialog', { name: 'Ask PhotoCast' });
@@ -178,7 +179,7 @@ describe('on the dock (1024px and up)', () => {
     expect(modalCount()).toBe(1);
     expect(dock()).toBeInTheDocument();
     expect(dock()).toHaveAttribute('inert');
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('from the MAP tab it moves to Plan, and the dock stays open beside it', async () => {
@@ -190,7 +191,7 @@ describe('on the dock (1024px and up)', () => {
     fireEvent.click(screen.getByTestId('ask-plan-open'));
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(dock()).toBeInTheDocument();
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Saltburn');
     // Pick 2 is Saltburn TONIGHT: the window comes from the pick, whichever tab it was pressed on.
@@ -240,7 +241,7 @@ describe('on the dock (1024px and up)', () => {
     await screen.findByTestId('location-sheet');
 
     // ArrowRight from the Plan tab selects the next tab, focuses it and takes the dialogs down.
-    fireEvent.keyDown(tab('Plan'), { key: 'ArrowRight' });
+    fireEvent.keyDown(tab('At a Glance'), { key: 'ArrowRight' });
 
     await waitFor(() => expect(locationSheet()).toBeNull());
     expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
@@ -312,7 +313,7 @@ describe('on the dock (1024px and up)', () => {
     expect(screen.getByTestId('ask-plan')).toBeInTheDocument();
     expect(highlighted()).toHaveLength(0);
 
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
     expect(screen.getByTestId('ask-plan')).toBeInTheDocument();
     expect(highlighted()).toHaveLength(1);
   });
@@ -490,7 +491,7 @@ describe.each([
     expect(modalCount()).toBe(1);
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Whitby');
     expect(openRowKey()).toBe(`${TOMORROW}:SUNRISE`);
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('refuses over a dialog this shell does not own — and only Ask’s OWN sheet is excused, not any dialog', async () => {
@@ -604,7 +605,7 @@ describe('the tablet sheet over the Map', () => {
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
     expect(askSheet()).toBeNull();
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(modalCount()).toBe(1);
   });
 });

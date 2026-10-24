@@ -53,8 +53,8 @@ describe('WindowFirstShell', () => {
     expect(tabs).toHaveLength(2);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
     expect(tabs[1]).toHaveAttribute('aria-selected', 'false');
-    // Exactly "Plan": the ◉ is decorative and must not leak into the accessible name.
-    expect(tabs[0]).toHaveAccessibleName('Plan');
+    // The pair of label spans and nothing else: the ◉ is decorative and must not leak into the name.
+    expect(tabs[0]).toHaveAccessibleName('At a GlanceGlance');
     expect(tabs[1]).toHaveAccessibleName('Coming up');
   });
 

@@ -122,7 +122,8 @@ const renderShell = (overrides = {}, extraProps = {}) => {
   return { ...props, ...view, withContext };
 };
 
-const tab = (name) => screen.getByRole('tab', { name });
+// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
+const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 
 /** Selects Coming up and lets the fetch settle, which is what actually paints the rows. */
 const openComingUp = async () => {
@@ -156,8 +157,8 @@ describe('WindowFirstShell — the tab bar', () => {
     renderShell();
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent.trim())).toEqual(['◉ Plan', 'Coming up']);
-    expect(tab('Plan')).toHaveAccessibleName('Plan');
+    expect(tabs.map((t) => t.textContent.trim())).toEqual(['◉ At a GlanceGlance', 'Coming up']);
+    expect(tab('At a Glance')).toHaveAccessibleName('At a GlanceGlance');
     expect(tab('Coming up')).toHaveAccessibleName('Coming up');
   });
 
@@ -179,7 +180,7 @@ describe('WindowFirstShell — the tab bar', () => {
     it('shows it when the pane is handed over, at the end of the bar', () => {
       renderShell({}, { operationsPane: OPS });
       const names = screen.getAllByRole('tab').map((t) => t.textContent.trim());
-      expect(names).toEqual(['◉ Plan', 'Coming up', 'Operations']);
+      expect(names).toEqual(['◉ At a GlanceGlance', 'Coming up', 'Operations']);
       // No glyph: the cog is already the masthead's settings control a few pixels away.
       expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAccessibleName('Operations');
     });
@@ -199,7 +200,7 @@ describe('WindowFirstShell — the tab bar', () => {
 
       // Back to Plan: still mounted, just hidden. ManageView reads the hash at mount only, so a
       // remount would throw away whichever sub-view the reader was on.
-      fireEvent.click(tab('Plan'));
+      fireEvent.click(tab('At a Glance'));
       expect(screen.getByTestId('ops-pane', { hidden: true })).toBeInTheDocument();
       expect(screen.getByTestId('window-first-panel-operations', { hidden: true })).toHaveAttribute('hidden');
     });
@@ -233,7 +234,7 @@ describe('WindowFirstShell — the tab bar', () => {
 
     it('walks the keyboard over the tabs that exist, not the ones the build could have had', () => {
       renderShell({}, { operationsPane: OPS });
-      fireEvent.keyDown(tab('Plan'), { key: 'End' });
+      fireEvent.keyDown(tab('At a Glance'), { key: 'End' });
       expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
 
       // And with no pane, End lands on the last tab that DOES exist rather than on nothing. Without
@@ -241,7 +242,7 @@ describe('WindowFirstShell — the tab bar', () => {
       // bar unreachable by keyboard.
       cleanup();
       renderShell();
-      fireEvent.keyDown(tab('Plan'), { key: 'End' });
+      fireEvent.keyDown(tab('At a Glance'), { key: 'End' });
       expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
     });
 
@@ -258,7 +259,7 @@ describe('WindowFirstShell — the tab bar', () => {
       />);
 
       expect(screen.queryByRole('tab', { name: 'Operations' })).toBeNull();
-      expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+      expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByTestId('window-first-pane')).not.toHaveAttribute('hidden');
     });
   });
@@ -266,7 +267,7 @@ describe('WindowFirstShell — the tab bar', () => {
   it('opens on Plan, because the question on arriving is about tonight', () => {
     renderShell();
 
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(tab('Coming up')).toHaveAttribute('aria-selected', 'false');
   });
 
@@ -280,7 +281,7 @@ describe('WindowFirstShell — the tab bar', () => {
     // only the selected tab's pairing is what let that through.
     renderShell();
 
-    for (const [name, testId] of [['Plan', 'window-first-pane'], ['Coming up', 'window-first-coming-up']]) {
+    for (const [name, testId] of [['At a Glance', 'window-first-pane'], ['Coming up', 'window-first-coming-up']]) {
       const panel = screen.getByTestId(testId);
       expect(panel.id).not.toBe('');
       expect(tab(name)).toHaveAttribute('aria-controls', panel.id);
@@ -295,7 +296,7 @@ describe('WindowFirstShell — the tab bar', () => {
     // press to reach the pane.
     renderShell();
 
-    expect(tab('Plan')).toHaveAttribute('tabindex', '0');
+    expect(tab('At a Glance')).toHaveAttribute('tabindex', '0');
     expect(tab('Coming up')).toHaveAttribute('tabindex', '-1');
   });
 });
@@ -367,32 +368,32 @@ describe('WindowFirstShell — moving between tabs', () => {
     // both panes are cheap. This is the first roving-tabindex implementation in the codebase —
     // there was nothing to copy, so the whole contract is pinned.
     renderShell();
-    tab('Plan').focus();
+    tab('At a Glance').focus();
 
-    fireEvent.keyDown(tab('Plan'), { key: 'ArrowRight' });
+    fireEvent.keyDown(tab('At a Glance'), { key: 'ArrowRight' });
     await act(async () => { await Promise.resolve(); });
     expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
     expect(tab('Coming up')).toHaveFocus();
 
     fireEvent.keyDown(tab('Coming up'), { key: 'ArrowRight' });
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
-    expect(tab('Plan')).toHaveFocus();
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveFocus();
 
-    fireEvent.keyDown(tab('Plan'), { key: 'ArrowLeft' });
+    fireEvent.keyDown(tab('At a Glance'), { key: 'ArrowLeft' });
     await act(async () => { await Promise.resolve(); });
     expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('jumps to the ends with Home and End', async () => {
     renderShell();
-    tab('Plan').focus();
+    tab('At a Glance').focus();
 
-    fireEvent.keyDown(tab('Plan'), { key: 'End' });
+    fireEvent.keyDown(tab('At a Glance'), { key: 'End' });
     await act(async () => { await Promise.resolve(); });
     expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
 
     fireEvent.keyDown(tab('Coming up'), { key: 'Home' });
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('leaves a modified arrow to the browser, so Alt+Left is still Back', () => {
@@ -400,15 +401,15 @@ describe('WindowFirstShell — moving between tabs', () => {
     // Ctrl/Cmd+Home is "top of document"; swallowing one of those to change tab is worse than not
     // handling the key at all, and preventDefault was unconditional before this.
     renderShell();
-    tab('Plan').focus();
+    tab('At a Glance').focus();
 
     for (const modifier of ['altKey', 'ctrlKey', 'metaKey', 'shiftKey']) {
       const event = new KeyboardEvent('keydown', {
         key: 'ArrowRight', bubbles: true, cancelable: true, [modifier]: true,
       });
-      tab('Plan').dispatchEvent(event);
+      tab('At a Glance').dispatchEvent(event);
       expect(event.defaultPrevented).toBe(false);
-      expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+      expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     }
   });
 
@@ -481,10 +482,10 @@ describe('WindowFirstShell — moving between tabs', () => {
     fireEvent.click(screen.getByTestId('window-first-search'));
     await screen.findByTestId('plan-search');
     // Control: the tab the reader lands on is still in the tab order with search up.
-    expect(tab('Plan')).toHaveAttribute('tabindex', '0');
+    expect(tab('At a Glance')).toHaveAttribute('tabindex', '0');
 
-    act(() => { tab('Plan').focus(); });
-    fireEvent.keyDown(tab('Plan'), { key: 'ArrowRight' });
+    act(() => { tab('At a Glance').focus(); });
+    fireEvent.keyDown(tab('At a Glance'), { key: 'ArrowRight' });
     await act(async () => { await Promise.resolve(); });
 
     expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
@@ -496,13 +497,13 @@ describe('WindowFirstShell — moving between tabs', () => {
     // Up/Down are deliberately unbound: this is a horizontal tab list, and taking the vertical keys
     // would cost the page scroll for nothing.
     renderShell();
-    tab('Plan').focus();
+    tab('At a Glance').focus();
 
     const event = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
-    tab('Plan').dispatchEvent(event);
+    tab('At a Glance').dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(false);
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('starts on Plan again on the next visit, because a tab is not a saved preference', async () => {
@@ -538,7 +539,7 @@ describe('WindowFirstShell — moving between tabs', () => {
     unmount();
 
     renderShell();
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(keysNow()).toEqual(before);
   });
 });
@@ -563,7 +564,7 @@ describe('WindowFirstShell — the reach lens across tabs', () => {
     renderShell();
     await openComingUp();
 
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
     expect(screen.getByTestId('window-first-lens')).toBeInTheDocument();
   });
 });
@@ -651,7 +652,7 @@ describe('WindowFirstShell — search across tabs', () => {
   it('gives both triggers back on the way to Plan', async () => {
     renderShell();
     await openComingUp();
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
 
     expect(mastheadControls()).toEqual(PLAN_CONTROLS);
     fireEvent.click(screen.getByRole('button', { name: 'Search days, regions and places' }));
@@ -795,7 +796,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
 
     expect(getAlmanac).toHaveBeenCalledTimes(1);
     // Plan, not Coming up, is still what is on screen — the fetch ran without a tab switch.
-    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('shows the already-fetched feed the moment the reader opens the tab', async () => {
@@ -811,9 +812,9 @@ describe('WindowFirstShell — when the feed is fetched', () => {
     // this feed is rebuilt by the backend once a UTC day, so a second request buys nothing.
     renderShell();
     await openComingUp();
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
     await openComingUp();
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
     await openComingUp();
 
     expect(getAlmanac).toHaveBeenCalledTimes(1);
@@ -832,7 +833,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(getAlmanac).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('refetches once the date has rolled under an open tab', async () => {
@@ -890,7 +891,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
     getAlmanac.mockRejectedValue(new Error('502'));
     renderShell();
     await openComingUp();
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
     await openComingUp();
 
     expect(getAlmanac).toHaveBeenCalledTimes(1);
@@ -922,7 +923,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       // in `App`) — so without this the button was a control that could not act, and `App`
       // withheld it rather than name a destination it could not reach.
       const { setRequest } = renderWithRequest();
-      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
       act(() => setRequest({ id: 'map', nonce: 1 }));
       expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByTestId('map-pane')).toBeInTheDocument();
@@ -933,8 +934,8 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       // hand, press the hatch again: an id-keyed request would see no change and do nothing.
       const { setRequest } = renderWithRequest();
       act(() => setRequest({ id: 'map', nonce: 1 }));
-      fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
-      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
+      expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
       act(() => setRequest({ id: 'map', nonce: 2 }));
       expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
     });
@@ -954,14 +955,14 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         const { setRequest } = renderWithRequest();
         act(() => setRequest({ id: 'operations', nonce: 1 }));
         expect(screen.queryByRole('tab', { name: 'Operations' })).toBeNull();
-        expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+        expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
       });
 
       it('lands a second request after the reader navigated away, because the nonce moved', () => {
         const { setRequest } = renderWithRequest({ operationsPane: OPS });
         act(() => setRequest({ id: 'operations', nonce: 1 }));
-        fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
-        expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+        fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
+        expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
         act(() => setRequest({ id: 'operations', nonce: 2 }));
         expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
       });
@@ -1003,8 +1004,8 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         act(() => setRequest({ id: 'map', nonce: 1 }));
         act(() => setRequest({ id: 'plan', nonce: 2, opener: gone }));
 
-        expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
-        await waitFor(() => expect(screen.getByRole('tab', { name: 'Plan' })).toHaveFocus());
+        expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
+        await waitFor(() => expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveFocus());
       });
 
       it('...and when the control is mounted but cannot take focus, the tab\'s button does', async () => {
@@ -1015,7 +1016,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         act(() => setRequest({ id: 'map', nonce: 1 }));
         act(() => setRequest({ id: 'plan', nonce: 2, opener: hidden }));
 
-        await waitFor(() => expect(screen.getByRole('tab', { name: 'Plan' })).toHaveFocus());
+        await waitFor(() => expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveFocus());
         hidden.remove();
       });
     });
@@ -1034,13 +1035,13 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       const view = render(<WindowFirstShell {...base} />);
       act(() => view.rerender(<WindowFirstShell {...base} tabRequest={{ id: 'map', nonce: 1 }} />));
       expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
-      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
 
       // The forecast arrives; the pane appears. Plan must still be the selected tab.
       const MAP2 = <p data-testid="map-pane">map pane</p>;
       act(() => view.rerender(<WindowFirstShell {...base} mapPane={MAP2} tabRequest={{ id: 'map', nonce: 1 }} />));
       expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
-      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
     });
 
     it('ignores a request naming a tab that does not exist at all', () => {
@@ -1049,7 +1050,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       // WOULD have been mounted was not.
       const { setRequest } = renderWithRequest();
       act(() => setRequest({ id: 'nowhere', nonce: 1 }));
-      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
       expect(screen.queryByTestId('map-pane')).toBeNull();
     });
 
@@ -1077,9 +1078,9 @@ describe('WindowFirstShell — when the feed is fetched', () => {
           <WindowFirstShell {...base} mapPane={null} tabRequest={{ id: 'map', nonce: 1 }} />,
         ));
         expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
-        expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+        expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
         // Focus did not drop to <body>: it is on the bar's roving entry point.
-        expect(document.activeElement).toBe(tab('Plan'));
+        expect(document.activeElement).toBe(tab('At a Glance'));
         // And the key goes to the element focus is on (the bar still answers a keyboard).
         act(() => { fireEvent.keyDown(document.activeElement, { key: 'ArrowRight' }); });
         expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
@@ -1088,10 +1089,10 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       it('does not snap the reader back when the next alert offers the Map tab again', () => {
         const view = openMapWithFocus();
         act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
-        expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+        expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
         act(() => view.rerender(<WindowFirstShell {...base} mapPane={mapWithControl} />));
         expect(tab('Map')).toHaveAttribute('aria-selected', 'false');
-        expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+        expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
       });
 
       it('leaves focus alone when it was not lost (a reader elsewhere keeps their place)', () => {
@@ -1114,7 +1115,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         const before = document.activeElement;
         act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
         expect(document.activeElement).toBe(before);
-        expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+        expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
       });
     });
 
@@ -1129,7 +1130,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         locations: [], mapPane: MAP, tabRequest: { id: 'map', nonce: 4 },
       };
       render(<WindowFirstShell {...props} />);
-      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
     });
 
@@ -1149,7 +1150,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       // A null `tabRequest` is the resting state for every session that never opens the overlay,
       // and it must not steal the initial selection.
       renderWithRequest();
-      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
       expect(screen.queryByTestId('map-pane')).toBeNull();
     });
   });
@@ -1195,7 +1196,7 @@ describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7
     // Back to Plan: the Map panel keeps its slot (never unmounted) but loses the sizing class —
     // it is `hidden` now, and there is no computed height left to carry regardless (the flex
     // recast, below, replaced the calc chain this comment used to describe).
-    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
     expect(screen.getByTestId('window-first-panel-map').className).not.toContain('wf-body--map');
   });
 
@@ -1215,7 +1216,7 @@ describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7
     fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
     expect(panelWrap.style.maxWidth).toBe('1080px');
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
     expect(panelWrap.style.maxWidth).toBe('1080px');
   });
 
@@ -1257,7 +1258,7 @@ describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7
     expect(shell.className).toContain('flex');
     expect(shell.className).toContain('flex-col');
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
     expect(shell.className).not.toContain('flex-1');
     expect(shell.className).not.toContain('flex-col');
   });
@@ -1273,7 +1274,7 @@ describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7
     expect(panelWrap.className).toContain('min-h-0');
     expect(panelWrap.className).toContain('flex-col');
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
     expect(panelWrap.className).not.toContain('flex-1');
   });
 });
@@ -1288,8 +1289,8 @@ describe('WindowFirstShell — the Coming up lanes On Plan door (plan P1/D14)', 
     fireEvent.click(screen.getByTestId('coming-up-fourdays-plan'));
     await act(async () => { await Promise.resolve(); });
 
-    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
-    expect(tab('Plan')).toHaveFocus();
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveFocus();
   });
 });
 

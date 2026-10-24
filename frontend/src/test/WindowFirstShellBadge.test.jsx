@@ -222,7 +222,7 @@ describe('WindowFirstShell — the tab badge', () => {
     renderShell({ comingUpLastSeenDate: '2026-08-01' });
     await act(async () => { await Promise.resolve(); });
 
-    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByTestId('coming-up-tab-badge')).toBeInTheDocument();
   });
 
@@ -271,7 +271,7 @@ describe('WindowFirstShell — the Coming-up bootstrap write (plan D3)', () => {
     await openComingUp();
     expect(markComingUpSeen).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
     await openComingUp();
 
     expect(markComingUpSeen).toHaveBeenCalledTimes(1);
@@ -313,7 +313,7 @@ describe('WindowFirstShell — the Coming-up bootstrap write (plan D3)', () => {
     expect(markComingUpSeen).toHaveBeenCalledTimes(1);
 
     markComingUpSeen.mockResolvedValue({ comingUpLastSeenDate: TODAY });
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
     await openComingUp();
 
     expect(markComingUpSeen).toHaveBeenCalledTimes(2);

@@ -54,7 +54,8 @@ const FIRST = 'Are there any locations where tide matches sunrise?';
 const SECOND = 'Are there any closer to home?';
 const SHEET = { name: 'Ask PhotoCast' };
 
-const tab = (name) => screen.getByRole('tab', { name });
+// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
+const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 const sheet = () => screen.queryByRole('dialog', SHEET);
 
 /** Answer 1: two picks, so a card exists to select, plan and show on the map. */
@@ -151,7 +152,7 @@ describe('between two questions on the phone Plan sheet', () => {
     fireEvent.click(tab('Map'));
     expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
     expect(sheet()).toBeNull();
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
     await screen.findByTestId('ask-bar');
 
     await askSecond();
@@ -192,7 +193,7 @@ describe('between two questions on the phone Plan sheet', () => {
     fireEvent.click(screen.getByTestId('ask-pick-select-1'));
     fireEvent.click(await screen.findByTestId('ask-show-on-map-1'));
     await waitFor(() => expect(tab('Map')).toHaveAttribute('aria-selected', 'true'));
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
     await screen.findByTestId('ask-bar');
 
     await askSecond();

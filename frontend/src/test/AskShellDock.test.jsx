@@ -46,7 +46,8 @@ import { ask, getAskSettings, getReady } from '../api/askApi.js';
 
 const field = () => screen.getByTestId('ask-field');
 const dock = () => screen.queryByTestId('ask-dock');
-const tab = (name) => screen.getByRole('tab', { name });
+// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
+const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 const shellRoot = () => screen.getByTestId('window-first-shell');
 const column = () => screen.getByTestId('window-first-shell-col');
 const modalCount = () => document.querySelectorAll('[aria-modal="true"]').length;
@@ -141,7 +142,7 @@ describe('the four width bands, either side of each boundary', () => {
   it('is on Plan, Coming up and the Map, with the field beside the tab list and never inside it', async () => {
     renderAskShell({ width: 1280, props: { mapPane: MAP_PANE } });
     await fieldReady();
-    for (const name of ['Plan', 'Coming up', 'Map']) {
+    for (const name of ['At a Glance', 'Coming up', 'Map']) {
       fireEvent.click(tab(name));
       expect(field()).toBeInTheDocument();
       expect(screen.getByRole('tablist')).not.toContainElement(field());
@@ -169,7 +170,7 @@ describe('Operations has no Ask, and holds the field\'s place', () => {
     renderAskShell({ width: 1280, props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
     await openDock();
     fireEvent.click(tab('Operations'));
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
     expect(dock()).toBeNull();
     expect(field()).toHaveAttribute('aria-expanded', 'false');
   });
@@ -282,7 +283,7 @@ describe('the dock is a column beside the shell, not a dialog', () => {
     expect(dock()).toHaveAttribute('data-sticky');
     fireEvent.click(tab('Map'));
     expect(dock()).not.toHaveAttribute('data-sticky');
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
     expect(dock()).toHaveAttribute('data-sticky');
     // Undocked, the Map's own flex chain is byte-for-byte what it was.
     fireEvent.click(screen.getByTestId('ask-dock-close'));
@@ -364,8 +365,8 @@ describe('opening, closing and the conversation', () => {
   it('sends the view it is open on, with no region and no window, and says what it sends', async () => {
     renderAskShell({ width: 1280, props: { mapPane: MAP_PANE } });
     await openDock();
-    expect(screen.getByTestId('ask-dock-context')).toHaveTextContent('· on Plan');
-    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Plan · all regions');
+    expect(screen.getByTestId('ask-dock-context')).toHaveTextContent('· on At a Glance');
+    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('At a Glance · all regions');
     await askOne('Best at dawn?');
     expect(ask).toHaveBeenLastCalledWith({ question: 'Best at dawn?', regionIds: [], view: 'plan' });
 
@@ -373,7 +374,7 @@ describe('opening, closing and the conversation', () => {
     expect(screen.getByTestId('ask-dock-context')).toHaveTextContent('· on Coming up');
     // ⚠️ F3: the answer on screen was ASKED on Plan, and a tab switch must not relabel it — the chip
     // says what was sent. The dock's header follows the tab; the chips follow the question.
-    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Plan · all regions');
+    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('At a Glance · all regions');
     // With nothing on screen the chips say what the NEXT question will carry: this tab's.
     fireEvent.click(screen.getByTestId('ask-clear'));
     expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Coming up · all regions');
@@ -481,7 +482,7 @@ describe('Escape', () => {
     document.addEventListener('keydown', elsewhere);
     try {
       fireEvent.keyDown(document.body, { key: 'Escape' });
-      fireEvent.keyDown(tab('Plan'), { key: 'Escape' });
+      fireEvent.keyDown(tab('At a Glance'), { key: 'Escape' });
       expect(dock()).not.toBeNull();
       expect(elsewhere).toHaveBeenCalledTimes(2);
     } finally {
@@ -624,7 +625,7 @@ describe('focus is never left to fall to <body>', () => {
     rerenderShell({ settingsOpen: true });
 
     expect(dock()).toHaveAttribute('inert');
-    expect(tab('Plan')).toHaveFocus();
+    expect(tab('At a Glance')).toHaveFocus();
   });
 
   it('is left alone when focus is elsewhere: a press on a window card is the reader\'s own focus', async () => {
@@ -635,7 +636,7 @@ describe('focus is never left to fall to <body>', () => {
     await act(async () => { fireEvent.click(card); });
     await screen.findByTestId('window-sheet');
     expect(dock()).toHaveAttribute('inert');
-    expect(tab('Plan')).not.toHaveFocus();
+    expect(tab('At a Glance')).not.toHaveFocus();
   });
 
   it('⚠️ the window narrowing past 1024px under a focused dock hands focus to the tab in force', async () => {
@@ -649,7 +650,7 @@ describe('focus is never left to fall to <body>', () => {
 
     expect(dock()).toBeNull();
     expect(document.body).not.toHaveFocus();
-    expect(tab('Plan')).toHaveFocus();
+    expect(tab('At a Glance')).toHaveFocus();
   });
 
   it('closing by the ✕ or Escape is not second-guessed: focus stays on the field', async () => {
@@ -708,7 +709,7 @@ describe('a tab switch', () => {
     const open = await openDock();
     await askOne();
 
-    for (const name of ['Coming up', 'Map', 'Plan']) {
+    for (const name of ['Coming up', 'Map', 'At a Glance']) {
       fireEvent.click(tab(name));
       expect(screen.getByTestId('ask-dock')).toBe(open);
       expect(screen.getByTestId('ask-picks')).toBeInTheDocument();
@@ -844,9 +845,9 @@ describe('the Map\'s scope and window reach the dock and the sheet (F3)', () => 
     fireEvent.click(tab('Map'));
     await waitFor(() => expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Lake District'));
 
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
 
-    await waitFor(() => expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Plan · all regions'));
+    await waitFor(() => expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('At a Glance · all regions'));
     expect(screen.queryByTestId('ask-chip-window')).toBeNull();
     await waitFor(() => expect(getReady).toHaveBeenLastCalledWith('all'));
     await askOne('Best at dawn?');
@@ -860,7 +861,7 @@ describe('the Map\'s scope and window reach the dock and the sheet (F3)', () => 
     await waitFor(() => expect(screen.getByTestId('ask-chip-window')).toBeInTheDocument());
     await askOne('Best here?');
 
-    fireEvent.click(tab('Plan'));
+    fireEvent.click(tab('At a Glance'));
 
     expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Map · The Lake District');
     expect(screen.getByTestId('ask-chip-window')).toHaveTextContent('Saturday sunrise');

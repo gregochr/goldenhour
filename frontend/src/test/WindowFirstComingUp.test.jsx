@@ -428,9 +428,9 @@ describe('WindowFirstComingUp — the "Next four days" lanes (plan D14, hot-topi
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it('"On Plan" is its own button and calls onGoToPlan with no date', () => {
+  it('"At a Glance" is its own button and calls onGoToPlan with no date', () => {
     const { onGoToPlan } = renderPane({ hotTopics: [DUST] });
-    const button = screen.getByRole('button', { name: 'On Plan' });
+    const button = screen.getByRole('button', { name: /^At a Glance/ });
     fireEvent.click(button);
     expect(onGoToPlan).toHaveBeenCalledTimes(1);
     expect(onGoToPlan).toHaveBeenCalledWith();
@@ -462,7 +462,7 @@ describe('WindowFirstComingUp — the "Next four days" lanes (plan D14, hot-topi
     () => {
       renderPane({ hotTopics: undefined });
       expect(screen.getByTestId('coming-up-fourdays')).toHaveTextContent('Next four days');
-      expect(screen.getByRole('button', { name: 'On Plan' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^At a Glance/ })).toBeInTheDocument();
       expect(screen.getAllByTestId('coming-up-fourdays-day')).toHaveLength(4);
       expect(screen.queryByTestId('coming-up-fourdays-label')).toBeNull();
       expect(screen.queryByTestId('coming-up-fourdays-empty')).toBeNull();
