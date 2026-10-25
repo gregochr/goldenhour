@@ -102,15 +102,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
   },
 }));
 
-/** The lazy pins layer, replaced by the same probe pattern: what `MapView` hands it is the assertion. */
-const pinsProps = { last: null };
-vi.mock('../components/map/PinsLayer.jsx', () => ({
-  default: (props) => {
-    pinsProps.last = props;
-    return <div data-testid="map-pins-stub" />;
-  },
-}));
-
 let role = 'PRO_USER';
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
@@ -379,7 +370,6 @@ beforeEach(() => {
   heatLayerProps.last = null;
   heatLayerProps.mounts = 0;
   labelSpotsProps.last = null;
-  pinsProps.last = null;
   mapContainerProps.last = null;
   markerCalls.length = 0;
   fitBounds.mockClear();
@@ -431,7 +421,10 @@ describe('MapView heat — degrade paths', () => {
     // The three `heat.windows || []` guards and the `pointsByKey?.get` are otherwise decoration —
     // and a payload cached before a field existed is exactly the shape §8 says to expect.
     await renderMap({ heat: { enabled: true, hasHome: true, spots: SPOTS } });
-    expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument();
+    // Nothing is scored and the empty-state sentence speaks, so the toolbar has neither the key nor
+    // the unscored line to hold: it is not drawn at all, rather than an empty bordered cluster.
+    expect(screen.getByTestId('wf-map-no-forecast')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
     // No `heat.windows` and no `forecastDates` means the EV list itself is empty — the window
     // control renders nothing at all (map-tab-v2-plan.md §3 P6's own degrade for a truly empty
     // list), distinct from the "no forecast window" pill a non-empty list with no match shows.
@@ -459,11 +452,8 @@ describe('MapView heat — degrade paths', () => {
 });
 
 describe('MapView heat — the toolbar', () => {
-  it('opens in heat view, on the planning area, at §4.5’s padding', async () => {
+  it('opens on the planning area, at §4.5’s padding', async () => {
     await renderMap({ heat: heatProp() });
-    expect(screen.getByRole('button', { name: 'Heat' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Pins' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('group', { name: 'Map view' })).toBeInTheDocument();
     // The "My area" / "Everywhere" scope now lives in the filters popover (map-tab-v2-plan.md
     // §3 P7) rather than on the always-visible toolbar.
     openFilters();
@@ -476,81 +466,36 @@ describe('MapView heat — the toolbar', () => {
     expect(mapContainerProps.last.boundsOptions).toEqual({ padding: [28, 28] });
   });
 
-  it('withdraws the FIELD on Pins (map-tab-v2-plan.md §3 P10) but keeps the coastline-stroke host mounted, and brings the field back on Heat', async () => {
-    // Pre-P10, switching to the medallion view unmounted `MapHeatLayer` entirely. P10 changes the
-    // CONTRACT: the coastline stroke now lives on this same host and keeps drawing in Pins mode
-    // ("MapHeatLayer's pins-mode contract"), so the host itself must stay mounted — only its
-    // `fieldEnabled` prop toggles the field/bloom/rings off.
+  it('draws no Heat | Pins segment: heat is the map, and the colour key stands alone in the toolbar', async () => {
+    // Pins mode is gone. The absence is asserted with the toolbar, its key and the field's host all
+    // RENDERED, so it cannot pass vacuously on a toolbar that never mounted.
     await renderMap({ heat: heatProp() });
     expect(await screen.findByTestId('map-heat-layer')).toBeInTheDocument();
-    expect(heatLayerProps.last.fieldEnabled).toBe(true);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
-    // Still in the document with NO further `await`/`findBy` needed: `MapHeatLayer` has its own
-    // Suspense boundary now (separate from `MapLabels`/`PinsLayer`'s), so switching views never
-    // re-suspends it — an already-resolved `lazy()` component re-renders synchronously on a prop
-    // change, it does not remount.
-    expect(screen.getByTestId('map-heat-layer')).toBeInTheDocument();
-    expect(heatLayerProps.last.fieldEnabled).toBe(false);
-    expect(screen.getByRole('button', { name: 'Pins' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Heat' })).toHaveAttribute('aria-pressed', 'false');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
-    expect(screen.getByTestId('map-heat-layer')).toBeInTheDocument();
-    expect(heatLayerProps.last.fieldEnabled).toBe(true);
-  });
-
-  it('does not remount the marker layer on the Heat↔Pins toggle', async () => {
-    // With one colour language, the toggle no longer changes which palette a marker paints on — so
-    // the `key` that used to force a remount on every view switch is gone. Its only remaining
-    // effect would have been tearing down the selected marker on every press.
-    //
-    // ⚠️ Rewritten when clustering was deleted. It used to count mounts of the `MarkerClusterGroup`
-    // mock, which no longer exists; the invariant it protected — the toggle does not tear the
-    // marker layer down — is now asserted through the marker mock instead. P10's own note still
-    // applies: Pins mode hides the medallions via `MapHeatLayer`'s `fieldEnabled={false}` (0%
-    // opacity, inert) rather than by unmounting anything.
-    await renderMap({ heat: heatProp() });
-    const afterMount = markerCalls.length;
-    expect(afterMount).toBeGreaterThan(0);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
-
-    // Still rendering markers after three toggles — the layer survived rather than being torn down
-    // and left absent, which a bare "> 0" at mount time alone could not distinguish.
-    expect(markerCalls.length).toBeGreaterThan(0);
-  });
-
-  it('hides the ramp key in Pins view, where nothing is painted with it', async () => {
-    await renderMap({ heat: heatProp() });
-    // Named through its role: the gradient it explains is `aria-hidden`, so without a name of its
-    // own a screen reader meets two loose adjectives with nothing saying what they qualify.
-    expect(screen.getByRole('img', { name: /Poor to Worth it/ })).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument();
     expect(screen.getByTestId('wf-map-heat-legend')).toHaveTextContent('Poor');
-    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
-    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+    expect(screen.getByTestId('wf-legend-chip')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-view-heat')).toBeNull();
+    expect(screen.queryByTestId('wf-map-view-pins')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Map view' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Pins' })).toBeNull();
   });
 
-  it('hides the Legend chip entirely in Pins view (README §3: "In Pins mode the Legend chip hides")', async () => {
+  it('mounts the field host with no switch to withhold the field: it takes no fieldEnabled prop', async () => {
     await renderMap({ heat: heatProp() });
-    expect(screen.getByTestId('wf-legend-chip')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
-    expect(screen.queryByTestId('wf-legend-chip')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
-    expect(screen.getByTestId('wf-legend-chip')).toBeInTheDocument();
+    expect(await screen.findByTestId('map-heat-layer')).toBeInTheDocument();
+    expect(heatLayerProps.last).not.toHaveProperty('fieldEnabled');
+    expect(heatLayerProps.last).not.toHaveProperty('stoodRated');
   });
 
   it('drops the area segment entirely when no home is set (the "every press does nothing" coherence rule)', async () => {
     // With no postcode the planning area IS the whole roster, so both states frame the same box over
     // the same spots. field-geography-glyphs-plan.md's coherence rule bans a control whose every
     // press does nothing (NOT map-tab-v2-plan.md's D-6, the unrelated maxZoom-16 decision); the
-    // rest of the toolbar stays, because the view toggle and the window selector still do something.
+    // rest of the toolbar stays, because the colour key and the window selector still do something.
     await renderMap({ heat: heatProp({ hasHome: false }) });
     expect(screen.queryByRole('button', { name: 'My area' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Everywhere' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Heat' })).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
   });
 
   it('frames the whole catalogue WITHOUT animating (the fitBounds-mid-paint trap)', async () => {
@@ -664,13 +609,6 @@ describe('MapView heat — a window nobody rated', () => {
     expect(heatLayerProps.last.points).toEqual([]);
     expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
     expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
-  });
-
-  it('says nothing in Pins view, where no field is claimed either way', async () => {
-    await renderMap({ heat: unrated() });
-    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
-    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
-    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
   });
 
   it('says nothing extra when the map is on a date the EV list has no row for — but still withholds the key', async () => {
@@ -1063,7 +1001,7 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
     expect(names).not.toContain('Rated Inland');
   });
 
-  it('§7 check 2 — nothing is dropped: the pool handed to MapLabels/PinsLayer is the same size whether EVERY coastal slot matches or misses', async () => {
+  it('§7 check 2 — nothing is dropped: the pool handed to MapLabels is the same size whether EVERY coastal slot matches or misses', async () => {
     const allAligned = tideIndexOf(allTideBriefing(true).days);
     const allMissed = tideIndexOf(allTideBriefing(false).days);
 
@@ -1117,11 +1055,13 @@ describe('MapView heat — the modes it stands down for', () => {
   //
   // Aurora mode has to be REACHABLE to be tested: `MapView` resets the event type to SUNSET
   // whenever aurora is unavailable, so a live alert (or a stored result) is what lets it stand.
-  it('offers the toolbar and the field in aurora mode', async () => {
+  it('offers the field in aurora mode, and no empty toolbar while nothing is rated', async () => {
     auroraStatus = { active: true, level: 'QUIET' };
     await renderMap({ heat: heatProp(), autoEventType: 'AURORA' });
-    expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument();
     await screen.findByTestId('map-heat-layer');
+    // The night is unrated and the empty-state sentence speaks; the toolbar holds neither key nor
+    // line, so it is not drawn (it used to hold the Heat | Pins segment and so always showed).
+    expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
   });
 
   it('paints the live night from the LIVE aurora stars, and leaves an unrated location out', async () => {
@@ -1368,27 +1308,18 @@ describe('MapView heat — the modes it stands down for', () => {
     expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('clears the northern horizon');
   });
 
-  it('hands PinsLayer and MapLabels the aurora ramp, the glow and omitUnrated in aurora mode only', async () => {
+  it('hands MapLabels the aurora ramp and omitUnrated in aurora mode only', async () => {
     liveNight([[0, 4]]);
     await renderMap({ heat: heatProp(), autoEventType: 'AURORA', locations: plainLocations() });
     await waitFor(() => expect(labelSpotsProps.last).not.toBeNull());
     expect(labelSpotsProps.last.omitUnrated).toBe(true);
-    fireEvent.click(screen.getByTestId('wf-map-view-pins'));
-    await waitFor(() => expect(pinsProps.last).not.toBeNull());
-    expect(pinsProps.last.rampHex).toBe(AURORA_RAMP.hex);
-    expect(pinsProps.last.glow).toBe(true);
-    expect(pinsProps.last.omitUnrated).toBe(true);
+    expect(labelSpotsProps.last.rampHex).toBe(AURORA_RAMP.hex);
   });
 
-  it('hands PinsLayer and MapLabels the defaults in a solar window', async () => {
+  it('hands MapLabels the defaults in a solar window', async () => {
     await renderMap({ heat: heatProp() });
     expect(labelSpotsProps.last.omitUnrated).toBe(false);
     expect(labelSpotsProps.last.rampHex).toBe(rampHex);
-    fireEvent.click(screen.getByTestId('wf-map-view-pins'));
-    await waitFor(() => expect(pinsProps.last).not.toBeNull());
-    expect(pinsProps.last.rampHex).toBe(rampHex);
-    expect(pinsProps.last.glow).toBe(false);
-    expect(pinsProps.last.omitUnrated).toBe(false);
   });
 
   // ⚠️ Rewritten for map-tab-v2-plan.md §3 P6, which is a genuine behaviour change here, not a
@@ -1537,14 +1468,7 @@ describe('MapView heat — role gating (§9.6, ungated for the pilot)', () => {
 });
 
 describe('MapView heat — the marker swap (D2/D8)', () => {
-  it('paints markers with the same ramp colour in Heat and Pins view, because the ramp is now the map\'s only SCORE colour language', async () => {
-    // D8's end state, not a mid-migration one: `makeMarkerIcon`'s cache key no longer carries a
-    // per-view flag, so switching views is a cache HIT on the same icon rather than a second call
-    // to `markerLabelAndColour` with a different answer — there is no code path left that could
-    // recolour a marker on the way into Pins view (P10 hides them via opacity, never a remount).
-    // The zero further calls below is therefore the proof, not a weaker substitute for one: the
-    // identical cached DivIcon is reused, so its colour is provably identical, not merely
-    // re-derived to match.
+  it('paints markers with the ramp colour, because the ramp is now the map\'s only SCORE colour language', async () => {
     await renderMap({ heat: heatProp() });
     expect(markerCalls.length).toBeGreaterThan(0);
     // Every call `MapView` actually made resolves to the same ramp stop — asserted on the CALLS
@@ -1558,10 +1482,6 @@ describe('MapView heat — the marker swap (D2/D8)', () => {
     for (const args of [...markerCalls]) {
       expect(markerLabelAndColour(...args).colour).toBe(STOPS_VERDICT[3].hex);
     }
-
-    markerCalls.length = 0;
-    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
-    expect(markerCalls).toEqual([]);
   });
 
   it('draws the ramp key from the ramp itself, so the picture and its legend cannot drift', async () => {
@@ -1810,12 +1730,12 @@ describe('MapView heat — scope is excluded from the filters chip\'s own count'
  * itself is `MapLegendPanel.test.jsx`'s job in isolation; this describes the CALLER'S wiring the
  * way `MapViewHeat.test.jsx`'s other describes already test the toolbar/filters wiring. Fixes 8
  * confirmed findings from an adversarial review round (C1/C3, C4, C6, C7 below; C2/C5/C8/C9 landed
- * in the changelog, `MapView.jsx`'s azimuth-lines suite and `PinsLayer.test.jsx` respectively).
+ * in the changelog, `MapView.jsx`'s azimuth-lines suite respectively).
  */
 describe('MapView heat — the Legend panel (map-tab-v2-plan.md §3 P10)', () => {
   it('stacks with the LITE viewline-upsell chip rather than one suppressing the other (adversarial review C1/C3)', async () => {
     // The two are independent axes: the upsell keys on `auroraStatus`'s ALERT LEVEL, live
-    // regardless of which event type is on screen; the Legend chip keys on `heatView`/
+    // regardless of which event type is on screen; the Legend chip keys on
     // `heatOffered`, which excludes AURORA MODE specifically — and a LITE reader can never enter
     // aurora mode at all (`viewlineEnabled` is PRO/ADMIN-only), so an alert can fire while they sit
     // on an ordinary Heat-view sunset. A prior revision wrongly assumed these were the same axis.
@@ -1890,14 +1810,13 @@ function selectSpot(name, nonce = 1) {
 }
 
 /**
- * Azimuth lines are dropped in the tab's Pins mode (decision D-9, map-tab-v2-plan.md §3 P10)
- * — they were marker-layer furniture with no host in the pin vocabulary. Zero coverage existed
- * for this before adversarial review C5; a map-sourced `planHandoff` drives the selection this
- * needs (a real click needs a marker mock this file's own `Marker` stub discards `eventHandlers`
+ * Azimuth lines for the selected location. (They were dropped in the tab's former Pins mode, decision
+ * D-9; that mode is gone, so they now draw whenever a location is selected.) A map-sourced `planHandoff`
+ * drives the selection this needs (a real click needs a marker mock this file's own `Marker` stub discards `eventHandlers`
  * from), and `polylineCalls` (the recording mock above) is what proves a line was actually asked
  * for, not merely that nothing crashed.
  */
-describe('MapView heat — azimuth lines are dropped in Pins mode (decision D-9, adversarial review C5)', () => {
+describe('MapView heat — azimuth lines (decision D-9, adversarial review C5)', () => {
   it('draws the sunset azimuth line in Heat view, for a selected location', async () => {
     const azLoc = makeAzimuthLocation();
     await renderMap({
@@ -1906,32 +1825,6 @@ describe('MapView heat — azimuth lines are dropped in Pins mode (decision D-9,
     expect(polylineCalls.length).toBeGreaterThan(0);
   });
 
-  it('drops the azimuth line the moment the tab switches to Pins', async () => {
-    const azLoc = makeAzimuthLocation();
-    await renderMap({
-      heat: heatProp(), locations: azLoc, planHandoff: selectSpot(azLoc[0].name),
-    });
-    expect(polylineCalls.length).toBeGreaterThan(0);
-
-    polylineCalls.length = 0;
-    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
-    expect(polylineCalls.length).toBe(0);
-  });
-
-  it('brings the azimuth line straight back on switching back to Heat', async () => {
-    const azLoc = makeAzimuthLocation();
-    await renderMap({
-      heat: heatProp(), locations: azLoc, planHandoff: selectSpot(azLoc[0].name),
-    });
-    expect(polylineCalls.length).toBeGreaterThan(0);
-
-    polylineCalls.length = 0;
-    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
-    expect(polylineCalls.length).toBe(0);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
-    expect(polylineCalls.length).toBeGreaterThan(0);
-  });
 });
 
 /**
@@ -4062,16 +3955,8 @@ describe('MapView heat — a past window', () => {
     expect(screen.getByTestId('wf-win-past')).toHaveTextContent('Past');
   });
 
-  it('follows the Heat|Pins toggle on a past window as on a served one', async () => {
+  it('paints the field and its key on a past window as on a served one', async () => {
     await renderPast(pastHeat());
-    expect(heatLayerProps.last.fieldEnabled).toBe(true);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
-    expect(heatLayerProps.last.fieldEnabled).toBe(false);
-    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
-    expect(heatLayerProps.last.fieldEnabled).toBe(true);
     expect(heatLayerProps.last.points).toHaveLength(2);
     expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
   });

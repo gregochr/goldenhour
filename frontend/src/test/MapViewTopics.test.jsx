@@ -54,7 +54,7 @@ vi.mock('react-leaflet', () => ({
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div /> }));
 
 /** The props each label layer last received: `chromeKey` is what this file asserts on. */
-const labelProps = { labels: [], pins: [] };
+const labelProps = { labels: [] };
 vi.mock('../components/map/MapLabels.jsx', () => ({
   default: (props) => {
     labelProps.labels.push(props);
@@ -63,12 +63,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
         chip
       </button>
     );
-  },
-}));
-vi.mock('../components/map/PinsLayer.jsx', () => ({
-  default: (props) => {
-    labelProps.pins.push(props);
-    return <div data-testid="probe-pins" />;
   },
 }));
 vi.mock('../components/map/MapCallout.jsx', () => ({
@@ -213,7 +207,6 @@ beforeEach(() => {
   localStorage.clear();
   mockIsMobile = false;
   labelProps.labels.length = 0;
-  labelProps.pins.length = 0;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T09:40:00Z`));
 });
@@ -424,17 +417,6 @@ describe('MapView: the rings', () => {
     expect(ringCircles()).toHaveLength(0);
   });
 
-  it('draws them in Pins view as well - the larger ring that clears the pin', async () => {
-    await renderMap();
-    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-view-pins')); });
-    await press('KING_TIDE');
-    expect(ringCircles().filter((c) => c.dataset.radius === '17')).toHaveLength(1);
-    expect(ringCircles().filter((c) => c.dataset.radius === '11')).toHaveLength(0);
-    // And back to Heat: the same selection, the smaller ring.
-    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-view-heat')); });
-    expect(ringCircles().filter((c) => c.dataset.radius === '11')).toHaveLength(1);
-  });
-
   it('rings Big seas\' structures by id and keeps its chip on a full day', async () => {
     const { rerender } = await renderMap({ bigSeas: [{ ...SATURDAY, date: TODAY }] });
     // The fixture's structures (243, 28, 21) are not in this one-spot roster: the chip says so by
@@ -602,21 +584,18 @@ describe('MapView: the repaint key', () => {
     else delete HTMLElement.prototype.offsetHeight;
   });
 
-  const lastKey = (layer) => labelProps[layer][labelProps[layer].length - 1].chromeKey;
+  const lastKey = () => labelProps.labels[labelProps.labels.length - 1].chromeKey;
 
-  it('hands both label layers a key that moves when the chrome group\'s height does, and only then', async () => {
+  it('hands the label layer a key that moves when the chrome group\'s height does, and only then', async () => {
     await renderMap();
-    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-view-pins')); });
-    const pinsBefore = lastKey('pins');
+    const before = lastKey();
     // A resize that leaves the height alone repaints nothing.
     await act(async () => { observers.forEach((o) => o.cb()); });
-    expect(lastKey('pins')).toBe(pinsBefore);
+    expect(lastKey()).toBe(before);
     // A taller group (a toggled sky-wide line, a wrapped chips row) does.
     height = 104;
     await act(async () => { observers.forEach((o) => o.cb()); });
-    expect(lastKey('pins')).not.toBe(pinsBefore);
-    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-view-heat')); });
-    expect(lastKey('labels')).toBe(lastKey('pins'));
+    expect(lastKey()).not.toBe(before);
   });
 });
 
@@ -639,10 +618,9 @@ describe('MapView: the ringed places are named (topic-ring-names-plan.md)', () =
     hotTopics: surge(names), spots: [SPOT, HIDDEN], extraLocations: [hiddenLocation()],
   });
   const lastLabels = () => labelProps.labels[labelProps.labels.length - 1].spots;
-  const lastPins = () => labelProps.pins[labelProps.pins.length - 1].spots;
   const namesOf = (spots) => spots.map((sp) => sp.name);
 
-  it('with no topic selected both layers get the plain label spots: nothing ringed, nothing appended', async () => {
+  it('with no topic selected the layer gets the plain label spots: nothing ringed, nothing appended', async () => {
     await renderMap(withHidden());
     expect(namesOf(lastLabels())).toEqual([SPOT.name]);
     expect(lastLabels().some((sp) => sp.topicRing || sp.topicRingAdded)).toBe(false);
@@ -665,14 +643,6 @@ describe('MapView: the ringed places are named (topic-ring-names-plan.md)', () =
     // Deselecting removes it again.
     await press('STORM_SURGE');
     expect(namesOf(lastLabels())).toEqual([SPOT.name]);
-  });
-
-  it('gives Pins the same spots: a pin for the withheld ringed place (no name is drawn there)', async () => {
-    await renderMap(withHidden());
-    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-view-pins')); });
-    await press('STORM_SURGE');
-    expect(namesOf(lastPins())).toEqual([SPOT.name, HIDDEN.name]);
-    expect(lastPins()[1]).toMatchObject({ topicRing: true, topicRingAdded: true });
   });
 
   it('skips a ringed place with no catalogue row, and one with no finite coordinates', async () => {

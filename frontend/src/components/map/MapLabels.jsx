@@ -98,8 +98,7 @@ const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tr"]',
   '[data-testid="wf-map-chrome-bl"]',
   '[data-testid="wf-map-counts-footer"]',
-  // The tide strip (tide-window-plan.md T6/T7) — see `PinsLayer.jsx`'s identical entry/comment:
-  // on desktop it is a plain child of `.wf-map-chrome-bl` above and needs no entry of its own; on
+  // The tide strip (tide-window-plan.md T6/T7) — on desktop it is a plain child of `.wf-map-chrome-bl` above and needs no entry of its own; on
   // the phone (T7) it is mounted as that element's SIBLING instead, so without its own selector
   // here a label could place itself under an uncovered strip on that one viewport.
   '[data-testid="wf-tide-strip"]',
@@ -1095,10 +1094,6 @@ MapLabels.propTypes = {
     rating: PropTypes.number,
     bortleClass: PropTypes.number,
     driveMinutes: PropTypes.number,
-    /** `PinsLayer`'s stand-down/no-data distinction — carried on every spot but read only by a
-     * caller that draws pins alongside chips; untyped until now (`MapView.jsx`'s `spotOf` always
-     * sets it). */
-    isStandDown: PropTypes.bool,
     /** Bundle rev 2's tide-chip tweak — true when THIS window's water lands on the light here.
      * Carried on every spot (`MapView.jsx#spotOf`) but no longer read by THIS component — the
      * chip's glyph/ring/tiebreak/tooltip all moved onto `tideTier` below (tide-window-plan.md §3

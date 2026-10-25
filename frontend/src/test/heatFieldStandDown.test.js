@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
-  bbox, drawGeo, drawStandDownTiles, drawTiles, load, paintStandDown, paintUnknown,
+  bbox, drawGeo, drawTiles, load, paintStandDown, paintUnknown,
 } from '../utils/heatField.js';
 
 /**
@@ -265,37 +265,5 @@ describe('drawTiles — the stood option', () => {
     drawTiles(cv, fakeMap(300, 200), [], 0, { radius: 40, grid: 6, stood: STOOD, standRadius: 20 });
     const layers = ctx.calls.filter((c) => c.name === 'drawImage').map((c) => layerOf(c.args[0]));
     expect(layers).toContain('stood');
-  });
-});
-
-describe('drawStandDownTiles — Pins view', () => {
-  const RATED = [{ lat: 54.7, lng: -2.3, r: [4], rid: 'north' }];
-  const STOOD = [{ lat: 54.7, lng: -2.3, rid: 'north' }, { lat: 55.3, lng: -1.9, rid: 'north' }];
-  const fakeMap = (w, h) => ({
-    getSize: () => ({ x: w, y: h }),
-    latLngToContainerPoint: ([lat, lng]) => ({ x: (lng + 3) * 100, y: (56 - lat) * 100 }),
-  });
-
-  it('paints only the stood layer: no clear, no field', () => {
-    const { cv, ctx } = canvasWithContext(300, 200);
-    const drew = drawStandDownTiles(cv, fakeMap(300, 200), RATED, 0, { stood: STOOD, standRadius: 20 });
-    expect(drew).toBe(true);
-    expect(names(ctx)).not.toContain('clearRect');
-    const layers = ctx.calls.filter((c) => c.name === 'drawImage').map((c) => layerOf(c.args[0]));
-    expect(layers).toEqual(['stood']);
-  });
-
-  it('keeps the rated mask: a rated place under a stood one is not hatched', () => {
-    const { cv } = canvasWithContext(300, 200);
-    drawStandDownTiles(cv, fakeMap(300, 200), RATED, 0, { stood: [STOOD[0]], standRadius: 20, grid: 4 });
-    const put = allContexts.flatMap((c) => c.calls).find((c) => c.name === 'putImageData').args[0];
-    // The stood place sits at px (70, 130): its own cell is the rated place's, so it is bare there.
-    expect(put.data[((Math.round(130 / 4)) * put.width + Math.round(70 / 4)) * 4 + 3]).toBe(0);
-  });
-
-  it('draws nothing without stood places or on a map too small to paint', () => {
-    const { cv } = canvasWithContext(300, 200);
-    expect(drawStandDownTiles(cv, fakeMap(300, 200), RATED, 0, { stood: [] })).toBe(false);
-    expect(drawStandDownTiles(cv, fakeMap(10, 10), RATED, 0, { stood: STOOD })).toBe(false);
   });
 });

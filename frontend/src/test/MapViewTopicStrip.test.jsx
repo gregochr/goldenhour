@@ -51,7 +51,7 @@ vi.mock('react-leaflet', () => ({
 
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div /> }));
 
-const labelProps = { labels: [], pins: [] };
+const labelProps = { labels: [] };
 vi.mock('../components/map/MapLabels.jsx', () => ({
   default: (props) => {
     labelProps.labels.push(props);
@@ -60,12 +60,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
         chip
       </button>
     );
-  },
-}));
-vi.mock('../components/map/PinsLayer.jsx', () => ({
-  default: (props) => {
-    labelProps.pins.push(props);
-    return <div data-testid="probe-pins" />;
   },
 }));
 vi.mock('../components/map/MapCallout.jsx', () => ({
@@ -228,7 +222,6 @@ beforeEach(() => {
   localStorage.clear();
   mockIsMobile = false;
   labelProps.labels.length = 0;
-  labelProps.pins.length = 0;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T09:40:00Z`));
 });
@@ -245,14 +238,6 @@ describe('MapView: the four-day strip mount', () => {
     expect(within(strip()).getByTestId('wf-topic-strip-label-KING_TIDE')).toBeInTheDocument();
     expect(within(strip()).getByTestId('wf-topic-strip-label-DUST')).toBeInTheDocument();
     expect(within(strip()).getByTestId('wf-topic-strip-label-AURORA')).toBeInTheDocument();
-  });
-
-  it('mounts in Pins view with nothing else in the stack (no legend, no upsell, no tide strip)', async () => {
-    await renderMap();
-    await press('wf-map-view-pins');
-    const chromeBl = screen.getByTestId('wf-map-chrome-bl');
-    expect(chromeBl.children).toHaveLength(1);
-    expect(chromeBl.firstElementChild).toBe(strip());
   });
 
   it('is not mounted when there is no topic on the four days (no empty panel)', async () => {
@@ -748,17 +733,6 @@ describe('MapView: the strip and the rest of the chrome', () => {
     await act(async () => { fireEvent.click(toggle()); });
     await act(async () => { observers.forEach((o) => o.cb()); });
     expect(lastKey()).not.toBe(before);
-  });
-
-  it('moves the PINS layer\'s repaint key the same way, in Pins view', async () => {
-    await renderMap();
-    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-view-pins')); });
-    const pinsKey = () => labelProps.pins[labelProps.pins.length - 1].chromeKey;
-    const before = pinsKey();
-    blHeight = 60;
-    await act(async () => { fireEvent.click(toggle()); });
-    await act(async () => { observers.forEach((o) => o.cb()); });
-    expect(pinsKey()).not.toBe(before);
   });
 
   it('moves the repaint key for a bottom-left change even with NO topics (a deliberate widening)', async () => {

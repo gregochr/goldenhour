@@ -21,7 +21,7 @@ const spot = (name, rid, rating, driveMinutes = null) => ({
 // `verdictWord.test.js` — `verdictWord` moved there (map-callout-d3-geo-leak fix) so
 // `MapCallout.jsx` can import it without also reaching `heatField.js`'s `d3-geo` chain. What is
 // still worth pinning HERE is the compatibility contract this file's own doc comment promises:
-// `MapLabels.jsx`/`PinsLayer.jsx` import these three names from `mapLabels.js` and must keep
+// `MapLabels.jsx` imports these three names from `mapLabels.js` and must keep
 // resolving to the exact same bindings `verdictWord.js` exports — not a copy that could drift.
 describe('mapLabels — re-exports verdictWord/WORTH_IT_THRESHOLD/MAYBE_THRESHOLD unchanged', () => {
   it('is the identical binding verdictWord.js exports, not a duplicate', () => {

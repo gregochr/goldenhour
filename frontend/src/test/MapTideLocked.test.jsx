@@ -8,7 +8,7 @@
  * `MapPeekTideSection` and the real `MapRegionPanel`, and states each claim from the PRO side too,
  * so a test cannot pass on a component that locks everyone.
  *
- * <p>`MapLabels`/`PinsLayer` are probes that surface `spot.tideTier` as `data-tide` straight off
+ * <p>`MapLabels` is a probe that surfaces `spot.tideTier` as `data-tide` straight off
  * the real `labelSpots`; `MapCallout` records the props `MapView` hands it (its `TideFitBlock` is
  * driven by exactly those two).
  */
@@ -111,15 +111,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
         >
           {s.name}
         </button>
-      ))}
-    </div>
-  ),
-}));
-vi.mock('../components/map/PinsLayer.jsx', () => ({
-  default: (props) => (
-    <div data-testid="probe-pins">
-      {(props.spots || []).map((s) => (
-        <div key={s.name} data-testid="probe-pin" data-tide={s.tideTier ?? undefined}>{s.name}</div>
       ))}
     </div>
   ),
@@ -398,14 +389,6 @@ describe('Map tide lock — no match cue anywhere (§5.1)', () => {
       .map((s) => [s.getAttribute('data-name'), s.getAttribute('data-tide')]));
     expect(tides.Bamburgh).toBe('match');
     expect(tides.Tynemouth).toBe('miss');
-  });
-
-  it('LITE: no pin carries data-tide either (Pins view)', async () => {
-    mockIsMobile = true;
-    await renderMap();
-    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay')); });
-    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-view-pins')); });
-    screen.getAllByTestId('probe-pin').forEach((p) => expect(p).not.toHaveAttribute('data-tide'));
   });
 
   async function openNorthEastPanel() {

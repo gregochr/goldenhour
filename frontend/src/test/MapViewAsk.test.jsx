@@ -78,11 +78,6 @@ const mapLabelsCalls = [];
 vi.mock('../components/map/MapLabels.jsx', () => ({
   default: (props) => { mapLabelsCalls.push(props); return null; },
 }));
-const pinsLayerCalls = [];
-vi.mock('../components/map/PinsLayer.jsx', () => ({
-  default: (props) => { pinsLayerCalls.push(props); return <div data-testid="pins-layer" />; },
-}));
-
 /** The camera, as a probe: what `MapView` hands it is the whole of its contract with the map. */
 const cameraCalls = [];
 vi.mock('../components/map/AskCameraController.jsx', () => ({
@@ -216,7 +211,6 @@ beforeEach(() => {
   vi.setSystemTime(new Date(`${TODAY}T10:00:00Z`));
   localStorage.clear();
   mapLabelsCalls.length = 0;
-  pinsLayerCalls.length = 0;
   heatLayerCalls.length = 0;
   cameraCalls.length = 0;
   filtersPopoverCalls.length = 0;
@@ -234,7 +228,6 @@ afterEach(() => {
 
 const lastLabels = () => mapLabelsCalls.at(-1);
 const askSpots = () => lastLabels().spots.filter((s) => s.askPick);
-const lastPins = () => pinsLayerCalls.at(-1);
 
 describe('MapView publishes what a question asked from here carries', () => {
   it('Everywhere, with the window on the pill, when no home narrows anything', async () => {
@@ -613,19 +606,6 @@ describe('picks on the map', () => {
 
     expect(askSpots()).toEqual([]);
     expect(heatLayerCalls.at(-1).dim).toBe(1);
-  });
-});
-
-describe('Pins view carries the picks too', () => {
-  it('hands the pins layer the same pick spots, and the way to choose one', async () => {
-    const onSelectAskPick = vi.fn();
-    await renderTab({ askPicks: [pick()], askAnswerId: 1, onSelectAskPick });
-    await act(async () => { screen.getByTestId('wf-map-view-pins').click(); });
-
-    expect(screen.getByTestId('pins-layer')).toBeInTheDocument();
-    expect(lastPins().spots.filter((s) => s.askPick).map((s) => s.name)).toEqual(['Near']);
-    act(() => { lastPins().onSelectAskPick(3); });
-    expect(onSelectAskPick).toHaveBeenCalledExactlyOnceWith(3);
   });
 });
 

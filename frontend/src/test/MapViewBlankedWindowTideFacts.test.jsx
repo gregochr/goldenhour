@@ -57,7 +57,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
     return <div data-testid="stub-labels" />;
   },
 }));
-vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => null }));
 
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));

@@ -14,16 +14,16 @@
  * that chunk carried a static import of a shared chunk holding `centroid`, the heat-field canvas
  * kernel and topojson's feature decoder — which itself statically imported the `d3-geo`/`d3-array`
  * bundle. So the Map tab and the Plan-tab overlay (`WindowFirstMapPane.jsx`, which mounts
- * `MapView` before a reader has chosen Heat or Pins, or opened the callout at all) were paying for
+ * `MapView` before a reader has opened the callout at all) were paying for
  * ~33 KB of JS (`labelPlacement-*.js` + `geo-*.js`, unminified) on every load, exactly the weight
- * the `lazy()` boundaries around {@code MapHeatLayer}/{@code MapLabels}/{@code PinsLayer} in
+ * the `lazy()` boundaries around {@code MapHeatLayer}/{@code MapLabels} in
  * `MapView.jsx` exist to keep off that network path. See `MapView.jsx`'s comment above those
  * `lazy()` calls for the measurement and the full account.
  *
  * <p>The fix is this file: {@link verdictWord} now lives somewhere that cannot reach `heatField.js`
  * even by accident, because there is nothing else in the module for a future addition to sit next
  * to that would create that edge. `MapCallout.jsx` imports directly from here.
- * `utils/mapLabels.js` re-exports the same three bindings so `MapLabels.jsx`/`PinsLayer.jsx` (which
+ * `utils/mapLabels.js` re-exports the same three bindings so `MapLabels.jsx` (which
  * already pay for `d3-geo` for the heat-kernel/labelling code they DO use) need no import-path
  * change.
  */

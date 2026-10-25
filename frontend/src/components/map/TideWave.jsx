@@ -15,9 +15,8 @@ const STATE_LETTER = { HIGH: 'H', MID: 'M', LOW: 'L' };
  *
  * <p>The design bundle's own `TIDEGLYPH`/`missGlyph` paths verbatim (`map-tide-v5.js:152–161`),
  * extracted because three surfaces draw one or the other: the map label chip, the callout/sheet
- * block (`TideFitBlock.jsx`, T5) and the region panel's location rows. Pins mode (T4) states the
- * same fact in words alone (the tooltip's third line, `PinsLayer.jsx`) — no glyph, so it is not a
- * fourth mount. Copied into the first two independently once already, and a further copy of a
+ * block (`TideFitBlock.jsx`, T5) and the region panel's location rows. The tooltip's third line
+ * states the same fact in words alone — no glyph, so it is not a fourth mount. Copied into the first two independently once already, and a further copy of a
  * bezier nobody can proof-read is how the map ends up with two subtly different waves.
  *
  * <p><b>{@code shortfall}</b> is null for a match (or for "no served tide fact at all" — a caller

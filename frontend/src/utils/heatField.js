@@ -994,32 +994,6 @@ function paintStoodOnTiles(ctx, w, h, map, opts, pts) {
 }
 
 /**
- * Pins view's stand-down layer: the same paint as {@link drawTiles}' {@code stood} option, with no
- * field after it (big-seas plan F3). The caller has already cleared the canvas; this only draws.
- *
- * @param {HTMLCanvasElement} cv target canvas, sized to the map
- * @param {object} map a Leaflet map
- * @param {Array<{lat: number, lng: number, r: number[], rid: *}>} spots the rated points the mask
- *        yields to
- * @param {number} win index into each spot's {@code r} scores
- * @param {object} opts {@code stood}, {@code standRadius}, {@code opacity} and the land-clip keys
- * @returns {boolean} whether anything was drawn
- */
-export function drawStandDownTiles(cv, map, spots, win, opts) {
-  opts = opts || {};
-  const sz = map.getSize();
-  const w = sz.x;
-  const h = sz.y;
-  if (!(w > 20) || !(h > 20)) return false;
-  const ctx = fit(cv, w, h);
-  const pts = spots.map((s) => {
-    const p = map.latLngToContainerPoint([s.lat, s.lng]);
-    return { x: p.x, y: p.y, sc: s.r[win], rid: s.rid };
-  });
-  return paintStoodOnTiles(ctx, w, h, map, opts, pts);
-}
-
-/**
  * Metres-per-pixel at the map's centre, so a kernel radius can be set in real distance rather
  * than in pixels that mean a different thing at every zoom.
  *

@@ -86,7 +86,6 @@ const mapLabelsCalls = [];
 vi.mock('../components/map/MapLabels.jsx', () => ({
   default: (props) => { mapLabelsCalls.push(props); return null; },
 }));
-vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => <div data-testid="pins-layer" /> }));
 
 /** The selection callout, mocked to a probe — proves a location the carried floor filters OUT of
  *  the visible pool still gets its callout, because the effect is a direct state write. */

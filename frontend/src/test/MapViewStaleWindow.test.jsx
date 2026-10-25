@@ -19,7 +19,7 @@
  * <h2>What is asserted, and what is deliberately NOT</h2>
  *
  * <p>The gate is on the ACCESSOR, which is what `labelSpots` hands `MapLabels` as `rating` and
- * what `PinsLayer`, the star filter and the footer all read. This file proves the accessor; that
+ * what the label layer, the star filter and the footer all read. This file proves the accessor; that
  * `MapLabels` prints a rating it is given is `MapLabels.test.jsx`'s job and is not re-tested here.
  *
  * <p>Two things must NOT change and are pinned alongside: an ELAPSED window that still has a row
@@ -513,20 +513,6 @@ describe('a window the EV list has no row for', () => {
 
     expect(screen.getByTestId('wf-win-no-match')).toHaveTextContent('No forecast');
     expect(screen.getByTestId('wf-map-no-forecast')).toHaveTextContent('No forecast to show.');
-  });
-
-  it('says it in PINS view too — the map is exactly as empty there', async () => {
-    // ⚠️ `windowUnscored` is `heatOn`-gated because a colour key explains a gradient. A sentence
-    // explaining an absence is not a key, so that reasoning does not transfer.
-    await renderMap({
-      locations: makeLocations(YESTERDAY),
-      date: YESTERDAY,
-      forecastDates: [YESTERDAY],
-      heat,
-    });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Pins/i })); });
-
-    expect(screen.getByTestId('wf-map-no-forecast')).toBeInTheDocument();
   });
 
   it('says it when there is no window control AT ALL — the day nothing was forecast', async () => {

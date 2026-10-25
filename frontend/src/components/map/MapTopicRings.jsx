@@ -16,12 +16,6 @@ const TOPIC_RINGS_Z = 640;
 
 /** A ring in the Heat view is 22px across: 11px radius, drawn as a 2px stroke. */
 export const HEAT_RING_RADIUS = 11;
-/**
- * In the Pins view the ring must sit OUTSIDE the pin: a pin is a 26px mark in the label pane (650),
- * above this pane, and would cover a 22px ring entirely. 17px radius clears a 13px pin radius with
- * the stroke and halo to spare.
- */
-export const PINS_RING_RADIUS = 17;
 const RING_WEIGHT = 2;
 /** The handoff's halo (3px, 22% of the colour) and glow (a wider, fainter stroke), as STROKES. */
 const HALO_OFFSET = 2.5;
@@ -44,9 +38,8 @@ function latLngOf(place) {
  * <p>Non-interactive react-leaflet {@code CircleMarker}s in a dedicated pane: Leaflet reprojects
  * them on every move and zoom, so there is no hand-rolled coordinate loop here, and the pane has
  * {@code pointer-events: none} so a ring never takes a press from the map or a chip under it. They
- * are mounted in the Heat and the Pins views alike (a larger ring in Pins, see
- * {@link PINS_RING_RADIUS}). <b>No marker clustering, at any scale</b> (CLAUDE.md); if density ever
- * bites the answer is canvas rendering.
+ * are mounted over the heat field. <b>No marker clustering, at any scale</b> (CLAUDE.md); if density
+ * ever bites the answer is canvas rendering.
  *
  * <p>The halo and the glow are STROKES, never fills: the ring's inside must stay clear so the heat
  * field underneath reads through it (the design's {@code #trings i} is an outline).
@@ -65,9 +58,8 @@ function latLngOf(place) {
  * @param {object} props
  * @param {?Array<{lat: number, lng?: number, lon?: number, name: string}>} props.places the places to ring
  * @param {string} props.colour the topic's colour
- * @param {boolean} [props.inPins] the Pins view: a larger ring that clears the pin
  */
-export default function MapTopicRings({ places, colour, inPins = false }) {
+export default function MapTopicRings({ places, colour }) {
   const map = useMap();
   const renderer = useMemo(() => L.svg({ pane: TOPIC_RINGS_PANE }), []);
   useEffect(() => () => { map?.removeLayer?.(renderer); }, [map, renderer]);
@@ -76,7 +68,7 @@ export default function MapTopicRings({ places, colour, inPins = false }) {
     .map((place) => ({ place, at: latLngOf(place) }))
     .filter((p) => p.at != null);
   if (points.length === 0) return null;
-  const radius = inPins ? PINS_RING_RADIUS : HEAT_RING_RADIUS;
+  const radius = HEAT_RING_RADIUS;
   return (
     <Pane name={TOPIC_RINGS_PANE} style={{ zIndex: TOPIC_RINGS_Z }} className="wf-topic-rings-pane">
       {points.map(({ place, at }) => (
@@ -125,5 +117,4 @@ MapTopicRings.propTypes = {
     lon: PropTypes.number,
   })),
   colour: PropTypes.string.isRequired,
-  inPins: PropTypes.bool,
 };

@@ -53,7 +53,7 @@ const slice = (needle) => sliceRules(needle).join('\n');
 
 let style;
 beforeAll(() => {
-  const rules = `${slice('wf-maplab-chip')}\n${slice('wf-maplab-pick')}\n${slice('wf-pin')}`;
+  const rules = `${slice('wf-maplab-chip')}\n${slice('wf-maplab-pick')}`;
   expect(rules).toContain("[data-ask='fade']");
   expect(rules).toContain("[data-tide='miss']");
   style = document.createElement('style');
@@ -78,7 +78,6 @@ const opacityOf = (el) => getComputedStyle(el).opacity;
 
 const KINDS = [
   ['chip', 'wf-maplab-chip'],
-  ['pin', 'wf-pin'],
 ];
 
 describe.each(KINDS)('a faded %s', (_, className) => {
@@ -117,7 +116,6 @@ describe.each(KINDS)('a faded %s', (_, className) => {
 describe('an ordinary mark', () => {
   it('is untouched by the fade rules while no picks are showing (no data-ask)', () => {
     expect(opacityOf(mark('button', 'wf-maplab-chip', {}))).not.toBe('0.25');
-    expect(opacityOf(mark('button', 'wf-pin', {}))).not.toBe('0.25');
   });
 });
 
@@ -136,15 +134,6 @@ describe('a pick paints above, and keeps a focus ring of its own', () => {
     const [chip] = sliceRules('.wf-maplab-chip.wf-maplab-pick:focus-visible');
     expect(chip).toMatch(/outline-offset:\s*2px/);
     expect(sliceRules('.wf-maplab-chip:focus-visible').join('')).toMatch(/outline-offset:\s*-2px/);
-  });
-
-  it('⚠️ gives the pin a focus ring one class deeper than the chosen halo, which is also an outline', () => {
-    const rules = sliceRules('.wf-pin');
-    const halo = rules.find((r) => r.startsWith(".wf-pin[data-ask='pick'][data-ask-selected='true']"));
-    const ring = rules.find((r) => r.includes(".wf-pin[data-ask='pick']:focus-visible"));
-    expect(halo).toMatch(/outline:/);
-    expect(ring).toMatch(/outline:\s*2px solid var\(--color-plex-gold\)/);
-    expect(ring).toContain('.wf-maplab-layer');
   });
 });
 
@@ -177,7 +166,7 @@ describe('the fade wins on SPECIFICITY, not on where its block happens to sit', 
   let reordered;
   beforeAll(() => {
     style.remove();
-    const rules = [...sliceRules('wf-maplab-chip'), ...sliceRules('wf-maplab-pick'), ...sliceRules('wf-pin')];
+    const rules = [...sliceRules('wf-maplab-chip'), ...sliceRules('wf-maplab-pick')];
     const fade = rules.filter((rule) => rule.includes("data-ask='fade'"));
     const rest = rules.filter((rule) => !rule.includes("data-ask='fade'"));
     reordered = document.createElement('style');

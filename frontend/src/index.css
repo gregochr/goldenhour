@@ -3854,7 +3854,7 @@ button.wf-hc.also.on:hover {
        every drag begun in it — verbatim the dead strip this bound exists to prevent, relocated.
        the pointer-events rule at `.wf-map-toolbar-row` (above) records the same failure and its cure;
      · `[data-testid="wf-map-chrome-tl"]` is the FIRST label-placement obstacle in both
-       `MapLabels.jsx` and `PinsLayer.jsx`, and map-tab-v2-plan.md §4 #31 licensed the last
+       `MapLabels.jsx`, and map-tab-v2-plan.md §4 #31 licensed the last
        widening of it (187→334px) by measuring that no label moved. Stretching it to ~970px would
        have spent that budget without re-measuring anything. ⚠️ The 334→504px growth this rule
        permits WAS spent unmeasured for a while. It has since been re-run (map-landing-plan.md
@@ -3862,7 +3862,7 @@ button.wf-hc.also.on:hover {
        framing it changes nothing at all — which is exactly what #31 claimed. Away from that
        framing it is cheap but not free. The citation therefore survives for THIS obstacle, THIS
        widening, `MapLabels` only, and not on a phone, where the bound is released entirely.
-       **`PinsLayer` holds a duplicate of that list and was not measured at all.** Re-run the
+       Re-run the
        harness before widening this again — and the same measurement found the three drilldown
        panels genuinely costing labels (residual R7).
 
@@ -3889,7 +3889,7 @@ button.wf-hc.also.on:hover {
   gap: 6px;
   max-width: calc(100% - 68px);
 }
-/* The heat/pins segment + ramp key, nested inside `.wf-map-chrome-tr` rather than positioning
+/* The ramp key (and the unscored line), nested inside `.wf-map-chrome-tr` rather than positioning
    itself - this cluster's parent already owns the absolute placement. */
 .wf-map-toolbar-cluster {
   display: flex;
@@ -3920,8 +3920,8 @@ button.wf-hc.also.on:hover {
 /* ── The tide strip (tide-window-plan.md T6, docs/design/tide-window/README.md §2) ──────────────
    Mounted as the LAST CHILD of `.wf-map-chrome-bl` above — a plain flex child, never separately
    `position: absolute`, so the legend chip and the viewline-upsell chip above it clear it by flex
-   order alone (§4 #6) and the obstacle seed `.wf-map-chrome-bl` already carries for `MapLabels`/
-   `PinsLayer` (§1 #8) grows to include it for free. Its own `z-index: 1100` below matters only to
+   order alone (§4 #6) and the obstacle seed `.wf-map-chrome-bl` already carries for `MapLabels`
+   (§1 #8) grows to include it for free. Its own `z-index: 1100` below matters only to
    `mapChromeZLadderCascade.test.jsx`'s isolated-element probe (T6 #8) — in the real DOM it is
    already inside a `z-index: 1100` stacking context and needs no positioning of its own.
 
@@ -4756,9 +4756,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 
    Window control: full-width across the top (the pill itself grows via `.wf-win-pill`'s own
    media query above; this box only needs to stop clearing Leaflet's top-left corner and span the
-   frame instead). Regions / Heat-Pins / Filters: a thumb-reachable BOTTOM BAR, the prototype's
+   frame instead). Regions / the colour key / Filters: a thumb-reachable BOTTOM BAR, the prototype's
    `#gnav{bottom:12px;justify-content:space-between} .seg{flex:1}` — the THREE direct children
-   (`RegionsJump`'s own root, the Heat/Pins toolbar cluster, `FiltersPopover`'s own root) share the
+   (`RegionsJump`'s own root, the toolbar cluster, `FiltersPopover`'s own root) share the
    bar equally. Counts footer: lifted above the bottom bar, second line (the "Beyond 3h" area note)
    hidden — the first line's "N named · M rated of K" stays, matching the design table's own footer
    row. Leaflet's native zoom control AND `CentreOnHomeControl`'s `⌂` (`.map-home-control`): both
@@ -4832,8 +4832,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   .wf-map-tab .wf-filters {
     display: flex;
   }
-  /* The cluster keeps its DESKTOP stacking direction (column: Heat/Pins row above the ramp key
-     row) — review finding: an earlier cut switched this to `row`, which meant fitting the
+  /* The cluster keeps its DESKTOP stacking direction (column: the unscored line above the ramp
+     key) — review finding: an earlier cut switched this to `row`, which meant fitting the
      segmented toggle AND the key row side by side in one ~125px-wide bar column instead of
      stacking them, the opposite of what a cramped column needs. Only the cross-axis alignment
      changes, from the desktop's corner-hugging `flex-end` to a centred column now that this sits
@@ -5035,7 +5035,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 
 /* ── The Map tab's phone peek sheet (map-mobile-sheet-plan.md §3 M2) ──────────────────────────
    `components/map/MapPeekSheet.jsx` — replaces the phone's floating map controls (the window
-   pill's dropdown, the tide strip, `.wf-map-chrome-tr`'s Regions/Heat-Pins/Filters bar) with one
+   pill's dropdown, the tide strip, `.wf-map-chrome-tr`'s Regions/Filters bar) with one
    bottom sheet that starts collapsed and opens to one section at a time. Phone-only in PRACTICE
    (the component is never mounted on desktop/tablet), so these rules sit at the top level rather
    than behind the `(max-width: 639px)` query below — nothing to gate since nothing renders it.
@@ -5321,8 +5321,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 
 /* ── The Layers Tide mode segment (map-mobile-sheet-plan.md §3 M5 task 4) ─────────────────────
    Reuses `.wf-seg`/`.wf-seg-btn` (above) rather than growing a third copy of a segmented control —
-   the same reasoning the Show row's Heat|Pins toggle and the Map tab's own heat toolbar already
-   state for themselves. The hint sits BELOW the row (design README "Peek row" table), never beside
+   the same reasoning the Map tab's own heat toolbar already states for itself. The hint sits BELOW the row (design README "Peek row" table), never beside
    it — three words ("Auto", "Always", "Off") plus a sentence would not fit one line at any phone
    width this pane supports. */
 .wf-map-peek-lay-tide-row { align-items: center; }
@@ -6320,7 +6319,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   left: 60px;
   z-index: 1150;
   /* The control's own box, so the panel and the dropdown it replaces share both edges — including
-     the right-hand bound that clears the Regions / Heat-Pins / Filters cluster. */
+     the right-hand bound that clears the Regions / Filters cluster. */
   width: 504px;
   max-width: calc(100% - 308px);
   /* 102 = this panel's own `top: 50` + the bottom band the landing card's 112 also clears
@@ -7079,14 +7078,13 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    ⚠️ THE OVERLAP WITH ASK'S FADE is written into the selector, not left to source order: `:not([data-ask])`
    leaves a faded chip (`data-ask='fade'`, .25) and an Ask pick (`data-ask='pick'`) to the Ask rules, so a
    chip that is both reads .25 and a pick is never dimmed whichever block comes last. Big-seas chips
-   (`.wf-bsc`) never dim - they are the ringed answer on a big-seas day. Nor does a chip or pin for a
-   place the selected topic rings (`data-topic-ring`, written by `MapLabels`/`PinsLayer` from the spot's
+   (`.wf-bsc`) never dim - they are the ringed answer on a big-seas day. Nor does a chip for a
+   place the selected topic rings (`data-topic-ring`, written by `MapLabels` from the spot's
    `topicRing`; topic-ring-names-plan.md): the ringed names stand out and the rest step back, while an
    Ask fade (`data-ask='fade'`, .25) still wins on a ringed chip, since `:not([data-ask])` is untouched. Written at (0,x,0) above
-   `.wf-maplab-chip[data-tide='miss']` / `.wf-pin[data-tide='miss']` (.72), so a coastal miss dims to .5
+   `.wf-maplab-chip[data-tide='miss']` (.72), so a coastal miss dims to .5
    too. Pinned against this stylesheet by `mapTopicDimCascade.test.jsx`. */
-.wf-map-tab[data-topic-selected] .wf-maplab-layer .wf-maplab-chip:not(.wf-bsc):not([data-ask]):not([data-topic-ring]):not([data-selected='true']):not(:hover):not(:focus-visible),
-.wf-map-tab[data-topic-selected] .wf-maplab-layer .wf-pin:not([data-ask]):not([data-topic-ring]):not([data-selected='true']):not(:hover):not(:focus-visible) {
+.wf-map-tab[data-topic-selected] .wf-maplab-layer .wf-maplab-chip:not(.wf-bsc):not([data-ask]):not([data-topic-ring]):not([data-selected='true']):not(:hover):not(:focus-visible) {
   opacity: 0.5;
   transition: opacity 0.2s;
 }
@@ -7777,55 +7775,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   text-decoration: underline;
 }
 
-/* ── The Pins layer (map-tab-v2-plan.md §3 P10, README §3) ─────────────────────────────────────
-   One dot per location, no field — "the honest comparison". Same shape as the design bundle's own
-   `.pin` (`docs/design/map-tab-v2/Map Tab v2.html`): a circle, a 2px dark ring, mono numeral. Size
-   (26px named / 13px unnamed) and every colour (fill, ink, drop-shadow rim) are DATA-DRIVEN — set
-   inline per pin in `PinsLayer.jsx`, the same convention `.wf-filters-dot`/`.wf-maplab-chip-m`
-   already use for a per-item ramp colour a static class cannot express. This rule carries only the
-   shape and position. Positioned absolutely inside `.wf-maplab-layer` (reused verbatim — the pins
-   and label layers never mount together, so one pane-filling wrapper class serves both). */
-.wf-pin {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 11px;
-  border: 2px solid rgba(0, 0, 0, 0.35);
-  cursor: pointer;
-  pointer-events: auto;
-  padding: 0;
-}
-.wf-pin[data-selected='true'] {
-  box-shadow: 0 0 0 1.5px var(--color-home);
-}
-/* Pins mode's own miss de-emphasis (tide-window-plan.md §3 T4 item 5) — the SAME `.72`/restore
-   rule the label chip carries (`.wf-maplab-chip[data-tide='miss']`), so the two views of one
-   window never disagree about how strongly a miss recedes. The ramp `fill`/`background` is set
-   inline in `PinsLayer.jsx` and untouched by this rule — opacity dims the whole dot including its
-   own fill, never re-colours it (§7 check 12's rule, applied to the pin the same way as the chip). */
-.wf-pin[data-tide='miss'] {
-  opacity: .72;
-}
-.wf-pin[data-tide='miss']:hover,
-.wf-pin[data-tide='miss'][data-selected='true'] {
-  opacity: 1;
-}
-.wf-pin:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 1px;
-}
-.wf-pin-star {
-  font-size: 0.62em;
-  margin-left: 1px;
-  opacity: 0.85;
-}
-
-/* The "you rated this" corner badge on a PAST window's pins and chips (outcome-rating-plan.md §2 #6,
+/* The "you rated this" corner badge on a PAST window's chips (outcome-rating-plan.md §2 #6,
    O4b; the prototype's `.pin .mine`): `3★`, or `–` for "didn't see it", top-right, hanging 7px above
    and 9px beside its host. Both hosts are `position: absolute` buttons, so this positions against
    them. A host's own opacity (a tide miss, an Ask fade) dims it with the rest of the mark. `aria-hidden`
@@ -7852,10 +7802,10 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 }
 
 /* ── Ask PhotoCast's picks on the map (F3, docs/engineering/ask-photocast-plan.md §2.7) ──────────
-   While an answer's picks are showing, every OTHER chip and pin steps back to a quarter of its
+   While an answer's picks are showing, every OTHER chip steps back to a quarter of its
    strength and each pick is a numbered mark. Three things worth knowing before touching this block.
 
-   ⚠️ THE CASCADE. `.wf-maplab-chip[data-tide='miss']` and `.wf-pin[data-tide='miss']` set `opacity:
+   ⚠️ THE CASCADE. `.wf-maplab-chip[data-tide='miss']` sets `opacity:
    .72` at specificity (0,2,0), and a tie goes to source order. The fade is therefore written at
    (0,3,0) — `.wf-maplab-layer` in front — so a coastal MISS that is also faded reads .25, not .72, whatever
    order the two blocks end up in. Hover and a selected location restore a faded mark to full strength
@@ -7867,17 +7817,13 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    own (`.wf-ask-rk`), 17px here. The rating is in the verdict's own TEXT colour — the badge tokens the
    card's `.wf-ask-sc` uses, which were chosen for contrast on this plate — and never the ramp colour, the
    rule `.wf-maplab-chip-r` records. */
-.wf-maplab-layer .wf-maplab-chip[data-ask='fade'],
-.wf-maplab-layer .wf-pin[data-ask='fade'] {
+.wf-maplab-layer .wf-maplab-chip[data-ask='fade'] {
   opacity: 0.25;
   transition: opacity 0.25s;
 }
 .wf-maplab-layer .wf-maplab-chip[data-ask='fade']:hover,
 .wf-maplab-layer .wf-maplab-chip[data-ask='fade']:focus-visible,
-.wf-maplab-layer .wf-maplab-chip[data-ask='fade'][data-selected='true'],
-.wf-maplab-layer .wf-pin[data-ask='fade']:hover,
-.wf-maplab-layer .wf-pin[data-ask='fade']:focus-visible,
-.wf-maplab-layer .wf-pin[data-ask='fade'][data-selected='true'] {
+.wf-maplab-layer .wf-maplab-chip[data-ask='fade'][data-selected='true'] {
   opacity: 1;
 }
 /* A pick paints ABOVE every other chip (they are all `position: absolute` siblings, so a later one paints
@@ -7965,39 +7911,15 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 .wf-maplab-pick[data-compact='true'] .wf-maplab-pick-r {
   display: none;
 }
-/* …and its pin: the dot keeps its size, so "1·2" is set a notch smaller to fit inside it. */
-.wf-pin[data-ask='pick'] > span[data-multi='true'] {
-  font-size: 8px;
-  letter-spacing: -0.04em;
-}
-/* Pins mode: the pick's dot carries a gold ring (the dot's own colour is the pick window's rating), and
-   the chosen one a pale-gold ring with a halo. An outline, because the dot's box-shadow is set inline. */
-.wf-pin[data-ask='pick'] {
-  border-color: var(--color-home);
-}
-.wf-pin[data-ask='pick'][data-ask-selected='true'] {
-  border-color: var(--color-segment-active);
-  outline: 2px solid rgba(201, 162, 75, 0.45);
-  outline-offset: 2px;
-}
-/* ⚠️ The chosen pick's halo is an OUTLINE, and so is the keyboard focus ring: at equal specificity the
-   halo would replace the ring on exactly the pin a keyboard user has just pressed. The ring is one class
-   deeper, opaque, and further out. */
-.wf-maplab-layer .wf-pin[data-ask='pick']:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 3px;
-}
 @media (prefers-reduced-motion: reduce) {
-  .wf-maplab-layer .wf-maplab-chip[data-ask='fade'],
-  .wf-maplab-layer .wf-pin[data-ask='fade'] {
+  .wf-maplab-layer .wf-maplab-chip[data-ask='fade'] {
     transition: none;
   }
 }
 /* Forced colours strip box-shadow, which is all that marks the chosen pick chip; the card's own twin
    (`.wf-ask-pick`) has an outline for the same reason. */
 @media (forced-colors: active) {
-  .wf-maplab-chip.wf-maplab-pick[data-ask-selected='true'],
-  .wf-pin[data-ask='pick'][data-ask-selected='true'] {
+  .wf-maplab-chip.wf-maplab-pick[data-ask-selected='true'] {
     outline: 2px solid Highlight;
     outline-offset: 2px;
   }
@@ -8007,8 +7929,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    Bottom-left, opening UPWARD (`bottom: calc(100% + 6px)`, not the window/filters chips' downward
    `top`) because the chip itself sits at the bottom of the frame. `.wf-legend-chip` takes the same
    visual language as `.wf-filters-chip`/`.wf-win-pill` so the four top-row/bottom-row chips read as
-   one control family. Hidden entirely in Pins mode — `MapView` simply does not mount this
-   component there, the same way the ramp key beside the Heat/Pins segment is withheld. */
+   one control family. */
 .wf-legend {
   position: relative;
 }
@@ -8224,7 +8145,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    "Search, without a text field" — `◎ Regions ▾` takes the SAME visual language as
    `.wf-filters-chip`/`.wf-legend-chip` (same panel background, same border) so the top-right
    cluster reads as one control family, and sits ABOVE them in the DOM (README's own layout: Regions,
-   then Heat/Pins, then Filters). */
+   then the colour key, then Filters). */
 .wf-jump {
   position: relative;
 }

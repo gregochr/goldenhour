@@ -5,8 +5,7 @@ import { bigSeasChipAriaLabel, bigSeasChipTipLines } from '../../utils/bigSeasCh
 
 /**
  * One big-seas chip (big-seas plan F2; handoff "Big-seas chip"): the bolt, the structure's short
- * name and the wave height behind a left rule, on a teal-ringed plate. Shared by {@code MapLabels}
- * (Heat) and {@code PinsLayer} (Pins), which differ only in where they place it.
+ * name and the wave height behind a left rule, on a teal-ringed plate. Drawn by {@code MapLabels}.
  *
  * <p>It is an ordinary chip to everything around it: {@code data-testid="map-label-chip"} (so
  * {@code MapView}'s {@code closeCallout} finds the selected one), {@code data-selected}, and

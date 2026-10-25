@@ -25,7 +25,7 @@ import {
 import { MAYBE_THRESHOLD, WORTH_IT_THRESHOLD, verdictWord } from './verdictWord.js';
 
 /**
- * Re-exported for `MapLabels.jsx`/`PinsLayer.jsx`, whose existing `from '../../utils/mapLabels.js'`
+ * Re-exported for `MapLabels.jsx`, whose existing `from '../../utils/mapLabels.js'`
  * imports still resolve. The real module is `utils/verdictWord.js` — a leaf with no `d3-geo` import
  * — precisely so `MapCallout.jsx` can import {@link verdictWord} directly without also reaching
  * {@link centroid}'s `d3-geo`/`topojson-client` chain. See that file's doc for the full account of

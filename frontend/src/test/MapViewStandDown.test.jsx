@@ -1,9 +1,9 @@
 /**
  * The Map tab's stand-down ground (big-seas-plan.md F3): the point set the hatch is drawn around,
- * the unscored line's wording, the keys on desktop, in Pins and on the phone, the footer's
+ * the unscored line's wording, the keys on desktop and on the phone, the footer's
  * ` · N stood down`, and the regions that earn a "stood down · cause" label.
  *
- * The three layers (`MapHeatLayer`, `MapLabels`, `PinsLayer`) are probes that record what
+ * The two layers (`MapHeatLayer`, `MapLabels`) are probes that record what
  * `MapView` hands them, as in `MapViewHeat.test.jsx`: their own pixels are `heatFieldStandDown`'s
  * and `MapLabels.test.jsx`'s business.
  */
@@ -59,7 +59,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
     return <div data-testid="map-labels-stub" />;
   },
 }));
-vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => <div data-testid="map-pins-stub" /> }));
 
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
 let mockIsMobile = false;
@@ -184,7 +183,6 @@ async function renderMap(props = {}) {
 }
 
 const openLegend = () => fireEvent.click(screen.getByTestId('wf-legend-chip'));
-const showPins = () => fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
 const openFilters = () => fireEvent.click(screen.getByTestId('wf-filters-chip'));
 
 beforeEach(() => {
@@ -339,30 +337,6 @@ describe('MapView stand-down — the keys', () => {
     expect(screen.queryByTestId('wf-legend-standdown')).toBeNull();
   });
 
-  it('Pins: hands the layer the stood places and the rated points its mask yields to', async () => {
-    await renderMap({ heat: heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 }) });
-    expect(heatLayerProps.last.stoodRated).toBeNull(); // Heat: the layer\'s own points are the rated ones
-    showPins();
-    expect(heatLayerProps.last.points).toEqual([]);
-    expect(heatLayerProps.last.stood.map((p) => p.key)).toEqual(['#3']);
-    expect(heatLayerProps.last.stoodRated.map((p) => p.name)).toEqual(['Bamburgh']);
-  });
-
-  it('Pins: mounts the pins-variant legend with only the stand-down key, while one is drawn', async () => {
-    await renderMap({ heat: heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 }) });
-    showPins();
-    openLegend();
-    expect(screen.getByTestId('wf-legend-standdown')).toBeInTheDocument();
-    expect(screen.queryByTestId('wf-legend-ramp')).toBeNull();
-    expect(screen.queryByTestId('wf-legend-hand')).toBeNull();
-  });
-
-  it('Pins: mounts no legend when nothing stood down', async () => {
-    await renderMap({ heat: heatFor({ rated: [1], bestRating: 4 }) });
-    showPins();
-    expect(screen.queryByTestId('wf-legend-chip')).toBeNull();
-  });
-
   it('the phone Ground row names the hatch, and opens on a whole-window stand-down', async () => {
     mockIsMobile = true;
     await renderMap({ heat: heatFor({ stood: { 3: 'HIGH_CLOUD' } }) });
@@ -387,15 +361,6 @@ describe('MapView stand-down — the keys', () => {
     expect(screen.queryByTestId('wf-map-peek-standdown')).toBeNull();
   });
 
-  it('the phone Ground row follows into Pins', async () => {
-    mockIsMobile = true;
-    await renderMap({ heat: heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 }) });
-    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
-    fireEvent.click(screen.getByTestId('wf-map-peek-view-pins'));
-    const row = screen.getByTestId('wf-map-peek-ground');
-    expect(within(row).getByTestId('wf-map-peek-standdown')).toBeInTheDocument();
-    expect(row).not.toHaveTextContent('not rated yet');
-  });
 });
 
 describe('MapView stand-down — the footer', () => {
@@ -592,14 +557,12 @@ describe('MapView stand-down — review corrections', () => {
     expect(screen.queryByTestId('wf-legend-ground')).toBeNull();
   });
 
-  it('the legend key carries a "Stood down" heading, in Heat, Pins and on the phone', async () => {
+  it('the legend key carries a "Stood down" heading, on desktop and on the phone', async () => {
     const heat = heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 });
     const { unmount } = await renderMap({ heat });
     openLegend();
     expect(within(screen.getByTestId('wf-legend-standdown')).getByText('Stood down'))
       .toHaveClass('wf-legend-ramp-label');
-    showPins();
-    expect(within(screen.getByTestId('wf-legend-standdown')).getByText('Stood down')).toBeInTheDocument();
     unmount();
     mockIsMobile = true;
     await renderMap({ heat });
@@ -613,14 +576,6 @@ describe('MapView stand-down — review corrections', () => {
     expect(regionsOf()).toEqual([]);
     darkSky();
     expect(regionsOf()).toEqual([['North East', 'rain']]);
-  });
-
-  it('Pins: the rated points the mask yields to are narrowed by dark sky, as the field\'s are', async () => {
-    await renderMap({ heat: heatFor({ rated: [1, 2], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 }) });
-    showPins();
-    expect(heatLayerProps.last.stoodRated.map((p) => p.name).sort()).toEqual(['Bamburgh', 'Tynemouth']);
-    darkSky();
-    expect(heatLayerProps.last.stoodRated.map((p) => p.name)).toEqual(['Bamburgh']);
   });
 
   it('the footer count is the scope pool\'s, not the narrowed list: dark sky leaves it at 2', async () => {

@@ -63,7 +63,7 @@ vi.mock('react-leaflet', () => ({
   }),
 }));
 
-const probes = { labels: [], pins: [], heat: [], markers: [] };
+const probes = { labels: [], heat: [], markers: [] };
 vi.mock('../components/MapHeatLayer.jsx', () => ({
   default: (props) => {
     probes.heat.push(props);
@@ -76,12 +76,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
     return (
       <button type="button" data-testid="probe-chip" onClick={() => props.onSelect('Bamburgh-0')}>chip</button>
     );
-  },
-}));
-vi.mock('../components/map/PinsLayer.jsx', () => ({
-  default: (props) => {
-    probes.pins.push(props);
-    return <div data-testid="probe-pins" />;
   },
 }));
 vi.mock('../components/map/MapCallout.jsx', () => ({
@@ -286,7 +280,6 @@ const bigSeasChip = () => screen.getByTestId('wf-topic-chip-BIG_SEAS');
 beforeEach(() => {
   localStorage.clear();
   probes.labels.length = 0;
-  probes.pins.length = 0;
   probes.heat.length = 0;
   probes.markers.length = 0;
   onSelectDate = vi.fn();
@@ -356,14 +349,11 @@ describe('hwEventSweep: selectEvRow\'s typeChanged (the persisted star floor)', 
 });
 
 describe('hwEventSweep: what the map shows on the row', () => {
-  it('hands both label layers the big-seas chips, every one ringed', async () => {
+  it('hands the label layer the big-seas chips, every one ringed', async () => {
     await renderMap({ startDate: FRI, autoEventType: 'SUNRISE' });
     await choose(HW_ID);
     expect(lastChips()).toHaveLength(3);
     expect(lastChips().every((c) => c.ringed === true)).toBe(true);
-    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-view-pins')); });
-    expect(probes.pins.at(-1).bigSeasChips).toHaveLength(3);
-    expect(probes.pins.at(-1).bigSeasChips.every((c) => c.ringed === true)).toBe(true);
   });
 
   it('says no "not scored yet" (the window is not scored by design)', async () => {

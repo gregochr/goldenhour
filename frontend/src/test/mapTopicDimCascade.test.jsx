@@ -44,7 +44,7 @@ function sliceRules(needle) {
 let style;
 beforeAll(() => {
   const rules = [
-    ...sliceRules('wf-maplab-chip'), ...sliceRules('wf-maplab-pick'), ...sliceRules('wf-pin'),
+    ...sliceRules('wf-maplab-chip'), ...sliceRules('wf-maplab-pick'),
     ...sliceRules('wf-topics'), ...sliceRules('wf-tch'),
     ...sliceRules('wf-map-chrome-tl'), ...sliceRules('wf-win-control'), ...sliceRules('wf-big-seas'),
   ].join('\n');
@@ -73,7 +73,7 @@ function mark(tag, className, attrs = {}, { selectedTopic = true } = {}) {
 }
 const opacityOf = (el) => getComputedStyle(el).opacity;
 
-describe.each([['chip', 'wf-maplab-chip'], ['pin', 'wf-pin']])('an ordinary %s', (_, className) => {
+describe.each([['chip', 'wf-maplab-chip']])('an ordinary %s', (_, className) => {
   it('steps back to .5 while a topic is selected, and not otherwise', () => {
     expect(opacityOf(mark('button', className))).toBe('0.5');
     expect(opacityOf(mark('button', className, {}, { selectedTopic: false }))).not.toBe('0.5');

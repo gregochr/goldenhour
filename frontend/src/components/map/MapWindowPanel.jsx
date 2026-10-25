@@ -40,7 +40,7 @@ import VerdictWord from '../shared/VerdictWord.jsx';
  * moved it out to frame level at {@code z-index: 1150}, where {@code 100%} is the frame.
  *
  * <p>⚠️ The note did not follow the move — twice. The obstacle lists in {@code MapLabels}/
- * {@code PinsLayer} carried the same stale claim and were corrected at L6; this heading, which is
+ * the retired pins layer carried the same stale claim and were corrected at L6; this heading, which is
  * the original and is marked <em>load-bearing</em>, survived until L7's completeness sweep. It is
  * recorded rather than merely fixed because "the comment did not follow the code" is now this
  * increment's most repeated defect after focus loss.

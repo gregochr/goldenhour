@@ -112,12 +112,6 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
   },
 }));
 
-/** Captures every props object handed to `PinsLayer` — only mounted in Pins view. */
-const pinsLayerCalls = [];
-vi.mock('../components/map/PinsLayer.jsx', () => ({
-  default: (props) => { pinsLayerCalls.push(props); return <div data-testid="pins-layer-probe" />; },
-}));
-
 /** The callout, mocked to a probe exposing exactly what this file asserts on — `driveMinutes`,
  * read straight off the SAME `driveMinutesFor(selectedLoc.id)` call the real `MapCallout`'s own
  * Drive fact renders from (`MapView.jsx`'s `<MapCallout driveMinutes={...} />`). */
@@ -226,7 +220,6 @@ beforeEach(() => {
   fakeMarker = { openPopup: vi.fn() };
   mapHeatLayerCalls.length = 0;
   mapLabelsCalls.length = 0;
-  pinsLayerCalls.length = 0;
   cornerEl = document.createElement('div');
   cornerEl.className = 'leaflet-bottom leaflet-right';
   document.body.appendChild(cornerEl);
@@ -332,20 +325,6 @@ describe('MapView — home geography gates on `origin`, not on whether a postcod
     await renderTab({ homeCoords: HOME_COORDS, heat: heatProp(undefined) });
     expect(mapHeatLayerCalls.at(-1).homeCoords).toEqual(HOME_COORDS);
     expect(mapLabelsCalls.at(-1).homeCoords).toEqual(HOME_COORDS);
-  });
-
-  it('AWAY, Pins view: PinsLayer also receives no HOME marker source', async () => {
-    await renderTab({ origin: AWAY_ORIGIN, homeCoords: HOME_COORDS, heat: heatProp(new Map()) });
-    fireEvent.click(screen.getByTestId('wf-map-view-pins'));
-    expect(await screen.findByTestId('pins-layer-probe')).toBeInTheDocument();
-    expect(pinsLayerCalls.at(-1).homeCoords).toBeNull();
-  });
-
-  it('HOME, Pins view: PinsLayer receives the real homeCoords', async () => {
-    await renderTab({ homeCoords: HOME_COORDS, heat: heatProp(undefined) });
-    fireEvent.click(screen.getByTestId('wf-map-view-pins'));
-    expect(await screen.findByTestId('pins-layer-probe')).toBeInTheDocument();
-    expect(pinsLayerCalls.at(-1).homeCoords).toEqual(HOME_COORDS);
   });
 
   it('AWAY: the legend has no rings-toggle control at all (queryBy* → null)', async () => {

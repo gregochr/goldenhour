@@ -518,7 +518,6 @@ const EXPECTED_DOT_RGB = {
   4: 'rgb(176, 190, 116)', // #B0BE74
   5: 'rgb(138, 174, 114)', // #8AAE72
 };
-const STAND_DOWN_RGB = 'rgb(80, 19, 19)';  // #501313
 
 function getDot(pill) {
   return pill.querySelector('span[aria-hidden="true"]');
@@ -539,12 +538,15 @@ describe('MapView rating pill coloured dots — exact medallion colours', () => 
     expect(dot.style.height).toBe('8px');
   });
 
-  it('stand-down pill dot is the exact stand-down colour (#501313)', () => {
+  it('stand-down pill is keyed with the Legend panel\'s hatch swatch, not a per-location colour dot', () => {
+    // Pins mode was the only thing that painted a stand-down location in a flat colour; the map now
+    // shows stand-down as the hatch, so the pill borrows the Legend's swatch for it.
     renderMap({ locations: [...makeLocations(), makeStandDownLocation()] });
-    const dot = getDot(screen.getByTestId('star-filter-standdown'));
-    expect(dot.style.backgroundColor).toBe(STAND_DOWN_RGB);
-    expect(dot.style.width).toBe('8px');
-    expect(dot.style.height).toBe('8px');
+    const pill = screen.getByTestId('star-filter-standdown');
+    const swatch = pill.querySelector('.wf-legend-swatch.wf-legend-swatch-standdown');
+    expect(swatch).not.toBeNull();
+    expect(swatch).toHaveAttribute('aria-hidden', 'true');
+    expect(pill.querySelector('.wf-filters-dot')).toBeNull();
   });
 
   it('admin ? unknown pill dot is transparent with dashed outline', () => {
