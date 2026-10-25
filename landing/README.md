@@ -1,6 +1,6 @@
 # landing — the marketing site at photocast.online
 
-Plain static HTML and one stylesheet. **No build step, no bundler, no tests.** Open
+Plain static HTML, one stylesheet and two small scripts. **No build step, no bundler, no tests.** Open
 `index.html` in a browser and what you see is what ships.
 
 ```
@@ -8,6 +8,7 @@ index.html              the marketing page
 faq.html                privacy.html   terms.html   acknowledgements.html
 photocast.css           the shared skin for all five pages
 viewer.js               the screenshot viewer (index.html only; plain JS, no dependencies)
+home.js                 phone-only enhancements for index.html (plain JS, no dependencies)
 favicon.png             logo.png       screenshot*.png
 Dockerfile              docker-compose.yml   nginx.conf
 ```
