@@ -20,7 +20,9 @@ import java.util.Set;
  * per-location written why (docs/engineering/pro-features-gate-plan.md §6). {@link #forLite}
  * removes the tide data from the window tide block, the window's tide facts and the slot flags, and
  * the scores and the written why from every slot; every free fact stays (the star, the verdict, the
- * region prose), and hot topics are untouched (the two-question rule).
+ * region prose), and hot topics are untouched (the two-question rule). The best-bet picks are Pro too
+ * (docs/engineering/pro-features-gate-plan.md §8): {@link #forLite} also removes each window's
+ * pick, empties {@code bestBets} and nulls the best-bet model, status and withdrawn flag.
  *
  * <p>Rebuilds only through the records' own withers and canonical constructors, so a component
  * added later is never defaulted away silently. Never used on {@code getCachedBriefingForApi}'s
@@ -43,7 +45,12 @@ public class BriefingRoleShaper {
             return null;
         }
         List<BriefingDay> days = response.days().stream().map(BriefingRoleShaper::liteDay).toList();
-        return response.withDays(days);
+        // The best-bet picks are Pro (pro-features-gate-plan.md §8). bestBets stays present and
+        // empty; bestBetsWithdrawn is null so LITE is never told a pick was withdrawn.
+        return response.withDays(days)
+                .withBestBets(List.of(), null)
+                .withBestBetModel(null)
+                .withBestBetStatus(null);
     }
 
     private static BriefingDay liteDay(BriefingDay day) {
@@ -74,7 +81,7 @@ public class BriefingRoleShaper {
     }
 
     private static BriefingWindow liteWindow(BriefingWindow window) {
-        BriefingWindow shaped = window;
+        BriefingWindow shaped = window.withPick(null);
         if (window.tide() != null) {
             shaped = shaped.withTide(window.tide().forLite());
         }

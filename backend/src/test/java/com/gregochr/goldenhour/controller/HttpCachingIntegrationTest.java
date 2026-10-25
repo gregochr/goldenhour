@@ -12,10 +12,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.model.BestBet;
+import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.BriefingWindowTide;
+import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
@@ -365,6 +368,90 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
                 List.of(),
                 List.of(),
                 null);
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/briefing: the best-bet picks are role-shaped, so a LITE GET with a PRO ETag gets "
+            + "200 and the LITE body, and the reverse")
+    void briefingPicksEtagDoesNotCrossRoles() throws Exception {
+        // The fixture really carries a window pick and a best bet, so the two roles' bodies differ.
+        when(briefingService.getCachedBriefingForApi()).thenReturn(pickBriefingResponse());
+
+        String liteEtag = mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick").doesNotExist())
+                .andExpect(jsonPath("$.bestBets").isEmpty())
+                .andExpect(jsonPath("$.bestBetModel").doesNotExist())
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+        String proEtag = mockMvc.perform(get("/api/briefing").with(user("pro").roles("PRO_USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick.kind").value("BEST"))
+                .andExpect(jsonPath("$.bestBets.length()").value(1))
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+
+        assertThat(proEtag).as("a role-shaped body must hash differently").isNotEqualTo(liteEtag);
+
+        mockMvc.perform(get("/api/briefing").header(HttpHeaders.IF_NONE_MATCH, proEtag))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick").doesNotExist())
+                .andExpect(jsonPath("$.bestBets").isEmpty());
+        mockMvc.perform(get("/api/briefing").header(HttpHeaders.IF_NONE_MATCH, liteEtag))
+                .andExpect(status().isNotModified());
+        mockMvc.perform(get("/api/briefing").header(HttpHeaders.IF_NONE_MATCH, liteEtag)
+                        .with(user("pro").roles("PRO_USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick.kind").value("BEST"))
+                .andExpect(jsonPath("$.bestBets.length()").value(1));
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/briefing/digest: a LITE GET with a PRO ETag gets 200 and the LITE body, "
+            + "and the reverse")
+    void digestEtagDoesNotCrossRoles() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(pickBriefingResponse());
+
+        String liteEtag = mockMvc.perform(get("/api/briefing/digest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.windows[0].verdict").value("WORTH_IT"))
+                .andExpect(jsonPath("$.windows[0].pick").doesNotExist())
+                .andExpect(jsonPath("$.windows[0].locationName").doesNotExist())
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+        String proEtag = mockMvc.perform(get("/api/briefing/digest")
+                        .with(user("pro").roles("PRO_USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.windows[0].pick").value("BEST"))
+                .andExpect(jsonPath("$.windows[0].locationName").value("Bamburgh"))
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+
+        assertThat(proEtag).as("a role-shaped body must hash differently").isNotEqualTo(liteEtag);
+
+        mockMvc.perform(get("/api/briefing/digest").header(HttpHeaders.IF_NONE_MATCH, proEtag))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.windows[0].pick").doesNotExist());
+        mockMvc.perform(get("/api/briefing/digest").header(HttpHeaders.IF_NONE_MATCH, liteEtag))
+                .andExpect(status().isNotModified());
+        mockMvc.perform(get("/api/briefing/digest").header(HttpHeaders.IF_NONE_MATCH, liteEtag)
+                        .with(user("pro").roles("PRO_USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.windows[0].pick").value("BEST"));
+    }
+
+    /** A briefing whose one window carries a pick and which lists one best bet. Year 2999: never stale. */
+    private static DailyBriefingResponse pickBriefingResponse() {
+        BriefingWindow.Pick pick = new BriefingWindow.Pick(BriefingWindow.PickKind.BEST,
+                "North East", "A clear run to the east", null, 4.25, "Bamburgh", 7L);
+        BriefingWindow window = new BriefingWindow(LocalDateTime.of(2999, 3, 26, 6, 0),
+                DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null, null, null);
+        BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(),
+                List.of(), null, window);
+        BestBet bet = new BestBet(1, "Go east", "Clear", "Fri sunrise", "North East",
+                Confidence.HIGH, null, "Friday", "SUNRISE", "06:00", null, null);
+        return new DailyBriefingResponse(LocalDateTime.of(2999, 3, 25, 9, 0), "h",
+                List.of(new BriefingDay(LocalDate.of(2999, 3, 26), List.of(summary))),
+                List.of(bet), null, null, false, false, 0, "SONNET", List.of(), List.of(),
+                BestBetStatus.SUCCESS_WITH_PICKS);
     }
 
     private static DailyBriefingResponse tideBriefingResponse() {

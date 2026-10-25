@@ -440,4 +440,31 @@ public record DailyBriefingResponse(
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
                 renderedEvents, previousGeneratedAt, newBigSeas);
     }
+
+    /**
+     * Returns a copy carrying the given best-bet model display name. Every other component is
+     * preserved.
+     *
+     * @param newBestBetModel the model display name, or null for none
+     * @return a copy carrying {@code newBestBetModel}
+     */
+    public DailyBriefingResponse withBestBetModel(String newBestBetModel) {
+        return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
+                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                newBestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                renderedEvents, previousGeneratedAt, bigSeas);
+    }
+
+    /**
+     * Returns a copy carrying the given best-bet status. Every other component is preserved.
+     *
+     * @param newBestBetStatus the status, or null for none
+     * @return a copy carrying {@code newBestBetStatus}
+     */
+    public DailyBriefingResponse withBestBetStatus(BestBetStatus newBestBetStatus) {
+        return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
+                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                bestBetModel, hotTopics, seasonalFeatures, newBestBetStatus, bestBetsWithdrawn,
+                renderedEvents, previousGeneratedAt, bigSeas);
+    }
 }

@@ -140,6 +140,17 @@ public record BriefingWindow(
                 topRarityRank, tide, newTideFacts);
     }
 
+    /**
+     * Returns a copy carrying the given forecast-wide pick, every other component unchanged.
+     *
+     * @param newPick the pick, or null for none
+     * @return the copy
+     */
+    public BriefingWindow withPick(Pick newPick) {
+        return new BriefingWindow(eventTime, verdict, bestRating, confidence, newPick, badges,
+                topRarityRank, tide, tideFacts);
+    }
+
     /** Which of the forecast's two picks this is. */
     public enum PickKind {
         /** The single window worth planning for across the whole forecast. */

@@ -105,5 +105,17 @@ public record BriefingDigestResponse(
             @JsonInclude(JsonInclude.Include.NON_NULL) String regionName,
             @JsonInclude(JsonInclude.Include.NON_NULL) String locationName,
             @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId) {
+
+        /**
+         * Returns this window without anything the forecast-wide pick supplied: {@code pick},
+         * {@code headline}, {@code regionName}, {@code locationName} and {@code locationId} are all
+         * null. The date, event, time, verdict, best rating and confidence are kept.
+         *
+         * @return the window as a LITE reader may see it
+         */
+        public Window withoutPick() {
+            return new Window(date, event, eventTime, verdict, bestRating, confidence,
+                    null, null, null, null, null);
+        }
     }
 }

@@ -192,6 +192,66 @@ class BriefingControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/briefing — a LITE reader gets bestBets present and empty, and no model, "
+            + "status or withdrawn flag, even when the briefing lists a best bet")
+    void getBriefing_liteBestBetsEmptyButPresent() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildPickBriefing());
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bestBets").isArray())
+                .andExpect(jsonPath("$.bestBets.length()").value(0))
+                .andExpect(jsonPath("$.bestBetModel").doesNotExist())
+                .andExpect(jsonPath("$.bestBetStatus").doesNotExist())
+                .andExpect(jsonPath("$.bestBetsWithdrawn").doesNotExist())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick").doesNotExist())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.bestRating").value(4));
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("GET /api/briefing — a PRO reader keeps the window pick, the best bets, the model "
+            + "and the status")
+    void getBriefing_proKeepsPicks() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildPickBriefing());
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bestBets.length()").value(1))
+                .andExpect(jsonPath("$.bestBetModel").value("Opus"))
+                .andExpect(jsonPath("$.bestBetStatus").value("SUCCESS_WITH_PICKS"))
+                .andExpect(jsonPath("$.bestBetsWithdrawn").value(true))
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick.kind").value("BEST"))
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick.locationName")
+                        .value("Keswick"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/briefing — an ADMIN keeps the window pick and the best bets")
+    void getBriefing_adminKeepsPicks() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildPickBriefing());
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bestBets.length()").value(1))
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick.kind").value("BEST"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing — a bare ROLE_USER fails closed: no picks")
+    void getBriefing_bareUserFailsClosedOnPicks() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildPickBriefing());
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bestBets.length()").value(0))
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick").doesNotExist());
+    }
+
+    @Test
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/briefing/run triggers refresh and returns 200 for ADMIN")
     void runBriefing_adminTriggersRefresh() throws Exception {
@@ -495,13 +555,33 @@ class BriefingControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"LITE_USER"})
-    @DisplayName("a LITE user may read the digest — it projects a payload they already read in full")
+    @DisplayName("a LITE user may read the digest, with the pick and what it supplies removed")
     void getDigest_liteUserMayRead() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
 
         mockMvc.perform(get("/api/briefing/digest"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.windows.length()").value(2));
+                .andExpect(jsonPath("$.windows.length()").value(2))
+                .andExpect(jsonPath("$.windows[0].verdict").value("WORTH_IT"))
+                .andExpect(jsonPath("$.windows[0].bestRating").value(4))
+                .andExpect(jsonPath("$.windows[0].confidence").value("high"))
+                .andExpect(jsonPath("$.windows[0].pick").doesNotExist())
+                .andExpect(jsonPath("$.windows[0].headline").doesNotExist())
+                .andExpect(jsonPath("$.windows[0].regionName").doesNotExist())
+                .andExpect(jsonPath("$.windows[0].locationName").doesNotExist())
+                .andExpect(jsonPath("$.windows[0].locationId").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("a bare ROLE_USER is served the LITE digest: the check fails closed")
+    void getDigest_bareUserFailsClosed() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
+
+        mockMvc.perform(get("/api/briefing/digest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.windows[0].pick").doesNotExist())
+                .andExpect(jsonPath("$.windows[0].locationId").doesNotExist());
     }
 
     @Test
@@ -510,7 +590,9 @@ class BriefingControllerTest extends AbstractControllerTest {
     void getDigest_proUserMayRead() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
 
-        mockMvc.perform(get("/api/briefing/digest")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/briefing/digest")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.windows[0].pick").value("BEST"))
+                .andExpect(jsonPath("$.windows[0].locationId").value(7));
     }
 
     @Test
@@ -522,7 +604,9 @@ class BriefingControllerTest extends AbstractControllerTest {
         // missing @PreAuthorize has to be provably deliberate rather than merely absent.
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
 
-        mockMvc.perform(get("/api/briefing/digest")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/briefing/digest")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.windows[0].pick").value("BEST"))
+                .andExpect(jsonPath("$.windows[0].locationId").value(7));
     }
 
     @Test
@@ -552,6 +636,24 @@ class BriefingControllerTest extends AbstractControllerTest {
                 List.of(new BriefingDay(LocalDate.of(2999, 3, 25), List.of(sunset)),
                         new BriefingDay(LocalDate.of(2999, 3, 26), List.of(sunrise))),
                 List.of(), null, null, false, false, 0, "Opus", List.of(), List.of());
+    }
+
+    /** A briefing whose one window carries a BEST pick and which lists one best bet. */
+    private static DailyBriefingResponse buildPickBriefing() {
+        BriefingWindow.Pick pick = new BriefingWindow.Pick(BriefingWindow.PickKind.BEST,
+                "Lake District", "A long clear run to the west", null, 4.25, "Keswick", 7L);
+        BriefingEventSummary sunset = new BriefingEventSummary(
+                TargetType.SUNSET, List.of(), List.of())
+                .withWindow(new BriefingWindow(LocalDateTime.of(2026, 3, 25, 18, 30),
+                        DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null, null));
+        com.gregochr.goldenhour.model.BestBet bet = new com.gregochr.goldenhour.model.BestBet(1,
+                "Go west", "Clear", "Wed sunset", "Lake District", Confidence.HIGH, null,
+                "Wednesday", "SUNSET", "18:30", null, null);
+        return new DailyBriefingResponse(
+                LocalDateTime.of(2026, 3, 25, 14, 0), "h",
+                List.of(new BriefingDay(LocalDate.of(2026, 3, 25), List.of(sunset))),
+                List.of(bet), null, null, false, false, 0, "Opus", List.of(), List.of(),
+                com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS, true);
     }
 
     private static DailyBriefingResponse buildSampleBriefing() {
