@@ -73,6 +73,7 @@ vi.mock('../hooks/useAuroraViewline.js', () => ({
 const { TODAY } = vi.hoisted(() => ({ TODAY: '2026-09-02' }));
 
 vi.mock('../api/auroraApi.js', () => ({
+  getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
   getAuroraLocations: vi.fn().mockResolvedValue([]),
   getAuroraForecastResults: vi.fn().mockResolvedValue([{ locationName: 'DarkSite', stars: 3, nightStart: `${TODAY}T21:00:00` }]),
   // A date so auroraAvailable=true (prevents the auto-reset from AURORA to SUNSET) AND so the

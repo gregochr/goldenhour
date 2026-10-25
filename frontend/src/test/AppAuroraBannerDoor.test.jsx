@@ -37,6 +37,7 @@ vi.mock('../api/settingsApi.js', () => ({
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
 vi.mock('../api/auroraApi.js', () => ({
+  getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
   getAuroraStatus: vi.fn(),
   getAuroraLocations: vi.fn(() => Promise.resolve([])),
   getAuroraForecastResults: vi.fn(() => Promise.resolve([])),

@@ -22,6 +22,29 @@ export async function getAuroraStatus() {
 }
 
 /**
+ * Fetches the nights a Pro reader's window control would offer an aurora row for right now
+ * (docs/engineering/aurora-pro-door-plan.md §2.1). Open to every authenticated role: the Lite
+ * reader's "Aurora tonight" Pro door is driven by it. Carries only dates, no rating or location.
+ *
+ * <p>Resolves an empty answer on any error, so a failed read draws no door rather than a broken one.
+ *
+ * @returns {Promise<{nights: string[], currentNightEndsAt: ?string}>} ISO dates ascending, and the
+ *   instant the current night ends (or null)
+ */
+export async function getAuroraNights() {
+  try {
+    const response = await apiClient.get(`${BASE_URL}/nights`);
+    const data = response.data;
+    return {
+      nights: Array.isArray(data?.nights) ? data.nights : [],
+      currentNightEndsAt: data?.currentNightEndsAt ?? null,
+    };
+  } catch {
+    return { nights: [], currentNightEndsAt: null };
+  }
+}
+
+/**
  * Triggers a Bortle light-pollution enrichment run for all unenriched locations.
  * ADMIN only.
  *

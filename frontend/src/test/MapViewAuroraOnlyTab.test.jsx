@@ -44,6 +44,7 @@ vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status
 const { stableViewline } = vi.hoisted(() => ({ stableViewline: { points: [], active: true } }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: stableViewline }) }));
 vi.mock('../api/auroraApi.js', () => ({
+  getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
   getAuroraLocations: vi.fn().mockResolvedValue([]),
   getAuroraForecastResults: vi.fn().mockResolvedValue([]),
   getAuroraForecastAvailableDates: vi.fn().mockResolvedValue([]),

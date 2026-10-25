@@ -11,6 +11,7 @@ import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 import { useFitToFrame } from '../../hooks/useFitToFrame.js';
 import { noStoredForecast } from './outcomeRatingCopy.js';
+import ProUpsellDoor, { AURORA_UPSELL_BODY, AURORA_UPSELL_HEADING } from '../shared/ProUpsell.jsx';
 
 /** Breathing room kept above/below the active row when the opened menu scrolls it into view. */
 const MENU_SCROLL_PAD_PX = 6;
@@ -55,7 +56,7 @@ export default function WindowControl({
   verdicts = null, scopeIsArea = true,
   onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
-  emptyOlderDayLabel = null, ratedCounts = null, thinCounts = null, betterNext = null,
+  emptyOlderDayLabel = null, ratedCounts = null, thinCounts = null, betterNext = null, auroraDoor = null,
 }) {
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -375,6 +376,9 @@ export default function WindowControl({
     // ⚠️ The second route that moves the window off the first while the line holds focus (the press is
     // the first): the line is about to unmount, so focus moves to the pill before `step` changes state.
     const onBetter = betterRef.current != null && e.target === betterRef.current;
+    // ⚠️ The Lite aurora door lives inside the menu, so its keys bubble here. Left/Right there would step
+    // the window, close the menu and unmount the door with focus inside it; the door owns its own keys.
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.target?.closest?.('.wf-win-aurora-door')) return;
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       if (onBetter && !atStart) pillRef.current?.focus();
@@ -711,6 +715,22 @@ export default function WindowControl({
               </span>
             </button>
           )}
+
+          {/* The Lite aurora door (docs/engineering/aurora-pro-door-plan.md §2.2): a footer AFTER the listbox and
+              the drilldown row, never inside the listbox (its children must be options), and not an
+              event: it is no row, so no stepper, count or selection ever reaches it. */}
+          {auroraDoor && (
+            <div data-testid="wf-win-aurora-door" className="wf-win-aurora-door">
+              <ProUpsellDoor
+                label={auroraDoor.label}
+                heading={AURORA_UPSELL_HEADING}
+                body={AURORA_UPSELL_BODY}
+                testIdPrefix="wf-aurora-upsell"
+                className="wf-pro-upsell-door--inline"
+                unmountFocusRef={pillRef}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -775,6 +795,11 @@ WindowControl.propTypes = {
     text: PropTypes.string.isRequired,
     tier: PropTypes.string.isRequired,
   }),
+  /**
+   * The Lite reader's aurora Pro door (aurora-pro-door-plan.md §2.2): the trigger's label, drawn as a footer
+   * of the open menu. Null (the default, and what Pro and Admin pass) draws nothing.
+   */
+  auroraDoor: PropTypes.shape({ label: PropTypes.string.isRequired }),
   /** Whether the scope segment reads "My area" — decides only the all-in-scope wording. */
   scopeIsArea: PropTypes.bool,
   /** Opens the window panel on the row in force (map-landing-plan.md §3 L5). Null withholds it. */

@@ -4255,6 +4255,15 @@ button.wf-hc.also.on:hover {
   z-index: 19;
 }
 .wf-pro-upsell-trigger { max-width: 100%; }
+/* Inline variant, for a door that lives inside a scroll box (the window control's menu, the phone peek sheet):
+   an absolutely positioned popover off the last item would be clipped there, so it sits in the flow instead. */
+.wf-pro-upsell-door--inline .wf-pro-upsell {
+  position: static;
+  width: 100%;
+  margin-top: 6px;
+  box-shadow: none;
+  z-index: auto;
+}
 /* The popover is a focus target (tabIndex -1) so a press on its text lands on it, not on the nearest
    focusable ancestor (a Modal root), which would read as focus leaving the door. No ring: it is not a tab stop. */
 .wf-pro-upsell:focus { outline: none; }
@@ -6661,6 +6670,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   margin-top: 4px;
   margin-bottom: 0;
 }
+/* The Lite aurora door's footer wrappers (the window menu's and the phone sheet's). */
+.wf-win-aurora-door,
+.wf-map-peek-aurora-door { padding: 8px 10px 4px; }
 /* The single grid item — see the markup's own note for why the glyph and the text cannot be
    siblings here. */
 .wf-win-landing-txt {

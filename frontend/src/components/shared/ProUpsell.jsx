@@ -14,6 +14,21 @@ export const BEST_BETS_UPSELL_LABEL = 'Best bets';
 export const BEST_BETS_UPSELL_HEADING = 'Best bets';
 export const BEST_BETS_UPSELL_BODY = "See the forecast's two best windows, and where to go for each.";
 
+export const AURORA_UPSELL_HEADING = 'Aurora forecasts';
+export const AURORA_UPSELL_BODY = 'See where the aurora should show, rated at each dark-sky location, with how far south it should reach.';
+
+/**
+ * The aurora door's trigger label for a night row's label (docs/engineering/aurora-pro-door-plan.md §2.2):
+ * {@code Tonight} becomes {@code Aurora tonight}, {@code Tomorrow night} becomes {@code Aurora tomorrow
+ * night}, and {@code Tuesday night} becomes {@code Aurora Tuesday night} (a weekday keeps its capital).
+ * The accessible name is this label, so the casing matters even though CSS uppercases the trigger.
+ */
+export function auroraUpsellLabel(nightLabel) {
+  if (nightLabel === 'Tonight') return 'Aurora tonight';
+  if (nightLabel === 'Tomorrow night') return 'Aurora tomorrow night';
+  return `Aurora ${nightLabel}`;
+}
+
 /**
  * The generic upsell's content: the house pill, a heading and a body. No preview sketch: the two
  * existing sketches (tide, Ask) are feature drawings and a generic one would say nothing.
@@ -73,7 +88,7 @@ const FOCUSABLE_ANCESTOR = '[tabindex], a[href], button, input, select, textarea
  * two-dialog count.
  */
 export default function ProUpsellDoor({
-  label, heading, body, testIdPrefix, className = '',
+  label, heading, body, testIdPrefix, className = '', unmountFocusRef = null, skipUnmountHandoff = false,
 }) {
   const [open, setOpen] = useState(false);
   const uid = useId();
@@ -109,10 +124,17 @@ export default function ProUpsellDoor({
   // Unmount while open (the host re-rendered the door away): if focus is inside, hand it to the host's
   // nearest focusable ancestor before the nodes go, so it does not fall to <body>. A layout cleanup runs
   // while the nodes are still attached.
+  // A host may name where focus goes instead ({@code unmountFocusRef}: the aurora door's window pill) or opt out
+  // so focus falls to <body> and the host's own focus rescue runs ({@code skipUnmountHandoff}: the phone peek
+  // sheet's fallback only acts on <body>). Read through a ref so the cleanup sees the latest values.
+  const handoffRef = useRef({ unmountFocusRef, skipUnmountHandoff });
+  useEffect(() => { handoffRef.current = { unmountFocusRef, skipUnmountHandoff }; });
   useLayoutEffect(() => () => {
     const root = rootRef.current;
     if (!root || !root.contains(document.activeElement)) return;
-    root.parentElement?.closest(FOCUSABLE_ANCESTOR)?.focus({ preventScroll: true });
+    const { unmountFocusRef: target, skipUnmountHandoff: skip } = handoffRef.current;
+    if (skip) return;
+    (target?.current ?? root.parentElement?.closest(FOCUSABLE_ANCESTOR))?.focus({ preventScroll: true });
   }, []);
 
   function close(returnFocus) {
@@ -189,4 +211,8 @@ ProUpsellDoor.propTypes = {
   body: PropTypes.string.isRequired,
   testIdPrefix: PropTypes.string.isRequired,
   className: PropTypes.string,
+  /** Where focus goes if the door unmounts while focused, instead of the nearest focusable ancestor. */
+  unmountFocusRef: PropTypes.shape({ current: PropTypes.any }),
+  /** Leave focus to fall to {@code <body>} on such an unmount, for a host whose own rescue acts on that. */
+  skipUnmountHandoff: PropTypes.bool,
 };

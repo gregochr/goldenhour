@@ -65,6 +65,7 @@ vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
 // ⚠️ `useAuroraStatus` and `AuroraStatusContext` are deliberately NOT mocked — see the file header.
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 vi.mock('../api/auroraApi.js', () => ({
+  getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
   getAuroraStatus: vi.fn(),
   getAuroraLocations: vi.fn(),
   getAuroraForecastResults: vi.fn(),

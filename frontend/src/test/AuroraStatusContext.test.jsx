@@ -36,6 +36,7 @@ import { act, render, screen } from '@testing-library/react';
 // The banner asks for per-location scores whenever a real alert is up (aurora-banner-plan.md B2);
 // empty answers keep it on its pending slot, which is all this suite needs of it.
 vi.mock('../api/auroraApi.js', () => ({
+  getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
   getAuroraStatus: vi.fn(),
   getAuroraLocations: vi.fn(() => Promise.resolve([])),
   getAuroraForecastResults: vi.fn(() => Promise.resolve([])),

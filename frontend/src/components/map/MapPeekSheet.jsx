@@ -10,6 +10,7 @@ import { meridiemOf } from '../../utils/askModel.js';
 import { KindChip, RatedCell } from './WindowControl.jsx';
 import BoltIcon from './BoltIcon.jsx';
 import { noStoredForecast } from './outcomeRatingCopy.js';
+import ProUpsellDoor, { AURORA_UPSELL_BODY, AURORA_UPSELL_HEADING } from '../shared/ProUpsell.jsx';
 
 /**
  * The Map tab's phone peek sheet — map-mobile-sheet-plan.md §3 M2,
@@ -362,6 +363,8 @@ OtherWindowValue.propTypes = {
  * @param {?string} [props.olderDayLoadingLabel] the day being fetched now; the Load row is disabled
  * @param {?Function} [props.onLoadOlderDay] the Load row's press; the caller closes the sheet and
  *        moves focus to the pill before it starts the fetch
+ * @param {?{label: string}} [props.auroraDoor] the Lite aurora Pro door, drawn after the list and its
+ *        drilldown row and before {@code topics}; null (Pro, Admin) draws nothing
  * @param {?Map<string, number>} [props.ratedCounts] row id to the reader's rated-location count for
  *        that PAST window (outcome-rating-plan.md §2 #6, O4b) — the dropdown's own {@code {n} rated} /
  *        {@code Not rated}. An id it lacks is unknown (not read yet, a failed read) and the row keeps
@@ -371,7 +374,7 @@ export function MapPeekWindowsSection({
   heading, rows, verdicts = null, activeId = null, onSelect, onOpenDrilldown = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
   emptyOlderDayLabel = null,
-  ratedCounts = null, topics = null,
+  ratedCounts = null, topics = null, auroraDoor = null,
 }) {
   // The same EARLIER group the dropdown draws (WindowControl): every PAST row under a sub-header per
   // day, the Load row first. ⚠️ The Load row and the header sit OUTSIDE the listbox (it chooses no
@@ -519,6 +522,21 @@ export function MapPeekWindowsSection({
           This window, region by region
         </button>
       )}
+      {/* The Lite aurora door (aurora-pro-door-plan.md §2.2): after the list and its drilldown row, before the
+          topics strip so it sits next to the aurora hot topic. Not inside the listbox: it is no option. */}
+      {auroraDoor && (
+        <div data-testid="wf-map-peek-aurora-door" className="wf-map-peek-aurora-door">
+          <ProUpsellDoor
+            label={auroraDoor.label}
+            heading={AURORA_UPSELL_HEADING}
+            body={AURORA_UPSELL_BODY}
+            testIdPrefix="wf-aurora-upsell"
+            className="wf-pro-upsell-door--inline"
+            // Focus must fall to <body> when the section closes: `PeekBody`'s fallback acts only there.
+            skipUnmountHandoff
+          />
+        </div>
+      )}
       {/* The four-day hot-topics strip, sheet variant (hot-topics-by-day M4): the phone's way to topics. */}
       {topics}
     </div>
@@ -552,4 +570,6 @@ MapPeekWindowsSection.propTypes = {
   ratedCounts: PropTypes.instanceOf(Map),
   /** The phone's four-day hot-topics section (`MapTopicStrip variant="sheet"`), after the list; null when none. */
   topics: PropTypes.node,
+  /** The Lite reader's aurora Pro door (aurora-pro-door-plan.md §2.2); null draws nothing. */
+  auroraDoor: PropTypes.shape({ label: PropTypes.string.isRequired }),
 };
