@@ -92,6 +92,8 @@ import { heatPointsFor, POINT_SCORE_INDEX } from './heatSpots.js';
  * {@code AuroraForecastController} is role-gated at class level and the available-dates endpoint
  * folds a LITE 403 to {@code []} — so a LITE client cannot even learn a night exists to grey it out.
  * {@code isLite} therefore omits aurora rows entirely rather than rendering a disabled one.
+ * The Lite reader's way in is the Pro door under the window list (`GET /api/aurora/nights`, drawn by
+ * `WindowControl`/`MapPeekWindowsSection`, never an entry here): docs/engineering/aurora-pro-door-plan.md.
  */
 
 /** The kind literals a row's {@code kind} field takes — also the CSS/colour class key. */

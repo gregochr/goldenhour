@@ -6,6 +6,9 @@ import { appNow } from './rewind.js';
  * Whether the Map tab may stand on an aurora alert alone, with no sunrise or sunset forecast behind
  * it (overlay convergence C3, `docs/engineering/overlay-convergence-plan.md` §3 C3 and §5 D4).
  *
+ * <p>The server twin is `AuroraNightsService` (`GET /api/aurora/nights`, the nights a Pro reader's window
+ * control offers a row for, which drives the Lite aurora door); a change to this rule must change both.
+ *
  * <p>One predicate, read by BOTH `App` (is the Map pane offered at all, and what date does it open
  * on) and `MapView` (does the live night get a window-control row), so the two can never disagree
  * about which alert counts.

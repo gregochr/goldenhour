@@ -190,7 +190,7 @@ It is not a personal path, so `personalDataPathsAreNeverFiltered` is untouched.
 - **Copy (placeholder until the owner signs it off, like the scores and best-bets copy).** New
   constants in `ProUpsell.jsx`:
   - `AURORA_UPSELL_HEADING = 'Aurora forecasts'`
-  - `AURORA_UPSELL_BODY = 'See where the aurora should show tonight, rated at each dark-sky location, with
+  - `AURORA_UPSELL_BODY = 'See where the aurora should show, rated at each dark-sky location, with
     how far south it should reach.'`
   - the label is built per night (above), so there is no `AURORA_UPSELL_LABEL` constant; export a small
     pure `auroraUpsellLabel(nightLabel)` helper beside the constants instead.

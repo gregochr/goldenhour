@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 
 vi.mock('../api/auroraApi.js', () => ({
+  getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
   getAuroraLocations: vi.fn(),
   getAuroraForecastResults: vi.fn(),
 }));

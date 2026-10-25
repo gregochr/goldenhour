@@ -100,6 +100,7 @@ let auroraStatus = null;
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: auroraStatus }) }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 vi.mock('../api/auroraApi.js', () => ({
+  getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
   getAuroraLocations: vi.fn().mockResolvedValue([]),
   getAuroraForecastResults: vi.fn().mockResolvedValue([]),
   getAuroraForecastAvailableDates: vi.fn().mockResolvedValue([]),

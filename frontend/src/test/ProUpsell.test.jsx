@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import ProUpsellDoor, {
-  SCORES_UPSELL_BODY, SCORES_UPSELL_HEADING, SCORES_UPSELL_LABEL,
+  SCORES_UPSELL_BODY, SCORES_UPSELL_HEADING, SCORES_UPSELL_LABEL, auroraUpsellLabel,
 } from '../components/shared/ProUpsell.jsx';
 
 /**
@@ -181,5 +181,53 @@ describe('ProUpsellDoor', () => {
     open();
     open();
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+describe('ProUpsellDoor — where focus goes when the door goes away while focused', () => {
+  function Host({ doorProps = {} }) {
+    const [shown, setShown] = useState(true);
+    const named = React.useRef(null);
+    return (
+      <div tabIndex={-1} data-testid="host">
+        <button type="button" data-testid="named" ref={named}>named</button>
+        <button type="button" data-testid="hide" onClick={() => setShown(false)}>hide</button>
+        {shown && <Door {...(doorProps.useNamed ? { unmountFocusRef: named } : doorProps)} />}
+      </div>
+    );
+  }
+  const hide = () => act(() => { fireEvent.click(screen.getByTestId('hide')); });
+
+  it('by default hands focus to the nearest focusable ancestor (unchanged)', () => {
+    render(<Host />);
+    act(() => { screen.getByTestId('d-trigger').focus(); });
+    hide();
+    expect(screen.getByTestId('host')).toHaveFocus();
+  });
+
+  it('unmountFocusRef sends focus to the named element instead', () => {
+    render(<Host doorProps={{ useNamed: true }} />);
+    act(() => { screen.getByTestId('d-trigger').focus(); });
+    hide();
+    expect(screen.getByTestId('named')).toHaveFocus();
+  });
+
+  it('skipUnmountHandoff leaves focus to fall to the body, for the host to rescue', () => {
+    render(<Host doorProps={{ skipUnmountHandoff: true }} />);
+    act(() => { screen.getByTestId('d-trigger').focus(); });
+    hide();
+    expect(document.body).toHaveFocus();
+  });
+});
+
+describe('auroraUpsellLabel (aurora-pro-door-plan.md §2.2)', () => {
+  it.each([
+    ['Tonight', 'Aurora tonight'],
+    ['Tomorrow night', 'Aurora tomorrow night'],
+    ['Tuesday night', 'Aurora Tuesday night'],
+    // Pre-dawn the soonest night is yesterday's, labelled as the Pro row for it is.
+    ['Saturday night', 'Aurora Saturday night'],
+  ])('turns the night label %s into %s', (nightLabel, expected) => {
+    expect(auroraUpsellLabel(nightLabel)).toBe(expected);
   });
 });

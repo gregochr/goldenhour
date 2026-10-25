@@ -8,7 +8,10 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
-import { getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates } from '../api/auroraApi.js';
+import {
+  getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates, getAuroraNights,
+} from '../api/auroraApi.js';
+import { auroraUpsellLabel } from './shared/ProUpsell.jsx';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { isTravelDate, formatEventTimeUk, parseUtcInstant } from '../utils/conversions.js';
@@ -16,7 +19,9 @@ import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
 import { lookupForWindow } from '../utils/locationSheet.js';
 import { resolveStandDown } from '../utils/standDown.js';
-import { isNightOver, resolveAuroraNight, ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import {
+  isNightOver, isStillCurrent, resolveAuroraNight, ukDateStr, ukDateStrOffset,
+} from '../utils/mapDates.js';
 import { auroraTabOffered } from '../utils/auroraTab.js';
 import { appNow } from '../utils/rewind.js';
 import {
@@ -55,7 +60,7 @@ import TideWave from './map/TideWave.jsx';
 import { fadeAt } from '../utils/heatHandover.js';
 import {
   buildMapEvents, findEvIndex, isForwardableRow, isPastSolarWindow, nightPreviewDates, solarHorizonDates,
-  solarRowPredicate, isNightKind, isHighWaterRow,
+  solarRowPredicate, isNightKind, isHighWaterRow, nightLabel,
   EVENT_KIND, HIGH_WATER,
 } from '../utils/mapEvents.js';
 import { myRatingOf } from '../utils/outcomeRatingJoin.js';
@@ -400,6 +405,8 @@ function nightScoresFor(night, answer, preview) {
  */
 const NIGHT_RETRY_DELAYS_MS = [2000, 10000, 60000];
 const NIGHT_RETRY_STEADY_MS = 10 * 60 * 1000;
+/** How often a Lite reader's served aurora nights are re-read: the aurora status poll's cadence. */
+const AURORA_NIGHTS_POLL_MS = 5 * 60 * 1000;
 
 /**
  * Asks for one night's own served rows, and asks again after each failure on the
@@ -2193,6 +2200,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       .catch(() => { setAuroraDatesLoaded(true); });
   }, [role]);
 
+  // The nights a Pro reader would get an aurora row for, served to every role (docs/engineering/
+  // aurora-pro-door-plan.md §2.2). Fetched for LITE ONLY — Pro and Admin have their own rows and never call
+  // it — on mount, on a role change and every 5 minutes (the aurora status poll's cadence; the ETag makes an
+  // unchanged answer a 304). It feeds the Pro door under the window list, never `buildMapEvents`.
+  const [auroraNightsServed, setAuroraNightsServed] = useState({ nights: [], currentNightEndsAt: null });
+  useEffect(() => {
+    if (role !== 'LITE_USER') return undefined; // the door below is role-gated too, so a stale answer never draws
+    let cancelled = false;
+    const load = () => {
+      getAuroraNights().then((answer) => { if (!cancelled) setAuroraNightsServed(answer); }).catch(() => {});
+    };
+    load();
+    const poll = setInterval(load, AURORA_NIGHTS_POLL_MS);
+    return () => { cancelled = true; clearInterval(poll); };
+  }, [role]);
+
   // Fetch stored aurora results when in Aurora mode and the selected NIGHT changes — `nightDate`,
   // not `date`: they diverge only when the window control's EV-ownership rule has kept a night
   // row local because its date is not in `forecastDates` (map-tab-v2-plan.md §3 P6).
@@ -3447,6 +3470,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     formatTimeUk: formatEventTimeUk,
     bigSeas,
   });
+  /**
+   * The Lite aurora Pro door: the soonest served night, labelled the way the Pro row for it is. D-14's rule
+   * (`isNightOffered`): while the served current night has not ended every served night stays (last night
+   * until dawn); once `currentNightEndsAt` has passed, nights before today go. A null end never ends it.
+   * A filter and a select over a served list; nothing is rated here.
+   */
+  const auroraDoor = (() => {
+    if (role !== 'LITE_USER') return null;
+    const { nights, currentNightEndsAt } = auroraNightsServed;
+    const ended = !isStillCurrent(currentNightEndsAt, appNow());
+    const soonest = nights.find((night) => !ended || night >= mapTodayStr);
+    if (!soonest) return null;
+    return { label: auroraUpsellLabel(nightLabel(soonest, mapTodayStr, ukDateStrOffset(1))) };
+  })();
   /**
    * The same rows, each solar row's clock time taken over the places in SCOPE rather than the
    * whole catalogue (`utils/mapScopedTime.js`): the served window time is the earliest sunset
@@ -6005,6 +6042,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       ratedCounts={ratedCounts}
       thinCounts={thinCounts}
       betterNext={betterNext}
+      // Desktop only: the phone's menu never opens (`pillOverride`), its door is in the peek sheet.
+      auroraDoor={isMobile ? null : auroraDoor}
       // Phone only (map-mobile-sheet-plan.md §3 M2 task 4) — the pill body toggles the peek
       // sheet's Windows section instead of this control's own dropdown, which stays permanently
       // closed there (`open` is `openMapMenu === 'window'`, a value the phone never sets). See
@@ -6846,6 +6885,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   olderDayLoadingLabel={olderDayLoadingLabel}
                   onLoadOlderDay={loadOlderFromPeek}
                   ratedCounts={ratedCounts}
+                  auroraDoor={auroraDoor}
                   topics={phoneTopicsMounted ? (
                     <MapTopicStrip
                       variant="sheet"
