@@ -41,3 +41,15 @@ describe('tide lock CSS pins', () => {
     expect(body).toMatch(/blur\(1\.2px\)/);
   });
 });
+
+describe('tide upsell CSS pins (F2)', () => {
+  it('the zero-height anchor cancels its flex gap so opening does not shift the stack', () => {
+    const body = ruleBody('.wf-tide-upsell-anchor');
+    expect(body).toMatch(/height:\s*0/);
+    expect(body).toMatch(/margin-bottom:\s*-6px/);
+  });
+
+  it('the open teaser keeps a visible border in forced colours', () => {
+    expect(css).toMatch(/forced-colors:\s*active\)\s*\{\s*\.wf-tide-strip-locked\[aria-expanded="true"\]\s*\{\s*border-color:\s*Highlight/);
+  });
+});

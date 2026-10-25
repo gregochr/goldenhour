@@ -515,7 +515,8 @@ export function LockedTideSpark() {
 export default function MapTideStrip({
   model = null, tide = null, activeRow = null, sunriseTime = null, sunsetTime = null,
   collapsed = false, onToggleCollapse = undefined, onSelectEv = undefined, mapPaneRef = null,
-  onHeightChange = undefined, locked = false,
+  onHeightChange = undefined, locked = false, onOpenUpsell = undefined, upsellOpen = false,
+  upsellId = undefined, onTeaserGone = undefined,
 }) {
   const [node, setNode] = useState(null);
 
@@ -580,6 +581,22 @@ export default function MapTideStrip({
     };
   }, [node, mapPaneRef, onHeightChange]);
 
+  // The upsell is anchored to the teaser row, so the owner is told when that row goes away: the strip
+  // stops being visible (a window change, no coast in view) or unmounts (a breakpoint flip). Only the
+  // true -> false transition fires, so an upsell opened where the teaser never showed is left alone.
+  const teaserShown = Boolean(locked && model?.visible && tide);
+  const teaserShownRef = useRef(false);
+  const onTeaserGoneRef = useRef(onTeaserGone);
+  useEffect(() => { onTeaserGoneRef.current = onTeaserGone; }, [onTeaserGone]);
+  useEffect(() => {
+    const was = teaserShownRef.current;
+    teaserShownRef.current = teaserShown;
+    if (was && !teaserShown) onTeaserGoneRef.current?.();
+  }, [teaserShown]);
+  useEffect(() => () => {
+    if (teaserShownRef.current) onTeaserGoneRef.current?.();
+  }, []);
+
   if (!model?.visible || !tide) return null;
 
   // The LITE teaser (tide-pro-gate-plan.md §5.2): placed AFTER the null return above and BEFORE the
@@ -593,13 +610,23 @@ export default function MapTideStrip({
         className="wf-map-tide-strip" ref={setNode} tabIndex={-1}
         role="group" aria-label="Tide" data-testid="wf-tide-strip"
       >
-        <div className="wf-tide-strip-locked" data-testid="wf-tide-strip-locked">
+        <button
+          type="button"
+          className="wf-tide-strip-locked"
+          data-testid="wf-tide-strip-locked"
+          aria-haspopup="dialog"
+          aria-expanded={upsellOpen}
+          aria-controls={upsellId}
+          aria-label={`Tide at this light: ${statePhrase(tide)}. Pro`}
+          data-tide-door=""
+          onClick={(e) => onOpenUpsell?.(e.currentTarget)}
+        >
           <span className="wf-tide-strip-kicker">{TIDE_KICKER_TEXT}</span>
           <span className="wf-tide-strip-state" data-testid="wf-tide-strip-state">{statePhrase(tide)}</span>
           <span className="wf-tide-strip-locked-spacer" />
           <LockedTideSpark />
           <span className="wf-lens-pro" data-testid="wf-tide-strip-upsell">Pro</span>
-        </div>
+        </button>
       </div>
     );
   }
@@ -676,4 +703,12 @@ MapTideStrip.propTypes = {
   onHeightChange: PropTypes.func,
   /** The reader does not have the tide curve (LITE): draw the static Pro teaser instead. */
   locked: PropTypes.bool,
+  /** Locked only: the teaser row was pressed; called with the row so focus can return to it. */
+  onOpenUpsell: PropTypes.func,
+  /** Locked only: whether the upsell popover is open (the row's {@code aria-expanded}). */
+  upsellOpen: PropTypes.bool,
+  /** Locked only: the popover's element id (the row's {@code aria-controls}). */
+  upsellId: PropTypes.string,
+  /** Locked only: the teaser stopped being drawn (it hid or unmounted); the upsell anchored to it should close. */
+  onTeaserGone: PropTypes.func,
 };
