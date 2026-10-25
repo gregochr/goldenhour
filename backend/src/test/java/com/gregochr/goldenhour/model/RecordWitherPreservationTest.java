@@ -93,7 +93,10 @@ class RecordWitherPreservationTest {
             Wither.of(BriefingWindow.Pick.class, "withKind", "kind"),
             Wither.of(BriefingSlot.class, "withTide", "tide"),
             Wither.of(BriefingSlot.class, "withEclipse", "eclipse"),
-            Wither.of(BriefingSlot.class, "withNeighbourOutlier", "neighbourOutlier"));
+            Wither.of(BriefingSlot.class, "withNeighbourOutlier", "neighbourOutlier"),
+            Wither.of(BriefingSlot.class, "withFlags", "flags"),
+            Wither.of(BriefingWindow.class, "withTide", "tide"),
+            Wither.of(BriefingWindow.class, "withTideFacts", "tideFacts"));
 
     /**
      * Withers deliberately outside the table: {@code BriefingSlot.withClaudeScores} is overloaded
@@ -105,7 +108,7 @@ class RecordWitherPreservationTest {
 
     private static final List<Class<?>> GUARDED = List.of(
             DailyBriefingResponse.class, BriefingDay.class, BriefingRegion.class,
-            BriefingEventSummary.class,
+            BriefingEventSummary.class, BriefingWindow.class,
             BriefingWindow.Pick.class, BriefingSlot.class);
 
     @Test
@@ -213,12 +216,15 @@ class RecordWitherPreservationTest {
      * is built and compared here.
      */
     @Test
-    @DisplayName("tripwire: BriefingWindow has no withers; the canonical constructor carries every component")
+    @DisplayName("tripwire: BriefingWindow's withers are exactly withTide/withTideFacts; the canonical "
+            + "constructor carries every component")
     void briefingWindow_canonicalConstructorCarriesEveryComponent() throws Exception {
+        // The role shaper's withers (tide Pro gate B1) are registered in WITHERS and preservation-
+        // checked by the table tests; any other wither must join them.
         assertThat(Arrays.stream(BriefingWindow.class.getDeclaredMethods())
-                .filter(m -> isWither(BriefingWindow.class, m)))
-                .as("BriefingWindow gained a wither: add it to WITHERS and GUARDED")
-                .isEmpty();
+                .filter(m -> isWither(BriefingWindow.class, m)).map(java.lang.reflect.Method::getName))
+                .as("BriefingWindow gained a wither: add it to WITHERS")
+                .containsExactlyInAnyOrder("withTide", "withTideFacts");
 
         Object built = Sentinels.record(BriefingWindow.class, 1, Map.of());
         Object[] values = new Object[BriefingWindow.class.getRecordComponents().length];

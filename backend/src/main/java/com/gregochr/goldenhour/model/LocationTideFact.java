@@ -22,7 +22,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * @param locationId               the location's id, or null for a legacy slot written before ids
  * @param locationName             the location's name, the join fallback when the id is absent
  * @param tideState                the served tide state at the window; never null on a fact
- * @param tideAligned              whether the state is one the location wants
+ * @param tideAligned              whether the state is one the location wants; null on the Lite
+ *                                 wire, where the per-location match is a Pro fact
  * @param tideAlignmentQuality     how well the state fits what the location wants, or null
  * @param tideOnTheLight           whether an extreme lands on the light, or null
  * @param nearestSolarOffsetPhrase the offset of the nearest extreme from the light, in words, or null
@@ -36,7 +37,7 @@ public record LocationTideFact(
         @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId,
         String locationName,
         String tideState,
-        boolean tideAligned,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean tideAligned,
         @JsonInclude(JsonInclude.Include.NON_NULL) Double tideAlignmentQuality,
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean tideOnTheLight,
         @JsonInclude(JsonInclude.Include.NON_NULL) String nearestSolarOffsetPhrase,
@@ -62,5 +63,20 @@ public record LocationTideFact(
                 t.tideAligned(), t.tideAlignmentQuality(), t.tideOnTheLight(),
                 t.nearestSolarOffsetPhrase(), t.tideLevel(), t.tideDirection(), t.tideHeight(),
                 t.tideShortfall(), t.tideFitPhrase());
+    }
+
+    /**
+     * Returns this fact as the LITE role is served it: the per-location match and the per-spot
+     * height and curve position removed, the free state, direction and light facts kept.
+     *
+     * <p>Rebuilt through the canonical constructor so a component added later cannot be defaulted
+     * away silently; the reflection completeness test fails until it is classified.
+     *
+     * @return a copy with {@code tideAligned}, {@code tideAlignmentQuality}, {@code tideShortfall},
+     *         {@code tideFitPhrase}, {@code tideHeight} and {@code tideLevel} null
+     */
+    public LocationTideFact forLite() {
+        return new LocationTideFact(locationId, locationName, tideState, null, null,
+                tideOnTheLight, nearestSolarOffsetPhrase, null, tideDirection, null, null, null);
     }
 }
