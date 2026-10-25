@@ -1265,8 +1265,7 @@ describe('MapView heat — the modes it stands down for', () => {
       await screen.findByTestId('wf-map-heat-legend');
       openLegend();
       // Eligible night: the overlay is mounted, but no line is drawn, so the note must not name one.
-      expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('Rating, not Kp.');
-      expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('clears the northern horizon');
+      expect(screen.queryByTestId('wf-legend-note')).toBeNull();
       unmount();
     }
   });
@@ -1281,8 +1280,7 @@ describe('MapView heat — the modes it stands down for', () => {
     openLegend();
     expect(screen.getByTestId('wf-legend-panel')).toHaveTextContent('COLOUR = AURORA RATING');
     expect(screen.queryByTestId('aurora-viewline-overlay')).toBeNull();
-    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('Rating, not Kp.');
-    expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('clears the northern horizon');
+    expect(screen.queryByTestId('wf-legend-note')).toBeNull();
   });
 
   it('hands MapLabels the aurora ramp and omitUnrated in aurora mode only', async () => {

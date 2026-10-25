@@ -311,9 +311,9 @@ describe('MapLegendPanel — the aurora variant (aurora heat, A3)', () => {
     expect(panel).toHaveTextContent('5\u2605 aurora green');
     expect(panel).not.toHaveTextContent('poor');
     expect(panel).not.toHaveTextContent('worth it');
-    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent(
-      'Rating, not Kp. Each location\u2019s score already folds in latitude, cloud and sky darkness.',
-    );
+    // No viewline, so no note at all (the old "Rating, not Kp." sentence is gone).
+    expect(screen.queryByTestId('wf-legend-note')).toBeNull();
+    expect(panel).not.toHaveTextContent('Rating, not Kp');
   });
 
   const SENTINEL = 'linear-gradient(90deg, red, blue)';
@@ -338,9 +338,9 @@ describe('MapLegendPanel — the aurora variant (aurora heat, A3)', () => {
 
   it('describes the viewline only when it is shown', () => {
     const { rerender } = render(<MapLegendPanel {...baseProps({ open: true })} variant="aurora" />);
-    expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('clears the northern horizon');
+    expect(screen.queryByTestId('wf-legend-note')).toBeNull();
     rerender(<MapLegendPanel {...baseProps({ open: true })} variant="aurora" viewlineShown />);
-    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent(
+    expect(screen.getByTestId('wf-legend-note').textContent).toBe(
       'The line is where the aurora clears the northern horizon on camera; dashed amber is the forecast, pale is live.',
     );
   });
