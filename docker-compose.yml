@@ -32,6 +32,11 @@ services:
     depends_on:
       - goldenhour-backend
     restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   goldenhour-backend:
     image: ghcr.io/gregochr/goldenhour-backend:latest

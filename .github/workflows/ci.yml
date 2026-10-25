@@ -238,6 +238,32 @@ jobs:
           grep -q '127.0.0.1:8082' "$CHECKED"
           docker run --rm -v "$CHECKED:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
 
+      # The access log must never carry a query string: one-time links (/verify?token=, /reset?token=)
+      # and stream tokens ride in it (docs/engineering/token-log-redaction-plan.md, step 1). A syntax
+      # check cannot see that, so this RUNS the shipped image (nginx:alpine, what frontend/Dockerfile
+      # uses) and reads its log. scripts/nginx-log-canary.sh carries the full account and fails by exit
+      # code alone: on a CANARY marker in the access log, a missing path/referer, or a missing.js line
+      # in the error log. It reuses the stubbed copy the step above wrote.
+      - name: nginx access log redaction canary (nginx.conf)
+        if: needs.changes.outputs.docs_only != 'true'
+        run: |
+          set -euo pipefail
+          CHECKED="$RUNNER_TEMP/nginx.checked.conf"
+          test -s "$CHECKED"
+          ./scripts/nginx-log-canary.sh "$CHECKED" api 18080
+
+      # landing/nginx.conf had no check at all. Its image bakes the file in, and release-landing.sh ships
+      # it separately from the app; security-headers.conf is included from it, so it is mounted beside it.
+      - name: nginx -t and redaction canary (landing/nginx.conf)
+        if: needs.changes.outputs.docs_only != 'true'
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/landing/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            -v "$PWD/landing/security-headers.conf:/etc/nginx/security-headers.conf:ro" \
+            nginx:alpine nginx -t
+          ./scripts/nginx-log-canary.sh "$PWD/landing/nginx.conf" static 18081 "$PWD/landing/security-headers.conf"
+
       - name: Documentation-only change — suite skipped
         if: needs.changes.outputs.docs_only == 'true'
         run: |

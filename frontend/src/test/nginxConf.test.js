@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { describeLogRedaction } from './nginxLogRedaction.js';
 
 /**
  * Pins the parts of the repo-root `nginx.conf` the login/registration series depends on (plan §2 #8
@@ -40,6 +41,8 @@ const directives = (body) =>
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
+
+describeLogRedaction('nginx.conf', code, block('/assets/'));
 
 const AASA = '= /.well-known/apple-app-site-association';
 const PERMISSIONS =
