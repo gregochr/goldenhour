@@ -317,7 +317,9 @@ export function WindowFirstBriefingProvider({
    */
   const [scoresLoaded, setScoresLoaded] = useState(false);
 
-  const [reachById, setReachById] = useState(EMPTY_REACH);
+  const [fetchedReach, setReachById] = useState(EMPTY_REACH);
+  // Derived, not cleared in an effect: a demotion inside the session drops whatever a Pro answer left.
+  const reachById = driveLocked ? EMPTY_REACH : fetchedReach;
   const [regions, setRegions] = useState(EMPTY_REGIONS);
   const [regionMatrix, setRegionMatrix] = useState(EMPTY_MATRIX);
   /**
@@ -518,12 +520,8 @@ export function WindowFirstBriefingProvider({
    */
   useEffect(() => {
     // A locked (LITE) reader is never asked: the endpoint answers 403 for them and the map stays
-    // empty, the same state as a reader with no home postcode. A demotion inside the session also
-    // drops what a Pro answer left behind.
-    if (driveLocked) {
-      setReachById((m) => (m.size ? EMPTY_REACH : m));
-      return undefined;
-    }
+    // empty, the same state as a reader with no home postcode (`reachById` below is derived empty).
+    if (driveLocked) return undefined;
     let cancelled = false;
     getReach()
       .then((entries) => {
