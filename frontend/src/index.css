@@ -202,6 +202,8 @@
   --color-runbar-5: #F2E7D3;
 
   --color-badge-go: #A8C795;
+  /* The window pill's "is better" line on hover (map-landing-nocard design README: #CFE3C2). */
+  --color-badge-go-hover: #CFE3C2;
   --color-badge-maybe: #EFC377;
   --color-badge-poor: #E58C7A;
   --color-badge-tide: #9CCBD1;
@@ -5649,6 +5651,104 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    the pill keeps its plain border, which is the design's "night events get no tint". */
 /* UNRATED (unrated-verdict-plan.md U2) is the same: its pill carries `data-tier="UNRATED"` and no rule matches,
    so the border stays plain — a window no rating has called is not tinted like one that was. */
+
+/* ── The "is better" line (map-landing-nocard-plan.md P2, design `docs/design/map-landing-nocard/`) ──
+   A SIBLING <button> between the pill and `›` (the pill is itself a button), joined to the pill so the
+   two read as ONE frame: the pill squares its right corners and drops its right border while the line
+   shows (`[data-better]`), and the line supplies the right-hand half of the frame with its own
+   separator on the left.
+
+   `margin-left: -4px` cancels the control's `gap: 4px`, so there is no seam. The design's
+   `margin-left: 2px` was written for a span INSIDE the pill, where the pill's own `gap` stood in for it;
+   here the separator's `padding-left: 8px` gives the same spacing. The control stays a constant 504px
+   (#773: `‹ ›` never move), so the line is paid for by the pill: the region line ellipses first and
+   the medallion's words are withdrawn while the line shows (the same clip recipe as the ≤811px rule,
+   so "Best bet" stays in the accessible name). The day label never shrinks.
+
+   Border colours copy `.wf-win-pill[data-tier]`'s, WITHOUT its inset bar, which belongs to the pill's
+   left edge only. `data-tier` on the line is the ACTIVE window's, so the frame is one tint. */
+.wf-win-better {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex-shrink: 0;
+  margin-left: -4px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--color-plex-border);
+  border-left: 1px solid var(--color-plex-border);
+  border-radius: 0 10px 10px 0;
+  background: var(--color-plex-panel);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--color-badge-go);
+  cursor: pointer;
+}
+.wf-win-better:hover {
+  color: var(--color-badge-go-hover);
+  text-decoration: underline;
+}
+.wf-win-better:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+.wf-win-better[data-tier="WORTH_IT"] {
+  --wf-better-tint: color-mix(in srgb, var(--color-verdict-go) 55%, transparent);
+}
+.wf-win-better[data-tier="MAYBE"] {
+  --wf-better-tint: color-mix(in srgb, var(--color-verdict-marginal) 50%, transparent);
+}
+.wf-win-better[data-tier="STAND_DOWN"] {
+  --wf-better-tint: color-mix(in srgb, var(--color-verdict-standdown) 50%, transparent);
+}
+/* ⚠️ Top, right and bottom only: the LEFT border is the separator between the pill and the line and stays
+   the neutral `--color-plex-border` whatever the tier (a `border-color` shorthand would tint it). */
+.wf-win-better[data-tier] {
+  border-top-color: var(--wf-better-tint);
+  border-right-color: var(--wf-better-tint);
+  border-bottom-color: var(--wf-better-tint);
+}
+.wf-win-control[data-better] .wf-win-pill {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right-width: 0;
+  /* The tuning (see below): the ≤389px recipe, so the verdict word keeps its room beside the line. */
+  gap: 4px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+/* The medallion's words, visually hidden while the line shows (the ≤811px clip recipe, for the same
+   reason: `display: none` would delete them from the accessible name). A first window that carries a
+   pick otherwise clips the verdict word even at 1280. */
+.wf-win-control[data-better] .wf-win-pick-words {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border-width: 0;
+}
+/* The pill's tuning while the line shows: the ≤389px recipe (gap 4, side padding 8) and no separator
+   before the verdict cell. Measured (Chromium, the real control, a 504px control with a 187px line, so
+   a ~245px pill): without it a "Tomorrow" first window clips its verdict word when it carries a pick;
+   with it that case and every Today/Tomorrow case without a pick fit down to a 848px frame.
+   ⚠️ There is deliberately NO `@media` rule hiding the line. The clip is content-driven (a pick, a
+   weekday label) at every width, and the frame is not the viewport, so `WindowControl` withholds the
+   line by measuring, and `data-better` then goes with it. */
+.wf-win-control[data-better] .wf-win-verdict {
+  padding-left: 0;
+  border-left: none;
+}
+/* The region line is the part that yields (design priority order): capped at the squeezed cell so it
+   ellipsises there instead of running under the caret. Without this it is sized to its text, overflows
+   the cell, and shows through to the caret. */
+.wf-win-control[data-better] .wf-win-verdict-region {
+  max-width: 100%;
+}
 
 /* The word over the region. STACKED, not inline: the design measured the inline form at about 120px,
    which pushed the stepper under the right-hand nav cluster. `margin-left: auto` puts the cell hard

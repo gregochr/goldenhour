@@ -55,7 +55,7 @@ export default function WindowControl({
   verdicts = null, scopeIsArea = true,
   onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
-  emptyOlderDayLabel = null, ratedCounts = null, thinCounts = null,
+  emptyOlderDayLabel = null, ratedCounts = null, thinCounts = null, betterNext = null,
 }) {
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -105,6 +105,8 @@ export default function WindowControl({
    */
   const ownPillRef = useRef(null);
   const pillRef = pillRefProp ?? ownPillRef;
+  /** The "is better" line, so a key pressed ON it can be told apart from one pressed on the pill. */
+  const betterRef = useRef(null);
 
   const active = activeIndex >= 0 && activeIndex < events.length ? events[activeIndex] : null;
   // Stepping from "nowhere" is ambiguous — the map is on a date/event the list has no row for.
@@ -194,6 +196,82 @@ export default function WindowControl({
   // `BottomSheet` on any viewport, so it is never portalled outside `rootRef`.
   useOutsideDismiss({ open, rootRef, onDismiss: () => setOpen(false) });
 
+  /**
+   * ⚠️ **The "is better" line shows only if it fits** (map-landing-nocard-plan.md D1, owner 2026-10-25).
+   * The control is a constant 504px, so the line is paid for by the pill (432px down to about 245px), and
+   * measured in Chromium the verdict word clips on a first window that carries a pick and on a weekday
+   * label, at every viewport width; and the frame is not the viewport (`<main>`'s `sm:px-4`, the 1080px
+   * cap, the Ask dock), so no media query could name the width. The fit is therefore asked of the layout.
+   *
+   * <p>A ResizeObserver keeps the control's width in state. The key joins window, sentence, width, fonts
+   * and a signature of what the pill SHOWS (tier, region wording, pick, thin count, loading), because at a
+   * fixed 504px the same window and width can still carry different content (a scope flip, a refresh, a
+   * late webfont). A layout effect runs on EVERY commit while the line is a candidate (so the verdict is
+   * reached before paint) and withholds it when, with it drawn, the pill or the verdict cell overflows.
+   * The cell, not the word: the word is its own box and never overflows itself, it overflows the squeezed
+   * cell. The region line is allowed to ellipsise and is not tested.
+   *
+   * <p>⚠️ The verdict is stored AS A KEY and state is set only when the line is drawn AND overflows, so it
+   * cannot oscillate: withholding the line leaves the key unchanged and the effect inert (the control's
+   * width is fixed by its own rule, never by the line). A new width, window or content makes a new key and
+   * the line is tried again. No observer (jsdom) means no width; the effect still measures, reading zeros.
+   */
+  const [controlWidth, setControlWidth] = useState(null);
+  const [misfitKey, setMisfitKey] = useState(null);
+  const [fontsReady, setFontsReady] = useState(
+    () => !globalThis.document?.fonts || document.fonts.status === 'loaded',
+  );
+  const noEvents = events.length === 0;
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries?.[0]?.contentRect?.width;
+      if (Number.isFinite(width)) setControlWidth(Math.round(width));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [noEvents]);
+  // A webfont arriving after first paint changes every glyph width: one more try, once.
+  useLayoutEffect(() => {
+    if (fontsReady) return undefined;
+    let live = true;
+    document.fonts.ready.then(() => { if (live) setFontsReady(true); });
+    return () => { live = false; };
+  }, [fontsReady]);
+  const fitSig = [
+    activeVerdict?.tier, activeVerdict ? verdictRegionLabel(activeVerdict, { scopeIsArea }) : '',
+    active?.pickKind, thinCounts?.get(active?.id), loading, scopeIsArea,
+  ].join('~');
+  const fitKey = betterNext
+    ? `${active?.id}|${betterNext.text}|${controlWidth}|${fontsReady}|${fitSig}` : null;
+  const showBetter = Boolean(betterNext) && misfitKey !== fitKey;
+  /** Set by the line's own focus/blur: did it hold focus when it left the DOM? */
+  const betterHadFocus = useRef(false);
+  // On every commit, by design (see above); it sets state only for a drawn line that overflows.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    // ⚠️ The PARENT withdrew a line that held focus (a refresh, thin counts arriving, the clock rebuilding
+    // the list): the element is gone and focus fell to <body>, where the pane's keys never fire. Same
+    // rescue as `useRowFocusRescue`: only when focus is truly nowhere.
+    if (betterRef.current == null && betterHadFocus.current) {
+      betterHadFocus.current = false;
+      const at = document.activeElement;
+      if (!at || at === document.body) pillRef.current?.focus();
+    }
+    if (!showBetter) return;
+    const pill = pillRef.current;
+    const cell = pill?.querySelector('.wf-win-verdict');
+    const overflows = (node) => node != null && node.scrollWidth > node.clientWidth + 1;
+    if (!overflows(pill) && !overflows(cell)) return;
+    // Withheld with focus on the line: it is about to unmount, so the pill takes focus first.
+    if (betterRef.current && document.activeElement === betterRef.current) {
+      betterHadFocus.current = false;
+      pillRef.current?.focus();
+    }
+    setMisfitKey(fitKey);
+  });
+
   // A row can leave this open menu with nobody pressing anything — the EV list is rebuilt against
   // the clock, so last night's rows go at dawn (D-14) and yesterday's filler solar rows at UK
   // midnight. The pill is where focus goes if the row holding it does; see the hook for why it only
@@ -257,6 +335,22 @@ export default function WindowControl({
     onLoadOlderDay();
   }
 
+  /**
+   * Presses the "is better" line: the second solar window, exactly as if it had been chosen from the
+   * menu (so `selectEvRow` resets the filters on a sunset to sunrise change, on purpose).
+   *
+   * <p>⚠️ Focus goes to the pill HERE, before the state change. The line unmounts itself the moment the
+   * window moves off the first one, and a focused control that unmounts drops focus to
+   * {@code <body>}, where this control's keyboard handler and the pane's Escape never fire (the defect
+   * map-tab.md records five times). Same order as {@link loadOlder}.
+   */
+  function pressBetter() {
+    if (!betterNext || loading) return;
+    setOpen(false);
+    pillRef.current?.focus();
+    onSelect(betterNext.row);
+  }
+
   function step(delta) {
     if (loading) return;
     if (delta < 0 && prevLoads) {
@@ -278,11 +372,16 @@ export default function WindowControl({
     // non-trapping sheet onto the pill, so the drilldown cannot be opened behind a sheet without
     // opening THIS first.
     if (foreignModalOverPaneOf(rootRef.current)) return;
+    // ⚠️ The second route that moves the window off the first while the line holds focus (the press is
+    // the first): the line is about to unmount, so focus moves to the pill before `step` changes state.
+    const onBetter = betterRef.current != null && e.target === betterRef.current;
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
+      if (onBetter && !atStart) pillRef.current?.focus();
       step(-1);
     } else if (e.key === 'ArrowRight') {
       e.preventDefault();
+      if (onBetter && !atEnd) pillRef.current?.focus();
       step(1);
     } else if (e.key === 'Escape' && open) {
       e.preventDefault();
@@ -307,6 +406,7 @@ export default function WindowControl({
       ref={rootRef}
       data-testid="wf-win-control"
       className="wf-win-control"
+      data-better={showBetter ? '' : undefined}
       onKeyDown={onKeyDown}
     >
       {/* The fetch's one announcement. The pill keeps focus while its text changes to `Loading …`, and a
@@ -430,6 +530,35 @@ export default function WindowControl({
         )}
         <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
       </button>
+
+      {showBetter && (
+        // A SIBLING of the pill, never inside it: the pill is itself a `<button>`. Its accessible name is
+        // its text (the `›` is aria-hidden; no `aria-label`, which would replace the content), and the
+        // tier word rides `aria-describedby` so a screen reader hears the reason the stepper tick gives
+        // a sighted reader. `data-tier` is the ACTIVE window's, so the border matches the pill's tint.
+        // The description span is OUTSIDE the button: inside it, it would join the button's name.
+        <>
+          <button
+            ref={betterRef}
+            type="button"
+            data-testid="wf-win-better"
+            className="wf-win-better"
+            data-tier={activeVerdict?.tier || undefined}
+            aria-describedby="wf-win-better-why"
+            onClick={pressBetter}
+            onFocus={() => { betterHadFocus.current = true; }}
+            // Focus moving to another element clears it; a blur to nowhere (the node leaving the DOM)
+            // does not, which is exactly the case the rescue above is for.
+            onBlur={(e) => { if (e.relatedTarget) betterHadFocus.current = false; }}
+          >
+            {betterNext.text}
+            <span aria-hidden="true">{' ›'}</span>
+          </button>
+          <span id="wf-win-better-why" data-testid="wf-win-better-why" className="sr-only">
+            {VERDICT_LABEL[betterNext.tier]}
+          </span>
+        </>
+      )}
 
       <button
         type="button"
@@ -636,6 +765,16 @@ WindowControl.propTypes = {
    * absent or a missing row draws nothing, which is every window but a thinly-rated one.
    */
   thinCounts: PropTypes.instanceOf(Map),
+  /**
+   * The "<day> <event> is better" line (`utils/mapLanding.betterNextWindow`, map-landing-nocard-plan.md
+   * P2): the second solar window to select on a press, the sentence, and its tier word. Null (the
+   * default, and what the phone passes) draws nothing.
+   */
+  betterNext: PropTypes.shape({
+    row: PropTypes.object.isRequired,
+    text: PropTypes.string.isRequired,
+    tier: PropTypes.string.isRequired,
+  }),
   /** Whether the scope segment reads "My area" — decides only the all-in-scope wording. */
   scopeIsArea: PropTypes.bool,
   /** Opens the window panel on the row in force (map-landing-plan.md §3 L5). Null withholds it. */

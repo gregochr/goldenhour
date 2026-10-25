@@ -16,11 +16,11 @@ and that becomes a short tappable line beside the pill. The line shows only on t
 when the second solar window is in a strictly higher tier, and never on a phone.
 
 **Status**: plan, 2026-10-25; owner accepted every §5 default the same day. Reviewed by three read-only lenses (P1 completeness, P2 correctness and
-accessibility, brief and test quality). P1 and P2 are not started.
+accessibility, brief and test quality). P1 merged (#1391); P2 in review.
 
 | phase | branch | PR | what |
 |---|---|---|---|
-| P1 | `chore/map-landing-card-removal` | — | Remove the card, its state, its Escape listener, the reopen row and the leftovers |
+| P1 | `chore/map-landing-card-removal` | #1391 (merged) | Remove the card, its state, its Escape listener, the reopen row and the leftovers |
 | P2 | `feature/map-pill-is-better` | — | Add the "is better" line |
 
 Owner rule (CLAUDE.md):
@@ -332,13 +332,15 @@ judged on exit codes. No backend change.
      technique as the ≤811px rule. A first window that carries a pick otherwise clips the verdict word even
      at 1280 (review finding: chip + label + time + medallion words + verdict exceeds the ~238px the pill
      keeps).
-   - **The hide rule** (D1): `@media (max-width: <measured>px) { .wf-win-better { display: none } }`, with
-     the matching pill-border reset. Use a **viewport** media query, not a container query:
-     - `container-type` on `.wf-win-control` applies layout containment, which makes it a stacking context.
-       That would confine `.wf-win-menu`'s z-index under the topic-chip row that follows it in
-       `.wf-map-chrome-tl`.
-     - Before relying on the viewport query, confirm in the browser that the Map pane spans the viewport at
-       each measured width (pane width == `innerWidth`). If it does not, stop and report.
+   - **The tuning and the fit check** (replaces the hide rule; owner 2026-10-25, D1). While `[data-better]`:
+     `.wf-win-pill { gap: 4px; padding-left: 8px; padding-right: 8px }`, `.wf-win-verdict { padding-left: 0; border-left: none }`
+     and `.wf-win-verdict-region { max-width: 100% }` (so the region ellipsises at the squeezed cell).
+     There is **no** width media query and no `.wf-shell--docked` rule. `WindowControl` instead draws the
+     line only if it fits: a ResizeObserver keeps the control's width in state, and a layout effect
+     withholds the line (and `data-better`) when the pill or the verdict cell overflows with it drawn,
+     keyed by `window|sentence|width` so it cannot oscillate and is re-tried on any width or window change.
+     Not a container query either: `container-type` on `.wf-win-control` would make it a stacking context
+     and confine `.wf-win-menu`'s z-index under the topic-chip row.
 5. Change nothing else. The pill's verdict cell, region line, ticks and thin count stay as they are. The
    medallion words are hidden only while the line shows.
 
@@ -426,6 +428,24 @@ The line is about 185–195px wide. The ways to fit it:
 | C | The literal reading: let the pill grow while the line shows. | `›` jumps about 190px the moment the reader taps the line or steps off the first window. That is exactly what #773 removed. Not recommended. |
 | D | Put the line on its own row under the control in `.wf-map-chrome-tl`, where the big-seas line already lives. | No compression and no hide width. But it is not "in the pill". It adds a row (the spec forbids a second row of the control group), it moves the big-seas line and the topic chips down on the first window only (and back when tapped), and `useChromeTlHeight` and the label obstacle must be re-measured. |
 
+**Owner 2026-10-25: show only if it fits.** A tuned, with a layout-time fit check instead of a hide width
+(the measured clip was content-driven at every width, and the frame is not the viewport). What the P2
+measurement found, in headless Chromium against the real control and stylesheet:
+- With the §3 P2 step 4 CSS as written, the pill keeps about 245px beside a 181–187px line, and the verdict
+  word clipped at 1280, 1024 and 820 alike: always on a first window that carries a pick, and on a weekday
+  label (a "Tomorrow" first window without a pick fit). So no viewport width could be named, and the hide
+  width was above 1024px, which the plan made a stop.
+- The frame is not the viewport: `App.jsx` `<main>` has `sm:px-4` (16px each side from 640px), the panel
+  region is capped at `WRAP_MAX_WIDTH` 1080px (`WindowFirstShell.jsx`), and the Ask dock (360/380px) narrows
+  the column further from 1024px. A viewport query cannot see the dock.
+- The tuning (gap 4, side padding 8, no verdict separator, region capped at the cell) plus the fit check:
+  shown for "Today", "Tomorrow" and weekday first windows without a pick, and for "Today" with a pick;
+  withheld for "Tomorrow" with a pick (and below a ~850px frame); at frames of 1080, 992, 788 and 867 (the
+  Ask dock open at 1280) and 631 (dock open at 1024, where the line is withheld and the pill itself already
+  clips without it). Where it shows: `›` right edge identical with and without the line, control 36px,
+  line left edge equal to the pill's right edge, no clip. A resize 1080, 700, 1080, 760, 1080 withholds and
+  re-shows it each time.
+
 **D2: no field fallback** (§1.8). The spec's ≥3.7 / ≥2.8 fallback is a convenience of the prototype. The
 served verdict is the pill's one source.
 
@@ -455,8 +475,9 @@ comment says such a widening "belongs to a phase that reviews it". Default: drop
 ✅ **Decided 2026-10-25: the owner accepted every default below** ("Defaults are fine").
 
 - **Q1 (D1)**: A, B, C or D? Default **A**.
-- **Q2**: if the measured hide width means iPad portrait (768/820) loses the line, is that acceptable?
-  Default **yes**: the `›` tick still shows the next window's tier. Above 1024px is a stop, not a default.
+- **Q2** (**superseded 2026-10-25**, see D1's note: there is no hide width; the line is shown only if it
+  fits): if the measured hide width means iPad portrait (768/820) loses the line, is that acceptable?
+  Default was **yes**: the `›` tick still shows the next window's tier.
 - **Q3 (§2)**: the pill's formatter gives `Today sunset is better`, never the spec's `Tonight sunset is
   better`. Keep the pill's word, so the line and the pill agree after the tap? Default **yes**.
 - **Q4 (§2)**: suppress the line when either window is a thin sample (the pill shows "· N rated")? "Better"
