@@ -2,6 +2,7 @@ import PropTypes from 'prop-types';
 import {
   TIDE_KICKER_TEXT, TideDayChart, TideStripFooter, hasTideCurve, statePhrase,
 } from './MapTideStrip.jsx';
+import { TideUpsellContent } from './TideUpsell.jsx';
 
 /**
  * The Map tab's phone peek sheet — Tide section (map-mobile-sheet-plan.md §3 M3 task 3,
@@ -59,8 +60,10 @@ export default function MapPeekTideSection({
   focusTargetRef = null, locked = false,
 }) {
   if (!tide) return null;
-  // The LITE teaser (tide-pro-gate-plan.md §5.3 #3): kicker, state, one line. No height line (it
-  // carries `heightAtWindow`), no chart, no footer, no "No coastal spot in view".
+  // The LITE section (tide-pro-gate-plan.md §5.3 #3, §6.3): kicker, state, then the desktop popover's
+  // content INLINE (pill, heading, body, preview) — the phone has no floating popover, and the sheet's
+  // own close does "Not now". No height line (it carries `heightAtWindow`), no chart, no footer, no
+  // "No coastal spot in view", and still no upgrade link or word.
   if (locked) {
     return (
       <div data-testid="wf-map-peek-tide" className="wf-map-peek-pane">
@@ -68,9 +71,9 @@ export default function MapPeekTideSection({
         <p className="wf-map-peek-tide-phase" data-testid="wf-map-peek-tide-phase">
           {statePhrase(tide)}
         </p>
-        <p className="wf-map-peek-tide-meta" data-testid="wf-map-peek-tide-locked">
-          The tide curve and spot matching are part of Pro.
-        </p>
+        <div className="wf-tide-upsell-inline" data-testid="wf-map-peek-tide-locked">
+          <TideUpsellContent headingId="wf-map-peek-tide-upsell-heading" testIdPrefix="wf-map-peek-tide-upsell" />
+        </div>
       </div>
     );
   }

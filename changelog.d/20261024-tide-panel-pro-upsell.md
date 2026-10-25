@@ -1,0 +1,3 @@
+### Changed — Lite readers get a tide upsell on the Map
+
+On the Map, a Lite reader who presses the one-line tide teaser, or the Spring or King tide chip or their rows in the four-day strip, now sees a short upsell instead of nothing: what the tide curve and spot matching do, with a "Not now" to close it. It names the feature as part of Pro but carries no link and no upgrade button. The tide chips no longer select a topic or draw rings for a Lite reader, and arriving from Coming up or the Plan tab lands on the Map with no tide topic selected and no popup. On a phone the same words appear in the Tide section of the bottom sheet. Pro and Admin are unchanged.
