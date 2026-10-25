@@ -5,6 +5,162 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.33.0] - 2026-10-25
+
+### Fixed — event streams authenticate with the Authorization header
+
+The status stream, run notifications and run progress used to carry the access token in the URL
+(`?token=`), where nginx wrote it to its access and error logs. `createEventSource` now streams with
+`fetch` and sends `Authorization: Bearer <token>`; the token is never a query parameter. Its contract
+is unchanged (per-event handlers, `onError`, `closeOn`, a fresh token on every reconnect,
+`reconnectOnVisible`, a 5 s retry), and `onError` now receives `{ status }` when the server answered,
+so a 401 is visible. The backend still accepts both forms; the query form goes in a later release.
+
+### Removed — the Map tab's "Tonight, or tomorrow?" card
+
+The card that opened the Map tab on the first visit of every forecast run is gone, along with the
+`↺ Back to …` row at the top of the window pill's menu that reopened it. The menu now opens on the
+windows themselves (or the EARLIER group when there is one) and still ends with the "This window,
+region by region" row. The four-day hot-topics strip is no longer forced closed on a first visit, so it
+opens at the size the reader last left it. The phone was never shown the card, and its peek sheet's
+Windows heading is unchanged.
+
+One small behaviour goes with it: with a hot topic selected and keyboard focus on the page body (Safari
+does not focus a button you click), Escape no longer clears the topic. That branch lived in the card's
+document-level Escape listener. Escape still clears the topic whenever focus is anywhere inside the
+map, which is where it already stopped working for every reader who had dismissed the card.
+
+The `mapLandingSeenRun` key the card wrote to local storage is left where it is: it is a few bytes,
+nothing reads it, and code to clear it would stay in the app for good.
+
+### Fixed — origin-only referrers, and one-time link tokens leave the address before the app renders
+
+`Referrer-Policy` is now `strict-origin` on every response (and as a `<meta name="referrer">` in
+`index.html`, for a precached page that replays old headers), so a same-origin request no longer
+repeats the full page URL. A new `takeLinkToken()` reads the `token` of an emailed verification or
+reset link once per page load, before React renders, and rewrites the address without it, keeping
+the path, other query parameters and the rest of the fragment. It already reads `#token=` ahead of
+`?token=`. A reload after the link has opened no longer re-reads the token: a reset reader
+re-clicks the email link.
+
+### Docs — the privacy policy says the access log no longer records tokens
+
+The "Server logs" item of `landing/privacy.html` now describes the web server's access log as recording
+the path requested without its query string, and says that sign-in tokens and the one-time codes in
+verification and password-reset links are not recorded (the token travels in a request header, the
+link codes after a `#`). It also notes that Cloudflare handles each request in full. The "last updated"
+date is 25 October 2026.
+
+⚠️ Release order: the landing release (`./release-landing.sh`) must wait until the app release carrying
+#1397, #1399, #1403, #1406 and #1408 is live, or the policy would describe behaviour that is not yet true.
+
+### Fixed — verification and password-reset links carry their token in the fragment
+
+The emailed verification and reset links are now `/verify#token=…` and `/reset#token=…`. A URL
+fragment is never sent to the server, so the one-time token no longer appears in the nginx access
+log, Cloudflare's request line or a `Referer`. The app still reads the older `?token=` form so links
+already in inboxes keep working for their lifetime (24 h verify, 1 h reset); removing that fallback
+is a follow-up once a release carrying this change has been live for more than 24 h.
+
+### Security — the web-server access log no longer records query strings
+
+nginx wrote the full request line to its access log, so every one-time link (`/verify?token=`,
+`/reset?token=`) and every stream request (`/api/status/stream?token=`, which carries the signed-in
+reader's access token) landed in the container log, and the Referer of each follow-up request
+repeated the one-time link. Both configs (the app's `nginx.conf` and `landing/nginx.conf`) now log
+through a `redacted` format that writes the path only and the Referer without its query or
+fragment. A missing asset no longer writes an error-log line (which would record the page's Referer),
+and the `goldenhour-frontend` and `landing` containers now carry the same 10 MB x 3 `json-file` log
+limit as the database and backend, so the container log is bounded.
+
+CI now runs `nginx:alpine` with each config, sends requests with canary tokens, and fails if one
+reaches the access log; `landing/nginx.conf` also gets its first `nginx -t`. Residual, fixed by later
+steps of the plan: nginx's error log cannot be reformatted, so an upstream error on a stream or an
+`/api/auth/*` call can still write the request line or Referer there.
+
+### Added — the window pill says when the next window is better
+
+On the Map tab, when you are looking at the first sunrise or sunset window and the next one is in a higher tier (for example tonight is Maybe and tomorrow's sunrise is Worth it), the window pill now carries a short line beside it, "Tomorrow sunrise is better ›". Pressing it moves to that window, the same as choosing it from the week menu. It replaces the one comparison the removed "Tonight, or tomorrow?" card made.
+
+The line is left out when either window is a thin sample, when the next window is not better, and on a phone. It is also withheld whenever the pill has no room for it (for example on a window carrying a pick, or in a narrow frame or with the Ask dock open), so it never squeezes the verdict word. Reader filters do not change it; the My area / Everywhere scope does.
+
+### Changed — Lite readers see the star rating, not the Fiery Sky and Golden Hour scores or the written why
+
+The Fiery Sky and Golden Hour scores and each location's written explanation are Pro, as the pricing list says. A Lite reader still sees the star rating, the verdict and the region's own description, but the spot peek, the Regional planner's expandable rows and the Four-days sheet's score bars and sentence no longer draw. The Four-days sheet shows one "Scores and the why" Pro door instead, a worded popover with no link. Pro and Admin readers see no change. This is the client half; the server will stop sending the fields in a follow-up.
+
+### Changed — The API no longer sends Lite the Fiery Sky and Golden Hour scores or the per-location written why
+
+Readers who are not Pro or Admin now get no Fiery Sky or Golden Hour number and no per-location written
+explanation from `GET /api/briefing/evaluate/scores`, the briefing's slots, `GET /api/forecast` (list, `?date=`
+and the sparse rows) or `GET /api/forecast/{id}`. The star, the verdict, the stand-down reasons and the region
+prose are unchanged. The check is fail-closed: a caller with no recognised role is treated as Lite. The
+browser's cached forecast copies move to a new key generation so no earlier, unstripped body is ever painted.
+
+### Changed — Drive times from home are Pro
+
+A Lite account no longer asks for its drive times from home: the Plan and Map draw no drive or leave
+lines for it (region-base minutes under an away origin stay), the Map's drive-time filter is greyed with a
+Pro pill at every origin and always behaves as Any, and Settings no longer shows the "Last calculated"
+stamp. Pro and Admin are unchanged. The dead `refreshDriveTimes` client call to a removed endpoint is gone.
+A Lite reader with a postcode now sees the whole field as their planning area (no "beyond" line), the same as an account with no postcode.
+
+### Changed — The API no longer measures or serves drive times from home for Lite accounts
+
+`GET /api/user/settings/drive-times`, `GET /api/user/settings/reach` and `POST /api/user/settings/drive-times/refresh` now answer 403 to a Lite account (Pro and Admin are unchanged), and the nightly drive-time job, including the admin "Run now", measures only enabled Pro and Admin accounts with a home, so no OpenRouteService quota is spent on Lite homes. Saving a home postcode and `GET /api/user/settings` stay open to every role. Drive times already stored for Lite accounts are left in place.
+
+### Changed — Best bets are Pro
+
+Readers on the free tier no longer see the forecast's "Best bet" and "Also good" picks: the chips on the
+Plan matrix and in the window popup, the medallions on the Map's window pill and panels, and the pick
+dialog are gone for them. A "Best bets" button in the matrix's key row explains what Pro adds. Pro and
+Admin readers see no change. The server still sends the picks for now; a later change stops sending them.
+
+### Changed — The API no longer sends Lite the best-bet picks
+
+`GET /api/briefing` now leaves each window's pick out for Lite readers, serves an empty best-bets list and drops the best-bet model, status and withdrawn flag, and `GET /api/briefing/digest` drops each window's pick, headline, region and location. Pro and Admin readers see no change, and the star rating, the verdict and the region's own description are still sent to everyone. This is the server half of the Lite best-bets lock; the app already hides these surfaces for Lite.
+
+### Security — Legacy outcome API is admin-only
+
+`GET /api/outcome`, `GET /api/outcome/all` and `POST /api/outcome` now require the ADMIN role. They had no role gate, so any signed-in
+account could read every `actual_outcome` row (free-text notes included) and write rows that feed the calibration report. The reader-facing
+rating (`/api/outcome/ratings*`) is unchanged, and the privacy page now says only administrators can read the older records.
+
+### Changed — the landing page's two pricing cards are the same height on the phone
+
+Swiping between Lite and Pro in the phone pricing carousel no longer makes the page jump: both
+cards now take the taller card's height, and Lite's button sits at the bottom of its card. The
+features carousel still follows the height of the card in view. Desktop and tablet are unchanged.
+
+### Changed — the landing page is more compact on a phone
+
+On screens 720px wide or narrower, photocast.online now has a sticky Features / Pricing / Questions
+bar under the masthead that marks the section being read. The eight features and the two pricing
+plans become swipeable rows with dot controls, the FAQ teaser answers open on tap, the three
+platforms collapse to a one-line-each list, and the first two "From the field" steps sit behind a
+"See how the forecast called it" button. Desktop and tablet are unchanged, and with JavaScript off a
+phone sees every word as before.
+
+### Changed — landing site editorial pass
+
+The FAQ is reorganised into five sections (getting started, understanding the forecasts, features and subscriptions, data sources, about) with an in-page section list, a new Fiery Sky versus Golden Hour question, and corrected answers on the planning horizon and how often forecasts update. The acknowledgements now credit OpenRouteService and Esri. Terms and Privacy carry factual corrections: payments are not live yet, the storm-surge wording, the automatic purge of unverified registrations, what the web-server access log holds, and the OpenStreetMap Nominatim lookup used by administrators. The homepage dateline gains its year and the FAQ teaser question now reads "How far ahead can I plan?".
+
+### Changed — landing acknowledgements list the full stack
+
+The acknowledgements page now credits the whole stack: Natural Earth joins the data providers, and the open-source section is regrouped into Backend, Frontend, Typefaces, Infrastructure and Development and testing, with the libraries, typefaces and tools PhotoCast actually builds on and their licences.
+
+### Changed — acknowledgements credit NLCNET
+
+The noctilucent-cloud sighting reports PhotoCast reads come from NLCNET's observer network, and the acknowledgements page now credits them in the Data providers table.
+
+### Security — event-stream URLs no longer accept an access token
+
+`JwtAuthenticationFilter` now reads the access token from the `Authorization` header only, and
+`StatusController` no longer reads a `token` query parameter. A `?token=` on `/api/status/stream`,
+`/api/forecast/run/notifications` or `/api/forecast/run/{id}/progress` does not authenticate (401), so
+no credential is left in any request line. Release note: a tab still running a bundle from before the
+header-streaming change loses its streams (status shows DOWN, retrying every 5 s against a 401) until
+it reloads; the PWA's `autoUpdate` swaps the bundle on the next load.
+
 ## [v2.32.3] - 2026-10-25
 
 ### Changed — the aurora Map legend drops "Rating, not Kp."
