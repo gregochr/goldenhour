@@ -5,6 +5,226 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.32.2] - 2026-10-25
+
+### Removed — the Map's hidden location medallions
+
+The Map no longer draws a Leaflet disc for every location underneath the heat field. They were already
+invisible and unclickable once the field mounted (the field held their panes at zero opacity), but they
+were mounted before the lazily loaded field was, so the grey discs flashed on screen when the map first
+opened. With them gone, the first paint is the basemap and then the field, with nothing in between. The
+label chips remain the one place a location is named and the way to open its callout.
+
+A roster in which no location joins a region offers no field, so those locations used to be the only
+thing on the map; the centre pill now says "No places to draw on the map yet" there instead of leaving it
+blank. Frontend change (plus comment-only backend edits): the disc builders, their icon cache, the pane
+fade and `.wf-markers-inert` CSS, and `markerUtils.js` are deleted.
+
+### Fixed — the Map's "Hot topics · next four days" header now opens over the tide strip
+
+On desktop and tablet the four-day strip was shut whenever the tide strip showed, which is most sunrises and
+sunsets, and its header looked live but did nothing. The header is now pressable: pressing it opens the grid
+for that window and the tide strip drops to its collapsed row (its "Open" puts it back, and moving to another
+window restores the tide strip). The strip still never opens by itself over an open tide strip, and while the
+welcome card is open the header stays inert and now says "· closed". Also fixed: pressing the tide strip's own
+Open or Collapse no longer drops keyboard focus to the page.
+
+### Added — hot-topic rings on the Map now name their places
+
+Storm surge, king tide and the other hot-topic rings on the Map now put a name on every place they ring, so you can see where to go. In the Heat view each ringed place gets a name chip, offered ahead of the ordinary names and kept at full strength while the rest step back; in the Pins view the pin for a ringed place appears even when your filters would have hidden it. Big seas is unchanged, as its structures were already named.
+
+### Changed — Lite's briefing omits the window tide curve and per-location tide matching (Plan tab included)
+
+`GET /api/briefing` now leaves out, for readers who are not Pro or Admin, the window tide curve (the
+curve, the position and level at the light, the extremes and the height), each location's tide match
+(aligned, quality, shortfall, fit phrase, height and level) and the "Tide aligned" / "Tide not aligned"
+slot flags. The tide state, direction, nearest extreme, range and the hot topics stay free. On the Plan
+tab a Lite reader no longer sees the tide sparkline, the "N of M coastal locations on tide" line, the
+"N tides aligned" count or the tide chips on slots. Pro and Admin responses are unchanged.
+
+### Changed — Lite readers get a tide upsell on the Map
+
+On the Map, a Lite reader who presses the one-line tide teaser, or the Spring or King tide chip or their rows in the four-day strip, now sees a short upsell instead of nothing: what the tide curve and spot matching do, with a "Not now" to close it. It names the feature as part of Pro but carries no link and no upgrade button. The tide chips no longer select a topic or draw rings for a Lite reader, and arriving from Coming up or the Plan tab lands on the Map with no tide topic selected and no popup. On a phone the same words appear in the Tide section of the bottom sheet. Pro and Admin are unchanged.
+
+### Changed — The Map's tide panel and tide matching are Pro
+
+The Map's "Tide at this light" panel and the per-location tide match are now Pro and Admin features. A Lite
+reader sees a one-line teaser in place of the strip (the live tide state, a decorative spark and a Pro pill),
+no tide dimming or match glyphs on spots, pins, the region panel or the callout, and, on a phone, a Tide
+button that shows the state alone, a section that says the curve and spot matching are part of Pro, and a
+locked Layers Tide segment. A Lite reader also no longer gets the coastal star-floor exemption, so a one- or
+two-star coastal spot is withheld like any other. Pro and Admin are unchanged. This is the client half; the
+server strip and the upsell follow in later changes.
+
+### Fixed — Tide fit reads a missing match as unknown, not a miss
+
+The Map and Plan tide-fit readers now treat an absent `tideAligned` as "unknown, no fit claim"
+rather than a served miss: no dimming, no "wrong water" block, no next-fit jump and no "0 of N
+coastal locations on tide" line. The tide strip and the phone Tide section also draw no chart, and
+use the "No per-spot tide fit for this window" wording, when the tide curve is absent. Nothing
+changes for any role today, because every payload still carries the match and the curve; this is
+the precondition for withholding them from LITE users later.
+
+### Removed — the unused root deploy.sh
+
+The root `deploy.sh` ran a full `git pull origin main` on the production host, whose checkout is stale and hand-edited, so it aborted on conflicts with uncommitted production config. Nothing called it: backend and frontend deploys go through the tagged release, and the landing site through `./release-landing.sh`.
+
+The host's own copy, `~/goldenhour/deploy.sh`, should be deleted by hand.
+
+### Removed — Map tab Pins mode
+
+The Map tab no longer has a Heat | Pins switch. Heat was already the default and the only view anyone
+used; Pins (one dot per location, no field) was a relic from before the heat field. The desktop toolbar
+keeps the colour key and the "not scored yet" line (and is not drawn at all when it has neither), the
+phone Layers pane loses its "Show" row and keeps Regions, Filters and the legend rows, and the azimuth
+lines now draw whenever a location is selected. The admin Filters "stand-down" button is keyed with the
+same hatch swatch the Legend uses, since the map no longer paints a per-location stand-down colour.
+Frontend only; the hidden location markers are removed in the next change.
+
+### Changed — The Map no longer shows the "Colours now run cold to hot" notice
+
+The one-time pill that told readers the Map's colours had changed to a cold-to-hot scale is gone,
+along with its dismissal state and the `colourScaleDefaulted` setting it depended on. The colour
+scale and the Settings colour preference are unchanged.
+
+### Added — release-landing.sh deploys the landing site from the laptop
+
+The landing site (`landing/`, photocast.online) is not part of the tagged release, so it was
+redeployed by typing commands on the production host. `./release-landing.sh` now does it from the
+laptop: it refuses a page whose asset has no `COPY` line in the Dockerfile, shows what will change
+on the host, asks one question, tags the running image for rollback, rebuilds, smoke-tests every
+page and asset there, and checks the public URL. It only ever runs `git checkout FETCH_HEAD --
+landing/` on the host, never a pull, because the host's checkout is stale and carries hand-edited
+production config. `--rollback` lists and restores the saved images. `landing/README.md` is updated,
+and the host's old `deploy-landing.sh` (which runs `git pull`) should be deleted.
+
+### Fixed — release-landing.sh's diff no longer reads backwards
+
+The dry run's per-file stat compared the commit to the host's working tree, so files the deploy would add showed as
+`Bin 101098 -> 0 bytes` and added Dockerfile lines showed as deletions. It now diffs in reverse and is labelled
+"what the deploy changes on the host (host now → sha)", so the stat reads host-now to after-deploy.
+
+### Fixed — region summaries no longer leak field names or run two sentences together
+
+The window popup's region summary could read "With clearAllLayers conditions…", because the model
+echoed a key from its own input into the prose. The gloss prompt now forbids input field names, and
+a guard drops whichever half (headline or detail) still contains one, logging a warning. The bold
+headline on the At a Glance popup and the Map's region panel now ends in a full stop before the
+detail, so the two no longer run together.
+
+### Changed — never-verified sign-ups are reminded, then removed; new sign-ups are Lite and the cap is 10
+
+A sign-up that never verifies its email used to hold an early-access place for ever, so abandoned attempts
+filled the cap and the next reader saw "Early access is full". Now a place is held for 7 days: an hourly sweep
+emails a fresh verification link when 3 days and 1 day remain, and deletes the sign-up 24 hours after the final
+reminder. The verification email says how long the place is held. Sign-ups that already exist when this ships are
+marked as already reminded (they are never emailed) and are removed once they are 7 days old. New self-registered
+accounts are now `LITE_USER` rather than `PRO_USER`, and the early-access cap rises from 3 to 10; existing
+accounts keep their role. If the production `application.yml` sets `photocast.registration.default-role` or
+`max-users`, change them there. SMTP connection, read and write timeouts (10 s) are now set so a stuck mail
+server cannot hold the sweep.
+
+### Changed — the Map's counts line is a quiet caption and stays at the bottom
+
+The "N of M shown" line on the desktop Map is now a small caption with a soft dark halo instead of an opaque bordered pill, and it no longer rides up above the tide strip on a wide screen. It lifts only when the frame is narrow enough for it to sit across the four-day strip or the tide strip.
+
+### Changed — landing: shorter "Find your next opportunity" and "Built for the North"
+
+Features 03 and 08 on the landing page are each cut to one paragraph. Feature 08 no longer repeats the "more than 200 locations" count, which feature 01 already gives.
+
+### Changed — landing: pricing drops a repeated Lite sentence
+
+The Pro pricing note no longer says "You can continue using Lite without upgrading", which repeated the line that follows it ("Start with Lite. You can always explore Pro later.").
+
+### Changed — landing: Steel Rigg photo credit
+
+The Steel Rigg photo credit now reads "My photo, taken that morning." instead of "Photographed by the founder of PhotoCast".
+
+### Changed — landing screenshots open in a full-screen viewer
+
+The six screenshots on the landing page now open in a full-screen viewer when clicked or tapped
+(close with the button, a click, or Escape); without JavaScript they open the image file. The
+landing copy no longer claims Ask PhotoCast can answer whether cloud will clear, and the forecast
+horizon now reads "the next few days" rather than "three days".
+
+### Fixed — landing pages revalidate on every visit; security headers on every response
+
+The landing pages are now served `Cache-Control: no-cache`, so browsers revalidate on every visit and
+a deploy is seen at once instead of an old page lingering under heuristic caching. The security headers
+(frame, content-type, XSS and referrer policy) are now sent on every response, including css, js and
+images, which previously dropped them. `.webp` images now get the 30-day asset cache.
+
+### Changed — Landing page hero shows the full Map tab
+
+The landing page hero now shows the whole Map tab, masthead included, for a real sunrise window, in place of the cropped capture with the CSS verdict card laid over it. The overlay card and its styles are removed, and the caption describes what the screenshot shows.
+
+### Added — "From the field" on the landing page
+
+The landing page has a new "From the field" section between Features and the story: this morning's sunrise on Hadrian's Wall told in three steps, the Map, the Steel Rigg & Winshield Crags verdict, and the photograph that resulted. Later sections are renumbered, and the Pro plan now lists Ask PhotoCast.
+
+### Changed — landing page: Ask PhotoCast drops its "Available with PhotoCast Pro" line
+
+The Ask PhotoCast feature on the landing page no longer repeats "Available with PhotoCast Pro" under its description. The Pro pill beside the "Ask PhotoCast" heading marks it as a Pro feature.
+
+### Changed — landing page revised copy and app-token reskin
+
+The marketing site at photocast.online carries the signed-off revised copy and is re-skinned to
+the app's own `@theme` tokens: Newsreader headings with IBM Plex Sans and Plex Mono, a bone
+interactive accent, coral only in the brand lockup, and the verdict colours for meaning. It gains
+a "From the field" section (a Hadrian's Wall sunrise, map to decision to photograph) and a matching
+nav link, drops "Powered by AI", and the FAQ and Terms copy is aligned with the home page's Lite
+and Pro description. Feature 04 shows a real Ask PhotoCast question and answer.
+
+### Changed — landing site copy review
+
+The public site's wording is refreshed across the home page, FAQ, Privacy Policy, Terms and
+Acknowledgements: a new hero and feature set (including Ask PhotoCast), Pro described as not yet
+launched ("Pricing to follow"), a plainer FAQ and data-source table, a "Your privacy" summary box
+on the Privacy Policy, and the Terms' Pro section rewritten. No markup, styling or images change
+beyond one `.qa p+p` spacing rule.
+
+### Changed — landing page copy pass
+
+The marketing site's home page carries the designer's tighter copy: a shorter hero and features
+intro, Fiery Sky and Golden Hour explained under feature 02, a "What do the stars mean?" note under
+the map, a photographer credit on the field report, a condensed story and pricing intro, and
+updated FAQ answers (a new "How far ahead can I see?" and "How often are forecasts updated?"). The
+real Ask PhotoCast screenshot stays in place of the designer's placeholder, and the forecast
+horizon reads "the next few days" rather than "three days", both by owner decision.
+
+### Fixed — landing assets are fingerprinted so a deploy is not masked by a 30-day cache
+
+The landing stylesheet, script and images now get content-fingerprinted URLs (`?v=<hash>`) when
+the image is built, so a deploy can no longer be masked by the 30-day Cloudflare and browser cache
+(live, the Pro pills, new fonts and colours were missing because the old `photocast.css` was
+still being served). The Ask feature's "Available with PhotoCast Pro" is now a Pro pill.
+
+### Changed — FAQ page question titles match the home page
+
+The full FAQ page now uses the same question titles as the home page teaser: "How far ahead can I see?" and "How often are forecasts updated?", plus a new "Do I need to understand weather charts?" entry. The longer answers on the FAQ page are unchanged.
+
+### Changed — transactional emails wear the Kodachrome Field Guide brand
+
+The five account emails (verify your email, welcome, password reset by an administrator, password reset link and account removed) drop the retired grey-and-amber look for the app's current brand: the warm dark ground and card, a flush-left lockup with the perforated film spine, the serif "PhotoCast" wordmark and the coral "Field guide to light" kicker, a serif heading above each body, bone-coloured buttons and links, and the footer line "Golden hour, forecast and ranked by AI". The lockup and footer now live once in `templates/fragments/email-brand.html`, so the five templates cannot drift apart. The wording of each email is unchanged. A new rendering test runs all five through a real Thymeleaf engine.
+
+### Changed — landing-only PRs skip the backend and frontend suites
+
+CI's docs-only detector now also treats anything under `landing/` (the static marketing site,
+deployed by `release-landing.sh` and never built by CI) as skippable, so a PR that touches only
+`landing/` and documentation skips the backend and frontend suites and the Java CodeQL scan, as a
+docs-only PR already does. The required checks still report green; the JavaScript CodeQL scan still
+runs. Any other path in the diff, an empty diff, or a non-PR event still runs everything.
+
+### Changed — Ask PhotoCast is locked for Lite readers
+
+Ask PhotoCast is now a Pro feature. Lite readers still see its entry on the phone, the Map and the tablet and desktop tab row, but greyed out with a "Pro" label beside it, in the same way as the drive-time filter. Nothing opens, the `/` key leaves the page alone, and no question is sent. Pro and Admin readers see no change.
+
+### Changed — Ask PhotoCast is Pro and Admin only (API)
+
+`POST /api/ask` and `GET /api/ask/ready` now answer **403** `{"error": "Ask PhotoCast is part of Pro.", "code": "NOT_ENTITLED"}` to a Lite reader, with the Ask flag on or off. The refusal is made in the security chain, ahead of the body-size filter, the flag interceptor and the rate limiter, so a Lite request is never read or counted; `AskService.admit` and `ask` repeat the check, because Ready matches, cache hits and can't-answers skip the allowance. `GET /api/user/settings/ask` stays 200 for every role; for a Lite reader with Ask on it reads `{enabled: true, used: 0, limit: 0, left: 0, typedAvailable: false}`.
+
+The `photocast.ask.limit-lite` setting is removed (a config that still carries it starts normally and ignores it). The Lite lock in the client ships separately.
+
 ## [v2.32.1] - 2026-10-24
 
 ### Changed — a weather chip in Next four days opens the Map with its topic selected
