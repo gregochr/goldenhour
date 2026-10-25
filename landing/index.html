@@ -59,12 +59,8 @@ section{padding:104px 0 0}
 .feat p+p{margin-top:10px}
 .feat p.q{font-family:var(--disp);font-style:italic;font-size:19px;color:var(--ink)}
 .feat .more{font-size:14.5px}
-.feat.ask .body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.9fr);gap:28px;align-items:start}
-.feat.ask .slot{min-height:320px}
-.feat.ask .shot-ask{display:block;width:100%;max-width:380px;height:auto;border:1px solid var(--rule);border-radius:11px}
 .zoom{display:block;cursor:zoom-in;text-decoration:none}
 .zoom:focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:12px}
-.feat.ask .zoom{max-width:380px}
 .viewer{padding:0;border:0;margin:0;width:100vw;max-width:100vw;height:100dvh;max-height:100dvh;background:transparent}
 .viewer[open]{display:flex;align-items:center;justify-content:center}
 .viewer::backdrop{background:rgba(24,18,16,.94)}
@@ -129,7 +125,6 @@ html{scroll-padding-top:120px}
 .js-phone .feats{border-top:0;align-items:stretch;overflow-y:visible}
 .js-phone .feat{flex:0 0 86%;min-width:0;scroll-snap-align:start;border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--card);padding:20px 18px;align-content:start}
 .js-phone .feat h3{font-size:23px}
-.js-phone .feat.ask .shot-ask{width:auto;max-width:100%;height:220px}
 .js-phone .price{flex:0 0 88%;min-width:0;scroll-snap-align:start;padding:22px 20px}
 .js-phone .prices{align-items:stretch;overflow-y:visible}
 .dots{display:flex;justify-content:center;gap:2px;margin-top:12px}
@@ -170,7 +165,6 @@ html{scroll-padding-top:120px}
 .story-grid{grid-template-columns:minmax(0,1fr);gap:28px}
 .feat{grid-template-columns:minmax(0,1fr);gap:6px}
 .feat .n{padding-top:0}
-.feat.ask .body{grid-template-columns:minmax(0,1fr)}
 }
 </style>
 </head>
@@ -249,29 +243,18 @@ html{scroll-padding-top:120px}
 </div></div>
 <div class="feat"><div class="n">/ 02</div><div>
 <h3>Understand what makes the light</h3>
-<p>Cloud isn't always a bad thing. In fact, the right cloud in the right place can make all the difference to a sunrise or sunset.</p>
-<p>PhotoCast examines cloud layers, humidity, airborne particles and the direction of the light to assess the potential for colourful skies and golden-hour conditions.</p>
-<p>Simple ratings give you the overview. With PhotoCast Pro, you can explore two separate assessments:</p>
-<p><b>Fiery Sky</b> looks at the potential for colourful skies around sunrise and sunset.</p>
-<p><b>Golden Hour</b> considers the conditions for warm, directional light that can bring shape and depth to the landscape.</p>
-<p>You'll also find explanations of the atmospheric conditions behind each forecast.</p>
+<p>Cloud isn't always a bad thing. The right cloud in the right place can make all the difference to a sunrise or sunset.</p>
+<p>PhotoCast examines cloud layers, humidity, airborne particles and the direction of the light. With PhotoCast Pro you get two separate scores, each with an explanation: <b>Fiery Sky</b> for colourful skies, and <b>Golden Hour</b> for warm, directional light that brings shape and depth to the landscape.</p>
 </div></div>
 <div class="feat"><div class="n">/ 03</div><div>
 <h3>Find your next opportunity</h3>
 <p class="q">Not sure where to go this weekend?</p>
 <p>Compare promising locations and times across the region over the next few days. With Pro, best-bet recommendations help narrow down the choice.</p>
 </div></div>
-<div class="feat ask"><div class="n">/ 04</div><div>
+<div class="feat"><div class="n">/ 04</div><div>
 <h3>Ask PhotoCast <span class="pro">Pro</span></h3>
-<div class="body">
-<div>
 <p class="q">Sometimes a rating only tells half the story.</p>
-<p>Why does a location look promising? What's happening with the cloud layers? Could the conditions favour a colourful sunrise or softer golden-hour light?</p>
-<p>Ask PhotoCast lets you explore the forecast in your own words, with straightforward explanations based on the available weather information.</p>
-<p>Whether you're curious about the science or simply deciding where to go, it's a useful way to understand what's behind the forecast.</p>
-</div>
-<a class="zoom" href="shot-ask.webp"><img class="shot-ask" src="shot-ask.webp" width="662" height="1358" alt="Ask PhotoCast answering &quot;What's the best opportunity over the next three days?&quot;: a written answer naming Monday's sunrise on the North York Moors &amp; Coast, with tomorrow's sunset in Northumberland &amp; Tyneside as the alternative, then ranked picks Alnmouth and Bamburgh Castle, each rated Worth it, 4 stars, with sunset time, drive time and tide." loading="lazy"></a>
-</div>
+<p>Why does a location look promising? What are the cloud layers doing? Is it a fiery-sunrise morning or a softer golden-hour one? Ask PhotoCast in your own words and get a straightforward answer from the forecast.</p>
 </div></div>
 <div class="feat"><div class="n">/ 05</div><div>
 <h3>Plan around the tides</h3>
