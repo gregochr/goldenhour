@@ -255,19 +255,6 @@ export async function resetLocationFailures(locationName) {
 }
 
 /**
- * Refreshes drive-time estimates from a given source position to all locations via ORS.
- * Persists drive duration minutes on each location entity. ADMIN only.
- *
- * @param {number} lat - Source latitude (from browser geolocation).
- * @param {number} lon - Source longitude.
- * @returns {Promise<{[locationName: string]: number|null}>} Map of location name to minutes (null = unreachable).
- */
-export async function refreshDriveTimes(lat, lon) {
-  const response = await apiClient.post(`${BASE_URL}/locations/drive-times`, { lat, lon });
-  return response.data;
-}
-
-/**
  * Fetches auto-detected enrichment data (bortle, SQM, elevation, grid cell) for a location.
  *
  * @param {number} lat - Latitude in decimal degrees.

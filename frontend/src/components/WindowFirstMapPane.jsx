@@ -294,7 +294,7 @@ export default function WindowFirstMapPane({
   useEffect(() => { import('./LocationFourDaySheet.jsx').catch(() => {}); }, []);
   const {
     heatSpots, heatPointSets, heatStripCards, upcomingEvents, reachById, homePlace, todayStr,
-    origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions, tideLocked,
+    origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions, tideLocked, driveLocked,
   } = useWindowFirstBriefing();
 
   // ── Ask PhotoCast (F3, docs/engineering/ask-photocast-plan.md §2.7) ─────────────────────────────
@@ -876,6 +876,7 @@ export default function WindowFirstMapPane({
         onAskContext={onAskContext}
         askOffered={askOffered}
         tideLocked={tideLocked}
+        driveLocked={driveLocked}
         askPhase={askPhase}
         panelShown={panelShown}
         outcomeRatings={rewound ? null : outcomeRatings}

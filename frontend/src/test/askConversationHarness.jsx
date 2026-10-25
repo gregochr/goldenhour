@@ -102,7 +102,13 @@ export const tree = ({ mapContext = null, ...props } = {}) => (
 export async function renderAsk(props = {}) {
   const view = render(tree(props));
   await screen.findByText('2026-10-05T05:02:11');
-  await waitFor(() => expect(screen.getByTestId('probe-home-drive')).toHaveTextContent('95'));
+  // A Lite reader's context never asks for the home reach (drive times are Pro; pro-features-gate-plan.md
+  // §9 D1): pin that absence rather than waiting for a figure.
+  if (auth.role === 'LITE_USER') {
+    await waitFor(() => expect(screen.getByTestId('probe-home-drive')).toHaveTextContent('none'));
+  } else {
+    await waitFor(() => expect(screen.getByTestId('probe-home-drive')).toHaveTextContent('95'));
+  }
   return view;
 }
 
