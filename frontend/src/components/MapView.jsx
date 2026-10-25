@@ -71,7 +71,7 @@ import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenc
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
-import { landingRows, landingHeader } from '../utils/mapLanding.js';
+import { landingRows, landingHeader, betterNextWindow } from '../utils/mapLanding.js';
 import { NIGHT_RETRY_LINE, isCoastalTidalLocation } from '../utils/mapCallout.js';
 import { isEventTimePast } from '../utils/briefingDisplay.js';
 import { tierOf, stripModel, siblingEventTime, coastalInView } from '../utils/mapTideFit.js';
@@ -3511,7 +3511,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /**
    * Your next two solar windows (map-landing-plan.md §3 L4's row selection, kept after the card was
    * removed by map-landing-nocard-plan.md P1) — one call into the pure {@code utils/mapLanding.landingRows}.
-   * Its only reader is the phone peek sheet's Windows heading ({@code landingHeader(nextTwo)}).
+   * Read by the phone peek sheet's Windows heading ({@code landingHeader(nextTwo)}) and by the window
+   * pill's "is better" line ({@code betterNext} below).
    *
    * <p>Built fresh every render, like {@code mapEvents} and {@code evVerdicts} above and for the
    * identical reason: {@code mapEvents} is a new array on every render, so a memo listing it could
@@ -3522,6 +3523,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   /** Which EV row is "now showing" — derived from `eventType`/`nightDate`, never a second store. */
   const activeEvIndex = findEvIndex(mapEvents, eventType, nightDate);
+
+  /**
+   * The window pill's "<day> <event> is better" line (map-landing-nocard-plan.md §2, P2). Withheld on a
+   * phone by not being computed (D3): the pill has no room there and the stepper ticks carry the tier.
+   */
+  const betterNext = isMobile ? null : betterNextWindow({
+    rows: nextTwo, activeIndex: activeEvIndex, thinCounts,
+  });
 
   /**
    * The active EV row's label+time, for {@code MapLabels}' hover tooltip "event" line
@@ -5989,6 +5998,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       onLoadOlderDay={startOlderLoad}
       ratedCounts={ratedCounts}
       thinCounts={thinCounts}
+      betterNext={betterNext}
       // Phone only (map-mobile-sheet-plan.md §3 M2 task 4) — the pill body toggles the peek
       // sheet's Windows section instead of this control's own dropdown, which stays permanently
       // closed there (`open` is `openMapMenu === 'window'`, a value the phone never sets). See

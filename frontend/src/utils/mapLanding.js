@@ -127,3 +127,57 @@ export function landingHeader(rows) {
   }
   return `${dayLabelOf(first.row)}, or ${trailingDayLabel(second.row)}?`;
 }
+
+/**
+ * The three tiers the "is better" comparison ranks, lowest first. Every other tier (UNRATED,
+ * AWAITING) and a missing verdict are deliberately absent: they are not a place on this ladder, so a
+ * window wearing one never earns or receives the line. Frozen so no caller can reorder the ladder.
+ */
+export const TIER_RANK = Object.freeze({ STAND_DOWN: 0, MAYBE: 1, WORTH_IT: 2 });
+
+/** A verdict's rank on {@link TIER_RANK}, or {@code undefined} when it is not on the ladder. */
+function tierRank(verdict) {
+  const tier = verdict?.tier;
+  return Object.hasOwn(TIER_RANK, tier) ? TIER_RANK[tier] : undefined;
+}
+
+/**
+ * "The next window is better" — the one sentence of the removed landing card that the window pill
+ * keeps (`docs/engineering/map-landing-nocard-plan.md` §2 and §3 P2).
+ *
+ * <p>Returns the second of {@link landingRows}' pair when, and only when, ALL of these hold:
+ * <ul>
+ *   <li>two rows exist and the map is on the FIRST of them ({@code activeIndex === rows[0].index},
+ *       an index into the full EV list, which is what {@link landingRows} returns);</li>
+ *   <li>both rows' served verdict tiers are on {@link TIER_RANK}, and the second's is strictly
+ *       higher;</li>
+ *   <li>neither row is a thin sample ({@code thinCounts} has no entry for it): "better" between two
+ *       places a handful of people rated claims more than the pill's own "· N rated" does.</li>
+ * </ul>
+ *
+ * <p>⚠️ The verdicts are the ones already on the rows, i.e. {@code evVerdicts} — served and
+ * scope-narrowed. Nothing here bands a number: the design's field fallback (≥ 3.7 / ≥ 2.8) is not
+ * ported (plan §1.8, D2). The phone is withheld by the caller not asking, never by a flag in here.
+ *
+ * @param {object} args
+ * @param {Array<{row: object, index: number, verdict: ?object}>} args.rows from {@link landingRows}
+ * @param {number} args.activeIndex the EV index the map is on
+ * @param {?Map<string, number>} [args.thinCounts] row id → thin-sample count, from `buildThinCounts`
+ * @returns {?{row: object, index: number, text: string, tier: string}}
+ */
+export function betterNextWindow({ rows, activeIndex, thinCounts = null }) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length < 2) return null;
+  const [first, second] = list;
+  if (activeIndex !== first.index) return null;
+  const firstRank = tierRank(first.verdict);
+  const secondRank = tierRank(second.verdict);
+  if (firstRank === undefined || secondRank === undefined || secondRank <= firstRank) return null;
+  if (thinCounts?.get(first.row.id) != null || thinCounts?.get(second.row.id) != null) return null;
+  return {
+    row: second.row,
+    index: second.index,
+    text: `${dayLabelOf(second.row)} ${eventWord(second.row.eventType)} is better`,
+    tier: second.verdict.tier,
+  };
+}

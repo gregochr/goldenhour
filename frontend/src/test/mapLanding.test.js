@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  landingRows, landingHeader, LANDING_ROW_COUNT,
+  landingRows, landingHeader, LANDING_ROW_COUNT, betterNextWindow, TIER_RANK,
 } from '../utils/mapLanding.js';
 import { EVENT_KIND } from '../utils/mapEvents.js';
 
@@ -197,5 +197,85 @@ describe('landingHeader', () => {
     expect(landingHeader(landingRows({ events: [solar(TODAY, 'SUNSET')] }))).toBe('Your next window');
     expect(landingHeader([])).toBe('');
     expect(landingHeader(null)).toBe('');
+  });
+});
+
+describe('betterNextWindow', () => {
+  const FIRST = solar(TODAY, 'SUNSET', { dayLabel: 'Today' });
+  const SECOND = solar(TOMORROW, 'SUNRISE', { dayLabel: 'Tomorrow' });
+
+  /** The pair's rows, with the two tiers as the ONLY thing a case varies (a null tier = no verdict). */
+  function ask({
+    first = 'MAYBE', second = 'WORTH_IT', events = [FIRST, SECOND], activeIndex = 0, thinCounts = null,
+  } = {}) {
+    const pairs = [];
+    if (first) pairs.push([events[0].id, first]);
+    if (second && events[1]) pairs.push([events[1].id, second]);
+    const rows = landingRows({ events, verdicts: verdictsOf(pairs) });
+    return betterNextWindow({ rows, activeIndex, thinCounts });
+  }
+
+  it('freezes the three-tier ladder', () => {
+    expect(Object.isFrozen(TIER_RANK)).toBe(true);
+    expect(TIER_RANK).toEqual({ STAND_DOWN: 0, MAYBE: 1, WORTH_IT: 2 });
+  });
+
+  it.each([
+    ['Maybe to Worth it', 'MAYBE', 'WORTH_IT'],
+    ['Poor to Maybe', 'STAND_DOWN', 'MAYBE'],
+    ['Poor to Worth it', 'STAND_DOWN', 'WORTH_IT'],
+  ])('shows for %s, carrying the second row, its index, the sentence and its tier', (_n, first, second) => {
+    expect(ask({ first, second })).toEqual({
+      row: SECOND, index: 1, text: 'Tomorrow sunrise is better', tier: second,
+    });
+  });
+
+  it.each([
+    ['Worth it', 'WORTH_IT'], ['Maybe', 'MAYBE'], ['Poor', 'STAND_DOWN'],
+  ])('is null when both rows are %s (the only change from a "shows" case)', (_n, tier) => {
+    expect(ask({ first: tier, second: tier })).toBeNull();
+  });
+
+  it('is null when the second tier is lower', () => {
+    expect(ask({ first: 'WORTH_IT', second: 'MAYBE' })).toBeNull();
+  });
+
+  it.each([null, 'UNRATED', 'AWAITING'])('is null for an unranked first row (%s)', (first) => {
+    expect(ask({ first })).toBeNull();
+  });
+
+  it.each([null, 'UNRATED', 'AWAITING'])('is null for an unranked second row (%s)', (second) => {
+    expect(ask({ second })).toBeNull();
+  });
+
+  it('is null for a thin first row and for a thin second row, and shows when neither is thin', () => {
+    expect(ask({ thinCounts: new Map([[FIRST.id, 4]]) })).toBeNull();
+    expect(ask({ thinCounts: new Map([[SECOND.id, 4]]) })).toBeNull();
+    expect(ask({ thinCounts: new Map([['solar:elsewhere', 4]]) })).not.toBeNull();
+  });
+
+  it('is null off the first row, with one row and with none', () => {
+    expect(ask({ activeIndex: 1 })).toBeNull();
+    expect(ask({ activeIndex: -1 })).toBeNull();
+    expect(ask({ events: [FIRST], second: null })).toBeNull();
+    expect(betterNextWindow({ rows: [], activeIndex: 0 })).toBeNull();
+    expect(betterNextWindow({ rows: null, activeIndex: 0 })).toBeNull();
+  });
+
+  it.each([
+    ['Today', 'SUNRISE', 'Today sunrise is better'],
+    ['Today', 'SUNSET', 'Today sunset is better'],
+    ['Tomorrow', 'SUNRISE', 'Tomorrow sunrise is better'],
+    ['Tomorrow', 'SUNSET', 'Tomorrow sunset is better'],
+    ['Thursday', 'SUNRISE', 'Thursday sunrise is better'],
+    ['Thursday', 'SUNSET', 'Thursday sunset is better'],
+  ])('words the second row "%s %s" as "%s"', (dayLabel, eventType, text) => {
+    const second = solar(THURSDAY, eventType, { dayLabel });
+    expect(ask({ events: [FIRST, second] }).text).toBe(text);
+  });
+
+  it('falls back to the row label when it has no dayLabel, as the pill does', () => {
+    const second = { ...SECOND, dayLabel: undefined, label: 'Tomorrow' };
+    expect(ask({ events: [FIRST, second] }).text).toBe('Tomorrow sunrise is better');
   });
 });
