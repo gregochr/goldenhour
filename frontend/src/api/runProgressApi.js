@@ -13,7 +13,7 @@ const BASE_URL = '/api';
  * @param {function} onError - Called on connection error.
  * @param {function} [onRunExpired] - Called when the server no longer holds the run (evicted, or
  *   lost to a restart): the stream ends and nothing more will arrive.
- * @returns {function} Cleanup function to close the EventSource.
+ * @returns {function} Cleanup function to close the stream.
  */
 export function subscribeToRunProgress(runId, onTaskUpdate, onRunSummary, onRunComplete, onError, onRunExpired) {
   return createEventSource(
@@ -35,7 +35,7 @@ export function subscribeToRunProgress(runId, onTaskUpdate, onRunSummary, onRunC
  *
  * @param {function} onRunComplete - Called with run complete data.
  * @param {function} onError - Called on connection error.
- * @returns {function} Cleanup function to close the EventSource.
+ * @returns {function} Cleanup function to close the stream.
  */
 export function subscribeToRunNotifications(onRunComplete, onError) {
   return createEventSource(

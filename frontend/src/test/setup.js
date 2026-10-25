@@ -99,3 +99,24 @@ if (typeof globalThis.localStorage === 'undefined' || typeof globalThis.localSto
  * warm-up that was built to gate these boundaries and then deleted as unnecessary.
  */
 configure({ asyncUtilTimeout: 4000 });
+
+/**
+ * ⚠️ Tripwire: a test that has not installed its own {@code fetch} must not reach the real one.
+ *
+ * <p>{@code createEventSource} streams with {@code fetch}, and Node's global {@code fetch} exists
+ * under Vitest, so an accidental real stream (a component mounted without mocking the module, an
+ * idle callback that fires) would otherwise try the network and then loop on its silent 5 s retry.
+ * jsdom has no {@code EventSource}, which used to be this net; this replaces it. The error is also
+ * rethrown from a microtask because {@code createEventSource} catches a rejection to retry: the
+ * unhandled error is what fails the run. A test that needs {@code fetch} installs a mock with
+ * {@code vi.stubGlobal('fetch', …)} or {@code vi.spyOn(globalThis, 'fetch')}; unstubbing puts this
+ * back.
+ */
+globalThis.fetch = function unmockedFetch(input) {
+  const url = typeof input === 'string' ? input : (input?.url ?? String(input));
+  const error = new Error(`Unmocked fetch in test: ${url}`);
+  queueMicrotask(() => {
+    throw error;
+  });
+  throw error;
+};

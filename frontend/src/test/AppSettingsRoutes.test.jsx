@@ -379,8 +379,8 @@ beforeEach(() => {
   getAlmanac.mockReset().mockResolvedValue({ entries: [] });
   subscribeToRunNotifications.mockReset().mockReturnValue(() => {});
   getTodaysLight.mockReset().mockResolvedValue(null);
-  // Holds `useAfterFirstPaint` at false, so the two SSE streams never reach for an EventSource
-  // jsdom does not have — `App.test.jsx`'s reasoning, unchanged.
+  // Holds `useAfterFirstPaint` at false, so the two SSE streams never open a real `fetch` stream
+  // (`setup.js` makes an unmocked `fetch` throw) — `App.test.jsx`'s reasoning, unchanged.
   window.requestIdleCallback = () => 1;
   window.cancelIdleCallback = () => {};
 });
