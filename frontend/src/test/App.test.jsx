@@ -1850,6 +1850,32 @@ describe('App — the auth gate', () => {
     expect(screen.queryByTestId('reset-form')).not.toBeInTheDocument();
   });
 
+  it('/verify#token=x verifies that token, and the address is clean afterwards', async () => {
+    openLink('/verify#token=vtok');
+    render(<App />);
+
+    await waitFor(() => expect(verifyEmail).toHaveBeenCalledWith('vtok'));
+    expect(window.location.pathname).toBe('/verify');
+    expect(window.location.hash).toBe('');
+    expect(window.location.search).toBe('');
+    expect(screen.queryByTestId('reset-form')).not.toBeInTheDocument();
+  });
+
+  it('/reset#token=x mounts the reset page with that token, and the address is clean afterwards', async () => {
+    resetPassword.mockResolvedValue(RESET_SESSION);
+    const user = userEvent.setup();
+    openLink('/reset#token=abc');
+    render(<App />);
+
+    expect(await screen.findByTestId('reset-form')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/reset');
+    expect(window.location.hash).toBe('');
+    expect(window.location.search).toBe('');
+    expect(verifyEmail).not.toHaveBeenCalled();
+    await submitReset(user);
+    await waitFor(() => expect(resetPassword).toHaveBeenCalledWith('abc', 'Abcdef1!'));
+  });
+
   it.each([
     ['/verify?token=vtok'],
     ['/?token=vtok'],

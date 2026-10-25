@@ -41,17 +41,17 @@ class EmailTemplateRenderingTest {
     static Stream<Arguments> templates() {
         return Stream.of(
                 Arguments.of("verification-email", "Verify your email address",
-                        Map.of("username", "alice", "verificationUrl", "https://app.photocast.online/verify?token=v1",
+                        Map.of("username", "alice", "verificationUrl", "https://app.photocast.online/verify#token=v1",
                                 "holdDays", 7),
-                        "https://app.photocast.online/verify?token=v1"),
+                        "https://app.photocast.online/verify#token=v1"),
                 Arguments.of("verification-reminder-email", "Your place is still held",
-                        Map.of("username", "alice", "verificationUrl", "https://app.photocast.online/verify?token=f1",
+                        Map.of("username", "alice", "verificationUrl", "https://app.photocast.online/verify#token=f1",
                                 "finalReminder", false, "daysLeft", 3, "lapsesOn", "Friday 30 October"),
-                        "https://app.photocast.online/verify?token=f1"),
+                        "https://app.photocast.online/verify#token=f1"),
                 Arguments.of("verification-reminder-email", "Last day to claim your place",
-                        Map.of("username", "alice", "verificationUrl", "https://app.photocast.online/verify?token=f2",
+                        Map.of("username", "alice", "verificationUrl", "https://app.photocast.online/verify#token=f2",
                                 "finalReminder", true, "daysLeft", 3, "lapsesOn", "Friday 30 October"),
-                        "https://app.photocast.online/verify?token=f2"),
+                        "https://app.photocast.online/verify#token=f2"),
                 Arguments.of("welcome-email", "Your account is ready",
                         Map.of("username", "alice", "temporaryPassword", "Tmp-Pass-123"),
                         "Tmp-Pass-123"),
@@ -59,8 +59,8 @@ class EmailTemplateRenderingTest {
                         Map.of("username", "alice", "temporaryPassword", "Tmp-Pass-456"),
                         "Tmp-Pass-456"),
                 Arguments.of("password-reset-link-email", "Reset your password",
-                        Map.of("username", "alice", "resetUrl", "https://app.photocast.online/reset?token=r1"),
-                        "https://app.photocast.online/reset?token=r1"),
+                        Map.of("username", "alice", "resetUrl", "https://app.photocast.online/reset#token=r1"),
+                        "https://app.photocast.online/reset#token=r1"),
                 Arguments.of("account-deleted-email", "Account notification",
                         Map.of("username", "alice"),
                         "alice"));
@@ -89,6 +89,20 @@ class EmailTemplateRenderingTest {
         assertThat(html).contains("name=\"color-scheme\"");
         assertThat(html).as("only the template's own head, not the fragment file's").containsOnlyOnce("<head>")
                 .doesNotContain("email brand fragments");
+    }
+
+    @ParameterizedTest(name = "{0} mails the one-time token in the fragment")
+    @MethodSource("templates")
+    @DisplayName("a one-time link renders with #token= in both the button href and the visible URL, never ?token=")
+    void oneTimeLinksUseTheFragment(String template, String heading, Map<String, Object> variables,
+                                    String distinctValue) {
+        org.junit.jupiter.api.Assumptions.assumeTrue(distinctValue.contains("#token="));
+        String html = render(template, variables);
+
+        assertThat(html).contains("href=\"" + distinctValue + "\"");
+        assertThat(html).doesNotContain("?token=");
+        assertThat(html.split(java.util.regex.Pattern.quote(distinctValue), -1))
+                .as("the URL appears as the href and as the visible copy-paste text").hasSize(3);
     }
 
     @ParameterizedTest(name = "{0} carries none of the retired brand")

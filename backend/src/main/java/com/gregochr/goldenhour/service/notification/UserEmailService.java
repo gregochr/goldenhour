@@ -263,8 +263,11 @@ public class UserEmailService {
     }
 
     /**
-     * Builds a link to a path on the app origin carrying a one-time token, tolerating a configured base
-     * URL with or without a trailing slash.
+     * Builds a link to a path on the app origin carrying a one-time token in the URL fragment
+     * ({@code #token=}), tolerating a configured base URL with or without a trailing slash. A fragment
+     * is never sent to the server, so the token stays out of the nginx access log, Cloudflare's request
+     * line and any {@code Referer}. The token is a {@link java.util.UUID} string (hex and dashes), so
+     * it needs no encoding.
      *
      * @param path     the route, with a leading slash ({@code /verify}, {@code /reset})
      * @param rawToken the raw one-time token
@@ -274,7 +277,7 @@ public class UserEmailService {
         String base = frontendBaseUrl.endsWith("/")
                 ? frontendBaseUrl.substring(0, frontendBaseUrl.length() - 1)
                 : frontendBaseUrl;
-        return base + path + "?token=" + rawToken;
+        return base + path + "#token=" + rawToken;
     }
 
     private boolean canSend(String email) {
