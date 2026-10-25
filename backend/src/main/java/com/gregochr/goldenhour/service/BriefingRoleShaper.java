@@ -16,9 +16,11 @@ import java.util.Set;
  * Shapes the served briefing for the reader's role at the HTTP edge.
  *
  * <p>The tide curve and the per-location tide match are Pro features
- * (docs/engineering/tide-pro-gate-plan.md §7). {@link #forLite} removes them from the window tide
- * block, the window's tide facts and the slot flags; every free fact stays, and hot topics and
- * Claude's prose are untouched (the two-question rule).
+ * (docs/engineering/tide-pro-gate-plan.md §7), as are the Fiery Sky and Golden Hour scores and the
+ * per-location written why (docs/engineering/pro-features-gate-plan.md §6). {@link #forLite}
+ * removes the tide data from the window tide block, the window's tide facts and the slot flags, and
+ * the scores and the written why from every slot; every free fact stays (the star, the verdict, the
+ * region prose), and hot topics are untouched (the two-question rule).
  *
  * <p>Rebuilds only through the records' own withers and canonical constructors, so a component
  * added later is never defaulted away silently. Never used on {@code getCachedBriefingForApi}'s
@@ -63,10 +65,12 @@ public class BriefingRoleShaper {
     }
 
     private static BriefingSlot liteSlot(BriefingSlot slot) {
-        if (slot.flags().stream().noneMatch(MATCH_FLAGS::contains)) {
-            return slot;
+        // The scores and the written why go from EVERY slot, whether or not it carries a tide flag.
+        BriefingSlot stripped = slot.forLite();
+        if (stripped.flags().stream().noneMatch(MATCH_FLAGS::contains)) {
+            return stripped;
         }
-        return slot.withFlags(slot.flags().stream().filter(f -> !MATCH_FLAGS.contains(f)).toList());
+        return stripped.withFlags(stripped.flags().stream().filter(f -> !MATCH_FLAGS.contains(f)).toList());
     }
 
     private static BriefingWindow liteWindow(BriefingWindow window) {

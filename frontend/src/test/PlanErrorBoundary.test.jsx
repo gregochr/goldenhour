@@ -111,7 +111,7 @@ describe('PlanErrorBoundary', () => {
   // re-select the same broken render path on reload, leaves the auth token alone, and reloads.
   it('clears the plan caches and selections, leaves the reader signed in, and reloads', async () => {
     silenceReactErrorLog();
-    localStorage.setItem('photocast_swr:v2:briefing', '{"stale":true}');
+    localStorage.setItem('photocast_swr:v3:briefing', '{"stale":true}');
     localStorage.setItem('photocast.planReach', JSON.stringify({ reach: '45', reachDay: '2026-08-24' }));
     localStorage.setItem('photocast.planRating', JSON.stringify({ rating: 'any' }));
     sessionStorage.setItem('photocast.planDoors', JSON.stringify(['regional']));
@@ -126,7 +126,7 @@ describe('PlanErrorBoundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear cached data and reload' }));
     await vi.waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
 
-    expect(localStorage.getItem('photocast_swr:v2:briefing')).toBeNull();
+    expect(localStorage.getItem('photocast_swr:v3:briefing')).toBeNull();
     expect(localStorage.getItem('photocast.planReach')).toBeNull();
     expect(localStorage.getItem('photocast.planRating')).toBeNull();
     expect(sessionStorage.getItem('photocast.planDoors')).toBeNull();

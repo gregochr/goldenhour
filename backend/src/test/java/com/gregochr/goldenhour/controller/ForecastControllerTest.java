@@ -102,7 +102,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast returns 200 with DTOs for all configured locations")
     void getForecasts_returnsDtosForConfiguredLocations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
@@ -118,7 +118,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast surfaces cached_evaluation rows when forecast_evaluation has none")
     void getForecasts_surfacesCachedOnlyRows() throws Exception {
         when(forecastEvaluationRepository
@@ -148,7 +148,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast retracts a forecast_evaluation row superseded by a newer "
             + "nightly stability skip for its slot")
     void getForecasts_retractsRowSupersededByNewerStabilitySkip() throws Exception {
@@ -187,7 +187,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast keeps a forecast_evaluation row written AFTER its slot's most "
             + "recent stability skip")
     void getForecasts_keepsRowNewerThanStabilitySkip() throws Exception {
@@ -218,7 +218,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast: a row with neither a rating nor a triage reason IS retracted "
             + "when a skip stands against its slot — a second Codex re-review of #940's fix, "
             + "reversing this test's own previous claim")
@@ -257,7 +257,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast: an ordinary unscored row with NO skip recorded is always kept "
             + "— isSlotRetracted is unaffected when there is no skip to apply")
     void emptyRowWithNoSkipSurvives() throws Exception {
@@ -289,7 +289,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("Codex #940: a row run at 01:30 (naive UTC wall clock) survives a 01:00Z skip on a "
             + "BST date — this is the line Codex anchored the review on")
     void codex940_rowAt0130SurvivesA0100SkipOnBstDate() throws Exception {
@@ -324,7 +324,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast passes enabled location ids and the date window to the repository")
     @SuppressWarnings("unchecked")
     void getForecasts_passesLocationIdsAndDateWindowToRepository() throws Exception {
@@ -360,7 +360,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast prefers forecast_evaluation rows over cached_evaluation duplicates")
     void getForecasts_prefersForecastRowOverCachedDuplicate() throws Exception {
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
@@ -387,7 +387,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast returns empty and skips the repository when no locations are enabled")
     void getForecasts_noEnabledLocations_skipsRepositoryQuery() throws Exception {
         when(locationService.findAllEnabled()).thenReturn(List.of());
@@ -403,7 +403,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast/{id} returns the full evaluation DTO with the popup-only fields")
     void getForecastDetail_returnsFullDto() throws Exception {
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
@@ -417,7 +417,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast/{id} returns 404 when the evaluation does not exist")
     void getForecastDetail_notFound_returns404() throws Exception {
         when(forecastEvaluationRepository.findById(999L)).thenReturn(Optional.empty());
@@ -438,6 +438,49 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk());
 
         verify(dtoMapper).toDto(entity, true);
+    }
+
+    @Test
+    @WithMockUser(roles = {"USER"})
+    @DisplayName("GET /api/forecast/{id} fails closed: a caller with no PRO_USER or ADMIN role is served as LITE")
+    void getForecastDetail_asUnrecognisedRole_failsClosedToLite() throws Exception {
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
+        when(forecastEvaluationRepository.findById(42L)).thenReturn(Optional.of(entity));
+        when(dtoMapper.toDto(entity, true)).thenReturn(buildDto("Durham UK", 50, 55));
+
+        mockMvc.perform(get("/api/forecast/42"))
+                .andExpect(status().isOk());
+
+        verify(dtoMapper).toDto(entity, true);
+    }
+
+    @Test
+    @WithMockUser(roles = {"USER"})
+    @DisplayName("GET /api/forecast fails closed: a caller with no PRO_USER or ADMIN role is served as LITE")
+    void getForecasts_asUnrecognisedRole_failsClosedToLite() throws Exception {
+        when(forecastEvaluationRepository
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(dtoMapper.toListDtoList(any(), eq(true))).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast"))
+                .andExpect(status().isOk());
+
+        verify(dtoMapper).toListDtoList(any(), eq(true));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/forecast/{id} as ADMIN passes isLiteUser=false (the full prose and scores)")
+    void getForecastDetail_asAdmin_passesProFlag() throws Exception {
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
+        when(forecastEvaluationRepository.findById(42L)).thenReturn(Optional.of(entity));
+        when(dtoMapper.toDto(entity, false)).thenReturn(buildDto("Durham UK", 50, 55));
+
+        mockMvc.perform(get("/api/forecast/42"))
+                .andExpect(status().isOk());
+
+        verify(dtoMapper).toDto(entity, false);
     }
 
     @Test
@@ -529,7 +572,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("POST /api/forecast/run as non-admin returns 403")
     void runForecast_asNonAdmin_returns403() throws Exception {
         mockMvc.perform(post("/api/forecast/run"))
@@ -681,7 +724,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("POST /api/forecast/run/very-short-term as non-admin returns 403")
     void runVeryShortTermForecast_asNonAdmin_returns403() throws Exception {
         mockMvc.perform(post("/api/forecast/run/very-short-term"))
@@ -699,7 +742,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("POST /api/forecast/run/short-term as non-admin returns 403")
     void runShortTermForecast_asNonAdmin_returns403() throws Exception {
         mockMvc.perform(post("/api/forecast/run/short-term"))
@@ -717,7 +760,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("POST /api/forecast/run/long-term as non-admin returns 403")
     void runLongTermForecast_asNonAdmin_returns403() throws Exception {
         mockMvc.perform(post("/api/forecast/run/long-term"))
@@ -823,7 +866,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("POST /api/forecast/run/tide as non-admin returns 403")
     void refreshTideData_asNonAdmin_returns403() throws Exception {
         mockMvc.perform(post("/api/forecast/run/tide"))
@@ -841,7 +884,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("POST /api/forecast/run/tide/backfill as non-admin returns 403")
     void backfillTideData_asNonAdmin_returns403() throws Exception {
         mockMvc.perform(post("/api/forecast/run/tide/backfill"))
@@ -887,7 +930,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast?date= admits yesterday and T-4: 200, and the repository is read for "
             + "exactly that one day")
     void getForecastsForDate_admitsYesterdayAndT4() throws Exception {
@@ -907,7 +950,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast?date= refuses today, tomorrow, T-5 and a malformed date with a 400 "
             + "{error} and reads nothing")
     void getForecastsForDate_refusesOutOfWindowDates() throws Exception {
@@ -940,7 +983,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast?date= never reaches a run, a batch or a model")
     void getForecastsForDate_runsNothing() throws Exception {
         when(forecastEvaluationRepository
@@ -1049,7 +1092,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/forecast/run/notifications returns SSE stream")
     void getRunNotifications_returnsOk() throws Exception {
         when(progressTracker.subscribeNotifications()).thenReturn(new SseEmitter());

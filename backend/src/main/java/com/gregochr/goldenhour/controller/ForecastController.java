@@ -68,8 +68,8 @@ import java.util.stream.Collectors;
  *
  * <p>Exposes endpoints to retrieve stored forecasts, query historical data,
  * and trigger on-demand forecast runs. GET endpoints return {@link ForecastEvaluationDto}
- * with role-based score selection (LITE users receive basic scores, PRO/ADMIN receive
- * enhanced directional scores).
+ * with role-based shaping (LITE users receive neither the Fiery Sky and Golden Hour scores nor the
+ * per-location written why; PRO/ADMIN receive the enhanced directional scores and prose).
  */
 @RestController
 @RequestMapping("/api/forecast")
@@ -150,9 +150,10 @@ public class ForecastController {
      *       row yet — common while a batch is in-flight between submit and result-write.</li>
      * </ul>
      *
-     * <p>Scores are role-aware: LITE users receive basic (observer-point) scores from rich
-     * rows; PRO/ADMIN users receive enhanced (directional) scores. Sparse rows carry a single
-     * set of scores (no basic vs enhanced split) for both roles.
+     * <p>Scores are role-aware: LITE users receive null potentials and a null {@code summary} on
+     * every row, rich and sparse alike (the star rating is free); PRO/ADMIN users receive the
+     * enhanced (directional) scores. Sparse rows carry a single set of scores for the roles that
+     * get any.
      *
      * <p><b>A slot whose event has passed is served as of that event</b> — see
      * {@link #serveRange}; an unpassed slot (a future day, today's event before it happens) is served
@@ -237,7 +238,7 @@ public class ForecastController {
      *       forecastRating} — always, so a canopy-bearing place whose composite star is not
      *       recoverable is served unscored (no star and no scores, the stand-down reason kept), never
      *       with the row's sky-only star. A LITE reader keeps the row exactly as the list has always
-     *       served it to LITE: the row's own rating and basic scores;</li>
+     *       served it to LITE: the row's own rating, without the potentials or the written why;</li>
      *   <li>a served result with no row behind it (the candidate was retracted or never scored) is
      *       served as a sparse row built from the result, rated {@code forecastRating};</li>
      *   <li>nothing available is served as no row at all — the place reads unscored on that window;</li>
@@ -417,8 +418,8 @@ public class ForecastController {
      * directional cloud, tide/surge/inversion detail, bluebell, golden/blue-hour windows) that the
      * slim {@link #getForecasts} list omits.
      *
-     * <p>Scores are role-selected identically to the list: LITE users get basic (observer-point)
-     * scores and summary, PRO/ADMIN get enhanced (directional) — so this endpoint cannot be used to
+     * <p>Shaped for the role identically to the list: LITE users get null potentials, summary and
+     * headline, PRO/ADMIN get the enhanced (directional) values — so this endpoint cannot be used to
      * bypass the freemium score gating.
      *
      * @param id   the forecast_evaluation id (only persisted rich rows have one; sparse cached-only
@@ -853,7 +854,8 @@ public class ForecastController {
     }
 
     private boolean isLiteUser(Authentication auth) {
-        // No authentication at all is read as the least-privileged tier, never as PRO.
-        return auth == null || Authorities.hasRole(auth, UserRole.LITE_USER);
+        // Fail closed: anything that is not positively PRO_USER or ADMIN (including no authentication
+        // and a bare ROLE_USER) is the least-privileged tier.
+        return !(Authorities.hasRole(auth, UserRole.PRO_USER) || Authorities.hasRole(auth, UserRole.ADMIN));
     }
 }

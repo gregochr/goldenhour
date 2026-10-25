@@ -114,6 +114,7 @@ class ForecastControllerAsOfEventTest {
 
     private final Authentication pro = new TestingAuthenticationToken("u", "p", "ROLE_PRO_USER");
     private final Authentication lite = new TestingAuthenticationToken("u", "p", "ROLE_LITE_USER");
+    private final Authentication bareUser = new TestingAuthenticationToken("u", "p", "ROLE_USER");
 
     private LocationEntity sky;
     private LocationEntity canopy;
@@ -473,6 +474,26 @@ class ForecastControllerAsOfEventTest {
             mapperEchoesEntities();
 
             List<ForecastListDto> out = controller(resolver).getForecasts(lite);
+
+            assertThat(out.get(0).rating()).isEqualTo(3);
+            verify(dtoMapper).toListDtoList(List.of(skyRow), true);
+        }
+
+        @Test
+        @DisplayName("a reader with no PRO_USER or ADMIN role is served as LITE (fail closed), and a passed "
+                + "sparse slot is built from the full view for the mapper to strip")
+        void unrecognisedRoleFailsClosedOnPassedSlots() {
+            roster(canopy);
+            eventAt(canopy, YESTERDAY, TargetType.SUNSET, YESTERDAY_SUNSET);
+            ForecastEvaluationEntity skyRow = row(7L, canopy, YESTERDAY, TargetType.SUNSET,
+                    LocalDateTime.of(2026, 10, 14, 12, 0), Instant.parse("2026-10-14T12:10:00Z"), 3);
+            latestRows(TODAY.minusDays(2), TODAY.plusDays(5));
+            when(resolver.resolveAll(anyCollection(), eq(YESTERDAY), eq(TargetType.SUNSET), any()))
+                    .thenReturn(Map.of(11L, new AsOfEvent(null, 7L, Instant.parse("2026-10-14T12:00:00Z"),
+                            null, 5, skyRow)));
+            mapperEchoesEntities();
+
+            List<ForecastListDto> out = controller(resolver).getForecasts(bareUser);
 
             assertThat(out.get(0).rating()).isEqualTo(3);
             verify(dtoMapper).toListDtoList(List.of(skyRow), true);

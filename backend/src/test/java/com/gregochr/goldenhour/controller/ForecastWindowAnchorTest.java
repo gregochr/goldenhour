@@ -148,7 +148,7 @@ class ForecastWindowAnchorTest {
     void scoresWindowMatchesTheForecastWindow() {
         when(evaluationViewService.forDateRange(any(), any(), any())).thenReturn(List.of());
 
-        briefingEvaluationController.getAllScores();
+        briefingEvaluationController.getAllScores(null);
 
         ArgumentCaptor<LocalDate> from = ArgumentCaptor.forClass(LocalDate.class);
         ArgumentCaptor<LocalDate> to = ArgumentCaptor.forClass(LocalDate.class);

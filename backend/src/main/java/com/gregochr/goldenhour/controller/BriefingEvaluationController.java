@@ -1,13 +1,16 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.util.Authorities;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -62,10 +65,16 @@ public class BriefingEvaluationController {
      * <p>Consumed by the Plan and Map tabs on mount so batch-scored locations render
      * their scores immediately.
      *
-     * @return flat list of evaluation views with data (source != NONE)
+     * <p>The Fiery Sky and Golden Hour scores and the per-location written why are Pro features
+     * (docs/engineering/pro-features-gate-plan.md §6): a reader who is neither PRO_USER nor ADMIN
+     * gets each row through {@link LocationEvaluationView#forLite()}. The check is fail-closed, and
+     * the ETag is hashed from the body, so the two variants never share a validator.
+     *
+     * @param auth the caller's authentication
+     * @return flat list of evaluation views with data (source != NONE), shaped for the caller's role
      */
     @GetMapping("/scores")
-    public ResponseEntity<List<LocationEvaluationView>> getAllScores() {
+    public ResponseEntity<List<LocationEvaluationView>> getAllScores(Authentication auth) {
         // Deliberately the same window as ForecastController's list endpoint — same two constants
         // and, since both must name the same days, the same UK civil anchor. The Map's date strip
         // derives its dates from the FORECAST payload alone, so a score returned for a date outside
@@ -77,7 +86,9 @@ public class BriefingEvaluationController {
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
         List<LocationEvaluationView> views = evaluationViewService.forDateRange(
                 from, horizon, Set.of(TargetType.SUNRISE, TargetType.SUNSET));
-        return ResponseEntity.ok(views);
+        boolean pro = Authorities.hasRole(auth, UserRole.PRO_USER)
+                || Authorities.hasRole(auth, UserRole.ADMIN);
+        return ResponseEntity.ok(pro ? views : views.stream().map(LocationEvaluationView::forLite).toList());
     }
 
     /**
