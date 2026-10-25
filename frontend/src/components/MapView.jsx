@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, useId, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
-import { MapContainer, TileLayer, Marker, Polyline, useMapEvents, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Polyline, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -24,7 +24,7 @@ import {
 } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 import { viewlineDrawable } from '../utils/viewlineDrawable.js';
-import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
+import { rampHex, rampGradientCss } from '../utils/scoreRamp.js';
 import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import WindowControl from './map/WindowControl.jsx';
 import BigSeasLine from './map/BigSeasLine.jsx';
@@ -531,23 +531,6 @@ function mergePreviewRun(prev, results) {
   return next;
 }
 
-// The medallion markers' hover/focus name chip. The Leaflet popup rules and the drill-down emphasis
-// rules that used to sit here went with the Plan-tab overlay (overlay convergence, C5).
-const markerStyles = `
-  /* Map markers — names are revealed on hover/focus (no permanent labels), and
-     the hovered disc lifts above its neighbours so an overlapped marker pops
-     fully forward rather than staying half-buried. */
-  .photocast-marker:hover .marker-name-chip,
-  .photocast-marker:focus-within .marker-name-chip {
-    opacity: 1 !important;
-  }
-  .leaflet-marker-icon.photocast-marker:hover,
-  .leaflet-marker-icon.photocast-marker:focus-within {
-    z-index: 1000 !important;
-  }
-`;
-
-import { buildMarkerSvg, buildStandDownSvg, markerLabelAndColour } from './markerUtils.js';
 import { DARK_SKY_THRESHOLD } from '../utils/darkSky.js';
 
 const SUNRISE_LINE_COLOUR = '#f97316';
@@ -762,9 +745,8 @@ TideUpsellDismissOnMapMove.propTypes = {
  * <p>⚠️ **It no longer closes popovers**, which inverts what map-tab-v2-plan.md §3 P7 and
  * `docs/design/map-tab-v2/README.md`'s interactions table both still say ("Click map background →
  * Close menus"). Those two are stale as of map-landing L3; `docs/design/map-landing/README.md` §5
- * is the live rule. Leaflet's marker click handlers stop propagation before it reaches the map's
- * own `click` event (`L.Marker` sets `bubblingMouseEvents: false`), so this never fires for a
- * marker tap — only genuine empty-map ground.
+ * is the live rule. The label chips stop click propagation before it reaches the map's own `click`
+ * event, so this never fires for a chip tap — only genuine empty-map ground.
  *
  * <p>⚠️ **It reacts on `click`, never on `mousedown`, and that has always been load-bearing.**
  * `click` is Leaflet's own pan-vs-tap distinction — a `mousedown` that turns into a drag never
@@ -908,86 +890,8 @@ function destinationPoint(lat, lon, bearingDeg, distanceKm) {
 }
 
 /**
- * Creates a custom Leaflet DivIcon for a location marker with radial progress arcs.
- *
- * @param {number|null} rating - Star rating 1–5, or null.
- * @param {number|null} fierySky - Fiery sky score 0–100, or null.
- * @param {number|null} goldenHour - Golden hour score 0–100, or null.
- * @param {string} locationName - Display name shown beneath the marker.
- * @param {boolean} [isPureWildlife=false] - If true, renders a green wildlife marker.
- * @param {boolean} [isStandDown=false] - If true, renders a muted stand-down marker (triaged forecast).
- * @returns {L.DivIcon}
- */
-// Cache of built DivIcons keyed by the content that determines the icon (name + scores + variant
-// flags). Returning a stable instance for unchanged markers lets react-leaflet skip setIcon (and
-// the SVG/DOM rebuild) across re-renders — a zoom, hover or filter change no longer rebuilds every
-// marker's icon. A DivIcon is safely shareable: Leaflet's createIcon() builds fresh DOM from
-// options.html on each use, and the per-marker options embedded here (rating/scores/exclude flag,
-// are part of the cache key, so identical-content markers share safely.
-const markerIconCache = new Map();
-
-/** Soft cap so a long-lived tab whose scores change daily can't grow the icon cache without bound. */
-const MARKER_ICON_CACHE_LIMIT = 2000;
-
-function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, isStandDown = false) {
-  // `getMode()` joined the key in Stage 6 (heat-scale-unification-plan.md), the first time
-  // anything in the running app actually calls `scoreRamp.setMode('temp')`. Before that, "same
-  // name+scores+flags → same colour" held because the active ramp never varied for the life of
-  // the tab, so the cache silently depended on a mode that was always constant. Now that a user
-  // can switch it live, a stale-mode entry would otherwise survive under an unchanged key and
-  // keep painting the OLD scale until a hard reload — the one thing this preference must not do.
-  // Read live rather than threaded in as a parameter: `rampHex`/`rampRgb` (inside
-  // `markerLabelAndColour` below) already read this exact module state to choose the colour, so
-  // calling it again here for the key can never disagree with what actually got painted — a
-  // parameter sourced from a caller's own prop could, if that prop ever lagged the real mode.
-  const cacheKey = `${locationName}|${rating}|${fierySky}|${goldenHour}|${isPureWildlife ? 1 : 0}|${isStandDown ? 1 : 0}|${getMode()}`;
-  const cached = markerIconCache.get(cacheKey);
-  if (cached) return cached;
-
-  const { label, colour } = markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife);
-
-  const svg = isStandDown
-    ? buildStandDownSvg()
-    : buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPureWildlife);
-  // Name is no longer a permanent label (they collide into text-soup in dense
-  // corridors). It's an absolutely-positioned chip, hidden by default and
-  // revealed on hover/focus via the `.photocast-marker` CSS in markerStyles.
-  const html = `
-    <div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;">
-      ${svg}
-      <div class="marker-name-chip" style="
-        position:absolute;top:calc(100% + 5px);left:50%;transform:translateX(-50%);
-        background:rgba(13,10,8,0.92);
-        color:var(--color-plex-text, #F2E7D3);
-        font-size:10px;font-weight:600;
-        padding:3px 7px;border-radius:3px;
-        white-space:nowrap;
-        box-shadow:0 2px 8px rgba(0,0,0,0.5);
-        border:1px solid rgba(255,255,255,0.1);
-        opacity:0;pointer-events:none;transition:opacity 0.12s ease;
-      " title="${locationName}">${locationName}</div>
-    </div>
-  `;
-
-  const icon = L.divIcon({
-    html,
-    className: 'photocast-marker',
-    iconSize: [44, 44],
-    iconAnchor: [22, 22],
-    rating: rating,
-    fierySky: fierySky,
-    goldenHour: goldenHour,
-    popupAnchor: [0, -24],
-  });
-
-  if (markerIconCache.size >= MARKER_ICON_CACHE_LIMIT) markerIconCache.clear();
-  markerIconCache.set(cacheKey, icon);
-  return icon;
-}
-
-/**
- * Map view showing all locations as score markers for a given date.
- * Selecting a marker draws orange (sunrise) and purple (sunset) azimuth lines.
+ * Map view showing all locations as a score field with label chips for a given date.
+ * Selecting a location draws orange (sunrise) and purple (sunset) azimuth lines.
  *
  * @param {object} props
  * @param {Array<{name: string, lat: number, lon: number, forecastsByDate: Map}>} props.locations
@@ -1296,12 +1200,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // for exactly that: a caller that re-resolves the setting (`App.jsx`'s `useReaderSettings`) hands
   // down a genuinely new value, which is what breaks `React.memo`'s shallow prop compare and lets
   // this render run at all. Its own VALUE is deliberately never consulted below — every actual
-  // colour read (`rampHex`, and `getMode()` in `makeMarkerIcon`'s cache key) goes straight to
+  // colour read (`rampHex`) goes straight to
   // `scoreRamp`'s live module state, the one place that can never disagree with what gets painted.
   // A prop-derived value used for that instead could lag the real mode by a render.
   // Also forwarded to `MapHeatLayer` as its paint-dependency key — the heat BITMAP is memoised
   // on data that does not change when only the preference does, so without it the canvas keeps
-  // the old ramp while the markers around it repaint. Neither use reads the value for colour:
+  // the old ramp while the rest of the map repaints. Neither use reads the value for colour:
   // every colour read goes to `scoreRamp`'s live module state.
   void mapColourScale;
   // `mapTideMode` and `saveTideMode` (map-mobile-sheet-plan.md M4) are threaded on this same route
@@ -1860,8 +1764,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * results`, so it always describes the night being looked at. {@code auroraScores} is fetched by
    * `getAuroraLocations()` — <b>no date parameter at all</b> — gated only on the live alert level:
    * it is the NOAA-triggered state for the night in progress. Read unconditionally, it answered for
-   * whichever night was on screen: browse to a future night with no stored run, and the chips, the
-   * medallions and the "🏆 best location" card all carried TONIGHT's
+   * whichever night was on screen: browse to a future night with no stored run, and the chips and the
+   * "🏆 best location" card all carried TONIGHT's
    * live stars and narrative as though they were that night's. The same class of defect as #803's
    * stale-window ratings — a rating answering for a window it does not belong to — through a source
    * with no date to check.
@@ -1882,9 +1786,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * own stored result otherwise.
    *
    * <p>⚠️ <b>Tonight is untouched at every reader.</b> Where the night on screen IS the night in
-   * progress, each reader keeps the precedence it had — the rating accessor stored-first, the
-   * medallions live-only. That those differ on tonight is pre-existing and is a separate
-   * question (which source is authoritative while both exist); this change only stops the live
+   * progress, each reader keeps the precedence it had — the rating accessor stored-first.
+   * (A retired marker layer once read live-only; which source is authoritative while both exist is a separate
+   * question.) This change only stops the live
    * cache answering for a night it was never about.
    */
   const liveAuroraOnScreen = nightDate === auroraNight;
@@ -2311,22 +2215,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [planHandoff?.source, planHandoff?.nonce]);
 
 
-  // Inject the marker name-chip styles (desktop only)
-  useEffect(() => {
-    if (isMobile) return;
-    const styleEl = document.createElement('style');
-    styleEl.textContent = markerStyles;
-    document.head.appendChild(styleEl);
-    return () => styleEl.remove();
-  }, [isMobile]);
-
   /**
    * **Any INSTALLED selection collapses an open peek section** (map-mobile-sheet-plan.md §3 M2
    * task 7, §5 D-7's reverse-order clause) — the other half of the callout/sheet mutual-exclusion
    * rule. A peek-button press clears the selection first (`handlePeekPress`, below), so the ordinary
    * route never needs this effect at all; it exists for every OTHER writer of
-   * `selectedLocationName`, since selection is not centralised on this tab — the Leaflet marker
-   * handler, `selectMapLocation` (chips and pins, which stop click propagation before it ever
+   * `selectedLocationName`, since selection is not centralised on this tab — `selectMapLocation` (the label
+   * chips, which stop click propagation before it ever
    * reaches the map-touch listener below), and the location/plan-handoff effects above all call
    * {@code setSelectedLocationName} directly (a Codex finding on the plan's M0). Keyed on the
    * value itself, not on a ref-based "did it change" test, so a selection that arrives while a
@@ -2385,7 +2280,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // no cancellation every one of those requests could land whenever it liked:
   //   - AFTER THE ALERT ENDED. A poll saying the alert is over clears the scores below; a request
   //     the previous poll made, landing after that, wrote the ended alert's stars straight back into
-  //     every live reader (the rating's live fallback, the medallions, the best-location card),
+  //     every live reader (the rating's live fallback, the best-location card),
   //     where they stood until the next poll or focus.
   //   - OUT OF ORDER. Two refreshes close together each make a request, and the older one landing
   //     last replaced the newer answer with its own.
@@ -2438,7 +2333,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // row local because its date is not in `forecastDates` (map-tab-v2-plan.md §3 P6).
   //
   // ⚠️ Keyed to the night it was asked for, in both directions (Codex, #814). These results answer
-  // for ONE night, and since the live-state gate (`liveAuroraOnScreen`) the medallions
+  // for ONE night, and since the live-state gate (`liveAuroraOnScreen`) the rating accessors
   // read them on every non-live night — so a result standing in for the wrong night
   // is the exact defect that gate exists to stop. Two ways it could:
   //   - A STALE WINDOW. Switch night A → B and, until B's request resolves, the results on hand are
@@ -2600,7 +2495,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * pass over a few tens of rows, this is asked once per location on each of five separate passes
    * ({@code hasStandDown}, {@code hasUnrated}, {@code visibleLocations}, {@code scopedRatedCount},
    * {@code labelSpots}), and a new identity every render would additionally re-run all five of
-   * those memos and churn the marker identities `react-leaflet` is keyed on.
+   * those memos.
    *
    * <p>⚠️ <b>{@code mapTodayStr} is a dependency, and leaving it out is a real defect rather than
    * a tidiness point</b> (adversarial review). {@code buildMapEvents} reads the clock fresh on
@@ -2736,8 +2631,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     });
   }
 
-  // Index briefing scores once per map so the per-marker lookup is O(1), instead of scanning the
-  // whole Map for every marker (previously O(markers x scores) on each render).
+  // Index briefing scores once per map so the per-location lookup is O(1), instead of scanning the
+  // whole Map for every location.
   const briefingScoreIndex = useMemo(() => buildBriefingScoreIndex(briefingScores), [briefingScores]);
 
   const isAuroraMode = eventType === 'AURORA';
@@ -2876,9 +2771,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   /**
    * The aurora field's points (aurora-heat-plan.md §3 A2, D1): the astro arm's shape over aurora
-   * stars. ⚠️ Which star follows the MEDALLION rule, not {@code getRatingForLocation}'s: on the
-   * night in progress the live {@code auroraScores}, otherwise that night's STORED results — the
-   * field replaces the medallions, and `MapViewAuroraLiveNight.test.jsx` pins that rule as the
+   * stars. ⚠️ Which star follows the LIVE-NIGHT rule, not {@code getRatingForLocation}'s: on the
+   * night in progress the live {@code auroraScores}, otherwise that night's STORED results —
+   * `MapViewAuroraLiveNight.test.jsx` pins that rule as the
    * tab's behaviour. (Whether the callout's stored-first rule should follow is the plan's Q1.)
    * A location with no aurora rating is absent, never a 1★ placeholder.
    */
@@ -3267,10 +3162,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // chips, the pins, the rating floor and the counts footer all went on answering for a window
     // the pill had already called "No forecast" — with whatever run last scored that date.
     if (!solarWindowOnScreen()) return null;
-    // Briefing score wins, then the forecast row. Since the marker layer now reads THIS accessor
-    // rather than repeating the precedence (see its own note), this is the only copy of it — the
-    // comment here used to point at a "line ~901" that has since become an unrelated control.
-    // Without the fallback, locations rated only via cached_evaluation render a medallion but get
+    // Briefing score wins, then the forecast row. This is the only copy of the precedence.
+    // Without the fallback, locations rated only via cached_evaluation would draw a chip but get
     // hidden by the star-threshold filter.
     //
     // ⚠️ A PAST window reads the forecast row ALONE (outcome-rating-plan.md §2 #2), never the
@@ -3408,9 +3301,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     && !getTideOnLightForLocation(loc)
   ));
 
-  // Full filter pipeline → the markers actually rendered. Memoised so a re-render that touches no
+  // Full filter pipeline → the locations actually drawn. Memoised so a re-render that touches no
   // filter input (e.g. a zoom change, which only affects the azimuth line length) reuses the same
-  // location list, keeping marker identities stable for react-leaflet.
+  // location list.
   const visibleLocations = useMemo(() => {
     const ratingFiltered = typeFiltered.filter((loc) => {
       // A spot the door NAMED (`focusLensNames`, a Coming up card's exact set) is exempt from the
@@ -3533,7 +3426,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    *
    * <p>{@link getRatingForLocation} is the right source because it already answers for all four
    * event types — solar via the briefing/forecast precedence, and the stored/live star counts for
-   * ASTRO and AURORA — so this figure cannot disagree with the medallion a reader is looking at.
+   * ASTRO and AURORA — so this figure cannot disagree with the star a reader is looking at.
    *
    * <p>⚠️ Declared HERE, beside {@code scopedVisibleLocations}, and not beside the
    * {@code scopeBasePool} it is rendered with: that one is a plain {@code const} below the
@@ -4284,14 +4177,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   /**
    * The Map tab's label catalogue (map-tab-v2-plan.md §3 P8) — `MapLabels`' own "named" pool,
-   * `scopedVisibleLocations`, ⚠️ which is NOT the set the medallion markers draw from: those render
-   * the un-scoped `visibleLocations` below, so with scope = "My area" the two pools genuinely
-   * diverge (an adversarial-review finding — this sentence used to claim they were "the exact same
-   * filtered/scoped set"). It matters less than it reads: the hidden marker layer draws from the
-   * un-scoped pool, so the divergence is with a layer a reader cannot see. Joined with the current window's rating via
-   * the SAME accessor the star-threshold filter and
-   * the marker render both already use (`getRatingForLocation`) — so a location's chip can never
-   * show a different star than its own marker does.
+   * `scopedVisibleLocations`, the un-scoped `visibleLocations` narrowed by scope. Joined with the
+   * current window's rating via the SAME accessor the star-threshold filter uses
+   * (`getRatingForLocation`).
    *
    * <p>⚠️ Appends the SELECTED location's own row when the pool's filters have dropped it (PR #734
    * review): {@code chipCandidates}' own "the selected location always gets its chip" guarantee
@@ -5041,25 +4929,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const selectedDayData = selectedLoc?.forecastsByDate.get(date);
   const sunriseAzimuth = selectedDayData?.sunrise?.azimuthDeg ?? null;
   const sunsetAzimuth  = selectedDayData?.sunset?.azimuthDeg  ?? null;
-
-  /** Derive the marker's forecast context and wildlife flag for a location. */
-  function getContentProps(loc) {
-    // `nightDate`, not `date`: identical in the ordinary case, and the honest "no weather context"
-    // gap rather than silently showing a stale night's data in the rare case the EV-ownership rule
-    // has kept a night row local (map-tab-v2-plan.md §3 P6) — the roster join below already returns
-    // `undefined` for a date that date-strip domain never carried anyway, so this only changes
-    // which "nothing here" a reader sees, never which real forecast they see.
-    const dayData = loc.forecastsByDate.get(nightDate);
-    // Aurora/Astro mode: use sunset as background weather context (night event)
-    const solarType = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
-    // The daylight High-water row has no forecast of its own, and must not borrow the sunset's.
-    const forecast = eventType === HIGH_WATER ? undefined : dayData?.[solarType];
-    const types = loc.locationType ?? [];
-    const isPureWildlife = isWildlifeOnly(types);
-    // `isPureWildlife` selects the marker's wildlife colour. A canopy site is deliberately NOT part of
-    // it: a wood's rating is a real, inverted-polarity sky score, and it keeps its own treatment.
-    return { forecast, isPureWildlife };
-  }
 
   // ── Map tab chrome: FiltersPopover + counts footer (map-tab-v2-plan.md §3 P7) ──
   // The popover's chip shows a COUNT, never a text summary, and the count deliberately EXCLUDES scope — switching "My area" ⇄
@@ -6804,77 +6673,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             />
           )}
 
-          {visibleLocations.map((loc) => {
-            const { forecast, isPureWildlife } = getContentProps(loc);
-            // Look up briefing evaluation score for this location (if any)
-            // ⚠️ Gated, and read through the SHARED accessors rather than re-derived here.
-            // This block used to carry its own copy of the briefing-then-forecast precedence and
-            // its own `resolveStandDown` call, so the window gate above reached the chips, the
-            // pins, the rating floor and the counts footer but not these medallions. Normally
-            // invisible — `MapHeatLayer` pins the marker panes to opacity 0 — but that layer
-            // mounts only on `heatOffered`, so with no field at all (an empty roster join) the
-            // medallions are the tab's ONLY location vocabulary, and an admin with the `?`
-            // unknown lens on could see them still wearing a window's stars after every other
-            // surface had disowned it. Two review lenses found it independently.
-            // A PAST window reads the forecast row alone here too (outcome-rating-plan.md §2 #2),
-            // so the arcs and the star come from one result.
-            const briefingScore = (!isAuroraMode && solarWindowOnScreen() && !activeWindowPast)
-              ? lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType) : null;
-            // Aurora: tonight's live stars exactly as before; on any other night, that night's
-            // own STORED stars rather than tonight's live ones (see `liveAuroraOnScreen`).
-            // ⚠️ ONE gate, here. A second one on a `locAuroraScore` temporary above was dead —
-            // it was only ever read inside this same `liveAuroraOnScreen ?` branch, so removing
-            // it changed nothing and mutation testing could not kill it. Inlined rather than kept,
-            // since a guard that cannot fire reads as protection it does not give.
-            const markerRating = isAuroraMode
-              ? (liveAuroraOnScreen
-                ? (auroraScores[loc.name]?.stars ?? null)
-                : (storedAuroraResults[loc.name]?.stars ?? null))
-              : getRatingForLocation(loc);
-            // ⚠️ The gate belongs on BOTH sources, not just `briefingScore`. These fall back to
-            // `forecast`, which is read straight off `forecastsByDate` by date — so gating only
-            // the briefing half left the medallion's arcs drawing a window's fiery/golden
-            // potential after its star had gone (mutation-checked: that half-fix survived).
-            const markerDetail = !isAuroraMode && role !== 'LITE_USER' && solarWindowOnScreen();
-            const markerFiery = markerDetail
-              ? (briefingScore?.fierySkyPotential ?? forecast?.fierySkyPotential ?? null)
-              : null;
-            const markerGolden = markerDetail
-              ? (briefingScore?.goldenHourPotential ?? forecast?.goldenHourPotential ?? null)
-              : null;
-            // `isStandDownLocation` already carries the aurora and pure-wildlife guards this
-            // line used to repeat, plus the window gate they lacked.
-            const isStandDown = isStandDownLocation(loc);
-            const icon = makeMarkerIcon(
-              markerRating,
-              markerFiery,
-              markerGolden,
-              loc.name,
-              isPureWildlife,
-              isStandDown,
-            );
-
-            return (
-              <Marker
-                // Stable per-location key: names are unique, so the marker (and its Leaflet
-                // instance) is never remounted by a drive-time load or a filter/zoom change —
-                // driveMinutes flows through as a prop, so no remount is needed to refresh it.
-                key={loc.name}
-                position={[loc.lat, loc.lon]}
-                icon={icon}
-                eventHandlers={{
-                  click: () => setSelectedLocationName(loc.name),
-                }}
-              />
-            );
-          })}
-
           {/* The selection callout (map-tab-v2-plan.md §3 P9, README §7) — tab only. Rendered
               regardless of `heatOffered`: a chip click sets `selectedLocationName`
               whether or not the heat kernel is currently painting anything, and the callout is the
-              tab's ONLY selection surface now (no Leaflet popup left to fall back to). ⚠️ Said "a
-              marker click" until the medallions stopped being visible on the tab at all — their
-              `click` handler is still bound but unreachable through `pointer-events: none`. */}
+              tab's ONLY selection surface now (no Leaflet popup left to fall back to). */}
           {selectedLoc && (activeMapEvent || hideDayCard) && (
             <MapCallout
               location={selectedLoc}
@@ -6972,6 +6774,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               {hidesOnlyForecast
                 ? 'No sunrise or sunset forecast to show. Wildlife hides still carry a comfort forecast.'
                 : 'No forecast to show.'}
+            </div>
+          </div>
+        )}
+
+        {/* The zero-joinable state: locations exist but none joins a region, so no field is
+            offered (`heatOffered` false) and — with the medallions gone — nothing would draw. The
+            same centre pill as above, never stacked on it. */}
+        {!heatOffered && visibleLocations.length > 0 && !noForecastLineShown && !hideDayCard && (
+          <div className="wf-map-empty">
+            <div data-testid="wf-map-no-places" className="wf-map-key">
+              No places to draw on the map yet
             </div>
           </div>
         )}

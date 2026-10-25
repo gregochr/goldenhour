@@ -28,7 +28,6 @@ const mockMapInstance = { getZoom: () => 9 };
 vi.mock('react-leaflet', () => ({
   MapContainer: (props) => <div data-testid="map-container">{props.children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div>{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: (handlers) => {

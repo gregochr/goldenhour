@@ -167,8 +167,8 @@
      the full-strength channel colour does not carry — these are the lifted versions that do. Two
      families rather than one, because fill and text have different jobs: the fill names the
      channel, the text has to be read. Never use a --color-badge-* as a fill or a border. */
-  /* Run-bar ramp — a SECOND rating scale, single-hue, and deliberately not the medallion one.
-     `scoreRamp.js` (`markerUtils.js`'s marker/cluster/swatch source) is a status ramp: the number
+  /* Run-bar ramp — a SECOND rating scale, single-hue, and deliberately not the map's one.
+     `scoreRamp.js` (the map field and star-swatch source) is a status ramp: the number
      is printed on the mark, so hue reinforces a label already there, and its luminance is not
      monotonic across the five stops — it does not rise steadily from worst to best. That is fine
      for a badge and useless for a bar, where the colour IS the value. Never use one scale for the
@@ -3809,21 +3809,15 @@ button.wf-hc.also.on:hover {
    same reason (the pointer-events rule at `.wf-map-toolbar-row` above).
 
    ⚠️ LABELS actually ships at 650, not the bundle's 420 (PR #733 review) — `MapLabels.jsx`'s own
-   `LABEL_PANE_Z` carries the full reasoning. The bundle's prototype never renders a marker
-   underneath its label layer at all; this app keeps Leaflet's real markers mounted in its
-   `markerPane` (a built-in z600) on the same projected points as the chips — so a label pane at 420
-   would sit, and hit-test, UNDER the very marker its chip names. (⚠️ The reason this used to give —
-   that the app "fades them back to full opacity AND interactivity past the zoom handover" — no
-   longer holds: `MapHeatLayer` hides those panes unconditionally. They are still restored on
-   unmount so 650 stands.) 650 clears the
-   marker pane while staying below Leaflet's popup pane (700) and every chip in this file (1100+).
+   `LABEL_PANE_Z` carries the full reasoning. 650 sits above Leaflet's overlay and marker panes
+   (400/600) while staying below Leaflet's popup pane (700) and every chip in this file (1100+).
    That z-index is set in JS on the Leaflet pane itself, never in this stylesheet, so it has no CSS
    rule to slice here — see `mapChromeZLadderCascade.test.jsx`'s own note on why its cascade
    assertions cannot (and do not) cover it.
 
    Top-left: the window control, at the SAME `left: 60px` the old toolbar used to clear Leaflet's
    own zoom + home control column — that geometry has not changed, only which control sits there.
-   Top-right: Heat/Medallions + Filters (Regions is P11 — `align-items: flex-end` plus the same
+   Top-right: Regions + Filters (Regions is P11 — `align-items: flex-end` plus the same
    `gap` a third chip drops straight into, no restructuring needed when it lands). */
 .wf-map-chrome-tl {
   position: absolute;
@@ -9329,36 +9323,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 .wf-callout-actions button:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 1px;
-}
-
-/* ⚠️ The marker handover's pointer gate, and it has to be a STYLESHEET rule rather than an inline
-   `pointer-events: none` on the pane. Leaflet's own stylesheet carries
-   `.leaflet-marker-icon.leaflet-interactive { pointer-events: auto }`, and a child re-enabling the
-   property beats an ancestor disabling it — so the pane rule §4.5 specifies is necessary and not
-   sufficient, and an 8%-opaque medallion would still swallow the tap meant for the map.
-
-   Deliberately NOT `visibility: hidden`, which was the first cut: it would fight the opacity fade
-   `applyMarkerFade` exists to apply. ⚠️ The a11y half is now the `inert` ATTRIBUTE, set on the pane
-   beside this class. The old rule here was "neither touches the tree", justified by "the markers
-   are the ONLY route to a location's popup" — false since P9 (#734) stopped mounting a Leaflet
-   `Popup` on this tab, which left Leaflet's still-`tabIndex=0` markers as invisible no-op controls
-   ahead of `MapLabels`' chips, the route that works. `inert` covers the tab order and the
-   accessibility tree together, and covers icons Leaflet creates later, which a `tabindex` sweep
-   would not. This class stays as defence in depth: `inert` blocks pointer events too, so the rule
-   below is redundant wherever the attribute is honoured, but it is the older and more widely
-   supported half. See `MapHeatLayer.jsx`'s `applyMarkerFade` for why aurora is
-   unaffected. */
-.wf-markers-inert .leaflet-marker-icon,
-.wf-markers-inert .leaflet-marker-shadow,
-/* ⚠️ The `.leaflet-interactive` pair is not belt-and-braces — it is the rule that works. Leaflet's
-   own `.leaflet-marker-icon.leaflet-interactive { pointer-events: auto }` is TWO classes, exactly
-   the specificity of the two-class selectors above, and it is later in source order, so it wins the
-   tie. Measured in the browser: with the shorter selectors alone, an invisible cluster medallion
-   at zoom 8 still computed `pointer-events: auto` and still swallowed the drag. Three classes beat
-   two. */
-.wf-markers-inert .leaflet-marker-icon.leaflet-interactive,
-.wf-markers-inert .leaflet-marker-shadow.leaflet-interactive {
-  pointer-events: none;
 }
 
 /* The design's `.stick.tmp`. Amber because the state it names is temporary, matching the MAYBE

@@ -8,7 +8,7 @@
  * statically imports {@code d3-geo} and {@code topojson-client}, so a consumer that wanted only a
  * padded bounding box was pulling a 24 KB projection chunk into its module graph — which is exactly
  * what happened at P4: {@code WindowFirstMapPane} needed {@code latLngBounds} to frame the Map tab,
- * and fetched {@code geo} the moment the tab opened, in medallion view, before any field existed.
+ * and fetched {@code geo} the moment the tab opened, before any field existed.
  * {@code scoreRamp.js}'s own docs warn about this pattern in as many words.
  *
  * <p>⚠️ {@code heatField.js} RE-EXPORTS every name here, so its own callers are unchanged and its

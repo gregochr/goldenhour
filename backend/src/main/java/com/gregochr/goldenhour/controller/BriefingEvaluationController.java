@@ -60,7 +60,7 @@ public class BriefingEvaluationController {
      * triage/scored rows from {@code forecast_evaluation}.
      *
      * <p>Consumed by the Plan and Map tabs on mount so batch-scored locations render
-     * scored medallions immediately.
+     * their scores immediately.
      *
      * @return flat list of evaluation views with data (source != NONE)
      */

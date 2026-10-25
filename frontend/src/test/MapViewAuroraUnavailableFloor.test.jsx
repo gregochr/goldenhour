@@ -60,7 +60,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -88,12 +87,9 @@ vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <di
 vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div data-testid="popup-content" /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
-vi.mock('../components/markerUtils.js', () => ({
-  buildMarkerSvg: () => '<svg></svg>',
-  buildStandDownSvg: () => '<svg></svg>',
-  markerLabelAndColour: () => ({ label: '★', colour: '#E5A00D' }),
-  STAND_DOWN_COLOUR: '#501313',
-}));
+// `MapLabels` needs a real Leaflet pane to place a chip (its own test's job); the counts footer, which
+// reads the same filtered set, is what this file counts. Stubbed so a heat field can be offered.
+vi.mock('../components/map/MapLabels.jsx', () => ({ default: () => <div data-testid="map-labels-stub" /> }));
 
 import MapView from '../components/MapView.jsx';
 import { AuroraStatusProvider } from '../context/AuroraStatusContext.jsx';
@@ -119,7 +115,7 @@ const ALL_CLEAR = { level: 'QUIET', active: false, currentNightDate: THE_NIGHT }
 const SAVED_FLOOR = '4';
 
 /**
- * THE_NIGHT's sunset, one place at each rating from 2★ to 5★. So the number of pins after the change
+ * THE_NIGHT's sunset, one place at each rating from 2★ to 5★. So the number of places after the change
  * of event says which floor is in force: two at the saved 4★+, three at the 3★+ default, four under
  * no floor at all.
  */
@@ -135,7 +131,7 @@ const LOCATIONS = [
 
 /**
  * The live alert's scores: Kielder clears the saved 4★+ floor and Cheviot does not. So aurora mode on
- * that floor draws ONE pin, a count none of the Sunset floors above produces.
+ * that floor draws ONE place, a count none of the Sunset floors above produces.
  */
 const LIVE = [
   { location: { name: 'Kielder', lat: 55.23, lon: -2.58 }, stars: 4, summary: 'Clear to the north' },
@@ -164,6 +160,29 @@ async function openMap(mapElement) {
 async function endAlert() {
   serverStatus = ALL_CLEAR;
   await act(async () => { window.dispatchEvent(new Event('focus')); });
+}
+
+/** A roster join over the rendered locations, so the heat field is offered and the counts footer mounts. */
+function heatFor(locations) {
+  const spots = locations.map((l) => ({ id: l.id, name: l.name, lat: l.lat, lng: l.lon, rid: l.regionName ?? 'North East' }));
+  return {
+    enabled: true,
+    hasHome: false,
+    spots,
+    areaSpots: spots,
+    pointsByKey: new Map(),
+    windows: [],
+    areaBounds: [[54.3, -3.4], [55.7, -1.3]],
+    catalogueBounds: [[54.3, -3.4], [56.4, -1.3]],
+  };
+}
+
+/**
+ * How many locations the map draws: the N of the counts footer's "N of M shown" (the filtered set).
+ */
+function visibleCount() {
+  const match = /(\d+) of \d+ shown/.exec(screen.getByTestId('wf-map-counts-footer').textContent);
+  return match ? Number(match[1]) : NaN;
 }
 
 const STAR_NAMES = { 1: '1★+', 2: '2★+', 3: '3★+', 4: '4★+', 5: '5★' };
@@ -210,7 +229,7 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
   // there (the window control, a landing-card row, the callout's strip) or come in through a Plan
   // door, the handoff turns the override off, and the auto-selection replaces AURORA on the next
   // commit. So this models a tab the hatch mounts. The forecast dates are passed so the solar-window
-  // gate works as it does in production, where a pins test copied here would otherwise see an
+  // gate works as it does in production, where a map-count test copied here would otherwise see an
   // ungated view the tab never draws.
   const tab = (props = {}) => (
     <MapView
@@ -340,20 +359,22 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
       name: 'Rothbury', lat: 55.31, lon: -1.91, forecastsByDate: new Map(), locationType: ['LANDSCAPE'],
     };
     const WITH_UNSCORED = [...LOCATIONS, ROTHBURY];
+    // Only this test needs a roster join: the counts footer's N is what counts the drawn places.
+    const HEAT_UNSCORED = heatFor(WITH_UNSCORED);
 
     beforeEach(() => { mockRole = 'ADMIN'; });
 
     it('turns the "unknown" lens off', async () => {
-      const { rerender } = await openMap(tab({ locations: WITH_UNSCORED, autoEventType: null }));
+      const { rerender } = await openMap(tab({ locations: WITH_UNSCORED, heat: HEAT_UNSCORED, autoEventType: null }));
       fireEvent.click(screen.getByTestId('wf-filters-chip'));
       // Control: Cheviot, Hexham and Alnmouth clear the 3★+ default, and unscored Rothbury joins them
       // once the lens is on.
-      expect(screen.getAllByTestId('marker')).toHaveLength(3);
+      expect(visibleCount()).toBe(3);
       fireEvent.click(screen.getByRole('button', { name: '? unknown' }));
-      expect(screen.getAllByTestId('marker')).toHaveLength(4);
+      expect(visibleCount()).toBe(4);
 
       await act(async () => {
-        rerender(<AuroraStatusProvider>{tab({ locations: WITH_UNSCORED })}</AuroraStatusProvider>);
+        rerender(<AuroraStatusProvider>{tab({ locations: WITH_UNSCORED, heat: HEAT_UNSCORED })}</AuroraStatusProvider>);
       });
       expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
 
@@ -363,7 +384,7 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
       expect(within(screen.getByRole('dialog', { name: 'Map filters' }))
         .getByRole('button', { name: /Dark sky only/ })).toBeInTheDocument();
       // The three rated places, without Rothbury. With the lens left on, four.
-      expect(screen.getAllByTestId('marker')).toHaveLength(3);
+      expect(visibleCount()).toBe(3);
     });
   });
 });

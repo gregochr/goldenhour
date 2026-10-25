@@ -75,7 +75,6 @@ vi.mock('leaflet', () => {
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
 
 let fakeMap;
-let fakeMarker;
 
 /**
  * A Leaflet map stubbed to what the WHOLE tab-mode chain touches — `MapLabels`' own projection/
@@ -156,10 +155,6 @@ function makeChainMap() {
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div>{children}</div>,
   TileLayer: () => null,
-  Marker: React.forwardRef(function MockMarker({ children }, ref) {
-    React.useImperativeHandle(ref, () => fakeMarker);
-    return <div>{children}</div>;
-  }),
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   // ⚠️ REAL native `addEventListener`s on `fakeMap.container` — not a no-op stub — because this is
@@ -334,7 +329,6 @@ beforeEach(() => {
   // `fakeMap` is built inside `renderPane` itself, once RTL's own render container exists — see
   // that function's own note on why the ordering matters.
   fakeMap = null;
-  fakeMarker = { openPopup: vi.fn() };
   restoreLayout = withMeasuredLayout(90, 22);
   localStorage.clear();
 });
@@ -400,14 +394,5 @@ describe('the real chain — WindowFirstMapPane → MapView → MapLabels → Ma
 
     expect(onOpenLocationSheet).toHaveBeenCalledWith(expect.objectContaining({ inPlan: true }));
     expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
-  });
-
-  it('never mounts a Leaflet Popup for the click — the callout is the tab\'s only selection surface', async () => {
-    await renderPane();
-    const chip = await screen.findByRole('button', { name: new RegExp(SPOT_NAME) });
-    await act(async () => { fireEvent.click(chip); });
-
-    await screen.findByTestId('map-callout');
-    expect(fakeMarker.openPopup).not.toHaveBeenCalled();
   });
 });

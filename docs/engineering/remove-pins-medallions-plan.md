@@ -1,6 +1,6 @@
 # Remove the Map tab's Pins mode and the location medallions
 
-Status: R1 built (2026-10-25, branch chore/remove-map-pins-mode); R2 not started. Plan, 2026-10-24. Owner request: "Can we get rid of all pins and medallions? They're a relic from the past."
+Status: R1 merged (#1378); R2 built. Plan, 2026-10-24. Owner request: "Can we get rid of all pins and medallions? They're a relic from the past."
 
 ## 1. What is being removed, and what is not
 

@@ -34,15 +34,9 @@ vi.mock('leaflet', () => {
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
 
-/** The one marker instance MapView will register into its `markerRefs` map. */
-let fakeMarker;
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div>{children}</div>,
   TileLayer: () => null,
-  Marker: React.forwardRef(function MockMarker({ children }, ref) {
-    React.useImperativeHandle(ref, () => fakeMarker);
-    return <div>{children}</div>;
-  }),
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -144,7 +138,6 @@ async function renderMap() {
 
 beforeEach(() => {
   localStorage.clear();
-  fakeMarker = { openPopup: vi.fn() };
 });
 
 afterEach(() => {
@@ -157,12 +150,6 @@ describe('MapView — what a chip click does (map-tab-v2-plan.md §3 P8 review, 
     await renderMap();
     fireEvent.click(await screenFindProbe());
     expect(screen.getByTestId('probe-selected')).toHaveTextContent('Bamburgh-0');
-  });
-
-  it('never calls openPopup — the tab has no Leaflet popup left to open (map-tab-v2-plan.md §3 P9)', async () => {
-    await renderMap();
-    fireEvent.click(await screenFindProbe());
-    expect(fakeMarker.openPopup).not.toHaveBeenCalled();
   });
 });
 

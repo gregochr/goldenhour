@@ -15,15 +15,13 @@
  *       stars in as B's, and they stayed there until the next selection.</li>
  * </ul>
  *
- * <p>Modelled on `MapViewAuroraLiveNight.test.jsx`'s race block. Every negative here is a MARKER
- * COUNT, never a `markerLabelAndColour` spy: `makeMarkerIcon`'s cache is module-level and keyed on
- * the location and its rating among other things, so a stale 4★ on a place that already showed a
- * real 4★ reuses that icon and the spy is never called — the aurora file's first stale-window test
- * passed with its fix deleted for exactly that reason.
+ * <p>Modelled on `MapViewAuroraLiveNight.test.jsx`'s race block. Every negative here is a DRAWN-PLACE
+ * COUNT (the `spots` handed to `MapLabels`), so a stale 4★ standing in for a real one changes the
+ * count rather than hiding behind an unchanged star.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 
 vi.mock('leaflet', () => {
   const icon = () => ({});
@@ -35,7 +33,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -60,11 +57,14 @@ vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <di
 vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div data-testid="popup-content" /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
-vi.mock('../components/markerUtils.js', () => ({
-  buildMarkerSvg: () => '<svg></svg>',
-  buildStandDownSvg: () => '<svg></svg>',
-  markerLabelAndColour: () => ({ label: '★', colour: '#E5A00D' }),
-  STAND_DOWN_COLOUR: '#501313',
+// `MapLabels` needs a real Leaflet pane to place a chip (its own test's job). What THIS file reads is
+// the `spots` array `MapView` hands it: one spot per place drawn on the map.
+const labelSpotsSeen = { last: null };
+vi.mock('../components/map/MapLabels.jsx', () => ({
+  default: ({ spots }) => {
+    labelSpotsSeen.last = spots;
+    return <div data-testid="map-labels-stub" />;
+  },
 }));
 
 import MapView from '../components/MapView.jsx';
@@ -78,15 +78,31 @@ const NIGHT_B = '2026-08-17';
 /**
  * ⚠️ Both Bortle-classed, and that is the precondition for every assertion here. Astro mode draws
  * only locations with a `bortleClass`, so without one nothing is drawn on EITHER night and each "no
- * stale marker" negative would pass for nothing. The positive control in each test is what proves it.
+ * stale spot" negative would pass for nothing. The positive control in each test is what proves it.
  */
 const LOCATIONS = [
-  { name: 'Kielder', lat: 55.23, lon: -2.58, forecastsByDate: new Map(), locationType: ['LANDSCAPE'], bortleClass: 2 },
-  { name: 'Cheviot', lat: 55.48, lon: -2.15, forecastsByDate: new Map(), locationType: ['LANDSCAPE'], bortleClass: 3 },
+  { id: 1, name: 'Kielder', lat: 55.23, lon: -2.58, regionName: 'Northumberland', forecastsByDate: new Map(), locationType: ['LANDSCAPE'], bortleClass: 2 },
+  { id: 2, name: 'Cheviot', lat: 55.48, lon: -2.15, regionName: 'Northumberland', forecastsByDate: new Map(), locationType: ['LANDSCAPE'], bortleClass: 3 },
 ];
+
+/** A roster join, so the heat field is offered and `MapLabels` (the drawn places) is mounted. */
+const HEAT_SPOTS = LOCATIONS.map((l) => ({ id: l.id, name: l.name, lat: l.lat, lng: l.lon, rid: l.regionName }));
+const HEAT = {
+  enabled: true,
+  hasHome: false,
+  spots: HEAT_SPOTS,
+  areaSpots: HEAT_SPOTS,
+  pointsByKey: new Map(),
+  windows: [],
+  areaBounds: [[54.3, -3.4], [55.7, -1.3]],
+  catalogueBounds: [[54.3, -3.4], [56.4, -1.3]],
+};
+
+/** How many places the map is drawing right now. */
+const drawn = () => (labelSpotsSeen.last ?? []).length;
 /**
  * Night A rates BOTH places above the default 3★ floor; night B rates only one. So A's scores
- * standing in for B's show up as a marker count — two where B's own answer draws one — which no
+ * standing in for B's show up as a drawn-place count — two where B's own answer draws one — which no
  * icon cache can hide.
  */
 const A_SCORES = [{ locationName: 'Kielder', stars: 4 }, { locationName: 'Cheviot', stars: 4 }];
@@ -118,7 +134,7 @@ async function land(settle) {
 }
 
 const mapOn = (night) => (
-  <MapView locations={LOCATIONS} date={night} autoEventType="ASTRO" />
+  <MapView locations={LOCATIONS} date={night} autoEventType="ASTRO" heat={HEAT} />
 );
 
 async function renderNight(night) {
@@ -133,6 +149,7 @@ async function moveTo(result, night) {
 
 beforeEach(() => {
   localStorage.clear();
+  labelSpotsSeen.last = null;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(NOW));
   // Re-asserted per test: `mockImplementation` outlives the test that installed it.
@@ -160,13 +177,13 @@ describe('astro scores answer for the night they were fetched for', () => {
 
     await moveTo(result, NIGHT_B);
     // B's own answer is on screen: one place rated. Also the control that astro mode is live.
-    expect(await screen.findAllByTestId('marker')).toHaveLength(1);
+    await waitFor(() => expect(drawn()).toBe(1));
 
     // Now A's stale response lands — after B's.
     await land(() => a.resolve(A_SCORES));
 
     // Still B's one. Broken, A's answer replaced B's and drew both places.
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawn()).toBe(1);
   });
 
   it('does not let the previous night\'s scores stand in while the new night loads', async () => {
@@ -180,7 +197,7 @@ describe('astro scores answer for the night they were fetched for', () => {
     ));
     const result = await renderNight(NIGHT_A);
     // Night A's own answer — both places. The control that proves anything is drawn at all.
-    expect(await screen.findAllByTestId('marker')).toHaveLength(2);
+    await waitFor(() => expect(drawn()).toBe(2));
 
     // Cleared BEFORE the move, so this sees only the move's own requests: exactly one, for B.
     getAstroConditions.mockClear();
@@ -190,11 +207,11 @@ describe('astro scores answer for the night they were fetched for', () => {
     // Nothing from ANOTHER night may be drawn for B, and this file previews no night, so B has
     // nothing of its own to draw yet either: none. (With a preview, B draws its own preview rows
     // meanwhile — `MapViewNightScoresLoading.test.jsx`.) Broken, A's two stand in.
-    expect(screen.queryAllByTestId('marker')).toHaveLength(0);
+    expect(drawn()).toBe(0);
 
     // ...and once B's own answer lands, that is what shows.
     await land(() => b.resolve(B_SCORES));
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawn()).toBe(1);
   });
 
   it('drops a LATE failure too — a night the reader has left cannot blank the one on screen', async () => {
@@ -219,11 +236,11 @@ describe('astro scores answer for the night they were fetched for', () => {
     // this test would pass having never reached a `.catch`.
     expect(getAstroConditions).toHaveBeenCalledWith(NIGHT_A);
     await moveTo(result, NIGHT_B);
-    expect(await screen.findAllByTestId('marker')).toHaveLength(1);
+    await waitFor(() => expect(drawn()).toBe(1));
 
     await land(() => a.reject(new Error('night A timed out')));
 
     // Still B's one. Broken, A's failure cleared B's scores and nothing was drawn.
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawn()).toBe(1);
   });
 });

@@ -60,15 +60,9 @@ vi.mock('leaflet', () => {
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
 
-let fakeMarker;
-
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: React.forwardRef(function MockMarker({ children }, ref) {
-    React.useImperativeHandle(ref, () => fakeMarker);
-    return <div data-testid="marker">{children}</div>;
-  }),
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -111,6 +105,9 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
     );
   },
 }));
+
+/** How many places the label layer was last handed: the places the map draws. */
+const drawnSpotCount = () => mapLabelsCalls.at(-1)?.spots?.length;
 
 /** The callout, mocked to a probe exposing exactly what this file asserts on — `driveMinutes`,
  * read straight off the SAME `driveMinutesFor(selectedLoc.id)` call the real `MapCallout`'s own
@@ -217,7 +214,6 @@ async function renderTab(props = {}) {
 
 beforeEach(() => {
   localStorage.clear();
-  fakeMarker = { openPopup: vi.fn() };
   mapHeatLayerCalls.length = 0;
   mapLabelsCalls.length = 0;
   cornerEl = document.createElement('div');
@@ -272,18 +268,21 @@ describe('MapView — the drive-time filter actually filters under an away origi
       [NEAR_ID, { driveMinutes: 20, distanceMiles: 5 }],
       [FAR_HOME_ONLY_ID, { driveMinutes: 100, distanceMiles: 40 }],
     ]);
-    await renderTab({ heat: heatProp(driveOverrideById) });
+    // Both places join the roster (and the reader's area), so both are drawn before any filter.
+    const spots = makeLocations().map((l) => ({ id: l.id, name: l.name, lat: l.lat, lng: l.lon, regionName: l.regionName, rid: l.regionName }));
+    await renderTab({ heat: { ...heatProp(driveOverrideById, spots), areaSpots: spots } });
 
-    expect(screen.getAllByTestId('marker')).toHaveLength(2);
+    expect(drawnSpotCount()).toBe(2);
 
     fireEvent.click(screen.getByTestId('wf-filters-chip'));
     fireEvent.click(screen.getByTestId('drive-time-filter-45'));
 
     // Only `Near` (20 min) survives a ≤45 min filter; `Far-home-only` (100 min) is dropped.
-    expect(screen.getAllByTestId('marker')).toHaveLength(1);
+    expect(drawnSpotCount()).toBe(1);
+    expect(mapLabelsCalls.at(-1).spots.map((s) => s.name)).toEqual(['Near']);
 
     fireEvent.click(screen.getByTestId('drive-time-filter-0'));
-    expect(screen.getAllByTestId('marker')).toHaveLength(2);
+    expect(drawnSpotCount()).toBe(2);
   });
 });
 

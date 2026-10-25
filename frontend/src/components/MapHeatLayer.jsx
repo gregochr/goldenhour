@@ -20,8 +20,8 @@ import { fadeAt } from '../utils/heatHandover.js';
  *
  * <p>350 is deliberately between Leaflet's own tile pane (200) and its overlay/marker panes
  * (400/600), so the field sits ON the basemap and UNDER everything that means something specific:
- * the azimuth lines, the aurora viewline, every marker and every popup. A field painted above the
- * markers would be a wash over the answer rather than the ground beneath it.
+ * the azimuth lines, the aurora viewline, the label chips and every popup. A field painted above
+ * them would be a wash over the answer rather than the ground beneath it.
  */
 const HEAT_PANE = 'wf-heat';
 const HEAT_PANE_Z = 350;
@@ -30,28 +30,13 @@ const HEAT_PANE_Z = 350;
 const CANVAS_KEY = 'field';
 
 /**
- * The handover band (D8): the zoom range across which the field gives way to the markers — moved
+ * The handover band (D8): the zoom range across which the Legend's handover indicator reads — moved
  * to `utils/heatHandover.js` at map-tab-v2-plan.md §3 P10 (its own doc comment carries the full
  * "why 10.4→12.0/0.12" reasoning) so the Legend panel's handover indicator can read the same
  * fraction without eagerly pulling this module's own `heatField.js` import into every mount's
  * bundle. Re-exported below so this file's own existing imports/tests are unaffected.
  */
 export { fadeAt };
-
-/**
- * The opacity below which the marker panes stop being click targets.
- *
- * <p>An 8%-opaque medallion is invisible and still swallows the tap that was meant for the map.
- *
- * <p>⚠️ <b>Vestigial in production, and deliberately kept anyway.</b> Since the medallion hide
- * became unconditional, {@link applyMarkerFade}'s only caller passes the literal {@code 0}, so
- * {@link markersAreInteractive} can only answer {@code false} and this threshold sits on a band
- * nothing reaches. It is NOT dead code to sweep: it is the regression net for any future middle
- * ground (hand back at z14, hand back only for unchipped locations), and its boundary test is the
- * only proof the three-class CSS rule below actually reaches a marker's children. Delete it and
- * that ground has to be re-measured before it can be re-entered.
- */
-const MARKER_INTERACTIVE_ALPHA = 0.2;
 
 /**
  * The kernel dials for this host — §4.5's numbers, and the prototype's before that.
@@ -218,118 +203,6 @@ function drawReachRings(ctx, map, homeCoords, width, height) {
 }
 
 /**
- * The panes the medallions live in — held at zero for this layer's whole life.
- *
- * <p>(Named for the zoom fade they used to carry; the fade is gone, the panes are the same two.)
- *
- * <p>{@code markerPane} carries both the individual markers and the cluster medallions —
- * {@code L.MarkerClusterGroup} builds its clusters as ordinary {@code L.Marker}s and we pass no
- * {@code clusterPane}, so one write covers both. {@code shadowPane} rides with it because a marker
- * whose shadow outlived it would be a smudge with nothing casting it.
- */
-const FADED_PANES = ['markerPane', 'shadowPane'];
-
-/**
- * The class that actually removes the hit target below {@link MARKER_INTERACTIVE_ALPHA}.
- *
- * <p>Its rule is in {@code index.css}; see {@link markersAreInteractive} for why an inline
- * {@code pointer-events: none} on the pane cannot do this job alone.
- */
-const MARKERS_INERT_CLASS = 'wf-markers-inert';
-
-/**
- * Whether the markers are still worth clicking at this opacity.
- *
- * <p>Exported so the threshold can be tested ON its boundary rather than either side of it — once
- * because no zoom mapped to exactly 0.2 in floating point, and now because there is no zoom route
- * at all: see {@link MARKER_INTERACTIVE_ALPHA} for why the seam is kept regardless.
- *
- * @param {number} opacity 0–1
- * @returns {boolean} true while a marker is solid enough to be a fair target
- */
-export function markersAreInteractive(opacity) {
-  return opacity >= MARKER_INTERACTIVE_ALPHA;
-}
-
-/**
- * Applies the marker half of the handover.
- *
- * <p>⚠️ <b>{@code pointer-events: none} on the pane does not, on its own, stop a click.</b>
- * Leaflet's own stylesheet carries `.leaflet-marker-icon.leaflet-interactive { pointer-events:
- * auto }`, and a child re-enabling the property beats an ancestor disabling it — so the pane rule
- * §4.5 specifies is necessary and not sufficient. The class is what closes it, through a stylesheet
- * rule that reaches the children.
- *
- * <p>⚠️ <b>And the a11y half, which is the {@code inert} attribute and NOT
- * {@code visibility: hidden}.</b> The rule here was "never take the markers out of the
- * accessibility tree", because they were the only route to a location's popup — true when written,
- * false since P9 (#734) stopped mounting a Leaflet {@code Popup} on the tab. Leaflet gives every
- * icon {@code tabIndex=0} and {@code role="button"} ({@code keyboard: true} by default), so hiding
- * them by opacity alone left a keyboard reader tabbing through a catalogue of invisible controls
- * that do nothing, reached BEFORE {@code MapLabels}' chips — the route that actually works.
- *
- * <p>{@code inert} rather than {@code visibility: hidden} or a {@code tabindex} sweep, for one
- * reason each. {@code visibility: hidden} fights the opacity fade this function exists to apply. A
- * {@code tabindex} sweep over the pane's children is a ONE-SHOT, and Leaflet creates and destroys
- * marker icons as filters, windows and the roster change — every icon added after the sweep would
- * be focusable again. {@code inert} is set on the PANE and covers whatever it later contains, and
- * it removes the subtree from the accessibility tree as well as the tab order: the pair the old
- * rule wanted kept apart, and now wants together.
- *
- * <p>{@link MARKERS_INERT_CLASS} stays alongside it as defence in depth. {@code inert} blocks
- * pointer events too, so the class is strictly redundant wherever the attribute is honoured — but
- * it is the older, more widely supported half, and its three-selector specificity fight is
- * separately pinned.
- *
- * <p>⚠️ <b>Scoped by construction, which matters twice.</b> This layer only ever mounts on the MAP
- * TAB (`heat` is passed by `WindowFirstMapPane` alone), so the Plan-tab overlay — where the markers
- * DO carry popups and ARE a real keyboard route — never has {@code inert} applied. And on the tab,
- * whenever this layer unmounts (a tab change, a logout), {@link restoreMarkerPanes} removes the
- * attribute so the medallions stay reachable. (Until aurora heat A2 an AURORA window was the
- * routine case: it unmounted this layer and the medallions were its whole location vocabulary.
- * It now paints the field with chips like any other window.) Both fall out of "set it
- * while hiding, clear it while restoring" rather than needing a mode test of their own.
- *
- * <p>⚠️ {@code inert} is a silent no-op in jsdom, so the tests assert the ATTRIBUTE rather than
- * focus behaviour. A test trying to prove non-focusability there proves nothing.
- *
- * @param {object} map the Leaflet map
- * @param {number} opacity 0–1
- */
-function applyMarkerFade(map, opacity) {
-  const interactive = markersAreInteractive(opacity);
-  for (const name of FADED_PANES) {
-    const pane = map?.getPane?.(name);
-    if (!pane?.style) continue;
-    pane.style.opacity = String(opacity);
-    pane.style.pointerEvents = interactive ? '' : 'none';
-    pane.classList?.toggle(MARKERS_INERT_CLASS, !interactive);
-    pane.toggleAttribute?.('inert', !interactive);
-  }
-}
-
-/**
- * Hands the marker panes back exactly as they were found.
- *
- * <p>The empty string, not a literal: it clears the inline declaration so the stylesheet's own
- * value wins again. Writing `1`/`auto` would leave two inline overrides behind on a map the
- * medallion view then owns — and the medallion view is specified as byte-identical to today, which
- * it cannot be while carrying this layer's fingerprints. The class goes with them.
- *
- * @param {object} map the Leaflet map
- */
-function restoreMarkerPanes(map) {
-  for (const name of FADED_PANES) {
-    const pane = map?.getPane?.(name);
-    if (!pane?.style) continue;
-    pane.style.opacity = '';
-    pane.style.pointerEvents = '';
-    pane.classList?.remove(MARKERS_INERT_CLASS);
-    pane.removeAttribute?.('inert');
-  }
-}
-
-/**
  * The heat field, hosted on the Leaflet map — the same kernel the Plan tab's strip and row maps
  * paint, over tiles instead of a vendored coastline.
  *
@@ -417,7 +290,7 @@ export default function MapHeatLayer({
     const el = map.getPane?.(HEAT_PANE) || map.createPane(HEAT_PANE);
     if (el?.style) {
       el.style.zIndex = String(HEAT_PANE_Z);
-      // The field is a picture, not a control: every click belongs to the map or to a marker.
+      // The field is a picture, not a control: every click belongs to the map or to a chip.
       el.style.pointerEvents = 'none';
     }
     // ⚠️ Leaflet does NOT scale a pane's contents during a zoom animation. Only elements carrying
@@ -453,47 +326,9 @@ export default function MapHeatLayer({
     return size ? { width: size.x, height: size.y } : null;
   }, [map]);
 
-  /**
-   * ⚠️ <b>There is no longer any condition on hiding the medallions — and the two that used to be
-   * here were both wrong.</b> While this layer is mounted the marker panes are held at zero, full
-   * stop; the only route back is the unmount cleanup below (aurora, a tab change, a logout).
-   *
-   * <p><b>The zoom condition</b> was {@link fadeAt}'s {@code markers} half, which faded the pre-v2
-   * medallions back in across the handover band — so past zoom 12 a Heat-mode map carried a cluster
-   * bubble and a coloured disc under every chip already naming the same location and its own star.
-   * The design bundle's Heat view has no markers at ALL (`map-tab-v2.js`'s `paint()` draws the field
-   * and the labels, nothing else) and the pre-v2 design replaced the
-   * medallion+cluster view <b>on the tab</b>. The fade predates P8 by two weeks (#564 → #733): when
-   * it was written the medallions genuinely were the only thing the tab had past the band, and it
-   * was simply never revisited once the chips arrived.
-   *
-   * <p><b>The point-count condition</b> was {@code points.length > 0}, inherited from that same
-   * pre-P8 code, and it survived one round of this change before the review killed it. Its stated
-   * rationale — with no field painted, "the markers are the only thing left saying where the
-   * locations are" — is false three times over:
-   * <ul>
-   *   <li>{@code MapLabels} mounts on `heatOn` alone with NO scoring gate, and renders an unrated
-   *       spot as a grey-swatch chip, so the map is never blank;</li>
-   *   <li>the restored pane is often <em>emptier</em> than the chips — `visibleLocations` drops
-   *       unrated non-wildlife locations unless `showUnrated` (default false), so on a genuinely
-   *       unscored window the "fallback" restores almost nothing;</li>
-   *   <li>and an empty {@code points} array does not mean "nothing is scored" at all. It is also a
-   *       D-13 FILLER row (a forecast date past the briefing's served windows — one click away in
-   *       the window control, and `windowUnscored` is false there so nothing on screen says why),
-   *       the dark-sky filter narrowing a well-rated window to nothing, and a served window whose
-   *       `pointsByKey` entry is empty — a real production join gap already pinned in
-   *       `MapViewHeat.test.jsx`. All three put the full medallion set back under the chips, which
-   *       is the reported bug on triggers the zoom fix did not cover.</li>
-   * </ul>
-   * `MapView`'s own {@code windowUnscored} says as much in its javadoc: the window's served
-   * {@code bestRating}, <b>never a point count</b>. Re-keying to it was considered and rejected —
-   * the chips carry those same stars from the same accessor, so it would restore a duplicate
-   * vocabulary to no one's benefit.
-   *
-   * <p>{@link fadeAt}'s {@code markers} component survives as the Legend indicator's own fraction
-   * (`MapView`'s `legendHandoverFraction`, via `utils/heatHandover.js`) — the handover's progress,
-   * no longer an opacity anything paints at.
-   */
+  // {@link fadeAt}'s `markers` component survives as the Legend indicator's own fraction
+  // (`MapView`'s `legendHandoverFraction`, via `utils/heatHandover.js`): the handover's progress,
+  // no longer an opacity anything paints at.
 
   const paint = useCallback(({ width, height, canvases }) => {
     const canvas = canvases.get(CANVAS_KEY);
@@ -502,10 +337,6 @@ export default function MapHeatLayer({
     const zoom = map.getZoom();
     const fade = fadeAt(zoom);
     const standRadius = () => radiusFor(map, STAND_RADIUS_METRES, STAND_RADIUS_MIN_PX, STAND_RADIUS_MAX_PX);
-    // Unconditional, and the block above is why: the tab's location vocabulary is `MapLabels`' chips,
-    // so a location renders in exactly one place, never two, at every zoom and on every window.
-    // `restoreMarkerPanes` is reached only by the unmount cleanup.
-    applyMarkerFade(map, 0);
 
     /* The land clip (map-tab-v2-plan.md §3 P4) — dropped at/above LAND_CLIP_MAX_ZOOM. `landPath`
        can still be null below the threshold while the topology is in flight: the kernel treats a
@@ -712,14 +543,6 @@ export default function MapHeatLayer({
     return () => attachFrame(null);
   }, [map, attachFrame]);
 
-  /**
-   * Hand the marker panes back on the way out — a toggle to medallions, a tab change, a logout.
-   *
-   * <p>Separate from the paint effect and keyed on the map alone, so it runs exactly once, at
-   * unmount. Folding it into the paint's cleanup would restore the panes between every repaint.
-   */
-  useEffect(() => () => restoreMarkerPanes(map), [map]);
-
   // With `requiresLand` off the only way this is set is a browser refusing a 2d context, which is
   // terminal for this host — `measureAndPaint` declines from then on. Rendering the canvas anyway
   // would leave an empty element under a toolbar whose legend is still explaining a ramp.
@@ -728,7 +551,7 @@ export default function MapHeatLayer({
   return createPortal(
     <canvas
       // The field is decorative in the accessibility sense: it says nothing the rest of the tab
-      // does not, and every place it paints is on the map as a marker with a name.
+      // does not, and every place it paints is on the map as a chip with a name.
       aria-hidden="true"
       data-testid="map-heat-canvas"
       ref={canvasRef(CANVAS_KEY)}

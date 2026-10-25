@@ -53,7 +53,6 @@ vi.mock('react-leaflet', () => ({
     return <div data-testid="map-container">{props.children}</div>;
   },
   TileLayer: () => null,
-  Marker: ({ children }) => <div>{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: (props) => { polylineCalls.push(props); return null; },
   useMapEvents: (handlers) => {
@@ -123,21 +122,8 @@ vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockRes
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
-// Marker only: a test can ask whether the overlay is MOUNTED (the legend's `viewlineShown` tracks it).
+// A test can ask whether the overlay is MOUNTED (the legend's `viewlineShown` tracks it).
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => <div data-testid="aurora-viewline-overlay" /> }));
-
-/** The real ramp, because "which colour did the marker take" is the assertion. */
-const markerCalls = [];
-vi.mock('../components/markerUtils.js', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    markerLabelAndColour: (...args) => {
-      markerCalls.push(args);
-      return actual.markerLabelAndColour(...args);
-    },
-  };
-});
 
 import MapView from '../components/MapView.jsx';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
@@ -147,7 +133,6 @@ import {
 } from '../utils/scoreRamp.js';
 import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import { getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates } from '../api/auroraApi.js';
-import { markerLabelAndColour } from '../components/markerUtils.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { ukDateStrOffset } from '../utils/mapDates.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
@@ -239,12 +224,10 @@ function heatProp(overrides = {}) {
 }
 
 /**
- * ⚠️ Marker names are made unique per test, and that is not tidiness.
- *
- * <p>`makeMarkerIcon`'s cache is MODULE-level and survives every render in this file — its key is
- * (name, scores, flags, emphasis, ramp). Reuse one fixture across tests and the second render is a
- * cache hit, so `markerLabelAndColour` is never called and an assertion on its arguments reads zero
- * calls while the component is working perfectly.
+ * Location names are made unique per test (a per-test suffix). Historical: the map's per-location
+ * markers cached their icons in a module-level cache keyed on the name, which is what needed it. The
+ * markers are gone; the suffix stays because several fixtures below join on the plain `SPOTS` names
+ * and on ids and are written around it.
  */
 let markerNonce = 0;
 
@@ -371,7 +354,6 @@ beforeEach(() => {
   heatLayerProps.mounts = 0;
   labelSpotsProps.last = null;
   mapContainerProps.last = null;
-  markerCalls.length = 0;
   fitBounds.mockClear();
   markerNonce += 1;
   auroraStatus = null;
@@ -555,10 +537,7 @@ describe('MapView heat — the toolbar', () => {
 describe('MapView heat — a window nobody rated', () => {
   /**
    * The Plan tab's unscored mark, adapted to a host that has no plate to hatch. On the Leaflet side
-   * the field simply paints nothing — and ⚠️ the markers no longer come back with it: the
-   * `fadesMarkers`/`points.length > 0` rule this comment used to name is gone (an adversarial
-   * review established an empty point set is not "nothing is scored"), so `MapHeatLayer` holds the
-   * medallions hidden here as everywhere else. What this block is really about is the ramp key
+   * the field simply paints nothing. What this block is really about is the ramp key
    * staying up, explaining a gradient nothing on screen carries, which is the exact thing that
    * key's own rule forbids.
    */
@@ -637,8 +616,8 @@ describe('MapView heat — a window nobody rated', () => {
     // "not scored yet" line was suppressed (it required a non-null `heatWindow`) and the colour key
     // rendered above the empty field.
     //
-    // It hid for months behind the medallions, which the Heat view used to fade back in past the
-    // handover band — "empty" read as "sparse". #747 hid them unconditionally and exposed this.
+    // It hid for months behind the old location markers, which the Heat view used to fade back in past
+    // the handover band — "empty" read as "sparse". #747 hid them and exposed this.
     //
     // Distinguished from the sibling above by `wf-win-no-match`: there a row does NOT match and the
     // selector speaks; here one DOES, so this surface has to.
@@ -909,9 +888,7 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
 
   it('§7 check 13 — a coastal location with a served tide fact renders with showUnrated false; an inland unrated one does not', async () => {
     // ⚠️ Plain, un-suffixed names — `coastalTideFactLocation`/`inlandUnratedLocation` are constructed
-    // directly by this file, never through `makeLocations()`'s `-${markerNonce}` cache-busting
-    // suffix (that exists solely for `makeMarkerIcon`'s module-level cache, which this test does
-    // not exercise). The tide index's join is ID-first regardless (`locationId: 7`), so the name
+    // directly by this file, never through `makeLocations()`'s `-${markerNonce}` name suffix. The tide index's join is ID-first regardless (`locationId: 7`), so the name
     // only has to match what `labelSpots` will actually print.
     const tideAlignmentIndex = tideIndexOf(
       tideBriefing(7, 'Tide Fact Coastal', false).days,
@@ -1071,7 +1048,7 @@ describe('MapView heat — the modes it stands down for', () => {
       { location: { name: SPOTS[2].name }, stars: 2 },
     ]);
     // A STORED result for the same night that says something different: on the night in progress
-    // the medallion rule (plan D1) reads the live source, so this must not reach the field.
+    // the live-night rule (plan D1) reads the live source, so this must not reach the field.
     getAuroraForecastResults.mockResolvedValue([{ locationName: SPOTS[0].name, stars: 1 }]);
     await renderMap({ heat: heatProp(), autoEventType: 'AURORA' });
     await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(2));
@@ -1341,8 +1318,8 @@ describe('MapView heat — the modes it stands down for', () => {
     // `astroHeatPoints` joins `astroScores` (keyed by LOCATION name) against `heat.spots` (this
     // file's `SPOTS` fixture, joined by the SAME name field) — so the mocked conditions below are
     // keyed to `SPOTS`' own names, not the `-${markerNonce}`-suffixed ones `makeLocations()` gives
-    // the rendered `locations` array (a cache-busting device for `markerLabelAndColour`'s calls
-    // that plays no part in this join at all).
+    // the rendered `locations` array (a name suffix that
+    // plays no part in this join at all).
     //
     // Filtered to SCORED locations before the field ever sees them (P1's NaN-seam warning,
     // map-tab-v2-plan.md §3 P6): Tynemouth carries no astro score in this fixture and must not
@@ -1441,6 +1418,23 @@ describe('MapView heat — which places count', () => {
   });
 });
 
+describe('MapView — the zero-joinable roster (no field, so nothing else would draw)', () => {
+  // `buildHeatSpots` drops a location with no `regionName`, so a roster where none joins offers no
+  // field (`heatOffered` false) while locations are present. The per-location markers that used to
+  // be the only thing on that map are gone, so the centre pill must say why it is blank.
+  it('says "No places to draw on the map yet" when locations exist but no field is offered', async () => {
+    await renderMap({ heat: { ...heatProp(), enabled: false, spots: [], areaSpots: [] }, forecastDates: [TODAY] });
+    expect(screen.getByTestId('wf-map-no-places')).toHaveTextContent('No places to draw on the map yet');
+    expect(screen.queryByTestId('map-heat-layer')).toBeNull();
+  });
+
+  it('control: the SAME locations with a field offered show no such line', async () => {
+    await renderMap({ heat: heatProp(), forecastDates: [TODAY] });
+    await screen.findByTestId('map-heat-layer');
+    expect(screen.queryByTestId('wf-map-no-places')).toBeNull();
+  });
+});
+
 describe('MapView heat — role gating (§9.6, ungated for the pilot)', () => {
   it('paints the field for a LITE reader, exactly as it does for Pro', async () => {
     // §9.6 is RESOLVED — ungated. The field is built from `rating` alone, which LITE already
@@ -1453,34 +1447,19 @@ describe('MapView heat — role gating (§9.6, ungated for the pilot)', () => {
     await screen.findByTestId('map-heat-layer');
     expect(heatLayerProps.last.points.length).toBeGreaterThan(0);
   });
-
-  it('still withholds the premium arcs from a LITE marker in heat view', async () => {
-    // The fiery/golden potentials that drive the marker's two progress arcs stay role-gated
-    // regardless of view — the ramp is a fill colour, not a side door around the role gate.
-    role = 'LITE_USER';
-    await renderMap({ heat: heatProp() });
-    expect(markerCalls.length).toBeGreaterThan(0);
-    for (const args of markerCalls) {
-      expect(args[1], 'fierySky must not reach a LITE marker').toBeNull();
-      expect(args[2], 'goldenHour must not reach a LITE marker').toBeNull();
-    }
-  });
 });
 
-describe('MapView heat — the marker swap (D2/D8)', () => {
-  it('paints markers with the ramp colour, because the ramp is now the map\'s only SCORE colour language', async () => {
+describe('MapView heat — the ramp is the map\'s only score colour language (D2/D8)', () => {
+  it('hands the label layer the ratings whose ramp stop is the map\'s only score colour', async () => {
     await renderMap({ heat: heatProp() });
-    expect(markerCalls.length).toBeGreaterThan(0);
-    // Every call `MapView` actually made resolves to the same ramp stop — asserted on the CALLS
-    // THEMSELVES (not a same-input call made fresh from the test body), so a `MapView` that started
-    // handing the wrong rating/scores to `markerLabelAndColour` would be caught here.
-    //
-    // ⚠️ Iterates a SNAPSHOT, not `markerCalls` itself: `markerLabelAndColour` here is the spy that
-    // pushes onto `markerCalls` on every call (see the `vi.mock` above), so looping the live array
-    // while calling the spy inside the loop body grows the array out from under its own iterator —
-    // an infinite loop that OOMs the worker. It reproduced exactly that way once.
-    for (const args of [...markerCalls]) {
-      expect(markerLabelAndColour(...args).colour).toBe(STOPS_VERDICT[3].hex);
+    const { spots } = labelSpotsProps.last;
+    expect(spots.length).toBeGreaterThan(0);
+    // Every chip `MapView` hands over is a 4★ place, and the active ramp resolves 4★ to one stop:
+    // the same stop the field and the legend key paint from. Asserted on what `MapView` actually
+    // handed over, so a `MapView` that started handing the wrong rating would be caught here.
+    for (const spot of spots) {
+      expect(spot.rating).toBe(4);
+      expect(rampHex(spot.rating)).toBe(STOPS_VERDICT[3].hex);
     }
   });
 
@@ -1812,8 +1791,7 @@ function selectSpot(name, nonce = 1) {
 /**
  * Azimuth lines for the selected location. (They were dropped in the tab's former Pins mode, decision
  * D-9; that mode is gone, so they now draw whenever a location is selected.) A map-sourced `planHandoff`
- * drives the selection this needs (a real click needs a marker mock this file's own `Marker` stub discards `eventHandlers`
- * from), and `polylineCalls` (the recording mock above) is what proves a line was actually asked
+ * drives the selection this needs (a real click would need a chip, which this file's `MapLabels` stub does not provide), and `polylineCalls` (the recording mock above) is what proves a line was actually asked
  * for, not merely that nothing crashed.
  */
 describe('MapView heat — azimuth lines (decision D-9, adversarial review C5)', () => {
@@ -2707,7 +2685,7 @@ describe('the region panel — one region, into the sheet that already exists', 
 
   /**
    * ⚠️ Keyed by `locationId`, NOT by name. `makeLocations()` suffixes every location name with a
-   * per-test nonce (the marker-icon cache note above), while `heat.spots` keeps the plain name — so
+   * per-test nonce (the note above), while `heat.spots` keeps the plain name — so
    * a name-keyed fixture would join in this file and nowhere else, or vice versa. Real ids are what
    * `heatPointsFor` carries onto every point.
    *

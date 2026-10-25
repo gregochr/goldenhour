@@ -73,7 +73,6 @@ vi.mock('react-leaflet', () => ({
     tileLayerCalls.push(props);
     return null;
   },
-  Marker: ({ children }) => <div>{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   // Real react-leaflet's `useMapEvents` both registers listeners AND returns the map instance —

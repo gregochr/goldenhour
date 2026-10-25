@@ -8,8 +8,8 @@
  * only that type matched nothing and vanished the moment any Subject chip was selected.
  * It read as "that location is gone", not "that location is filtered out".
  *
- * Leaflet is stubbed exactly as in MapViewStarFilter.test.jsx; one popup renders per
- * Marker, so counting popups counts visible locations.
+ * Leaflet is stubbed exactly as in MapViewStarFilter.test.jsx; the counts footer's N counts the
+ * visible locations.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -17,14 +17,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 // ── Leaflet / react-leaflet stubs ────────────────────────────────────────────
 
-// Capture the options of every DivIcon MapView builds.
-const divIconCalls = [];
 vi.mock('leaflet', () => {
   const icon = () => ({});
-  const divIcon = (options) => {
-    divIconCalls.push(options);
-    return { options };
-  };
+  const divIcon = (options) => ({ options });
   return { default: { icon, divIcon, point: (x, y) => ({ x, y }) }, icon, divIcon };
 });
 
@@ -33,10 +28,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  // A testid on the mock itself (map-tab-v2-plan.md §3 P9) — one rendered per VISIBLE location
-  // regardless of `Popup`, which the tab no longer mounts for markers at all. `visibleCount` below
-  // counts this rather than `popup-content`, which the tab can no longer produce.
-  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -64,12 +55,9 @@ vi.mock('../components/MarkerPopupContent.jsx', () => ({
   default: () => <div data-testid="popup-content" />,
 }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
-vi.mock('../components/markerUtils.js', () => ({
-  buildMarkerSvg: () => '<svg></svg>',
-  buildStandDownSvg: () => '<svg></svg>',
-  markerLabelAndColour: () => ({ label: '4★', colour: '#E5A00D' }),
-  STAND_DOWN_COLOUR: '#501313',
-}));
+// `MapLabels` needs a real Leaflet pane to place a chip (its own test's job); the counts footer, which
+// reads the same filtered set, is what this file counts. Stubbed so a heat field can be offered.
+vi.mock('../components/map/MapLabels.jsx', () => ({ default: () => <div data-testid="map-labels-stub" /> }));
 
 import MapView from '../components/MapView.jsx';
 
@@ -84,9 +72,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   localStorage.clear();
-  // Deliberately NOT cleared: makeMarkerIcon memoises in a module-level markerIconCache, so a
-  // location's DivIcon is built once for the whole file. Resetting here would empty the capture
-  // and the assertions below would silently find nothing.
 });
 
 function forecasts(rating = 4) {
@@ -98,17 +83,39 @@ function forecasts(rating = 4) {
   ]);
 }
 
-// Distinct ratings so each marker's DivIcon options are identifiable — the options carry the
-// rating but not the location name, and adding a name purely for tests would be production code
-// bent to the test's shape.
 const LOCATIONS = [
   { name: 'Fell Top', lat: 55.0, lon: -1.7, forecastsByDate: forecasts(3), locationType: ['LANDSCAPE'] },
   { name: 'Bluebell Wood', lat: 55.1, lon: -1.7, forecastsByDate: forecasts(5), locationType: ['WOODLAND'] },
   { name: 'Wooded Clifftop', lat: 55.2, lon: -1.7, forecastsByDate: forecasts(4), locationType: ['SEASCAPE', 'WOODLAND'] },
 ];
 
+/** A roster join over the rendered locations, so the heat field is offered and the counts footer mounts. */
+function heatFor(locations) {
+  const spots = locations.map((l) => ({ id: l.id, name: l.name, lat: l.lat, lng: l.lon, rid: l.regionName ?? 'North East' }));
+  return {
+    enabled: true,
+    hasHome: false,
+    spots,
+    areaSpots: spots,
+    pointsByKey: new Map(),
+    windows: [],
+    areaBounds: [[54.3, -3.4], [55.7, -1.3]],
+    catalogueBounds: [[54.3, -3.4], [56.4, -1.3]],
+  };
+}
+
+/**
+ * How many locations the map draws: the N of the counts footer's "N of M shown" (the filtered set).
+ */
+function visibleCount() {
+  const match = /(\d+) of \d+ shown/.exec(screen.getByTestId('wf-map-counts-footer').textContent);
+  return match ? Number(match[1]) : NaN;
+}
+
+const HEAT = heatFor(LOCATIONS);
+
 function renderMap() {
-  return render(<MapView locations={LOCATIONS} date={TODAY} forecastDates={[TODAY]} autoEventType={null} />);
+  return render(<MapView locations={LOCATIONS} date={TODAY} forecastDates={[TODAY]} autoEventType={null} heat={HEAT} />);
 }
 
 // map-tab-v2-plan.md §3 P7 moved the Subject chips off the tab's old always-rendered drawer and
@@ -116,10 +123,6 @@ function renderMap() {
 function openFilters() {
   fireEvent.click(screen.getByTestId('wf-filters-chip'));
 }
-
-// Counts rendered `Marker`s, not `popup-content` (map-tab-v2-plan.md §3 P9 — the tab no longer
-// mounts a `Popup` for markers at all, so `popup-content` can no longer answer this question here).
-const visibleCount = () => screen.queryAllByTestId('marker').length;
 
 describe('MapView Subject filter — WOODLAND', () => {
   it('offers Woodland as a Subject chip', () => {

@@ -63,13 +63,13 @@ test.describe('Map view — core', () => {
     await expect(page.getByTestId('date-strip')).toBeVisible();
   });
 
-  test('renders Leaflet map with location markers', async ({ page }) => {
+  test('renders Leaflet map with location label chips', async ({ page }) => {
     await page.waitForSelector('.leaflet-container', { timeout: 10000 });
     await expect(page.locator('.leaflet-container').first()).toBeVisible();
-    // At least one marker should be rendered for configured locations
-    await page.waitForSelector('.leaflet-marker-icon', { timeout: 10000 });
-    const markers = page.locator('.leaflet-marker-icon');
-    const count = await markers.count();
+    // At least one label chip should be rendered for configured locations
+    await page.waitForSelector('[data-testid="map-label-chip"]', { timeout: 10000 });
+    const chips = page.locator('[data-testid="map-label-chip"]');
+    const count = await chips.count();
     expect(count).toBeGreaterThanOrEqual(1);
   });
 
@@ -87,27 +87,27 @@ test.describe('Map view — core', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Map view — marker interaction
+// Map view — label chip interaction
 // ---------------------------------------------------------------------------
-test.describe('Map view — marker interaction', () => {
+test.describe('Map view — label chip interaction', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await loginAsAdmin(page);
     await page.goto('/');
     await page.getByRole('tab', { name: 'Map' }).click();
-    await page.waitForSelector('.leaflet-marker-icon', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="map-label-chip"]', { timeout: 10000 });
   });
 
-  test('clicking a marker opens its callout', async ({ page }) => {
-    // Custom marker icons have child divs that intercept pointer events; use force click.
-    // (The Leaflet popup this used to assert went with the Plan-tab overlay; the callout is the
+  test('clicking a label chip opens its callout', async ({ page }) => {
+    // A chip is a plain button in the labels pane, but may sit under another chip or chrome at the
+    // default zoom; use a force click. (The Leaflet popup this used to assert went with the Plan-tab overlay; the callout is the
     // Map tab's one selection surface. This spec is not part of the local gate.)
-    await page.locator('.leaflet-marker-icon').first().click({ force: true });
+    await page.getByTestId('map-label-chip').first().click({ force: true });
     await expect(page.getByTestId('map-callout')).toBeVisible({ timeout: 5000 });
   });
 
   test('the callout names the location', async ({ page }) => {
-    await page.locator('.leaflet-marker-icon').first().click({ force: true });
+    await page.getByTestId('map-label-chip').first().click({ force: true });
     const callout = page.getByTestId('map-callout');
     await callout.waitFor({ timeout: 5000 });
     const text = await callout.textContent();

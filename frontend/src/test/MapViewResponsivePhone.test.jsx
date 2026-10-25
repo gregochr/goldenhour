@@ -27,10 +27,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div>{children}</div>,
   TileLayer: () => null,
-  Marker: React.forwardRef(function MockMarker({ children }, ref) {
-    React.useImperativeHandle(ref, () => ({ openPopup: () => {} }));
-    return <div>{children}</div>;
-  }),
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,

@@ -31,10 +31,6 @@ const mockMapInstance = { getZoom: () => mockZoom };
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div>{children}</div>,
   TileLayer: () => null,
-  Marker: React.forwardRef(function MockMarker({ children }, ref) {
-    React.useImperativeHandle(ref, () => ({ openPopup: () => {} }));
-    return <div>{children}</div>;
-  }),
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: (handlers) => {
