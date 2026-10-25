@@ -5,9 +5,6 @@ import { scrollToEntry } from '../utils/scrollToEntry.js';
 import { GLANCE_LABEL } from '../utils/tabLabels.js';
 import GlanceLabel from './GlanceLabel.jsx';
 
-const FOOTNOTE = "WX = weather-driven, only shown once it's in the forecast. Tap a chip to see its "
-  + 'entry below where it has one; tap a WX chip to open that morning or evening on the Map.';
-
 /** `Friday` — long weekday for a spoken form, noon UTC so no zone moves the date. */
 function longWeekday(dateStr) {
   return new Date(`${dateStr}T12:00:00Z`)
@@ -222,10 +219,6 @@ export default function WindowComingUpFourDays({
         <p className="wf-cu-fd-empty" data-testid="coming-up-fourdays-empty">
           Nothing on those four days
         </p>
-      )}
-
-      {topicCount > 0 && (
-        <p className="wf-cu-fd-foot" data-testid="coming-up-fourdays-foot">{FOOTNOTE}</p>
       )}
     </section>
   );

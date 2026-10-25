@@ -1902,10 +1902,7 @@ export default function WindowFirstHeatStrip({
             place nobody rated for this window, plain plate is no place at all. ALWAYS drawn — the
             per-place hatch appears on any window with unrated places, so the key can no longer be
             conditional the way the old "unshaded — not scored" note was (that note named only the
-            whole-plate hatch of an unscored window, which is "not rated yet" too).
-
-            The right-hand line below stays desktop-only (`.wf-hstrip-sp`) on purpose: the phone bar
-            has no room for it, and the two swatches carry the meaning there. */}
+            whole-plate hatch of an unscored window, which is "not rated yet" too). */}
         <span className="wf-hstrip-key" data-testid="wf-heat-key-hatch">
           <span className="wf-hstrip-sw wf-hstrip-sw-hatch" aria-hidden="true" />
           not rated yet
@@ -1930,19 +1927,13 @@ export default function WindowFirstHeatStrip({
             sparsely-rated windows shows this on most loads, closer to permanent than occasional —
             it is still conditional (absent whenever every card on screen either clears the gate
             with nothing unrated or draws no bars at all) and it renders at EVERY width, not just
-            the phone: `.wf-hstrip-sp`'s own desktop-only restriction is what this note is
-            deliberately NOT subject to, for the same reason the map's note above it is not. Worded
+            the phone, for the same reason the map's note above it does. Worded
             differently from the map's note on purpose — "unshaded" names the map's mark and
             "hatched bar" names the histogram's, so the two conditional clauses can never be
             mistaken for restating each other when both happen to be on screen at once. */}
         {hatchedSpread && (
           <span data-testid="wf-heat-spread-unrated-note">hatched bar — not yet rated</span>
         )}
-        {/* Desktop only, as the design has it — the phone bar has no room for a third clause and
-            the first two are the ones that decode the picture. */}
-        <span className="wf-hstrip-sp">
-          Colour and hatch cover every place in the forecast — the cards allow for your drive
-        </span>
       </div>
 
       {/* Under the footer and above the beyond line: it is a statement about the whole matrix, so

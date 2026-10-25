@@ -316,12 +316,12 @@ describe('WindowComingUpFourDays — the header and footnote', () => {
     expect(onGoToPlan).toHaveBeenCalledWith();
   });
 
-  it('prints the footnote verbatim once there are chips', () => {
+  it('prints no explanatory footnote, with topics or without', () => {
     renderTiles();
-    expect(screen.getByTestId('coming-up-fourdays-foot').textContent).toBe(
-      "WX = weather-driven, only shown once it's in the forecast. Tap a chip to see its entry below "
-      + 'where it has one; tap a WX chip to open that morning or evening on the Map.',
-    );
+    expect(screen.queryByTestId('coming-up-fourdays-foot')).toBeNull();
+    cleanup();
+    renderTiles({ hotTopics: [] });
+    expect(screen.queryByTestId('coming-up-fourdays-foot')).toBeNull();
   });
 });
 
