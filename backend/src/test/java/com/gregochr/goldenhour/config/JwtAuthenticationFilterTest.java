@@ -32,6 +32,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -60,6 +61,8 @@ class JwtAuthenticationFilterTest {
 
     private static final String ADMIN_ONLY_ROUTE = "/api/users";
     private static final String READER_ROUTE = "/api/forecast";
+    private static final List<String> STREAM_PATHS = List.of(
+            "/api/forecast/run/123/progress", "/api/forecast/run/notifications", "/api/status/stream");
 
     @Autowired
     private MockMvc mockMvc;
@@ -253,6 +256,15 @@ class JwtAuthenticationFilterTest {
                 aliceId)).isZero();
     }
 
+    @Test
+    @DisplayName("a valid token in ?token= on the status stream is 401: URLs never carry credentials")
+    void statusStream_queryParamToken_returns401() throws Exception {
+        String token = jwtService.generateAccessToken("alice", UserRole.LITE_USER, aliceId, 0L);
+
+        mockMvc.perform(get("/api/status/stream").param("token", token))
+                .andExpect(status().isUnauthorized());
+    }
+
     /** The filter on its own: what lands on the {@code SecurityContext}, and what is logged. */
     @Nested
     class OnItsOwn {
@@ -360,6 +372,48 @@ class JwtAuthenticationFilterTest {
             run(jwtService.generateAccessToken("alice", UserRole.LITE_USER, 9L, 0L));
 
             assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+        }
+
+        private void runOnPath(String path, boolean viaHeader, String token) throws Exception {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", path);
+            if (viaHeader) {
+                request.addHeader("Authorization", "Bearer " + token);
+            } else {
+                request.setParameter("token", token);
+            }
+            FilterChain chain = mock(FilterChain.class);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilter(request, response, chain);
+            verify(chain).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("a valid ?token= on each former event-stream path does NOT authenticate")
+        void streamPaths_queryParamToken_doesNotAuthenticate() throws Exception {
+            String token = jwtService.generateAccessToken("alice", UserRole.LITE_USER, 9L, 0L);
+
+            for (String path : STREAM_PATHS) {
+                runOnPath(path, false, token);
+
+                assertThat(SecurityContextHolder.getContext().getAuthentication())
+                        .as(path).isNull();
+            }
+            verifyNoInteractions(repository);
+        }
+
+        @Test
+        @DisplayName("the Authorization header DOES authenticate on each event-stream path")
+        void streamPaths_authorizationHeader_authenticates() throws Exception {
+            when(repository.findByUsername("alice")).thenReturn(Optional.of(row(9L, UserRole.LITE_USER, 0L)));
+            String token = jwtService.generateAccessToken("alice", UserRole.LITE_USER, 9L, 0L);
+
+            for (String path : STREAM_PATHS) {
+                SecurityContextHolder.clearContext();
+                runOnPath(path, true, token);
+
+                assertThat(SecurityContextHolder.getContext().getAuthentication())
+                        .as(path).isNotNull();
+            }
         }
 
         @Test

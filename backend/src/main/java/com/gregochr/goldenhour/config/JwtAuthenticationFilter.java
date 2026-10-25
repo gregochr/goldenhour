@@ -70,9 +70,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     /**
      * Skips this filter on async dispatches (e.g. SSE emitter flushes). The initial
-     * request already authenticated and set the security context; re-running the
-     * filter on the async dispatch would fail because the query-param token is not
-     * present on internal dispatches.
+     * request already authenticated and set the security context for the async dispatch,
+     * so re-running the filter there is unnecessary.
      */
     @Override
     protected boolean shouldNotFilterAsyncDispatch() {
@@ -156,38 +155,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Extracts the JWT token from the Authorization header, or from the {@code token}
-     * query parameter for SSE paths (EventSource API cannot set HTTP headers).
+     * Extracts the JWT token from the {@code Authorization} header only. A token in the URL (query
+     * string) is never read: URLs are logged by proxies and servers, and the event streams now send
+     * the header like every other call.
      *
      * @param request the HTTP request
-     * @return the JWT token string, or null if not present
+     * @return the JWT token string, or null if there is no Bearer header
      */
     private String extractToken(HttpServletRequest request) {
         String authHeader = request.getHeader(AUTHORIZATION_HEADER);
         if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
             return authHeader.substring(BEARER_PREFIX.length());
         }
-
-        // SSE paths: allow token as query parameter (EventSource cannot set headers)
-        String path = request.getRequestURI();
-        if (isSsePath(path)) {
-            return request.getParameter("token");
-        }
-
         return null;
-    }
-
-    /**
-     * Returns {@code true} if the request path is an SSE endpoint that supports
-     * query-param authentication.
-     *
-     * @param path the request URI
-     * @return true for SSE paths
-     */
-    private boolean isSsePath(String path) {
-        return path.matches("/api/forecast/run/\\d+/progress")
-                || path.equals("/api/forecast/run/notifications")
-                || path.equals("/api/status/stream");
     }
 
     /**

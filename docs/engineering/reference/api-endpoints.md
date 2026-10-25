@@ -21,6 +21,10 @@
 ### Auth (Bearer required)
 `POST /api/auth/logout|change-password` | `PUT /api/auth/marketing-emails`
 
+> The three event streams (`GET /api/status/stream`, `GET /api/forecast/run/notifications`, `GET /api/forecast/run/{id}/progress`)
+> authenticate with the `Authorization: Bearer` header like every other call; the client streams with `fetch`. A `?token=` query
+> parameter is not read (`JwtAuthenticationFilter.extractToken` is header-only), so such a request is 401.
+
 ### Forecast (Bearer)
 `GET /api/forecast` | `GET /api/forecast?date=YYYY-MM-DD` | `GET /api/forecast/{id}`
 

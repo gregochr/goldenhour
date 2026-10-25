@@ -398,26 +398,25 @@ class StatusControllerTest {
         }
 
         @Test
-        @DisplayName("JWT login time extracted from token query parameter for SSE")
-        void jwtLoginTimeFromQueryParam() {
+        @DisplayName("a token query parameter is ignored: the JWT service is never consulted without a header")
+        void jwtLoginTimeIgnoresQueryParam() {
             HealthDescriptor root = compositeOf(Map.of());
             when(healthEndpoint.health()).thenReturn(root);
 
             com.gregochr.goldenhour.service.JwtService jwtService =
                     mock(com.gregochr.goldenhour.service.JwtService.class);
-            java.time.Instant loginTime = java.time.Instant.parse("2026-03-31T10:00:00Z");
-            when(jwtService.extractIssuedAt("sse-token")).thenReturn(loginTime);
 
             Authentication auth = mockAuth("alice", "ROLE_ADMIN");
             StatusController controller = new StatusController(healthEndpoint, null, jwtService);
             jakarta.servlet.http.HttpServletRequest request =
                     mock(jakarta.servlet.http.HttpServletRequest.class);
             when(request.getHeader("Authorization")).thenReturn(null);
-            when(request.getParameter("token")).thenReturn("sse-token");
 
             SseEmitter emitter = controller.stream(auth, request);
 
             assertThat(emitter).isNotNull();
+            verify(request, org.mockito.Mockito.never()).getParameter("token");
+            org.mockito.Mockito.verifyNoInteractions(jwtService);
         }
 
         @Test
