@@ -78,7 +78,7 @@ export function handoverPhase(t) {
  *   {@link rampGradientCss}, for the reason above — and words the labels and note for an aurora
  *   night; the handover indicator and the reach-rings toggle are the same in both.
  * @param {boolean} [props.viewlineShown] whether the viewline overlay is actually mounted; the
- *   aurora note describes the line only when it is (never describe a line that is not there)
+ *   aurora note exists only when it is (the note names the line; with no line there is no note)
  * @param {boolean} [props.reachMeasured] whether a real drive time gates this reader's reach lens
  *   (§5.2's honesty rule) — the toggle states the ring tiers as a DISTANCE by default and only
  *   upgrades to durations once a measured drive exists, the same rule `MapLabels`' own ring labels
@@ -243,11 +243,12 @@ export default function MapLegendPanel({
           )}
 
           {aurora ? (
-            <div data-testid="wf-legend-note" className="wf-legend-note">
-              <b>Rating, not Kp.</b> Each location&rsquo;s score already folds in latitude, cloud and
-              sky darkness.
-              {viewlineShown && ' The line is where the aurora clears the northern horizon on camera; dashed amber is the forecast, pale is live.'}
-            </div>
+            viewlineShown && (
+              <div data-testid="wf-legend-note" className="wf-legend-note">
+                The line is where the aurora clears the northern horizon on camera; dashed amber is
+                the forecast, pale is live.
+              </div>
+            )
           ) : (
             <div data-testid="wf-legend-note" className="wf-legend-note">
               Colour appears only near rated locations, and only over land. Later days look
