@@ -8,7 +8,8 @@ import {
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import { AskProvider } from '../context/AskContext.jsx';
+import { AskProvider, useAsk } from '../context/AskContext.jsx';
+import { ASK_UPSELL_BODY, ASK_UPSELL_HEADING } from '../components/ask/AskUpsell.jsx';
 import MapPeekAsk from '../components/map/MapPeekAsk.jsx';
 import { resetViewport } from './askViewport.js';
 import { MAP_PANE, renderAskShell, shellCtx } from './askShellHarness.jsx';
@@ -23,8 +24,7 @@ import {
  * The upsell's own behaviour (open, close paths, focus, Escape order) is `AskUpsell.test.jsx`'s; this file is
  * the lock suite: the entry's shape per band, the `/` key's refusal, and the dim a blocked trigger takes.
  *
- * <p>The phone Map peek's entry is U2's and still the older greyed lock in this series' first release; its
- * block below is unchanged.
+ * <p>The phone Map peek's entry (U2) is the same live door: its section draws the upsell inline.
  *
  * <p>One block per band: the phone bar, the phone Map peek, the tablet field, the desktop and wide field with
  * the `/` key. The absence of a dock or sheet is asserted only after the trigger has RENDERED and the upsell
@@ -65,20 +65,6 @@ function expectNoAskRequest() {
   expect(getReady).not.toHaveBeenCalled();
 }
 
-/** The drive filter's own shape, asserted on whichever lock wrapper and pill a band drew. */
-function expectLockedShape(control, wrapper, pill, { wraps = true } = {}) {
-  expect(control).toBeDisabled();
-  expect(wrapper.className).toContain('wf-lens-locked');
-  // The phone bar is the one exception: its lock is an INNER span, so the bar wraps the grey, not the reverse.
-  expect(wrapper.contains(control)).toBe(wraps);
-  expect(pill).toHaveTextContent('Pro');
-  expect(pill.className).toContain('wf-lens-pro');
-  // Outside the grey: inside it the pill measured 3.68:1 against AA's 4.5:1.
-  expect(wrapper.contains(pill)).toBe(false);
-  expect(pill.closest('a')).toBeNull();
-  expect(pill.closest('button') === null || pill.closest('button') === control).toBe(true);
-}
-
 /** The upsell trigger's shape, per band: a live button, the pill inside it, a popup claimed, no `aria-label`. */
 function expectUpsellTrigger(control, pill) {
   expect(control).toBeEnabled();
@@ -113,7 +99,6 @@ const RULES = [
   '.wf-ask-bar:disabled',
   '.wf-askf:disabled',
   '.wf-map-peek-ask-entry:disabled',
-  '.wf-lens-locked .wf-map-peek-ask-entry:disabled',
 ];
 function installLockRules() {
   const style = document.createElement('style');
@@ -213,58 +198,95 @@ describe('the phone bar', () => {
 });
 
 describe('the phone Map peek entry', () => {
+  // A stateful stand-in for MapView's gate: `mode` is `expanded` while the section is open.
+  let ctxAsk;
   function Peek() {
+    const [open, setOpen] = React.useState(false);
+    const ref = React.useRef(null);
+    ctxAsk = useAsk();
     return (
-      <AskProvider>
+      <>
         <MapPeekAsk
-          mode="collapsed"
-          onOpen={peekOpen}
-          onClose={vi.fn()}
+          mode={open ? 'expanded' : 'collapsed'}
+          onOpen={() => setOpen(true)}
+          onClose={() => setOpen(false)}
           onOpenLayers={vi.fn()}
-          entryRef={{ current: null }}
+          entryRef={ref}
           doorRef={{ current: null }}
           layersRef={{ current: null }}
         />
-      </AskProvider>
+        <button type="button" data-testid="outside">outside</button>
+      </>
     );
   }
-  let peekOpen;
   const mountPeek = async () => {
-    peekOpen = vi.fn();
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(shellCtx(LITE));
     getAskSettings.mockResolvedValue(settings());
-    await act(async () => { render(<Peek />); });
+    await act(async () => { render(<AskProvider><Peek /></AskProvider>); });
+  };
+  const openSection = async () => {
+    fireEvent.click(await screen.findByTestId('wf-map-peek-ask-entry'));
+    await act(async () => {});
   };
 
-  it('is locked: the entry is disabled in a wf-lens-locked wrapper and the pill is outside it', async () => {
+  it('is a live button holding the prompt, the pill and the arrow, with no lock wrapper', async () => {
     await mountPeek();
 
     const entry = await screen.findByTestId('wf-map-peek-ask-entry');
-    expectLockedShape(
-      entry, screen.getByTestId('wf-map-peek-ask-locked'), screen.getByTestId('wf-map-peek-ask-upsell'),
-    );
-    expect(entry).not.toHaveAttribute('aria-expanded');
-    // The pill is the row's sibling: the wrapper takes the row's flex share.
-    expect(screen.getByTestId('wf-map-peek-ask-locked').parentElement)
-      .toBe(screen.getByTestId('wf-map-peek-ask-upsell').parentElement);
+    expect(entry).toBeEnabled();
+    expect(entry.closest('.wf-lens-locked')).toBeNull();
+    expect(screen.queryByTestId('wf-map-peek-ask-locked')).toBeNull();
+    expect(Array.from(entry.children).map((c) => c.className.split(' ')[0]))
+      .toEqual(['wf-map-peek-ask-k', 'wf-map-peek-ask-q', 'wf-lens-pro', 'wf-map-peek-ask-go']);
+    expect(entry).toHaveAttribute('aria-expanded', 'false');
+    expect(entry).toHaveAccessibleName(/\bPro$/);
+    expect(entry.querySelector('a')).toBeNull();
   });
 
-  it('opens nothing and makes no request when pressed', async () => {
+  it('opens the inline upsell: no field, no textbox, no conversation, no request, no old test id, no link', async () => {
     await mountPeek();
+    await openSection();
 
-    fireEvent.click(await screen.findByTestId('wf-map-peek-ask-entry'));
-    await act(async () => {});
-
-    expect(peekOpen).not.toHaveBeenCalled();
+    const inline = await screen.findByTestId('wf-map-peek-ask-upsell-inline');
+    expect(inline).toHaveTextContent(ASK_UPSELL_HEADING);
+    expect(inline).toHaveTextContent(ASK_UPSELL_BODY);
+    expect(inline.querySelector('a')).toBeNull();
+    expect(inline.textContent).not.toMatch(/upgrade/i);
+    expect(screen.getByTestId('wf-map-peek-ask-upsell-pill')).toHaveTextContent('Pro');
+    expect(screen.queryByTestId('wf-map-peek-ask-field')).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByTestId('wf-map-peek-ask-x')).toBeNull();
+    expect(screen.queryByTestId('ask-conversation')).toBeNull();
+    expect(screen.queryByTestId('wf-map-peek-ask-locked')).toBeNull();
     expectNoAskRequest();
   });
 
-  it('reads at .45 with no double dim', async () => {
+  it('moves focus to the heading on open', async () => {
     await mountPeek();
+    await openSection();
 
-    const entry = await screen.findByTestId('wf-map-peek-ask-entry');
-    expect(effectiveOpacity(entry)).toBeCloseTo(0.45, 5);
-    expect(effectiveOpacity(screen.getByTestId('wf-map-peek-ask-upsell'))).toBe(1);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-upsell-heading'));
+  });
+
+  it('Not now closes and returns focus to the entry, never <body> (the park() before onClose)', async () => {
+    await mountPeek();
+    await openSection();
+
+    fireEvent.click(screen.getByTestId('wf-map-peek-ask-upsell-dismiss'));
+    await act(async () => {});
+
+    expect(screen.queryByTestId('wf-map-peek-ask-upsell-inline')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(ctxAsk.availability).toBe('locked');
+    expectNoAskRequest();
+  });
+
+  it('Escape in the section parks focus so the entry gets it once the section closes', async () => {
+    await mountPeek();
+    await openSection();
+
+    fireEvent.keyDown(screen.getByTestId('wf-map-peek-ask-upsell-heading'), { key: 'Escape' });
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask'));
   });
 });
 

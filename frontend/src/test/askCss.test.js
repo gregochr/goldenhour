@@ -305,10 +305,10 @@ describe('the Ask entries, locked (a reader who is not PRO or ADMIN) — a live 
     expect(ruleBody('.wf-askf-lockrow')).toBeNull();
   });
 
-  it('lifts the peek entry\'s disabled dim under the lock, and lets its wrapper take the row\'s flex share', () => {
-    expect(ruleBody('.wf-lens-locked .wf-map-peek-ask-entry:disabled')).toMatch(/opacity:\s*1\b/);
-    const wrap = ruleBody('.wf-map-peek-ask-lockwrap');
-    expect(wrap).toMatch(/flex:\s*1\b/);
-    expect(wrap).toMatch(/min-width:\s*0/);
+  it('retires the peek entry\'s lock wrapper, pill-sibling rule and lifted dim, and keeps the pill flex:none inside the entry', () => {
+    expect(ruleBody('.wf-map-peek-ask-lockwrap')).toBeNull();
+    expect(ruleBody('.wf-map-peek-ask-row > .wf-lens-pro')).toBeNull();
+    expect(ruleBody('.wf-lens-locked .wf-map-peek-ask-entry:disabled')).toBeNull();
+    expect(ruleBody('.wf-map-peek-ask-entry > .wf-lens-pro')).toMatch(/flex:\s*none/);
   });
 });

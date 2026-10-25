@@ -1157,8 +1157,8 @@ CentreOnHomeControl.propTypes = {
  *
  * <h2>…and the phone's three (F4, plan §2.7's phone paragraph and state table)</h2>
  * <ul>
- *   <li>{@code askOffered} — the peek sheet draws Ask's row (Ask is on, or unreachable and shown
- *       disabled; never while rewound). False draws the sheet exactly as it was before Ask.</li>
+ *   <li>{@code askOffered} — the peek sheet draws Ask's row (Ask is on, locked (a live door to the upsell), or
+ *       unreachable and shown disabled; never while rewound). False draws the sheet exactly as it was before Ask.</li>
  *   <li>{@code askPhase} — {@code AskContext.phase}. Whether an answer is SETTLED decides the sheet's
  *       resting height (126 with nothing, 112 with an answer: the minimised line), and a map touch
  *       leaves an answer that is still being fetched alone.</li>
@@ -1192,7 +1192,7 @@ CentreOnHomeControl.propTypes = {
  *       draws as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askLocked = false, tideLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1606,7 +1606,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const layersPeekBtnRef = useRef(null);
   /**
    * Where focus lands when a peek section's body unmounts holding it and no answer is minimised: the Ask
-   * entry, unless that entry is DISABLED (locked, or unreachable) — `.focus()` on a disabled button does
+   * entry, unless that entry is DISABLED (unreachable, `down`; a locked entry is live) — `.focus()` on a disabled button does
    * nothing and focus would fall to `<body>` — in which case the Layers peek button, which stays mounted.
    * A stable object with a getter, so it reads the entry's state at the moment focus is handed on.
    */
@@ -5900,7 +5900,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * rule on this tab and the shell's own `openAskSheet` apply).
    */
   function openAskSection() {
-    if (askLocked) return;
     if (foreignModalOver(mapPaneRef.current)) return;
     // Not `handlePeekPress`'s toggle: this only ever OPENS (the control that calls it is not drawn while
     // the section is open), and a second press landing before the first has re-rendered must not shut it.
@@ -7743,8 +7742,6 @@ MapView.propTypes = {
   askAnswerId: PropTypes.number,
   onAskContext: PropTypes.func,
   askOffered: PropTypes.bool,
-  /** The reader is not PRO or ADMIN: the peek draws Ask's row locked and it never opens. */
-  askLocked: PropTypes.bool,
   /** The Map's tide curve and per-location tide match are Pro (tide-pro-gate-plan.md): true for LITE. */
   tideLocked: PropTypes.bool,
   askPhase: PropTypes.oneOf(['empty', 'busy', 'answer', 'plan', 'cant', 'error']),

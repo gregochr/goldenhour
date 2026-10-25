@@ -4236,8 +4236,10 @@ button.wf-hc.also.on:hover {
   outline: 2px solid var(--color-plex-text);
   outline-offset: 2px;
 }
-/* The phone's inline copy of the same content, inside the peek Tide section (no popover, no "Not now"). */
-.wf-tide-upsell-inline {
+/* The phone's inline copy of the same content, inside the peek Tide section (no popover, no "Not now") and the
+   peek Ask section (with its own "Not now"). */
+.wf-tide-upsell-inline,
+.wf-ask-upsell-inline {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -14758,11 +14760,8 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   cursor: pointer;
 }
 .wf-map-peek-ask-entry:disabled { opacity: .5; cursor: default; }
-/* LOCKED: the entry's `.wf-lens-locked` wrapper takes the row's flex share, so the entry's own `flex: 1`
-   applies inside it; the "Pro" pill is the row's next sibling. The disabled dim is lifted under the lock. */
-.wf-map-peek-ask-lockwrap { flex: 1; min-width: 0; display: flex; }
-.wf-map-peek-ask-row > .wf-lens-pro { flex: none; align-self: center; }
-.wf-lens-locked .wf-map-peek-ask-entry:disabled { opacity: 1; }
+/* LOCKED: the live entry carries the "Pro" pill inside it, after the prompt (which ellipsizes first). */
+.wf-map-peek-ask-entry > .wf-lens-pro { flex: none; }
 .wf-map-peek-ask-entry:focus-visible,
 .wf-map-peek-ask-x:focus-visible {
   outline: 2px solid var(--color-plex-gold);
