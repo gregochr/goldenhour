@@ -10,6 +10,10 @@ export const SCORES_UPSELL_LABEL = 'Scores and the why';
 export const SCORES_UPSELL_HEADING = 'Fiery Sky and Golden Hour scores';
 export const SCORES_UPSELL_BODY = 'See how strong the colour and the light should be at each location, with a note on why.';
 
+export const BEST_BETS_UPSELL_LABEL = 'Best bets';
+export const BEST_BETS_UPSELL_HEADING = 'Best bets';
+export const BEST_BETS_UPSELL_BODY = "See the forecast's two best windows, and where to go for each.";
+
 /**
  * The generic upsell's content: the house pill, a heading and a body. No preview sketch: the two
  * existing sketches (tide, Ask) are feature drawings and a generic one would say nothing.

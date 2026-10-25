@@ -220,6 +220,26 @@ describe('buildWindowCards', () => {
     });
   });
 
+  describe('the pick, locked (pro-features-gate-plan.md §7.1)', () => {
+    const served = () => oneWindow({
+      pick: {
+        kind: 'BEST', regionName: 'R', headline: 'H', detail: 'D', locationName: 'L', locationId: 3,
+      },
+    });
+    const buildLocked = ({ events: ev, days }, picksLocked) => buildWindowCards(
+      ev, days, TODAY, TOMORROW, new Set(), undefined, undefined, picksLocked,
+    );
+
+    it('is null on every card when locked, even though the payload carries one', () => {
+      expect(buildLocked(served(), true).map((c) => c.pick)).toEqual([null]);
+    });
+
+    it('is carried as before when unlocked or when the argument is omitted', () => {
+      expect(buildLocked(served(), false)[0].pick.kind).toBe('best');
+      expect(build(served())[0].pick.kind).toBe('best');
+    });
+  });
+
   describe('the pick', () => {
     it('lowercases the kind and carries the region, prose and location', () => {
       const [card] = build(oneWindow({

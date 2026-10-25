@@ -396,7 +396,7 @@ export default function WindowFirstShell({
     windowCards, paneItems, loading, briefing, evaluationScores, scoresLoaded,
     scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
     origin, setOrigin, regions, effectiveReachById,
-    comingUpLastSeenDate, setComingUpLastSeenAt, isPro, scoresLocked, upcomingEvents, travelDayDates,
+    comingUpLastSeenDate, setComingUpLastSeenAt, isPro, scoresLocked, picksLocked, upcomingEvents, travelDayDates,
   } = useWindowFirstBriefing();
   /**
    * Whether the first fetch has been running long enough that the pending line should admit it is
@@ -2747,6 +2747,7 @@ export default function WindowFirstShell({
             onOpenWindow={openWindow}
             origin={origin ?? null}
             homeCoords={homeCoords}
+            picksLocked={picksLocked}
             onSearchRegion={(regionName) => { if (stackedOverPopup) return; setSearchSeed(regionName); }}
           />
         </Suspense>

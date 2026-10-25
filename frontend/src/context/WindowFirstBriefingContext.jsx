@@ -147,6 +147,8 @@ const WindowFirstBriefingContext = createContext({
   tideLocked: false,
   // Deliberately UNLOCKED: a provider-less render (every bare test) stays as it was (plan §3).
   scoresLocked: false,
+  // Likewise UNLOCKED by default: a provider-less render keeps its picks (plan §3).
+  picksLocked: false,
   comingUpLastSeenDate: undefined,
   setComingUpLastSeenAt: () => {},
 });
@@ -650,6 +652,8 @@ export function WindowFirstBriefingProvider({
   // Fiery Sky / Golden Hour scores and the per-location written why are Pro (docs/engineering/
   // pro-features-gate-plan.md §3, §5). Same shape as the tide lock: a boolean goes down, the role stops here.
   const scoresLocked = !isPro;
+  // Best bets (`window.pick`) are Pro (plan §3, §7). Same shape: a boolean goes down, the role stops here.
+  const picksLocked = !isPro;
 
   // The briefing the page is drawn from. Unlocked it is THE fetched object (identity kept, so every PRO
   // memo chain below runs exactly as before); locked it is a copy whose slots lack the scores and the
@@ -695,11 +699,12 @@ export function WindowFirstBriefingProvider({
           // and the lens then chooses within it. Null is home and changes nothing.
           origin,
         },
+        picksLocked,
       )
       : []),
     [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, effectiveReachById,
       reachLens.tier.limitMinutes, defaultLimitMinutes,
-      ratingLens.minRating, origin],
+      ratingLens.minRating, origin, picksLocked],
   );
 
   /**
@@ -846,7 +851,7 @@ export function WindowFirstBriefingProvider({
       heatPointSets, heatUnratedSets, heatStoodSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, homePlace, isPro, tideLocked, scoresLocked,
+      ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked,
       // The origin and its two inputs. `effectiveReachById` is published beside `reachById` rather
       // than in place of it, because the two answer different questions and one consumer still
       // wants the home one: the planning area and the beyond line are statements about HOME, and
@@ -859,7 +864,7 @@ export function WindowFirstBriefingProvider({
       heatSpotList, heatPointSets, heatUnratedSets, heatStoodSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, homePlace, isPro, tideLocked, scoresLocked,
+      ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked,
       origin, setOrigin, regions, effectiveReachById,
       comingUpLastSeenDate, setComingUpLastSeenAt],
   );
@@ -911,6 +916,7 @@ WindowFirstBriefingProvider.propTypes = {
  *           reachLens: object, ratingLens: object, homePlace: ?string,
  *           todayStr: string,
  *           tomorrowStr: string, isPro: boolean, tideLocked: boolean, scoresLocked: boolean,
+ *           picksLocked: boolean,
  *           comingUpLastSeenDate: (string|null|undefined), setComingUpLastSeenAt: function}}
  */
 export function useWindowFirstBriefing() {
