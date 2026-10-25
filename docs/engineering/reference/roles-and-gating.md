@@ -42,7 +42,7 @@ See `docs/product/` for detailed reference documents.
 
 **Differentiators**: Claude-generated "why" explanation | AOD+PM2.5 aerosol proxy | Cloud approach risk detection (temporal trend + upwind sampling) | Location type-specific UI | Outcome recording feedback loop
 
-**Freemium split**: LITE gets basic scores, 3-day horizon, blurred metrics. PRO gets enhanced directional scores, 3-day horizon, full metrics.
+**Freemium split** (2026-10-25, matching photocast.online's pricing list, FAQ and Terms §4): LITE gets the star rating, the verdict, stand-downs, region prose, hot topics and Coming up. PRO and ADMIN add the Fiery Sky and Golden Hour scores, the per-location written explanation, the best-bet picks, drive times from home, the tide curve and match, Ask PhotoCast and past-window rating. Both run to the same horizon. There are no blurred metrics: a Pro field is absent from LITE's payload, never sent and obscured. The scores, the written explanation, best bets and drive times are being gated by `pro-features-gate-plan.md` (S1–D2); until each phase merges, that feature still reaches LITE.
 
 ### Role gating — UI pattern
 
