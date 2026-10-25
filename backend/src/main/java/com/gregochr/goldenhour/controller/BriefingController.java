@@ -73,6 +73,10 @@ public class BriefingController {
      * the digest and Ask keep the full data. A role variant is not personal data: the body depends
      * on the role alone, and the ETag is hashed from the body, so the two variants never share one.
      *
+     * <p>The best-bet picks are Pro too (docs/engineering/pro-features-gate-plan.md §8): LITE gets
+     * every {@code window.pick} removed, {@code bestBets} empty and {@code bestBetModel},
+     * {@code bestBetStatus} and {@code bestBetsWithdrawn} null.
+     *
      * @param auth the caller's authentication
      * @return the cached briefing response with honesty filter applied, shaped for the caller's role
      */
@@ -93,23 +97,34 @@ public class BriefingController {
      *
      * <p>The same forecast {@link #getBriefing(Authentication)} serves, with the tree removed — for clients that
      * cannot afford to walk it. Bearer with no role gate, by inheritance from {@code /api/**} →
-     * {@code .authenticated()}: it is a strict projection of a payload every authenticated caller
-     * may already read in full, so a gate here would deny nothing and break the callers it exists
-     * for. It carries no per-user data, which is what makes it safe to ETag-revalidate alongside
-     * {@code /api/briefing}.
+     * {@code .authenticated()}, but <b>role-shaped</b> like the briefing: the best-bet picks are Pro
+     * (docs/engineering/pro-features-gate-plan.md §8), so a reader who is not positively PRO_USER
+     * or ADMIN gets each window without its {@code pick}, {@code headline}, {@code regionName},
+     * {@code locationName} and {@code locationId}, which are the pick's. The check is fail-closed.
+     * It carries no per-user data (a role variant is not personal data), and the ETag is hashed
+     * from the body, so the two variants never share a validator.
      *
      * @param limit how many windows to return, clamped into
      *              [1, {@value BriefingDigestService#MAX_LIMIT}]
-     * @return the digest, or 204 when there is no briefing
+     * @param auth the caller's authentication
+     * @return the digest, shaped for the caller's role, or 204 when there is no briefing
      */
     @GetMapping("/digest")
     public ResponseEntity<BriefingDigestResponse> getDigest(
-            @RequestParam(defaultValue = "" + BriefingDigestService.DEFAULT_LIMIT) int limit) {
+            @RequestParam(defaultValue = "" + BriefingDigestService.DEFAULT_LIMIT) int limit,
+            Authentication auth) {
         BriefingDigestResponse digest = briefingDigestService.digest(limit);
         if (digest == null) {
             return ResponseEntity.noContent().build();
         }
-        return ResponseEntity.ok(digest);
+        boolean pro = Authorities.hasRole(auth, UserRole.PRO_USER)
+                || Authorities.hasRole(auth, UserRole.ADMIN);
+        return ResponseEntity.ok(pro ? digest : liteDigest(digest));
+    }
+
+    private static BriefingDigestResponse liteDigest(BriefingDigestResponse digest) {
+        return new BriefingDigestResponse(digest.generatedAt(), digest.windows().stream()
+                .map(BriefingDigestResponse.Window::withoutPick).toList());
     }
 
     /**
