@@ -1,0 +1,3 @@
+### Changed — landing site editorial pass
+
+The FAQ is reorganised into five sections (getting started, understanding the forecasts, features and subscriptions, data sources, about) with an in-page section list, a new Fiery Sky versus Golden Hour question, and corrected answers on the planning horizon and how often forecasts update. The acknowledgements now credit OpenRouteService and Esri. Terms and Privacy carry factual corrections: payments are not live yet, the storm-surge wording, the automatic purge of unverified registrations, what the web-server access log holds, and the OpenStreetMap Nominatim lookup used by administrators. The homepage dateline gains its year and the FAQ teaser question now reads "How far ahead can I plan?".
