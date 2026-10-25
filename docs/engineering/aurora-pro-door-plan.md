@@ -290,6 +290,10 @@ reviews the diff read-only; CI green and Codex 👍 on the head commit before sq
 
 ## 5. Owner questions (not blocking)
 
+> **Answered 2026-10-25** — Q1 yes (a Lite banner), Q2 reword into the house pattern, Q3 approved as is,
+> Q4 change Pro too (a quiet run gives nobody a row). The follow-up is planned in
+> `aurora-lite-alert-plan.md`.
+
 - **Q1.** A Lite `AuroraBanner` (level and "look north" only, no field, no best site, no viewline)?
   It needs a role-free status, a bigger change than this series; parked.
 - **Q2.** The viewline upsell chip is dead for LITE and says "upgrade". Delete it, or reword it into the
