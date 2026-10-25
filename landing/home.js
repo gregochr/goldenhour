@@ -56,7 +56,8 @@
   }
 
   /* One swipeable, snapping row with a dots control beneath it. With opts.fitHeight === false the
-     scroller is never given an inline height (the cards share the tallest card's height in CSS). */
+     scroller is never given an inline height (the cards share the tallest card's height in CSS);
+     both the features and pricing carousels use that. */
   function carousel(scroller, regionLabel, dotLabel, cleanups, opts) {
     var fitHeight = !opts || opts.fitHeight !== false;
     var cards = all(':scope > *', scroller);
@@ -202,7 +203,7 @@
     if (!s) return;
     carousel(s, 'Features', function (i, n, card) {
       return 'Feature ' + (i + 1) + ' of ' + n + ': ' + cardTitle(card);
-    }, cleanups);
+    }, cleanups, { fitHeight: false });
   }
 
   function pricing(cleanups) {
@@ -268,7 +269,7 @@
     btn.className = 'btn ghost sm steps-toggle';
     btn.setAttribute('aria-expanded', 'false');
     btn.setAttribute('aria-controls', steps.id);
-    btn.textContent = 'See how the forecast called it';
+    btn.textContent = 'See how PhotoCast called it';
     btn.addEventListener('click', function () {
       var open = btn.getAttribute('aria-expanded') !== 'true';
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
