@@ -256,6 +256,8 @@ PR 4b (backend, after 4a is merged):
   shipping 4b one release later avoids it.
 - After 4b, the error-log residual of step 1 is gone too: no credential is in any request line.
 
+**Built** (`fix/drop-sse-query-token`): the filter reads the header only (`isSsePath` and the `StatusController` fallback deleted); filter and `StatusController` tests pin it.
+
 ### Step 5 — Privacy Policy wording (PR 5, landing)
 
 `landing/privacy.html`, "Server logs": the web server's access log records the address requested

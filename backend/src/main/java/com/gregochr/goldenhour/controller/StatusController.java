@@ -314,8 +314,8 @@ public class StatusController {
     }
 
     /**
-     * Extracts the issued-at time from the JWT token in the request.
-     * Falls back to the {@code token} query parameter (used by SSE connections).
+     * Extracts the issued-at time from the JWT in the request's {@code Authorization} header.
+     * A {@code token} query parameter is never read.
      */
     private Instant extractLoginTime(HttpServletRequest request) {
         try {
@@ -323,9 +323,6 @@ public class StatusController {
             String authHeader = request.getHeader("Authorization");
             if (authHeader != null && authHeader.startsWith("Bearer ")) {
                 token = authHeader.substring(7);
-            }
-            if (token == null) {
-                token = request.getParameter("token");
             }
             if (token != null && jwtService != null) {
                 return jwtService.extractIssuedAt(token);

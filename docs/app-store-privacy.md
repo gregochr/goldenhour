@@ -78,7 +78,7 @@ as SHA-256 hashes; the raw value exists in the mailed link and on the device. Th
 `/reset#token=` on the app origin: the token sits in the URL fragment, which the browser never sends, so it reaches neither
 Cloudflare nor the nginx log nor a `Referer`; it does remain in the browser's history list, and a mail provider's link
 scanner or click tracker that rewrites the link carries the whole URL, fragment included (links mailed before this change
-used `?token=` and expire within 24 h; nginx logs the path only since `token-log-redaction-plan.md` step 1); the event-stream paths also accept the access token as `?token=` (`JwtAuthenticationFilter`). On the device the app keeps its session in the
+used `?token=` and expire within 24 h; nginx logs the path only since `token-log-redaction-plan.md` step 1); the event-stream paths no longer accept `?token=`, and the access token travels only in the `Authorization` header (`JwtAuthenticationFilter`). On the device the app keeps its session in the
 browser's `localStorage` (access and refresh tokens, role, username, a session-expiry date and the marketing flag —
 `frontend/src/context/AuthContext.jsx`). Access tokens last 24 hours and refresh tokens 30 days
 (`application-prod.yml`); **expired refresh tokens are deleted nightly** (`refresh_token_cleanup`, 03:00 UTC), but no job was
