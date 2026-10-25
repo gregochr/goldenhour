@@ -4166,11 +4166,17 @@ button.wf-hc.also.on:hover {
   /* Cancels the flex gap this zero-height child would otherwise add, so opening shifts nothing. */
   margin-bottom: -6px;
 }
+/* The visual rules below are SHARED with the Ask upsell (docs/engineering/ask-upsell-plan.md §3.1) through
+   selector lists; the tide popover's positioning stays in its own rule. ⚠️ `.wf-ask-upsell*` is never added to
+   `.wf-tide-upsell-anchor` above: that one positions the tide popover inside `.wf-map-chrome-bl`. */
 .wf-tide-upsell {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
+}
+.wf-tide-upsell,
+.wf-ask-upsell {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -4183,7 +4189,8 @@ button.wf-hc.also.on:hover {
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(7px);
 }
-.wf-tide-upsell-heading {
+.wf-tide-upsell-heading,
+.wf-ask-upsell-heading {
   margin: 0;
   font-family: var(--font-serif);
   font-size: 17px;
@@ -4192,20 +4199,24 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text);
 }
 /* A programmatic focus target only (never a tab stop), so it carries no ring of its own. */
-.wf-tide-upsell-heading:focus { outline: none; }
-.wf-tide-upsell-body {
+.wf-tide-upsell-heading:focus,
+.wf-ask-upsell-heading:focus { outline: none; }
+.wf-tide-upsell-body,
+.wf-ask-upsell-body {
   margin: 0;
   font-family: var(--font-sans);
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--color-plex-text-secondary);
 }
-.wf-tide-upsell-preview {
+.wf-tide-upsell-preview,
+.wf-ask-upsell-preview {
   display: block;
   width: 100%;
   height: 70px;
 }
-.wf-tide-upsell-dismiss {
+.wf-tide-upsell-dismiss,
+.wf-ask-upsell-dismiss {
   align-self: flex-end;
   padding: 5px 10px;
   font-family: var(--font-mono);
@@ -4218,8 +4229,10 @@ button.wf-hc.also.on:hover {
   border-radius: 6px;
   cursor: pointer;
 }
-.wf-tide-upsell-dismiss:hover { background: rgba(255, 255, 255, 0.04); }
-.wf-tide-upsell-dismiss:focus-visible {
+.wf-tide-upsell-dismiss:hover,
+.wf-ask-upsell-dismiss:hover { background: rgba(255, 255, 255, 0.04); }
+.wf-tide-upsell-dismiss:focus-visible,
+.wf-ask-upsell-dismiss:focus-visible {
   outline: 2px solid var(--color-plex-text);
   outline-offset: 2px;
 }
@@ -14282,26 +14295,13 @@ button.wf-mchip:hover {
   cursor: pointer;
 }
 .wf-ask-bar:disabled { opacity: .5; cursor: default; }
-/* LOCKED (a reader who is not PRO or ADMIN). The bar stays the opaque, hit-testable fixed box above — the
-   lock is `.wf-lens-locked` on the INNER span only, so a tap can never fall through to the card scrolled
-   beneath it — and the box's own disabled dim is lifted so the inner span reads at the drive row's .45
-   rather than the two composing to ~.23 (the "Pro" pill, a sibling of that span, stays undimmed). */
-.wf-ask-bar[data-locked]:disabled { opacity: 1; }
-.wf-ask-bar-inner {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
+/* LOCKED (a reader who is not PRO or ADMIN): a live trigger for the Ask upsell, drawn like the PRO bar with
+   the "Pro" pill inside it as a direct child. No grey, no lifted dim: when settings or a card popup disable it
+   it dims to .5 like the PRO bar, and its pill goes GrayText with the rest of the button in forced colours. */
 .wf-ask-bar > .wf-lens-pro { flex: none; margin-right: 8px; }
-/* Forced colours paint a disabled button's text in GrayText, the pill inside it with it: the pill is the
-   call to action, so it keeps the system's full-strength text colour and a border of the same. */
+/* OPEN is shown by border colour in forced colours (the bar has no other open style). */
 @media (forced-colors: active) {
-  .wf-ask-bar > .wf-lens-pro {
-    color: CanvasText;
-    border-color: CanvasText;
-  }
+  .wf-ask-bar[aria-expanded="true"] { border-color: Highlight; }
 }
 .wf-ask-bar:focus-visible {
   outline: 2px solid var(--color-plex-gold);
@@ -14354,7 +14354,12 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 /* THE TABLET FIELD, beside the tab list in the tab ROW. The tab list is a flex item that keeps its
    own overflow-x scroll (`min-width: 0`); the row is a plain flex row with or without the field, so
    a tab row without Ask lays out as it always did. */
-.wf-tabrow { display: flex; align-items: flex-end; container: wf-tabrow / inline-size; }
+.wf-tabrow { display: flex; align-items: flex-end; container: wf-tabrow / inline-size; position: relative; }
+/* The Ask upsell's popover hangs from the row. The row's `container-type` already makes it a stacking context
+   at tree order, which would paint it UNDER the Map's `#map-container` (z-index 0, later in the page); while
+   the popover is open the row rises to 44 (one under the masthead's 45, `.wf-mast`): over the map and its
+   chrome (1100 and up, inside their own contexts), below `Modal`'s z-50 and the sheet scrim. */
+.wf-tabrow[data-ask-upsell="open"] { z-index: 44; }
 .wf-tabrow > .wf-tabs { flex: 1 1 0; min-width: 0; }
 .wf-askf {
   flex: none;
@@ -14382,19 +14387,14 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   background: rgba(201, 162, 75, .1);
 }
 .wf-askf:disabled { opacity: .5; cursor: default; }
-/* LOCKED: the field sits in `.wf-lens-locked` and the "Pro" pill is the wrapper's sibling. The field's own
-   disabled dim is lifted under the lock (no double dim: .5 inside .45 is ~.23). The margin that used to be
-   the button's moves to the row, so the field keeps its place in the tab row. */
-.wf-askf-lockrow {
-  flex: none;
-  align-self: flex-end;
-  display: flex;
-  align-items: flex-end;
-  margin: 0 var(--wf-gutter) 6px 0;
+/* LOCKED: a live trigger for the Ask upsell with the "Pro" pill inside it, last. The prompt ellipsizes
+   (`.wf-askf-q`: `flex: 1; min-width: 0`) and the pill never shrinks, so it is never pushed out. A field that
+   settings or a card popup disables dims to .5 like the PRO one. */
+.wf-askf > .wf-lens-pro { flex: none; }
+/* OPEN is shown by a colour change alone above; forced colours drop it, so give it a Highlight border. */
+@media (forced-colors: active) {
+  .wf-askf[aria-expanded="true"] { border-color: Highlight; }
 }
-.wf-askf-lockrow .wf-askf { margin: 0; }
-.wf-askf-lockrow > .wf-lens-pro { margin: 0 0 8px 6px; }
-.wf-lens-locked .wf-askf:disabled { opacity: 1; }
 .wf-askf:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;
@@ -14465,6 +14465,34 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   }
 }
 
+/* THE ASK UPSELL POPOVER (docs/engineering/ask-upsell-plan.md §4.2, §4.3): a non-modal dialog, inline and never
+   portalled. The look is shared with the tide upsell (selector lists near `.wf-tide-upsell`); only the
+   placement is here. Under the field it hangs from the tab row; above the phone bar it is fixed at the bar's
+   own sides and tier (z-index 40, the bar's, below `Modal`'s z-50 and the sheet scrim). */
+.wf-ask-upsell-pop[data-placement="field"] {
+  position: absolute;
+  top: 100%;
+  right: var(--wf-gutter);
+  z-index: 1;
+  width: 320px;
+  max-width: calc(100% - 16px);
+  margin-top: 6px;
+}
+/* The root is a programmatic focus target (`tabIndex={-1}`: a click on its copy keeps focus inside, so Escape
+   still works), never a tab stop, so it carries no ring. */
+.wf-ask-upsell-pop:focus { outline: none; }
+/* Forced colours: the sketch is built from theme variables that the mode overrides, so it would vanish. */
+@media (forced-colors: active) {
+  .wf-ask-upsell-preview rect { fill: CanvasText; }
+  .wf-ask-upsell-preview circle { stroke: CanvasText; }
+}
+.wf-ask-upsell-pop[data-placement="bar"] {
+  position: fixed;
+  z-index: 40;
+  left: calc(10px + var(--safe-l));
+  right: calc(10px + var(--safe-r));
+  bottom: calc(10px + var(--safe-b) + 48px + 8px);
+}
 /* THE SHEET'S INPUT ROW (`.inrow`), the `footer` of the tall `BottomSheet`. ⚠️ The field's font is
    16px and must stay so: iOS Safari zooms the page on focusing anything set smaller. */
 .wf-ask-in {

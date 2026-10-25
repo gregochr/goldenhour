@@ -39,9 +39,15 @@ import { refShape } from './askShapes.js';
  * @param {boolean} [props.showKeyHint=false] draw the "/" key cap (F2)
  * @param {boolean} [props.keyShortcut=false] the "/" key works: name it in {@code aria-keyshortcuts}
  * @param {boolean} [props.disabled]
- * @param {boolean} [props.locked] the reader is not PRO or ADMIN: the button sits in a
- *        `wf-lens-locked` wrapper (the drive filter's grey), is really {@code disabled}, advertises no
- *        popup, expansion or `/` key, and a "Pro" pill is drawn BESIDE the wrapper, never inside it
+ * @param {boolean} [props.locked] the reader is not PRO or ADMIN: the field is a live trigger for the Ask
+ *        upsell (docs/engineering/ask-upsell-plan.md §4.1), drawn like the PRO one with the "Pro" pill
+ *        INSIDE it, last. It claims {@code aria-haspopup="dialog"}, {@code aria-expanded} from
+ *        {@code upsellOpen} and {@code aria-controls} while that popover is open; {@code expanded} and
+ *        {@code controls} are ignored. It advertises no `/` key, and is {@code disabled} only by
+ *        {@code disabled}. No `aria-label`: the accessible name is its content, "{prompt} Pro".
+ * @param {boolean} [props.upsellOpen] locked only: the upsell popover is open
+ * @param {string} [props.upsellId] locked only: the open popover's id
+ * @param {function(React.KeyboardEvent): void} [props.onKeyDown] the shell's Escape handler for the open upsell
  * @param {boolean} [props.expanded] whether the surface this opens is open
  * @param {string} [props.prompt] the field's text
  * @param {React.Ref} [props.buttonRef] the button's node, for the shell's focus return
@@ -51,32 +57,38 @@ import { refShape } from './askShapes.js';
 export default function AskField({
   onOpen, width = 260, showKeyHint = false, keyShortcut = false, disabled = false, locked = false, expanded = false,
   prompt = 'Ask about the forecasts…', buttonRef = undefined, controls = undefined,
+  upsellOpen = false, upsellId = undefined, onKeyDown = undefined,
 }) {
-  const button = (
+  let popup;
+  let controlsId;
+  if (locked) {
+    popup = 'dialog';
+    controlsId = upsellOpen ? upsellId : undefined;
+  } else {
+    popup = controls === undefined ? 'dialog' : undefined;
+    controlsId = controls !== undefined && expanded ? controls : undefined;
+  }
+  return (
     <button
       ref={buttonRef}
       type="button"
       className="wf-askf"
       data-testid="ask-field"
       data-width={width}
-      aria-haspopup={controls === undefined && !locked ? 'dialog' : undefined}
-      aria-controls={controls !== undefined && expanded && !locked ? controls : undefined}
-      aria-expanded={locked ? undefined : expanded}
+      data-locked={locked ? 'true' : undefined}
+      aria-haspopup={popup}
+      aria-controls={controlsId}
+      aria-expanded={locked ? upsellOpen : expanded}
       aria-keyshortcuts={(showKeyHint || keyShortcut) && !locked ? '/' : undefined}
-      disabled={disabled || locked}
+      disabled={disabled}
       onClick={onOpen}
+      onKeyDown={onKeyDown}
     >
       <span className="wf-askf-k" aria-hidden="true">Ask</span>
       <span className="wf-askf-q">{prompt}</span>
       {showKeyHint && !locked && <kbd className="wf-askf-kbd" aria-hidden="true">/</kbd>}
+      {locked && <span className="wf-lens-pro" data-testid="ask-field-upsell">Pro</span>}
     </button>
-  );
-  if (!locked) return button;
-  return (
-    <span className="wf-askf-lockrow" data-testid="ask-field-lockrow">
-      <span className="wf-askf-lockwrap wf-lens-locked" data-testid="ask-field-locked">{button}</span>
-      <span className="wf-lens-pro" data-testid="ask-field-upsell">Pro</span>
-    </span>
   );
 }
 
@@ -91,4 +103,7 @@ AskField.propTypes = {
   prompt: PropTypes.string,
   buttonRef: refShape,
   controls: PropTypes.string,
+  upsellOpen: PropTypes.bool,
+  upsellId: PropTypes.string,
+  onKeyDown: PropTypes.func,
 };

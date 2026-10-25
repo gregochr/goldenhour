@@ -397,6 +397,16 @@ export function AskProvider({ children }) {
     dispatch({ type: ACTION.CLEARED });
   }, []);
 
+  // Defensive (docs/engineering/ask-upsell-plan.md §3.3): nothing else clears the in-memory conversation
+  // when the reader stops being PRO or ADMIN, and a locked reader with a settled answer would reach a
+  // minimised line and map picks over a stale answer. The client role is fixed for the session today, so
+  // this cannot fire yet; it keeps a future in-session role refresh from reaching that state.
+  const wasPro = useRef(isPro);
+  useEffect(() => {
+    if (wasPro.current && !isPro) clear();
+    wasPro.current = isPro;
+  }, [isPro, clear]);
+
   const { phase: storedPhase, question: convQuestion, asked: convAsked } = conv;
   const retry = useCallback(async () => {
     if (!isPro || storedPhase !== 'error') return;

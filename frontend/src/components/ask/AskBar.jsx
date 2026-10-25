@@ -26,23 +26,21 @@ import { refShape } from './askShapes.js';
  *   "the next few days"), Coming up's is "Ask about rare events…"
  * @param {function(): void} props.onOpen opens the sheet
  * @param {boolean} [props.disabled]
- * @param {boolean} [props.locked] the reader is not PRO or ADMIN: the bar is {@code disabled}, its
- *   contents take the drive filter's `wf-lens-locked` grey and a "Pro" pill sits BESIDE them. The lock
- *   is on an INNER span, not the button: the button is the opaque fixed box, and `wf-lens-locked` on it
- *   would make it see-through and let a tap fall through to the card scrolled underneath.
+ * @param {boolean} [props.locked] the reader is not PRO or ADMIN: the bar is a live trigger for the Ask upsell
+ *   (docs/engineering/ask-upsell-plan.md §4.3), drawn like the PRO one with the "Pro" pill inside it as a
+ *   direct child, between the prompt and the arrow. It claims {@code aria-haspopup="dialog"},
+ *   {@code aria-expanded} from {@code upsellOpen} and {@code aria-controls} while the popover is open, and is
+ *   {@code disabled} only by {@code disabled}. No `aria-label`: the name is its content, "{prompt} Pro".
+ * @param {boolean} [props.upsellOpen] locked only: the upsell popover is open
+ * @param {string} [props.upsellId] locked only: the open popover's id
+ * @param {function(React.KeyboardEvent): void} [props.onKeyDown] the shell's Escape handler for the open upsell
  * @param {boolean} [props.expanded] whether the sheet this opens is open
  * @param {React.Ref} [props.buttonRef] the button's node, for the shell's focus return
  */
 export default function AskBar({
   prompt, onOpen, disabled = false, locked = false, expanded = false, buttonRef = undefined,
+  upsellOpen = false, upsellId = undefined, onKeyDown = undefined,
 }) {
-  const body = (
-    <>
-      <span className="wf-ask-bar-k" aria-hidden="true">Ask</span>
-      <span className="wf-ask-bar-q">{prompt}</span>
-      <span className="wf-ask-bar-go" aria-hidden="true">↑</span>
-    </>
-  );
   return (
     <button
       ref={buttonRef}
@@ -50,17 +48,17 @@ export default function AskBar({
       className="wf-ask-bar"
       data-testid="ask-bar"
       data-locked={locked ? 'true' : undefined}
-      aria-haspopup={locked ? undefined : 'dialog'}
-      aria-expanded={locked ? undefined : expanded}
-      disabled={disabled || locked}
+      aria-haspopup="dialog"
+      aria-expanded={locked ? upsellOpen : expanded}
+      aria-controls={locked && upsellOpen ? upsellId : undefined}
+      disabled={disabled}
       onClick={onOpen}
+      onKeyDown={onKeyDown}
     >
-      {locked ? (
-        <>
-          <span className="wf-ask-bar-inner wf-lens-locked" data-testid="ask-bar-locked">{body}</span>
-          <span className="wf-lens-pro" data-testid="ask-bar-upsell">Pro</span>
-        </>
-      ) : body}
+      <span className="wf-ask-bar-k" aria-hidden="true">Ask</span>
+      <span className="wf-ask-bar-q">{prompt}</span>
+      {locked && <span className="wf-lens-pro" data-testid="ask-bar-upsell">Pro</span>}
+      <span className="wf-ask-bar-go" aria-hidden="true">↑</span>
     </button>
   );
 }
@@ -72,4 +70,7 @@ AskBar.propTypes = {
   locked: PropTypes.bool,
   expanded: PropTypes.bool,
   buttonRef: refShape,
+  upsellOpen: PropTypes.bool,
+  upsellId: PropTypes.string,
+  onKeyDown: PropTypes.func,
 };
