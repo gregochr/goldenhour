@@ -8,18 +8,15 @@
 | Role | Permissions |
 |------|-------------|
 | `ADMIN` | All endpoints + Operations tab |
-| `PRO_USER` | Forecast, outcomes, past-window ratings, locations, re-runs |
-| `LITE_USER` | Read-only forecast; may also **record** outcomes (`POST /api/outcome`); sees the Map's rating block locked (`PUT /api/outcome/ratings` is PRO/ADMIN) |
+| `PRO_USER` | Forecast, past-window ratings, locations, re-runs |
+| `LITE_USER` | Read-only forecast; sees the Map's rating block locked (`PUT /api/outcome/ratings` is PRO/ADMIN) |
 
-> "Read-only" scopes to the *forecast* surface, not the whole API. Recording an outcome is deliberately
-> open to any authenticated user: `actual_outcome` is the evidence base for the calibration gate, and
-> observations are the scarce input, so restricting who may contribute one works against the thing the
-> table exists for. Enforcement lives on the endpoints that *read* premium detail, not on this write.
+> The legacy `/api/outcome` stack (`GET /api/outcome`, `GET /api/outcome/all`, `POST /api/outcome`) became ADMIN-only on 2026-10-25: it has had no UI since 2026-02-27, `actual_outcome` has no user link, and its free-text notes were readable by anyone signed in. Readers now contribute observations through `PUT /api/outcome/ratings`.
 >
 > ⚠️ **The Map tab's per-reader rating is the other way round, on purpose.** `PUT /api/outcome/ratings` (V177 `outcome_rating`, the
 > "How was it?" block) is `@PreAuthorize` **PRO_USER and ADMIN**: a LITE write is a 403 whatever the client does, and the client shows
-> LITE the block locked (see *Role gating — UI pattern*). `POST /api/outcome` stays open to every role — it is the OLD calibration
-> input and has no UI. The two feed the same gate (*Calibration gate*); a LITE account's own `GET /api/outcome/ratings` answers `[]`
+> LITE the block locked (see *Role gating — UI pattern*). `POST /api/outcome` is the OLD calibration
+> input, ADMIN-only since 2026-10-25, and has no UI. The two feed the same gate (*Calibration gate*); a LITE account's own `GET /api/outcome/ratings` answers `[]`
 > (no role gate on the read). `UserRole`'s javadoc no longer calls outcome recording a LITE right in general. The optional `seen` tag on that PUT (V187) rides the same gate: a LITE tag is a 403.
 
 > **Ask PhotoCast is Pro and Admin only** (2026-10-24 owner decision, `ask-pro-gating-plan.md`). LITE is 403 `NOT_ENTITLED` on `POST /api/ask` and `GET /api/ask/ready`, flag on or off, from a `SecurityConfig` matcher in the security chain (backed by a class-level `@PreAuthorize` and a guard at the top of `AskService.admit` and `ask`); `GET /api/user/settings/ask` stays 200 for every role, so the client can still tell the flag being on from it being off, and the client derives the lock from the role, as the drive filter does, with no `entitled` field. There is no LITE allowance (`limit-lite` is removed). History: until 2026-10-24 Ask was open to every role with a daily allowance (LITE 3, PRO and ADMIN 30).

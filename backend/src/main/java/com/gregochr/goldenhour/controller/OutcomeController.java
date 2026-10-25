@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.model.ActualOutcomeDto;
 import com.gregochr.goldenhour.service.OutcomeService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -18,9 +19,14 @@ import java.util.List;
 
 /**
  * REST controller for recording actual observed sunrise/sunset outcomes.
+ *
+ * <p>Admin-only since 2026-10-25: {@code actual_outcome} has no user link and its notes are free text,
+ * so any signed-in reader could otherwise read everyone's rows. The reader-facing rating is
+ * {@code OutcomeRatingController} ({@code /api/outcome/ratings*}).
  */
 @RestController
 @RequestMapping("/api/outcome")
+@PreAuthorize("hasRole('ADMIN')")
 public class OutcomeController {
 
     private final OutcomeService outcomeService;

@@ -125,7 +125,7 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("The outcome endpoint is deliberately excluded — free-text notes stay no-store, no ETag")
     void outcomeEndpointStaysNoStoreForPrivacy() throws Exception {
         // Outcomes carry user-authored free-text notes. They are kept on no-store so their bodies are
