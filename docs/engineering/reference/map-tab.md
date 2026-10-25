@@ -39,3 +39,7 @@
 ## Scores and the written why are Pro (pro-features-gate-plan.md S1, 2026-10-25)
 
 A Lite reader sees the star rating and the verdict but not the Fiery Sky / Golden Hour scores or the per-location written why (`scoresLocked` from `WindowFirstBriefingContext`, a boolean; no `role ===` in a component). The Map callout needs no change: with `scoreEntry.summary` absent it already falls back to the region gloss (`map-callout-reason-region`), and it carries no door (the sheet, one tap away, does). `LocationFourDaySheet` takes a `scoresLocked` prop (default `false`): no bars, the `Nothing written about this one yet.` branch is suppressed (only that branch; the away line and `Ratings are still loading.` stay), the region gloss fallback is kept, and one `ProUpsellDoor` sits below the header meta when the sheet is a sky sheet (`!hourlyBody`) with window rows. One Escape inside the open popover closes only the popover; a second closes the sheet.
+
+## Best bets are Pro (pro-features-gate-plan.md P1, 2026-10-25)
+
+The Map's pick fields (`pickKind`, `pickRegion` on the window rows) are folded from `card.pick`, which `picksLocked` nulls for a Lite reader. So the window pill's medallion and its menu-row medallions, and the `.wf-land-pick` medallion in the window and region panels, are simply absent. The Map has no door of its own for best bets; the one door is the Plan tab's heat-strip key row.

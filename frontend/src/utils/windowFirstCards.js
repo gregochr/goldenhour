@@ -721,11 +721,14 @@ function originRegion(es, origin) {
  *                                roster. It rides on the lens object rather than as a seventh
  *                                positional argument for the reason the two thresholds already
  *                                do — this signature is at its limit.
+ * @param {boolean} [picksLocked] true when the reader does not have best bets (LITE): every card's
+ *                                {@code pick} is null. Defaults to false so every PRO caller is unchanged.
  * @returns {Array} card descriptors for the matrix and the window popup
  */
 export function buildWindowCards(
   upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates, reachById,
   lens = { limitMinutes: null, defaultLimitMinutes: null },
+  picksLocked = false,
 ) {
   const limitMinutes = lens?.limitMinutes ?? null;
   const minRating = lens?.minRating ?? null;
@@ -985,7 +988,9 @@ export function buildWindowCards(
       // the matrix card folds straight off this field) recommends somewhere the reader has just said
       // they are not. Withheld rather than re-derived: choosing a "best in this region" would be a
       // client-side pick, and picks are server-owned (plan §2.12).
-      pick: win?.pick && (!origin || win.pick.regionName === origin.name)
+      // Best bets are Pro (pro-features-gate-plan.md §7): a locked reader gets no pick even when the payload
+      // still carries one (the server strips it in P2). Every downstream surface reads this one field.
+      pick: !picksLocked && win?.pick && (!origin || win.pick.regionName === origin.name)
         ? {
           kind: win.pick.kind === 'BEST' ? 'best' : 'also',
           regionName: win.pick.regionName,

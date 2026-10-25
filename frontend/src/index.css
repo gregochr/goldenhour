@@ -4245,6 +4245,15 @@ button.wf-hc.also.on:hover {
   position: relative;
   display: block;
 }
+/* In the heat strip's wrapping key row the door is the FIRST item, so its trigger sits at the row's top-left
+   and the popover (anchored to the door, just under the trigger) opens beside it. The door is shrink-to-fit,
+   so `100%` would make the popover trigger-wide: give it a viewport-based width instead, which fits a 320px
+   phone inside the 16px gutters. z-index 19, not 20: the sticky lens bar `.wf-lens` is 20 and must stay over
+   a popover that is scrolled up under it (as `.heatmap-cell-hoverable:hover` does). */
+.wf-pro-upsell-door--foot .wf-pro-upsell {
+  width: min(360px, calc(100vw - 32px));
+  z-index: 19;
+}
 .wf-pro-upsell-trigger { max-width: 100%; }
 /* The popover is a focus target (tabIndex -1) so a press on its text lands on it, not on the nearest
    focusable ancestor (a Modal root), which would read as focus leaving the door. No ring: it is not a tab stop. */

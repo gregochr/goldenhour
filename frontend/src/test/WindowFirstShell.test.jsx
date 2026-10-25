@@ -324,6 +324,18 @@ describe('WindowFirstShell — the strip it hosts', () => {
     expect(tabs.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('wires picksLocked from the context to the strip: LITE gets the Best bets door in the key row, PRO none', async () => {
+    renderWithBriefing({ ...briefingWithSpots('2026-08-04T12:00:00'), picksLocked: true });
+    const foot = (await screen.findByTestId('wf-heat-foot'));
+    expect(within(foot).getByTestId('wf-heat-bestbets-upsell-door')).toBeInTheDocument();
+  });
+
+  it('draws no Best bets door when the context does not lock the picks', async () => {
+    renderWithBriefing({ ...briefingWithSpots('2026-08-04T12:00:00'), picksLocked: false });
+    await screen.findByTestId('wf-heat-foot');
+    expect(screen.queryByTestId('wf-heat-bestbets-upsell-door')).toBeNull();
+  });
+
   it('⚠️ draws NOTHING VISIBLE between the matrix and the doors', async () => {
     // The promoted strip stood here until M5 (plan D-1), and the test it replaces was named "draws
     // the strip above the promoted strip, which is a different thing that also stays". Both are now

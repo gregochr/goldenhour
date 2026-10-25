@@ -36,6 +36,9 @@ import { DIRECTION_WORD, STATE_WORD } from '../utils/windowFirstRows.js';
 import { tideRun } from '../utils/windowFirstTideRun.js';
 import { stoodPhrase } from '../utils/mapStandDown.js';
 import TideWave from './map/TideWave.jsx';
+import ProUpsellDoor, {
+  BEST_BETS_UPSELL_BODY, BEST_BETS_UPSELL_HEADING, BEST_BETS_UPSELL_LABEL,
+} from './shared/ProUpsell.jsx';
 import { prefersReducedMotion } from '../utils/askCamera.js';
 
 /**
@@ -666,6 +669,9 @@ function areaLabel(regionName, tiny) {
  * @param {Function} [props.onOpenWindow] opens and reveals a window's card
  * @param {?object}  [props.origin]   the away origin, or null for home — framing and scope
  * @param {Function} [props.onSearchRegion] opens search pre-filled with a region name
+ * @param {boolean}  [props.picksLocked] true for a reader without best bets (LITE): the key row carries one
+ *                                    Pro upsell door. The picks themselves are already absent from {@code cards}
+ *                                    (the context nulls them), so nothing here hides a chip.
  * @param {?object}  [props.homeCoords] {@code {lat, lon}}, or null with no postcode saved — the
  *                                    thumbnail's home marker (field-geography plan §2). Never
  *                                    drawn under an away origin, even when set.
@@ -673,6 +679,7 @@ function areaLabel(regionName, tiny) {
 export default function WindowFirstHeatStrip({
   cards, pointSets, unratedSets, stoodSets, spots, reachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
   origin = null, onSearchRegion, colourMode = null, homeCoords = null, highlightKeys = null,
+  picksLocked = false,
 }) {
   // Framing is the ONE thing scope is allowed to decide about the field: which regions are in shot.
   // It must never become the point set — handing the scoped list to the kernel would turn the
@@ -1890,6 +1897,15 @@ export default function WindowFirstHeatStrip({
       )}
 
       <div data-testid="wf-heat-foot" className="wf-hstrip-foot">
+        {picksLocked && (
+          <ProUpsellDoor
+            className="wf-pro-upsell-door--foot"
+            label={BEST_BETS_UPSELL_LABEL}
+            heading={BEST_BETS_UPSELL_HEADING}
+            body={BEST_BETS_UPSELL_BODY}
+            testIdPrefix="wf-heat-bestbets-upsell"
+          />
+        )}
         <span
           data-testid="wf-heat-legbar"
           className="wf-hstrip-legbar"
@@ -2056,6 +2072,8 @@ export default function WindowFirstHeatStrip({
 }
 
 WindowFirstHeatStrip.propTypes = {
+  /** True for a reader without best bets: draws the key row's one Pro door. */
+  picksLocked: PropTypes.bool,
   /** The active scoreRamp mode — a repaint key only; see the paint callback's note. */
   colourMode: PropTypes.oneOf(['temp', 'verdict']),
   cards: PropTypes.arrayOf(PropTypes.shape({
