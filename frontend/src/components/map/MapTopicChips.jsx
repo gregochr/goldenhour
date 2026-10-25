@@ -50,12 +50,15 @@ const EMPTY_TEXT = 'No hot topics on this window';
  *   not a toggle: it drops {@code aria-pressed}, gains {@code aria-haspopup="dialog"} and
  *   {@code aria-expanded}, and {@code onToggle} is called with the chip's element as a second argument
  *   so focus can return to it when the upsell closes
- * @param {boolean} [props.upsellOpen] whether the upsell popover is open (a locked chip's
- *   {@code aria-expanded})
+ * @param {boolean} [props.upsellOpen] whether the upsell is open (a locked chip's {@code aria-expanded})
+ * @param {string} [props.upsellId] the popover's id, while open ({@code aria-controls})
+ * @param {boolean} [props.doorPopup] false on the phone, where the door opens a sheet section, not a dialog
+ * @param {boolean} [props.doorDisabled] a locked door with nothing to open (phone, no coastal spot in view)
  */
 export default function MapTopicChips({
   chips, selectedType, onToggle, isMobile = false, hasWindow = true, suppressed = false,
   fallbackFocus = null, lockedTopicTypes = NO_LOCKED_TYPES, upsellOpen = false,
+  upsellId = undefined, doorPopup = true, doorDisabled = false,
 }) {
   const groupRef = useRef(null);
   const focusedNodeRef = useRef(null);
@@ -119,9 +122,12 @@ export default function MapTopicChips({
             type="button"
             className="wf-tch"
             aria-pressed={isLocked ? undefined : isSelected}
-            aria-haspopup={isLocked ? 'dialog' : undefined}
+            aria-haspopup={isLocked && doorPopup ? 'dialog' : undefined}
             aria-expanded={isLocked ? upsellOpen : undefined}
-            aria-label={chip.label}
+            aria-controls={isLocked && upsellId ? upsellId : undefined}
+            aria-disabled={isLocked && doorDisabled ? 'true' : undefined}
+            data-tide-door={isLocked ? '' : undefined}
+            aria-label={isLocked && doorDisabled ? `${chip.label}, no coastal spot in view` : chip.label}
             data-testid={`wf-topic-chip-${chip.type}`}
             data-topic-type={chip.type}
             data-selected={isSelected ? 'true' : undefined}
@@ -170,4 +176,7 @@ MapTopicChips.propTypes = {
   fallbackFocus: PropTypes.func,
   lockedTopicTypes: PropTypes.arrayOf(PropTypes.string),
   upsellOpen: PropTypes.bool,
+  upsellId: PropTypes.string,
+  doorPopup: PropTypes.bool,
+  doorDisabled: PropTypes.bool,
 };

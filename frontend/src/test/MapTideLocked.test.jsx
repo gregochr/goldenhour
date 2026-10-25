@@ -28,7 +28,8 @@ vi.mock('leaflet', () => {
   const divIcon = (options) => ({ options });
   const point = (x, y) => ({ x, y });
   const svg = (options) => ({ options });
-  return { default: { icon, divIcon, point, svg }, icon, divIcon, point, svg };
+  const latLngBounds = (points) => points;
+  return { default: { icon, divIcon, point, svg, latLngBounds }, icon, divIcon, point, svg, latLngBounds };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
 
@@ -37,6 +38,7 @@ const IN_VIEW_BOUNDS = { pad: () => ({ contains: () => true }) };
 const AWAY_BOUNDS = { pad: () => ({ contains: () => false }) };
 let mockMapBounds = IN_VIEW_BOUNDS;
 const mockFlyTo = vi.fn();
+const mockFitBounds = vi.fn();
 const mockMapInstance = { getZoom: () => 9, getBounds: () => mockMapBounds };
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
@@ -58,7 +60,7 @@ vi.mock('react-leaflet', () => ({
     once: () => {},
     off: () => {},
     flyTo: (...args) => mockFlyTo(...args),
-    fitBounds: () => {},
+    fitBounds: (...args) => mockFitBounds(...args),
     panInside: () => {},
     getSize: () => ({ x: 390, y: 844 }),
     latLngToContainerPoint: () => ({ x: 195, y: 400 }),
@@ -802,15 +804,16 @@ describe('Map tide upsell — the popover (§6.1)', () => {
     expect(dialog()).toBeNull();
   });
 
-  it('a programmatic fly-to (a handoff naming a place) does not close it, though Leaflet fires zoomstart', async () => {
+  it('a programmatic fit (a handoff framing pins) does not close it, though Leaflet fires zoomstart', async () => {
     const result = await renderUpsell();
     await click(row());
-    mockFlyTo.mockImplementation(() => latestHandler('zoomstart').zoomstart());
+    mockFitBounds.mockImplementation(() => latestHandler('zoomstart').zoomstart());
     const handoff = {
-      source: 'plan', eventType: 'SUNSET', date: TODAY, region: null, nonce: 7, locationName: 'Bamburgh',
+      source: 'plan', eventType: 'SUNSET', date: TODAY, region: null, nonce: 7,
+      focusPoints: [[55.6, -1.7], [55.0, -1.4]],
     };
     await rerenderMap(result, { hotTopics: TIDE_TOPICS, forecastDates: [TODAY], planHandoff: handoff });
-    expect(mockFlyTo).toHaveBeenCalled();
+    expect(mockFitBounds).toHaveBeenCalled();
     expect(dialog()).toBeInTheDocument();
   });
 
@@ -1047,5 +1050,171 @@ describe('Map tide upsell — the phone (§6.2, §6.3)', () => {
     await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-btn-tide')); });
     expect(screen.queryByTestId('wf-tide-upsell-preview')).toBeNull();
     expect(screen.queryByTestId('wf-map-peek-tide-upsell-pill')).toBeNull();
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────────────────────────
+// F2 review fixes
+// ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('Map tide upsell — review fixes', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${TODAY}T09:40:00Z`));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    mockFlyTo.mockReset();
+    mockFitBounds.mockReset();
+  });
+
+  it('(1) selecting a place closes the upsell; opening it clears the selection; a ground click closes only the upsell', async () => {
+    await renderUpsell();
+    await click(row());
+    expect(dialog()).toBeInTheDocument();
+    await click(screen.getAllByTestId('probe-spot').find((s) => s.getAttribute('data-name') === 'Bamburgh'));
+    expect(dialog()).toBeNull();
+    expect(screen.getByTestId('mock-callout')).toBeInTheDocument();
+    // Opening the upsell puts the callout away (one layer at a time).
+    await click(row());
+    expect(dialog()).toBeInTheDocument();
+    expect(screen.queryByTestId('mock-callout')).toBeNull();
+  });
+
+  it('(1) a ground click with the upsell open closes ONLY the upsell', async () => {
+    await renderUpsell();
+    await click(row());
+    await act(async () => { latestHandler('click').click(); });
+    expect(dialog()).toBeNull();
+    // The next ground click is an ordinary one again (it would deselect; nothing is selected, nothing breaks).
+    await act(async () => { latestHandler('click').click(); });
+    expect(dialog()).toBeNull();
+  });
+
+  it('(2) focus is not stolen when the reader has moved on: a map click leaves it on the window stepper', async () => {
+    await renderUpsell();
+    row().focus();
+    await click(row());
+    const stepper = screen.getByTestId('wf-win-prev');
+    stepper.focus();
+    await act(async () => { latestHandler('click').click(); });
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(stepper);
+  });
+
+  it('(2) a different door toggling it closed takes the focus, not the first opener', async () => {
+    await renderUpsell();
+    await click(row());
+    const king = chipOf('KING_TIDE');
+    king.focus();
+    await click(king);
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(king);
+  });
+
+  it('(3) Shift+Tab out of the popover closes it without moving focus', async () => {
+    const user = userEvent.setup({ advanceTimers: () => {} });
+    await renderUpsell();
+    await click(row());
+    expect(document.activeElement).toBe(within(dialog()).getByTestId('wf-tide-upsell-heading'));
+    await act(async () => { await user.tab({ shift: true }); });
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).not.toBe(pane());
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('(3) focus moving to a tide door (a chip) does not close it by itself', async () => {
+    await renderUpsell();
+    await click(row());
+    await act(async () => { chipOf('KING_TIDE').focus(); });
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it('(4) a window change closes a chip-opened upsell', async () => {
+    await renderUpsell();
+    await click(chipOf('KING_TIDE'));
+    expect(dialog()).toBeInTheDocument();
+    await click(screen.getByTestId('wf-win-prev'));
+    expect(dialog()).toBeNull();
+  });
+
+  it('(6) a late planning-area fit (HeatBoundsController) is a programmatic move: it does not close the upsell', async () => {
+    const result = await renderUpsell();
+    await click(row());
+    mockFitBounds.mockImplementation(() => latestHandler('zoomstart').zoomstart());
+    const moved = heatProp();
+    moved.areaBounds = [[54.0, -3.9], [55.9, -1.0]];
+    await rerenderMap(result, { hotTopics: TIDE_TOPICS, forecastDates: [TODAY], heat: moved });
+    expect(mockFitBounds).toHaveBeenCalled();
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it('(7) desktop: every open locked door points at the popover with aria-controls', async () => {
+    await renderUpsell();
+    await click(row());
+    const id = dialog().id;
+    expect(chipOf('SPRING_TIDE')).toHaveAttribute('aria-controls', id);
+    expect(chipOf('KING_TIDE')).toHaveAttribute('aria-controls', id);
+    expect(row()).toHaveAttribute('aria-controls', id);
+    expect(dialog()).toHaveAttribute('aria-describedby', within(dialog()).getByTestId('wf-tide-upsell-body').id);
+  });
+
+  it('(8) the teaser button has a data-driven accessible name', async () => {
+    await renderUpsell();
+    expect(row()).toHaveAccessibleName(/^Tide at this light: .*falling.*\. Pro$/i);
+  });
+
+  it('(11) a later-day King bar as LITE opens the upsell and moves neither the window nor the date', async () => {
+    const D2 = '2026-01-16';
+    const onSelectDate = vi.fn();
+    const heat = heatProp();
+    heat.windows = [...heat.windows, {
+      key: `${D2}:SUNSET`, date: D2, targetType: 'SUNSET', label: 'Friday sunset', time: '16:14', bestRating: 4, conf: 1, tide: TIDE,
+    }];
+    heat.pointsByKey = new Map([...heat.pointsByKey, [`${D2}:SUNSET`, SPOTS.map(pointOf)]]);
+    const topics = [...TIDE_TOPICS, topicOf('KING_TIDE', { date: D2, eventType: null })];
+    await renderUpsell({
+      heat, hotTopics: topics, forecastDates: [TODAY, D2], onSelectDate,
+    });
+    await click(screen.getByTestId('wf-topic-strip-toggle'));
+    const pillBefore = screen.getByTestId('wf-win-pill').textContent;
+    const bars = [...document.querySelectorAll('[data-testid^="wf-topic-bar-KING_TIDE-"]')];
+    expect(bars.length).toBeGreaterThan(0);
+    await click(bars[bars.length - 1]);
+    expect(dialog()).toBeInTheDocument();
+    expect(onSelectDate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('wf-win-pill').textContent).toBe(pillBefore);
+  });
+
+  describe('phone door semantics (7)', () => {
+    beforeEach(() => { mockIsMobile = true; });
+
+    it('a locked chip is not a dialog door: no haspopup, expanded follows the Tide section', async () => {
+      await renderUpsell();
+      const c = chipOf('KING_TIDE');
+      expect(c).not.toHaveAttribute('aria-haspopup');
+      expect(c).toHaveAttribute('aria-expanded', 'false');
+      expect(c).not.toHaveAttribute('aria-disabled');
+      await click(c);
+      expect(chipOf('KING_TIDE')).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('with no coastal spot in view the door is aria-disabled and says so', async () => {
+      const result = await renderUpsell();
+      await reportBounds(AWAY_BOUNDS);
+      await rerenderMap(result, { hotTopics: TIDE_TOPICS, forecastDates: [TODAY] });
+      const c = chipOf('SPRING_TIDE');
+      expect(c).toHaveAttribute('aria-disabled', 'true');
+      expect(c).toHaveAccessibleName(/, no coastal spot in view$/);
+    });
+
+    it('a sheet-strip row has no haspopup either', async () => {
+      await renderUpsell();
+      await click(screen.getByTestId('wf-map-peek-btn-win'));
+      await click(screen.getByTestId('wf-topic-strip-toggle'));
+      const label = await screen.findByTestId('wf-topic-strip-label-SPRING_TIDE');
+      expect(label).not.toHaveAttribute('aria-haspopup');
+      expect(label).toHaveAttribute('aria-expanded', 'false');
+    });
   });
 });

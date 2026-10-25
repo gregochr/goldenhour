@@ -4153,6 +4153,9 @@ button.wf-hc.also.on:hover {
   border-color: var(--color-plex-border-light);
 }
 /* An INSET ring: the strip root is `overflow: hidden`, which would clip an outset outline. */
+@media (forced-colors: active) {
+  .wf-tide-strip-locked[aria-expanded="true"] { border-color: Highlight; }
+}
 .wf-tide-strip-locked:focus-visible {
   outline: 2px solid var(--color-plex-text);
   outline-offset: -4px;
@@ -4166,6 +4169,8 @@ button.wf-hc.also.on:hover {
   width: 474px;
   max-width: calc(100% - 24px);
   height: 0;
+  /* Cancels the flex gap this zero-height child would otherwise add, so opening shifts nothing. */
+  margin-bottom: -6px;
 }
 .wf-tide-upsell {
   position: absolute;

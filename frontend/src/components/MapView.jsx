@@ -273,7 +273,9 @@ const PinsLayer = lazy(() => import('./map/PinsLayer.jsx'));
  * instead, matching the design bundle's own `jumpTo` (`docs/design/map-tab-v2/map-tab-v2.js`), which
  * pads a region's own, generally tighter box more generously than the wider area/catalogue box needs.
  */
-function HeatBoundsController({ bounds, nonce, padding = [28, 28] }) {
+function HeatBoundsController({
+  bounds, nonce, padding = [28, 28], onProgrammaticMove = undefined,
+}) {
   const map = useMap();
   /**
    * The framing already applied, as a value rather than a "have I run yet" boolean.
@@ -298,6 +300,8 @@ function HeatBoundsController({ bounds, nonce, padding = [28, 28] }) {
     if (applied.current === key) return;
     applied.current = key;
     if (!bounds || typeof map?.fitBounds !== 'function') return;
+    // A programmatic move: the tide upsell's map-move close must not read its zoom as a hand's.
+    onProgrammaticMove?.();
     map.fitBounds(bounds, { padding, animate: false });
     // Keyed on the composed value, not on the bounds ARRAY identity, which is rebuilt on every poll.
     // `padding` is deliberately NOT a dependency either: it always changes in lockstep with `bounds`
@@ -312,6 +316,7 @@ HeatBoundsController.propTypes = {
   bounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
   nonce: PropTypes.number,
   padding: PropTypes.arrayOf(PropTypes.number),
+  onProgrammaticMove: PropTypes.func,
 };
 
 
@@ -794,6 +799,10 @@ TideUpsellDismissOnMapMove.propTypes = {
  * anything on that `mousedown` any more: a plain closure over `openMapMenu` read at `click` time
  * would now see the correct pre-press value. The timeline is only still live for a press OUTSIDE
  * the frame, which this controller never sees.
+ *
+ * <p><b>One layer per click, like Escape.</b> While the tide upsell popover is open (F2), the caller closes
+ * ONLY the popover and does not deselect the place: a ground click is the popover's "click outside" and
+ * the selection is a second layer under it.
  */
 function MapBackgroundClickController({ onBackgroundClick }) {
   useMapEvents({
@@ -4151,7 +4160,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   useOutsideDismiss({
     open: tideUpsellOpen,
     rootRef: tideUpsellRootRef,
-    onDismiss: () => setOpenMapMenu((cur) => (cur === 'tideUpsell' ? null : cur)),
+    onDismiss: closeTideUpsellQuietly,
   });
 
   // A popover value must not outlive the desktop layout: crossing to the phone (where the upsell is the peek
@@ -4163,8 +4172,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [isMobile]);
   // The map's own fly-to and fit-bounds are programmatic moves: stamp them before the controllers' passive
   // effects run, so the upsell's map-move close can tell their zoom from a hand's.
+  function stampOwnCameraMove() {
+    ownCameraMoveRef.current = Date.now() + TIDE_UPSELL_OWN_MOVE_MS;
+  }
   useLayoutEffect(() => {
-    if (flyTarget || fitBoundsTarget) ownCameraMoveRef.current = Date.now() + TIDE_UPSELL_OWN_MOVE_MS;
+    if (flyTarget || fitBoundsTarget) stampOwnCameraMove();
   }, [flyTarget, fitBoundsTarget]);
 
   /**
@@ -4174,23 +4186,50 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   function closeTideUpsellForGoneTeaser() {
     if (openMapMenu !== 'tideUpsell') return;
-    tideUpsellOpenerRef.current = null;
     setOpenMapMenu(null);
-    mapPaneRef.current?.focus({ preventScroll: true });
+    returnTideUpsellFocus(mapPaneRef.current);
   }
 
-  /** Moves focus back to what opened the upsell, or to the pane when that is gone. */
-  function returnTideUpsellFocus() {
-    const opener = tideUpsellOpenerRef.current;
-    const target = opener?.isConnected ? opener : mapPaneRef.current;
-    target?.focus({ preventScroll: true });
+  /**
+   * Moves focus to {@code target} (default: what opened the upsell; the pane when that is gone) ONLY when
+   * focus would otherwise be stranded: inside the popover that is about to unmount, on the pane root or
+   * {@code <body>}, or on a node that is gone. A reader who has moved on (the window stepper, the callout,
+   * the map after a keyboard zoom) keeps their focus. The house idiom of the legend reconciliation above.
+   */
+  function returnTideUpsellFocus(target = tideUpsellOpenerRef.current) {
+    const active = document.activeElement;
+    const stranded = !active || active === document.body || active === mapPaneRef.current
+      || !active.isConnected || Boolean(tideUpsellRootRef.current?.contains(active));
+    if (!stranded) return;
+    (target?.isConnected ? target : mapPaneRef.current)?.focus({ preventScroll: true });
   }
 
-  /** Closes the upsell and returns focus to its opener (every close does). */
+  /** Closes the upsell and returns focus to its opener when it would be stranded. */
   function closeTideUpsell() {
     setOpenMapMenu((cur) => (cur === 'tideUpsell' ? null : cur));
     returnTideUpsellFocus();
   }
+
+  /** Closes the upsell and leaves focus where the reader put it (focus left the popover, or an outside press). */
+  function closeTideUpsellQuietly() {
+    setOpenMapMenu((cur) => (cur === 'tideUpsell' ? null : cur));
+  }
+
+  // The upsell closes when what it sits over changes: a place is selected (its callout, z-index 1350, would
+  // cover the popover: a marker click, a handoff naming a place, an Ask pick), or the window changes (which
+  // covers a chip-opened upsell, where no teaser is there to take it away). Focus is not moved: the place or
+  // the window control has it. One-shot reconciliations that end the condition that fired them.
+  const upsellWindowIdRef = useRef(activeMapEvent?.id ?? null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (selectedLocationName != null) setOpenMapMenu((cur) => (cur === 'tideUpsell' ? null : cur));
+  }, [selectedLocationName]);
+  useEffect(() => {
+    const id = activeMapEvent?.id ?? null;
+    if (upsellWindowIdRef.current === id) return;
+    upsellWindowIdRef.current = id;
+    setOpenMapMenu((cur) => (cur === 'tideUpsell' ? null : cur));
+  }, [activeMapEvent?.id]);
 
   /**
    * A tide door was pressed. {@code opener} is the element focus returns to (the teaser row, a chip, or the
@@ -4207,9 +4246,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       return;
     }
     if (openMapMenu === 'tideUpsell') {
+      // Closed by a (possibly different) door: focus goes to THAT door, not the first opener.
+      if (opener) tideUpsellOpenerRef.current = opener;
       closeTideUpsell();
       return;
     }
+    // The callout (z-index 1350) would cover the popover: one layer at a time, as on the phone.
+    setSelectedLocationName(null);
     tideUpsellOpenerRef.current = opener;
     setOpenMapMenu('tideUpsell');
   }
@@ -4863,6 +4906,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }
   /** The sheet strip's bar or moving-label press: the strip's own pick, then the sheet folds to peek. */
   function pickTopicFromSheet(type, row, movedMessage = null) {
+    // Defence in depth: a locked type returns BEFORE the sheet collapses (the Tide section may be open).
+    if (lockedTopicTypes.includes(type)) return;
     pickTopic(type, row, movedMessage, false);
     collapseSheetAfterTopicPress();
   }
@@ -6390,7 +6435,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       return;
     }
     if (openMapMenu != null) {
-      // The tide upsell is closed by this rung too (focus outside it, in the pane): focus returns to its opener.
+      // The tide upsell is closed by this rung too: focus returns to its opener when it would be stranded.
       if (openMapMenu === 'tideUpsell') returnTideUpsellFocus();
       setOpenMapMenu(null);
       return;
@@ -6665,7 +6710,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           {topicRingsDrawn && (
             <MapTopicRings places={topicRingPlaces} colour={activeTopicChip.colour} inPins={heatPinsOn} />
           )}
-          <HeatBoundsController bounds={heatBounds} nonce={heatBoundsNonce} padding={heatBoundsPadding} />
+          <HeatBoundsController
+            bounds={heatBounds}
+            nonce={heatBoundsNonce}
+            padding={heatBoundsPadding}
+            onProgrammaticMove={stampOwnCameraMove}
+          />
           {/* CARTO's basemaps.cartocdn.com dark_all tiles now require a registered API key
               (https://carto.com/basemaps/apikey) — anonymous requests render an
               "API KEY REQUIRED" watermark instead of the tile. Esri's Canvas basemaps stay
@@ -6741,9 +6791,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               targets. */}
           <MapBackgroundClickController
             onBackgroundClick={() => {
+              // One layer per action, like Escape: with the tide upsell open the click closes ONLY it.
+              if (tideUpsellOpen) {
+                closeTideUpsell();
+                return;
+              }
               setSelectedLocationName(null);
-              // A plain click on the map also closes the tide upsell (README: "click outside"); focus returns.
-              if (tideUpsellOpen) closeTideUpsell();
             }}
           />
           {/* A hand pan or zoom closes the tide upsell (plan §6.1); programmatic moves do not. */}
@@ -7000,7 +7053,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             selectedType={activeTopicChip?.type ?? null}
             onToggle={toggleTopic}
             lockedTopicTypes={lockedTopicTypes}
-            upsellOpen={tideUpsellOpen}
+            upsellOpen={isMobile ? openMapMenu === 'peek:tide' : tideUpsellOpen}
+            upsellId={tideUpsellOpen ? tideUpsellId : undefined}
+            doorPopup={!isMobile}
+            doorDisabled={isMobile && !tidePeekShown}
             isMobile={isMobile}
             hasWindow={activeMapEvent != null}
             suppressed={topicsSuppressed}
@@ -7267,6 +7323,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       fallbackFocus={() => (windowsPeekBtnRef.current ?? mapPaneRef.current)?.focus({ preventScroll: true })}
                       onToggleType={toggleTopicFromSheet}
                       lockedTopicTypes={lockedTopicTypes}
+                      upsellOpen={openMapMenu === 'peek:tide'}
+                      doorPopup={false}
+                      doorDisabled={!tidePeekShown}
                       onPick={pickTopicFromSheet}
                       onSelectHw={selectHwFromSheet}
                     />
@@ -7523,13 +7582,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 onToggleType={toggleTopic}
                 lockedTopicTypes={lockedTopicTypes}
                 upsellOpen={tideUpsellOpen}
+                upsellId={tideUpsellOpen ? tideUpsellId : undefined}
                 onPick={pickTopicFromStrip}
                 onSelectHw={selectHwFromStrip}
                 onHeightChange={setTopicStripHeight}
               />
             )}
             {tideUpsellOpen && (
-              <TideUpsellPopover id={tideUpsellId} rootRef={tideUpsellRootRef} onClose={closeTideUpsell} />
+              <TideUpsellPopover
+                id={tideUpsellId}
+                rootRef={tideUpsellRootRef}
+                onClose={closeTideUpsell}
+                onFocusAway={closeTideUpsellQuietly}
+                doorSelector="[data-tide-door]"
+              />
             )}
             {!isMobile && (
               <MapTideStrip

@@ -51,7 +51,9 @@ export function TideUpsellPreview() {
  * pill, the heading, the body and the preview. {@code headingRef} lets the popover move focus to the
  * heading; the phone section passes none.
  */
-export function TideUpsellContent({ headingId, headingRef = undefined, testIdPrefix }) {
+export function TideUpsellContent({
+  headingId, headingRef = undefined, bodyId = undefined, testIdPrefix,
+}) {
   return (
     <>
       <span className="wf-lens-pro" data-testid={`${testIdPrefix}-pill`}>Pro</span>
@@ -64,7 +66,7 @@ export function TideUpsellContent({ headingId, headingRef = undefined, testIdPre
       >
         {TIDE_UPSELL_HEADING}
       </h3>
-      <p className="wf-tide-upsell-body" data-testid={`${testIdPrefix}-body`}>{TIDE_UPSELL_BODY}</p>
+      <p id={bodyId} className="wf-tide-upsell-body" data-testid={`${testIdPrefix}-body`}>{TIDE_UPSELL_BODY}</p>
       <TideUpsellPreview />
     </>
   );
@@ -72,6 +74,7 @@ export function TideUpsellContent({ headingId, headingRef = undefined, testIdPre
 
 TideUpsellContent.propTypes = {
   headingId: PropTypes.string.isRequired,
+  bodyId: PropTypes.string,
   headingRef: PropTypes.oneOfType([PropTypes.func, PropTypes.shape({ current: PropTypes.any })]),
   testIdPrefix: PropTypes.string.isRequired,
 };
@@ -86,9 +89,12 @@ TideUpsellContent.propTypes = {
  * opener through {@code onClose}. Every other close path (outside press, map click, hand pan or zoom,
  * teaser unmount) is wired in `MapView`.
  */
-export default function TideUpsellPopover({ id, onClose, rootRef }) {
+export default function TideUpsellPopover({
+  id, onClose, onFocusAway, rootRef, doorSelector,
+}) {
   const headingRef = useRef(null);
   const headingId = `${id}-heading`;
+  const bodyId = `${id}-body`;
 
   useEffect(() => {
     headingRef.current?.focus({ preventScroll: true });
@@ -101,6 +107,17 @@ export default function TideUpsellPopover({ id, onClose, rootRef }) {
     onClose();
   }
 
+  // Focus left the popover for something that is not a tide door (Shift+Tab onto the four-day strip it
+  // overlays, say: WCAG 2.4.11, those stops are hidden): close WITHOUT moving focus, which is already
+  // where the reader put it. A null `relatedTarget` (a click on bare ground, the window losing focus) is
+  // left to the outside-press and map-click routes.
+  function onBlur(e) {
+    const next = e.relatedTarget;
+    if (!next || rootRef.current?.contains(next)) return;
+    if (next.closest?.(doorSelector)) return;
+    onFocusAway();
+  }
+
   return (
     <div className="wf-tide-upsell-anchor">
       {/* A non-modal dialog: Escape is the one key it owns. */}
@@ -110,11 +127,18 @@ export default function TideUpsellPopover({ id, onClose, rootRef }) {
         ref={rootRef}
         role="dialog"
         aria-labelledby={headingId}
+        aria-describedby={bodyId}
         className="wf-tide-upsell"
         data-testid="wf-tide-upsell"
         onKeyDown={onKeyDown}
+        onBlur={onBlur}
       >
-        <TideUpsellContent headingId={headingId} headingRef={headingRef} testIdPrefix="wf-tide-upsell" />
+        <TideUpsellContent
+          headingId={headingId}
+          headingRef={headingRef}
+          bodyId={bodyId}
+          testIdPrefix="wf-tide-upsell"
+        />
         <button
           type="button"
           className="wf-tide-upsell-dismiss"
@@ -131,5 +155,7 @@ export default function TideUpsellPopover({ id, onClose, rootRef }) {
 TideUpsellPopover.propTypes = {
   id: PropTypes.string.isRequired,
   onClose: PropTypes.func.isRequired,
+  onFocusAway: PropTypes.func.isRequired,
+  doorSelector: PropTypes.string.isRequired,
   rootRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
 };

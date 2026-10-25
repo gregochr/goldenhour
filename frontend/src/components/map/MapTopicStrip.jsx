@@ -7,6 +7,8 @@ import { barTarget, columnWord, labelTarget } from '../../utils/mapTopics.js';
 
 /** No locked types: every row is an ordinary topic door (PRO, Admin, and every bare render). */
 const NO_LOCKED_TYPES = [];
+/** Appended to a locked door's name when it has nothing to open (the phone, no coastal spot in view). */
+const DOOR_DISABLED_SUFFIX = ', no coastal spot in view';
 
 /** The per-viewer preference: '1' (open), '0' (closed) or absent (the frame height decides). */
 export const TOPIC_STRIP_OPEN_KEY = 'mapTopicStripOpen';
@@ -110,13 +112,17 @@ function spanWords(grid, bar) {
  *   topics, for LITE; docs/engineering/tide-pro-gate-plan.md §6.2). A press on a locked row never moves the
  *   window or picks: it parks focus on the strip and calls {@code onToggleType(type, stripRoot)}, so the owner
  *   can open the upsell and return focus to the strip. The row's name says it is a Pro map view.
- * @param {boolean} [props.upsellOpen] whether the upsell popover is open (a locked row's {@code aria-expanded})
+ * @param {boolean} [props.upsellOpen] whether the upsell is open (a locked row's {@code aria-expanded})
+ * @param {string} [props.upsellId] the popover's id, while open ({@code aria-controls})
+ * @param {boolean} [props.doorPopup] false on the phone, where the door opens a sheet section, not a dialog
+ * @param {boolean} [props.doorDisabled] a locked door with nothing to open (phone, no coastal spot in view)
  */
 export default function MapTopicStrip({
   grid, selectedType = null, currentTypes, forceCollapsed = false, forceReason = '', held = false,
   heldReason = '', onOpenHeld = undefined, onCloseYielded = undefined, onToggleType,
   onPick, onSelectHw = undefined, onHeightChange = undefined, fallbackFocus = null, variant = 'panel',
   openByDefault = false, lockedTopicTypes = NO_LOCKED_TYPES, upsellOpen = false,
+  upsellId = undefined, doorPopup = true, doorDisabled = false,
 }) {
   const inSheet = variant === 'sheet';
   const storageKey = inSheet ? TOPIC_STRIP_OPEN_SHEET_KEY : TOPIC_STRIP_OPEN_KEY;
@@ -393,7 +399,7 @@ export default function MapTopicStrip({
               ? `${topicRow.shortName}: show on the map`
               : `${topicRow.shortName}: ${jump}`;
             // A locked row opens the upsell: "show on the map" / "jump to ..." would be false.
-            if (rowLocked) labelName = `${topicRow.name}, a Pro map view`;
+            if (rowLocked) labelName = `${topicRow.name}, a Pro map view${doorDisabled ? DOOR_DISABLED_SUFFIX : ''}`;
             return (
               <React.Fragment key={topicRow.type}>
                 <button
@@ -401,9 +407,10 @@ export default function MapTopicStrip({
                   className={`wf-tl-n${tall ? ' wf-tl-tall' : ''}`}
                   aria-label={labelName}
                   aria-pressed={onHere && !rowLocked ? isSelected : undefined}
-                  aria-haspopup={rowLocked ? 'dialog' : undefined}
+                  aria-haspopup={rowLocked && doorPopup ? 'dialog' : undefined}
                   aria-expanded={rowLocked ? upsellOpen : undefined}
-                  aria-disabled={labelGo || rowLocked ? undefined : 'true'}
+                  aria-controls={rowLocked && upsellId ? upsellId : undefined}
+                  aria-disabled={rowLocked ? (doorDisabled ? 'true' : undefined) : (labelGo ? undefined : 'true')}
                   data-testid={`wf-topic-strip-label-${topicRow.type}`}
                   data-selected={isSelected ? 'true' : undefined}
                   style={{ gridArea: `${gridRow} / 1`, '--wf-tc': topicRow.colour }}
@@ -437,9 +444,11 @@ export default function MapTopicStrip({
                         key={key}
                         type="button"
                         {...barProps}
-                        aria-label={`${topicRow.name}, ${span}, a Pro map view`}
-                        aria-haspopup="dialog"
+                        aria-label={`${topicRow.name}, ${span}, a Pro map view${doorDisabled ? DOOR_DISABLED_SUFFIX : ''}`}
+                        aria-haspopup={doorPopup ? 'dialog' : undefined}
                         aria-expanded={upsellOpen}
+                        aria-controls={upsellId}
+                        aria-disabled={doorDisabled ? 'true' : undefined}
                         onClick={() => pressBar(topicRow, bar)}
                       />
                     );
@@ -556,4 +565,7 @@ MapTopicStrip.propTypes = {
   variant: PropTypes.oneOf(['panel', 'sheet']),
   lockedTopicTypes: PropTypes.arrayOf(PropTypes.string),
   upsellOpen: PropTypes.bool,
+  upsellId: PropTypes.string,
+  doorPopup: PropTypes.bool,
+  doorDisabled: PropTypes.bool,
 };

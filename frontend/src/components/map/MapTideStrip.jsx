@@ -617,6 +617,8 @@ export default function MapTideStrip({
           aria-haspopup="dialog"
           aria-expanded={upsellOpen}
           aria-controls={upsellId}
+          aria-label={`Tide at this light: ${statePhrase(tide)}. Pro`}
+          data-tide-door=""
           onClick={(e) => onOpenUpsell?.(e.currentTarget)}
         >
           <span className="wf-tide-strip-kicker">{TIDE_KICKER_TEXT}</span>
