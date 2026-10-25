@@ -252,6 +252,18 @@ describe('MapView — the drive-time filter for a locked reader', () => {
     expect(screen.getByTestId('wf-map-breadcrumb-carrying').textContent).not.toMatch(/within/);
   });
 
+  it('an away origin with region-base minutes and a carried limit still hides nothing', async () => {
+    const driveOverrideById = new Map([
+      [NEAR_ID, { driveMinutes: 20, distanceMiles: null }],
+      [FAR_HOME_ONLY_ID, { driveMinutes: 100, distanceMiles: null }],
+    ]);
+    const away = { id: 'lakes', name: 'Lake District', baseName: 'Keswick' };
+    await renderTab({
+      driveLocked: true, origin: away, planHandoff: DOOR, heat: { ...heatProp(driveOverrideById, SPOTS), areaSpots: SPOTS },
+    });
+    expect(drawnSpotCount()).toBe(2);
+  });
+
   it('PRO (unlocked) is unchanged: the same handoff limit narrows the map and counts as a filter', async () => {
     await renderTab({
       driveLocked: false, reachById: REACH, heat: heat(), planHandoff: DOOR,

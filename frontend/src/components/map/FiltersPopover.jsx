@@ -199,33 +199,38 @@ export default function FiltersPopover({
       {/* ── Drive time — the mock's three named tiers, segmented (plan §3 P7). ── */}
       <div className="wf-filters-row">
         <span className="wf-filters-key">Drive time</span>
-        {/* Reuses the tide segment's wrapper: the segment carries the grey, the Pro pill sits outside it. */}
-        <div className="wf-map-peek-tide-seg-group">
-          <div
-            className={`wf-filters-seg${driveLocked ? ' wf-lens-locked' : ''}`}
-            role="group"
-            aria-label="Maximum drive time"
-            data-testid="drive-time-filter-group"
-          >
-            {DRIVE_TIME_TIERS.map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                // A real `disabled` as well as the wrapper's `pointer-events: none`: that does not stop a keyboard.
-                disabled={driveLocked}
-                data-testid={`drive-time-filter-${value}`}
-                aria-pressed={driveTimeFilter === value}
-                className={`wf-filters-seg-btn${driveTimeFilter === value ? ' on' : ''}`}
-                onClick={() => onSelectDriveTime(value)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {driveLocked && (
-            <span data-testid="drive-time-filter-upsell" className="wf-lens-pro">Pro</span>
-          )}
-        </div>
+        {(() => {
+          const seg = (
+            <div
+              className={`wf-filters-seg${driveLocked ? ' wf-lens-locked' : ''}`}
+              role="group"
+              aria-label="Maximum drive time"
+              data-testid="drive-time-filter-group"
+            >
+              {DRIVE_TIME_TIERS.map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  // A real `disabled` as well as the wrapper's `pointer-events: none`: that does not stop a keyboard.
+                  disabled={driveLocked}
+                  data-testid={`drive-time-filter-${value}`}
+                  aria-pressed={driveTimeFilter === value}
+                  className={`wf-filters-seg-btn${driveTimeFilter === value ? ' on' : ''}`}
+                  onClick={() => onSelectDriveTime(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          );
+          // Wrapped only when locked (the tide segment's wrapper), so the Pro DOM is unchanged.
+          return driveLocked ? (
+            <div className="wf-map-peek-tide-seg-group">
+              {seg}
+              <span data-testid="drive-time-filter-upsell" className="wf-lens-pro">Pro</span>
+            </div>
+          ) : seg;
+        })()}
       </div>
 
       {/* ── Sky — dark-sky-only toggle, hidden in Aurora/Astro (the old drawer's own gate:

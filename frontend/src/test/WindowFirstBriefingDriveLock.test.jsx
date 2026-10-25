@@ -74,8 +74,24 @@ describe('WindowFirstBriefingProvider — the drive-time lock', () => {
   }
 
 
-  it('a Lite reader is driveLocked and never asks for /reach', async () => {
+  it('a demotion inside the session empties the reach a Pro answer left behind', async () => {
+    mockRole = 'PRO_USER';
+    getReach.mockResolvedValue(REACH);
+    const view = renderProvider();
+    await settle();
+    expect(latest.current.reachById.size).toBe(1);
+
     mockRole = 'LITE_USER';
+    view.rerender(<WindowFirstBriefingProvider><Probe /></WindowFirstBriefingProvider>);
+    await settle();
+
+    expect(latest.current.driveLocked).toBe(true);
+    expect(latest.current.reachById.size).toBe(0);
+    expect(getReach).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['LITE_USER', null])('a reader with role %s is driveLocked and never asks for /reach', async (role) => {
+    mockRole = role;
     getReach.mockResolvedValue(REACH);
     renderProvider();
     await settle();

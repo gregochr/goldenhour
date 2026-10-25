@@ -274,8 +274,9 @@ export function WindowFirstBriefingProvider({
   const { role } = useAuth();
   const briefingCacheKey = `briefing:${role || 'anon'}`;
   // Drive times from home are Pro (docs/engineering/pro-features-gate-plan.md §9). Declared up here
-  // because the reach fetch below needs it; the same test as `isPro` further down.
-  const driveLocked = role !== 'PRO_USER' && role !== 'ADMIN';
+  // because the reach fetch below needs it. `isPro` is declared here once, for every lock below.
+  const isPro = role === 'PRO_USER' || role === 'ADMIN';
+  const driveLocked = !isPro;
 
   // Lazy initialiser, not a call in the render body. React evaluates a plain `useState(x)` argument
   // on EVERY render and throws it away from the second one on — and this argument is a synchronous
@@ -517,8 +518,12 @@ export function WindowFirstBriefingProvider({
    */
   useEffect(() => {
     // A locked (LITE) reader is never asked: the endpoint answers 403 for them and the map stays
-    // empty, the same state as a reader with no home postcode.
-    if (driveLocked) return undefined;
+    // empty, the same state as a reader with no home postcode. A demotion inside the session also
+    // drops what a Pro answer left behind.
+    if (driveLocked) {
+      setReachById((m) => (m.size ? EMPTY_REACH : m));
+      return undefined;
+    }
     let cancelled = false;
     getReach()
       .then((entries) => {
@@ -653,7 +658,6 @@ export function WindowFirstBriefingProvider({
   // Coming up redesign's P6 deleted its only reader (`WindowFirstDoors`'s `HotTopicStrip` panel,
   // `docs/engineering/coming-up-plan.md` D7) — removed rather than left as a readerless field,
   // the same orphan-hunting discipline that phase applied to `auroraTonight`/`HotTopic.tideRun`.
-  const isPro = role === 'PRO_USER' || role === 'ADMIN';
   // The Map's tide curve and per-location tide match are Pro (docs/engineering/tide-pro-gate-plan.md §3).
   // Same derivation as the drive filter: the role stops here, a boolean goes down.
   const tideLocked = !isPro;
