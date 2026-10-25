@@ -27,12 +27,14 @@ describe('apple-app-site-association', () => {
     expect(() => JSON.parse(raw())).not.toThrow();
   });
 
-  it('claims exactly the four email-link paths, in order, and nothing else', () => {
+  it('claims exactly the email-link paths (fragment form, older query form, sub-paths), in order, and nothing else', () => {
     const { applinks } = parsed();
     expect(applinks.details).toHaveLength(1);
     expect(applinks.details[0].components).toEqual([
+      { '/': '/verify', '#': 'token=*' },
       { '/': '/verify', '?': { token: '*' } },
       { '/': '/verify/*' },
+      { '/': '/reset', '#': 'token=*' },
       { '/': '/reset', '?': { token: '*' } },
       { '/': '/reset/*' },
     ]);

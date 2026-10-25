@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.notification;
 
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeAll;
@@ -66,6 +67,10 @@ class EmailTemplateRenderingTest {
                         "alice"));
     }
 
+    static Stream<Arguments> linkTemplates() {
+        return templates().filter(a -> ((String) a.get()[3]).contains("#token="));
+    }
+
     private static String render(String template, Map<String, Object> variables) {
         Context context = new Context();
         variables.forEach(context::setVariable);
@@ -92,16 +97,15 @@ class EmailTemplateRenderingTest {
     }
 
     @ParameterizedTest(name = "{0} mails the one-time token in the fragment")
-    @MethodSource("templates")
+    @MethodSource("linkTemplates")
     @DisplayName("a one-time link renders with #token= in both the button href and the visible URL, never ?token=")
     void oneTimeLinksUseTheFragment(String template, String heading, Map<String, Object> variables,
                                     String distinctValue) {
-        org.junit.jupiter.api.Assumptions.assumeTrue(distinctValue.contains("#token="));
         String html = render(template, variables);
 
         assertThat(html).contains("href=\"" + distinctValue + "\"");
         assertThat(html).doesNotContain("?token=");
-        assertThat(html.split(java.util.regex.Pattern.quote(distinctValue), -1))
+        assertThat(html.split(Pattern.quote(distinctValue), -1))
                 .as("the URL appears as the href and as the visible copy-paste text").hasSize(3);
     }
 
