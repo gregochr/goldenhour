@@ -2,7 +2,6 @@ package com.gregochr.goldenhour.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -21,6 +20,9 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.model.LocationTideFact;
+import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.util.ForecastHorizon;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -260,8 +262,14 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
                 LocalDate.of(2026, 10, 25), TargetType.SUNSET,
                 LocationEvaluationView.Source.CACHED_EVALUATION, 4, "Clear sky over the castle.", 81, 66,
                 null, null, "SONNET", null, DisplayVerdict.WORTH_IT, null, null, null, null);
-        when(evaluationViewService.forDateRange(any(LocalDate.class), any(LocalDate.class),
-                eq(Set.of(TargetType.SUNRISE, TargetType.SUNSET)))).thenReturn(List.of(scored));
+        // The controller reads "today" from the application clock, so the expected window is derived
+        // the same way the controller derives it: the UK civil date, SERVE_PAST_DAYS back and the
+        // forecast horizon forward.
+        LocalDate today = ForecastHorizon.today(Clock.systemUTC());
+        when(evaluationViewService.forDateRange(
+                today.minusDays(ForecastHorizon.SERVE_PAST_DAYS),
+                today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS),
+                Set.of(TargetType.SUNRISE, TargetType.SUNSET))).thenReturn(List.of(scored));
 
         String liteEtag = mockMvc.perform(get("/api/briefing/evaluate/scores"))
                 .andExpect(status().isOk())

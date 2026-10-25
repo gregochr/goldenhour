@@ -45,12 +45,14 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -488,7 +490,8 @@ class ForecastControllerAsOfEventTest {
             ForecastEvaluationEntity skyRow = row(7L, canopy, YESTERDAY, TargetType.SUNSET,
                     LocalDateTime.of(2026, 10, 14, 12, 0), Instant.parse("2026-10-14T12:10:00Z"), 3);
             latestRows(TODAY.minusDays(2), TODAY.plusDays(5));
-            when(resolver.resolveAll(anyCollection(), eq(YESTERDAY), eq(TargetType.SUNSET), any()))
+            when(resolver.resolveAll(eq(List.of(canopy)), eq(YESTERDAY), eq(TargetType.SUNSET),
+                    isA(Function.class)))
                     .thenReturn(Map.of(11L, new AsOfEvent(null, 7L, Instant.parse("2026-10-14T12:00:00Z"),
                             null, 5, skyRow)));
             mapperEchoesEntities();

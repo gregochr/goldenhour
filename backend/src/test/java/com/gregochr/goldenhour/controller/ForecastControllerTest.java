@@ -458,15 +458,13 @@ class ForecastControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"USER"})
     @DisplayName("GET /api/forecast fails closed: a caller with no PRO_USER or ADMIN role is served as LITE")
     void getForecasts_asUnrecognisedRole_failsClosedToLite() throws Exception {
-        when(forecastEvaluationRepository
-                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
-                .thenReturn(List.of());
-        when(dtoMapper.toListDtoList(any(), eq(true))).thenReturn(List.of());
+        // No enabled locations: the repository is never read and the mapper gets the empty list.
+        when(dtoMapper.toListDtoList(List.of(), true)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/forecast"))
                 .andExpect(status().isOk());
 
-        verify(dtoMapper).toListDtoList(any(), eq(true));
+        verify(dtoMapper).toListDtoList(List.of(), true);
     }
 
     @Test

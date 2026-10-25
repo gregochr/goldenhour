@@ -3,18 +3,19 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
+import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -83,8 +84,14 @@ class BriefingEvaluationControllerTest extends AbstractControllerTest {
     }
 
     private void stubScores() {
-        when(evaluationViewService.forDateRange(any(LocalDate.class), any(LocalDate.class),
-                eq(Set.of(TargetType.SUNRISE, TargetType.SUNSET)))).thenReturn(List.of(scored()));
+        // The controller reads "today" from the application clock, so the expected window is derived
+        // the same way the controller derives it: the UK civil date, SERVE_PAST_DAYS back and the
+        // forecast horizon forward.
+        LocalDate today = ForecastHorizon.today(Clock.systemUTC());
+        when(evaluationViewService.forDateRange(
+                today.minusDays(ForecastHorizon.SERVE_PAST_DAYS),
+                today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS),
+                Set.of(TargetType.SUNRISE, TargetType.SUNSET))).thenReturn(List.of(scored()));
     }
 
     @Test
