@@ -55,8 +55,10 @@
     });
   }
 
-  /* One swipeable, snapping row with a dots control beneath it. */
-  function carousel(scroller, regionLabel, dotLabel, cleanups) {
+  /* One swipeable, snapping row with a dots control beneath it. With opts.fitHeight === false the
+     scroller is never given an inline height (the cards share the tallest card's height in CSS). */
+  function carousel(scroller, regionLabel, dotLabel, cleanups, opts) {
+    var fitHeight = !opts || opts.fitHeight !== false;
     var cards = all(':scope > *', scroller);
     if (!cards.length) return;
     scroller.setAttribute('tabindex', '0');
@@ -83,7 +85,7 @@
     scroller.parentNode.insertBefore(dots, scroller.nextSibling);
 
     function fit() {
-      if (dead) return;
+      if (dead || !fitHeight) return;
       var cs = window.getComputedStyle(scroller);
       var pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
       scroller.style.height = (cards[current].offsetHeight + pad) + 'px';
@@ -150,18 +152,20 @@
     // The first measurement can run before the stylesheet and web fonts apply, so re-fit whenever
     // a card changes size, and again once the page and fonts have loaded.
     var ro = null;
-    if (window.ResizeObserver) {
+    if (fitHeight && window.ResizeObserver) {
       ro = new ResizeObserver(fit);
       cards.forEach(function (c) { ro.observe(c); });
     }
-    window.addEventListener('resize', fit);
-    window.addEventListener('orientationchange', fit);
-    window.addEventListener('load', fit);
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
     var imgs = [];
-    all('img', scroller).forEach(function (im) {
-      if (!im.complete) { im.addEventListener('load', fit); imgs.push(im); }
-    });
+    if (fitHeight) {
+      window.addEventListener('resize', fit);
+      window.addEventListener('orientationchange', fit);
+      window.addEventListener('load', fit);
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+      all('img', scroller).forEach(function (im) {
+        if (!im.complete) { im.addEventListener('load', fit); imgs.push(im); }
+      });
+    }
 
     cleanups.push(function () {
       dead = true;
@@ -174,8 +178,10 @@
       window.removeEventListener('orientationchange', fit);
       window.removeEventListener('load', fit);
       imgs.forEach(function (im) { im.removeEventListener('load', fit); });
-      scroller.style.removeProperty('height');
-      if (!scroller.getAttribute('style')) scroller.removeAttribute('style');
+      if (fitHeight) {
+        scroller.style.removeProperty('height');
+        if (!scroller.getAttribute('style')) scroller.removeAttribute('style');
+      }
       if (dots.parentNode) dots.parentNode.removeChild(dots);
       scroller.removeAttribute('tabindex');
       scroller.removeAttribute('role');
@@ -205,7 +211,7 @@
     carousel(s, 'Pricing plans', function (i, n, card) {
       var t = card.querySelector('.tier');
       return 'Plan ' + (i + 1) + ' of ' + n + ': ' + (t ? t.textContent.replace(/^\s+|\s+$/g, '') : '');
-    }, cleanups);
+    }, cleanups, { fitHeight: false });
   }
 
   /* FAQ teasers: question is a disclosure button, answer paragraphs open on tap. */
