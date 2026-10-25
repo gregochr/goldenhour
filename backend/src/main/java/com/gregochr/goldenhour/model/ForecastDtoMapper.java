@@ -32,11 +32,13 @@ import java.util.Map;
 
 /**
  * Maps {@link ForecastEvaluationEntity} to {@link ForecastEvaluationDto} with role-based
- * score selection.
+ * shaping.
  *
- * <p>LITE users receive basic scores (observer-point inference only). PRO and ADMIN users
- * receive enhanced scores (directional cloud data). The {@code basic_*} columns are an
- * internal persistence detail and never appear in the API response.
+ * <p>The Fiery Sky and Golden Hour scores and the per-location written why ({@code summary} and the
+ * detail {@code headline}) are Pro features (docs/engineering/pro-features-gate-plan.md §6): LITE
+ * users get them null, on rich rows, sparse cached-only rows and detail alike, while the star
+ * rating is free. PRO and ADMIN users receive the enhanced (directional cloud) values. The
+ * {@code basic_*} columns are an internal persistence detail and are never served.
  */
 @Component
 public class ForecastDtoMapper {
@@ -140,7 +142,7 @@ public class ForecastDtoMapper {
     /**
      * Maps a list of entities to slim {@link ForecastListDto} projections for the map/list load path.
      * The heavy popup-only fields are omitted (fetched lazily per location via the detail endpoint);
-     * this carries only the marker/grouping/comfort fields plus the role-selected scores.
+     * this carries only the marker/grouping/comfort fields plus the scores, which LITE users get null.
      *
      * @param entities the forecast evaluation entities
      * @param isLiteUser true if the caller is a LITE_USER
@@ -154,9 +156,9 @@ public class ForecastDtoMapper {
     }
 
     /**
-     * Maps a single entity to a slim {@link ForecastListDto}. Scores are role-selected identically to
-     * {@link #toDto(ForecastEvaluationEntity, boolean)}: LITE users get basic (observer-point) scores
-     * from rich rows, others get enhanced (directional) scores. {@code summary}/{@code triageMessage}
+     * Maps a single entity to a slim {@link ForecastListDto}. The potentials are role-shaped
+     * identically to {@link #toDto(ForecastEvaluationEntity, boolean)}: LITE users get null, others
+     * get the enhanced (directional) scores. {@code summary}/{@code triageMessage}
      * are left {@code null} — a rich row has a persisted id, so the popup fetches them via the detail
      * endpoint rather than shipping the big text on every list row.
      *
@@ -165,10 +167,8 @@ public class ForecastDtoMapper {
      * @return the slim DTO
      */
     private ForecastListDto toListDto(ForecastEvaluationEntity entity, boolean isLiteUser) {
-        boolean useBasic = isLiteUser && entity.getBasicFierySkyPotential() != null;
-        Integer fierySky = useBasic ? entity.getBasicFierySkyPotential() : entity.getFierySkyPotential();
-        Integer goldenHour = useBasic
-                ? entity.getBasicGoldenHourPotential() : entity.getGoldenHourPotential();
+        Integer fierySky = isLiteUser ? null : entity.getFierySkyPotential();
+        Integer goldenHour = isLiteUser ? null : entity.getGoldenHourPotential();
         TriageDetails triage = TriageDetails.orEmpty(entity.getTriage());
         return new ForecastListDto(
                 entity.getId(),
@@ -198,12 +198,13 @@ public class ForecastDtoMapper {
      * Builds a slim {@link ForecastListDto} from a sparse cached-only view (no persisted id). Because
      * there is no by-id detail fetch path for a sparse row, its {@code summary} and
      * {@code triageMessage} are carried inline so the popup can still show the "why" text. Comfort
-     * fields are {@code null} (a cached-only row has no atmospherics). Scores are a single set for
-     * both roles.
+     * fields are {@code null} (a cached-only row has no atmospherics). For a LITE reader the
+     * potentials and the {@code summary} are null, as on a rich row; the rating and the stand-down
+     * message are free.
      *
      * @param view the cached-only evaluation view
      * @param location the resolved location
-     * @param isLiteUser true if the caller is a LITE_USER (sparse rows are role-agnostic)
+     * @param isLiteUser true if the caller is not PRO or ADMIN (the potentials and summary go)
      * @return the slim DTO with a null id
      */
     public ForecastListDto toSparseListDto(LocationEvaluationView view, LocationEntity location,
@@ -244,10 +245,10 @@ public class ForecastDtoMapper {
                 solarEventTime,
                 azimuthDeg,
                 view.rating(),
-                view.fierySkyPotential(),
-                view.goldenHourPotential(),
+                isLiteUser ? null : view.fierySkyPotential(),
+                isLiteUser ? null : view.goldenHourPotential(),
                 view.triageReason(),
-                view.summary(),
+                isLiteUser ? null : view.summary(),
                 view.triageMessage(),
                 null,
                 null,
@@ -361,12 +362,11 @@ public class ForecastDtoMapper {
     }
 
     /**
-     * Maps a single entity to a DTO, selecting scores based on user tier.
+     * Maps a single entity to a DTO, shaping the Pro-only fields by user tier.
      *
-     * <p>For LITE users, {@code fierySkyPotential}, {@code goldenHourPotential}, and
-     * {@code summary} are populated from the {@code basic_*} entity fields (falling back
-     * to the enhanced fields if basic scores are null). For PRO/ADMIN users, the enhanced
-     * directional scores are used directly.
+     * <p>For LITE users, {@code fierySkyPotential}, {@code goldenHourPotential}, {@code summary}
+     * and {@code headline} are null; the star rating is free. For PRO/ADMIN users, the enhanced
+     * directional scores, summary and headline are used directly.
      *
      * @param entity     the forecast evaluation entity
      * @param isLiteUser true if the caller is a LITE_USER
@@ -386,19 +386,10 @@ public class ForecastDtoMapper {
     private ForecastEvaluationDto toDto(ForecastEvaluationEntity entity, boolean isLiteUser,
             Map<String, WaveInfo> waveByKey, Map<LocalDate, LunarInfo> lunarByDate,
             Map<String, Instant> stabilitySkips) {
-        Integer fierySky;
-        Integer goldenHour;
-        String summary;
-
-        if (isLiteUser && entity.getBasicFierySkyPotential() != null) {
-            fierySky = entity.getBasicFierySkyPotential();
-            goldenHour = entity.getBasicGoldenHourPotential();
-            summary = entity.getBasicSummary();
-        } else {
-            fierySky = entity.getFierySkyPotential();
-            goldenHour = entity.getGoldenHourPotential();
-            summary = entity.getSummary();
-        }
+        Integer fierySky = isLiteUser ? null : entity.getFierySkyPotential();
+        Integer goldenHour = isLiteUser ? null : entity.getGoldenHourPotential();
+        String summary = isLiteUser ? null : entity.getSummary();
+        String headline = isLiteUser ? null : entity.getHeadline();
 
         // Lunar classification — deterministic from target date, so memoise it per date across rows.
         LunarTideType lunarTideType = null;
@@ -555,7 +546,7 @@ public class ForecastDtoMapper {
                 bluebellExposure,
                 triage.getReason(),
                 triage.getMessage(),
-                entity.getHeadline(),
+                headline,
                 wave.waveHeightMetres(),
                 wave.seaState(),
                 entity.getMistPotential());

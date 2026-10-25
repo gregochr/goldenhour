@@ -251,6 +251,24 @@ public record BriefingSlot(
     }
 
     /**
+     * Returns a copy of this slot as a LITE reader may see it: the Fiery Sky and Golden Hour
+     * potentials and the per-location written why ({@link #claudeSummary} and
+     * {@link #claudeHeadline}) are null, every other component unchanged.
+     *
+     * <p>Built on the canonical constructor on purpose, <b>not</b> on {@link #withClaudeScores},
+     * which recomputes {@link #displayVerdict} from the rating and would overwrite a triage,
+     * neighbour-guard or sample-gate verdict. The star rating, the sky component and the verdict
+     * are free for every role.
+     *
+     * @return a new slot with the potentials and the written why removed
+     */
+    public BriefingSlot forLite() {
+        return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
+                flags, standdownReason, claudeRating, skyRating, null, null, null,
+                displayVerdict, null, canopy, eclipse, neighbourOutlier);
+    }
+
+    /**
      * Returns a copy of this slot carrying the given flags, every other field unchanged.
      *
      * @param newFlags the replacement flag strings

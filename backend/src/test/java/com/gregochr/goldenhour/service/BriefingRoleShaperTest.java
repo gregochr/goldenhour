@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.Verdict;
 import java.lang.reflect.RecordComponent;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -25,11 +26,18 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for {@link BriefingRoleShaper}: the strip table of tide-pro-gate-plan.md §7.1 #4.
+ * Unit tests for {@link BriefingRoleShaper}: the strip table of tide-pro-gate-plan.md §7.1 #4 and the
+ * scores and written-why strip of pro-features-gate-plan.md §6.
  */
 class BriefingRoleShaperTest {
 
     private static final LocalDateTime AT = LocalDateTime.of(2026, 10, 11, 6, 0);
+
+    private static final Set<String> SLOT_STRIPPED = Set.of("fierySkyPotential", "goldenHourPotential",
+            "claudeSummary", "claudeHeadline");
+    private static final Set<String> SLOT_KEPT = Set.of("locationId", "locationName", "solarEventTime",
+            "verdict", "weather", "tide", "flags", "standdownReason", "claudeRating", "skyRating",
+            "displayVerdict", "canopy", "eclipse", "neighbourOutlier");
 
     private final BriefingRoleShaper shaper = new BriefingRoleShaper();
 
@@ -245,6 +253,111 @@ class BriefingRoleShaperTest {
         for (RecordComponent c : LocationTideFact.class.getRecordComponents()) {
             Object value = c.getAccessor().invoke(fullFact().forLite());
             assertThat(value == null).as(c.getName()).isEqualTo(strippedFact.contains(c.getName()));
+        }
+    }
+
+    private static BriefingSlot scoredSlot(List<String> flags) {
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                12, new BigDecimal("0.0"), 24000, 70, 9.5, 7.0, 2, new BigDecimal("3.1"), 30, 55);
+        BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo("HIGH", true, AT,
+                new BigDecimal("1.5"), false, false, null, null, null, 30, "HW", true,
+                "HW 06:30 · 30m after sunrise");
+        return new BriefingSlot(7L, "Bamburgh", AT, Verdict.GO, weather, tide, flags, "reason",
+                4, 3, 81, 66, "Clear sky over the castle.", DisplayVerdict.WORTH_IT,
+                "Clear over the castle", true, null, Boolean.TRUE);
+    }
+
+    private static DailyBriefingResponse responseOf(BriefingSlot regioned, BriefingSlot unregioned) {
+        BriefingRegion region = new BriefingRegion("North East", Verdict.GO, "region prose", List.of(),
+                List.of(regioned), null, null, null, null, "Gloss headline", "Gloss detail",
+                DisplayVerdict.AWAITING, 0, null, false, null);
+        BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE,
+                List.of(region), List.of(unregioned), AT, null);
+        return new DailyBriefingResponse(AT, "h",
+                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
+                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+    }
+
+    @Test
+    @DisplayName("LITE: a slot with potentials, a summary and NO tide flag still loses them "
+            + "(the early return must not skip the strip)")
+    void forLite_stripsScoresFromASlotWithNoTideFlag() {
+        DailyBriefingResponse lite = shaper.forLite(responseOf(
+                scoredSlot(List.of("Clear all layers")), scoredSlot(List.of())));
+
+        for (BriefingSlot s : List.of(summaryOf(lite).regions().get(0).slots().get(0),
+                summaryOf(lite).unregioned().get(0))) {
+            assertThat(s.fierySkyPotential()).isNull();
+            assertThat(s.goldenHourPotential()).isNull();
+            assertThat(s.claudeSummary()).isNull();
+            assertThat(s.claudeHeadline()).isNull();
+            assertThat(s.claudeRating()).isEqualTo(4);
+            assertThat(s.skyRating()).isEqualTo(3);
+            assertThat(s.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        }
+        assertThat(summaryOf(lite).regions().get(0).slots().get(0).flags())
+                .containsExactly("Clear all layers");
+    }
+
+    @Test
+    @DisplayName("LITE: a slot with potentials AND a tide flag loses both the scores and the flag")
+    void forLite_stripsScoresAndFlagTogether() {
+        DailyBriefingResponse lite = shaper.forLite(responseOf(
+                scoredSlot(List.of("Tide aligned", "Clear all layers")),
+                scoredSlot(List.of("Tide not aligned"))));
+
+        BriefingSlot regioned = summaryOf(lite).regions().get(0).slots().get(0);
+        assertThat(regioned.fierySkyPotential()).isNull();
+        assertThat(regioned.claudeSummary()).isNull();
+        assertThat(regioned.flags()).containsExactly("Clear all layers");
+        assertThat(summaryOf(lite).unregioned().get(0).goldenHourPotential()).isNull();
+        assertThat(summaryOf(lite).unregioned().get(0).flags()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("LITE: the region prose is untouched")
+    void forLite_keepsRegionProse() {
+        BriefingRegion region = summaryOf(shaper.forLite(responseOf(
+                scoredSlot(List.of()), scoredSlot(List.of())))).regions().get(0);
+
+        assertThat(region.summary()).isEqualTo("region prose");
+        assertThat(region.glossHeadline()).isEqualTo("Gloss headline");
+        assertThat(region.glossDetail()).isEqualTo("Gloss detail");
+    }
+
+    @Test
+    @DisplayName("The input slot still carries its potentials and summary after forLite")
+    void forLite_doesNotMutateTheSlot() {
+        BriefingSlot in = scoredSlot(List.of("Tide aligned"));
+
+        shaper.forLite(responseOf(in, in));
+
+        assertThat(in.fierySkyPotential()).isEqualTo(81);
+        assertThat(in.claudeSummary()).isEqualTo("Clear sky over the castle.");
+    }
+
+    @Test
+    @DisplayName("Every BriefingSlot component is classified kept or stripped")
+    void everyBriefingSlotComponentIsClassified() {
+        assertThat(componentNames(BriefingSlot.class))
+                .as("a new component must be classified here and handled in BriefingSlot.forLite()")
+                .containsExactlyInAnyOrderElementsOf(union(SLOT_STRIPPED, SLOT_KEPT));
+    }
+
+    @Test
+    @DisplayName("BriefingSlot.forLite nulls exactly the stripped components and keeps the rest verbatim")
+    void slotForLiteNullsExactlyTheStrippedComponents() throws Exception {
+        BriefingSlot full = scoredSlot(List.of("Clear all layers"));
+        BriefingSlot lite = full.forLite();
+
+        for (RecordComponent c : BriefingSlot.class.getRecordComponents()) {
+            Object value = c.getAccessor().invoke(lite);
+            if (SLOT_STRIPPED.contains(c.getName())) {
+                assertThat(value).as(c.getName()).isNull();
+                assertThat(c.getAccessor().invoke(full)).as(c.getName() + " in the fixture").isNotNull();
+            } else {
+                assertThat(value).as(c.getName()).isEqualTo(c.getAccessor().invoke(full));
+            }
         }
     }
 

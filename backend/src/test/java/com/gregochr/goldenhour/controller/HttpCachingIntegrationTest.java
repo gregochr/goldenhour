@@ -18,10 +18,15 @@ import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.BriefingWindowTide;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.model.LocationTideFact;
+import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.util.ForecastHorizon;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -244,6 +249,57 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
                         .value(3))
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].window.tideFacts[0].tideAligned")
                         .value(true));
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/briefing/evaluate/scores: a LITE GET with a PRO ETag gets 200 and the LITE body, "
+            + "and the reverse (the ETag is hashed from the role-shaped body)")
+    void scoresEtagDoesNotCrossRoles() throws Exception {
+        // The fixture really carries a non-null potential and summary. Otherwise both roles' bodies
+        // would be identical, hash the same, and a 304 would be correct.
+        LocationEvaluationView scored = new LocationEvaluationView(7L, "Bamburgh", 3L, "North East",
+                LocalDate.of(2026, 10, 25), TargetType.SUNSET,
+                LocationEvaluationView.Source.CACHED_EVALUATION, 4, "Clear sky over the castle.", 81, 66,
+                null, null, "SONNET", null, DisplayVerdict.WORTH_IT, null, null, null, null);
+        // The controller reads "today" from the application clock, so the expected window is derived
+        // the same way the controller derives it: the UK civil date, SERVE_PAST_DAYS back and the
+        // forecast horizon forward.
+        LocalDate today = ForecastHorizon.today(Clock.systemUTC());
+        when(evaluationViewService.forDateRange(
+                today.minusDays(ForecastHorizon.SERVE_PAST_DAYS),
+                today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS),
+                Set.of(TargetType.SUNRISE, TargetType.SUNSET))).thenReturn(List.of(scored));
+
+        String liteEtag = mockMvc.perform(get("/api/briefing/evaluate/scores"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].rating").value(4))
+                .andExpect(jsonPath("$[0].fierySkyPotential").doesNotExist())
+                .andExpect(jsonPath("$[0].summary").doesNotExist())
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+        String proEtag = mockMvc.perform(get("/api/briefing/evaluate/scores")
+                        .with(user("pro").roles("PRO_USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].fierySkyPotential").value(81))
+                .andExpect(jsonPath("$[0].summary").value("Clear sky over the castle."))
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+
+        assertThat(proEtag).as("a role-shaped body must hash differently").isNotEqualTo(liteEtag);
+
+        // LITE presents PRO's validator: it must get the LITE body, not a 304.
+        mockMvc.perform(get("/api/briefing/evaluate/scores").header(HttpHeaders.IF_NONE_MATCH, proEtag))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].fierySkyPotential").doesNotExist())
+                .andExpect(jsonPath("$[0].summary").doesNotExist());
+        // And LITE's own validator still 304s for LITE.
+        mockMvc.perform(get("/api/briefing/evaluate/scores").header(HttpHeaders.IF_NONE_MATCH, liteEtag))
+                .andExpect(status().isNotModified());
+        // The reverse: PRO presents LITE's validator and gets the full 200.
+        mockMvc.perform(get("/api/briefing/evaluate/scores").header(HttpHeaders.IF_NONE_MATCH, liteEtag)
+                        .with(user("pro").roles("PRO_USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].fierySkyPotential").value(81))
+                .andExpect(jsonPath("$[0].summary").value("Clear sky over the castle."));
     }
 
     @Test

@@ -305,20 +305,23 @@ class ForecastDtoMapperTest {
     }
 
     @Test
-    @DisplayName("toDto() returns basic scores for LITE user when basic scores exist")
-    void toDto_liteUser_usesBasicScores() {
+    @DisplayName("toDto() gives LITE null potentials, summary and headline — basic scores are never served")
+    void toDto_liteUser_losesPotentialsSummaryAndHeadline() {
         ForecastEvaluationEntity entity = buildFullEntity();
+        entity.setHeadline("Clear over the castle");
 
         ForecastEvaluationDto dto = mapper.toDto(entity, true);
 
-        assertThat(dto.fierySkyPotential()).isEqualTo(65);
-        assertThat(dto.goldenHourPotential()).isEqualTo(60);
-        assertThat(dto.summary()).isEqualTo("Basic summary.");
+        assertThat(dto.fierySkyPotential()).isNull();
+        assertThat(dto.goldenHourPotential()).isNull();
+        assertThat(dto.summary()).isNull();
+        assertThat(dto.headline()).isNull();
+        assertThat(dto.rating()).isEqualTo(entity.getRating());
     }
 
     @Test
-    @DisplayName("toDto() falls back to enhanced scores for LITE user when basic scores are null")
-    void toDto_liteUser_fallsBackToEnhancedWhenBasicNull() {
+    @DisplayName("toDto() gives LITE no basic fallback either: null basic scores change nothing")
+    void toDto_liteUser_nullBasicScoresStillNull() {
         ForecastEvaluationEntity entity = buildFullEntity();
         entity.setBasicFierySkyPotential(null);
         entity.setBasicGoldenHourPotential(null);
@@ -326,9 +329,18 @@ class ForecastDtoMapperTest {
 
         ForecastEvaluationDto dto = mapper.toDto(entity, true);
 
-        assertThat(dto.fierySkyPotential()).isEqualTo(82);
-        assertThat(dto.goldenHourPotential()).isEqualTo(76);
-        assertThat(dto.summary()).isEqualTo("Enhanced summary.");
+        assertThat(dto.fierySkyPotential()).isNull();
+        assertThat(dto.goldenHourPotential()).isNull();
+        assertThat(dto.summary()).isNull();
+    }
+
+    @Test
+    @DisplayName("toDto() gives PRO the enhanced headline")
+    void toDto_proUser_keepsHeadline() {
+        ForecastEvaluationEntity entity = buildFullEntity();
+        entity.setHeadline("Clear over the castle");
+
+        assertThat(mapper.toDto(entity, false).headline()).isEqualTo("Clear over the castle");
     }
 
     @Test
@@ -347,14 +359,44 @@ class ForecastDtoMapperTest {
     }
 
     @Test
-    @DisplayName("toListDto() returns basic scores for LITE — same role gating as the fat DTO")
-    void toListDto_liteUser_basicScores() {
+    @DisplayName("toListDto() gives LITE null potentials but keeps the star")
+    void toListDto_liteUser_noPotentials() {
         ForecastEvaluationEntity entity = buildFullEntity();
 
         ForecastListDto dto = mapper.toListDtoList(List.of(entity), true).get(0);
 
-        assertThat(dto.fierySkyPotential()).isEqualTo(65);
-        assertThat(dto.goldenHourPotential()).isEqualTo(60);
+        assertThat(dto.fierySkyPotential()).isNull();
+        assertThat(dto.goldenHourPotential()).isNull();
+        assertThat(dto.rating()).isEqualTo(entity.getRating());
+    }
+
+    private static LocationEvaluationView sparseView() {
+        return new LocationEvaluationView(7L, "Bamburgh", 3L, "North East", LocalDate.of(2026, 10, 25),
+                TargetType.SUNSET, LocationEvaluationView.Source.CACHED_EVALUATION, 4,
+                "Clear sky over the castle.", 81, 66, null, "msg", "SONNET", null,
+                DisplayVerdict.WORTH_IT, null, null, null, null);
+    }
+
+    @Test
+    @DisplayName("toSparseListDto() gives LITE null potentials and summary but keeps the star and message")
+    void toSparseListDto_liteUser_noPotentialsOrSummary() {
+        ForecastListDto dto = mapper.toSparseListDto(sparseView(), LOCATION, true);
+
+        assertThat(dto.fierySkyPotential()).isNull();
+        assertThat(dto.goldenHourPotential()).isNull();
+        assertThat(dto.summary()).isNull();
+        assertThat(dto.rating()).isEqualTo(4);
+        assertThat(dto.triageMessage()).isEqualTo("msg");
+    }
+
+    @Test
+    @DisplayName("toSparseListDto() gives PRO the potentials and the summary inline")
+    void toSparseListDto_proUser_keepsPotentialsAndSummary() {
+        ForecastListDto dto = mapper.toSparseListDto(sparseView(), LOCATION, false);
+
+        assertThat(dto.fierySkyPotential()).isEqualTo(81);
+        assertThat(dto.goldenHourPotential()).isEqualTo(66);
+        assertThat(dto.summary()).isEqualTo("Clear sky over the castle.");
     }
 
     @Test

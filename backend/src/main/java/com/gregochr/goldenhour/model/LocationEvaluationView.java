@@ -92,6 +92,21 @@ public record LocationEvaluationView(
     }
 
     /**
+     * Returns a copy of this view as a LITE reader may see it: the Fiery Sky and Golden Hour
+     * potentials and the written {@link #summary} are null, everything else (the star rating,
+     * the verdict, the stand-down reason, the light times) unchanged.
+     *
+     * @return a new view with the Pro-only fields removed
+     */
+    public LocationEvaluationView forLite() {
+        return new LocationEvaluationView(
+                locationId, locationName, regionId, regionName, date, targetType, source,
+                rating, null, null, null,
+                triageReason, triageMessage, evaluationModel, evaluatedAt, displayVerdict,
+                goldenHourStart, goldenHourEnd, blueHourStart, blueHourEnd);
+    }
+
+    /**
      * Indicates which data source provided this evaluation view.
      */
     public enum Source {
