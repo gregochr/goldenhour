@@ -5,6 +5,8 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -24,8 +26,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -42,7 +46,7 @@ class OutcomeControllerTest extends AbstractControllerTest {
     private MockMvc mockMvc;
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("GET /api/outcome returns outcomes for a location and date range")
     void getOutcomes_validRequest_returnsOutcomes() throws Exception {
         when(outcomeService.query(eq(54.7753), eq(-1.5849), any(), any()))
@@ -58,7 +62,7 @@ class OutcomeControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("GET /api/outcome returns 400 when from is after to")
     void getOutcomes_fromAfterTo_returns400() throws Exception {
         when(outcomeService.query(eq(54.7753), eq(-1.5849),
@@ -75,7 +79,7 @@ class OutcomeControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("GET /api/outcome/all returns outcomes across all locations for a date range")
     void getAllOutcomes_validRequest_returnsOutcomes() throws Exception {
         when(outcomeService.queryAll(eq(LocalDate.of(2026, 2, 1)), eq(LocalDate.of(2026, 2, 28))))
@@ -92,7 +96,7 @@ class OutcomeControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("GET /api/outcome/all returns 400 when from is after to")
     void getAllOutcomes_fromAfterTo_returns400() throws Exception {
         when(outcomeService.queryAll(
@@ -107,7 +111,7 @@ class OutcomeControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/outcome returns 201 with the saved entity")
     void recordOutcome_validRequest_returns201() throws Exception {
         ActualOutcomeEntity saved = buildOutcomeEntity();
@@ -121,7 +125,7 @@ class OutcomeControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/outcome returns 400 when the service rejects an invalid score")
     void recordOutcome_serviceRejectsScore_returns400() throws Exception {
         when(outcomeService.record(any()))
@@ -135,7 +139,7 @@ class OutcomeControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/outcome returns 404 when location name is not found")
     void recordOutcome_unknownLocation_returns404() throws Exception {
         when(outcomeService.record(any()))
@@ -158,7 +162,7 @@ class OutcomeControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("GET /api/outcome passes exact dates to service")
     void getOutcomes_passesExactDatesToService() throws Exception {
         when(outcomeService.query(eq(54.7753), eq(-1.5849),
@@ -177,7 +181,7 @@ class OutcomeControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/outcome passes deserialized DTO fields to service")
     void recordOutcome_passesDeserializedDtoToService() throws Exception {
         when(outcomeService.record(any())).thenReturn(buildOutcomeEntity());
@@ -203,7 +207,7 @@ class OutcomeControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/outcome deserializes actualRating and returns it")
     void recordOutcome_actualRating_deserializedAndReturned() throws Exception {
         ActualOutcomeEntity saved = buildOutcomeEntity();
@@ -229,6 +233,47 @@ class OutcomeControllerTest extends AbstractControllerTest {
         ArgumentCaptor<ActualOutcome> captor = ArgumentCaptor.forClass(ActualOutcome.class);
         verify(outcomeService).record(captor.capture());
         assertThat(captor.getValue().actualRating()).isEqualTo(2);
+    }
+
+    @ParameterizedTest(name = "GET /api/outcome is 403 for {0}")
+    @ValueSource(strings = {"LITE_USER", "PRO_USER"})
+    @DisplayName("GET /api/outcome is forbidden to non-admin roles")
+    void getOutcomes_nonAdmin_returns403(String role) throws Exception {
+        mockMvc.perform(get("/api/outcome")
+                        .with(user("reader").roles(role))
+                        .param("lat", "54.7753")
+                        .param("lon", "-1.5849")
+                        .param("from", "2026-02-01")
+                        .param("to", "2026-02-28"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(outcomeService);
+    }
+
+    @ParameterizedTest(name = "GET /api/outcome/all is 403 for {0}")
+    @ValueSource(strings = {"LITE_USER", "PRO_USER"})
+    @DisplayName("GET /api/outcome/all is forbidden to non-admin roles")
+    void getAllOutcomes_nonAdmin_returns403(String role) throws Exception {
+        mockMvc.perform(get("/api/outcome/all")
+                        .with(user("reader").roles(role))
+                        .param("from", "2026-02-01")
+                        .param("to", "2026-02-28"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(outcomeService);
+    }
+
+    @ParameterizedTest(name = "POST /api/outcome is 403 for {0}")
+    @ValueSource(strings = {"LITE_USER", "PRO_USER"})
+    @DisplayName("POST /api/outcome is forbidden to non-admin roles")
+    void recordOutcome_nonAdmin_returns403(String role) throws Exception {
+        mockMvc.perform(post("/api/outcome")
+                        .with(user("reader").roles(role))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validOutcomeJson()))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(outcomeService);
     }
 
     private ActualOutcomeEntity buildOutcomeEntity() {
