@@ -153,38 +153,36 @@ describe('Coming up range bars', () => {
       .toEqual(['rest', 'peak']);
   });
 
-  it('draws no label row, no big tier and no percentile sentence without percentiles', () => {
+  it('draws no label row and no big tier without percentiles', () => {
     const { container } = draw(entry({ dayRanges: withoutPercentiles() }));
     expect(container.querySelector('.wf-cu-day-range-label')).toBeNull();
     expect(container.querySelector('.wf-cu-days')).not.toHaveAttribute('data-labelled');
     expect(cols(container).map((c) => c.getAttribute('data-tier')))
       .toEqual(['rest', 'rest', 'peak', null, 'rest', null]);
-    expect(screen.getByTestId('coming-up-range-key').textContent).not.toMatch(/Top N%/);
+    expect(screen.queryByTestId('coming-up-range-key')).toBeNull();
     expect(screen.queryByRole('button', { name: /percent of the year/ })).toBeNull();
   });
 
-  it('draws no line, no AVG and no dashed sentence when the average is null', () => {
+  it('draws no line and no AVG when the average is null', () => {
     const { container } = draw(entry({ rangeAverageMetres: undefined }));
     expect(container.querySelector('.wf-cu-days')).not.toHaveAttribute('data-avg');
     expect(avgH(container)).toBe('');
     expect(container.querySelector('.wf-cu-days-axis-avg')).toBeNull();
-    expect(screen.getByTestId('coming-up-range-key').textContent).not.toMatch(/Dashed/);
+    expect(screen.queryByTestId('coming-up-range-key')).toBeNull();
     expect(container.querySelector('.wf-cu-days-axis-range')).not.toBeNull();
   });
 
-  it('puts the aria-hidden axis first in the group and the key after the row, as siblings', () => {
+  it('puts the aria-hidden axis first in the group and prints no key', () => {
     const { container } = draw(entry());
     const group = container.querySelector('[role="group"]');
     expect(group.firstElementChild).toBe(screen.getByTestId('coming-up-range-axis'));
     expect(group.firstElementChild).toHaveAttribute('aria-hidden', 'true');
     expect(group.firstElementChild.textContent).toBe('AVGrange');
-    const key = screen.getByTestId('coming-up-range-key');
-    expect(key.previousElementSibling).toBe(container.querySelector('.wf-cu-days'));
-    expect(key.textContent).toBe(
-      'Bars show each day’s tidal range in metres, printed under each day. '
-      + 'Top N% means the day ranks among the biggest N% of the year’s ranges. '
-      + 'Dashed line is the average, 3.4\u00A0m.',
-    );
+    expect(screen.queryByTestId('coming-up-range-key')).toBeNull();
+    expect(container).not.toHaveTextContent('Bars show each day');
+    expect(container).not.toHaveTextContent('Dashed line is the average');
+    // The bars and their printed metres are untouched.
+    expect(container.querySelectorAll('[data-testid="coming-up-range-bar"]').length).toBeGreaterThan(0);
   });
 
   it('hides only the label, track, metres and axis; every chip button is found by name', () => {
@@ -215,7 +213,7 @@ describe('Coming up range bars', () => {
     expect(cols(none.container)[0].getAttribute('title')).toBe('4.0 m range');
   });
 
-  it('treats one missing percentile as none at all: no label row, no percent clause', () => {
+  it('treats one missing percentile as none at all: no label row, no percent in any name', () => {
     const ranges = entry().dayRanges.map((r, i) => (i === 1 ? { ...r, rangePercentile: undefined } : r));
     const { container } = draw(entry({ dayRanges: ranges }));
     expect(container.querySelector('.wf-cu-day-range-label')).toBeNull();
@@ -229,7 +227,7 @@ describe('Coming up range bars', () => {
     expect(cols(container)[0].getAttribute('title')).toBe('4.0 m range');
   });
 
-  it('draws a ranged row’s dimmed note under the row, before the key; an unranged one stays inside', () => {
+  it('draws a ranged row’s dimmed note under the row; an unranged one stays inside', () => {
     const view = buildEntryView(entry(), '2026-10-26', null, ['2026-10-26', '2026-10-27', '2026-10-28']);
     const { container } = render(
       <WindowComingUpEntry entry={view} onGoToPlan={() => {}} onShowOnMap={() => {}} />,
@@ -238,7 +236,8 @@ describe('Coming up range bars', () => {
     const note = screen.getByTestId('coming-up-day-chips-note');
     expect(row.contains(note)).toBe(false);
     expect(note.previousElementSibling).toBe(row);
-    expect(note.nextElementSibling).toBe(screen.getByTestId('coming-up-range-key'));
+    expect(note.nextElementSibling).toBeNull();
+    expect(screen.queryByTestId('coming-up-range-key')).toBeNull();
     cleanup();
     const plain = buildEntryView(
       entry({ dayRanges: undefined, rangeAverageMetres: undefined }),
@@ -270,7 +269,7 @@ describe('Coming up range bars', () => {
     expect(peak.querySelector('.wf-cu-day-range-pill').textContent).toBe('top 2%');
   });
 
-  it('draws no columns, key or axis with fewer than two served values', () => {
+  it('draws no columns or axis with fewer than two served values', () => {
     const { container } = draw(entry({ dayRanges: [{ date: '2026-10-27', rangeMetres: 5, peak: true }] }));
     expect(container.querySelector('.wf-cu-day-col')).toBeNull();
     expect(container.querySelector('.wf-cu-days')).not.toHaveAttribute('data-ranged');

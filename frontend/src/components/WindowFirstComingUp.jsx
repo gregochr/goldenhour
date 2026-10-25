@@ -167,9 +167,6 @@ export default function WindowFirstComingUp({
       <div className="wf-cu">
         <div className="wf-cu-head">
           <span className="wf-cu-h">Coming up</span>
-          <span className="wf-cu-d" data-testid="coming-up-subtitle">
-            {`· the next ${ALMANAC_DAYS} days, past the four-day forecast`}
-          </span>
           {/* Rendered unconditionally (plan §6) — not gated on any entry actually using a dashed
               rule. Without it a reader who happens to filter down to an all-solid subset would see
               the legend appear and disappear as they click chips, which is worse than a legend

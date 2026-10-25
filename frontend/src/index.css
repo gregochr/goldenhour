@@ -2855,9 +2855,6 @@ button.wf-hc.also.on:hover {
   border-radius: 999px;
   flex: none;
 }
-.wf-hstrip-sp {
-  margin-left: auto;
-}
 /* Legend swatches (thin-sample plan F2): plate fill, coastline ink inset, 26x13. The hatch ink is
    brighter than the map's .18 so it survives at 13px. */
 .wf-hstrip-key {
@@ -3253,9 +3250,6 @@ button.wf-hc.also.on:hover {
   .wf-rowmap,
   .wf-rrail { margin: 0 12px 10px; }
   .wf-rlab { margin: 0 12px 6px; }
-  /* The instruction goes: it is the widest clause on the label and everything on this surface is
-     self-evidently tappable. */
-  .wf-rlab-tail { display: none; }
   /* The All cell spans the row on a phone, and its meta moves onto the same line so the spanning
      cell does not cost a whole extra row of height.
 
@@ -3292,9 +3286,6 @@ button.wf-hc.also.on:hover {
   .wf-hstrip > .wf-hday { grid-column: 1 / -1; margin-top: 4px; }
   .wf-hstrip > .wf-hgap { display: none; }
   .wf-hstrip > .wf-hc.solo { grid-column: 1 / -1; }
-  /* The third footer clause goes: two of them decode the picture and the third qualifies it, and a
-     phone bar has room for the two that are load-bearing. */
-  .wf-hstrip-sp { display: none; }
   /* Chip compaction (matrix-axis plan D13) — keeps the sunrise/sunset chip's min-content width
      inside its 2-column track; without it the chip's desktop padding/letter-spacing can push a
      narrow card wider than its column. ⚠️ (0,2,0), the same specificity as `.wf-hc-sun.am`/`.pm`
@@ -10465,13 +10456,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   white-space: nowrap;
 }
 .wf-cu-fd-vs { display: none; }
-.wf-cu-fd-foot {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1.5;
-  color: var(--fd-ink-3);
-}
 /* Forced colours drop background colours: the swatch gets a border, a chip a real edge (a
    continuation chip stays dashed against the solid default), and today a heavier one. */
 @media (forced-colors: active) {
@@ -10538,11 +10522,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--color-plex-text);
-}
-.wf-cu-d {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-plex-text-secondary);
 }
 
 /* The legend (design README §5) — two swatches, mono, in the head row. `text-transform: uppercase`
@@ -11456,14 +11435,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 /* The axis (640px and up only; hidden below): the group's first child so it can never wrap away
    from the bars. It stretches to the row height; AVG sits at the line, `range` at the metres row. */
 .wf-cu-days-axis { display: none; }
-.wf-cu-range-key {
-  margin: 4px 0 0;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1.5;
-  color: var(--color-plex-text-secondary);
-}
-.wf-cu-range-key strong { font-weight: 700; }
 /* A ranged row's lead is a full-width heading above the columns at every width from 640px (phones
    already stack it). Beside the columns it would have to centre on the chip row, which depends on
    whether the row wraps, and CSS cannot detect that. */
@@ -13274,7 +13245,6 @@ button.wf-mchip:hover {
 @media (min-width: 640px) and (max-width: 1023px) {
   .wf-mast { padding: 13px var(--wf-gutter) 0; }
   .wf-tick-times { gap: 12px; }
-  .wf-hstrip-sp { display: none; }
   .wf-wsh { max-width: 806px; }
   .wf-wsh .wf-rrail { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
   .wf-rr-all {

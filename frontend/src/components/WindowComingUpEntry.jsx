@@ -207,22 +207,6 @@ function DayChips({ entry, onShowOnMap }) {
         {note}
       </>
     )}
-    {rangeScale && (
-      <>
-      {' '}
-      <p className="wf-cu-range-key" data-testid="coming-up-range-key">
-        {'Bars show each day’s tidal range in metres, printed under each day.'}
-        {labelled && (
-          <>
-            {' '}
-            <strong>Top N%</strong>
-            {' means the day ranks among the biggest N% of the year’s ranges.'}
-          </>
-        )}
-        {averaged && ` Dashed line is the average, ${rangeAverage.toFixed(1)}\u00A0m.`}
-      </p>
-      </>
-    )}
     </>
   );
 }

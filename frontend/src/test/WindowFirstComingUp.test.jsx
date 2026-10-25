@@ -69,9 +69,10 @@ describe('WindowFirstComingUp — the panel contract', () => {
     expect(screen.getByRole('tabpanel')).toHaveAttribute('tabindex', '0');
   });
 
-  it('names the horizon it covers', () => {
+  it('prints no header subtitle naming the horizon', () => {
     renderPane();
-    expect(screen.getByTestId('coming-up-subtitle')).toHaveTextContent('next 90 days');
+    expect(screen.queryByTestId('coming-up-subtitle')).toBeNull();
+    expect(screen.getByTestId('window-first-coming-up')).not.toHaveTextContent('past the four-day forecast');
   });
 
   it('renders the legend unconditionally — not gated on entries, filters or status', () => {
@@ -215,7 +216,7 @@ describe('WindowFirstComingUp — the four states', () => {
         status,
         events: status === 'ready' ? { entries: [], counts: { fixed: 0, forecast: 0, byFamily: {} } } : null,
       });
-      expect(screen.getByTestId('coming-up-subtitle')).toBeInTheDocument();
+      expect(screen.getByTestId('coming-up-legend')).toBeInTheDocument();
       expect(screen.getByTestId('coming-up-footer')).toBeInTheDocument();
       unmount();
     }

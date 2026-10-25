@@ -51,6 +51,13 @@ function renderRail(props = {}) {
   return { onSelect };
 }
 
+describe('WindowRegionRail — the label', () => {
+  it('reads exactly "By region · best first", with no instruction tail', () => {
+    renderRail();
+    expect(screen.getByTestId('wf-region-rail-label').textContent).toBe('By region · best first');
+  });
+});
+
 describe('WindowRegionRail — the All cell', () => {
   it('is the first cell and counts the regions it stands for', () => {
     renderRail();

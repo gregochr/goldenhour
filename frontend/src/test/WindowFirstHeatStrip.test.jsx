@@ -2595,10 +2595,9 @@ describe('WindowFirstHeatStrip — the header, footer and beyond line', () => {
 
     expect(foot).toHaveTextContent('poor → worth it');
     expect(foot).toHaveTextContent('later days look hazier — lower confidence');
-    // The one clause that says what the field is NOT — the lens filters the cards, never the field
-    // (plan §3). Dropping it would leave a picture a reader could reasonably read as their own
-    // reachable options.
-    expect(foot).toHaveTextContent('Colour and hatch cover every place in the forecast — the cards allow for your drive');
+    // The old right-hand explainer clause is gone for good.
+    expect(foot).not.toHaveTextContent('Colour and hatch cover every place in the forecast');
+    expect(foot).not.toHaveTextContent('the cards allow for your drive');
   });
 
   it('names the regions beyond the planning area, and only the measured ones', async () => {
