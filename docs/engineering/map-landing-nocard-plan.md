@@ -15,7 +15,7 @@ listener and its reopen row. The card made one comparison the pill could not ("t
 and that becomes a short tappable line beside the pill. The line shows only on the first solar window, only
 when the second solar window is in a strictly higher tier, and never on a phone.
 
-**Status**: plan, 2026-10-25, reviewed by three read-only lenses (P1 completeness, P2 correctness and
+**Status**: plan, 2026-10-25; owner accepted every §5 default the same day. Reviewed by three read-only lenses (P1 completeness, P2 correctness and
 accessibility, brief and test quality). P1 and P2 are not started.
 
 | phase | branch | PR | what |
@@ -450,7 +450,9 @@ comment says such a widening "belongs to a phase that reviews it". Default: drop
   topic selected, and an Escape inside the pane still clears it.
 - If the owner wants the standing listener, it is a follow-up with its own review.
 
-## §5 Owner questions (the build proceeds on each default unless the owner says otherwise)
+## §5 Owner questions
+
+✅ **Decided 2026-10-25: the owner accepted every default below** ("Defaults are fine").
 
 - **Q1 (D1)**: A, B, C or D? Default **A**.
 - **Q2**: if the measured hide width means iPad portrait (768/820) loses the line, is that acceptable?
