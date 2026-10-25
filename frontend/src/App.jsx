@@ -38,6 +38,7 @@ import WindowFirstShell from './components/WindowFirstShell.jsx';
 import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
 import { AskProvider } from './context/AskContext.jsx';
+import { takeLinkToken } from './utils/oneTimeLinkToken.js';
 
 // Code-split the heavy subtrees so they stay out of the initial bundle: the Leaflet map stack and
 // the admin-only Manage view (which also pulls in recharts). They load on demand behind the
@@ -60,19 +61,11 @@ function ViewFallback() {
 }
 
 /**
- * Reads the {@code ?token=} of the page's URL, or null.
- *
- * @returns {string|null}
- */
-function urlToken() {
-  return new URLSearchParams(window.location.search).get('token') || null;
-}
-
-/**
  * Auth gate — renders {@link LoginPage} when no token is present,
  * or the main app otherwise. This keeps hooks out of the unauthenticated path.
  *
- * <p>Two emailed links arrive here with a {@code ?token=}, and they must not share state. A link
+ * <p>Two emailed links arrive here with a one-time token (read, and stripped from the address,
+ * once per page load by {@code takeLinkToken}), and they must not share state. A link
  * on {@code /reset} is a password reset ({@code resetToken}); a token on any other path
  * ({@code /verify}, or the legacy {@code /}) is an email verification ({@code verifyToken}). The
  * reset page is chosen BEFORE the token test, so a reader already signed in on this browser — the
@@ -88,13 +81,13 @@ function AuthGate() {
 
   // /reset?token= is a reset link; read once, from the pathname it was opened on.
   const [resetToken, setResetToken] = useState(() => (
-    window.location.pathname === '/reset' ? urlToken() : null
+    window.location.pathname === '/reset' ? takeLinkToken() : null
   ));
 
   // Any other path with ?token= (the /verify link, or the legacy /?token=) is email verification;
   // cleared once consumed.
   const [verifyToken, setVerifyToken] = useState(() => (
-    window.location.pathname === '/reset' ? null : urlToken()
+    window.location.pathname === '/reset' ? null : takeLinkToken()
   ));
 
   // Once authenticated, clear any leftover verify token from URL and state.

@@ -5,6 +5,8 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <!-- iOS uses this rather than the web-app manifest's icons for Add to Home Screen. -->
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- A precached index.html replays old response headers; this keeps the policy in the page. -->
+    <meta name="referrer" content="strict-origin" />
     <meta name="theme-color" content="#181210" />
     <!-- `viewport-fit=cover` is what makes `env(safe-area-inset-*)` report anything but zero;
          without it every safe-area rule in index.css is inert. See that file's "Safe areas"

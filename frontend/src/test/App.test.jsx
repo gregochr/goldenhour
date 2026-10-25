@@ -118,6 +118,7 @@ import {
   verifyEmail, requestPasswordReset, resetPassword, setPasswordForNewUser,
 } from '../api/authApi.js';
 import { setRewind } from '../utils/rewind.js';
+import { resetLinkTokenForTests } from '../utils/oneTimeLinkToken.js';
 import userEvent from '@testing-library/user-event';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -168,6 +169,7 @@ const renderApp = ({ role = 'PRO_USER' } = {}) => {
 };
 
 beforeEach(() => {
+  resetLinkTokenForTests(); // the link token is read once per page load; tests are separate loads
   localStorage.clear();
   window.location.hash = '';
   // Implementations re-asserted per test, not inherited: `vi.clearAllMocks` clears calls, not
@@ -1757,6 +1759,8 @@ describe('App — the auth gate', () => {
     render(<App />);
 
     expect(await screen.findByTestId('reset-form')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/reset');
+    expect(window.location.search).toBe('');
     expect(screen.getByRole('heading', { level: 2, name: 'Set a new password' })).toBeInTheDocument();
     expect(screen.queryByTestId('login-submit')).not.toBeInTheDocument();
     expect(verifyEmail).not.toHaveBeenCalled();
@@ -1778,7 +1782,8 @@ describe('App — the auth gate', () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(screen.getByTestId('reset-form')).toBeInTheDocument();
     expect(window.location.pathname).toBe('/reset');
-    expect(window.location.search).toBe('?token=abc');
+    // The address is clean from the first render; the token survives re-renders in state.
+    expect(window.location.search).toBe('');
   });
 
   it('a signed-in reader submits the reset: the new session replaces the old, the URL leaves /reset, the app mounts', async () => {
@@ -1854,6 +1859,8 @@ describe('App — the auth gate', () => {
     render(<App />);
 
     await waitFor(() => expect(verifyEmail).toHaveBeenCalledWith('vtok'));
+    // The address was cleaned before the verify step rendered; the token lives in state.
+    expect(window.location.search).toBe('');
     expect(screen.queryByTestId('reset-form')).not.toBeInTheDocument();
     expect(screen.queryByTestId('login-submit')).not.toBeInTheDocument();
   });

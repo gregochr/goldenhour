@@ -51,7 +51,7 @@ const PERMISSIONS =
 const SECURITY_HEADERS = [
   'add_header X-Content-Type-Options "nosniff" always;',
   'add_header X-Frame-Options "DENY" always;',
-  'add_header Referrer-Policy "strict-origin-when-cross-origin" always;',
+  'add_header Referrer-Policy "strict-origin" always;',
   PERMISSIONS,
   'add_header Cross-Origin-Opener-Policy "same-origin" always;',
   'add_header Content-Security-Policy $csp always;',
@@ -80,6 +80,22 @@ describe('nginx.conf permissions policy', () => {
 
   it.each(['/assets/', '/', AASA])('sends the policy from location %s', (selector) => {
     expect(directives(block(selector))).toContain(PERMISSIONS);
+  });
+});
+
+describe('nginx.conf referrer policy', () => {
+  it('sends strict-origin on every response block that sets it, and never the broader policy', () => {
+    const lines = directives(code).filter((l) => l.startsWith('add_header Referrer-Policy'));
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      expect(line).toBe('add_header Referrer-Policy "strict-origin" always;');
+    }
+    expect(code).not.toContain('strict-origin-when-cross-origin');
+  });
+
+  it('is also set by a meta tag in index.html, for a precached page that replays old headers', () => {
+    const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+    expect(html).toContain('<meta name="referrer" content="strict-origin" />');
   });
 });
 
