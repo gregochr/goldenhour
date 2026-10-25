@@ -382,8 +382,9 @@ class JwtAuthenticationFilterTest {
                 request.setParameter("token", token);
             }
             FilterChain chain = mock(FilterChain.class);
-            filter.doFilter(request, new MockHttpServletResponse(), chain);
-            verify(chain).doFilter(any(), any());
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilter(request, response, chain);
+            verify(chain).doFilter(request, response);
         }
 
         @Test
