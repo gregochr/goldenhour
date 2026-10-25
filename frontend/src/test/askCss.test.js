@@ -260,31 +260,49 @@ describe('the Ask stylesheet — the window spread line (ask-window-context plan
   });
 });
 
-describe('the locked phone bar under forced colours', () => {
-  it('keeps the Pro pill at CanvasText, with a CanvasText border, so a disabled button does not grey it', () => {
-    const block = conditionalBlocks().find(
-      (b) => b.startsWith('@media (forced-colors: active)') && b.includes('.wf-ask-bar > .wf-lens-pro'),
-    );
+describe('the open Ask triggers under forced colours (the upsell plan, §4.1)', () => {
+  const forcedBlock = (name) => conditionalBlocks().find(
+    (b) => b.startsWith('@media (forced-colors: active)') && b.includes(name),
+  );
+
+  it('gives the expanded bar a Highlight border: open is otherwise a colour change alone, or nothing', () => {
+    const block = forcedBlock('.wf-ask-bar[aria-expanded="true"]');
     expect(block).toBeDefined();
-    expect(block).toMatch(/color:\s*CanvasText/);
-    expect(block).toMatch(/border-color:\s*CanvasText/);
+    expect(block).toMatch(/border-color:\s*Highlight/);
+  });
+
+  it('gives the expanded field a Highlight border', () => {
+    const block = forcedBlock('.wf-askf[aria-expanded="true"]');
+    expect(block).toBeDefined();
+    expect(block).toMatch(/border-color:\s*Highlight/);
+  });
+
+  it('no longer holds the bar\'s Pro pill at CanvasText: a blocked trigger\'s pill goes GrayText with the rest', () => {
+    expect(forcedBlock('.wf-ask-bar > .wf-lens-pro')).toBeUndefined();
   });
 });
 
-describe('the Ask entries, locked (a reader who is not PRO or ADMIN) — no double dim', () => {
-  it('lifts the phone bar\'s own disabled dim when locked, so its inner span reads at the lock\'s .45', () => {
+describe('the Ask entries, locked (a reader who is not PRO or ADMIN) — a live trigger, not a grey', () => {
+  it('keeps the bar\'s own disabled dim at .5 for a locked bar: no lift, so a blocked trigger dims like PRO\'s', () => {
     expect(ruleBody('.wf-ask-bar:disabled')).toMatch(/opacity:\s*\.5/);
-    expect(ruleBody('.wf-ask-bar[data-locked]:disabled')).toMatch(/opacity:\s*1\b/);
+    expect(ruleBody('.wf-ask-bar[data-locked]:disabled')).toBeNull();
   });
 
-  it('keeps the bar the opaque fixed box: the lock is never on `.wf-ask-bar` itself', () => {
+  it('keeps the bar the opaque fixed box, with no inner lock span left in the stylesheet', () => {
     expect(ruleBody('.wf-ask-bar')).toMatch(/background:\s*rgba\(20, 15, 12, \.96\)/);
-    expect(ruleBody('.wf-ask-bar-inner')).not.toBeNull();
+    expect(ruleBody('.wf-ask-bar-inner')).toBeNull();
   });
 
-  it('lifts the field\'s disabled dim under the lock', () => {
+  it('keeps the pill a flex:none direct child of the bar and of the field, so it is never squeezed out', () => {
+    expect(ruleBody('.wf-ask-bar > .wf-lens-pro')).toMatch(/flex:\s*none/);
+    expect(ruleBody('.wf-askf > .wf-lens-pro')).toMatch(/flex:\s*none/);
+  });
+
+  it('keeps the field\'s own disabled dim at .5 for a locked field, and the lock\'s wrappers are gone', () => {
     expect(ruleBody('.wf-askf:disabled')).toMatch(/opacity:\s*\.5/);
-    expect(ruleBody('.wf-lens-locked .wf-askf:disabled')).toMatch(/opacity:\s*1\b/);
+    expect(ruleBody('.wf-lens-locked .wf-askf:disabled')).toBeNull();
+    expect(ruleBody('.wf-askf-lockwrap')).toBeNull();
+    expect(ruleBody('.wf-askf-lockrow')).toBeNull();
   });
 
   it('lifts the peek entry\'s disabled dim under the lock, and lets its wrapper take the row\'s flex share', () => {

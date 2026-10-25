@@ -204,7 +204,7 @@ Every commit that touches the UI gets an **adversarial review before it lands**:
 
 ## Roles (summary)
 
-`ADMIN` (everything, Operations tab) · `PRO_USER` (enhanced scores, aurora, past-window ratings, drive times) · `LITE_USER` (basic scores; read-only forecast). New UI must be assessed for role gating: admin-only features are hidden; PRO features are shown greyed to LITE with a "Pro" text pill (never a link; `/upgrade` is not a route). Backend 403 is the real enforcement. See `roles-and-gating.md`.
+`ADMIN` (everything, Operations tab) · `PRO_USER` (enhanced scores, aurora, past-window ratings, drive times) · `LITE_USER` (basic scores; read-only forecast). New UI must be assessed for role gating: admin-only features are hidden; PRO features show LITE a "Pro" pill and open a worded upsell (greyed only where too small to carry one; never a link; `/upgrade` is not a route). Backend 403 is the real enforcement. See `roles-and-gating.md`.
 
 ---
 

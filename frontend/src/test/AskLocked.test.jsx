@@ -17,14 +17,19 @@ import {
 } from './askFixtures.js';
 
 /**
- * Ask PhotoCast is Pro and Admin only: to a LITE reader every entry is LOCKED, with exactly the drive
- * filter's treatment (`WindowFirstLensBar.test.jsx`'s locked cases are the model) — the wrapper takes
- * `wf-lens-locked`, the control is really `disabled`, a `wf-lens-pro` pill is a sibling OUTSIDE the grey,
- * there are no upsell words and no link — and nothing opens and no `/api/ask` request is ever made.
+ * Ask PhotoCast is Pro and Admin only: to a LITE reader every entry is a live DOOR to a worded upsell
+ * (`docs/engineering/ask-upsell-plan.md`), drawn like the PRO entry with the `wf-lens-pro` pill INSIDE the
+ * button. Nothing of Ask itself is reachable: no sheet, no dock, no conversation, and no `/api/ask*` request.
+ * The upsell's own behaviour (open, close paths, focus, Escape order) is `AskUpsell.test.jsx`'s; this file is
+ * the lock suite: the entry's shape per band, the `/` key's refusal, and the dim a blocked trigger takes.
+ *
+ * <p>The phone Map peek's entry is U2's and still the older greyed lock in this series' first release; its
+ * block below is unchanged.
  *
  * <p>One block per band: the phone bar, the phone Map peek, the tablet field, the desktop and wide field with
- * the `/` key. The absence of a dock or dialog is asserted only after the locked control has RENDERED (the
- * lazy-absence lesson), and the stylesheet's half (no double dim) is read from `index.css` and composed.
+ * the `/` key. The absence of a dock or sheet is asserted only after the trigger has RENDERED and the upsell
+ * has been opened (the lazy-absence lesson), and the stylesheet's half (the dims) is read from `index.css`
+ * and composed.
  */
 vi.mock('../components/WindowFirstDoors.jsx', () => ({
   default: () => <div data-testid="stub-doors" />,
@@ -74,15 +79,39 @@ function expectLockedShape(control, wrapper, pill, { wraps = true } = {}) {
   expect(pill.closest('button') === null || pill.closest('button') === control).toBe(true);
 }
 
+/** The upsell trigger's shape, per band: a live button, the pill inside it, a popup claimed, no `aria-label`. */
+function expectUpsellTrigger(control, pill) {
+  expect(control).toBeEnabled();
+  expect(control.closest('.wf-lens-locked')).toBeNull();
+  expect(pill).toHaveTextContent('Pro');
+  expect(pill.className).toContain('wf-lens-pro');
+  expect(control.contains(pill)).toBe(true);
+  expect(pill.closest('a')).toBeNull();
+  expect(control).toHaveAttribute('aria-haspopup', 'dialog');
+  expect(control).toHaveAttribute('aria-expanded', 'false');
+  expect(control).not.toHaveAttribute('aria-controls');
+  expect(control).not.toHaveAttribute('aria-label');
+  expect(control).not.toHaveAttribute('aria-keyshortcuts');
+  expect(control.querySelector('kbd')).toBeNull();
+  expect(control.querySelector('a')).toBeNull();
+}
+
+/** Asserts that nothing of Ask itself mounted: no sheet, no dock, no input, and no request at all. */
+function expectNothingOfAskMounted() {
+  expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
+  expect(screen.queryByTestId('ask-sheet')).toBeNull();
+  expect(screen.queryByTestId('ask-dock')).toBeNull();
+  expect(screen.queryByRole('textbox')).toBeNull();
+  expectNoAskRequest();
+}
+
 // The stylesheet's disabled dims and the lock, composed: jsdom loads no stylesheet, so the rules the
 // lock depends on are lifted out of `index.css` (source order kept) into a <style> and asked.
 const CSS = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 const RULES = [
   '.wf-lens-locked',
   '.wf-ask-bar:disabled',
-  '.wf-ask-bar[data-locked]:disabled',
   '.wf-askf:disabled',
-  '.wf-lens-locked .wf-askf:disabled',
   '.wf-map-peek-ask-entry:disabled',
   '.wf-lens-locked .wf-map-peek-ask-entry:disabled',
 ];
@@ -130,45 +159,56 @@ afterEach(() => {
 });
 
 describe('the phone bar', () => {
-  it('is locked: disabled, the lock on an INNER span, the Pro pill beside it, no words, no link', async () => {
+  it('is a live trigger: the pill inside it, a popup claimed, no grey wrapper, no inner lock span', async () => {
     renderLite(390);
 
     const bar = await screen.findByTestId('ask-bar');
-    expectLockedShape(bar, screen.getByTestId('ask-bar-locked'), screen.getByTestId('ask-bar-upsell'), { wraps: false });
-    expect(screen.getByTestId('ask-bar-upsell').closest('[data-testid="ask-bar"]')).toBe(bar);
-    expect(bar).not.toHaveAttribute('aria-haspopup');
-    expect(bar).not.toHaveAttribute('aria-expanded');
-    expect(bar.querySelector('a')).toBeNull();
+    expectUpsellTrigger(bar, screen.getByTestId('ask-bar-upsell'));
+    expect(bar).toHaveAttribute('data-locked', 'true');
+    expect(screen.queryByTestId('ask-bar-locked')).toBeNull();
     expect(bar).toHaveTextContent(/Ask/);
+    // The pill stays a DIRECT child, between the prompt and the arrow: the stylesheet matches `.wf-ask-bar > .wf-lens-pro`.
+    expect(Array.from(bar.children).map((c) => c.className.split(' ')[0]))
+      .toEqual(['wf-ask-bar-k', 'wf-ask-bar-q', 'wf-lens-pro', 'wf-ask-bar-go']);
   });
 
-  it('keeps its own box opaque and hit-testable: the bar is not inside .wf-lens-locked', async () => {
+  it('is named by its content, "{prompt} Pro", with no aria-label to replace it', async () => {
     renderLite(390);
 
     const bar = await screen.findByTestId('ask-bar');
-    expect(bar.closest('.wf-lens-locked')).toBeNull();
-    expect(bar.className).toContain('wf-ask-bar');
-    // The 45% grey is on the inner span, which is inside the bar, never around it.
-    expect(bar.contains(screen.getByTestId('ask-bar-locked'))).toBe(true);
+    expect(bar).toHaveAccessibleName(/\bPro$/);
+    expect(bar).toHaveAccessibleName(new RegExp(bar.querySelector('.wf-ask-bar-q').textContent));
   });
 
-  it('opens nothing and makes no request when pressed', async () => {
+  it('opens the upsell, not a sheet, and makes no request when pressed', async () => {
     renderLite(390);
 
     fireEvent.click(await screen.findByTestId('ask-bar'));
     await act(async () => {});
 
-    expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
-    expectNoAskRequest();
+    expect(await screen.findByTestId('wf-ask-upsell')).toBeInTheDocument();
+    expectNothingOfAskMounted();
   });
 
-  it('reads at the drive row\'s .45, not .45 composed with the disabled dim', async () => {
+  it('keeps its own box opaque: the bar is not inside .wf-lens-locked and nothing inside it is', async () => {
     renderLite(390);
 
     const bar = await screen.findByTestId('ask-bar');
-    expect(getComputedStyle(bar).opacity).toBe('1');
-    expect(effectiveOpacity(screen.getByTestId('ask-bar-locked'))).toBeCloseTo(0.45, 5);
-    expect(effectiveOpacity(screen.getByTestId('ask-bar-upsell'))).toBe(1);
+    expect(bar.closest('.wf-lens-locked')).toBeNull();
+    expect(bar.querySelector('.wf-lens-locked')).toBeNull();
+    expect(bar.className).toContain('wf-ask-bar');
+  });
+
+  it('reads at full strength, and at the PRO bar\'s .5 when settings or a card popup disable it', async () => {
+    renderLite(390);
+    const bar = await screen.findByTestId('ask-bar');
+    expect(effectiveOpacity(bar)).toBe(1);
+    cleanup();
+
+    renderLite(390, { props: { contentDisabled: true } });
+    const blocked = await screen.findByTestId('ask-bar');
+    expect(blocked).toBeDisabled();
+    expect(effectiveOpacity(blocked)).toBeCloseTo(0.5, 5);
   });
 });
 
@@ -229,61 +269,70 @@ describe('the phone Map peek entry', () => {
 });
 
 describe('the tablet field', () => {
-  it('is locked: disabled, wrapped in .wf-lens-locked, the pill outside it, no popup claimed', async () => {
+  it('is a live trigger: the pill inside it, a popup claimed, no wrapper, no row', async () => {
     renderLite(800);
 
     const field = await screen.findByTestId('ask-field');
-    expectLockedShape(field, screen.getByTestId('ask-field-locked'), screen.getByTestId('ask-field-upsell'));
-    expect(field).not.toHaveAttribute('aria-haspopup');
-    expect(field).not.toHaveAttribute('aria-expanded');
+    expectUpsellTrigger(field, screen.getByTestId('ask-field-upsell'));
+    expect(field).toHaveAttribute('data-locked', 'true');
+    expect(screen.queryByTestId('ask-field-locked')).toBeNull();
+    expect(screen.queryByTestId('ask-field-lockrow')).toBeNull();
+    // Last child: the prompt ellipsizes in front of it and the pill is never pushed out.
+    expect(field.lastElementChild).toBe(screen.getByTestId('ask-field-upsell'));
   });
 
-  it('opens no sheet and makes no request when pressed', async () => {
+  it('is named by its content, "{prompt} Pro", with no aria-label to replace it', async () => {
+    renderLite(800);
+
+    const field = await screen.findByTestId('ask-field');
+    expect(field).toHaveAccessibleName(/\bPro$/);
+    expect(field).toHaveAccessibleName(new RegExp(field.querySelector('.wf-askf-q').textContent));
+  });
+
+  it('opens the upsell, not the sheet, and makes no request when pressed', async () => {
     renderLite(800);
 
     fireEvent.click(await screen.findByTestId('ask-field'));
     await act(async () => {});
 
-    expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
-    expectNoAskRequest();
+    expect(await screen.findByTestId('wf-ask-upsell')).toBeInTheDocument();
+    expectNothingOfAskMounted();
   });
 
-  it('is drawn on the Map tab too, locked', async () => {
+  it('is drawn on the Map tab too, as a trigger', async () => {
     renderLite(800, { props: { mapPane: MAP_PANE } });
 
     expect(await screen.findByTestId('ask-field-upsell')).toBeInTheDocument();
   });
 
-  it('reads at .45 with no double dim', async () => {
+  it('reads at full strength, and at the PRO field\'s .5 when settings or a card popup disable it', async () => {
     renderLite(800);
+    expect(effectiveOpacity(await screen.findByTestId('ask-field'))).toBe(1);
+    cleanup();
 
-    const field = await screen.findByTestId('ask-field');
-    expect(effectiveOpacity(field)).toBeCloseTo(0.45, 5);
-    expect(effectiveOpacity(screen.getByTestId('ask-field-upsell'))).toBe(1);
+    renderLite(800, { props: { contentDisabled: true } });
+    const blocked = await screen.findByTestId('ask-field');
+    expect(blocked).toBeDisabled();
+    expect(effectiveOpacity(blocked)).toBeCloseTo(0.5, 5);
   });
 });
 
 describe.each([[1280, 'desktop'], [1400, 'wide']])('the %i px %s field and the / key', (width) => {
-  it('is locked, and advertises neither the key nor a popup nor an expansion', async () => {
+  it('is a live trigger, and advertises no key and no hint', async () => {
     renderLite(width);
 
     const field = await screen.findByTestId('ask-field');
-    expectLockedShape(field, screen.getByTestId('ask-field-locked'), screen.getByTestId('ask-field-upsell'));
-    expect(field).not.toHaveAttribute('aria-keyshortcuts');
-    expect(field).not.toHaveAttribute('aria-haspopup');
-    expect(field).not.toHaveAttribute('aria-expanded');
-    expect(field).not.toHaveAttribute('aria-controls');
-    expect(field.querySelector('kbd')).toBeNull();
+    expectUpsellTrigger(field, screen.getByTestId('ask-field-upsell'));
   });
 
-  it('opens no dock and makes no request when pressed', async () => {
+  it('opens the upsell, not the dock, and makes no request when pressed', async () => {
     renderLite(width);
 
     fireEvent.click(await screen.findByTestId('ask-field'));
     await act(async () => {});
 
-    expect(screen.queryByTestId('ask-dock')).toBeNull();
-    expectNoAskRequest();
+    expect(await screen.findByTestId('wf-ask-upsell')).toBeInTheDocument();
+    expectNothingOfAskMounted();
   });
 
   it('refuses / BEFORE preventDefault: the key is not swallowed and focus does not move', async () => {
@@ -297,15 +346,18 @@ describe.each([[1280, 'desktop'], [1400, 'wide']])('the %i px %s field and the /
 
     expect(press.defaultPrevented).toBe(false);
     expect(document.activeElement).toBe(before);
+    expect(screen.queryByTestId('wf-ask-upsell')).toBeNull();
     expect(screen.queryByTestId('ask-dock')).toBeNull();
     expectNoAskRequest();
   });
 
-  it('reads at .45 with no double dim', async () => {
+  it('reads at full strength, and at .5 when it is disabled', async () => {
     renderLite(width);
+    expect(effectiveOpacity(await screen.findByTestId('ask-field'))).toBe(1);
+    cleanup();
 
-    const field = await screen.findByTestId('ask-field');
-    expect(effectiveOpacity(field)).toBeCloseTo(0.45, 5);
+    renderLite(width, { props: { contentDisabled: true } });
+    expect(effectiveOpacity(await screen.findByTestId('ask-field'))).toBeCloseTo(0.5, 5);
   });
 });
 

@@ -175,15 +175,16 @@ describe('App — where Ask PhotoCast is mounted', () => {
     expect(getAskSettings).toHaveBeenCalledTimes(1);
   });
 
-  it('a LITE reader sees the whole tree locked: a disabled bar, a Pro pill, and no Ask request', async () => {
+  it('a LITE reader sees the whole tree locked: the bar opens the upsell and no Ask request is made', async () => {
     renderApp('LITE_USER');
 
     const bar = await screen.findByTestId('ask-bar');
-    expect(bar).toBeDisabled();
+    expect(bar).toBeEnabled();
     expect(screen.getByTestId('ask-bar-upsell')).toHaveTextContent('Pro');
-    expect(screen.getByTestId('ask-bar-locked').className).toContain('wf-lens-locked');
+    expect(bar.closest('.wf-lens-locked')).toBeNull();
     fireEvent.click(bar);
     await act(async () => {});
+    expect(await screen.findByTestId('wf-ask-upsell')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
     // The settings read (open to every role) says whether the flag is on; nothing else is asked.
     expect(getAskSettings).toHaveBeenCalledTimes(1);

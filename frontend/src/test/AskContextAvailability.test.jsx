@@ -11,9 +11,9 @@ import {
 } from 'vitest';
 import { act, screen } from '@testing-library/react';
 import {
-  auth, ctx, renderAsk, refusal, askTyped, installAskConversationMocks, removeAskConversationMocks,
+  auth, ctx, renderAsk, refusal, askTyped, installAskConversationMocks, removeAskConversationMocks, tree,
 } from './askConversationHarness.jsx';
-import { settings } from './askFixtures.js';
+import { ownResponse, settings } from './askFixtures.js';
 
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
@@ -122,5 +122,35 @@ describe('a demoted session: the server refuses with NOT_ENTITLED', () => {
     expect(ctx.phase).toBe('empty');
     expect(screen.queryByTestId('ask-error')).toBeNull();
     expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
+  });
+});
+
+describe('a reader who stops being PRO mid-session (the upsell plan, §3.3)', () => {
+  it('has the in-memory conversation cleared, so a locked reader never holds a stale answer', async () => {
+    auth.role = 'PRO_USER';
+    SERVER.loaded();
+    ask.mockResolvedValue(ownResponse());
+    const view = await renderAsk();
+    await askTyped('Where is good?', { view: 'plan' });
+    expect(ctx.phase).toBe('answer');
+
+    auth.role = 'LITE_USER';
+    await act(async () => { view.rerender(tree()); });
+
+    expect(ctx.availability).toBe('locked');
+    expect(ctx.phase).toBe('empty');
+    expect(ctx.answer).toBeNull();
+  });
+
+  it('control: a reader who stays PRO keeps the answer across a re-render', async () => {
+    auth.role = 'PRO_USER';
+    SERVER.loaded();
+    ask.mockResolvedValue(ownResponse());
+    const view = await renderAsk();
+    await askTyped('Where is good?', { view: 'plan' });
+
+    await act(async () => { view.rerender(tree()); });
+
+    expect(ctx.phase).toBe('answer');
   });
 });

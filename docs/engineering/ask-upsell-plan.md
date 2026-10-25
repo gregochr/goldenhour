@@ -569,7 +569,9 @@ updated `main`. Each brief carries:
 The planner reviews the diff read-only and sends fixes back to the same agent. Then CLAUDE.md steps 3–6
 follow: a ready PR, then CI and Codex 👍 on the exact head commit, then a squash merge.
 
-## 8. Owner questions (defaults are what gets built if unanswered)
+## 8. Owner questions — ANSWERED 2026-10-25
+
+The owner took every default (Q1–Q8).
 
 | # | Question | Default |
 |---|---|---|

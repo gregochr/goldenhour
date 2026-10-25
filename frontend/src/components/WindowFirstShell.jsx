@@ -1,5 +1,5 @@
 import React, {
-  lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+  lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import { askEntryPrompt } from '../utils/askEntryPrompt.js';
@@ -14,6 +14,7 @@ import WindowSpotSheet from './WindowSpotSheet.jsx';
 import AskBar from './ask/AskBar.jsx';
 import AskDock, { ASK_DOCK_ID } from './ask/AskDock.jsx';
 import AskField from './ask/AskField.jsx';
+import AskUpsellPopover from './ask/AskUpsell.jsx';
 import AskSheet, { ASK_SHEET_LABEL } from './ask/AskSheet.jsx';
 import { useAsk } from '../context/AskContext.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
@@ -452,6 +453,17 @@ export default function WindowFirstShell({
   const [askDockOpen, setAskDockOpen] = useState(false);
   /** The Ask bar or field that is on screen, where closing the sheet or the dock returns focus. */
   const askTriggerRef = useRef(null);
+  /**
+   * The kind of Ask entry that opened the Ask UPSELL (a LITE reader's worded door, docs/engineering/
+   * ask-upsell-plan.md §3.2): {@code 'bar'} (the phone's), {@code 'field'} (the tablet's) or
+   * {@code 'dock-field'} (the field from 1024px), or null when it is closed. The KIND is recorded, not a
+   * bare boolean, because a breakpoint change swaps one entry for another and a state that only asked
+   * "is there an entry" would carry the popover across to the wrong one. Let go during render below, and
+   * cleared by {@code selectTab}.
+   */
+  const [askUpsellFor, setAskUpsellFor] = useState(null);
+  const askUpsellId = useId();
+  const askUpsellRootRef = useRef(null);
   /** The dock's question field, so `/` can focus it when the dock is already open. */
   const askDockInputRef = useRef(null);
   const ask = useAsk();
@@ -816,6 +828,9 @@ export default function WindowFirstShell({
     // wants the dialogs gone (the cog, the nudge, the settings edge) takes it down with them. The
     // CONVERSATION is not touched — it is context state, and this body may call only our own setters.
     setAskSheetOpen(false);
+    // ...and so is the LITE reader's Ask upsell: on 640px and up its field is drawn on Plan, Coming up
+    // and Map, so a tab press would otherwise leave the popover open over the next tab.
+    setAskUpsellFor(null);
   };
   /**
    * The Coming up tab's handoff row, going the other way (plan P1/D14).
@@ -1431,8 +1446,9 @@ export default function WindowFirstShell({
    * reader who Tabs out of the sheet reaches neither a card behind the scrim nor a banner above the
    * shell; and {@code selectTab} closes the sheet on any tab change, from any route.
    */
-  // A reader who is not PRO or ADMIN sees every entry LOCKED (greyed, really disabled, a "Pro" pill beside
-  // it): `locked` draws wherever `on` and `down` do, and refuses at every opener and the `/` key.
+  // A reader who is not PRO or ADMIN sees every entry LOCKED: a live trigger with a "Pro" pill inside it that
+  // opens the worded upsell (docs/engineering/ask-upsell-plan.md). `locked` draws wherever `on` and `down` do;
+  // the sheet and the dock openers and the `/` key still refuse it, so nothing of Ask itself is reachable.
   const askLocked = ask.availability === 'locked';
   const askEntry = (() => {
     if (ask.availability !== 'on' && ask.availability !== 'down' && !askLocked) return null;
@@ -1462,8 +1478,21 @@ export default function WindowFirstShell({
   // gone (its event passed) is deliberately never released — it would leave the entry disabled with
   // no dialog on screen and nothing to say why.
   const askDialogOpen = openCard != null || modalOpenOverPopup || settingsOpen;
-  // `askLocked` is folded in here so the `/` key (which reads this) is refused BEFORE its `preventDefault`.
-  const askDisabled = ask.availability === 'down' || askLocked || Boolean(contentDisabled) || askDialogOpen;
+  // Two questions the old `askDisabled` answered at once. `askBlocked` is whether the CONTROL is really
+  // `disabled`: the backend is down, the content is disabled, or a shell dialog or settings stands. A locked
+  // reader's trigger is a live door, so the lock is not in it (`down` and `locked` cannot both hold). The
+  // `/` key is refused for the lock as well, BEFORE its `preventDefault` (`askKeyRefused`), so the key is
+  // never live where the control beside it is not, and a LITE reader's `/` still reaches the browser.
+  const askBlocked = ask.availability === 'down' || Boolean(contentDisabled) || askDialogOpen;
+  const askKeyRefused = askBlocked || askLocked;
+  // The entry the upsell would hang from now, and whether it is open: for THAT kind of entry, while the
+  // reader is still locked and nothing blocks the control. Anything else lets the state go during render
+  // (the `askSheetOpen` shape): a breakpoint change that removes or swaps the entry, Operations, a shell
+  // dialog or settings opening, or the role turning PRO. A state left set would bring the popover back
+  // unasked, or hold it on an entry that is not the one that was pressed.
+  const askEntryKind = askEntry ?? (askDockEntry ? 'dock-field' : null);
+  const askUpsellOpen = askUpsellFor !== null && askUpsellFor === askEntryKind && askLocked && !askBlocked;
+  if (askUpsellFor !== null && !askUpsellOpen) setAskUpsellFor(null);
   const askViewSpec = ASK_VIEW[effectiveTab] ?? ASK_VIEW.plan;
   // The tablet's Operations tab draws no field, but the tab list is `flex: 1` with Operations pinned
   // to its right edge (`.wf-tab-gated`): without something holding the field's width, pressing
@@ -1556,6 +1585,96 @@ export default function WindowFirstShell({
     if (trigger?.isConnected && !trigger.disabled) return trigger;
     return selectedTabNode();
   }, [selectedTabNode]);
+  /**
+   * Closes the Ask upsell. {@code restoreFocus} sends focus back to the trigger FIRST (the popover, or
+   * the trigger itself, may be what held it and a focused node that unmounts takes focus to
+   * {@code <body>}); the outside press and focus leaving pass false, because focus is already where the
+   * reader put it.
+   */
+  const closeAskUpsell = ({ restoreFocus }) => {
+    if (restoreFocus) askRestoreFallback()?.focus({ preventScroll: true });
+    setAskUpsellFor(null);
+  };
+  /**
+   * The locked entry's press. Closing always works; OPENING is refused over a dialog this shell does not
+   * own (the same refusal the sheet and the dock make), and only the open is guarded, or the trigger could
+   * not close a popover that a foreign dialog arrived over.
+   */
+  const toggleAskUpsell = () => {
+    if (askUpsellOpen) {
+      closeAskUpsell({ restoreFocus: true });
+      return;
+    }
+    if (foreignDialogOpen(shellRef.current)) return;
+    setAskUpsellFor(askEntryKind);
+  };
+  const isForeignDialogOpen = () => foreignDialogOpen(shellRef.current);
+  /**
+   * Escape while focus is on the TRIGGER with the upsell open (Shift+Tab from the heading lands there and
+   * the popover stays open, so its own handler never sees the key). Stopped for the same reason as the
+   * popover's: the Map landing card's bubble-phase `document` listener must not take this Escape too.
+   * Focus is already on the trigger, so it does not move.
+   */
+  const onAskTriggerKeyDown = (event) => {
+    if (event.key !== 'Escape') return;
+    if (foreignDialogOpen(shellRef.current)) return;
+    event.stopPropagation();
+    event.preventDefault();
+    closeAskUpsell({ restoreFocus: false });
+  };
+  // An outside press closes the upsell. A `document` listener in the CAPTURE phase so nothing on the page
+  // (Leaflet stops some of its own pointer events) can hide the press; it swallows nothing, so a Plan card
+  // still opens its popup on the same click. ⚠️ Not `useOutsideDismiss`: that ignores presses inside the map
+  // frame, and a press on the map must close this popover, which belongs to the tab row and not the map.
+  // It stands down over a dialog this shell does not own (the postcode prompt, the four-day sheet), where a
+  // press would otherwise close the upsell invisibly behind it. The trigger's own press toggles, so it is
+  // excluded here.
+  useEffect(() => {
+    if (!askUpsellOpen) return undefined;
+    const onPointerDown = (event) => {
+      if (foreignDialogOpen(shellRef.current)) return;
+      const target = event.target;
+      if (askUpsellRootRef.current?.contains(target) || askTriggerRef.current?.contains(target)) return;
+      setAskUpsellFor(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [askUpsellOpen]);
+  // Focus leaving through the TRIGGER (Shift+Tab from the heading lands on it, the popover stays open, and a
+  // second Shift+Tab goes on into the tab list or the page) never fires the popover's own `onBlur`, which only
+  // sees blurs inside the popover. So, while open, any focus arriving outside both the popover and the trigger
+  // closes it WITHOUT moving focus. Focus events with a null target are not focus arriving anywhere.
+  useEffect(() => {
+    if (!askUpsellOpen) return undefined;
+    const onFocusIn = (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (askUpsellRootRef.current?.contains(target) || askTriggerRef.current?.contains(target)) return;
+      setAskUpsellFor(null);
+    };
+    document.addEventListener('focusin', onFocusIn);
+    return () => document.removeEventListener('focusin', onFocusIn);
+  }, [askUpsellOpen]);
+  // A swap strands focus: the trigger (or the popover that held it) unmounts when the entry changes kind
+  // or the lock goes, and focus cannot be moved during the render that lets the state go. So, once the
+  // upsell has been dropped for THAT reason (not by a close, which put focus back itself, and not by a
+  // dialog opening, which owns focus now) and focus is on <body> or detached, send it to the new trigger,
+  // else to the tab in force.
+  const askUpsellWasOpenFor = useRef(null);
+  useLayoutEffect(() => {
+    const was = askUpsellWasOpenFor.current;
+    askUpsellWasOpenFor.current = askUpsellOpen ? askUpsellFor : null;
+    if (was === null || askUpsellOpen) return;
+    // A plain close put focus back itself, and a dialog opening owns it now. A block that is NOT a dialog (the
+    // backend going down disables the trigger) has no owner, so it falls through to the repair.
+    const blockedWithoutDialog = askBlocked && !askDialogOpen;
+    if (was === askEntryKind && askLocked && !blockedWithoutDialog) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const trigger = askTriggerRef.current;
+    const target = trigger?.isConnected && !trigger.disabled ? trigger : selectedTabNode();
+    target?.focus({ preventScroll: true });
+  }, [askUpsellOpen, askUpsellFor, askEntryKind, askLocked, askBlocked, askDialogOpen, selectedTabNode]);
   /**
    * The control in the DOCK that "Open in Plan ›" was pressed on, so closing the location sheet it opened
    * can put focus back there (null on every other host, where the pressed control went with its surface).
@@ -1905,8 +2024,10 @@ export default function WindowFirstShell({
    * sibling in {@code App}); when a modifier is held, so browser and OS shortcuts are untouched (Shift
    * is NOT refused: on a German layout {@code /} is Shift+7); and while anything is over the shell —
    * any of its own dialogs, the WINDOW POPUP included, search, settings, a dialog this shell does not
-   * own, or a dead backend. {@code askDisabled} is every one of the shell's own, and is the same flag
-   * that disables the field, so the key can never be live where the control beside it is not.
+   * own, or a dead backend. {@code askKeyRefused} is every one of the shell's own PLUS the lock (a LITE reader's
+   * field is a live door to the upsell, and the key must not open a sales popover or swallow the browser's
+   * quick-find), and it contains the flag that disables the field ({@code askBlocked}), so the key can never
+   * be live where the control beside it is not.
    *
    * <p>⚠️ <b>The window popup refuses it, where it used to be the one dialog search was allowed over.</b>
    * Search is anchored to the masthead, a surface the popup is drawn over, so the two stacked; the dock
@@ -1917,7 +2038,7 @@ export default function WindowFirstShell({
     if (!askDockEntry) return undefined;
     const onKeyDown = (event) => {
       if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (askDisabled) return;
+      if (askKeyRefused) return;
       // ⚠️ A dialog this shell does not own still refuses, which is a DIFFERENT question from the flag
       // above: `UserSettingsModal` and the postcode prompt are siblings of the shell in `App`, invisible to
       // its state. Containment answers it — see `foreignDialogOpen`.
@@ -1931,7 +2052,7 @@ export default function WindowFirstShell({
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [askDockEntry, askDisabled, openAskDock]);
+  }, [askDockEntry, askKeyRefused, openAskDock]);
 
   /**
    * The plan's way out of a lens that has shut it — the bar's controls, reached from the message.
@@ -2296,7 +2417,12 @@ export default function WindowFirstShell({
           buttons the moment Ask's availability resolved, taking focus from one a reader was on.
           (The tab list inside is deliberately NOT re-indented one level: that would turn a
           four-line wrapper into a reflow of eighty lines nobody has to review.) */}
-      <div className="wf-tabrow" data-testid="window-first-tabrow" data-tab-count={tabs.length}>
+      <div
+        className="wf-tabrow"
+        data-testid="window-first-tabrow"
+        data-tab-count={tabs.length}
+        data-ask-upsell={askUpsellOpen ? 'open' : undefined}
+      >
       <div
         data-testid="window-first-tabs"
         role="tablist"
@@ -2373,10 +2499,13 @@ export default function WindowFirstShell({
         <AskField
           width={260}
           prompt={askEntryText}
-          disabled={askDisabled}
+          disabled={askBlocked}
           locked={askLocked}
           expanded={askSheetShown}
-          onOpen={openAskSheet}
+          upsellOpen={askUpsellOpen}
+          upsellId={askUpsellId}
+          onKeyDown={askUpsellOpen ? onAskTriggerKeyDown : undefined}
+          onOpen={askLocked ? toggleAskUpsell : openAskSheet}
           buttonRef={askTriggerRef}
         />
       )}
@@ -2389,11 +2518,14 @@ export default function WindowFirstShell({
           showKeyHint={askSurface === 'wide'}
           keyShortcut
           prompt={askEntryText}
-          disabled={askDisabled}
+          disabled={askBlocked}
           locked={askLocked}
           expanded={askDockShown}
           controls={ASK_DOCK_ID}
-          onOpen={openAskDock}
+          upsellOpen={askUpsellOpen}
+          upsellId={askUpsellId}
+          onKeyDown={askUpsellOpen ? onAskTriggerKeyDown : undefined}
+          onOpen={askLocked ? toggleAskUpsell : openAskDock}
           buttonRef={askTriggerRef}
         />
       )}
@@ -2403,6 +2535,19 @@ export default function WindowFirstShell({
           aria-hidden="true"
           data-width={askFieldWidth}
           data-testid="ask-field-ghost"
+        />
+      )}
+      {/* The LITE reader's Ask upsell under the field (from 640px): the tab row's last child, out of flow,
+          anchored to the row (`position: relative` in the stylesheet). Inline, never portalled. */}
+      {askUpsellOpen && askEntryKind !== 'bar' && (
+        <AskUpsellPopover
+          id={askUpsellId}
+          rootRef={askUpsellRootRef}
+          triggerRef={askTriggerRef}
+          placement="field"
+          onClose={() => closeAskUpsell({ restoreFocus: true })}
+          onFocusAway={() => closeAskUpsell({ restoreFocus: false })}
+          foreignOpen={isForeignDialogOpen}
         />
       )}
       </div>
@@ -2741,11 +2886,26 @@ export default function WindowFirstShell({
       {askEntry === 'bar' && (
         <AskBar
           prompt={askEntryText}
-          disabled={askDisabled}
+          disabled={askBlocked}
           locked={askLocked}
           expanded={askSheetShown}
-          onOpen={openAskSheet}
+          upsellOpen={askUpsellOpen}
+          upsellId={askUpsellId}
+          onKeyDown={askUpsellOpen ? onAskTriggerKeyDown : undefined}
+          onOpen={askLocked ? toggleAskUpsell : openAskSheet}
           buttonRef={askTriggerRef}
+        />
+      )}
+      {/* ...and the bar's upsell, a fixed popover above it (same stacking tier as the bar, below `Modal`). */}
+      {askUpsellOpen && askEntryKind === 'bar' && (
+        <AskUpsellPopover
+          id={askUpsellId}
+          rootRef={askUpsellRootRef}
+          triggerRef={askTriggerRef}
+          placement="bar"
+          onClose={() => closeAskUpsell({ restoreFocus: true })}
+          onFocusAway={() => closeAskUpsell({ restoreFocus: false })}
+          foreignOpen={isForeignDialogOpen}
         />
       )}
       {askEntry !== null && (
