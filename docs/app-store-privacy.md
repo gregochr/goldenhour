@@ -74,10 +74,11 @@ current definition clearly says otherwise.** "Physical Address" is the other cat
 
 **Credentials (not an Apple data type, disclosed for completeness).** `app_user.password` is a BCrypt hash. Refresh tokens
 (`refresh_token`) and the one-time verification and reset tokens (`email_verification_token`, `password_reset_token`) are stored
-as SHA-256 hashes; the raw value exists in the mailed link and on the device, **and in transit and in
-logs that record the request line**: the links are `/verify?token=` and `/reset?token=` on the app origin, so the raw token
-appears in the browser's history, Cloudflare, and the frontend nginx access log (`nginx.conf` logs the full request line;
-retention not verified); the event-stream paths also accept the access token as `?token=` (`JwtAuthenticationFilter`). On the device the app keeps its session in the
+as SHA-256 hashes; the raw value exists in the mailed link and on the device. The links are `/verify#token=` and
+`/reset#token=` on the app origin: the token sits in the URL fragment, which the browser never sends, so it reaches neither
+Cloudflare nor the nginx log nor a `Referer`; it does remain in the browser's history list, and a mail provider's link
+scanner or click tracker that rewrites the link carries the whole URL, fragment included (links mailed before this change
+used `?token=` and expire within 24 h; nginx logs the path only since `token-log-redaction-plan.md` step 1); the event-stream paths also accept the access token as `?token=` (`JwtAuthenticationFilter`). On the device the app keeps its session in the
 browser's `localStorage` (access and refresh tokens, role, username, a session-expiry date and the marketing flag —
 `frontend/src/context/AuthContext.jsx`). Access tokens last 24 hours and refresh tokens 30 days
 (`application-prod.yml`); **expired refresh tokens are deleted nightly** (`refresh_token_cleanup`, 03:00 UTC), but no job was

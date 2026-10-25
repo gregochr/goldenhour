@@ -19,9 +19,9 @@ const LINK_ERRORS = [
 ];
 
 /**
- * The redeeming half of the password reset, mounted by {@code AuthGate} for {@code /reset?token=}
- * signed in or not. Nothing is requested until the reader submits: the page does not look the token
- * up, so opening the link (or a mail scanner prefetching it) cannot spend it.
+ * The redeeming half of the password reset, mounted by {@code AuthGate} for {@code /reset#token=}
+ * (or the older {@code /reset?token=}), signed in or not. Nothing is requested until the reader
+ * submits: the page does not look the token up, so opening the link (or a mail scanner prefetching it) cannot spend it.
  *
  * <p>On success the server answers with a full session, so the reader is signed in on this device
  * ({@code signInWithTokens}); the page then replaces the URL with {@code /} itself and hands

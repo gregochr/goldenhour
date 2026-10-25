@@ -131,7 +131,7 @@ class UserEmailServiceTest {
     }
 
     @Test
-    @DisplayName("sendVerificationEmail links to /verify?token= on the app origin")
+    @DisplayName("sendVerificationEmail links to /verify#token= on the app origin")
     void sendVerificationEmail_linksToTheVerifyPath() throws Exception {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
 
@@ -139,7 +139,7 @@ class UserEmailServiceTest {
                 () -> service.sendVerificationEmail("alice@example.com", "alice", "raw-token-uuid"));
 
         assertThat(context.getVariable("verificationUrl"))
-                .isEqualTo("https://app.photocast.online/verify?token=raw-token-uuid");
+                .isEqualTo("https://app.photocast.online/verify#token=raw-token-uuid");
         assertThat(context.getVariable("username")).isEqualTo("alice");
     }
 
@@ -152,11 +152,11 @@ class UserEmailServiceTest {
                 () -> service.sendVerificationEmail("alice@example.com", "alice", "tok"));
 
         assertThat(context.getVariable("verificationUrl"))
-                .isEqualTo("https://app.photocast.online/verify?token=tok");
+                .isEqualTo("https://app.photocast.online/verify#token=tok");
     }
 
     @Test
-    @DisplayName("sendPasswordResetLinkEmail links to /reset?token=, names the user and mails the given address "
+    @DisplayName("sendPasswordResetLinkEmail links to /reset#token=, names the user and mails the given address "
             + "with the agreed subject")
     void sendPasswordResetLinkEmail_linksToTheResetPath() throws Exception {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
@@ -171,7 +171,7 @@ class UserEmailServiceTest {
         verify(templateEngine).process(eq("password-reset-link-email"), captor.capture());
         Context context = (Context) captor.getValue();
         assertThat(context.getVariable("resetUrl"))
-                .isEqualTo("https://app.photocast.online/reset?token=reset-raw-token");
+                .isEqualTo("https://app.photocast.online/reset#token=reset-raw-token");
         assertThat(context.getVariable("username")).isEqualTo("alice");
         verify(mimeMessage).setSubject("Reset your PhotoCast password", "UTF-8");
         verify(mailSender).send(mimeMessage);
@@ -213,7 +213,7 @@ class UserEmailServiceTest {
         real.setTemplateResolver(resolver);
         Context context = new Context();
         context.setVariable("username", "<b>alice</b>");
-        context.setVariable("resetUrl", "https://app.photocast.online/reset?token=abc");
+        context.setVariable("resetUrl", "https://app.photocast.online/reset#token=abc");
 
         String html = real.process("password-reset-link-email", context);
 
@@ -222,7 +222,7 @@ class UserEmailServiceTest {
                 .contains("If that was you, use the link below within the next hour.")
                 .contains("If it wasn't, you can ignore this email")
                 .contains("your password hasn't changed.")
-                .contains("href=\"https://app.photocast.online/reset?token=abc\"")
+                .contains("href=\"https://app.photocast.online/reset#token=abc\"")
                 .contains("&lt;b&gt;alice&lt;/b&gt;")
                 .doesNotContain("<b>alice</b>");
     }
@@ -280,7 +280,7 @@ class UserEmailServiceTest {
     /** Matches the reminder template's context exactly: link, flag, days left and the lapse date. */
     private static IContext reminderContext(String token, boolean finalReminder) {
         return argThat(ctx -> ctx instanceof Context c
-                && ("https://app.photocast.online/verify?token=" + token).equals(c.getVariable("verificationUrl"))
+                && ("https://app.photocast.online/verify#token=" + token).equals(c.getVariable("verificationUrl"))
                 && Boolean.valueOf(finalReminder).equals(c.getVariable("finalReminder"))
                 && Integer.valueOf(3).equals(c.getVariable("daysLeft"))
                 && "Friday 14 March".equals(c.getVariable("lapsesOn")));
@@ -350,7 +350,7 @@ class UserEmailServiceTest {
         verify(templateEngine).process(eq("verification-reminder-email"), captor.capture());
         Context context = (Context) captor.getValue();
         assertThat(context.getVariable("verificationUrl"))
-                .isEqualTo("https://app.photocast.online/verify?token=fresh-tok");
+                .isEqualTo("https://app.photocast.online/verify#token=fresh-tok");
         assertThat(context.getVariable("finalReminder")).isEqualTo(false);
         assertThat(context.getVariable("daysLeft")).isEqualTo(3);
         assertThat(context.getVariable("lapsesOn")).isEqualTo("Friday 14 March");
@@ -375,7 +375,7 @@ class UserEmailServiceTest {
         verify(templateEngine).process(eq("verification-reminder-email"), captor.capture());
         Context context = (Context) captor.getValue();
         assertThat(context.getVariable("verificationUrl"))
-                .isEqualTo("https://app.photocast.online/verify?token=fresh-tok");
+                .isEqualTo("https://app.photocast.online/verify#token=fresh-tok");
         assertThat(context.getVariable("finalReminder")).isEqualTo(true);
         verify(mimeMessage).setSubject("PhotoCast — last day to claim your place", "UTF-8");
     }

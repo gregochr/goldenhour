@@ -4,8 +4,10 @@
       {
         "appIDs": ["TEAMID.BUNDLEID"],
         "components": [
+          { "/": "/verify", "#": "token=*" },
           { "/": "/verify", "?": { "token": "*" } },
           { "/": "/verify/*" },
+          { "/": "/reset", "#": "token=*" },
           { "/": "/reset", "?": { "token": "*" } },
           { "/": "/reset/*" }
         ]

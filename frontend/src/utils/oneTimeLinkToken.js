@@ -7,7 +7,7 @@
  * without it (docs/engineering/token-log-redaction-plan.md, step 2).
  *
  * <p>The fragment (`#token=`) is read first and the query (`?token=`) second, so links mailed in
- * either form work. The backend still emits the query form; the fragment form is read ahead of it.
+ * either form work. The backend mails the fragment form; the query is still read for links mailed before that release.
  * Like the query form, `#token=` is accepted on any path (the legacy `/?token=` verification link
  * relies on that).
  */

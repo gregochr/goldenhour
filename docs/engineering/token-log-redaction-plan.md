@@ -157,6 +157,8 @@ not.)
 
 ### Step 3 — one-time tokens in the fragment, both forms accepted (PR 3)
 
+**Built** (`fix/one-time-token-fragment`): `appLink` mails `#token=`; the `?token=` read stays for links already in inboxes.
+
 - `UserEmailService.appLink`: `base + path + "#token=" + rawToken`. The token is URL-safe
   (builder confirms the issuers' alphabet; if not, encode it). `UserEmailServiceTest` (and any
   test asserting `?token=` in a sent mail) updated to the fragment form.

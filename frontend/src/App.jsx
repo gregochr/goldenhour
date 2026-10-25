@@ -79,13 +79,14 @@ function AuthGate() {
   const [showRegister, setShowRegister] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
 
-  // /reset?token= is a reset link; read once, from the pathname it was opened on.
+  // /reset#token= is a reset link (the query form, `?token=`, is still read for links mailed
+  // before the fragment form); read once, from the pathname it was opened on.
   const [resetToken, setResetToken] = useState(() => (
     window.location.pathname === '/reset' ? takeLinkToken() : null
   ));
 
-  // Any other path with ?token= (the /verify link, or the legacy /?token=) is email verification;
-  // cleared once consumed.
+  // Any other path with a token (the /verify#token= link, the older /verify?token= form, or the
+  // legacy /?token=) is email verification; cleared once consumed.
   const [verifyToken, setVerifyToken] = useState(() => (
     window.location.pathname === '/reset' ? null : takeLinkToken()
   ));
