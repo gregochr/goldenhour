@@ -4167,7 +4167,8 @@ button.wf-hc.also.on:hover {
   bottom: 0;
 }
 .wf-tide-upsell,
-.wf-ask-upsell {
+.wf-ask-upsell,
+.wf-pro-upsell {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -4181,7 +4182,8 @@ button.wf-hc.also.on:hover {
   backdrop-filter: blur(7px);
 }
 .wf-tide-upsell-heading,
-.wf-ask-upsell-heading {
+.wf-ask-upsell-heading,
+.wf-pro-upsell-heading {
   margin: 0;
   font-family: var(--font-serif);
   font-size: 17px;
@@ -4191,9 +4193,11 @@ button.wf-hc.also.on:hover {
 }
 /* A programmatic focus target only (never a tab stop), so it carries no ring of its own. */
 .wf-tide-upsell-heading:focus,
-.wf-ask-upsell-heading:focus { outline: none; }
+.wf-ask-upsell-heading:focus,
+.wf-pro-upsell-heading:focus { outline: none; }
 .wf-tide-upsell-body,
-.wf-ask-upsell-body {
+.wf-ask-upsell-body,
+.wf-pro-upsell-body {
   margin: 0;
   font-family: var(--font-sans);
   font-size: 12.5px;
@@ -4207,7 +4211,8 @@ button.wf-hc.also.on:hover {
   height: 70px;
 }
 .wf-tide-upsell-dismiss,
-.wf-ask-upsell-dismiss {
+.wf-ask-upsell-dismiss,
+.wf-pro-upsell-dismiss {
   align-self: flex-end;
   padding: 5px 10px;
   font-family: var(--font-mono);
@@ -4221,11 +4226,54 @@ button.wf-hc.also.on:hover {
   cursor: pointer;
 }
 .wf-tide-upsell-dismiss:hover,
-.wf-ask-upsell-dismiss:hover { background: rgba(255, 255, 255, 0.04); }
+.wf-ask-upsell-dismiss:hover,
+.wf-pro-upsell-dismiss:hover { background: rgba(255, 255, 255, 0.04); }
 .wf-tide-upsell-dismiss:focus-visible,
-.wf-ask-upsell-dismiss:focus-visible {
+.wf-ask-upsell-dismiss:focus-visible,
+.wf-pro-upsell-dismiss:focus-visible,
+.wf-pro-upsell-trigger:focus-visible {
   outline: 2px solid var(--color-plex-text);
   outline-offset: 2px;
+}
+/* The generic Pro upsell door (docs/engineering/pro-features-gate-plan.md §4): the trigger sits in its host's
+   flow; the popover is ABSOLUTELY positioned below it, so it is never a flex item of the host row and never
+   pushes the host's content. Its width is capped by the door's own box (the host column), not the viewport,
+   so it never overflows a narrow scroller such as the sheet's `.wf-loc-rows`. */
+.wf-pro-upsell-door {
+  position: relative;
+  display: block;
+}
+.wf-pro-upsell-trigger { max-width: 100%; }
+/* The popover is a focus target (tabIndex -1) so a press on its text lands on it, not on the nearest
+   focusable ancestor (a Modal root), which would read as focus leaving the door. No ring: it is not a tab stop. */
+.wf-pro-upsell:focus { outline: none; }
+.wf-pro-upsell {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  box-sizing: border-box;
+  width: min(360px, 100%);
+}
+.wf-pro-upsell-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--color-plex-text);
+  background: none;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.wf-pro-upsell-trigger:hover { background: rgba(255, 255, 255, 0.04); }
+.wf-pro-upsell-trigger:focus-visible { outline-offset: 2px; }
+@media (forced-colors: active) {
+  .wf-pro-upsell-trigger[aria-expanded="true"] { border-color: Highlight; }
 }
 /* The phone's inline copy of the same content, inside the peek Tide section (no popover, no "Not now") and the
    peek Ask section (with its own "Not now"). */

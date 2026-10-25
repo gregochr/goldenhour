@@ -396,7 +396,7 @@ export default function WindowFirstShell({
     windowCards, paneItems, loading, briefing, evaluationScores, scoresLoaded,
     scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
     origin, setOrigin, regions, effectiveReachById,
-    comingUpLastSeenDate, setComingUpLastSeenAt, isPro, upcomingEvents, travelDayDates,
+    comingUpLastSeenDate, setComingUpLastSeenAt, isPro, scoresLocked, upcomingEvents, travelDayDates,
   } = useWindowFirstBriefing();
   /**
    * Whether the first fetch has been running long enough that the pending line should admit it is
@@ -3148,6 +3148,8 @@ export default function WindowFirstShell({
             eclipseIndex={sheetEclipseIndex}
             // The C2 forecast-detail block's tier gating (a boolean, never the role — plan §5c).
             isPro={isPro}
+            // Scores and the written why are Pro: the sheet drops its "nothing written" line and draws the door.
+            scoresLocked={scoresLocked}
             // Where the close lands when the sheet was opened from Ask's sheet (F5); null for every
             // other opening, which keeps its restore exactly as it was.
             restoreFocusFallback={askSheetFallback}
