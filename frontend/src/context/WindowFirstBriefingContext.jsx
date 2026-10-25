@@ -73,6 +73,55 @@ const EMPTY_MATRIX = {};
 /** A stable do-nothing setter, for a provider rendered without the reader's settings (tests). */
 const NOOP = () => {};
 
+const SCORE_ROW_PRO_FIELDS = ['fierySkyPotential', 'goldenHourPotential', 'summary'];
+const SLOT_PRO_FIELDS = ['fierySkyPotential', 'goldenHourPotential', 'claudeSummary', 'claudeHeadline'];
+
+/** A copy of {@code obj} without the named keys. */
+function without(obj, keys) {
+  const copy = { ...obj };
+  for (const k of keys) delete copy[k];
+  return copy;
+}
+
+/**
+ * The score rows a Lite reader is served: rating, verdict, triage and light times kept, the Fiery Sky /
+ * Golden Hour potentials and the written why removed (pro-features-gate-plan.md §5.1).
+ */
+function stripScoreRows(rows) {
+  return rows.map((row) => without(row, SCORE_ROW_PRO_FIELDS));
+}
+
+/** Slots without the Pro fields. */
+function stripSlots(slots) {
+  return slots.map((slot) => without(slot, SLOT_PRO_FIELDS));
+}
+
+/**
+ * The briefing a Lite reader draws from: every slot loses the potentials and the per-location prose.
+ * Region prose, ratings and verdicts are untouched. A null briefing stays null.
+ */
+function stripBriefingScores(briefing) {
+  if (!briefing || !Array.isArray(briefing.days)) return briefing;
+  return {
+    ...briefing,
+    days: briefing.days.map((day) => ({
+      ...day,
+      ...(Array.isArray(day.eventSummaries) && {
+        eventSummaries: day.eventSummaries.map((ev) => ({
+          ...ev,
+          ...(Array.isArray(ev.regions) && {
+            regions: ev.regions.map((region) => ({
+              ...region,
+              ...(Array.isArray(region.slots) && { slots: stripSlots(region.slots) }),
+            })),
+          }),
+          ...(Array.isArray(ev.unregioned) && { unregioned: stripSlots(ev.unregioned) }),
+        })),
+      }),
+    })),
+  };
+}
+
 const WindowFirstBriefingContext = createContext({
   briefing: null,
   loading: false,
@@ -96,6 +145,8 @@ const WindowFirstBriefingContext = createContext({
   tomorrowStr: '',
   isPro: false,
   tideLocked: false,
+  // Deliberately UNLOCKED: a provider-less render (every bare test) stays as it was (plan §3).
+  scoresLocked: false,
   comingUpLastSeenDate: undefined,
   setComingUpLastSeenAt: () => {},
 });
@@ -227,12 +278,11 @@ export function WindowFirstBriefingProvider({
   // Both other SWR consumers already use the lazy form.
   // (An admin's rewind is `swrCache`'s own concern: it answers null and refuses writes while one
   // is set, so neither this read nor the write below needs to know.)
-  const [briefing, setBriefing] = useState(
+  const [rawBriefing, setBriefing] = useState(
     () => readSwrCache(briefingCacheKey, BRIEFING_CACHE_MAX_AGE_MS),
   );
-  const [loading, setLoading] = useState(briefing === null);
+  const [loading, setLoading] = useState(rawBriefing === null);
   const [travelRanges, setTravelRanges] = useState([]);
-  const [evaluationScores, setEvaluationScores] = useState(EMPTY_SCORES);
   // The same response, kept unreduced. See the fetch effect below for why both shapes exist.
   //
   // ⚠️ PUBLISHED on the context value since P8, and the note this replaces is why. It used to read
@@ -244,7 +294,7 @@ export function WindowFirstBriefingProvider({
   // timed its rows id-first (`buildSlotIndex`) and rated them name-only, so a location renamed
   // since the last evaluation run got a correct departure time under "Not scored yet", while the
   // heat field behind the dialog — id-first — still painted its rating.
-  const [scoreRows, setScoreRows] = useState(EMPTY_ARRAY);
+  const [rawScoreRows, setRawScoreRows] = useState(EMPTY_ARRAY);
 
   /**
    * Whether the ratings response has actually been received.
@@ -349,21 +399,9 @@ export function WindowFirstBriefingProvider({
         if (!views || views.length === 0) return;
         if (request < scoresAppliedRef.current) return; // newer rows are already on screen
         scoresAppliedRef.current = request;
-        setScoreRows(views);
-        const next = new Map();
-        for (const v of views) {
-          if (!v.regionName || !v.locationName) continue;
-          next.set(`${v.regionName}|${v.date}|${v.targetType}|${v.locationName}`, {
-            locationName: v.locationName,
-            rating: v.rating,
-            fierySkyPotential: v.fierySkyPotential,
-            goldenHourPotential: v.goldenHourPotential,
-            summary: v.summary,
-            triageReason: v.triageReason,
-            triageMessage: v.triageMessage,
-          });
-        }
-        setEvaluationScores(next);
+        // Raw rows only: the role-dependent strip happens in the `scoreRows` memo below, never
+        // here (this callback has empty deps, so a `scoresLocked` read would be a stale closure).
+        setRawScoreRows(views);
       })
       .catch(() => {});
   }, []);
@@ -599,6 +637,28 @@ export function WindowFirstBriefingProvider({
     setOriginState(region ? toOrigin(region) : null);
   }, []);
 
+  // A boolean, never the role. Plan §5c: `role` enters this arm at the provider and stops there, and
+  // what anything below receives is a decision already made — a threshold for the lens, a boolean
+  // for the door behind it (`WindowFirstRegionalPanel`). `isLiteUser` lived here too until the
+  // Coming up redesign's P6 deleted its only reader (`WindowFirstDoors`'s `HotTopicStrip` panel,
+  // `docs/engineering/coming-up-plan.md` D7) — removed rather than left as a readerless field,
+  // the same orphan-hunting discipline that phase applied to `auroraTonight`/`HotTopic.tideRun`.
+  const isPro = role === 'PRO_USER' || role === 'ADMIN';
+  // The Map's tide curve and per-location tide match are Pro (docs/engineering/tide-pro-gate-plan.md §3).
+  // Same derivation as the drive filter: the role stops here, a boolean goes down.
+  const tideLocked = !isPro;
+  // Fiery Sky / Golden Hour scores and the per-location written why are Pro (docs/engineering/
+  // pro-features-gate-plan.md §3, §5). Same shape as the tide lock: a boolean goes down, the role stops here.
+  const scoresLocked = !isPro;
+
+  // The briefing the page is drawn from. Unlocked it is THE fetched object (identity kept, so every PRO
+  // memo chain below runs exactly as before); locked it is a copy whose slots lack the scores and the
+  // written why. Region prose is untouched. `rawBriefing` is only ever read here and by the SWR write.
+  const briefing = useMemo(
+    () => (scoresLocked ? stripBriefingScores(rawBriefing) : rawBriefing),
+    [rawBriefing, scoresLocked],
+  );
+
   // Keyed on the briefing OBJECT, not on generatedAt. Keying on the timestamp looks like the
   // cheaper choice — a poll returning a byte-identical payload still hands back a fresh object —
   // but generatedAt is the BUILD time, and this payload is re-derived at SERVE time: the window
@@ -673,16 +733,32 @@ export function WindowFirstBriefingProvider({
     [upcomingEvents, windowCards, travelDayDates],
   );
 
-  // A boolean, never the role. Plan §5c: `role` enters this arm at the provider and stops there, and
-  // what anything below receives is a decision already made — a threshold for the lens, a boolean
-  // for the door behind it (`WindowFirstRegionalPanel`). `isLiteUser` lived here too until the
-  // Coming up redesign's P6 deleted its only reader (`WindowFirstDoors`'s `HotTopicStrip` panel,
-  // `docs/engineering/coming-up-plan.md` D7) — removed rather than left as a readerless field,
-  // the same orphan-hunting discipline that phase applied to `auroraTonight`/`HotTopic.tideRun`.
-  const isPro = role === 'PRO_USER' || role === 'ADMIN';
-  // The Map's tide curve and per-location tide match are Pro (docs/engineering/tide-pro-gate-plan.md §3).
-  // Same derivation as the drive filter: the role stops here, a boolean goes down.
-  const tideLocked = !isPro;
+  // The score rows every published form derives from: rating, displayVerdict, triage and the light
+  // times are kept, the three Pro fields are not. Identity kept when unlocked.
+  const scoreRows = useMemo(
+    () => (scoresLocked ? stripScoreRows(rawScoreRows) : rawScoreRows),
+    [rawScoreRows, scoresLocked],
+  );
+
+  // The name-keyed map (App's `briefingScores`, the heat-strip peek, the Regional planner's drill-down),
+  // built from the SERVED rows so the lift to App/MapView/MapCallout can never carry a stripped field.
+  const evaluationScores = useMemo(() => {
+    if (scoreRows.length === 0) return EMPTY_SCORES;
+    const next = new Map();
+    for (const v of scoreRows) {
+      if (!v.regionName || !v.locationName) continue;
+      next.set(`${v.regionName}|${v.date}|${v.targetType}|${v.locationName}`, {
+        locationName: v.locationName,
+        rating: v.rating,
+        fierySkyPotential: v.fierySkyPotential,
+        goldenHourPotential: v.goldenHourPotential,
+        summary: v.summary,
+        triageReason: v.triageReason,
+        triageMessage: v.triageMessage,
+      });
+    }
+    return next;
+  }, [scoreRows]);
 
   // Built once for the page rather than per strip: the spot peek looks a slot up by
   // (locationName, date, targetType), and `evaluationScores` is keyed with the region name in
@@ -770,7 +846,7 @@ export function WindowFirstBriefingProvider({
       heatPointSets, heatUnratedSets, heatStoodSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, homePlace, isPro, tideLocked,
+      ratingLens, homePlace, isPro, tideLocked, scoresLocked,
       // The origin and its two inputs. `effectiveReachById` is published beside `reachById` rather
       // than in place of it, because the two answer different questions and one consumer still
       // wants the home one: the planning area and the beyond line are statements about HOME, and
@@ -783,7 +859,7 @@ export function WindowFirstBriefingProvider({
       heatSpotList, heatPointSets, heatUnratedSets, heatStoodSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, homePlace, isPro, tideLocked,
+      ratingLens, homePlace, isPro, tideLocked, scoresLocked,
       origin, setOrigin, regions, effectiveReachById,
       comingUpLastSeenDate, setComingUpLastSeenAt],
   );
@@ -834,7 +910,7 @@ WindowFirstBriefingProvider.propTypes = {
  *           reachById: Map,
  *           reachLens: object, ratingLens: object, homePlace: ?string,
  *           todayStr: string,
- *           tomorrowStr: string, isPro: boolean, tideLocked: boolean,
+ *           tomorrowStr: string, isPro: boolean, tideLocked: boolean, scoresLocked: boolean,
  *           comingUpLastSeenDate: (string|null|undefined), setComingUpLastSeenAt: function}}
  */
 export function useWindowFirstBriefing() {

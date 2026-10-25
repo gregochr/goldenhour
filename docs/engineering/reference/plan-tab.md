@@ -174,3 +174,7 @@ Tests: `WindowFirstShellPlanWindowDoor.test.jsx` (opens, emphasises, scoped-out 
 - **Phone** (`@media (max-width: 639px)` only): 16px dates, the relative label stacked under the date, `chipName` and `shortValue`, no badge or WX boxes.
 
 **"In next 4 days" tag (coming-up-glance-plan T2, 2026-10-24)**: `buildEntryView` sets `inNext4Days` (`startDate <= lastPlanDateStr(today) && endDate >= today`, over the entry's own union dates; the `endDate` half is defensive since the server never serves an entry ending inside the window), and `WindowComingUpEntry` renders `coming-up-tag-next4` after the kind tag. Phone only (`max-width: 639px`): the title takes its own line and the tags wrap underneath.
+
+## Scores and the written why are Pro (pro-features-gate-plan.md S1, 2026-10-25)
+
+For a Lite reader the context's published `briefing` has no `fierySkyPotential`, `goldenHourPotential`, `claudeSummary` or `claudeHeadline` on any slot, and its score rows/`evaluationScores` have no potentials or `summary` (Pro readers get the fetched object itself, identity kept). Consequences on the Plan tab: `resolveSpotPeek` returns null so the desktop spot peek no-ops (Lite has no peek); the Regional planner's drill-down rows (`HeatmapGrid`) have no `summary`, so they are not expandable and print no "Fiery Sky N" line; the Four-days sheet is described in `map-tab.md`. The star rating, verdicts and region prose are untouched.

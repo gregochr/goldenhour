@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
+import ProUpsellDoor, {
+  SCORES_UPSELL_BODY, SCORES_UPSELL_HEADING, SCORES_UPSELL_LABEL,
+} from './shared/ProUpsell.jsx';
 import Modal from './shared/Modal.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import ScoreBar from './ScoreBar.jsx';
@@ -132,13 +135,17 @@ const DIM_AT_OR_BELOW = 2;
  *        exactly what it was
  * @param {boolean} [props.isPro] true for PRO and ADMIN readers (a boolean, never the role) — read
  *        only by the C2 forecast-detail block's gating, which mirrors the overlay popup's
+ * @param {boolean} [props.scoresLocked] true when the reader does not have the Fiery Sky / Golden Hour
+ *        scores and the written why (a boolean, never the role; pro-features-gate-plan.md §5). The score
+ *        data is already absent from the rows; this drops the "Nothing written about this one yet." line
+ *        (it would tell a locked reader the forecast has no prose) and draws one upsell door on a sky sheet
  */
 export default function LocationFourDaySheet({
   spot, windows, scoreIndex = null, slotIndex = null, scoresKnown = false, reachById = null,
   scopeRegionNames = null, origin = null, originLabel = null, todayStr = '', onClose, onShowOnMap,
   planFrom = null, onPlanFrom = null, escapeEnabled = true, location = null,
   focusWindowKey = null, regionGlossIndex = null, tideAlignmentIndex = null, eclipseIndex = null,
-  restoreFocusFallback = null, isPro = false,
+  restoreFocusFallback = null, isPro = false, scoresLocked = false,
 }) {
   const sheet = useMemo(
     () => buildLocationSheet(spot, windows, {
@@ -408,6 +415,17 @@ export default function LocationFourDaySheet({
           {sheet.meta.length > 0 && (
             <div data-testid="location-sheet-meta-row" className="wf-loc-smeta font-mono">
               {sheet.meta.map((m) => <span key={m.key}>{m.text}</span>)}
+            </div>
+          )}
+
+          {scoresLocked && !hourlyBody && sheet.rows.length > 0 && (
+            <div data-testid="location-sheet-scores-door" className="wf-loc-note">
+              <ProUpsellDoor
+                label={SCORES_UPSELL_LABEL}
+                heading={SCORES_UPSELL_HEADING}
+                body={SCORES_UPSELL_BODY}
+                testIdPrefix="wf-scores-upsell"
+              />
             </div>
           )}
 
@@ -706,7 +724,7 @@ export default function LocationFourDaySheet({
                       )}
                       {row.summary}
                     </p>
-                  ) : (
+                  ) : !(scoresLocked && row.scoresKnown && !row.away) && (
                     <p data-testid="location-sheet-nowhy" className="wf-loc-why muted font-mono">
                       {/* ⚠️ No "you". A travel day is the OPERATOR'S, not the reader's — the arm is
                           scrupulously impersonal about it everywhere else (the away cell says
@@ -880,4 +898,9 @@ LocationFourDaySheet.propTypes = {
    * aerosol wording, no inversion badge and a locked bluebell badge. Defaults to the LITE reading.
    */
   isPro: PropTypes.bool,
+  /**
+   * True when the reader does not have the scores or the written why (a boolean, never the role). Drops the
+   * "Nothing written about this one yet." branch only and draws one upsell door on a sky sheet.
+   */
+  scoresLocked: PropTypes.bool,
 };

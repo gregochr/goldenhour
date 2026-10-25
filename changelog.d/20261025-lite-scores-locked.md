@@ -1,0 +1,3 @@
+### Changed — Lite readers see the star rating, not the Fiery Sky and Golden Hour scores or the written why
+
+The Fiery Sky and Golden Hour scores and each location's written explanation are Pro, as the pricing list says. A Lite reader still sees the star rating, the verdict and the region's own description, but the spot peek, the Regional planner's expandable rows and the Four-days sheet's score bars and sentence no longer draw. The Four-days sheet shows one "Scores and the why" Pro door instead, a worded popover with no link. Pro and Admin readers see no change. This is the client half; the server will stop sending the fields in a follow-up.
