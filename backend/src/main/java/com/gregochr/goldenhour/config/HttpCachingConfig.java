@@ -84,6 +84,10 @@ public class HttpCachingConfig {
             "/api/astro/conditions",
             "/api/astro/conditions/available-dates",
             "/api/aurora/status",
+            // Which aurora nights exist: dates only, identical for every reader and role (it is the
+            // role-free answer behind the Lite Pro door), so it carries no personal data and
+            // revalidates like its neighbour above.
+            "/api/aurora/nights",
             "/api/nlc/sighting",
             // The almanac feed is ephemeris: identical for every user and stable for a whole day,
             // so it is the strongest revalidation candidate here. Safe to share because it carries

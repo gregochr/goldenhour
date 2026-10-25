@@ -65,6 +65,8 @@ class HttpCachingConfigTest {
         "/api/astro/conditions",
         "/api/astro/conditions/available-dates",
         "/api/aurora/status",
+        // Role-free, dates only: the same body for every reader.
+        "/api/aurora/nights",
         "/api/nlc/sighting",
         "/api/almanac",
         // The shared region-base drive-time matrix. User-independent geography, which is the whole
