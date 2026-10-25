@@ -286,27 +286,15 @@ describe('WindowFirstMapPane — the heat prop', () => {
     expect(MapStub.lastProps.heat.tideByWindow.get(key).tide.locationName).toBe('Second');
   });
 
-  it('forwards each window\'s TRAVEL flag — the landing card needs it and the fold dropped it', () => {
+  it('forwards each window\'s TRAVEL flag — the next-two heading needs it and the fold dropped it', () => {
     // ⚠️ The same join, one field over. `buildHeatStripCards`' contract is "every window the strip
     // must show, travel days included", so an away day reaches the EV list as an ordinary served
-    // row — and without `away` the landing card opened on "Tomorrow — sunrise or sunset?" over two
-    // days the reader is not there for, as live buttons, while the Plan matrix drew the same two
-    // cards as Away. Asserted here because no test below this fold can see the field go missing.
+    // row — and without `away` the next-two heading read "Tomorrow — sunrise or sunset?" over two
+    // days the reader is not there for, while the Plan matrix drew the same two cards as Away. Asserted here because no test below this fold can see the field go missing.
     renderPane();
 
     expect(MapStub.lastProps.heat.windows[0].away).toBe(false);
     expect(MapStub.lastProps.heat.windows[1].away).toBe(true);
-  });
-
-  it('carries the forecast run the landing card keys its once-a-run open on', () => {
-    // The briefing's BUILD stamp — see `MapView`'s `LANDING_SEEN_KEY` for why that granularity is
-    // the intended one. Null when no briefing has arrived, where the card deliberately stays shut.
-    renderPane(context({ briefing: { generatedAt: '2026-08-13T04:00:00' } }));
-    expect(MapStub.lastProps.runId).toBe('2026-08-13T04:00:00');
-
-    cleanup();
-    renderPane();
-    expect(MapStub.lastProps.runId).toBeNull();
   });
 
   it('forwards NO verdict — the map derives its own from the reader\'s scope', () => {

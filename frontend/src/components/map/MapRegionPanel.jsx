@@ -131,7 +131,7 @@ export default function MapRegionPanel({
                   <i aria-hidden="true" className="wf-land-pick-glyph">{pick.glyph}</i>
                   {' '}
                   {/* ⚠️ `.wf-land-pick-words` is not decoration — it is the ≤400px escape hatch the
-                      landing card and the pill both carry, and this head has a FOURTH track that
+                      window panel and the pill both carry, and this head has a FOURTH track that
                       takes 33px from the title, so the pressure it relieves is worse here than
                       anywhere. Without it the meta line wrapped to four lines at 375–400px, where
                       the rule was already active and would have removed the wrap outright. */}

@@ -52,7 +52,7 @@ const MENU_SCROLL_PAD_PX = 6;
  */
 export default function WindowControl({
   events, activeIndex, onSelect, open: openProp, onOpenChange = null,
-  verdicts = null, scopeIsArea = true, landingLabel = '', onReopenLanding = null,
+  verdicts = null, scopeIsArea = true,
   onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
   emptyOlderDayLabel = null, ratedCounts = null, thinCounts = null,
@@ -94,7 +94,7 @@ export default function WindowControl({
       menu.scrollTop = Math.max(top - MENU_SCROLL_PAD_PX, 0);
     }
   }, [open]);
-  /** The pill, so the reopen row can hand focus back to the control that opened the menu. */
+  /** The pill, so the menu's rows can hand focus back to the control that opened the menu. */
   /**
    * ⚠️ **The pill is this tab's return address, and `MapView` needs to reach it.** Two routes it
    * owns destroy their own trigger and must leave focus somewhere stable inside the pane, or it
@@ -248,7 +248,7 @@ export default function WindowControl({
    * be disabled (a focused control that becomes disabled drops focus to {@code <body>}, where this
    * control's keyboard handler never fires) and the Load row unmounts with the menu; and
    * `useRowFocusRescue` records only `[data-ev-id]` rows and clears on pointerdown, so it will NOT
-   * rescue the Load row — the same reason the reopen and drilldown rows do this.
+   * rescue the Load row — the same reason the drilldown row does this.
    */
   function loadOlder() {
     if (!loadable || loading) return;
@@ -271,8 +271,8 @@ export default function WindowControl({
 
   function onKeyDown(e) {
     // ⚠️ Stand down entirely while a dialog from OUTSIDE the map pane is over it — the same
-    // predicate `MapView`'s pane handler, the landing card's listener and the drilldown's two
-    // panels read. Without it this operates the map BEHIND an open sheet: `map-landing-plan.md`
+    // predicate `MapView`'s pane handler and the drilldown's two panels read. Without it this
+    // operates the map BEHIND an open sheet: `map-landing-plan.md`
     // §4 #37 recorded that for the two panels, and an accessibility lens then found this control
     // is on the very route that reaches them — a keyboard reader gets here by Tabbing out of the
     // non-trapping sheet onto the pill, so the drilldown cannot be opened behind a sheet without
@@ -364,9 +364,9 @@ export default function WindowControl({
         } : {
           'aria-haspopup': 'listbox',
           'aria-expanded': open,
-          // ⚠️ Names the LISTBOX, not the popup box around it. Since L4 the popup holds the landing
-          // card's reopen row beside the listbox, so `role="listbox"` moved to an inner element — and
-          // a trigger declaring `aria-haspopup="listbox"` while `aria-controls` pointed at a generic
+          // ⚠️ Names the LISTBOX, not the popup box around it. The popup holds rows that choose no
+          // window (the EARLIER header and Load row, the drilldown row) beside the listbox, so
+          // `role="listbox"` sits on an inner element — and a trigger declaring `aria-haspopup="listbox"` while `aria-controls` pointed at a generic
           // container left JAWS's "move to controlled element" landing on an unnamed div. The id and
           // the role belong on one element.
           'aria-controls': 'wf-win-listbox',
@@ -446,58 +446,8 @@ export default function WindowControl({
 
       {open && (
         <div ref={menuRef} id="wf-win-menu" data-testid="wf-win-menu" className="wf-win-menu">
-          {/* The way back into the landing card, above the windows it compares — dismissing it used
-              to be irreversible, which quietly made closing it a risk (README §4 "Recoverable").
-              `RegionsJump`'s own `wf-jump-reset` is the precedent: the way back lives in the
-              control that caused it.
-
-              ⚠️ It sits in the popup box but OUTSIDE the listbox below — see that element's note. */}
-          {onReopenLanding && landingLabel && (
-            <button
-              type="button"
-              data-testid="wf-win-landing"
-              className="wf-win-row wf-win-landing"
-              onClick={() => {
-                setOpen(false);
-                onReopenLanding();
-                // ⚠️ This button unmounts itself (the row is withheld while the card is open), so
-                // without this focus falls to `<body>` and a keyboard reader has to re-traverse the
-                // masthead and the tab list — on the one control whose entire purpose is recovery.
-                // Focus returns to the pill, which caused the menu and is still on screen.
-                // `selectRow`'s identical pre-existing loss is untouched here.
-                pillRef.current?.focus();
-              }}
-            >
-              {/* ⚠️ ONE grid item, not two. `.wf-win-row` is `display: grid`, and CSS Grid wraps
-                  each contiguous text run in an anonymous grid item — so a bare glyph span beside
-                  bare text auto-placed onto two ROWS: measured `grid-template-rows: 18px 18px` and a
-                  57px row against its siblings' 41px, with the glyph alone on a full-width line.
-                  `RegionsJump`'s `.wf-jump-name` wraps glyph and text together for exactly this
-                  reason; the first cut took that precedent's placement and not its markup.
-
-                  ⚠️ **"Back to" is not decoration either.** The row shipped with the card's header
-                  as its whole accessible name — a bare interrogative ("Tonight, or tomorrow?") in
-                  NVDA's Elements List among "Previous event, Worth it" and the window rows, with
-                  nothing saying it was a control or what it did. The precedent's own name is
-                  "↺ Back to <region>"; this had taken the placement and dropped the verb.
-
-                  ⚠️ The glyph is `↺`, matching that precedent, and deliberately NOT `◎` — which is
-                  `PICK_TEXT.best`'s glyph, rendered on window rows a few pixels below in this same
-                  popup. One glyph, two meanings, one menu. */}
-              <span className="wf-win-landing-txt">
-                <span aria-hidden="true">&#8634;{' '}</span>
-                Back to
-                {/* ⚠️ LOAD-BEARING in a browser, unlike the pill's separators: "Back to" and the
-                    label are two text runs in one line of inline content, so without this the
-                    row's accessible name reads "Back toThis morning — sunrise or sunset?"
-                    (measured 2026-09-14, confirmed against Chromium's native tree). */}
-                {' '}
-                {landingLabel}
-              </span>
-            </button>
-          )}
           {/* The EARLIER group's header and Load row (outcome-rating-plan.md §2 #2, O3b), above the
-              windows they precede. ⚠️ Outside the listbox for the reopen row's reason: the Load row
+              windows they precede. ⚠️ Outside the listbox because the Load row
               chooses no window, and `role="listbox"` admits only options. It is the first row under
               the header, so the listbox starts right after it and the menu still reads, and scrolls,
               as one list: header, Load row, past days, future days. */}
@@ -533,16 +483,17 @@ export default function WindowControl({
             </button>
           )}
           {/* ⚠️ The LISTBOX is this inner element, not the popup box above it. `role="listbox"`
-              admits only `option` (and `group`) children, and the reopen row is neither — it
-              chooses no window, so leaving it inside left one child a listbox-navigating screen
-              reader could not reach by the roles the container promises. The popup box keeps the
+              admits only `option` (and `group`) children, and the EARLIER header, the Load row and the
+              drilldown row are none of them — they choose no window, so leaving them inside left
+              children a listbox-navigating screen reader could not reach by the roles the container
+              promises. The popup box keeps the
               test-id and the class; the id moved here WITH the role, so the pill's `aria-controls`
               still names the listbox itself rather than a generic wrapper.
 
               ⚠️ **This does NOT make the listbox fully conforming, and an earlier revision of this
               comment implied it did.** The day-group wrappers below are `div`s with no role, each
               holding a text-bearing `.wf-win-day` heading — also neither `option` nor `group`. That
-              is pre-existing, and it is left alone rather than quietly rolled into a landing-card
+              is pre-existing, and it is left alone rather than quietly rolled into an unrelated
               commit; but it is the same class of problem, and this note must not be read as saying
               it was handled. */}
           <div
@@ -601,9 +552,9 @@ export default function WindowControl({
 
           {/* The drilldown's entry (map-landing-plan.md §3 L5) — below the windows, because it is
               about the one already chosen rather than a way to choose another. `RegionsJump`'s reset
-              row and the landing card's reopen row are the same idiom at the other end of the list.
+              row is the same idiom at the other end of its list.
 
-              ⚠️ Outside the listbox for the same reason the reopen row is: it selects no window. */}
+              ⚠️ Outside the listbox for the same reason as the Load row: it selects no window. */}
           {onOpenWindowPanel && (
             <button
               type="button"
@@ -616,8 +567,8 @@ export default function WindowControl({
               onClick={() => {
                 setOpen(false);
                 onOpenWindowPanel();
-                // ⚠️ **Not optional, and I made this exact mistake one row above before fixing it
-                // there.** This button unmounts itself, so without this focus falls to `<body>` —
+                // ⚠️ **Not optional.** This button unmounts itself, so without this focus falls to
+                // `<body>` —
                 // and `MapView`'s Escape handler is a React `onKeyDown` on the map pane's root,
                 // which a press on `<body>` never reaches. The panel would then be un-closable by
                 // keyboard on the ONLY route that opens it (plan §3 L5 step 5 asks for Escape by
@@ -687,14 +638,6 @@ WindowControl.propTypes = {
   thinCounts: PropTypes.instanceOf(Map),
   /** Whether the scope segment reads "My area" — decides only the all-in-scope wording. */
   scopeIsArea: PropTypes.bool,
-  /**
-   * The landing card's own header text (map-landing-plan.md §3 L4 step 7). Derived ONCE by the
-   * caller and handed to both surfaces, so this row can never name a different pair of windows from
-   * the card it reopens. Empty while the card is open, or when it has nothing to show.
-   */
-  landingLabel: PropTypes.string,
-  /** Reopens the landing card. Null withholds the row entirely — including on the overlay. */
-  onReopenLanding: PropTypes.func,
   /** Opens the window panel on the row in force (map-landing-plan.md §3 L5). Null withholds it. */
   onOpenWindowPanel: PropTypes.func,
   /** A ref the caller attaches to the pill, to return focus to it from a route it owns. */
@@ -743,7 +686,7 @@ WindowControl.propTypes = {
 /**
  * The two picks' vocabulary — glyph and words, as SEPARATE elements (see {@link Medallion}).
  *
- * <p><b>Exported since map-landing L4</b>, because the landing card wears the same two picks and a
+ * <p><b>Exported since map-landing L4</b>, because the window and region panels wear the same two picks and a
  * second copy would be a second vocabulary: L4's first cut minted `PICK_WORDS` plus an inline glyph
  * ternary, giving three spellings of `◎` across two files in one commit — in a component whose own
  * kind-chip comment nine lines away says "never a second one". L5 and L6 each want the pair again.

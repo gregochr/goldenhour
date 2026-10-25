@@ -59,8 +59,8 @@ beforeAll(() => {
   // `.wf-map-key` MUST be in the slice: it is the rule that sets `pointer-events: auto`, and the
   // whole point is proving the empty state's override beats it. Leave it out and the chip would
   // compute `none` by plain inheritance, and the test would pass for the wrong reason.
-  const slice = ['.wf-map-empty', '.wf-map-key', '.wf-land', '.wf-map-chrome-tr'].map(sliceRules).join('\n');
-  for (const needle of ['.wf-map-empty {', '.wf-map-empty .wf-map-key {', '.wf-map-key', 'pointer-events: auto', '.wf-land {']) {
+  const slice = ['.wf-map-empty', '.wf-map-key', '.wf-map-chrome-tr'].map(sliceRules).join('\n');
+  for (const needle of ['.wf-map-empty {', '.wf-map-empty .wf-map-key {', '.wf-map-key', 'pointer-events: auto']) {
     expect(slice, `no rule found for ${needle} in index.css`).toContain(needle);
   }
   styleEl = document.createElement('style');
@@ -123,10 +123,6 @@ describe('the centred empty state\'s rung on the chrome z-ladder', () => {
 
   it('paints above Leaflet — its panes top out at 700 and its controls at 800', () => {
     expect(zIndexOf('wf-map-empty')).toBeGreaterThan(800);
-  });
-
-  it('paints BELOW the landing card, so the card is never covered by it', () => {
-    expect(zIndexOf('wf-map-empty')).toBeLessThan(zIndexOf('wf-land'));
   });
 
   it('paints BELOW the chrome corners, so a panel or popover always covers it', () => {

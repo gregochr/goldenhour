@@ -195,12 +195,6 @@ describe('a real live alert, no solar forecast and no stored run', () => {
     expect(rows[0].getAttribute('data-ev-id')).toBe(`aur:${THE_NIGHT}:AURORA`);
   });
 
-  it('does not open the landing card: nothing solar to say', async () => {
-    await mount();
-    await screen.findByTestId('wf-win-pill');
-    expect(screen.queryByTestId('wf-land')).not.toBeInTheDocument();
-  });
-
   it('gives the only control a name that says what it is: kind, night and best star', async () => {
     await mount();
     const pill = await screen.findByTestId('wf-win-pill');

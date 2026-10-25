@@ -168,7 +168,6 @@ function Pane(props) {
       forecastDates={[TODAY, SAT]}
       autoEventType="SUNSET"
       heat={heatProp()}
-      runId="run-1"
       bigSeas={[SATURDAY]}
       onSelectDate={(d) => setDate(d)}
       {...props}

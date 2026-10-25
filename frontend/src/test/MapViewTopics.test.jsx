@@ -162,7 +162,7 @@ const HOT_TOPICS = [
  * and back and to hide and show the pane.
  */
 function Pane({
-  hotTopics, bigSeas, runId, origin = null, spots = [SPOT], extraLocations = [],
+  hotTopics, bigSeas, origin = null, spots = [SPOT], extraLocations = [],
 }) {
   const [date, setDate] = React.useState(TODAY);
   const [paneVisible, setPaneVisible] = React.useState(true);
@@ -180,7 +180,6 @@ function Pane({
         heat={{ ...heatProp(), spots, areaSpots: spots }}
         origin={origin}
         paneVisible={paneVisible}
-        runId={runId}
         bigSeas={bigSeas}
         hotTopics={hotTopics}
         onSelectDate={(d) => setDate(d)}
@@ -192,7 +191,7 @@ function Pane({
 async function renderMap(props = {}) {
   let result;
   await act(async () => {
-    result = render(<Pane hotTopics={HOT_TOPICS} bigSeas={undefined} runId={null} {...props} />);
+    result = render(<Pane hotTopics={HOT_TOPICS} bigSeas={undefined} {...props} />);
   });
   return result;
 }
@@ -251,13 +250,11 @@ describe('MapView: the chrome height on a day WITHOUT big seas', () => {
     else delete HTMLElement.prototype.offsetHeight;
   });
 
-  it('publishes --wf-chrome-tl-h, so the landing card, panel, phone toast and Ask all clear the chips', async () => {
-    await renderMap({ runId: '2026-01-15T04:00:00' });
+  it('publishes --wf-chrome-tl-h, so the panel, phone toast and Ask all clear the chips', async () => {
+    await renderMap();
     expect(screen.queryByTestId('wf-big-seas')).toBeNull();
     const frame = screen.getByTestId('wf-map-chrome-tl').parentElement;
     expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('96px');
-    // The landing card is inside the frame that carries it, so its `calc(var(--wf-chrome-tl-h) ...)` reads it.
-    expect(frame.contains(screen.getByTestId('wf-land'))).toBe(true);
     // Ask's camera reads the same published figure from any element in the frame.
     expect(chromeHeightOf(screen.getByTestId('mock-leaflet'))).toBe(96);
   });
@@ -270,7 +267,7 @@ const SEAS_TODAY = {
   date: TODAY,
   structures: [{ ...SATURDAY.structures[0], locationId: 1 }],
 };
-const ui = (props = {}) => <Pane hotTopics={HOT_TOPICS} bigSeas={undefined} runId={null} {...props} />;
+const ui = (props = {}) => <Pane hotTopics={HOT_TOPICS} bigSeas={undefined} {...props} />;
 const ringCircles = () => screen.queryAllByTestId('ring-circle');
 const baseRings = () => ringCircles().filter((c) => c.dataset.radius === '11');
 
@@ -444,37 +441,22 @@ describe('MapView: Escape', () => {
     expect(status()).toBe('Topic selection cleared.');
   });
 
-  it('⚠️ inside the pane the landing card defers while a topic is selected: one press never closes two levels', async () => {
-    await renderMap({ runId: '2026-01-15T04:00:00' });
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-    await press('KING_TIDE');
-
-    fireEvent.keyDown(chip('KING_TIDE'), { key: 'Escape' });
-    expect(chip('KING_TIDE')).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-
-    fireEvent.keyDown(chip('KING_TIDE'), { key: 'Escape' });
-    expect(screen.queryByTestId('wf-land')).toBeNull();
-  });
-
-  it('⚠️ with focus on <body> (the pane handler cannot hear it) the card clears the topic itself, ONE level, then dismisses on the next', async () => {
-    await renderMap({ runId: '2026-01-15T04:00:00' });
+  it('⚠️ with focus on <body> an Escape leaves the topic selected; inside the pane it still clears it (D6)', async () => {
+    // map-landing-nocard-plan.md D6. The Safari body-focus branch (Safari does not focus a clicked
+    // button, so the key lands on <body> and the pane's own `onKeyDown` never hears it) lived in the
+    // landing card's document listener and went with the card. A body-focused Escape now does nothing
+    // here, which is what every reader who had already dismissed the card always got.
+    await renderMap();
     await press('KING_TIDE');
     expect(document.activeElement).toBe(document.body);
 
     fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(chip('KING_TIDE')).toHaveAttribute('aria-pressed', 'true');
+    expect(status()).not.toBe('Topic selection cleared.');
+
+    fireEvent.keyDown(chip('KING_TIDE'), { key: 'Escape' });
     expect(chip('KING_TIDE')).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
     expect(status()).toBe('Topic selection cleared.');
-
-    fireEvent.keyDown(document.body, { key: 'Escape' });
-    expect(screen.queryByTestId('wf-land')).toBeNull();
-  });
-
-  it('with no topic selected a body Escape still dismisses the card, as it did before the chips', async () => {
-    await renderMap({ runId: '2026-01-15T04:00:00' });
-    fireEvent.keyDown(document.body, { key: 'Escape' });
-    expect(screen.queryByTestId('wf-land')).toBeNull();
   });
 });
 

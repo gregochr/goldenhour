@@ -65,7 +65,7 @@ Still never done by a session: creating or deleting tags, cutting a release (the
 |---|---|
 | Core pipeline, scoring, evaluation, command pattern, optimisation strategies, cost tracking, job metrics and per-location failure tracking, resilience, batch cache primer | `docs/engineering/reference/pipeline.md` |
 | Daily Briefing, the Plan tab matrix (cards, popup, location sheet, dialog stacking), Plan-screen confidence, `VerdictSampleGate`, neighbour guard | `docs/engineering/reference/plan-tab.md` |
-| Map tab (v2), locations, thin-sample hatch, verdict and landing card, phone peek sheet, past windows, "How was it?" rating | `docs/engineering/reference/map-tab.md` |
+| Map tab (v2), locations, thin-sample hatch, verdict and picks, phone peek sheet, past windows, "How was it?" rating | `docs/engineering/reference/map-tab.md` |
 | Ask PhotoCast (Ready answers, engine, typed guards, thread, night tool, client) | `docs/engineering/reference/ask-photocast.md` |
 | Aurora (polling, state machine, banner, viewline, simulation) | `docs/engineering/reference/aurora.md` |
 | Tide runs, lunar eclipse, tide data, storm surge | `docs/engineering/reference/hot-topics-tides-eclipse.md` |

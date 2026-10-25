@@ -157,7 +157,6 @@ function Pane() {
       autoEventType="SUNSET"
       heat={heat()}
       paneVisible
-      runId={null}
       bigSeas={[FRIDAY_HW]}
       outcomeRatings={ratings}
       onSelectDate={(d) => setDate(d)}

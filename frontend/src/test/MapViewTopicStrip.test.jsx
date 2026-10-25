@@ -183,7 +183,7 @@ const HOT_TOPICS = [
 ];
 
 function Pane({
-  hotTopics, runId = null, tide = null, tideSat = null, startDate = TODAY, bigSeas = undefined, forecastDates = [TODAY, SAT],
+  hotTopics, tide = null, tideSat = null, startDate = TODAY, bigSeas = undefined, forecastDates = [TODAY, SAT],
   planHandoff = null, externalDate = null,
 }) {
   const [date, setDate] = React.useState(startDate);
@@ -195,7 +195,6 @@ function Pane({
       autoEventType="SUNSET"
       heat={heatProp({ tide, tideSat })}
       paneVisible
-      runId={runId}
       hotTopics={hotTopics}
       bigSeas={bigSeas}
       onSelectDate={(d) => setDate(d)}
@@ -242,7 +241,6 @@ describe('MapView: the four-day strip mount', () => {
   it('is not mounted when there is no topic on the four days (no empty panel)', async () => {
     await renderMap({ hotTopics: [] });
     expect(screen.queryByTestId('wf-topic-strip')).toBeNull();
-    expect(screen.getByTestId('wf-map-pane')).not.toHaveAttribute('data-topic-strip');
   });
 
   it('is NOT mounted in the bottom-left chrome on a phone (M4 puts it in the peek sheet)', async () => {
@@ -250,7 +248,6 @@ describe('MapView: the four-day strip mount', () => {
     await renderMap();
     expect(screen.queryByTestId('wf-topic-strip')).toBeNull();
     expect(screen.queryByTestId('wf-map-chrome-bl')).toBeNull();
-    expect(screen.getByTestId('wf-map-pane')).not.toHaveAttribute('data-topic-strip');
   });
 
   it('desktop markup is exactly the panel variant: no sheet class, no variant attribute', async () => {
@@ -261,11 +258,6 @@ describe('MapView: the four-day strip mount', () => {
     expect(document.querySelectorAll('.wf-topic-strip-sheet')).toHaveLength(0);
   });
 
-  it('marks the pane while mounted, so the footer and the landing card clear the stack', async () => {
-    await renderMap();
-    expect(screen.getByTestId('wf-map-pane')).toHaveAttribute('data-topic-strip', 'on');
-  });
-
   it('draws the current window\'s column shaded and its bars current (Thursday sunset is column 1)', async () => {
     await renderMap();
     expect(screen.getByTestId('wf-topic-strip-now').style.gridArea).toMatch(/^1 \/ 3 \//);
@@ -273,7 +265,7 @@ describe('MapView: the four-day strip mount', () => {
   });
 });
 
-describe('MapView: the strip collapses under the tide strip and the landing card', () => {
+describe('MapView: the strip collapses under the tide strip', () => {
   it('holds the grid closed under an open tide strip: header enabled, preference kept, flex order kept', async () => {
     localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
     await renderMap({ tide: TIDE });
@@ -368,18 +360,6 @@ describe('MapView: the strip collapses under the tide strip and the landing card
     expect(toggle()).toHaveAttribute('aria-expanded', 'false');
     await act(async () => { rerender(<Pane hotTopics={HOT_TOPICS} tide={null} />); });
     expect(screen.queryByTestId('wf-tide-strip')).toBeNull();
-    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
-  });
-
-  it('draws its header only while the landing card is open, then returns to the stored state', async () => {
-    await renderMap({ runId: '2026-10-22T04:00:00' });
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
-    expect(toggle()).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByTestId('wf-topic-strip-closed-cue')).toHaveTextContent('· closed');
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBeNull();
-    await act(async () => { fireEvent.click(screen.getByTestId('wf-land-close')); });
-    expect(screen.queryByTestId('wf-land')).toBeNull();
     expect(toggle()).toHaveAttribute('aria-expanded', 'true');
   });
 });

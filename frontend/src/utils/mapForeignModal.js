@@ -3,13 +3,13 @@
  * the four-day sheet the callout opens, `UserSettingsModal`, a search overlay.
  *
  * <p>⚠️ **One predicate, because the dismissal rules on this tab must never disagree.** There are
- * **eight** Escape rules across six components — `MapView`'s pane-level `handleMapPaneKeyDown` and
- * the landing card's document listener, the drilldown's two panels, and `WindowControl`,
- * `FiltersPopover`, `RegionsJump` and `MapLegendPanel` — plus the POINTER channel in
- * `useOutsideDismiss`. All of them read this.
+ * **seven** Escape rules across seven components — `MapView`'s pane-level `handleMapPaneKeyDown`,
+ * the drilldown's two panels, and `WindowControl`, `FiltersPopover`, `RegionsJump` and
+ * `MapLegendPanel` — plus the POINTER channel in `useOutsideDismiss`. All of them read this.
  *
  * <p>⚠️ **The first cut of this fix said "four" and corrected only the two panels.** Two review
- * lenses counted eight independently, and one pointed out that `WindowControl` is on the very route
+ * lenses counted eight independently (a document-level listener on the since-removed landing card was
+ * the eighth), and one pointed out that `WindowControl` is on the very route
  * by which the panels are reachable behind a sheet: a keyboard reader gets to the drilldown by
  * Tabbing out of the non-trapping sheet onto the pill, so the pill's own dropdown answered the same
  * press first. Fixing two of eight would have left the defect live one control earlier

@@ -341,13 +341,13 @@ OtherWindowValue.propTypes = {
 };
 
 /**
- * The Windows section's body — heading from {@code utils/mapLanding.js#landingCardModel}'s own
+ * The Windows section's body — heading from {@code utils/mapLanding.js#landingHeader}'s own
  * served-derived header (plan §4 #2, never the design's fixed "Tonight, or tomorrow?" string,
  * which is wrong two mornings a week), the pill's own roster, and the drilldown's only phone entry
  * as the last row (plan §1 #13, §4 #4).
  *
  * @param {object} props
- * @param {string} props.heading `landingCardModel(...).header`
+ * @param {string} props.heading `landingHeader(landingRows(...))`
  * @param {Array<object>} props.rows the EV list (`utils/mapEvents.js`'s rows)
  * @param {?Map<string, {tier: string}>} props.verdicts row id → verdict, solar rows only
  * @param {?string} props.activeId the row id on screen, or null

@@ -5,7 +5,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 /**
  * The big-seas line's stylesheet contract, asserted against the REAL `index.css`
  * (big-seas plan F1): its width on desktop and phone, the tokens, and the two offsets that used to
- * assume a 36px control (`.wf-win-panel`, `.wf-land`).
+ * assume a 36px control (`.wf-win-panel`).
  *
  * <p>jsdom implements no layout and resolves no `var()`, so what is asserted is the mechanism: the
  * declared values, and the arithmetic of `calc(var(--wf-chrome-tl-h, Npx) + Mpx)` evaluated here
@@ -154,13 +154,11 @@ describe('the big-seas tokens', () => {
   });
 });
 
-describe('the offsets that assumed a 36px control (panel, landing card)', () => {
+describe('the offsets that assumed a 36px control (the window panel)', () => {
   const CASES = [
     // [selector, phone?, fallback control height, old px constant, air under the chrome (8 top + gap)]
     ['.wf-win-panel', false, 36, 50, 14],
-    ['.wf-land', false, 36, 60, 24],
     ['.wf-win-panel', true, 40, 54, 14],
-    ['.wf-land', true, 40, 56, 16],
   ];
 
   it.each(CASES)('%s (phone: %s) is its old constant when the variable is unset', (sel, phone, fb, old) => {
@@ -204,6 +202,5 @@ describe('the offsets that assumed a 36px control (panel, landing card)', () => 
 
   it('keeps the plain-px values for everything else in those rules', () => {
     expect(px(declOf('.wf-win-panel', 'left'))).toBe(60);
-    expect(px(declOf('.wf-land', 'left'))).toBe(12);
   });
 });
