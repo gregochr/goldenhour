@@ -73,4 +73,51 @@ describe('takeLinkToken', () => {
     expect(takeLinkToken()).toBe('fromhash');
     expect(address()).toBe('/reset');
   });
+
+  it('strips every token= pair but returns the first value (query)', () => {
+    openAt('/verify?token=a&x=1&token=b');
+    expect(takeLinkToken()).toBe('a');
+    expect(address()).toBe('/verify?x=1');
+  });
+
+  it('strips every token= pair but returns the first value (fragment)', () => {
+    openAt('/verify#token=a&x=1&token=b');
+    expect(takeLinkToken()).toBe('a');
+    expect(address()).toBe('/verify#x=1');
+  });
+
+  it('decodes + as a space, as URLSearchParams does', () => {
+    openAt('/verify?token=a+b');
+    expect(takeLinkToken()).toBe('a b');
+  });
+
+  it('decodes %2B as a plus', () => {
+    openAt('/verify?token=a%2Bb');
+    expect(takeLinkToken()).toBe('a+b');
+  });
+
+  it('keeps the raw text of a malformed escape and still strips it', () => {
+    openAt('/verify?token=%E0%A4%A');
+    expect(takeLinkToken()).toBe('%E0%A4%A');
+    expect(address()).toBe('/verify');
+  });
+
+  it('keeps = inside the value', () => {
+    openAt('/verify?token=ab==');
+    expect(takeLinkToken()).toBe('ab==');
+    expect(address()).toBe('/verify');
+  });
+
+  it('treats an empty token= as no token, and still strips the pair', () => {
+    openAt('/verify?token=&x=1');
+    expect(takeLinkToken()).toBeNull();
+    expect(address()).toBe('/verify?x=1');
+  });
+
+  it('does not read a token that sits inside a #manage/ route fragment', () => {
+    openAt('/#manage/metrics?token=x');
+    expect(takeLinkToken()).toBeNull();
+    // Pinned as-is: the fragment is not a key=value list here, so it is left alone (as before).
+    expect(address()).toBe('/#manage/metrics?token=x');
+  });
 });

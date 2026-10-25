@@ -8,6 +8,8 @@
  *
  * <p>The fragment (`#token=`) is read first and the query (`?token=`) second, so links mailed in
  * either form work. The backend still emits the query form; the fragment form is read ahead of it.
+ * Like the query form, `#token=` is accepted on any path (the legacy `/?token=` verification link
+ * relies on that).
  */
 
 /** The result of the first call, kept for the life of the page; `undefined` until first read. */
@@ -16,11 +18,11 @@ let memo;
 const PAIR = 'token=';
 
 /**
- * Finds the first `token=` pair in a `&`-separated string.
+ * Finds `token=` pairs in a `&`-separated string.
  *
  * @param {string} raw a query or fragment body, without its leading `?` or `#`
- * @returns {{found: boolean, value: string|null, rest: string}} whether a pair was present, its
- *     decoded value (null when empty) and the text with only that pair removed
+ * @returns {{found: boolean, value: string|null, rest: string}} whether a pair was present, the
+ *     decoded value of the first (null when empty) and the text with every such pair removed
  */
 function splitToken(raw) {
   const parts = raw.split('&');
@@ -34,15 +36,14 @@ function splitToken(raw) {
   } catch {
     // A malformed escape: keep the raw text rather than lose the token.
   }
-  parts.splice(index, 1);
-  return { found: true, value: value || null, rest: parts.join('&') };
+  return { found: true, value: value || null, rest: parts.filter((p) => !p.startsWith(PAIR)).join('&') };
 }
 
 /**
  * Returns the link token, reading and stripping it from the URL on the first call only.
  *
- * <p>History is touched only when a token pair was present, and only that pair is removed, as
- * text: the fragment is never round-tripped through {@code URLSearchParams}, which would mangle
+ * <p>History is touched only when a token pair was present, and only `token=` pairs are removed (all of
+ * them, so a duplicate cannot linger), as text: the fragment is never round-tripped through {@code URLSearchParams}, which would mangle
  * the app's own {@code #manage/<tab>} routes. An emptied query or fragment drops its `?` / `#`.
  *
  * @returns {string|null} the token, or null when the URL carried none
