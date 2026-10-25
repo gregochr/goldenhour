@@ -27,8 +27,9 @@
 > account as freely as a PRO one; an ADMIN's attempt is a 409 (another admin deletes an admin through `DELETE /api/users/{id}`).
 > `postcodePromptDue` has no role term, so the sign-in postcode prompt and the registration `HOME` step reach LITE, PRO and
 > ADMIN alike — saving a home postcode has always been open to every account, and the Pro line beside it ("Also gives you drive
-> times from home") is text shown to every role. The server does not gate drive times by role either: only the Settings refresh
-> button is Pro-only in the UI — `POST /drive-times/refresh` has no role gate and `DriveTimeRefreshJob` considers every enabled account with a home.
+> times from home") is text shown to every role. The server gates drive times by role (D2, `pro-features-gate-plan.md`):
+> `POST /drive-times/refresh`, `GET /drive-times` and `GET /reach` are 403 for LITE, and `DriveTimeRefreshJob` (nightly and the admin
+> "Run now") measures only enabled PRO_USER and ADMIN accounts with a home. Saving a home and `GET /api/user/settings` stay open to every role.
 
 ---
 
@@ -39,7 +40,7 @@ See `docs/product/` for detailed reference documents.
 
 **Differentiators**: Claude-generated "why" explanation | AOD+PM2.5 aerosol proxy | Cloud approach risk detection (temporal trend + upwind sampling) | Location type-specific UI | Outcome recording feedback loop
 
-**Freemium split** (2026-10-25, matching photocast.online's pricing list, FAQ and Terms §4): LITE gets the star rating, the verdict, stand-downs, region prose, hot topics and Coming up. PRO and ADMIN add the Fiery Sky and Golden Hour scores, the per-location written explanation, the best-bet picks, drive times from home, the tide curve and match, Ask PhotoCast and past-window rating. Both run to the same horizon. There are no blurred metrics: a Pro field is absent from LITE's payload, never sent and obscured. The scores, the written explanation, best bets and drive times are being gated by `pro-features-gate-plan.md` (S1–D2); until each phase merges, that feature still reaches LITE.
+**Freemium split** (2026-10-25, matching photocast.online's pricing list, FAQ and Terms §4): LITE gets the star rating, the verdict, stand-downs, region prose, hot topics and Coming up. PRO and ADMIN add the Fiery Sky and Golden Hour scores, the per-location written explanation, the best-bet picks, drive times from home, the tide curve and match, Ask PhotoCast and past-window rating. Both run to the same horizon. There are no blurred metrics: a Pro field is absent from LITE's payload, never sent and obscured. The scores, the written explanation, best bets and drive times are being gated by `pro-features-gate-plan.md` (S1–D2); until each phase merges, that feature still reaches LITE. Drive times from home are server-enforced since D2 (three endpoints 403, job skips LITE); stored LITE rows are left in place.
 
 ### Role gating — UI pattern
 

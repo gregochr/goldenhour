@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
+import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -76,6 +77,13 @@ class DriveTimeRefreshJobTest {
         u.setHomeLatitude(lat);
         u.setHomeLongitude(lon);
         u.setEnabled(enabled);
+        u.setRole(UserRole.PRO_USER);
+        return u;
+    }
+
+    private static AppUserEntity withRole(long id, UserRole role) {
+        AppUserEntity u = withHome(id);
+        u.setRole(role);
         return u;
     }
 
@@ -119,6 +127,47 @@ class DriveTimeRefreshJobTest {
             job.run(false);
 
             verifyNoInteractions(driveDurationService, driveTimeWriter);
+        }
+
+        @Test
+        @DisplayName("A Lite account with a home is not routed, so no ORS quota is spent on it")
+        void liteAccountIsNotRouted() {
+            when(userRepository.findAll()).thenReturn(List.of(withRole(1L, UserRole.LITE_USER)));
+
+            job.run(true);
+
+            verifyNoInteractions(driveDurationService, driveTimeWriter);
+        }
+
+        @Test
+        @DisplayName("An account with no role is not routed")
+        void nullRoleIsNotRouted() {
+            when(userRepository.findAll()).thenReturn(List.of(withRole(1L, null)));
+
+            job.run(true);
+
+            verifyNoInteractions(driveDurationService, driveTimeWriter);
+        }
+
+        @Test
+        @DisplayName("Pro and Admin are routed and Lite is not, including on the admin Run now")
+        void onlyProAndAdminAreRouted() {
+            List<UserDriveTimeEntity> pro = rowsFor(1L, 2);
+            List<UserDriveTimeEntity> admin = rowsFor(3L, 2);
+            when(userRepository.findAll()).thenReturn(List.of(
+                    withRole(1L, UserRole.PRO_USER),
+                    withRole(2L, UserRole.LITE_USER),
+                    withRole(3L, UserRole.ADMIN)));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(pro));
+            when(driveDurationService.measureForUser(3L, 54.97, -1.61)).thenReturn(Optional.of(admin));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, pro, NOW)).thenReturn(true);
+            when(driveTimeWriter.storeIfHomeUnchanged(3L, 54.97, -1.61, admin, NOW)).thenReturn(true);
+
+            job.run(true);
+
+            verify(driveDurationService).measureForUser(1L, 54.97, -1.61);
+            verify(driveDurationService).measureForUser(3L, 54.97, -1.61);
+            verifyNoMoreInteractions(driveDurationService);
         }
 
         @Test

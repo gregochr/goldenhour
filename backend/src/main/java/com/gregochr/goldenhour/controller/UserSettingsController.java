@@ -193,23 +193,27 @@ public class UserSettingsController {
 
     /**
      * Recalculates drive times from the user's home to all locations.
-     * Rate limited: max once per 30 minutes (enforced in service).
+     * Rate limited: max once per 30 minutes (enforced in service). Pro and Admin only: drive times
+     * from home are a Pro feature, so a Lite account gets 403.
      *
      * @param auth the current authentication context
      * @return the refresh result with count and timestamp
      */
     @PostMapping("/drive-times/refresh")
+    @PreAuthorize("hasAnyRole('PRO_USER','ADMIN')")
     public DriveTimeRefreshResponse refreshDriveTimes(Authentication auth) {
         return settingsService.refreshDriveTimes(auth);
     }
 
     /**
-     * Returns the current user's per-location drive times in minutes.
+     * Returns the current user's per-location drive times in minutes. Pro and Admin only: a Lite
+     * account gets 403.
      *
      * @param auth the current authentication context
      * @return map of location ID to drive time in minutes
      */
     @GetMapping("/drive-times")
+    @PreAuthorize("hasAnyRole('PRO_USER','ADMIN')")
     public Map<Long, Integer> getDriveTimes(Authentication auth) {
         Long userId = settingsService.getUserId(auth);
         return driveTimeResolver.getAllMinutes(userId);
@@ -223,13 +227,14 @@ public class UserSettingsController {
      * excluded from ETag caching by construction. Reach is home-derived personal data, and ETag
      * revalidation would persist it to a browser HTTP cache JavaScript cannot evict on logout.
      *
-     * <p>Bearer, with no role gate: this is the caller's own data, and gating it would break the
-     * reach lens for the very users it exists to serve.
+     * <p>Pro and Admin only: reach is drive time from home, a Pro feature, so a Lite account gets
+     * 403 (the client already shows Lite the locked reach lens and never asks).
      *
      * @param auth the current authentication context
      * @return one entry per enabled location, in id order
      */
     @GetMapping("/reach")
+    @PreAuthorize("hasAnyRole('PRO_USER','ADMIN')")
     public List<ReachEntry> getReach(Authentication auth) {
         return reachService.getReach(auth);
     }

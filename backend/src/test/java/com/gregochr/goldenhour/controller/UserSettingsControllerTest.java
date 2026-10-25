@@ -11,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.server.ResponseStatusException;
@@ -21,6 +22,7 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.CONFLICT;
@@ -189,7 +191,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "PRO_USER")
     @DisplayName("POST /api/user/settings/drive-times/refresh returns update count")
     void refreshDriveTimes_returnsCount() throws Exception {
         when(settingsService.refreshDriveTimes(any())).thenReturn(
@@ -201,7 +203,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "PRO_USER")
     @DisplayName("POST drive-times/refresh returns 400 when no home set")
     void refreshDriveTimes_noHome_returns400() throws Exception {
         when(settingsService.refreshDriveTimes(any())).thenThrow(
@@ -212,7 +214,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "PRO_USER")
     @DisplayName("POST drive-times/refresh returns 429 when rate limited")
     void refreshDriveTimes_rateLimited_returns429() throws Exception {
         when(settingsService.refreshDriveTimes(any())).thenThrow(
@@ -223,7 +225,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "PRO_USER")
     @DisplayName("POST drive-times/refresh returns 409, with its reason, when the home moved while "
             + "drive times were measured")
     void refreshDriveTimes_homeMoved_returns409WithReason() throws Exception {
@@ -241,7 +243,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "PRO_USER")
     @DisplayName("GET /api/user/settings/drive-times returns per-location map")
     void getDriveTimes_returnsMap() throws Exception {
         when(settingsService.getUserId(any())).thenReturn(42L);
@@ -254,7 +256,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "PRO_USER")
     @DisplayName("GET /api/user/settings/drive-times returns empty map when none calculated")
     void getDriveTimes_noDriveTimes_returnsEmpty() throws Exception {
         when(settingsService.getUserId(any())).thenReturn(42L);
@@ -266,7 +268,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "PRO_USER")
     @DisplayName("GET /api/user/settings/reach returns an entry per location, omitting absent figures")
     void getReach_returnsRosterWithNullsOmitted() throws Exception {
         // The client joins this to the briefing on locationId, so the id is the one field that must
@@ -288,7 +290,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "PRO_USER")
     @DisplayName("GET /api/user/settings/reach returns the roster even with no home set")
     void getReach_noHome_stillReturnsTheRoster() throws Exception {
         // The normal first-run state. An empty body here would make the reach lens look broken to
@@ -303,6 +305,44 @@ class UserSettingsControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$[0].locationId").value(1))
                 .andExpect(jsonPath("$[0].driveMinutes").doesNotExist())
                 .andExpect(jsonPath("$[0].distanceMiles").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("The three drive-time routes answer an Admin")
+    void driveTimeRoutes_adminAllowed() throws Exception {
+        when(settingsService.refreshDriveTimes(any(Authentication.class))).thenReturn(
+                new DriveTimeRefreshResponse(3, Instant.parse("2026-04-01T10:00:00Z")));
+        when(settingsService.getUserId(any(Authentication.class))).thenReturn(7L);
+        when(driveTimeResolver.getAllMinutes(7L)).thenReturn(Map.of());
+        when(reachService.getReach(any(Authentication.class))).thenReturn(List.of());
+
+        mockMvc.perform(post("/api/user/settings/drive-times/refresh")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/user/settings/drive-times")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/user/settings/reach")).andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "LITE_USER")
+    @DisplayName("The three drive-time routes are 403 for a Lite account and reach no service")
+    void driveTimeRoutes_liteForbidden() throws Exception {
+        mockMvc.perform(post("/api/user/settings/drive-times/refresh"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/user/settings/drive-times")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/user/settings/reach")).andExpect(status().isForbidden());
+
+        verifyNoInteractions(settingsService, driveTimeResolver, reachService);
+    }
+
+    @Test
+    @WithMockUser(roles = "LITE_USER")
+    @DisplayName("GET /api/user/settings stays open to a Lite account")
+    void getSettings_liteAllowed() throws Exception {
+        when(settingsService.getSettings(any(Authentication.class))).thenReturn(
+                new UserSettingsResponse("lite", "lite@example.com", "LITE_USER", null, null, null, null,
+                        null, null, null, null, null, null, false));
+
+        mockMvc.perform(get("/api/user/settings")).andExpect(status().isOk());
     }
 
     @Test

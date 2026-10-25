@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
+import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import jakarta.annotation.PostConstruct;
@@ -40,6 +41,13 @@ import java.util.stream.Collectors;
  *
  * <p>Users with no saved home location are skipped: there is no origin to route from, and their
  * having no drive times is correct rather than stale.
+ *
+ * <p><strong>Only {@code PRO_USER} and {@code ADMIN} accounts are measured.</strong> Drive times
+ * from home are a Pro feature, and the three endpoints that serve them answer 403 to a Lite
+ * account, so measuring a Lite home would spend OpenRouteService quota on data nobody can read.
+ * The filter applies to the admin "Run now" as well as the nightly fire, and an account with no
+ * role is excluded. Rows already stored for a Lite account are left in place; a promoted account's
+ * next run (or its own Refresh press) writes fresh ones.
  *
  * <p><strong>{@code driveTimesCalculatedAt} means "drive times were stored for the roster read at
  * this instant" — nothing less, and nothing else proves roster coverage.</strong> This job has
@@ -199,6 +207,7 @@ public class DriveTimeRefreshJob {
     void run(boolean manual) {
         List<AppUserEntity> users = userRepository.findAll().stream()
                 .filter(AppUserEntity::isEnabled)
+                .filter(u -> u.getRole() == UserRole.PRO_USER || u.getRole() == UserRole.ADMIN)
                 .filter(u -> u.getHomeLatitude() != null && u.getHomeLongitude() != null)
                 .toList();
 

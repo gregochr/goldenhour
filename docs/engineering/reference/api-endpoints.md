@@ -393,8 +393,8 @@ interrupt — the design's own ~10/year, one-or-two-interrupts target.
 
 ### User Settings (Bearer)
 `GET /api/user/settings` | `POST /api/user/settings/home/lookup` | `POST /api/user/settings/home/reverse` ("Use my location": `{latitude, longitude}` → the nearest UK postcode within 2 km, persisting nothing; 400 for a missing, non-finite or out-of-range value or a point with no postcode, 502 "Postcode lookup is unavailable right now" when postcodes.io fails — neither echoes the upstream) | `PUT /api/user/settings/home` |
-`POST /api/user/settings/drive-times/refresh` | `GET /api/user/settings/drive-times` |
-`GET /api/user/settings/reach` | `GET /api/user/settings/light` |
+`POST /api/user/settings/drive-times/refresh` (PRO_USER/ADMIN; LITE 403) | `GET /api/user/settings/drive-times` (PRO_USER/ADMIN; LITE 403) |
+`GET /api/user/settings/reach` (PRO_USER/ADMIN; LITE 403) | `GET /api/user/settings/light` |
 `GET /api/user/settings/ask` (Ask PhotoCast's allowance read — `{enabled, used, limit, left, typedAvailable}`, always 200 for every role and zeros with `enabled:false`
 when the flag is off, and zeros with `enabled:true, typedAvailable:false` for a LITE reader; `typedAvailable` reads false while the accounting latch is set; pinned in `HttpCachingConfigTest.personalDataPathsAreNeverFiltered`) |
 `PUT /api/user/settings/map-colours` | `PUT /api/user/settings/map-tide-mode` (the Map tab's
@@ -416,8 +416,10 @@ CLAUDE.md's Almanac section) |
 > must be added to that list. `/reach` and `/light` both live here for that reason rather than beside
 > the payloads they are joined to on the client.
 >
-> Bearer with **no role gate**, by inheritance from `SecurityConfig`'s `/api/**` → `.authenticated()`.
-> That includes `PUT /home`: saving a home postcode has always been open to any account, and since
+> Bearer with **no role gate**, by inheritance from `SecurityConfig`'s `/api/**` → `.authenticated()`,
+> **except the three drive-time routes** (`POST /drive-times/refresh`, `GET /drive-times`, `GET /reach`), which carry a
+> method-level `@PreAuthorize("hasAnyRole('PRO_USER','ADMIN')")` (`pro-features-gate-plan.md` D2): a LITE caller is 403 and the
+> service is never reached. `GET /api/user/settings` and `PUT /home` stay open to every role: saving a home postcode has always been open to any account, and since
 > the masthead's light rule is drawn from it the frontend no longer gates it either — light times
 > free, drive times and the local radius Pro. ⚠️ **Do not re-gate the postcode input.** The band's
 > empty state nudges the reader to that field, so a Pro gate on it makes the nudge a dead end and
