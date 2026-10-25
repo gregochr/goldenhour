@@ -34,7 +34,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -59,12 +58,6 @@ vi.mock('../api/astroApi.js', () => ({
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
-vi.mock('../components/markerUtils.js', () => ({
-  buildMarkerSvg: () => '<svg></svg>',
-  buildStandDownSvg: () => '<svg data-sd></svg>',
-  markerLabelAndColour: () => ({ label: '4★', colour: '#E5A00D' }),
-  STAND_DOWN_COLOUR: '#501313',
-}));
 
 // What `MapView` hands `MapLabels` is the other end of the wire for a rating: its `rating` becomes
 // the chip's `N★` and `isStandDown` the stand-down vocabulary. Placing a chip needs a real Leaflet

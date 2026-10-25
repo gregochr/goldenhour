@@ -30,16 +30,10 @@ import TideWave from './TideWave.jsx';
  *
  * <p>⚠️ 650, NOT the bundle's own 420 (PR #733 review — a confirmed finding, not a typo). The
  * design bundle's z-ladder ("heat 410 / selection ring 415 / labels 420 / CHROME 1100 / callout
- * 1350 / tooltip 1400 / MENUS 1500") assumed a heat view with NO markers ever rendering below the
- * label layer. Heat mode no longer fades Leaflet's real markers back in across the zoom handover
- * either (`MapHeatLayer.jsx`'s {@code hidesMarkers} — the chips ARE what the field hands over to),
- * so the bundle's assumption now HOLDS for the ordinary case — but not for all of it: a window with
- * nothing scored still keeps the medallions at full opacity, in Leaflet's own {@code markerPane} at
- * its built-in z600, sitting on the exact same projected points as the chips, since a chip and its
- * marker name the same location. At 420 a chip would render, and hit-test, UNDER its own marker on
- * exactly the windows where the chip is the only thing carrying a name. 650 clears Leaflet's marker
- * pane (600) while staying below its popup pane (700) and every chrome chip (1100+) — the P7 chrome
- * comment in index.css records the ladder with this correction.
+ * 1350 / tooltip 1400 / MENUS 1500") sat below Leaflet's built-in overlay (400) and marker (600)
+ * panes' neighbours; 650 clears the marker pane (600) while staying below its popup pane (700) and
+ * every chrome chip (1100+) — the P7 chrome comment in index.css records the ladder with this
+ * correction.
  */
 const LABEL_PANE = 'wf-labels';
 const LABEL_PANE_Z = 650;
@@ -108,6 +102,7 @@ const OBSTACLE_SELECTOR = [
   // rated chip, so on any populated map this entry matches nothing and costs the placer nothing.
   // Measured before seeding: a region name overlapped it by 311px², its bottom edge under the chip.
   '[data-testid="wf-map-no-forecast"]',
+  '[data-testid="wf-map-no-places"]',
   '[data-testid="wf-win-menu"]',
   '[data-testid="wf-jump-menu"]',
   '[data-testid="wf-filters-panel"]',
@@ -257,7 +252,7 @@ const TOOLTIP_WIDTH_FALLBACK = 240;
  * @param {object}   props
  * @param {Array<{name: string, lat: number, lng: number, rid: string, rating: ?number,
  *   bortleClass: ?number, driveMinutes: ?number}>} props.spots the filtered pool for the CURRENT
- *   window — the same "named" pool `MapView` already derives for its markers (§4.5's
+ *   window — the same "named" pool `MapView` already derives (§4.5's
  *   `scopedVisibleLocations`), joined with the current window's rating
  * @param {?{lat: number, lon: number}} [props.homeCoords] the saved home postcode, or null
  * @param {boolean}  [props.rings] the reach-rings toggle — SAME state `MapHeatLayer` reads, so the
@@ -267,8 +262,7 @@ const TOOLTIP_WIDTH_FALLBACK = 240;
  *   rule, the same one `WindowRowFieldMap`'s own ring labels apply)
  * @param {?string}  [props.selectedName] the selected location's name — always chipped
  * @param {?Function} [props.onSelect] called with a location's name on chip click — the caller
- *   wires this to the SAME path a marker click already takes (today: `setSelectedLocationName` +
- *   the Leaflet popup; P9 replaces the far end with the callout, not this call site)
+ *   wires this to `selectMapLocation` (selection, which opens the callout)
  * @param {?Function} [props.onSelectAskPick] called with a pick's RANK when its chip is pressed (Ask
  *   PhotoCast, F3) — a pick chip chooses the answer's card, never the location itself. (On a phone the
  *   caller's handler also asks for the pick's callout to open once the window has followed:
@@ -316,7 +310,7 @@ export default function MapLabels({
     const el = map.getPane?.(LABEL_PANE) || map.createPane(LABEL_PANE);
     if (el?.style) {
       el.style.zIndex = String(LABEL_PANE_Z);
-      // Labels are annotations on the field, and every place one sits is also a real marker —
+      // Labels are annotations on the field —
       // the click belongs to the map/chip beneath, never the layer as a whole (mirrors
       // `MapHeatLayer`'s identical pane-level rule, and `.wf-mchips`' own precedent).
       el.style.pointerEvents = 'none';
@@ -350,9 +344,8 @@ export default function MapLabels({
    * `selectMapLocation` (sets the selection) → P7's `MapBackgroundClickController`
    * (`MapView.jsx`) firing right after, on the SAME click, and clearing it again. A chip is a plain
    * HTML `<button>` inside this layer's Leaflet PANE (`map.createPane`, a real descendant of
-   * `.leaflet-map-pane`/`.leaflet-container`), not a Leaflet `Marker` — real markers never trigger
-   * this because `L.Marker` stops its own click from bubbling to the map (`bubblingMouseEvents:
-   * false`); nothing did that for a bare button, so the click kept bubbling into Leaflet's own
+   * `.leaflet-map-pane`/`.leaflet-container`), not a Leaflet `Marker` (which stops its own click
+   * bubbling to the map); nothing did that for a bare button, so the click kept bubbling into Leaflet's own
    * container listener and fired the MAP's background-click handler right after React's, clearing
    * the very selection it had just set. `CentreOnHomeControl`'s identical comment already names the
    * fix for an HTML control sitting over the map: a React `stopPropagation` fires too late (it runs

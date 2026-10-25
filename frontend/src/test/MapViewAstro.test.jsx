@@ -15,7 +15,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
 // ── Leaflet / react-leaflet stubs ────────────────────────────────────────────
 
@@ -30,7 +30,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -106,12 +105,9 @@ vi.mock('../components/InfoTip.jsx', () => ({
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({
   default: () => null,
 }));
-vi.mock('../components/markerUtils.js', () => ({
-  buildMarkerSvg: () => '<svg></svg>',
-  buildStandDownSvg: () => '<svg></svg>',
-  markerLabelAndColour: () => ({ label: '4★', colour: '#E5A00D' }),
-  STAND_DOWN_COLOUR: '#501313',
-}));
+// `MapLabels` needs a real Leaflet pane to place a chip (its own test's job); the counts footer, which
+// reads the same filtered set, is what this file counts. Stubbed so a heat field can be offered.
+vi.mock('../components/map/MapLabels.jsx', () => ({ default: () => <div data-testid="map-labels-stub" /> }));
 
 // ── Import under test ────────────────────────────────────────────────────────
 
@@ -135,6 +131,29 @@ function makeLocations() {
     { name: 'LightPolluted', lat: 55.1, lon: -1.6, forecastsByDate: makeForecastsByDate(3), locationType: ['LANDSCAPE'], bortleClass: null },
     { name: 'ModerateSky', lat: 55.2, lon: -1.5, forecastsByDate: makeForecastsByDate(5), locationType: ['LANDSCAPE'], bortleClass: 5 },
   ];
+}
+
+/** A roster join over the rendered locations, so the heat field is offered and the counts footer mounts. */
+function heatFor(locations) {
+  const spots = locations.map((l) => ({ id: l.id, name: l.name, lat: l.lat, lng: l.lon, rid: l.regionName ?? 'North East' }));
+  return {
+    enabled: true,
+    hasHome: false,
+    spots,
+    areaSpots: spots,
+    pointsByKey: new Map(),
+    windows: [],
+    areaBounds: [[54.3, -3.4], [55.7, -1.3]],
+    catalogueBounds: [[54.3, -3.4], [56.4, -1.3]],
+  };
+}
+
+/**
+ * How many locations the map draws: the N of the counts footer's "N of M shown" (the filtered set).
+ */
+function visibleCount() {
+  const match = /(\d+) of \d+ shown/.exec(screen.getByTestId('wf-map-counts-footer').textContent);
+  return match ? Number(match[1]) : NaN;
 }
 
 function renderMap(overrides = {}) {
@@ -275,22 +294,20 @@ describe('MapView astro mode filtering', () => {
   afterEach(() => { vi.useRealTimers(); localStorage.clear(); });
 
   it('astro_mode_filters_to_bortle_locations_only', async () => {
-    renderMap();
+    renderMap({ heat: heatFor(makeLocations()) });
     // All 3 locations visible in default SUNRISE/SUNSET mode
-    expect(screen.getAllByTestId('marker')).toHaveLength(3);
+    expect(visibleCount()).toBe(3);
     // Switch to ASTRO mode
     await enterMode('ASTRO');
     // In ASTRO mode, only locations with bortleClass != null are rendered.
     // DarkSite (bortle 3, astro 4★) and ModerateSky (bortle 5, astro 3★) survive
     // both the astro bortle filter and the default 3★+ threshold; LightPolluted
     // (bortleClass null) is excluded by the astro filter.
-    const markers = await screen.findAllByTestId('marker');
-    expect(markers).toHaveLength(2);
+    await waitFor(() => expect(visibleCount()).toBe(2));
   });
 
   it('non-astro mode shows all locations including those without bortleClass', () => {
-    renderMap();
-    const markers = screen.getAllByTestId('marker');
-    expect(markers).toHaveLength(3);
+    renderMap({ heat: heatFor(makeLocations()) });
+    expect(visibleCount()).toBe(3);
   });
 });

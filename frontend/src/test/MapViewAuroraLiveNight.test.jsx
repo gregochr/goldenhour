@@ -9,7 +9,7 @@
  * NOAA-triggered live state for the night in progress, fetched only while an alert is running.
  *
  * <p>Read unconditionally, the live cache answered for whichever night the reader was looking at.
- * Browse to a future night with no stored run and the rating, the medallions, the "🏆 best
+ * Browse to a future night with no stored run and the rating, the chips, the "🏆 best
  * location" card and the overlay's aurora popup all carried TONIGHT's live stars and narrative as
  * though they were that night's. The same class of defect as #803's stale-window ratings — a
  * rating answering for a window it does not belong to — through a source with no date to check.
@@ -34,7 +34,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -72,13 +71,15 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({
   default: ({ viewline }) => (viewline ? <div data-testid="aurora-viewline-overlay" /> : null),
 }));
-// A spy, so the medallion's resolved rating can be read — `markerLabelAndColour(rating, …)`.
-const markerLabelAndColour = vi.fn(() => ({ label: '★', colour: '#E5A00D' }));
-vi.mock('../components/markerUtils.js', () => ({
-  buildMarkerSvg: () => '<svg></svg>',
-  buildStandDownSvg: () => '<svg></svg>',
-  markerLabelAndColour: (...args) => markerLabelAndColour(...args),
-  STAND_DOWN_COLOUR: '#501313',
+// `MapLabels` needs a real Leaflet pane to place a chip (its own test's job). What THIS file reads is
+// the `spots` array `MapView` hands it: its length is the set of places drawn and each `rating` the
+// star the chip prints, so it is the observable for which night's stars a place carries.
+const labelSpotsSeen = { last: null };
+vi.mock('../components/map/MapLabels.jsx', () => ({
+  default: ({ spots }) => {
+    labelSpotsSeen.last = spots;
+    return <div data-testid="map-labels-stub" />;
+  },
 }));
 
 import MapView from '../components/MapView.jsx';
@@ -92,18 +93,32 @@ const THE_NIGHT = '2026-08-13';
 /** A future night the reader browses to — never the one the live state describes. */
 const ANOTHER_NIGHT = '2026-08-16';
 
-/**
- * ⚠️ Unique per test, and not for tidiness: `makeMarkerIcon`'s cache is MODULE-level, keyed on
- * the name among other things, so a reused name is a cache hit and `markerLabelAndColour` is never
- * called — an assertion on its arguments would read nothing while the component worked perfectly.
- */
 let nonce = 0;
 let LOC = '';
 
 const liveScore = () => ({ location: { name: LOC, lat: 55.0, lon: -1.7 }, stars: 5, summary: 'Live: clear to the north' });
 
+/** A roster join, so the heat field is offered and `MapLabels` (the drawn places) is mounted. */
+let HEAT = null;
+const makeHeat = (name) => {
+  const spots = [{ id: 1, name, lat: 55.0, lng: -1.7, rid: 'North East' }];
+  return {
+    enabled: true,
+    hasHome: false,
+    spots,
+    areaSpots: spots,
+    pointsByKey: new Map(),
+    windows: [],
+    areaBounds: [[54.3, -3.4], [55.7, -1.3]],
+    catalogueBounds: [[54.3, -3.4], [56.4, -1.3]],
+  };
+};
+
+/** The stars on the places currently drawn. */
+const drawnRatings = () => (labelSpotsSeen.last ?? []).map((spot) => spot.rating);
+
 function locations() {
-  return [{ name: LOC, lat: 55.0, lon: -1.7, forecastsByDate: new Map(), locationType: ['LANDSCAPE'] }];
+  return [{ id: 1, name: LOC, lat: 55.0, lon: -1.7, regionName: 'North East', forecastsByDate: new Map(), locationType: ['LANDSCAPE'] }];
 }
 
 async function renderOn(nightOnScreen, extra = {}) {
@@ -111,7 +126,7 @@ async function renderOn(nightOnScreen, extra = {}) {
   await act(async () => {
     result = render(
       <MapView
-        locations={locations()}
+        locations={locations()} heat={HEAT}
         date={nightOnScreen}
         autoEventType="AURORA"
         {...extra}
@@ -126,8 +141,9 @@ async function renderOn(nightOnScreen, extra = {}) {
 beforeEach(() => {
   nonce += 1;
   LOC = `Bamburgh-${nonce}`;
+  HEAT = makeHeat(LOC);
   localStorage.clear();
-  markerLabelAndColour.mockClear();
+  labelSpotsSeen.last = null;
   // The API mocks' call history too. Several tests here wait on `toHaveBeenCalled()` as proof that
   // their OWN fetch ran — which, uncleared, the first test's call satisfies for every test after it.
   getAuroraLocations.mockClear();
@@ -181,7 +197,7 @@ describe('the 🏆 best-location card — dismissal (aurora heat A4)', () => {
     getAuroraLocations.mockResolvedValue(scores);
     await act(async () => {
       view.rerender(
-        <MapView locations={locations()} date={night} autoEventType="AURORA" />,
+        <MapView locations={locations()} heat={HEAT} date={night} autoEventType="AURORA" />,
       );
     });
     await act(async () => { await Promise.resolve(); });
@@ -249,7 +265,7 @@ describe('the 🏆 best-location card — dismissal (aurora heat A4)', () => {
     await act(async () => {
       view.rerender(
         <MapView
-          locations={locations()}
+          locations={locations()} heat={HEAT}
           date={THE_NIGHT}
           forecastDates={[THE_NIGHT]}
           autoEventType="AURORA"
@@ -303,32 +319,30 @@ describe('the 🏆 best-location card — dismissal (aurora heat A4)', () => {
   });
 });
 
-describe('the aurora medallions', () => {
+describe('the aurora label spots', () => {
   it('carry the live stars on the night in progress, exactly as before', async () => {
     await renderOn(THE_NIGHT);
-    await waitFor(() => expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 5)).toBe(true));
+    await waitFor(() => expect(drawnRatings()).toContain(5));
   });
 
   it('do NOT carry tonight\'s live stars on another night with no stored run', async () => {
     await renderOn(ANOTHER_NIGHT, {});
     await waitFor(() => expect(getAuroraLocations).toHaveBeenCalled());
-    // ⚠️ Two assertions because there are two paths. The rating ACCESSOR decides which locations
-    // are drawn at all; each medallion's star comes from its own marker path. A leaking accessor
-    // would draw a medallion wearing no star — which the star assertion alone cannot see, since
-    // it only asks whether a 5 appeared. Nothing is rated for that night, so NOTHING is drawn.
-    expect(screen.queryAllByTestId('marker')).toHaveLength(0);
-    expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 5)).toBe(false);
+    // The rating ACCESSOR decides which locations are drawn at all. Nothing is rated for that night,
+    // so NOTHING is drawn — and no 5 appears. (`toEqual([])` also proves `MapLabels` is mounted.)
+    expect(labelSpotsSeen.last).toEqual([]);
+    expect(drawnRatings()).not.toContain(5);
   });
 
   it('carry THAT night\'s stored stars on another night that has a stored run', async () => {
-    // The live cache says 5 for tonight; the stored run for ANOTHER_NIGHT says 4. The medallion
+    // The live cache says 5 for tonight; the stored run for ANOTHER_NIGHT says 4. The spot
     // must answer with the night it is on.
     getAuroraForecastResults.mockImplementation((night) => Promise.resolve(
       night === ANOTHER_NIGHT ? [{ locationName: LOC, stars: 4 }] : [],
     ));
     await renderOn(ANOTHER_NIGHT);
-    await waitFor(() => expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 4)).toBe(true));
-    expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 5)).toBe(false);
+    await waitFor(() => expect(drawnRatings()).toContain(4));
+    expect(drawnRatings()).not.toContain(5);
   });
 });
 
@@ -347,7 +361,7 @@ describe('the night on screen is `nightDate`, not `date`', () => {
     await act(async () => {
       render(
         <MapView
-          locations={locations()}
+          locations={locations()} heat={HEAT}
           date={ORDINARY_DAY}
           // THE_NIGHT is deliberately NOT in the domain — that is what keeps the row local.
           forecastDates={[ORDINARY_DAY]}
@@ -384,7 +398,7 @@ describe('stored results answer for the night they were fetched for (Codex, #814
   const NIGHT_A = '2026-08-16';
   const NIGHT_B = '2026-08-17';
 
-  // No live scores in this block, so every marker it counts can only have come from a STORED result.
+  // No live scores in this block, so every spot it counts can only have come from a STORED result.
   // The file-level fixture rates LOC 5★ live; that is withheld off the night in progress, but a count
   // of one could not tell B's stored 3 from a leaked live 5, and nothing here would notice if one of
   // these nights ever came to be read as live.
@@ -404,7 +418,7 @@ describe('stored results answer for the night they were fetched for (Codex, #814
     let result;
     await act(async () => {
       result = render(
-        <MapView locations={locations()} date={night} autoEventType="AURORA" />,
+        <MapView locations={locations()} heat={HEAT} date={night} autoEventType="AURORA" />,
       );
     });
     return result;
@@ -413,7 +427,7 @@ describe('stored results answer for the night they were fetched for (Codex, #814
   const rerenderNight = async (result, night) => {
     await act(async () => {
       result.rerender(
-        <MapView locations={locations()} date={night} autoEventType="AURORA" />,
+        <MapView locations={locations()} heat={HEAT} date={night} autoEventType="AURORA" />,
       );
     });
   };
@@ -428,14 +442,12 @@ describe('stored results answer for the night they were fetched for (Codex, #814
     const result = await renderNight(NIGHT_A);
     await rerenderNight(result, NIGHT_B);
     // B's own 3 is on screen.
-    await waitFor(() => expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 3)).toBe(true));
+    await waitFor(() => expect(drawnRatings()).toContain(3));
 
-    markerLabelAndColour.mockClear();
     // Now A's stale response lands — after B's.
     await act(async () => { a.resolve([{ locationName: LOC, stars: 4 }]); await Promise.resolve(); });
 
-    expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 4)).toBe(false);
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawnRatings()).toEqual([3]);
   });
 
   it('does not let the previous night\'s results stand in while the new night loads', async () => {
@@ -448,29 +460,22 @@ describe('stored results answer for the night they were fetched for (Codex, #814
       night === NIGHT_A ? Promise.resolve([{ locationName: LOC, stars: 4 }]) : b.promise
     ));
     const result = await renderNight(NIGHT_A);
-    await waitFor(() => expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 4)).toBe(true));
+    await waitFor(() => expect(drawnRatings()).toContain(4));
 
-    // Night A's own 4 above is legitimate; only calls made AFTER the move to B count against it.
-    markerLabelAndColour.mockClear();
+    // Night A's own 4 above is legitimate; only what is drawn AFTER the move to B counts against it.
     await rerenderNight(result, NIGHT_B);
     await act(async () => { await Promise.resolve(); });
     // Nothing from ANOTHER night may be drawn for B, and this file previews no night, so B has
     // nothing of its own to draw yet either. (With a preview, B draws its own preview rows meanwhile
     // — `MapViewNightScoresLoading.test.jsx`.)
     //
-    // ⚠️ Asserted on the marker COUNT, not on `markerLabelAndColour`, and that is not a stylistic
-    // choice. The first form of this test asked "was the spy called with a 4?" and passed with the
-    // clear-on-change deleted: `makeMarkerIcon`'s cache is module-level and keyed on the rating
-    // among other things, so night B showing A's stale 4 hit the SAME cache entry A had built — the
-    // icon was reused, the spy never called, and the stale data sat on screen invisible to the
-    // assertion. The count cannot be fooled that way: fixed, B has nothing rated (0 drawn); broken,
-    // A's 4 stands in and clears the floor (1 drawn).
-    expect(screen.queryAllByTestId('marker')).toHaveLength(0);
+    // Fixed, B has nothing rated (nothing drawn); broken, A's 4 stands in and clears the floor.
+    expect(labelSpotsSeen.last).toEqual([]);
 
     // ...and once B's own answer lands, that is what shows.
     await act(async () => { b.resolve([{ locationName: LOC, stars: 2 }]); await Promise.resolve(); });
     // 2 is below the default 3★ floor, so B's location is correctly not drawn — and still never 4.
-    expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 4)).toBe(false);
+    expect(drawnRatings()).not.toContain(4);
   });
 
   it('drops a LATE failure too — a night the reader has left cannot blank the one on screen', async () => {
@@ -494,7 +499,7 @@ describe('stored results answer for the night they were fetched for (Codex, #814
     await rerenderNight(result, NIGHT_B);
     // B's own stored 3 is on screen: one place rated (this block has no live scores — see above).
     // Also the control that aurora mode is live.
-    expect(await screen.findAllByTestId('marker')).toHaveLength(1);
+    await waitFor(() => expect(drawnRatings()).toEqual([3]));
 
     // ⚠️ An AWAITED `act`, and the `await` is load-bearing — measured: with `act(() => a.reject(...))`
     // left un-awaited this test passes with the guard deleted, because the unguarded clear lands after
@@ -502,6 +507,6 @@ describe('stored results answer for the night they were fetched for (Codex, #814
     await act(async () => { a.reject(new Error('night A timed out')); });
 
     // Still B's one. Broken, A's failure cleared B's results and nothing was drawn.
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawnRatings()).toEqual([3]);
   });
 });

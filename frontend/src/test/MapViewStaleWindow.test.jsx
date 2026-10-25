@@ -42,7 +42,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -67,17 +66,6 @@ vi.mock('../api/astroApi.js', () => ({
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
-// A spy, so the medallion test below can read the rating the marker layer actually resolved —
-// the one surface whose value never reaches the DOM in a way a query can see.
-const markerLabelAndColour = vi.fn(() => ({ label: '4★', colour: '#E5A00D' }));
-const buildStandDownSvg = vi.fn(() => '<svg data-sd></svg>');
-vi.mock('../components/markerUtils.js', () => ({
-  buildMarkerSvg: () => '<svg></svg>',
-  buildStandDownSvg: (...args) => buildStandDownSvg(...args),
-  markerLabelAndColour: (...args) => markerLabelAndColour(...args),
-  STAND_DOWN_COLOUR: '#501313',
-}));
-
 // `MapLabels` needs a real Leaflet pane and measured DOM boxes to place a chip, which is
 // `MapLabels.test.jsx`'s harness and its job. What THIS file needs is the other end of the wire:
 // the `spots` array `MapView` builds and hands over, whose `rating` becomes the chip's `N★` and
@@ -99,9 +87,6 @@ const TODAY = '2026-01-15';
 const TOMORROW = '2026-01-16';
 
 beforeEach(() => {
-  markerNonce += 1;
-  markerLabelAndColour.mockClear();
-  buildStandDownSvg.mockClear();
   labelSpotsSeen.last = null;
   localStorage.clear();
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -117,19 +102,10 @@ const SPOTS = [
   { id: 2, name: 'Tynemouth', lat: 55.02, lng: -1.42, rid: 'North East' },
 ];
 
-/**
- * ⚠️ Marker names are made unique per test, and that is not tidiness — `makeMarkerIcon`'s cache is
- * MODULE-level and survives every render in this file, keyed on (name, scores, flags, emphasis,
- * ramp). Reuse one fixture across two tests and the second render is a cache hit, so
- * `markerLabelAndColour` is never called and an assertion on its arguments reads zero calls while
- * the component is working perfectly. (`MapViewHeat.test.jsx` records the same trap.)
- */
-let markerNonce = 0;
-
 /** Locations carrying a 4★ run on `scoredDate` and nothing else — the stale-cache shape. */
 const makeLocations = (scoredDate) => SPOTS.map((s) => ({
   id: s.id,
-  name: `${s.name}-${markerNonce}`,
+  name: s.name,
   lat: s.lat,
   lon: s.lng,
   regionName: s.rid,
@@ -195,7 +171,6 @@ async function renderMap(props) {
 }
 
 const footer = () => screen.getByTestId('wf-map-counts-footer');
-const markerCount = () => screen.queryAllByTestId('marker').length;
 
 describe('a window the EV list has no row for', () => {
   it('reports nothing rated — the pill and the catalogue agree', async () => {
@@ -217,7 +192,7 @@ describe('a window the EV list has no row for', () => {
     // the rated count DIFFERS from the shown count, so its absence here is a real assertion about
     // the numerator, not a restatement of the line above.
     expect(screen.queryByTestId('wf-map-counts-rated')).not.toBeInTheDocument();
-    expect(markerCount()).toBe(0);
+    expect(labelSpotsSeen.last).toEqual([]);
   });
 
   it('control: the SAME fixture on a window that HAS a row rates both locations', async () => {
@@ -232,7 +207,7 @@ describe('a window the EV list has no row for', () => {
 
     expect(screen.queryByTestId('wf-win-no-match')).not.toBeInTheDocument();
     expect(footer()).toHaveTextContent('2 of 2 shown');
-    expect(markerCount()).toBe(2);
+    expect(labelSpotsSeen.last).toHaveLength(2);
   });
 
   it('is per-WINDOW, not per-date — one event of a date can have a row while the other has none', async () => {
@@ -243,7 +218,7 @@ describe('a window the EV list has no row for', () => {
     // for the whole predicate — both passed the entire suite.
     const locations = SPOTS.map((sp) => ({
       id: sp.id,
-      name: `${sp.name}-${markerNonce}`,
+      name: sp.name,
       lat: sp.lat,
       lon: sp.lng,
       regionName: sp.rid,
@@ -378,72 +353,62 @@ describe('a window the EV list has no row for', () => {
     expect(screen.getByTestId('photocast-scored-legend')).toBeInTheDocument();
   });
 
-  it('withholds the rating from the MEDALLION layer too, on the one view where it is visible', async () => {
-    // ⚠️ `heat` is omitted, and that is the whole point. The medallions are normally invisible on
-    // this tab — `MapHeatLayer` pins their panes to opacity 0 — but that layer mounts only when a
-    // field exists, so with no roster join at all they become the tab's ONLY location vocabulary
-    // (no chips, no pins). The marker block used to carry its own copy of the briefing-then-
-    // forecast precedence, so the gate reached every other surface and not this one.
-    //
-    // An admin turning the `?` unknown lens on is what puts a gate-blanked location back into
-    // `visibleLocations`, which is what makes the medallion render at all.
+  it('withholds the rating from the label spots too, under the admin unknown lens', async () => {
+    // The unknown lens is what puts a gate-blanked location back into `visibleLocations`; the spot
+    // it becomes must carry a null rating — not yesterday's 4 — because the window has no row.
     await renderMap({
       locations: makeLocations(YESTERDAY),
       date: YESTERDAY,
       forecastDates: [YESTERDAY],
+      heat,
     });
     fireEvent.click(screen.getByTestId('wf-filters-chip'));
     fireEvent.click(screen.getByTestId('star-filter-unrated'));
 
-    expect(markerCount()).toBe(2);
-    expect(markerLabelAndColour).toHaveBeenCalled();
-    // Every medallion resolved a null rating — not yesterday's 4 — and the arcs beside it went
-    // with it: `markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife)`.
-    for (const call of markerLabelAndColour.mock.calls) {
-      expect(call.slice(0, 3)).toEqual([null, null, null]);
+    expect(labelSpotsSeen.last).toHaveLength(2);
+    for (const spot of labelSpotsSeen.last) {
+      expect(spot.rating).toBeNull();
     }
   });
 
-  it('control: the SAME medallions on a window that HAS a row carry their rating', async () => {
+  it('control: the SAME spots on a window that HAS a row carry their rating', async () => {
     await renderMap({
       locations: makeLocations(TODAY),
       date: TODAY,
       forecastDates: [TODAY],
+      heat,
     });
 
-    expect(markerCount()).toBe(2);
-    expect(markerLabelAndColour).toHaveBeenCalled();
-    expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 4)).toBe(true);
-    // ...and the arcs are present, so the null-triple above is the gate and not the fixture.
-    expect(markerLabelAndColour.mock.calls.some((c) => c[1] === 70 && c[2] === 60)).toBe(true);
+    expect(labelSpotsSeen.last).toHaveLength(2);
+    expect(labelSpotsSeen.last.every((spot) => spot.rating === 4)).toBe(true);
   });
 
-  it('withholds the medallion STAND-DOWN glyph too', async () => {
-    // Kills the sibling of the mutation above: the marker block also carried its own
-    // `resolveStandDown` call, so reverting only the rating would leave the grey triaged glyph
-    // asserting a verdict for a window the tab has no row for.
+  it('withholds the STAND-DOWN verdict too — the stood-down lens finds nothing on a rowless window', async () => {
+    // The sibling gate: `isStandDownLocation` must not assert a triage verdict for a window the tab
+    // has no row for, so the admin stood-down lens widens the pool to nothing here.
     await renderMap({
       locations: makeStandDownLocations(YESTERDAY),
       date: YESTERDAY,
       forecastDates: [YESTERDAY],
-    });
-    fireEvent.click(screen.getByTestId('wf-filters-chip'));
-    fireEvent.click(screen.getByTestId('star-filter-unrated'));
-
-    expect(markerCount()).toBe(2);
-    expect(buildStandDownSvg).not.toHaveBeenCalled();
-  });
-
-  it('control: the SAME triage on a window that HAS a row draws the stand-down glyph', async () => {
-    await renderMap({
-      locations: makeStandDownLocations(TODAY),
-      date: TODAY,
-      forecastDates: [TODAY],
+      heat,
     });
     fireEvent.click(screen.getByTestId('wf-filters-chip'));
     fireEvent.click(screen.getByTestId('star-filter-standdown'));
 
-    expect(buildStandDownSvg).toHaveBeenCalled();
+    expect(labelSpotsSeen.last).toEqual([]);
+  });
+
+  it('control: the SAME triage on a window that HAS a row is found by the stood-down lens', async () => {
+    await renderMap({
+      locations: makeStandDownLocations(TODAY),
+      date: TODAY,
+      forecastDates: [TODAY],
+      heat,
+    });
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+    fireEvent.click(screen.getByTestId('star-filter-standdown'));
+
+    expect(labelSpotsSeen.last).toHaveLength(2);
   });
 
   it('hands MapLabels no star and no tide claim — the chips the report was about', async () => {

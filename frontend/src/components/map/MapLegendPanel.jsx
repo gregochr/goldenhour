@@ -19,8 +19,8 @@ const HANDOVER_LOCATIONS_MIN = 0.92;
  * computes — one number, one place it is turned into words.
  *
  * <p>⚠️ It used to add "so the indicator can never disagree with what is actually painting", and
- * that safety property is gone: `markers` was the medallion opacity, and nothing paints at it now
- * (`MapHeatLayer` hides those panes unconditionally). The indicator is still HONEST — `fadeAt`'s
+ * that safety property is gone: `markers` was the old location-marker opacity, and nothing paints at it now
+ * (the markers are gone). The indicator is still HONEST — `fadeAt`'s
  * other half, `heat`, ramps the field 1 → 0.35 across the identical band, so `Field` / `Handing
  * over` / `Locations` does track a real, visible change, and what it hands over TO is `MapLabels`'
  * chips, exactly as the bundle intends. But the two halves are now separate numbers from one

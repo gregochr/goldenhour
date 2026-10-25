@@ -24,11 +24,10 @@
  * "never chosen" apart from an explicit `'verdict'`.
  *
  * <p>This is the map's only SCORE colour language now. It once stood beside a separate five-bucket
- * table ({@code markerUtils.RATING_COLOURS}) that belonged to v1, the pilot's frozen comparison
- * control, kept deliberately un-ramped so v1 rendered byte-identically until the flag flipped.
- * v1 was retired along with the rest of that UI estate, and its table went with it — every rated
- * marker, cluster bubble and star-filter swatch, in every view, now paints from these stops.
- * Stand-down and no-data markers are not scores and are not on this ramp at all.
+ * table that belonged to v1, the pilot's frozen comparison control, kept deliberately un-ramped so
+ * v1 rendered byte-identically until the flag flipped. v1 was retired along with the rest of that
+ * UI estate, and its table went with it — every rated field tile, chip and star-filter swatch now
+ * paints from these stops. Stand-down and no-data are not scores and are not on this ramp at all.
  */
 
 /**

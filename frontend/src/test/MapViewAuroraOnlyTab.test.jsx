@@ -27,7 +27,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -60,11 +59,14 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({
   default: ({ viewline }) => (viewline ? <div data-testid="aurora-viewline-overlay" /> : null),
 }));
-vi.mock('../components/markerUtils.js', () => ({
-  buildMarkerSvg: () => '<svg></svg>',
-  buildStandDownSvg: () => '<svg></svg>',
-  markerLabelAndColour: () => ({ label: '★', colour: '#E5A00D' }),
-  STAND_DOWN_COLOUR: '#501313',
+// `MapLabels` needs a real Leaflet pane to place a chip (its own test's job). What THIS file reads is
+// the `spots` array `MapView` hands it: one spot per place drawn on the map.
+const labelSpotsSeen = { last: null };
+vi.mock('../components/map/MapLabels.jsx', () => ({
+  default: ({ spots }) => {
+    labelSpotsSeen.last = spots;
+    return <div data-testid="map-labels-stub" />;
+  },
 }));
 
 import MapView from '../components/MapView.jsx';
@@ -132,6 +134,7 @@ beforeEach(() => {
   LOC = `Bamburgh-${nonce}`;
   localStorage.clear();
   roleRef.current = 'ADMIN';
+  labelSpotsSeen.last = null;
   mobileRef.current = false;
   getAuroraLocations.mockReset().mockResolvedValue([liveScore(5)]);
   getAuroraForecastResults.mockReset().mockResolvedValue([]);
@@ -160,8 +163,22 @@ describe('a real live alert, no solar forecast and no stored run', () => {
   });
 
   it('draws the live place on the map (the field and the chips work on the live row)', async () => {
-    await mount();
-    await waitFor(() => expect(screen.getAllByTestId('marker').length).toBeGreaterThan(0));
+    // A roster join, so the field is offered and the label layer (the drawn places) is mounted.
+    const spots = [{ name: LOC, lat: 55.0, lng: -1.7, rid: 'North East' }];
+    await mount({
+      heat: {
+        enabled: true,
+        hasHome: false,
+        spots,
+        areaSpots: spots,
+        pointsByKey: new Map(),
+        windows: [],
+        areaBounds: [[54.3, -3.4], [55.7, -1.3]],
+        catalogueBounds: [[54.3, -3.4], [56.4, -1.3]],
+      },
+    });
+    await waitFor(() => expect(labelSpotsSeen.last?.map((s) => s.name)).toEqual([LOC]));
+    expect(labelSpotsSeen.last[0].rating).toBe(5);
   });
 
   it('draws the viewline on the live night, as it does on any live aurora window', async () => {

@@ -41,10 +41,6 @@ const VIEWPORT = { pad: () => ({ contains: () => true }) };
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="mock-leaflet">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children, icon }) => {
-    probes.markers.push(icon);
-    return <div>{children}</div>;
-  },
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   Pane: ({ children }) => <div>{children}</div>,
@@ -63,7 +59,7 @@ vi.mock('react-leaflet', () => ({
   }),
 }));
 
-const probes = { labels: [], heat: [], markers: [] };
+const probes = { labels: [], heat: [] };
 vi.mock('../components/MapHeatLayer.jsx', () => ({
   default: (props) => {
     probes.heat.push(props);
@@ -281,7 +277,6 @@ beforeEach(() => {
   localStorage.clear();
   probes.labels.length = 0;
   probes.heat.length = 0;
-  probes.markers.length = 0;
   onSelectDate = vi.fn();
   mockRole = 'PRO_USER';
   getAstroAvailableDates.mockResolvedValue([]);
@@ -496,20 +491,19 @@ describe('hwEventSweep: no heat, no stand-down, no fetch, no light-window chrome
     expect(screen.queryByTestId('photocast-scored-legend')).toBeNull();
   });
 
-  it('the selected place\'s medallion carries no rating and borrows no sunset arcs (control: the sunset has them)', async () => {
+  it('the SELECTED place\'s chip carries no rating on the row (control: the sunset has one)', async () => {
+    // The label layer appends the selected place even when the rating floor would drop it, so this is
+    // the one spot that can still be drawn on the row: it must carry nothing of the sunset's. (The
+    // map's per-location markers used to carry sunset arcs too; they are gone, so that half of this
+    // probe has no observable left and is deleted.)
     await renderMap({ startDate: FRI, autoEventType: 'SUNSET' });
-    const lastIcon = (name) => probes.markers.map((i) => i?.options).filter(Boolean)
-      .filter((o) => o.html.includes(`title="${name}"`)).at(-1);
-    expect(lastIcon(SPOT.name)).toMatchObject({ rating: 5, fierySky: 70, goldenHour: 60 });
+    expect(lastSpots().find((s) => s.name === SPOT.name)).toMatchObject({ rating: 5 });
     await choose(HW_ID);
-    probes.markers.length = 0;
     await act(async () => { fireEvent.click(screen.getByTestId('probe-chip')); });
     expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('High water');
-    // Unrated places are not drawn at all; if one were, it would carry nothing of the sunset's.
-    const hw = lastIcon(SPOT.name);
-    expect(hw?.rating ?? null).toBeNull();
-    expect(hw?.fierySky ?? null).toBeNull();
-    expect(hw?.goldenHour ?? null).toBeNull();
+    const selected = lastSpots().find((s) => s.name === SPOT.name);
+    expect(selected).toBeDefined();
+    expect(selected.rating ?? null).toBeNull();
   });
 
   it('fetches no night, aurora or astro scores for it', async () => {

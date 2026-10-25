@@ -12,7 +12,7 @@
  * <ul>
  *   <li><b>After the alert ended.</b> A poll saying the alert is over clears the scores; a request
  *       the previous poll made, landing after that, wrote the ended alert's stars straight back —
- *       into the rating's live fallback, the medallions, the overlay popup and the "🏆 best
+ *       into the rating's live fallback, the overlay popup and the "🏆 best
  *       location" card — where they stood until the next poll or focus.</li>
  *   <li><b>Out of order.</b> Two refreshes close together each make a request, and the older one
  *       landing last replaced the newer answer with its own.</li>
@@ -37,13 +37,12 @@
  * The status itself comes through the API module's `getAuroraStatus`, mocked at the boundary the
  * frontend test standards prescribe; the rest are the standard `MapView` mocks the sibling files use.
  *
- * <p>Every negative here is a MARKER COUNT or the best card's text, never a `markerLabelAndColour`
- * spy: `makeMarkerIcon`'s cache is module-level and keyed on the location and its rating among other
- * things, so a stale rating that matches one already drawn reuses that icon and never reaches the spy.
+ * <p>Every negative here is a DRAWN-PLACE COUNT (the `spots` handed to `MapLabels`) or the best
+ * card's text.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('leaflet', () => {
   const icon = () => ({});
@@ -55,7 +54,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -81,11 +79,14 @@ vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <di
 vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div data-testid="popup-content" /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
-vi.mock('../components/markerUtils.js', () => ({
-  buildMarkerSvg: () => '<svg></svg>',
-  buildStandDownSvg: () => '<svg></svg>',
-  markerLabelAndColour: () => ({ label: '★', colour: '#E5A00D' }),
-  STAND_DOWN_COLOUR: '#501313',
+// `MapLabels` needs a real Leaflet pane to place a chip (its own test's job). What THIS file reads is
+// the `spots` array `MapView` hands it: one spot per place drawn on the map.
+const labelSpotsSeen = { last: null };
+vi.mock('../components/map/MapLabels.jsx', () => ({
+  default: ({ spots }) => {
+    labelSpotsSeen.last = spots;
+    return <div data-testid="map-labels-stub" />;
+  },
 }));
 
 import MapView from '../components/MapView.jsx';
@@ -109,10 +110,26 @@ const ALERT = { level: 'MODERATE', active: true, currentNightDate: THE_NIGHT };
 const ALL_CLEAR = { level: 'QUIET', active: false, currentNightDate: THE_NIGHT };
 
 const LOCATIONS = [
-  { name: 'Kielder', lat: 55.23, lon: -2.58, forecastsByDate: new Map(), locationType: ['LANDSCAPE'] },
-  { name: 'Cheviot', lat: 55.48, lon: -2.15, forecastsByDate: new Map(), locationType: ['LANDSCAPE'] },
-  { name: 'Hexham', lat: 54.97, lon: -2.10, forecastsByDate: new Map(), locationType: ['LANDSCAPE'] },
+  { id: 1, name: 'Kielder', lat: 55.23, lon: -2.58, regionName: 'Northumberland', forecastsByDate: new Map(), locationType: ['LANDSCAPE'] },
+  { id: 2, name: 'Cheviot', lat: 55.48, lon: -2.15, regionName: 'Northumberland', forecastsByDate: new Map(), locationType: ['LANDSCAPE'] },
+  { id: 3, name: 'Hexham', lat: 54.97, lon: -2.10, regionName: 'Northumberland', forecastsByDate: new Map(), locationType: ['LANDSCAPE'] },
 ];
+
+/** A roster join, so the heat field is offered and `MapLabels` (the drawn places) is mounted. */
+const HEAT_SPOTS = LOCATIONS.map((l) => ({ id: l.id, name: l.name, lat: l.lat, lng: l.lon, rid: l.regionName }));
+const HEAT = {
+  enabled: true,
+  hasHome: false,
+  spots: HEAT_SPOTS,
+  areaSpots: HEAT_SPOTS,
+  pointsByKey: new Map(),
+  windows: [],
+  areaBounds: [[54.3, -3.4], [55.7, -1.3]],
+  catalogueBounds: [[54.3, -3.4], [56.4, -1.3]],
+};
+
+/** How many places the map is drawing right now. */
+const drawn = () => (labelSpotsSeen.last ?? []).length;
 
 const live = (name, stars, summary) => {
   const { lat, lon } = LOCATIONS.find((l) => l.name === name);
@@ -122,7 +139,7 @@ const live = (name, stars, summary) => {
 const EARLIER = [live('Kielder', 4, 'Clear to the north')];
 /**
  * A later one: both places clear the floor, and the best has moved. So the two answers differ in
- * the marker COUNT (1 against 2) and in the name on the best card — neither of which a cache hides.
+ * the drawn-place COUNT (1 against 2) and in the name on the best card — neither of which a cache hides.
  */
 const LATER = [live('Kielder', 4, 'Clear to the north'), live('Cheviot', 5, 'Arc overhead')];
 
@@ -155,7 +172,7 @@ async function land(settle) {
 }
 
 const map = () => (
-  <MapView locations={LOCATIONS} date={THE_NIGHT} autoEventType="AURORA" />
+  <MapView locations={LOCATIONS} date={THE_NIGHT} autoEventType="AURORA" heat={HEAT} />
 );
 
 /**
@@ -177,6 +194,7 @@ async function refocus() {
 
 beforeEach(() => {
   localStorage.clear();
+  labelSpotsSeen.last = null;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(SMALL_HOURS));
   serverStatus = ALERT;
@@ -200,7 +218,7 @@ afterEach(() => {
 describe('the live aurora scores answer for the latest alert state', () => {
   it('drops a late response once the alert has ended — it wrote the ended alert\'s stars back', async () => {
     // Tonight also has a stored run, rating a third place. That keeps aurora mode on after the alert
-    // ends — as a stored run does in production — and its one marker is the control that every
+    // ends — as a stored run does in production — and its one drawn place is the control that every
     // "nothing live is drawn" below is aurora mode drawing nothing live, not a tab that bounced to
     // Sunset and would draw nothing either way.
     getAuroraForecastAvailableDates.mockResolvedValue([THE_NIGHT]);
@@ -214,7 +232,7 @@ describe('the live aurora scores answer for the latest alert state', () => {
 
     await openMap();
     // Control: tonight's live answer is drawn — both its places beside the stored one — and named.
-    expect(await screen.findAllByTestId('marker')).toHaveLength(3);
+    await waitFor(() => expect(drawn()).toBe(3));
     expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Cheviot');
 
     // The same alert, re-polled: this is the request that will still be out when the alert ends.
@@ -225,7 +243,7 @@ describe('the live aurora scores answer for the latest alert state', () => {
     await refocus();
     // The alert is over: no new request, and the live answer is cleared — the stored place alone.
     expect(getAuroraLocations).toHaveBeenCalledTimes(2);
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawn()).toBe(1);
     expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
 
     // Now the ended alert's request lands.
@@ -233,7 +251,7 @@ describe('the live aurora scores answer for the latest alert state', () => {
 
     // Still the stored place alone. Broken, the ended alert's stars were written back after the
     // clear: both live places drawn again and the card naming Cheviot, until the next poll or focus.
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawn()).toBe(1);
     expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
   });
 
@@ -253,14 +271,14 @@ describe('the live aurora scores answer for the latest alert state', () => {
 
     await land(() => newer.resolve(LATER));
     // Control: the newer answer is drawn — two places, Cheviot the best.
-    expect(screen.queryAllByTestId('marker')).toHaveLength(2);
+    expect(drawn()).toBe(2);
     expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Cheviot');
 
     await land(() => older.resolve(EARLIER));
 
     // Still the newer answer. Broken, the older one replaced it: one place, and the card naming
     // Kielder, until the next poll or focus.
-    expect(screen.queryAllByTestId('marker')).toHaveLength(2);
+    expect(drawn()).toBe(2);
     expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Cheviot');
   });
 
@@ -275,18 +293,18 @@ describe('the live aurora scores answer for the latest alert state', () => {
       .mockReturnValueOnce(refresh.promise);
 
     await openMap();
-    expect(await screen.findAllByTestId('marker')).toHaveLength(1);
+    await waitFor(() => expect(drawn()).toBe(1));
 
     await refocus();
     // The refresh really is out...
     expect(getAuroraLocations).toHaveBeenCalledTimes(2);
     // ...and the alert's last answer is still drawn for the round trip. Cleared, both would be gone.
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawn()).toBe(1);
     expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
 
     // And the refresh's own answer replaces it when it lands — the request is live, not dropped.
     await land(() => refresh.resolve(LATER));
-    expect(screen.queryAllByTestId('marker')).toHaveLength(2);
+    expect(drawn()).toBe(2);
     expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Cheviot');
   });
 
@@ -300,13 +318,13 @@ describe('the live aurora scores answer for the latest alert state', () => {
       .mockReturnValueOnce(refresh.promise);
 
     await openMap();
-    expect(await screen.findAllByTestId('marker')).toHaveLength(1);
+    await waitFor(() => expect(drawn()).toBe(1));
 
     await refocus();
     expect(getAuroraLocations).toHaveBeenCalledTimes(2);
     await land(() => refresh.reject(new Error('503 from /api/aurora/locations')));
 
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawn()).toBe(1);
     expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
   });
 });

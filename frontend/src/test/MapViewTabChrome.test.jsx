@@ -25,7 +25,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="leaflet-map">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div>{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -59,12 +58,6 @@ vi.mock('../api/astroApi.js', () => ({
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockResolvedValue([]) }));
 
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
-vi.mock('../components/markerUtils.js', () => ({
-  buildMarkerSvg: () => '<svg></svg>',
-  buildStandDownSvg: () => '<svg></svg>',
-  markerLabelAndColour: () => ({ label: '4★', colour: '#E5A00D' }),
-  STAND_DOWN_COLOUR: '#501313',
-}));
 
 import MapView from '../components/MapView.jsx';
 

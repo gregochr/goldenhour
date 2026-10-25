@@ -48,8 +48,9 @@
  *
  * <p>The callout is the REAL component, not a probe. The `react-leaflet` mock hands it a container
  * with a `parentElement` to portal into and no `getSize`, so it never places the card: it renders
- * it off-screen, which leaves every word of it in the DOM for these assertions. With no `heat` prop
- * the canvas and label layers never mount, so nothing else needs stubbing out of the way.
+ * it off-screen, which leaves every word of it in the DOM for these assertions. A `heat` roster is
+ * handed in so the counts footer (the drawn-place count asserted here) is mounted; the label layer is
+ * stubbed out of the way.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -65,7 +66,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -107,12 +107,9 @@ vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <di
 vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div data-testid="popup-content" /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
-vi.mock('../components/markerUtils.js', () => ({
-  buildMarkerSvg: () => '<svg></svg>',
-  buildStandDownSvg: () => '<svg></svg>',
-  markerLabelAndColour: () => ({ label: '★', colour: '#E5A00D' }),
-  STAND_DOWN_COLOUR: '#501313',
-}));
+// `MapLabels` needs a real Leaflet pane to place a chip (its own test's job); the counts footer, which
+// reads the same visible set, is what this file counts. Stubbed so a heat field can be offered.
+vi.mock('../components/map/MapLabels.jsx', () => ({ default: () => <div data-testid="map-labels-stub" /> }));
 
 import MapView from '../components/MapView.jsx';
 import {
@@ -153,7 +150,7 @@ const PREVIEWED = [NIGHT_A, NIGHT_B];
 const STRIP_PREVIEWED = [NIGHT_A, NIGHT_B, NIGHT_C];
 
 /**
- * Two dark-sky places. ⚠️ Both Bortle-classed, and that is a precondition for every astro marker
+ * Two dark-sky places. ⚠️ Both Bortle-classed, and that is a precondition for every astro drawn-place
  * count here: astro mode draws only a location with a `bortleClass`, so without one nothing is
  * drawn on any night and a count would pass for nothing. Aurora draws them either way.
  */
@@ -167,13 +164,36 @@ const LOCATIONS = [
     forecastsByDate: new Map(), locationType: ['LANDSCAPE'], bortleClass: 3,
   },
 ];
+
+/** A roster join, so the heat field is offered and the counts footer is mounted. */
+const HEAT_SPOTS = LOCATIONS.map((l) => ({ id: l.id, name: l.name, lat: l.lat, lng: l.lon, rid: l.regionName }));
+const HEAT = {
+  enabled: true,
+  hasHome: false,
+  spots: HEAT_SPOTS,
+  areaSpots: HEAT_SPOTS,
+  pointsByKey: new Map(),
+  windows: [],
+  areaBounds: [[54.3, -3.4], [55.7, -1.3]],
+  catalogueBounds: [[54.3, -3.4], [56.4, -1.3]],
+};
+
+/**
+ * How many places the map is drawing: the N of the counts footer's "N of M shown". ⚠️ Not the
+ * `spots` handed to `MapLabels`, which also appends the SELECTED place (open in every test here)
+ * even when the rating floor would have dropped it — the footer counts the filtered set alone.
+ */
+const drawn = () => {
+  const match = /(\d+) of \d+ shown/.exec(screen.getByTestId('wf-map-counts-footer').textContent);
+  return match ? Number(match[1]) : NaN;
+};
 /** The place the callout is open on, in every test. */
 const SELECTED = 'Kielder';
 
-/** Night A's answer: both places, both over the default 3★ floor — two markers. */
+/** Night A's answer: both places, both over the default 3★ floor — two drawn places. */
 const A_ROWS = [{ locationName: 'Kielder', stars: 4 }, { locationName: 'Cheviot', stars: 4 }];
 /**
- * Night B's PREVIEW rows: the selected place at 5★ and the other under the floor — one marker. So
+ * Night B's PREVIEW rows: the selected place at 5★ and the other under the floor — one drawn place. So
  * the preview's rows are told apart from A's (two) and from nothing (none) by a count no icon cache
  * can hide, and from B's own later answer by the headline's star.
  */
@@ -259,6 +279,7 @@ function mapOn(night, eventType, extra) {
   return (
     <MapView
       locations={LOCATIONS}
+      heat={HEAT}
       date={night}
       autoEventType={null}
       planHandoff={{
@@ -447,7 +468,7 @@ describe.each(KINDS)('the callout and the map on an $name night the preview DOES
       nth(kind.requests, NIGHT_B, 0).resolve(previewOfB);
     });
     expect(headline()).toHaveTextContent('4★');
-    expect(screen.queryAllByTestId('marker')).toHaveLength(2);
+    expect(drawn()).toBe(2);
 
     await stepTo(result, NIGHT_B, kind.eventType, { forecastDates: PREVIEWED });
     // The preview's B request, and now B's own.
@@ -464,11 +485,11 @@ describe.each(KINDS)('the callout and the map on an $name night the preview DOES
     return result;
   }
 
-  it('draws that night\'s preview rows at once — the callout shows the star, the map the pins', async () => {
+  it('draws that night\'s preview rows at once — the callout shows the star, the map the places', async () => {
     await onPreviewedNightB(B_PREVIEW);
-    // Broken with no preview rows: "Loading…" and nothing drawn. Broken the old way: A's two pins.
+    // Broken with no preview rows: "Loading…" and nothing drawn. Broken the old way: A's two places.
     expect(headline()).toHaveTextContent('5★');
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawn()).toBe(1);
   });
 
   it('replaces the preview rows with the night\'s own answer when it lands', async () => {
@@ -477,7 +498,7 @@ describe.each(KINDS)('the callout and the map on an $name night the preview DOES
       { locationName: 'Kielder', stars: 3 }, { locationName: 'Cheviot', stars: 4 },
     ]));
     expect(headline()).toHaveTextContent('3★');
-    expect(screen.queryAllByTestId('marker')).toHaveLength(2);
+    expect(drawn()).toBe(2);
   });
 
   it('keeps drawing the preview rows when the night\'s own request FAILS — a dropped request does not blank the night', async () => {
@@ -485,7 +506,7 @@ describe.each(KINDS)('the callout and the map on an $name night the preview DOES
     await land(() => nth(kind.requests, NIGHT_B, 1).reject(new Error('night B timed out')));
     // Broken — the failure clearing the rows, as it used to — the failure line and nothing drawn.
     expect(headline()).toHaveTextContent('5★');
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawn()).toBe(1);
   });
 
   it('does not take a preview row as an answer — a place it does not rate reads "Loading…" until the night answers', async () => {
@@ -499,11 +520,11 @@ describe.each(KINDS)('the callout and the map on an $name night the preview DOES
   });
 
   it('says a place the preview does not rate could not load, once the night\'s own request fails', async () => {
-    // Review T3. The preview's rows are drawn — Cheviot's pin — and say nothing of Kielder; the
+    // Review T3. The preview's rows are drawn — Cheviot — and say nothing of Kielder; the
     // night's own request, the one source that could, has failed. Broken — the drawn rows hiding
     // the failure — "Loading…" through the outage for every place the preview leaves out.
     await onPreviewedNightB([{ locationName: 'Cheviot', stars: 4 }]);
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawn()).toBe(1);
     expect(headline()).toHaveTextContent('Loading…');
     await land(() => nth(kind.requests, NIGHT_B, 1).reject(new Error('night B timed out')));
     expect(headline()).toHaveTextContent(RETRYING);
@@ -522,14 +543,14 @@ describe.each(KINDS)('the callout and the map on an $name night the preview DOES
   it('fills the night in when its preview lands after the step', async () => {
     await onNightBWithThePreviewInFlight();
     expect(headline()).toHaveTextContent('Loading…');
-    expect(screen.queryAllByTestId('marker')).toHaveLength(0);
+    expect(drawn()).toBe(0);
 
     await land(() => {
       nth(kind.requests, NIGHT_A, 1).resolve(A_ROWS);
       nth(kind.requests, NIGHT_B, 0).resolve(B_PREVIEW);
     });
     expect(headline()).toHaveTextContent('5★');
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawn()).toBe(1);
   });
 
   it('fills the night in from a preview that lands after the night\'s own request FAILED', async () => {
@@ -543,7 +564,7 @@ describe.each(KINDS)('the callout and the map on an $name night the preview DOES
       nth(kind.requests, NIGHT_B, 0).resolve(B_PREVIEW);
     });
     expect(headline()).toHaveTextContent('5★');
-    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(drawn()).toBe(1);
   });
 
   it('never re-requests the night on screen when the preview lands — the preview is not the fetch\'s dependency', async () => {
@@ -995,14 +1016,15 @@ describe.each(KINDS)('a failed $name night request is asked again', (kind) => {
     // the callout was mounted by that pick already holding the sentence, and a live region announces
     // changes, not what it is mounted with. The tab owns the region, so it is the same node before
     // and after the pick, and the pick is the change it announces.
-    const result = await renderOn(NIGHT_A, kind.eventType, { handoffLocationName: null });
+    // `heat: undefined` — this premise is "no field on screen", which a roster join would change.
+    const result = await renderOn(NIGHT_A, kind.eventType, { handoffLocationName: null, heat: undefined });
     expect(screen.queryByTestId('map-callout')).toBeNull();
     const region = screen.getByTestId('map-status');
     await land(() => nth(kind.requests, NIGHT_A, 0).reject(new Error('night A timed out')));
     // Nothing on screen says it yet — no callout, and this harness paints no field — so nor does it.
     expect(region.textContent).toBe('');
 
-    await stepTo(result, NIGHT_A, kind.eventType, { handoffLocationName: SELECTED, handoffNonce: 2 });
+    await stepTo(result, NIGHT_A, kind.eventType, { handoffLocationName: SELECTED, handoffNonce: 2, heat: undefined });
     expect(headline()).toHaveTextContent(RETRYING);
     expect(screen.getByTestId('map-status')).toBe(region);
     expect(region).toHaveTextContent(RETRYING);

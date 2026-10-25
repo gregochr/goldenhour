@@ -21,10 +21,6 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  // A testid on the mock itself (map-tab-v2-plan.md §3 P9) — one rendered per VISIBLE location
-  // regardless of `Popup`, which the tab no longer mounts for markers at all. `visibleCount` below
-  // counts this rather than `popup-content`, which the tab can no longer produce.
-  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -66,13 +62,9 @@ vi.mock('../components/MarkerPopupContent.jsx', () => ({
 vi.mock('../components/InfoTip.jsx', () => ({
   default: () => null,
 }));
-vi.mock('./markerUtils.js', () => ({}), { spy: false });
-vi.mock('../components/markerUtils.js', () => ({
-  buildMarkerSvg: () => '<svg></svg>',
-  buildStandDownSvg: () => '<svg></svg>',
-  markerLabelAndColour: () => ({ label: '4★', colour: '#E5A00D' }),
-  STAND_DOWN_COLOUR: '#501313',
-}));
+// `MapLabels` needs a real Leaflet pane to place a chip (its own test's job); the counts footer, which
+// reads the same filtered set, is what this file counts. Stubbed so a heat field can be offered.
+vi.mock('../components/map/MapLabels.jsx', () => ({ default: () => <div data-testid="map-labels-stub" /> }));
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
@@ -111,6 +103,29 @@ function makeLocations(ratings = [4, 3, 2]) {
   }));
 }
 
+/** A roster join over the rendered locations, so the heat field is offered and the counts footer mounts. */
+function heatFor(locations) {
+  const spots = locations.map((l) => ({ id: l.id, name: l.name, lat: l.lat, lng: l.lon, rid: l.regionName ?? 'North East' }));
+  return {
+    enabled: true,
+    hasHome: false,
+    spots,
+    areaSpots: spots,
+    pointsByKey: new Map(),
+    windows: [],
+    areaBounds: [[54.3, -3.4], [55.7, -1.3]],
+    catalogueBounds: [[54.3, -3.4], [56.4, -1.3]],
+  };
+}
+
+/**
+ * How many locations the map draws: the N of the counts footer's "N of M shown" (the filtered set).
+ */
+function visibleCount() {
+  const match = /(\d+) of \d+ shown/.exec(screen.getByTestId('wf-map-counts-footer').textContent);
+  return match ? Number(match[1]) : NaN;
+}
+
 /**
  * Renders the Map tab and — unless {@code openFilters: false} is passed — opens the filters
  * popover immediately (map-tab-v2-plan.md §3 P7 moved every control this file exercises off the
@@ -128,7 +143,7 @@ function renderMap({ openFilters = true, ...overrides } = {}) {
     autoEventType: null,
     ...overrides,
   };
-  const result = render(<MapView {...props} />);
+  const result = render(<MapView {...props} heat={props.heat ?? heatFor(props.locations)} />);
   if (openFilters) fireEvent.click(screen.getByTestId('wf-filters-chip'));
   return result;
 }
@@ -523,13 +538,13 @@ function getDot(pill) {
   return pill.querySelector('span[aria-hidden="true"]');
 }
 
-describe('MapView rating pill coloured dots — exact medallion colours', () => {
+describe('MapView rating pill coloured dots — exact ramp colours', () => {
   beforeEach(() => {
     mockRole = 'ADMIN';
     localStorage.clear();
   });
 
-  it.each([1, 2, 3, 4, 5])('star pill %s has exact medallion dot colour', (star) => {
+  it.each([1, 2, 3, 4, 5])('star pill %s has exact ramp dot colour', (star) => {
     renderMap();
     const dot = getDot(screen.getByTestId(`star-filter-${star}`));
     expect(dot).not.toBeNull();
@@ -609,11 +624,9 @@ describe('MapView admin-gated ? unknown pill', () => {
   });
 });
 
-// ── Filter behaviour: count rendered markers to verify hide/show semantics ──
-// The `Marker` mock above emits one <div data-testid="marker" /> per rendered Marker (map-tab-v2-
-// plan.md §3 P9 — the tab no longer mounts a `Popup` for markers at all, so `popup-content`, this
-// count's earlier proxy, can no longer answer "how many locations rendered" here), so counting
-// markers = counting visible locations.
+// ── Filter behaviour: count the footer's N to verify hide/show semantics ──
+// `renderMap` offers a heat roster over the rendered locations, so the counts footer is mounted and
+// its N ("N of M shown") counts the visible locations.
 
 function makeUnratedLocation(name = 'Unknown') {
   return {
@@ -624,10 +637,6 @@ function makeUnratedLocation(name = 'Unknown') {
     }]]),
     locationType: ['LANDSCAPE'],
   };
-}
-
-function visibleCount() {
-  return screen.queryAllByTestId('marker').length;
 }
 
 describe('MapView filter behaviour — stand-down hide/show', () => {

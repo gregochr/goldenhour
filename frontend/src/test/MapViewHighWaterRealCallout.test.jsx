@@ -24,7 +24,6 @@ let currentMap = null;
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="mock-leaflet">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div>{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   Pane: ({ children }) => <div>{children}</div>,

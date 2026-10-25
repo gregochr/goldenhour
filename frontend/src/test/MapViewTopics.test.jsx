@@ -30,7 +30,6 @@ const VIEWPORT = { pad: () => ({ contains: () => true }) };
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="mock-leaflet">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div>{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   Pane: ({ name, children }) => <div data-testid="ring-pane" data-name={name}>{children}</div>,

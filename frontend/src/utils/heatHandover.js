@@ -22,16 +22,15 @@ function clamp(v, a, b) {
 /**
  * The handover band (D8): the zoom range across which the field gives way to the named locations.
  * Below {@link FADE_FROM} the question is WHERE — a county at a time, which is what a blended field
- * answers and what a wall of medallions cannot. Above {@link FADE_TO} the question has become
+ * answers and what a wall of markers cannot. Above {@link FADE_TO} the question has become
  * WHICH, and a smear cannot answer which. The field does not vanish at the top: it settles to
  * {@link HEAT_FLOOR}, a faint wash, because the regional answer is still true at street level and
  * removing it entirely would make the two views feel like different maps.
  *
  * <p>⚠️ What it hands over TO is `MapLabels`' chips, which Heat mode draws at every zoom — never
- * the pre-v2 medallions. {@link fadeAt}'s {@code markers} half once faded those back in across this
- * band, so zooming past {@link FADE_TO} resurrected the exact vocabulary the tab replaced, doubled
- * under the chips naming the same locations. It is now the Legend indicator's progress fraction and
- * nothing paints at it; see `MapHeatLayer`'s {@code hidesMarkers}.
+ * the pre-v2 location markers (since deleted). {@link fadeAt}'s {@code markers} half once faded those
+ * back in across this band. It is now the Legend indicator's progress fraction and nothing paints at
+ * it.
  *
  * <p>Re-tuned at map-tab-v2-plan.md §3 P4 — {@code 10.4 → 12.0} and floor {@code 0.12}, from
  * {@code 10.6 → 12.2}/{@code 0.17} — co-tuned in the same commit as the radius re-tune and the land

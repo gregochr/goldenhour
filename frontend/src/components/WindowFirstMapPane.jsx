@@ -9,7 +9,7 @@ import { buildMapAskContext } from '../utils/askMapContext.js';
 // From `heatGeometry`, NOT `heatField` — this is the whole reason that module exists. `heatField`
 // statically imports `d3-geo`, and this pane is not behind the same `lazy()` boundary the layer is,
 // so importing a bounding-box helper from there fetched a 24 KB projection chunk the moment the Map
-// tab opened, in medallion view, for arithmetic that is four `Math.min` calls.
+// tab opened, before any field existed, for arithmetic that is four `Math.min` calls.
 import { latLngBounds } from '../utils/heatGeometry.js';
 import { scopeSpots } from '../utils/planOrigin.js';
 import { beyondRegions } from '../utils/planningArea.js';
