@@ -18,6 +18,16 @@ function openStream({ status = 200, contentType = 'text/event-stream; charset=ut
   });
   return {
     response,
+    // Browsers error the body with an AbortError when the request's signal aborts.
+    attach: (signal) => {
+      signal.addEventListener('abort', () => {
+        try {
+          controller.error(new DOMException('aborted', 'AbortError'));
+        } catch {
+          // already closed
+        }
+      });
+    },
     push: (chunk) => controller.enqueue(typeof chunk === 'string' ? encoder.encode(chunk) : chunk),
     end: () => controller.close(),
     fail: (error) => controller.error(error),
@@ -64,7 +74,10 @@ describe('createEventSource', () => {
     scripted = [];
     fetchMock = vi.fn((requestUrl, requestInit) => {
       const next = scripted.shift();
-      if (next) return Promise.resolve(next.response);
+      if (next) {
+        next.attach?.(requestInit.signal);
+        return Promise.resolve(next.response);
+      }
       // Unscripted: a connection that never answers, until aborted.
       return new Promise((resolve, reject) => {
         requestInit.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
@@ -346,6 +359,33 @@ describe('createEventSource', () => {
       expect(handler).toHaveBeenCalledExactlyOnceWith({ name: 'Whitley Bay ☀️ café' });
     });
 
+    it('keeps reading after a handler throws a non-parse error', async () => {
+      const later = vi.fn();
+      const stream = openStream();
+      respondWith(stream);
+      createEventSource('/api/test', {}, {
+        boom: () => {
+          throw new Error('handler bug');
+        },
+        later,
+      });
+      await settle();
+      stream.push('event: boom\ndata: {}\n\nevent: later\ndata: {"n":1}\n\n');
+      await settle();
+      expect(later).toHaveBeenCalledExactlyOnceWith({ n: 1 });
+    });
+
+    it('strips a leading byte order mark so the first field still parses', async () => {
+      const handler = vi.fn();
+      const stream = openStream();
+      respondWith(stream);
+      createEventSource('/api/test', {}, { update: handler });
+      await settle();
+      stream.push('\uFEFFevent: update\ndata: {"a":1}\n\n');
+      await settle();
+      expect(handler).toHaveBeenCalledExactlyOnceWith({ a: 1 });
+    });
+
     it('discards an incomplete final event when the stream ends, then reports the end', async () => {
       const handler = vi.fn();
       const onError = vi.fn();
@@ -378,6 +418,24 @@ describe('createEventSource', () => {
       expect(fetchMock).toHaveBeenCalledOnce();
       expect(onError).not.toHaveBeenCalled();
       expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('still closes, without reconnecting, when the closeOn handler throws', async () => {
+      const onError = vi.fn();
+      const stream = openStream();
+      respondWith(stream);
+      createEventSource('/api/test', {}, {
+        done: () => {
+          throw new Error('handler bug');
+        },
+      }, { closeOn: 'done', onError });
+      await settle();
+      stream.push('event: done\ndata: {}\n\n');
+      await settle();
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(init().signal.aborted).toBe(true);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(onError).not.toHaveBeenCalled();
     });
 
     it('closes on any of several closeOn events, and only those', async () => {
@@ -441,16 +499,28 @@ describe('createEventSource', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
-    it('stops without reconnecting on a 204', async () => {
+    it('treats a 204 as a failure and retries, as the wrapper always did', async () => {
+      const onError = vi.fn();
       respondWith({ response: new Response(null, { status: 204 }) });
-      createEventSource('/api/test', {}, {}, { reconnectOnVisible: true });
+      createEventSource('/api/test', {}, {}, { onError });
       await settle();
 
-      await vi.advanceTimersByTimeAsync(20000);
-      document.dispatchEvent(new Event('visibilitychange'));
+      expect(onError).toHaveBeenCalledExactlyOnceWith({ status: 204 });
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('still retries when onError throws', async () => {
+      const onError = vi.fn(() => {
+        throw new Error('handler bug');
+      });
+      respondWith(failure(500));
+      createEventSource('/api/test', {}, {}, { onError });
       await settle();
-      expect(fetchMock).toHaveBeenCalledOnce();
-      expect(vi.getTimerCount()).toBe(0);
+
+      expect(onError).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
     it('reports the end of the body and retries after 5 s', async () => {
@@ -577,24 +647,41 @@ describe('createEventSource', () => {
       expect(onError).toHaveBeenCalledOnce();
     });
 
-    it('does not dispatch or report an error from an aborted stream whose body then fails', async () => {
+    it('does not dispatch, report an error or retry when an aborted stream\'s body errors with AbortError', async () => {
       const handler = vi.fn();
       const onError = vi.fn();
       const first = openStream();
       respondWith(first);
       const cleanup = createEventSource('/api/test', {}, { update: handler }, { onError });
       await settle();
+      // An event that is half-received when the connection is closed.
       first.push('event: update\ndata: {"a":1}\n');
       await settle();
-      cleanup();
-      try {
-        first.push('\n');
-      } catch {
-        // The body is cancelled by the abort; enqueueing on it may throw, which is the point.
-      }
-      await settle();
+      cleanup(); // aborts: the mock errors the body with an AbortError, as a browser does
+      await vi.advanceTimersByTimeAsync(10000);
       expect(handler).not.toHaveBeenCalled();
       expect(onError).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it('a handler that calls cleanup mid-chunk stops dispatch, error and retry', async () => {
+      const second = vi.fn();
+      const onError = vi.fn();
+      const stream = openStream();
+      respondWith(stream);
+      let cleanup;
+      cleanup = createEventSource('/api/test', {}, {
+        first: () => cleanup(),
+        second,
+      }, { onError });
+      await settle();
+      stream.push('event: first\ndata: {}\n\nevent: second\ndata: {}\n\n');
+      await settle();
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(second).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledOnce();
     });
   });
 

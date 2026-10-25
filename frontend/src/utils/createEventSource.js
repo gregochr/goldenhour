@@ -8,7 +8,6 @@ const OPEN = 1;
 const CLOSED = 2;
 
 const RECONNECT_DELAY = 5000;
-const NO_CONTENT = 204;
 const EVENT_STREAM = 'text/event-stream';
 
 /**
@@ -42,6 +41,7 @@ export default function createEventSource(path, params = {}, eventHandlers = {},
   let closed = false;
   let state = CLOSED;
   let controller = null;
+  let reader = null;
   let generation = 0;
   let retryTimer = null;
 
@@ -55,6 +55,8 @@ export default function createEventSource(path, params = {}, eventHandlers = {},
 
   function closeConnection() {
     if (controller) controller.abort();
+    reader?.cancel().catch(() => {});
+    reader = null;
   }
 
   // A failure nobody asked for: report it and retry. A superseded or deliberately closed
@@ -62,8 +64,13 @@ export default function createEventSource(path, params = {}, eventHandlers = {},
   function fail(myGeneration, status) {
     if (closed || myGeneration !== generation) return;
     state = CLOSED;
-    options.onError?.(status === undefined ? undefined : { status });
+    // The retry is armed first so an onError that throws cannot stop it.
     scheduleReconnect(RECONNECT_DELAY);
+    try {
+      options.onError?.(status === undefined ? undefined : { status });
+    } catch {
+      // a throwing error handler must not kill the stream
+    }
   }
 
   function dispatch(myGeneration, parser) {
@@ -134,27 +141,22 @@ export default function createEventSource(path, params = {}, eventHandlers = {},
     }
     if (closed || myGeneration !== generation) return;
 
-    if (response.status === NO_CONTENT) {
-      // Native behaviour: the server says there is nothing to stream, so stop for good.
-      closed = true;
-      state = CLOSED;
-      options.onError?.({ status: NO_CONTENT });
-      return;
-    }
     const contentType = response.headers?.get('content-type') ?? '';
     if (!response.ok || !contentType.toLowerCase().startsWith(EVENT_STREAM) || !response.body) {
+      response.body?.cancel().catch(() => {});
       fail(myGeneration, response.status);
       return;
     }
 
     state = OPEN;
-    const reader = response.body.getReader();
+    reader = response.body.getReader();
+    const myReader = reader;
     const decoder = new TextDecoder('utf-8');
     const parser = { partial: '', skipLF: false, event: '', data: '' };
     for (;;) {
       let result;
       try {
-        result = await reader.read();
+        result = await myReader.read();
       } catch {
         fail(myGeneration, response.status);
         return;
