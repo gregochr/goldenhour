@@ -79,8 +79,8 @@ export function useHealthStatus(enabled = true) {
         onError: () => {
           // Debounce: don't flash DOWN on a transient drop that reconnects quickly.
           if (downTimer) return;
-          // EventSource cannot see a 401, so an expired access token looks exactly like an
-          // outage. One authenticated request routes through the axios 401 interceptor: it
+          // The stream's own 401 never reaches the axios interceptor, so an expired access token
+          // looks exactly like an outage. One authenticated request routes through that interceptor: it
           // refreshes the token (re-keying this effect and reconnecting the stream) or
           // expires the session. Fire-and-forget; DOWN semantics are unchanged.
           if (!probed) {

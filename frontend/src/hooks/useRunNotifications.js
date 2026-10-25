@@ -17,7 +17,7 @@ export function useRunNotifications(enabled) {
 
     const cleanup = subscribeToRunNotifications(
       (data) => setLastCompletedRun(data),
-      () => {} // silently handle errors — EventSource will auto-reconnect
+      () => {} // silently handle errors — createEventSource retries every 5 s
     );
 
     return cleanup;

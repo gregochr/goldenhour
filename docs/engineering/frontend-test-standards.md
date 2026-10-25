@@ -327,7 +327,7 @@ gets lost.
 - Do not let a real timer armed by the code under test outlive the test's `afterEach`. It fires
   after the hook has put back whatever its callback reaches for. `createEventSource.test.js` drove a
   reconnect branch on real timers, which arms a 5 s retry, and its hook restored `EventSource` to
-  jsdom's (there is none). Whenever the worker lived five more seconds, the retry threw from its
+  jsdom's (there is none; the file now mocks `fetch`, since the stream no longer uses `EventSource`). Whenever the worker lived five more seconds, the retry threw from its
   timer. That is an unhandled error, so the run exits 1 with every test passing, attributed only to
   the last test that ran; the rest of that file takes milliseconds, so it was only ever seen under
   load. Release what a test opens in `afterEach`, through the handle the code gives for it, so a
@@ -339,6 +339,14 @@ gets lost.
   reproduce without load, append a top-level test to a scratch copy that awaits past the timer, and
   the unhandled error arrives on every run. Never commit that probe: it is the sleep the rule above
   forbids.
+- Do not let a test reach the real `fetch`. `createEventSource` streams with `fetch` (the token rides
+  in an `Authorization` header, not the URL), and Node's `fetch` exists under Vitest, so `src/test/setup.js`
+  replaces `globalThis.fetch` with a function that throws `Unmocked fetch in test: <url>` (and rethrows
+  from a microtask, so the stream's catch-and-retry cannot hide it: the run fails on the unhandled
+  error). That is the net jsdom's missing `EventSource` used to be. A test that needs `fetch` installs
+  its own with `vi.stubGlobal('fetch', …)` or `vi.spyOn(globalThis, 'fetch')`; `vi.unstubAllGlobals()`
+  / `restoreAllMocks()` puts the tripwire back. Component tests still keep the SSE streams off
+  (`requestIdleCallback` held, or the module mocked) rather than relying on the net.
 - Do not depend on a mock implementation some other test installed. `vi.clearAllMocks()` clears
   calls, not implementations, so a `mockResolvedValue` is still in force in the next test and in the
   next `describe`. Re-assert every default a suite relies on in its own `beforeEach`, and give every

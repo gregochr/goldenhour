@@ -192,9 +192,9 @@ beforeEach(() => {
   subscribeToRunNotifications.mockReset().mockReturnValue(() => {});
   getTodaysLight.mockReset().mockResolvedValue(null); // 204 — no home postcode saved
   // Hold `useAfterFirstPaint` at false for the whole test: an idle callback that never fires keeps
-  // the two long-lived SSE streams (health status, run notifications) off, so no test ever reaches
-  // for an EventSource jsdom does not have. The 200ms setTimeout fallback would let a slow test
-  // open them mid-run.
+  // the two long-lived SSE streams (health status, run notifications) off, so no test ever opens a
+  // real stream. (`setup.js` makes an unmocked `fetch` throw, which is the net under this.) The
+  // 200ms setTimeout fallback would let a slow test open them mid-run.
   window.requestIdleCallback = () => 1;
   window.cancelIdleCallback = () => {};
 });
