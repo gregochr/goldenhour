@@ -149,6 +149,8 @@ const WindowFirstBriefingContext = createContext({
   scoresLocked: false,
   // Likewise UNLOCKED by default: a provider-less render keeps its picks (plan §3).
   picksLocked: false,
+  // Likewise unlocked without a provider (plan §3).
+  driveLocked: false,
   comingUpLastSeenDate: undefined,
   setComingUpLastSeenAt: () => {},
 });
@@ -271,6 +273,9 @@ export function WindowFirstBriefingProvider({
 }) {
   const { role } = useAuth();
   const briefingCacheKey = `briefing:${role || 'anon'}`;
+  // Drive times from home are Pro (docs/engineering/pro-features-gate-plan.md §9). Declared up here
+  // because the reach fetch below needs it; the same test as `isPro` further down.
+  const driveLocked = role !== 'PRO_USER' && role !== 'ADMIN';
 
   // Lazy initialiser, not a call in the render body. React evaluates a plain `useState(x)` argument
   // on EVERY render and throws it away from the second one on — and this argument is a synchronous
@@ -511,6 +516,9 @@ export function WindowFirstBriefingProvider({
    * purpose.
    */
   useEffect(() => {
+    // A locked (LITE) reader is never asked: the endpoint answers 403 for them and the map stays
+    // empty, the same state as a reader with no home postcode.
+    if (driveLocked) return undefined;
     let cancelled = false;
     getReach()
       .then((entries) => {
@@ -533,7 +541,7 @@ export function WindowFirstBriefingProvider({
         setReachById(EMPTY_REACH);
       });
     return () => { cancelled = true; };
-  }, [homeSettingsVersion, driveTimesVersion]);
+  }, [homeSettingsVersion, driveTimesVersion, driveLocked]);
 
   /**
    * The regions and the shared region-base drive-time matrix — the origin's two inputs.
@@ -595,7 +603,7 @@ export function WindowFirstBriefingProvider({
   // review findings that rules out (a localStorage write that outlives the in-memory origin, and a
   // far mark measuring against a number the bar's own reset button contradicts).
   const reachLens = useReachLens(
-    todayStr, role === 'LITE_USER', origin ? AWAY_TIER_ID : null,
+    todayStr, driveLocked, origin ? AWAY_TIER_ID : null,
   );
   const defaultLimitMinutes = reachLens.defaultTier.limitMinutes;
   // The bar's second axis, and it lives beside the first for the same reason: the cards are built
@@ -852,6 +860,7 @@ export function WindowFirstBriefingProvider({
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked,
+      ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
       // The origin and its two inputs. `effectiveReachById` is published beside `reachById` rather
       // than in place of it, because the two answer different questions and one consumer still
       // wants the home one: the planning area and the beyond line are statements about HOME, and
@@ -865,6 +874,7 @@ export function WindowFirstBriefingProvider({
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked,
+      ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
       origin, setOrigin, regions, effectiveReachById,
       comingUpLastSeenDate, setComingUpLastSeenAt],
   );
@@ -917,6 +927,7 @@ WindowFirstBriefingProvider.propTypes = {
  *           todayStr: string,
  *           tomorrowStr: string, isPro: boolean, tideLocked: boolean, scoresLocked: boolean,
  *           picksLocked: boolean,
+ *           driveLocked: boolean,
  *           comingUpLastSeenDate: (string|null|undefined), setComingUpLastSeenAt: function}}
  */
 export function useWindowFirstBriefing() {

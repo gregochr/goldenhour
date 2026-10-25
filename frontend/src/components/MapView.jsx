@@ -1156,7 +1156,7 @@ CentreOnHomeControl.propTypes = {
  *       draws as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1292,6 +1292,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return readMapFilter('mapFilterShowStandDown') === '1';
   });
   const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
+  // Filtering by drive time is Pro at every origin (docs/engineering/pro-features-gate-plan.md §9).
+  // The value is forced to Any where it is APPLIED, not at the setters (a click, the Plan handoff's
+  // limit, the reset and the breadcrumb all set it), so a locked reader can never narrow the map by it;
+  // the count badge, the popover and the breadcrumb read this effective value too.
+  const effectiveDriveTimeFilter = driveLocked ? 0 : driveTimeFilter;
   /**
    * How far a location is, from wherever the caller is planning from.
    *
@@ -3213,11 +3218,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       return rating >= minStars;
     });
 
-    const driveFiltered = driveTimeFilter === 0
+    const driveFiltered = effectiveDriveTimeFilter === 0
       ? ratingFiltered
       : ratingFiltered.filter((loc) => {
           const mins = driveMinutesFor(loc.id);
-          return mins != null && mins <= driveTimeFilter;
+          return mins != null && mins <= effectiveDriveTimeFilter;
         });
 
     // Dark sky filter: show only locations with Bortle class 4 or darker.
@@ -3234,7 +3239,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return focusLensNames ? pool.filter((loc) => focusLensNames.has(loc.name)) : pool;
   }, [
     typeFiltered, isStandDownLocation, getRatingForLocation, getTideOnLightForLocation,
-    showStandDown, showUnrated, minStars, driveTimeFilter, driveMinutesFor,
+    showStandDown, showUnrated, minStars, effectiveDriveTimeFilter, driveMinutesFor,
     darkSkyFilter, isAstroMode, focusLensNames,
   ]);
 
@@ -4809,7 +4814,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // treat them.
   const filterActiveCount = (minStars !== DEFAULT_MIN_STARS ? 1 : 0)
     + activeTypeFilters.size
-    + (driveTimeFilter > 0 ? 1 : 0)
+    + (effectiveDriveTimeFilter > 0 ? 1 : 0)
     + (darkSkyFilter ? 1 : 0);
 
   /**
@@ -5910,7 +5915,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     subjectChips: MAP_FILTER_CHIPS,
     seasonalFeatures,
     role,
-    driveTimeFilter,
+    driveTimeFilter: effectiveDriveTimeFilter,
+    driveLocked,
     onSelectDriveTime: setDriveTimeFilter,
     darkSkyFilter,
     onToggleDarkSky: toggleDarkSky,
@@ -6202,7 +6208,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           activeRow={activeMapEvent}
           origin={origin}
           minStars={minStars}
-          driveTimeFilter={driveTimeFilter}
+          driveTimeFilter={effectiveDriveTimeFilter}
           regionInForce={jumpFitOverride?.regionName ?? null}
           onBack={() => onReturnToPlan?.(planDoor.from ?? 'plan')}
           onClearRating={() => {
@@ -7533,6 +7539,7 @@ MapView.propTypes = {
   askOffered: PropTypes.bool,
   /** The Map's tide curve and per-location tide match are Pro (tide-pro-gate-plan.md): true for LITE. */
   tideLocked: PropTypes.bool,
+  driveLocked: PropTypes.bool,
   askPhase: PropTypes.oneOf(['empty', 'busy', 'answer', 'plan', 'cant', 'error']),
   panelShown: PropTypes.bool,
   /**

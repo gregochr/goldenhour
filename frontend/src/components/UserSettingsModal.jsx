@@ -888,7 +888,7 @@ export default function UserSettingsModal({
               {!hasHome && (
                 <p className="text-xs text-plex-text-muted mt-1">Set a home location first.</p>
               )}
-              {settings.driveTimesCalculatedAt && (
+              {isPro && settings.driveTimesCalculatedAt && (
                 <p
                   ref={driveCalcRef}
                   tabIndex={-1}
