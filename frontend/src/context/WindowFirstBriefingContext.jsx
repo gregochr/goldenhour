@@ -861,7 +861,6 @@ export function WindowFirstBriefingProvider({
       heatPointSets, heatUnratedSets, heatStoodSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
       // The origin and its two inputs. `effectiveReachById` is published beside `reachById` rather
       // than in place of it, because the two answer different questions and one consumer still
@@ -875,7 +874,6 @@ export function WindowFirstBriefingProvider({
       heatSpotList, heatPointSets, heatUnratedSets, heatStoodSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
       origin, setOrigin, regions, effectiveReachById,
       comingUpLastSeenDate, setComingUpLastSeenAt],
