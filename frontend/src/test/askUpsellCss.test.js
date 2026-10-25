@@ -34,6 +34,7 @@ describe('the Ask upsell shares the tide upsell\'s look through selector lists',
     ['.wf-tide-upsell-dismiss', '.wf-ask-upsell-dismiss'],
     ['.wf-tide-upsell-dismiss:hover', '.wf-ask-upsell-dismiss:hover'],
     ['.wf-tide-upsell-dismiss:focus-visible', '.wf-ask-upsell-dismiss:focus-visible'],
+    ['.wf-tide-upsell-inline', '.wf-ask-upsell-inline'],
   ])('%s and %s are one rule', (tide, askClass) => {
     const rule = ALL.find((r) => r.selectors.includes(tide) && r.selectors.includes(askClass));
     expect(rule, `${tide} + ${askClass}`).toBeDefined();

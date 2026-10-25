@@ -6,6 +6,7 @@ import { useAsk } from '../../context/AskContext.jsx';
 import { SETTLED_PHASES } from '../../utils/askModel.js';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { NEW_CONVERSATION_HINT, NEW_CONVERSATION_LABEL } from '../ask/AskClearAnswer.jsx';
+import { AskUpsellContent } from '../ask/AskUpsell.jsx';
 import AskConversation from '../ask/AskConversation.jsx';
 import AskInputRow from '../ask/AskInputRow.jsx';
 import { objectRefShape, planActionsShape } from '../ask/askShapes.js';
@@ -62,6 +63,14 @@ const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
  * <p>The field is mounted only while the section is open, so a typed draft does not outlive it — the
  * sheet's and the dock's rule too.
  *
+ * <h2>Locked (a LITE reader): the section is the upsell</h2>
+ * <p>The entry is a live button like PRO's, with the "Pro" pill inside it, and pressing it opens the same
+ * section ({@code 'peek:ask'}); {@code MapPeekAsk} then draws {@code AskUpsellContent} inline, as the phone
+ * Tide section does, in place of the field and the conversation (none of those mounts, so no
+ * {@code /api/ask*} request can be made) and a {@code Not now} that closes it. There is no ✕. Focus goes
+ * to the heading on open, and every close parks it on the pane's node so it ends on the entry button.
+ * (`docs/engineering/ask-upsell-plan.md` §4.4.)
+ *
  * @param {object} props
  * @param {'collapsed'|'expanded'|'minimised'|'section'} props.mode {@code askPeekMode}'s answer
  * @param {function(): void} props.onOpen opens the Ask section
@@ -86,6 +95,7 @@ export default function MapPeekAsk({
   const wrapRef = useRef(null);
   const hintId = useId();
   const inputRef = useRef(null);
+  const headingRef = useRef(null);
   const wasExpanded = useRef(false);
   const expanded = mode === 'expanded';
   const {
@@ -112,7 +122,10 @@ export default function MapPeekAsk({
   useEffect(() => {
     if (expanded && !wasExpanded.current) {
       const active = document.activeElement;
-      if (!active || active === document.body) {
+      if (locked) {
+        // The upsell's heading, whatever held focus: the pressed entry button is gone.
+        headingRef.current?.focus({ preventScroll: true });
+      } else if (!active || active === document.body) {
         if (phase === 'empty' && !typedDisabled) inputRef.current?.focus({ preventScroll: true });
         else park();
       }
@@ -167,17 +180,49 @@ export default function MapPeekAsk({
     onClose();
   };
 
-  // Locked (the reader is not PRO or ADMIN): the entry sits in a `wf-lens-locked` wrapper and the "Pro" pill is
-  // its sibling, outside the grey. Otherwise the bare button, exactly as it always was.
+  // ⚠️ FIRST branch: a locked reader's expanded section is the upsell, never the field or the conversation.
+  if (expanded && locked) {
+    return (
+      <div
+        ref={wrapRef}
+        tabIndex={-1}
+        className="wf-map-peek-ask"
+        data-testid="wf-map-peek-ask"
+        data-mode={mode}
+      >
+        <div className="wf-map-peek-ask-body" data-testid="wf-map-peek-ask-body">
+          <div className="wf-ask-upsell-inline" data-testid="wf-map-peek-ask-upsell-inline">
+            <AskUpsellContent
+              headingId="wf-map-peek-ask-upsell-heading"
+              headingRef={headingRef}
+              testIdPrefix="wf-map-peek-ask-upsell"
+            />
+            <button
+              type="button"
+              className="wf-ask-upsell-dismiss"
+              data-testid="wf-map-peek-ask-upsell-dismiss"
+              onClick={() => { park(); onClose(); }}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+        <span key="status" role="status" className="sr-only" data-testid="wf-map-peek-ask-status" />
+      </div>
+    );
+  }
+
+  // Locked (the reader is not PRO or ADMIN): the same live button, with the "Pro" pill inside it.
   const entryButton = (
     <button
       ref={entryRef}
       type="button"
       className="wf-map-peek-ask-entry"
       data-testid="wf-map-peek-ask-entry"
-      aria-expanded={locked ? undefined : 'false'}
-      aria-label={unseenError ? `${PEEK_ASK_PROMPT} ${unseenError}` : undefined}
-      disabled={availability === 'down' || locked}
+      aria-expanded="false"
+      // Undefined while locked: an aria-label would replace the content and drop "Pro" from the name.
+      aria-label={unseenError && !locked ? `${PEEK_ASK_PROMPT} ${unseenError}` : undefined}
+      disabled={availability === 'down'}
       onClick={onOpen}
     >
       <span className="wf-map-peek-ask-k" aria-hidden="true">Ask</span>
@@ -188,18 +233,10 @@ export default function MapPeekAsk({
       >
         {unseenError ?? PEEK_ASK_PROMPT}
       </span>
+      {locked && <span className="wf-lens-pro" data-testid="wf-map-peek-ask-entry-pill">Pro</span>}
       <span className="wf-map-peek-ask-go" aria-hidden="true">↑</span>
     </button>
   );
-  const entryRow = locked ? (
-    <>
-      <span className="wf-map-peek-ask-lockwrap wf-lens-locked" data-testid="wf-map-peek-ask-locked">
-        {entryButton}
-      </span>
-      <span className="wf-lens-pro" data-testid="wf-map-peek-ask-upsell">Pro</span>
-    </>
-  ) : entryButton;
-
   return (
     <div
       ref={wrapRef}
@@ -227,7 +264,7 @@ export default function MapPeekAsk({
             {settled && <span id={hintId} className="sr-only">{NEW_CONVERSATION_HINT}</span>}
           </>
         ) : (
-          entryRow
+          entryButton
         )}
       </div>
       {expanded && (
@@ -253,8 +290,9 @@ export default function MapPeekAsk({
       )}
       {/* The refusal's sentence, said once: while the section is open the conversation's own region
           carries it (and a sentence it showed is not said again here), so this one holds only a refusal
-          that arrived while the section was closed. Mounted empty and always, so a fill is a change. */}
-      <span role="status" className="sr-only" data-testid="wf-map-peek-ask-status">
+          that arrived while the section was closed. Mounted empty and always, so a fill is a change (keyed, so
+          the locked branch's copy is the same node and survives an open and a close). */}
+      <span key="status" role="status" className="sr-only" data-testid="wf-map-peek-ask-status">
         {unseenError ?? ''}
       </span>
     </div>

@@ -321,42 +321,116 @@ async function pressPickChip(rank) {
 // Ask is an answer's phase for these: `select` is what the provider records.
 const withPicks = { askPicks: CARDS.map((c) => ({ ...c, eventType: c.targetType })), askAnswerId: 1, onSelectAskPick: vi.fn() };
 
-describe('a reader who is not PRO or ADMIN: the locked row', () => {
-  it('draws the row locked at 126px, and pressing the disabled entry opens nothing', async () => {
-    mockAsk = { ...conversation('empty'), availability: 'locked', typedDisabled: true };
-    await act(async () => { view = render(<MapView {...props({ askLocked: true })} />); });
+const lockedAsk = (over = {}) => ({
+  ...conversation('empty'), availability: 'locked', typedDisabled: true, ...over,
+});
+const mountLocked = async (over = {}) => {
+  mockAsk = lockedAsk(over);
+  await act(async () => { view = render(<MapView {...props()} />); });
+};
 
-    const entry = screen.getByTestId('wf-map-peek-ask-entry');
-    expect(entry).toBeDisabled();
-    expect(screen.getByTestId('wf-map-peek-ask-locked').className).toContain('wf-lens-locked');
-    expect(screen.getByTestId('wf-map-peek-ask-locked').contains(screen.getByTestId('wf-map-peek-ask-upsell'))).toBe(false);
-    expect(mode()).toBe('collapsed');
-    expect(psh()).toBe('126px');
+describe('a reader who is not PRO or ADMIN: the locked row opens the upsell', () => {
+  it('draws the row at 126px with a live entry that carries the pill inside it', async () => {
+    await mountLocked();
 
-    openAsk();
-    await act(async () => {});
-
-    expect(mode()).toBe('collapsed');
-    expect(screen.queryByTestId('wf-map-peek-ask-field')).not.toBeInTheDocument();
-  });
-
-  it('⚠️ `openAskSection` itself refuses: with the entry ENABLED (a seam the lock never leaves) a press opens nothing', async () => {
-    // The context says `on`, so the entry is a live button; only `MapView`'s own `askLocked` guard stands.
-    mockAsk = conversation('empty');
-    await act(async () => { view = render(<MapView {...props({ askLocked: true })} />); });
     const entry = screen.getByTestId('wf-map-peek-ask-entry');
     expect(entry).toBeEnabled();
+    expect(entry.contains(screen.getByTestId('wf-map-peek-ask-entry-pill'))).toBe(true);
+    expect(screen.queryByTestId('wf-map-peek-ask-locked')).not.toBeInTheDocument();
+    expect(mode()).toBe('collapsed');
+    expect(psh()).toBe('126px');
+  });
+
+  it('keeps "Pro" in the entry\'s name even with an unseen refusal sentence (no aria-label)', async () => {
+    await mountLocked({ inputError: 'Ask is a Pro feature.' });
+
+    const entry = screen.getByTestId('wf-map-peek-ask-entry');
+    expect(entry).not.toHaveAttribute('aria-label');
+    expect(entry).toHaveAccessibleName(/\bPro$/);
+  });
+
+  it('pressing the entry opens the expanded section with the inline upsell and no conversation', async () => {
+    await mountLocked();
 
     openAsk();
     await act(async () => {});
 
-    expect(mode()).toBe('collapsed');
+    expect(mode()).toBe('expanded');
+    expect(cameraCalls.at(-1).inset.bottom).toBe(0);
+    expect(screen.getByTestId('wf-map-peek-ask-upsell-inline')).toBeInTheDocument();
     expect(screen.queryByTestId('wf-map-peek-ask-field')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('stub-conversation')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-ask-x')).not.toBeInTheDocument();
+    expect(buttonsShown()).toBe(false);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-upsell-heading'));
+    expect(mockAsk.askTyped).not.toHaveBeenCalled();
+    expect(mockAsk.openReady).not.toHaveBeenCalled();
   });
 
-  it('Escape in the Layers body lands focus on the Layers button, never <body>: a disabled entry cannot take it', async () => {
-    mockAsk = { ...conversation('empty'), availability: 'locked', typedDisabled: true };
-    await act(async () => { view = render(<MapView {...props({ askLocked: true })} />); });
+  it('keeps the status live region as the same DOM node across opening and closing the locked section', async () => {
+    await mountLocked();
+    const status = screen.getByTestId('wf-map-peek-ask-status');
+
+    openAsk();
+    await act(async () => {});
+    expect(screen.getByTestId('wf-map-peek-ask-status')).toBe(status);
+
+    fireEvent.click(screen.getByTestId('wf-map-peek-ask-upsell-dismiss'));
+    await act(async () => {});
+    expect(screen.getByTestId('wf-map-peek-ask-status')).toBe(status);
+  });
+
+  it('Not now closes the section back to the collapsed row with focus on the entry', async () => {
+    await mountLocked();
+    openAsk();
+    await act(async () => {});
+
+    fireEvent.click(screen.getByTestId('wf-map-peek-ask-upsell-dismiss'));
+    await act(async () => {});
+
+    expect(mode()).toBe('collapsed');
+    expect(mockAsk.clear).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+  });
+
+  it('the pane\'s Escape closes it and focus ends on the entry', async () => {
+    await mountLocked();
+    openAsk();
+    await act(async () => {});
+
+    // Fired AT the focused heading, so it bubbles through the section's own listener to the pane's.
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+    await act(async () => {});
+
+    expect(mode()).toBe('collapsed');
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+  });
+
+  it('a map touch closes it and moves no focus (no minimised-line assertion: with an empty askPhase it would prove nothing; the CLEARED effect in AskContextAvailability.test.jsx is the real guard)', async () => {
+    await mountLocked();
+    openAsk();
+    await act(async () => {});
+
+    await mapEvent('touchstart');
+
+    expect(mode()).toBe('collapsed');
+    // Nothing on a touch moves focus to the entry (only a keyboard close parks it there).
+    expect(document.activeElement).not.toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+  });
+
+  it('makes no camera move of its own: the Ask camera is given no picks and no inset', async () => {
+    await mountLocked();
+    cameraCalls.length = 0;
+    openAsk();
+    await act(async () => {});
+
+    expect(cameraCalls.length).toBeGreaterThan(0);
+    expect(cameraCalls.every((c) => c.points.length === 0 && c.answerId == null)).toBe(true);
+    expect(cameraCalls.every((c) => c.inset.bottom === 0)).toBe(true);
+  });
+
+  it('Escape in the Layers body lands focus on the (now live) entry, as for PRO, never <body>', async () => {
+    await mountLocked();
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
     const regions = screen.getByTestId('wf-map-peek-lay-regions');
     regions.focus();
@@ -365,7 +439,7 @@ describe('a reader who is not PRO or ADMIN: the locked row', () => {
 
     expect(mode()).toBe('collapsed');
     expect(document.activeElement).not.toBe(document.body);
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
   });
 });
 
