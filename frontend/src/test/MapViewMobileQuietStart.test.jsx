@@ -2,16 +2,11 @@
  * The Map tab's phone "quiet start" (map-mobile-sheet-plan.md §3 M1,
  * `docs/design/map-mobile-sheet/README.md` "Interactions" 1 and the Frame section's toast line).
  *
- * <p>Two independent claims, both phone-only and both pinned against the SAME desktop control so
- * a regression cannot hide behind "well it never ran on this fixture at all":
+ * <p>One claim, phone-only and pinned against the SAME desktop control so a regression cannot hide
+ * behind "well it never ran on this fixture at all". (The first claim, that the landing card never
+ * opens on the phone, went with the card: `map-landing-nocard-plan.md` P1.)
  *
  * <ul>
- *   <li>The landing card never opens on the phone — `MapView`'s own `landingOpen` is
- *   unconditionally `false` there (the `!isMobile` term short-circuits it), so
- *   `localStorage.mapLandingSeenRun` is never written (its only writer is `dismissLanding`, which a
- *   card that never renders can never call) and `WindowControl`'s `↺ Back to …` reopen row never
- *   appears (`landingLabel`/`onReopenLanding` are `''`/`null` on the phone, a FOURTH explicit term
- *   beyond `landingOpen` alone — see `MapView.jsx`'s own comment at the prop site).</li>
  *   <li>The "★ PhotoCast-scored locations shown" toast (the TAB's own copy, gated on
  *   `solarWindowOnScreen()` — the OVERLAY's copy is untouched and out of scope) gains
  *   `wf-map-scored-legend-gone` 3,000 ms after its `|date|eventType|` key last changed, on the
@@ -97,7 +92,7 @@ function makeLocation() {
 }
 
 /** Both of TODAY's events, so a reader can step between them without changing `date` at all —
- * `MapViewHeat.test.jsx`'s own landing-card fixture shape (two events, one day). */
+ * `MapViewHeat.test.jsx`'s own fixture shape (two events, one day). */
 function heatProp() {
   return {
     enabled: true,
@@ -149,64 +144,6 @@ afterEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
   vi.useRealTimers();
-});
-
-describe('the landing card never opens on the phone (map-mobile-sheet-plan.md §3 M1 task 1)', () => {
-  it('is present on desktop with an unseen run, absent on the phone with the IDENTICAL fixture', async () => {
-    const { unmount } = await renderMap({ runId: '2026-01-15T04:00:00' });
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-    unmount();
-
-    mockIsMobile = true;
-    await renderMap({ runId: '2026-01-15T04:00:00' });
-    expect(screen.queryByTestId('wf-land')).not.toBeInTheDocument();
-  });
-
-  it('never writes `mapLandingSeenRun` on the phone, even when Escape is pressed at the document', async () => {
-    mockIsMobile = true;
-    await renderMap({ runId: '2026-01-15T04:00:00' });
-    expect(screen.queryByTestId('wf-land')).not.toBeInTheDocument();
-
-    fireEvent.keyDown(document, { key: 'Escape' });
-
-    // ⚠️ Not merely "the key did nothing visible" — the whole point (§5 D-3) is that the STORAGE
-    // key itself is untouched, so a reader who later opens the same run on a desktop still sees
-    // the card there.
-    expect(localStorage.getItem('mapLandingSeenRun')).toBeNull();
-  });
-
-  it('never writes `mapLandingSeenRun` on the phone from the pill menu\'s drilldown row either — the one caller of `dismissLanding` the phone can still reach', async () => {
-    // A review of M1 found this route: `openDrilldown` calls `dismissLanding` unconditionally,
-    // and the drilldown row renders on every viewport. The write must not happen on the phone.
-    //
-    // ⚠️ M2 (map-mobile-sheet-plan.md §3 M2 task 4/§4 #4): the pill body opens the peek sheet's
-    // Windows section on the phone now, never the desktop dropdown — the drilldown row is
-    // `wf-map-peek-drilldown`, not `wf-win-more` (which lives in `wf-win-listbox`, unreachable on
-    // the phone since the pill no longer opens it there).
-    mockIsMobile = true;
-    await renderMap({ runId: '2026-01-15T04:00:00' });
-    expect(screen.queryByTestId('wf-land')).not.toBeInTheDocument();
-
-    await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
-    const more = screen.getByTestId('wf-map-peek-drilldown');
-    await act(async () => { fireEvent.click(more); });
-
-    expect(localStorage.getItem('mapLandingSeenRun')).toBeNull();
-  });
-
-  it('withholds the `↺ Back to …` reopen row from the pill menu on the phone, though the identical fixture shows it on desktop once dismissed', async () => {
-    const { unmount } = await renderMap({ runId: '2026-01-15T04:00:00' });
-    fireEvent.click(screen.getByTestId('wf-land-close'));
-    fireEvent.click(screen.getByTestId('wf-win-pill'));
-    expect(screen.getByTestId('wf-win-landing')).toBeInTheDocument();
-    unmount();
-
-    mockIsMobile = true;
-    await renderMap({ runId: '2026-01-15T04:00:00' });
-    // No card ever mounted to dismiss on the phone — the pill menu opens on an unseen run directly.
-    fireEvent.click(screen.getByTestId('wf-win-pill'));
-    expect(screen.queryByTestId('wf-win-landing')).not.toBeInTheDocument();
-  });
 });
 
 describe('the scored-locations toast fades on the phone after 3,000 ms (map-mobile-sheet-plan.md §3 M1 task 2)', () => {

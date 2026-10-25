@@ -8,8 +8,9 @@ import { fileURLToPath } from 'node:url';
  * pinned is what a later edit could quietly break:
  *
  * <ul>
- *   <li>the landing card clears the whole bottom-left stack, declared only inside the desktop and
- *       tablet query (the counts footer is lifted by measurement in MapView, not CSS);</li>
+ *   <li>nothing in the stylesheet reads {@code data-topic-strip} or lifts the counts footer from CSS
+ *       (the footer is lifted by measurement in MapView; the landing card that once capped itself
+ *       above the stack was removed by map-landing-nocard-plan.md P1);</li>
  *   <li>forced colours: every bar keeps a 1px border, and the current and selected states are an
  *       {@code outline} (background and box-shadow are removed in that mode);</li>
  *   <li>the colours are tokens, rgba washes and {@code --wf-tc}, never a hex from the design mock.</li>
@@ -45,24 +46,13 @@ const stripEnd = css.indexOf('.wf-map-counts-footer {', stripStart);
 const stripCss = css.slice(stripStart, stripEnd);
 
 describe('the four-day strip stylesheet: clearing the stack', () => {
-  const lift = mediaBlock('(min-width: 640px)', css.lastIndexOf('@media (min-width: 640px) {', css.indexOf('.wf-map-tab[data-topic-strip] .wf-land')));
-
   it('does NOT lift the counts footer from CSS: MapView moves it by measurement, only where it overlaps', () => {
     expect(css).not.toMatch(/data-topic-strip\][^{]*wf-map-counts-footer/);
     expect(css).not.toContain('--wf-chrome-bl-h, -8px');
   });
 
-  it('caps the landing card above the stack; the 36px fallback gives the old -76px when unset', () => {
-    expect(lift).toContain('.wf-map-tab[data-topic-strip] .wf-land');
-    expect(lift).toContain(
-      'max-height: calc(100% - var(--wf-chrome-tl-h, 36px) - 24px - var(--wf-chrome-bl-h, 36px) - 16px);',
-    );
-    // 24 + 36 + 16 = 76: exactly the card's own base cap.
-    expect(css).toContain('max-height: calc(100% - var(--wf-chrome-tl-h, 36px) - 76px);');
-  });
-
-  it('declares nothing about the card outside the desktop/tablet query', () => {
-    expect(css.replace(lift, '')).not.toContain('[data-topic-strip]');
+  it('reads data-topic-strip nowhere: its one reader was the landing card, now removed', () => {
+    expect(css).not.toContain('data-topic-strip');
   });
 });
 
@@ -80,13 +70,6 @@ describe('the four-day strip stylesheet: the strip', () => {
     const body = ruleBody('.wf-tl-grid');
     expect(body).toContain('grid-template-columns: 92px repeat(8, minmax(0, 1fr));');
     expect(body).toContain('grid-auto-rows: 24px;');
-  });
-
-  it('styles the forced-closed cue as muted, un-uppercased text from a token', () => {
-    const body = ruleBody('.wf-tl-closed-cue');
-    expect(body).toContain('text-transform: none;');
-    expect(body).toContain('color: var(--color-plex-text-muted);');
-    expect(body).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 
   it('keeps the shades out of hit-testing', () => {
@@ -138,12 +121,6 @@ describe('the four-day strip stylesheet: the phone sheet variant (M4)', () => {
     expect(start).toBeGreaterThan(-1);
     expect(css.slice(css.lastIndexOf('@media', start), start)).toContain('(max-width: 639px)');
     expect(css).toContain('grid-template-columns: 70px repeat(8, minmax(0, 1fr));');
-  });
-
-  it('declares the forced-closed cue outside the phone query (the sheet never shows it)', () => {
-    const phone = mediaBlock('(max-width: 639px)', css.indexOf('.wf-topic-strip.wf-topic-strip-sheet {') - 200);
-    expect(phone).not.toContain('wf-tl-closed-cue');
-    expect(css).toContain('.wf-tl-closed-cue {');
   });
 });
 

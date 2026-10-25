@@ -10,8 +10,7 @@ import { foreignModalOver, foreignModalOverPaneOf, MAP_PANE_SELECTOR } from '../
  * and every panel-level test plants its modal OUTSIDE the pane — so both readings agree there.
  *
  * <p>That mutant is behaviourally equivalent *today*, because nothing inside the pane carries
- * `aria-modal` (`FiltersPopover`, `MapLandingCard` and both drilldown panels each say so in their
- * own docs). The containment rule is therefore defensive — and defensive code that no test
+ * `aria-modal` (`FiltersPopover` and both drilldown panels each say so in their own docs). The containment rule is therefore defensive — and defensive code that no test
  * distinguishes is code that gets deleted as dead. Pinned here, at the level where the distinction
  * is real, rather than faked at panel level where it is not.
  */

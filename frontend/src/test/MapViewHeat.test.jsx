@@ -2357,20 +2357,11 @@ describe('the window pill\'s verdict — filters must not move it, scope must (d
 });
 
 /**
- * The landing card (map-landing-plan.md §3 L4) — what OPENS it, what closes it, and the far longer
- * list of things that must not.
- *
- * <p>The card's own selection rules are pinned in `mapLanding.test.js` and its markup in
- * `MapLandingCard.test.jsx`; this block is the wiring only — the once-per-run key, the three
- * dismissal routes and, more importantly, the five gestures that are NOT dismissal routes.
- */
-/**
  * The window panel — the drilldown's first level (map-landing-plan.md §3 L5).
  *
  * <p>Its rows and its note are pinned in `mapDrilldown.test.js`, its markup in
  * `MapWindowPanel.test.jsx`. This block is the wiring: the one live entry, the exclusivity it
- * inherits from `openMapMenu`, and the two dismissal rules a panel has that the landing card
- * does not.
+ * inherits from `openMapMenu`, and the dismissal rules a panel has.
  */
 describe('the window panel — this window, region by region', () => {
   const DAYS = [{
@@ -2449,7 +2440,7 @@ describe('the window panel — this window, region by region', () => {
 
     // Torn down in this describe's `afterEach`, not on the last line — an assertion that threw
     // first would leave an `[aria-modal]` in the body and silently stand every later Escape test
-    // in this file down. That trap is recorded on the landing card's own copy of this fixture.
+    // in this file down.
     drilldownForeignModal = document.createElement('div');
     drilldownForeignModal.setAttribute('role', 'dialog');
     drilldownForeignModal.setAttribute('aria-modal', 'true');
@@ -2605,7 +2596,7 @@ describe('the window panel — this window, region by region', () => {
     expect(screen.queryByTestId('wf-win-panel')).toBeNull();
   });
 
-  it('a press on the MAP does not close it — L3\'s rule, which the landing card does not share', async () => {
+  it('a press on the MAP does not close it — L3\'s rule', async () => {
     await renderMap(panelProps());
     openPanel();
 
@@ -2984,24 +2975,6 @@ describe('the region panel — one region, into the sheet that already exists', 
   });
 
   /**
-   * ⚠️ **The card and the panel used to arrive together and the panel buried the card.** They are
-   * not merely allowed to coexist: `landingLabel` is empty while the card is open, which is exactly
-   * when `WindowControl` shows the drilldown row — so this was the ordinary state after one press on
-   * the first visit of every forecast run. Measured: the panel covers the card entirely at ≤390px,
-   * putting four consecutive tab stops on elements 0% visible (WCAG 2.4.11 AA), and the card's ✕ —
-   * its only pointer dismissal, since it deliberately survives an outside tap — became unclickable.
-   */
-  it('⚠️ opening the drilldown dismisses the landing card rather than burying it', async () => {
-    await renderMap(panelProps({ runId: '2026-01-15T04:00:00' }));
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-
-    openPanel();
-
-    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
-    expect(screen.queryByTestId('wf-land')).toBeNull();
-  });
-
-  /**
    * ⚠️ **The peek's return leg.** `handleOpenLocationSheet` closes the panel in the same commit the
    * sheet mounts, so the button that was pressed is detached before `useDialogFocus` reads
    * `document.activeElement` — it then records `<body>` and closing the sheet restores to nothing.
@@ -3176,18 +3149,16 @@ describe('the region panel — one region, into the sheet that already exists', 
 
   /**
    * ⚠️ **The switch has to be cleared, not just the render suppressed.** A retirement left
-   * `openMapMenu` at `'window-panel'` with nothing behind it — and the landing card's own Escape
-   * listener defers whenever `openMapMenu != null`, so Escape stopped working on a card the reader
-   * can SEE, while `onOpenWindowPanel` was withheld in the same state so no control remained to
-   * clear it. Raised twice: by this PR's cross-phase lens and by the review's fourth round.
+   * `openMapMenu` at `'window-panel'` with nothing behind it, while `onOpenWindowPanel` was withheld in
+   * the same state so no control remained to clear it. Raised twice: by this PR's cross-phase lens
+   * and by the review's fourth round.
    */
   it('⚠️ leaves no orphaned menu state when the window is retired', async () => {
     // ⚠️ The observable is the PANE's Escape ladder, not the pill: `handleMapPaneKeyDown` clears an
     // open menu BEFORE it clears a selection, so a stale `'window-panel'` swallows the first press
     // on nothing the reader can see and the selection survives a keystroke that should have cleared
     // it. (Reopening the pill works either way, which is why the first draft of this test proved
-    // nothing and a mutant walked through it.) The landing card's own Escape listener defers on the
-    // same value, for the same reason.
+    // nothing and a mutant walked through it.)
     const locations = [...makeAzimuthLocation(), ...makeLocations()];
     const props = panelProps({
       locations, planHandoff: selectSpot('AzimuthSpot', 11),
@@ -3427,255 +3398,6 @@ describe('the region panel — one region, into the sheet that already exists', 
     expect(onOpenLocationSheet).toHaveBeenCalledWith(expect.objectContaining({
       id: 3, regionName: 'The Lakes',
     }));
-  });
-});
-
-describe('the landing card — once per forecast run, and dismissed only three ways', () => {
-  const RUN = '2026-01-15T04:00:00';
-  const LATER_RUN = '2026-01-15T14:00:00';
-  const SEEN_KEY = 'mapLandingSeenRun';
-  /** Torn down centrally — see the foreign-modal test's own note. */
-  let foreignModal = null;
-  afterEach(() => {
-    foreignModal?.remove();
-    foreignModal = null;
-  });
-
-  /** The two windows the card compares here are TODAY's sunrise and sunset — one day, two events. */
-  const DAYS = [{
-    date: TODAY,
-    eventSummaries: [
-      {
-        targetType: 'SUNRISE',
-        regions: [{ regionName: 'The Lakes', meanRating: 4.4, displayVerdict: 'WORTH_IT', slots: [{ canopy: false }] }],
-      },
-      {
-        targetType: 'SUNSET',
-        regions: [{ regionName: 'North East', meanRating: 2.9, displayVerdict: 'MAYBE', slots: [{ canopy: false }] }],
-      },
-    ],
-  }];
-
-  const landingProps = (extra = {}) => ({
-    heat: heatProp(),
-    regionVerdictIndex: buildRegionVerdictIndex(DAYS),
-    runId: RUN,
-    ...extra,
-  });
-
-  it('opens on a run the reader has not dismissed it on', async () => {
-    await renderMap(landingProps());
-
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-    // Derived from the rows it is showing — both of this fixture's first two windows are TODAY.
-    expect(screen.getByTestId('wf-land-head')).toHaveTextContent('This morning — sunrise or sunset?');
-  });
-
-  it('stays shut for a run already stamped, and returns for the NEXT one', async () => {
-    localStorage.setItem(SEEN_KEY, RUN);
-    const { unmount } = await renderMap(landingProps());
-    expect(screen.queryByTestId('wf-land')).toBeNull();
-    unmount();
-
-    await renderMap(landingProps({ runId: LATER_RUN }));
-
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-  });
-
-  it('stays shut with no run to key a dismissal on — silence is the safe degrade', async () => {
-    await renderMap({ heat: heatProp(), regionVerdictIndex: buildRegionVerdictIndex(DAYS) });
-
-    expect(screen.queryByTestId('wf-land')).toBeNull();
-  });
-
-  it('the close control dismisses it, and stamps the run so a re-render does not reopen it', async () => {
-    await renderMap(landingProps());
-
-    fireEvent.click(screen.getByTestId('wf-land-close'));
-
-    expect(screen.queryByTestId('wf-land')).toBeNull();
-    expect(localStorage.getItem(SEEN_KEY)).toBe(RUN);
-  });
-
-  it('Escape dismisses it from the DOCUMENT — the card holds no focus to bubble from', async () => {
-    await renderMap(landingProps());
-
-    fireEvent.keyDown(document, { key: 'Escape' });
-
-    expect(screen.queryByTestId('wf-land')).toBeNull();
-  });
-
-  it('Escape closes an open MENU first, and the card only on the next press', async () => {
-    // One press, one action. The press is dispatched from INSIDE the pane, which is what reaches
-    // `handleMapPaneKeyDown` (a React `onKeyDown` on the pane root) — the card's own document
-    // listener sees the same press and must defer to it.
-    await renderMap(landingProps());
-    openFilters();
-    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
-
-    fireEvent.keyDown(screen.getByTestId('wf-map-chrome-tl'), { key: 'Escape' });
-    expect(screen.queryByTestId('wf-filters-panel')).toBeNull();
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-
-    fireEvent.keyDown(screen.getByTestId('wf-map-chrome-tl'), { key: 'Escape' });
-    expect(screen.queryByTestId('wf-land')).toBeNull();
-  });
-
-  // ⚠️ The card's deferral to a standing SELECTION is pinned in
-  // `MapViewSelectionOrdering.test.jsx`, beside the two Escape-ordering tests it extends — that
-  // file already carries a callout probe and a `selectTheSpot()` helper; this one stubs
-  // `MapLabels` and has no route to a selection at all.
-
-  it('records the residual: from OUTSIDE the pane, a menu blocks the card\'s own Escape', async () => {
-    // ⚠️ Not a bug being enshrined — a limitation being named. `handleMapPaneKeyDown` is
-    // subtree-scoped, so a press with focus on `<body>` never reaches it and the menu cannot close;
-    // the card's listener therefore defers to a menu it is powerless to shut. That is exactly what
-    // Escape does on this pane today with any menu open and focus outside it. If a later phase
-    // widens the listener into the pane's whole chain, this test should be UPDATED deliberately
-    // rather than discovered by accident.
-    await renderMap(landingProps());
-    openFilters();
-
-    fireEvent.keyDown(document, { key: 'Escape' });
-
-    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-  });
-
-  it('Escape stands down entirely while a FOREIGN modal is over the map', async () => {
-    await renderMap(landingProps());
-    // ⚠️ Torn down in `afterEach`, not on the last line: RTL's cleanup removes only its own
-    // container, so an assertion that threw first would leave a `[role="dialog"][aria-modal]` in
-    // the body and make `foreignModalOver` true for every later Escape test in this file.
-    foreignModal = document.createElement('div');
-    foreignModal.setAttribute('role', 'dialog');
-    foreignModal.setAttribute('aria-modal', 'true');
-    document.body.appendChild(foreignModal);
-
-    fireEvent.keyDown(document, { key: 'Escape' });
-
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-  });
-
-  it('Escape does NOTHING while the Map tab is hidden — the pane is never unmounted', async () => {
-    // ⚠️ **The blocking defect of this phase, found by two independent review lenses.** The shell
-    // keeps every opened tab's pane mounted and sets `hidden` on the panel, so a `document`
-    // listener registered here keeps firing for a pane the reader is not looking at: an Escape
-    // pressed on the Plan tab dismissed the card AND stamped the run as seen, spending the
-    // once-a-run greeting on a keystroke aimed at something else. `WindowControl`'s own class doc
-    // states this hazard as its reason for refusing a document listener.
-    const { container } = await renderMap(landingProps());
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-
-    // What `WindowFirstShell` does to the panel when the reader picks another tab.
-    const panel = document.createElement('div');
-    panel.hidden = true;
-    container.parentNode.insertBefore(panel, container);
-    panel.appendChild(container);
-
-    fireEvent.keyDown(document, { key: 'Escape' });
-
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-    expect(localStorage.getItem(SEEN_KEY)).toBeNull();
-  });
-
-  it('names the SCOPE it is actually taken over, never "My area" without an area', async () => {
-    // ⚠️ Verbatim the defect L2 fixed for `scopeIsArea`, repeated one line above it. `heatArea`
-    // initialises true and the segment that would flip it is withheld when there is no home to
-    // scope from — so the kicker read "· My area" over the whole catalogue while the verdict cell
-    // two rows below, correctly gated, read "everywhere".
-    await renderMap(landingProps({ heat: heatProp({ hasHome: false }) }));
-
-    expect(screen.getByTestId('wf-land-sub')).toHaveTextContent('Your next two windows · Everywhere');
-    for (const region of screen.getAllByTestId('wf-land-verdict-region')) {
-      expect(region).not.toHaveTextContent('your area');
-    }
-  });
-
-  it('offers no reopen row when there is no run to reopen for', async () => {
-    // `reopenLanding` stamps `landingRunStamp`; with none it writes null and the card stays shut —
-    // a menu row whose every press does nothing, which this file bans outright elsewhere.
-    await renderMap({ heat: heatProp(), regionVerdictIndex: buildRegionVerdictIndex(DAYS) });
-
-    fireEvent.click(screen.getByTestId('wf-win-pill'));
-
-    expect(screen.queryByTestId('wf-win-landing')).toBeNull();
-  });
-
-  it('selecting a row sets that window AND closes the card', async () => {
-    await renderMap(landingProps());
-    // Row 2 is tonight's sunset; the map opens on it already, so pick row 1 (this morning).
-    const rows = screen.getAllByTestId('wf-land-row');
-
-    await act(async () => { fireEvent.click(rows[0]); });
-
-    expect(screen.queryByTestId('wf-land')).toBeNull();
-    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Sunrise');
-  });
-
-  it('a map CLICK does not dismiss it — panning to the region it named is reading it', async () => {
-    // ⚠️ The gesture list the design names explicitly (map click, drag, zoom, wheel, outside tap).
-    // `MapBackgroundClickController` registers `click`; `ZoomTracker`/`BoundsTracker` register
-    // `zoomend`/`moveend`. Driving every handler this render registered covers all of them at once,
-    // and would fail the moment the card grew a `useOutsideDismiss` or a map-event dismissal.
-    await renderMap(landingProps());
-
-    await act(async () => {
-      for (const handlers of mapEventHandlers) {
-        handlers.click?.({});
-        handlers.zoomend?.({ target: { getZoom: () => 11, getBounds: () => null } });
-        handlers.moveend?.({ target: { getBounds: () => null } });
-      }
-    });
-
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-  });
-
-  it('an outside press does not dismiss it either', async () => {
-    await renderMap(landingProps());
-
-    fireEvent.mouseDown(document.body);
-    fireEvent.click(document.body);
-
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-  });
-
-  it('is recoverable from the pill menu, with the SAME header text', async () => {
-    await renderMap(landingProps());
-    const header = screen.getByTestId('wf-land-head').textContent;
-    fireEvent.click(screen.getByTestId('wf-land-close'));
-    expect(screen.queryByTestId('wf-land')).toBeNull();
-
-    fireEvent.click(screen.getByTestId('wf-win-pill'));
-    const reopen = screen.getByTestId('wf-win-landing');
-    expect(reopen).toHaveTextContent(header);
-    fireEvent.click(reopen);
-
-    expect(screen.getByTestId('wf-land-head')).toHaveTextContent(header);
-    // The menu closes on its way — the row is an action, not a window choice.
-    expect(screen.queryByTestId('wf-win-menu')).toBeNull();
-  });
-
-  it('offers no reopen row while the card is already open', async () => {
-    await renderMap(landingProps());
-
-    fireEvent.click(screen.getByTestId('wf-win-pill'));
-
-    expect(screen.queryByTestId('wf-win-landing')).toBeNull();
-  });
-
-  it('a card reopened from the menu can be closed again', async () => {
-    // The reopen stamp has to be cleared on dismissal, or its clause keeps winning over the seen
-    // stamp and the card becomes unclosable.
-    await renderMap(landingProps());
-    fireEvent.click(screen.getByTestId('wf-land-close'));
-    fireEvent.click(screen.getByTestId('wf-win-pill'));
-    fireEvent.click(screen.getByTestId('wf-win-landing'));
-    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId('wf-land-close'));
-
-    expect(screen.queryByTestId('wf-land')).toBeNull();
   });
 });
 

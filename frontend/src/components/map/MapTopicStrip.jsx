@@ -67,29 +67,25 @@ function spanWords(grid, bar) {
  * <p><b>Collapse.</b> The header is a {@code <button aria-expanded>}. The preference lives in
  * {@code localStorage} under try/catch and is three-way: '1', '0', or absent, and when absent the strip
  * starts open only on a map frame at least {@link OPEN_BY_DEFAULT_MIN_FRAME_PX} tall (a short frame is
- * where its label cost is highest). That default is NOT a forced collapse: the reader can open it, and
- * doing so stores '1'. {@code forceCollapsed} (the landing card is open) renders the header alone WITHOUT
- * touching the stored preference, and the header then cannot open it; a muted {@code · closed} cue is
- * drawn in the chevron slot and the reason is spoken through {@code aria-describedby}.
+ * where its label cost is highest). That default is not a hold: the reader can open it, and
+ * doing so stores '1'.
  *
  * <p><b>Held.</b> {@code held} (an open tide strip is showing) draws the strip closed but leaves the
  * header pressable: a press stores '1' and calls {@code onOpenHeld}; the strip does NOT open itself, it
- * opens when the owner re-renders with {@code held} false (topic-strip-tide-yield-plan). {@code
- * forceCollapsed} beats {@code held}; the sheet variant ignores {@code held}.
+ * opens when the owner re-renders with {@code held} false (topic-strip-tide-yield-plan). The sheet
+ * variant ignores {@code held}.
  *
  * <p><b>Focus.</b> A press that MOVES the window parks focus on the strip root (kept mounted,
  * {@code tabIndex -1}) BEFORE it changes it, the tide strip's {@code focusAfterJump} order, because the
  * press can unmount the very button pressed. A toggle or a press in place leaves focus where it is
- * (the control stays mounted). If focus is inside the grid when the grid goes away (the strip is forced
- * collapsed from elsewhere) it moves to the header, and when the whole strip unmounts it goes to
+ * (the control stays mounted). If focus is inside the grid when the grid goes away (the strip is closed
+ * from elsewhere) it moves to the header, and when the whole strip unmounts it goes to
  * {@code fallbackFocus}, so it is never dropped to {@code <body>}.
  *
  * @param {object} props
  * @param {object} props.grid {@code fourDayGrid}'s result
  * @param {?string} props.selectedType the selected topic type, or null
  * @param {Array<string>} props.currentTypes the topic types that are chips on the window on screen
- * @param {boolean} [props.forceCollapsed] draw the header only, inert (the landing card is open)
- * @param {string} [props.forceReason] why, in words, for {@code forceCollapsed}: "the welcome card is open"
  * @param {boolean} [props.held] draw closed but pressable (the tide strip is open); panel only
  * @param {string} [props.heldReason] what holds it, in words: "the tide strip"
  * @param {?Function} [props.onOpenHeld] called when the reader presses the header while held
@@ -118,7 +114,7 @@ function spanWords(grid, bar) {
  * @param {boolean} [props.doorDisabled] a locked door with nothing to open (phone, no coastal spot in view)
  */
 export default function MapTopicStrip({
-  grid, selectedType = null, currentTypes, forceCollapsed = false, forceReason = '', held = false,
+  grid, selectedType = null, currentTypes, held = false,
   heldReason = '', onOpenHeld = undefined, onCloseYielded = undefined, onToggleType,
   onPick, onSelectHw = undefined, onHeightChange = undefined, fallbackFocus = null, variant = 'panel',
   openByDefault = false, lockedTopicTypes = NO_LOCKED_TYPES, upsellOpen = false,
@@ -131,7 +127,6 @@ export default function MapTopicStrip({
   // The map frame's height while it is known (0 reads as hidden, i.e. unknown), for the default.
   const [frameHeight, setFrameHeight] = useState(null);
   const gridId = useId();
-  const reasonId = useId();
   const heldId = useId();
   const headerRef = useRef(null);
   const focusedInGridRef = useRef(null);
@@ -141,9 +136,9 @@ export default function MapTopicStrip({
     ? openByDefault
     : (frameHeight == null || frameHeight >= OPEN_BY_DEFAULT_MIN_FRAME_PX);
   const stored = pref ?? defaultOpen;
-  // `forceCollapsed` beats `held`; the sheet has no tide strip, so it ignores `held`.
-  const isHeld = held && !inSheet && !forceCollapsed;
-  const open = stored && !forceCollapsed && !isHeld;
+  // The sheet has no tide strip, so it ignores `held`.
+  const isHeld = held && !inSheet;
+  const open = stored && !isHeld;
 
   // Reports the real height up (null on unmount): MapCallout re-measures the strip off the DOM and
   // needs only this value's identity changing as its repaint trigger.
@@ -170,7 +165,7 @@ export default function MapTopicStrip({
 
   useEffect(() => { fallbackRef.current = fallbackFocus; }, [fallbackFocus]);
 
-  // Focus inside the grid when it goes away (forced collapse from elsewhere): remember the focused
+  // Focus inside the grid when it goes away (closed from elsewhere, i.e. `held`): remember the focused
   // control's node on focusin and, if it is gone after a commit with nothing else focused, move to the
   // header. Never from a blur (Chromium blurs a removed node while it is still connected).
   useEffect(() => {
@@ -212,7 +207,6 @@ export default function MapTopicStrip({
   const onCurrent = (type) => currentTypes.includes(type);
 
   function toggleOpen() {
-    if (forceCollapsed) return;
     if (isHeld) {
       // The owner opens it by re-rendering with `held` false; nothing opens locally.
       setPref(true);
@@ -272,9 +266,7 @@ export default function MapTopicStrip({
     onPick(topicRow.type, grid.columns[target.column].row, movedMessage(topicRow, target.column));
   }
 
-  let describedBy;
-  if (forceCollapsed && forceReason) describedBy = reasonId;
-  else if (isHeld && heldReason) describedBy = heldId;
+  const describedBy = isHeld && heldReason ? heldId : undefined;
 
   const rowCount = grid.rows.length;
   const cur = grid.currentColumn;
@@ -314,24 +306,16 @@ export default function MapTopicStrip({
         className="wf-tl-head"
         aria-expanded={open}
         aria-controls={open ? gridId : undefined}
-        aria-disabled={forceCollapsed ? 'true' : undefined}
         aria-describedby={describedBy}
         data-testid="wf-topic-strip-toggle"
         onClick={toggleOpen}
       >
         <span>Hot topics · next four days</span>
-        {forceCollapsed
-          ? <span className="wf-tl-cv wf-tl-closed-cue" aria-hidden="true" data-testid="wf-topic-strip-closed-cue">· closed</span>
-          : <span className="wf-tl-cv" aria-hidden="true">{open ? '▾' : '▴'}</span>}
+        <span className="wf-tl-cv" aria-hidden="true">{open ? '▾' : '▴'}</span>
       </button>
       {isHeld && heldReason && (
         <span id={heldId} className="sr-only" data-testid="wf-topic-strip-held-reason">
           {`Opening it collapses ${heldReason}`}
-        </span>
-      )}
-      {forceCollapsed && forceReason && (
-        <span id={reasonId} className="sr-only" data-testid="wf-topic-strip-reason">
-          {`Closed while ${forceReason}`}
         </span>
       )}
       {open && (
@@ -550,8 +534,6 @@ MapTopicStrip.propTypes = {
   }).isRequired,
   selectedType: PropTypes.string,
   currentTypes: PropTypes.arrayOf(PropTypes.string).isRequired,
-  forceCollapsed: PropTypes.bool,
-  forceReason: PropTypes.string,
   held: PropTypes.bool,
   heldReason: PropTypes.string,
   onOpenHeld: PropTypes.func,

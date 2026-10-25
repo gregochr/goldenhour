@@ -126,7 +126,6 @@ describe('the window panel sits in the frame, not in the chrome box', () => {
     expect(z('.wf-win-panel')).toBe(1150);
     expect(z('.wf-win-panel')).toBeGreaterThan(z('.wf-map-chrome-tl'));
     expect(z('.wf-win-panel')).toBeGreaterThan(z('.wf-map-chrome-tr'));
-    expect(z('.wf-win-panel')).toBeGreaterThan(z('.wf-land'));
     expect(z('.wf-win-panel')).toBeLessThan(z('.wf-callout'));
   });
 
@@ -195,7 +194,7 @@ describe('the window panel\'s own rows and controls', () => {
   });
 
   it('flips the borrowed row rule, because the drilldown entry is BELOW the list', () => {
-    // `.wf-win-landing` is written for a row above the windows; the entry is the popup's last child,
+    // `.wf-win-landing` was written for the removed reopen row above the windows; the entry is the popup's last child,
     // so unflipped it drew a hairline against the popup's own bottom edge with 4px of plate under
     // it, and nothing separating it from the listbox above.
     const body = ruleFor('.wf-win-more');

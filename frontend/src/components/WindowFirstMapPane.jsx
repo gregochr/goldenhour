@@ -697,8 +697,8 @@ export default function WindowFirstMapPane({
           badges: card.badges,
           // Whether this window is a TRAVEL day (map-landing-plan.md §3 L4). `buildHeatStripCards`
           // publishes every window the strip must show, away days included, and without this the
-          // landing card opened on "Tomorrow — sunrise or sunset?" over two days the reader is not
-          // there for, as live buttons, while the Plan matrix drew the same two cards as Away.
+          // "next two windows" heading read "Tomorrow — sunrise or sunset?" over two days the reader
+          // is not there for, while the Plan matrix drew the same two cards as Away.
           away: card.away,
           // ── map-landing-plan.md §3 L1: the served pick ───────────────────────────────────
           // The forecast's own Best bet / Also good for this window: `'best'`, `'also'`, or null.
@@ -852,10 +852,6 @@ export default function WindowFirstMapPane({
         regionGlossIndex={regionGlossIndex}
         regionBestIndex={regionBestIndex}
         regionVerdictIndex={regionVerdictIndex}
-        // The forecast run the landing card's once-per-run open is keyed on (map-landing-plan.md
-        // §3 L4 step 8). The briefing's BUILD stamp — see `MapView`'s `LANDING_SEEN_KEY` for why
-        // that granularity is the intended one and not a bug to sharpen.
-        runId={briefing?.generatedAt ?? null}
         tideAlignmentIndex={tideAlignmentIndex}
         // The served big-seas days (big-seas plan F1) — `undefined` when none qualifies, so
         // `MapView`'s stable empty default applies.

@@ -247,7 +247,6 @@ function Pane({
       paneVisible={visible}
       planHandoff={handoff}
       briefingScores={briefingScores}
-      runId={null}
       bigSeas={bigSeas}
       hotTopics={[KING_TIDE]}
       onSelectDate={(d, opts) => { onSelectDate(d, opts); setDate(d); }}

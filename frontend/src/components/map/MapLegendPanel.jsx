@@ -112,8 +112,8 @@ export default function MapLegendPanel({
 
   function onKeyDown(e) {
     // ⚠️ Stand down entirely while a dialog from OUTSIDE the map pane is over it — the same
-    // predicate `MapView`'s pane handler, the landing card's listener and the drilldown's two
-    // panels read. Without it this operates the map BEHIND an open sheet: `map-landing-plan.md`
+    // predicate `MapView`'s pane handler and the drilldown's two panels read. Without it this
+    // operates the map BEHIND an open sheet: `map-landing-plan.md`
     // §4 #37 recorded that for the two panels, and an accessibility lens then found this control
     // is on the very route that reaches them — a keyboard reader gets here by Tabbing out of the
     // non-trapping sheet onto the pill, so the drilldown cannot be opened behind a sheet without

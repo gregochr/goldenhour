@@ -1165,11 +1165,10 @@ describe('MapLabels — obstacle seeding from the live chrome', () => {
     // `OBSTACLE_SELECTOR` alongside `wf-win-menu`/`wf-filters-panel` for the identical reason: it
     // overflows its trigger chip's own layout box, so `wf-map-chrome-tr`'s rect does not cover it.
     ['the Regions jump menu', 'wf-jump-menu'],
-    // map-landing-plan.md §3 L4/L5/L6 — the landing card and BOTH drilldown levels. ⚠️ Neither
+    // map-landing-plan.md §3 L5/L6 — BOTH drilldown levels. ⚠️ Neither
     // panel was in this list's coverage when it was added; a review lens measured that deleting
     // both entries from `MapLabels` left every one of their specs green, so the
     // placer would happily put a chip under a several-hundred-pixel panel with nothing failing.
-    ['the landing card', 'wf-land'],
     ['the window panel', 'wf-win-panel'],
     ['the region panel', 'wf-reg-panel'],
     // tide-window-plan.md T7 — on the phone the strip is a SIBLING of `.wf-map-chrome-bl`, not a

@@ -33,11 +33,6 @@ import { foreignModalOverPaneOf } from '../utils/mapForeignModal.js';
  * (the sheet's own behaviour, unchanged by L3) and is recorded rather than fixed here, because
  * changing it means changing {@code BottomSheet}'s dismiss surface — see map-landing-plan.md §6 Q9.
  *
- * <p>⚠️ <b>Not every dismissible thing on this tab wants this rule.</b> The landing card L4 adds
- * must NOT use this hook: its spec is that it dismisses on its close control, Escape or a row
- * selection and on <em>nothing else</em> — not an outside tap either. Do not adopt this by pattern
- * match.
- *
  * <h2>⚠️ Why this is a shared hook rather than six edits</h2>
  *
  * <p>The rule reads like one change to one handler and is in fact seven call sites: these six

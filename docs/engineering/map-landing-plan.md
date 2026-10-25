@@ -1,5 +1,7 @@
 # Map tab — verdict, picks and the landing card: implementation plan
 
+> **Status**: L4's card was removed by `map-landing-nocard-plan.md` P1 (2026-10-25).
+
 **Source**: the design bundle vendored at `docs/design/map-landing/` — `README.md` (the spec),
 `CLAUDE_CODE_PROMPT.md` (the designer's working order), `Map Landing.html` + `map-tab-v4.js` (the
 prototype, option A), `Map Verdict Options.html` + `map-tab-v3.js` (the rejected alternatives).

@@ -126,7 +126,7 @@ an `Escape` reaching one of the six other surfaces on this tab operated it behin
 2026-09-07**, and the shape of the fix is the point: `foreignModalOver` moved out of `MapView`'s
 module scope into `utils/mapForeignModal.js` (the components that need it cannot import from
 `MapView` without a cycle), and **all eight Escape rules across six components now read that one
-predicate** — the pane handler, the landing card's document listener, the drilldown's two panels,
+predicate** — the pane handler, the drilldown's two panels,
 `WindowControl`, `FiltersPopover`, `RegionsJump` and `MapLegendPanel` — as does the POINTER channel
 in `useOutsideDismiss`, whose outside-press rule dismissed those surfaces behind an open sheet in
 exactly the same way. ⚠️ **The first cut fixed only the two panels and claimed "four rules".** Two

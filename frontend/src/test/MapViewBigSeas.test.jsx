@@ -131,7 +131,6 @@ function Pane({ bigSeas, onDate }) {
       forecastDates={[TODAY, SAT]}
       autoEventType="SUNSET"
       heat={heatProp()}
-      runId="run-1"
       bigSeas={bigSeas}
       onSelectDate={(d, opts) => { onDate?.(d, opts); setDate(d); }}
     />
@@ -213,13 +212,11 @@ describe('MapView — the chrome height reaches the frame blocks that hang under
     else delete HTMLElement.prototype.offsetHeight;
   });
 
-  it('the chrome group\'s parent carries --wf-chrome-tl-h and contains the landing card it offsets', async () => {
+  it('the chrome group\'s parent carries --wf-chrome-tl-h', async () => {
     await renderMap();
     const chrome = screen.getByTestId('wf-map-chrome-tl');
     const frame = chrome.parentElement;
     expect(frame.style.getPropertyValue('--wf-chrome-tl-h')).toBe('101px');
-    // The same element holds the landing card, so its `calc(var(--wf-chrome-tl-h) + 24px)` reads it.
-    expect(frame.contains(screen.getByTestId('wf-land'))).toBe(true);
   });
 
   it('publishes it on a day with no big seas too (the hook is unconditional since the topic chips)', async () => {

@@ -284,7 +284,7 @@ function solarRow(
       // (outcome-rating-plan.md §2 #2): "which windows are still ahead" is `served` AND not `past`.
       served: true,
       // Whether the briefing marked this window a TRAVEL day. Carried, never derived — the away
-      // state is `buildWindowCards`' own, and the landing card drops such a window rather than
+      // state is `buildWindowCards`' own, and `landingRows` drops such a window rather than
       // offering it as one of "your next two" (map-landing-plan.md §3 L4).
       away: Boolean(served.away),
       badges: Array.isArray(served.badges) ? served.badges : [],

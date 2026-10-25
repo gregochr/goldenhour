@@ -24,16 +24,14 @@ import VerdictWord from '../shared/VerdictWord.jsx';
  *
  * <p>A press inside the map frame dismisses nothing — {@code useOutsideDismiss} carries that for all
  * of the map's panels so they cannot drift apart. It closes on its own chip, its ✕ or {@code Escape}.
- * ⚠️ That is the opposite of the landing card's rule, which forbids an outside tap as well; the two
- * are different surfaces and `useOutsideDismiss`'s own doc names the card as its exception.
  *
  * <h2>⚠️ Mounted at FRAME level, not inside `.wf-map-chrome-tl`</h2>
  *
  * <p><b>This heading said the opposite, and was true for about an hour.</b> The first cut mounted
  * the panel inside the chrome box on the reasoning that it is a stacking context
  * ({@code position: absolute}, {@code z-index: 1100}), so anything inside composites at 1100 as a
- * unit and the panel would land above the 1050 landing card for free. True, and it cost two measured
- * defects: that box is ~36px tall, so the panel's {@code max-height} had no percentage basis and
+ * unit and the panel would land above the (since removed) 1050 landing card for free. True, and it
+ * cost two measured defects: that box is ~36px tall, so the panel's {@code max-height} had no percentage basis and
  * fell back to {@code vh} — the VIEWPORT, taller than the frame by the whole masthead — and rows
  * were clipped by {@code .wf-body--map}'s {@code overflow: hidden} with no scrollbar to reach them;
  * and the bottom chrome (all 1100, later in DOM order) painted over the last rows. L5's own review
@@ -135,8 +133,8 @@ export default function MapWindowPanel({
                   <i aria-hidden="true" className="wf-land-pick-glyph">{pick.glyph}</i>
                   {' '}
                   {/* The ≤400px escape hatch, missed at L5 and added with the region panel's — the
-                      medallion's other two mounts (`MapLandingCard`, `WindowControl`) both carry it,
-                      and two of three would have been the odd behaviour to explain. */}
+                      medallion's other mount (`WindowControl`) carries it,
+                      and one of two would have been the odd behaviour to explain. */}
                   <span className="wf-land-pick-words">{pick.words}</span>
                 </span>
               </>
@@ -151,8 +149,8 @@ export default function MapWindowPanel({
         <button
           type="button"
           data-testid="wf-win-panel-close"
-          // ⚠️ `.wf-win-panel-x` as well as `.wf-land-x`: the card's rule carries `grid-column: 2`,
-          // written for its TWO-column head, and this head has three — so grid auto-placement seated
+          // ⚠️ `.wf-win-panel-x` as well as `.wf-land-x`: that rule carries `grid-column: 2`,
+          // written for the removed landing card's TWO-column head, and this head has three — so grid auto-placement seated
           // the ✕ in the MIDDLE, between the title and the verdict word, with the verdict flush
           // right where the dismiss control belongs. Measured in Chromium at every width.
           className="wf-land-x wf-win-panel-x"

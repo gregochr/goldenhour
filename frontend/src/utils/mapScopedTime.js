@@ -18,7 +18,7 @@ const SLOT_BY_EVENT = { SUNRISE: 'sunrise', SUNSET: 'sunset' };
  * ({@code utils/mapVerdict.js}); this makes its time describe the same places.
  *
  * <p><b>Display only.</b> The row's {@code time} is a label, read by every surface that prints a
- * window's clock: the pill and its menu, the peek sheet, the landing card, the drilldown, the
+ * window's clock: the pill and its menu, the peek sheet, the drilldown, the
  * callout's header and every-window strip, the map tooltips, {@code TideFitBlock}'s next-fit line
  * and the tide strip's sunrise/sunset labels and "height at" line. ⚠️ That last one pairs the tide
  * station's height (computed at the station's own event time) with this scoped time, which may be

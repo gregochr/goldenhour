@@ -1612,7 +1612,7 @@ export default function WindowFirstShell({
   /**
    * Escape while focus is on the TRIGGER with the upsell open (Shift+Tab from the heading lands there and
    * the popover stays open, so its own handler never sees the key). Stopped for the same reason as the
-   * popover's: the Map landing card's bubble-phase `document` listener must not take this Escape too.
+   * popover's: a `document`-level Escape listener elsewhere on the page (a `Modal`'s) must not take this Escape too.
    * Focus is already on the trigger, so it does not move.
    */
   const onAskTriggerKeyDown = (event) => {

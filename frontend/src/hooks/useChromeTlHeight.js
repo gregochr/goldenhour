@@ -3,7 +3,7 @@ import { useCallback, useRef, useState } from 'react';
 /**
  * The CSS custom property this hook keeps current: the height of the window-control group
  * ({@code .wf-map-chrome-tl}), set on the group's parent (the map frame), where the frame-level
- * blocks that hang under the control ({@code .wf-win-panel}, {@code .wf-land}, the phone legend
+ * blocks that hang under the control ({@code .wf-win-panel}, the phone legend
  * toast) and Ask's camera ({@code askCamera.chromeHeightOf}) can read it. Their offsets fall back
  * to the 36/40px control constants when it is unset.
  */
@@ -15,7 +15,7 @@ export const CHROME_TL_HEIGHT_VAR = '--wf-chrome-tl-h';
  *
  * <p>It moved here from {@code BigSeasLine}, where it ran only while the big-seas line showed. The
  * topic chips row grows the group on EVERY day, so the variable must be current on every day: an
- * observer that stood down on a day with no big seas left the landing card, the window panel, the
+ * observer that stood down on a day with no big seas left the window panel, the
  * phone toast and Ask's fit sitting over the chips.
  *
  * <p>The nonce is the label layers' repaint key ({@code MapLabels}'s
