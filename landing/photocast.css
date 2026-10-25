@@ -87,6 +87,7 @@ em{font-style:italic;color:var(--ink)}
 .doc .sub{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);margin:26px 0 8px}
 .qa{border-top:1px solid var(--rule);padding:26px 0}
 .qa:last-of-type{border-bottom:1px solid var(--rule)}
+.qa:has(+h2){border-bottom:1px solid var(--rule)}
 .qa h2,.qa h3{font-family:var(--disp);font-weight:500;letter-spacing:-.012em;font-size:24px;margin:0 0 8px}
 /* Colour stated here, not inherited from `.doc p`: .qa is mounted inside .doc on faq.html but
    outside it on index.html's teaser, so without this the same component renders --ink-soft on
