@@ -5,6 +5,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.32.3] - 2026-10-25
+
+### Changed — the aurora Map legend drops "Rating, not Kp."
+
+The aurora Map legend no longer opens its note with "Rating, not Kp. Each location's score already folds in latitude, cloud and sky darkness." It answered a question a new user would not ask. The note now appears only while the dashed viewline is drawn, and then names just the line; otherwise the legend has no note. The solar legend is unchanged.
+
+### Changed — At a Glance and Coming up drop five explainer lines
+
+Five lines that explained the screen to someone who would never need them are gone, along with their styles:
+
+- Coming up, Next four days: the footnote ("WX = weather-driven ...").
+- At a Glance, heat strip legend: the desktop-only "Colour and hatch cover every place in the forecast" clause.
+- At a Glance, region rail: the " · select one to filter the spots below" tail (the label stays "By region · best first").
+- Coming up, header: the "the next N days, past the four-day forecast" subtitle.
+- Coming up, tide runs: the key under the range bars. The bars, their printed metres and the dashed average line are unchanged.
+
+### Changed — landing: origin story acknowledges photography forecasts
+
+The "I started looking for a tool" paragraph now notes that some forecasts already focus on photography ("and even some focussed on photography"), before saying none was quite what the founder had in mind.
+
+### Changed — Lite readers see what Ask PhotoCast does
+
+Ask PhotoCast's entry for Lite readers is no longer a greyed, dead control. On the phone's bar (Plan and
+Coming up) and on the tablet, desktop and wide field in the tab row it is now a live button with the Pro pill
+inside it, and pressing it opens a short popover saying what Ask does, with a small sketch of an answer and a
+Not now button. There is no link and no upgrade text. Escape, Not now, pressing the button again, tapping
+elsewhere, tabbing away and moving to another tab all close it. The first three send focus back to the button;
+tapping elsewhere or tabbing away leaves focus where you put it. Nothing of Ask itself opens
+and no request is made: the server still refuses a Lite caller, and the `/` key is still left to the browser for
+them. Pro and Admin readers see no change. The phone's Map tab entry still shows the older greyed lock and
+follows in the next change.
+
+### Changed — Lite readers see what Ask PhotoCast does on the phone Map
+
+On the phone Map, the Ask row in the peek sheet is no longer greyed out for Lite readers. It carries a "Pro" pill and opens a short explanation of what Ask does, drawn inside the peek sheet, with a "Not now" button to close it. Nothing of Ask itself opens and no Ask request is made; Pro and Admin readers see no change.
+
 ## [v2.32.2] - 2026-10-25
 
 ### Removed — the Map's hidden location medallions
