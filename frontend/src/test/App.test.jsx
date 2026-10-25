@@ -733,7 +733,6 @@ describe('App — the reader\'s settings: one read on mount, then the dialog\'s 
   });
 
   it('takes a saved colour from the save\'s own response, and reads nothing after it', async () => {
-    // Never chosen: the ramp's one-time "colours changed" notice is owed to this reader.
     getSettings.mockResolvedValue({ ...SETTINGS_MORPETH, mapColourScale: null });
     const colourSave = deferred();
     saveMapColourPreferences.mockReset().mockReturnValue(colourSave.promise);
@@ -741,7 +740,6 @@ describe('App — the reader\'s settings: one read on mount, then the dialog\'s 
     const { providerSpy } = renderApp();
     await openMapPane();
     await mountReadsSettled();
-    expect(mapPaneProps.last.colourScaleDefaulted).toBe(true);
 
     const dialog = await openSettings();
     const readsBeforeTheSave = getSettings.mock.calls.length;
@@ -753,7 +751,6 @@ describe('App — the reader\'s settings: one read on mount, then the dialog\'s 
 
     expect(setModeSpy).toHaveBeenLastCalledWith('verdict');
     expect(mapPaneProps.last.mapColourScale).toBe('verdict');
-    expect(mapPaneProps.last.colourScaleDefaulted).toBe(false);
     // No read after the save, so nothing that could fail and leave the ramp on the old scale ...
     expect(getSettings).toHaveBeenCalledTimes(readsBeforeTheSave);
     // ... and nothing asked of the home.
@@ -801,10 +798,8 @@ describe('App — the reader\'s settings: one read on mount, then the dialog\'s 
     // Not known — and not "no postcode": nothing on the page may tell this reader to set one.
     expect(providerProps(providerSpy).homePlace).toBeUndefined();
     expect(mapPaneProps.last.homeCoords).toBeUndefined();
-    // Nor a colour: the ramp keeps the default it started with, and no "colours changed" notice
-    // is owed to a reader nobody has heard from.
+    // Nor a colour: the ramp keeps the default it started with.
     expect(setModeSpy).not.toHaveBeenCalled();
-    expect(mapPaneProps.last.colourScaleDefaulted).toBe(false);
 
     await openSettings();
 

@@ -56,9 +56,24 @@ import {
  */
 export default function MapPeekTideSection({
   tide, activeRow = null, sunriseTime = null, sunsetTime = null, model, onSelectEv = undefined,
-  focusTargetRef = null,
+  focusTargetRef = null, locked = false,
 }) {
   if (!tide) return null;
+  // The LITE teaser (tide-pro-gate-plan.md §5.3 #3): kicker, state, one line. No height line (it
+  // carries `heightAtWindow`), no chart, no footer, no "No coastal spot in view".
+  if (locked) {
+    return (
+      <div data-testid="wf-map-peek-tide" className="wf-map-peek-pane">
+        <h3 className="wf-map-peek-tide-key" data-testid="wf-map-peek-tide-key">{TIDE_KICKER_TEXT}</h3>
+        <p className="wf-map-peek-tide-phase" data-testid="wf-map-peek-tide-phase">
+          {statePhrase(tide)}
+        </p>
+        <p className="wf-map-peek-tide-meta" data-testid="wf-map-peek-tide-locked">
+          The tide curve and spot matching are part of Pro.
+        </p>
+      </div>
+    );
+  }
   // The served, already-formatted height + the sibling solar row's own already-formatted clock
   // time — never re-derived, never given a unit of its own (`heightAtWindow` already carries "m").
   const heightTimeLine = [tide.heightAtWindow, activeRow?.time].filter(Boolean).join(' · ');
@@ -113,4 +128,6 @@ MapPeekTideSection.propTypes = {
   /** The Tide peek button — the section's own "stable focus target" (§3 M3 task 3), focused before
    * `onSelectEv` on the next-fit jump so a disappearing link never drops focus to `<body>`. */
   focusTargetRef: PropTypes.object,
+  /** The reader does not have the tide curve (LITE): draw the teaser content only. */
+  locked: PropTypes.bool,
 };

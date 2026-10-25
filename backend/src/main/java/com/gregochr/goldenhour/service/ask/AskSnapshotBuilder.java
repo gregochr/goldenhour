@@ -479,7 +479,7 @@ public class AskSnapshotBuilder {
         return new AskSnapshot.Slot(slot.locationId(), slot.locationName(), slot.claudeRating(),
                 slot.displayVerdict(), slot.claudeHeadline(), slot.canopy(),
                 fact == null ? null : fact.tideState(),
-                fact != null && fact.tideAligned(),
+                fact != null && Boolean.TRUE.equals(fact.tideAligned()),
                 fact == null ? null : fact.tideFitPhrase(),
                 Boolean.TRUE.equals(slot.neighbourOutlier()));
     }

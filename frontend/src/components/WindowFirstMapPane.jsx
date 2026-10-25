@@ -169,9 +169,6 @@ function subscribeForeignModalDom(onChange) {
  * @param {'temp'|'verdict'} [props.mapColourScale] the active scoreRamp mode, forwarded to
  *                                         `MapView` so a live switch reaches this pane's
  *                                         never-unmounted instance
- * @param {boolean}  [props.colourScaleDefaulted] whether the loaded colour preference was never
- *                                         explicitly chosen — forwarded to `MapView`'s one-time
- *                                         "colours changed" notice
  * @param {'auto'|'always'|'off'} [props.mapTideMode] the caller's persisted Map tab tide mode
  *                                         (map-mobile-sheet-plan.md M4) — forwarded to `MapView`
  *                                         on the same route as `mapColourScale`, above. Unread by
@@ -195,7 +192,7 @@ export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
   briefingScores = new Map(),
   seasonalFeatures = [], homeCoords,
-  mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null,
+  mapColourScale = null, mapTideMode = 'auto', saveTideMode = null,
   onOpenSettings = null, onOpenLocationSheet = null, onReturnToPlan = null,
   onLoadOlderDay = null, olderDayLoading = null, loadedPastDays = NO_LOADED_DAYS,
   emptyPastDays = NO_LOADED_DAYS,
@@ -297,7 +294,7 @@ export default function WindowFirstMapPane({
   useEffect(() => { import('./LocationFourDaySheet.jsx').catch(() => {}); }, []);
   const {
     heatSpots, heatPointSets, heatStripCards, upcomingEvents, reachById, homePlace, todayStr,
-    origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions,
+    origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions, tideLocked,
   } = useWindowFirstBriefing();
 
   // ── Ask PhotoCast (F3, docs/engineering/ask-photocast-plan.md §2.7) ─────────────────────────────
@@ -842,7 +839,6 @@ export default function WindowFirstMapPane({
         // rings toggle) onto home-only inside `MapView`.
         origin={origin}
         mapColourScale={mapColourScale}
-        colourScaleDefaulted={colourScaleDefaulted}
         // Unread by any UI until M5 (map-mobile-sheet-plan.md) — wired and tested in this phase so
         // M5 needs no new plumbing of its own.
         mapTideMode={mapTideMode}
@@ -885,6 +881,7 @@ export default function WindowFirstMapPane({
         onAskContext={onAskContext}
         askOffered={askOffered}
         askLocked={askLocked}
+        tideLocked={tideLocked}
         askPhase={askPhase}
         panelShown={panelShown}
         outcomeRatings={rewound ? null : outcomeRatings}
@@ -929,8 +926,6 @@ WindowFirstMapPane.propTypes = {
   homeCoords: PropTypes.object,
   /** The active `scoreRamp` mode — forwarded to `MapView` so its `React.memo` sees a live switch. */
   mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
-  /** Whether the colour preference was never explicitly chosen — forwarded to `MapView`'s notice. */
-  colourScaleDefaulted: PropTypes.bool,
   /**
    * The caller's persisted Map tab tide mode (map-mobile-sheet-plan.md M4) — forwarded to
    * `MapView` on the same route as `mapColourScale`. Unread by any UI until M5.

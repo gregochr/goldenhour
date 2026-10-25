@@ -169,7 +169,7 @@ export function recordReducer(record, action) {
  * @returns {{homePlace: (?string|undefined), homeCoords: (?{lat: number, lon: number}|undefined),
  *           postcodePromptDue: boolean, comingUpLastSeenDate: (?string|undefined), setComingUpLastSeenDate: function,
  *           homeSettingsVersion: number, driveTimesVersion: number, mapColourScale: string,
- *           colourScaleDefaulted: boolean, startSettingsRead: function, homeSaved: function,
+ *           startSettingsRead: function, homeSaved: function,
  *           driveTimesRecalculated: function, colourSaved: function,
  *           mapTideMode: ('auto'|'always'|'off'), saveTideMode: function}}
  */
@@ -181,11 +181,6 @@ export default function useReaderSettings() {
   // change to reach an already-alive instance — `setMode` alone only updates module state nothing
   // here is subscribed to. Read back via `getMode()` rather than duplicating its resolution rule.
   const [mapColourScale, setMapColourScale] = useState(getMode);
-  // Whether the loaded `mapColourScale` was raw-null — never explicitly chosen, so this reader's
-  // map just changed colour under them rather than reflecting a preference they picked themselves.
-  // The one thing the Map tab's one-time notice needs and `mapColourScale` above cannot answer:
-  // that mirrors the RESOLVED mode, and null resolves to the same `'temp'` an explicit choice does.
-  const [colourScaleDefaulted, setColourScaleDefaulted] = useState(false);
   // The Map tab's persisted tide mode (map-mobile-sheet-plan.md M4). 'auto' is both the default
   // before the mount read answers and what a null (never-chosen) server value means.
   const [mapTideMode, setMapTideMode] = useState('auto');
@@ -231,7 +226,6 @@ export default function useReaderSettings() {
   const applyColour = useCallback((scale) => {
     setMode(resolveMode(scale));
     setMapColourScale(getMode());
-    setColourScaleDefaulted(scale == null);
   }, []);
 
   useEffect(() => {
@@ -361,7 +355,6 @@ export default function useReaderSettings() {
     homeSettingsVersion: record.homeSettingsVersion,
     driveTimesVersion: record.driveTimesVersion,
     mapColourScale,
-    colourScaleDefaulted,
     startSettingsRead,
     homeSaved,
     driveTimesRecalculated,

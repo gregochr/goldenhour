@@ -118,6 +118,28 @@ public record BriefingWindow(
         this(eventTime, verdict, bestRating, confidence, pick, badges, topRarityRank, tide, null);
     }
 
+    /**
+     * Returns a copy carrying the given tide rollup, every other component unchanged.
+     *
+     * @param newTide the tide rollup, or null
+     * @return the copy
+     */
+    public BriefingWindow withTide(BriefingWindowTide newTide) {
+        return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, badges,
+                topRarityRank, newTide, tideFacts);
+    }
+
+    /**
+     * Returns a copy carrying the given per-location tide facts, every other component unchanged.
+     *
+     * @param newTideFacts the facts, or null for none
+     * @return the copy
+     */
+    public BriefingWindow withTideFacts(List<LocationTideFact> newTideFacts) {
+        return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, badges,
+                topRarityRank, tide, newTideFacts);
+    }
+
     /** Which of the forecast's two picks this is. */
     public enum PickKind {
         /** The single window worth planning for across the whole forecast. */

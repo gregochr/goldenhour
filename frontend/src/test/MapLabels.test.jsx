@@ -1159,7 +1159,6 @@ describe('MapLabels — obstacle seeding from the live chrome', () => {
   // any one piece fails its own case rather than a single combined test that could pass by
   // accident on the others.
   it.each([
-    ['colour-scale-notice', 'colour-scale-notice'],
     ['the LITE viewline upsell chip', 'viewline-upsell-chip'],
     ['the scored-locations legend', 'photocast-scored-legend'],
     // map-tab-v2-plan.md §3 P11 — the Regions jump list's own open dropdown, added to

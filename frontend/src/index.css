@@ -4129,6 +4129,19 @@ button.wf-hc.also.on:hover {
   margin-left: auto;
   color: var(--color-plex-text-muted);
 }
+.wf-tide-strip-locked {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+.wf-tide-strip-locked-spacer { flex: 1; min-width: 0; }
+/* Decorative only (aria-hidden): a fixed sine, one teal with the state, softened. */
+.wf-tide-strip-spark { flex: none; opacity: .55; filter: blur(1.2px); }
+.wf-tide-strip-locked > .wf-lens-pro { flex: none; }
+/* The kicker shrinks first, so the Pro pill is never clipped. */
+.wf-tide-strip-locked > .wf-tide-strip-kicker { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .wf-tide-strip-collapsed {
   display: flex;
   align-items: center;
@@ -5211,6 +5224,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    it — three words ("Auto", "Always", "Off") plus a sentence would not fit one line at any phone
    width this pane supports. */
 .wf-map-peek-lay-tide-row { align-items: center; }
+/* The Tide mode segment's wrapper: carries `.wf-lens-locked` for a LITE reader; the Pro pill sits outside it. */
+.wf-map-peek-tide-seg-group { display: inline-flex; align-items: center; gap: 8px; }
+.wf-map-peek-tide-seg-wrap { display: inline-flex; }
 .wf-map-peek-tide-hint {
   font-family: var(--font-mono);
   font-size: 9.5px;
