@@ -7,6 +7,7 @@ import { buildChronology, chipCounts, FOOTER } from '../utils/comingUpFeed.js';
 import { CHIP_GLYPHS } from '../utils/comingUpGlyphs.js';
 import { deriveBadge, selectSinceEntry } from '../utils/comingUpArrivals.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
+import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 
 /** Served counts default to zero, matching a payload that has not arrived yet or a degraded
  * legacy shape ({@code {entries: []}}, which carries no {@code counts} key at all). */
@@ -87,6 +88,7 @@ export default function WindowFirstComingUp({
   onGoToPlanWindow = undefined,
 }) {
   const [activeFilter, setActiveFilter] = useState('all');
+  const { tideLocked } = useWindowFirstBriefing();
 
   const counts = events?.counts ?? EMPTY_COUNTS;
   const totalEntries = events?.entries?.length ?? 0;
@@ -108,6 +110,15 @@ export default function WindowFirstComingUp({
       ? new Set(monthGroups.flatMap((group) => group.entries.map((entry) => entry.id)))
       : new Set()),
     [status, monthGroups],
+  );
+  // The one card that carries the Lite tide-light Pro door (tide-light-pro-plan.md F2, Q9): the FIRST
+  // rendered entry (under the active chip, in month order) the server marked `lightRowsWithheld`. Decided
+  // here, where the whole rendered order is known, and handed down as a boolean. Pro/Admin never get one.
+  const tideLightDoorId = useMemo(
+    () => (tideLocked && status === 'ready'
+      ? monthGroups.flatMap((group) => group.entries).find((entry) => entry.lightRowsWithheld)?.id ?? null
+      : null),
+    [tideLocked, status, monthGroups],
   );
   // The since-line's own two derivations (plan D3/D12) — read straight off the UNFILTERED served
   // entries/bands, never the active chip's filtered subset: the badge and the since-line describe
@@ -333,6 +344,7 @@ export default function WindowFirstComingUp({
                   entry={entry}
                   onGoToPlan={onGoToPlan}
                   onShowOnMap={onShowOnMap}
+                  showTideLightDoor={tideLightDoorId !== null && entry.id === tideLightDoorId}
                 />
               ))}
             </div>

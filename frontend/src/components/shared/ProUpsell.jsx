@@ -14,6 +14,10 @@ export const BEST_BETS_UPSELL_LABEL = 'Best bets';
 export const BEST_BETS_UPSELL_HEADING = 'Best bets';
 export const BEST_BETS_UPSELL_BODY = "See the forecast's two best windows, and where to go for each.";
 
+export const TIDE_LIGHT_UPSELL_LABEL = 'When high water meets the light';
+export const TIDE_LIGHT_UPSELL_HEADING = 'High water at the light';
+export const TIDE_LIGHT_UPSELL_BODY = 'Pro shows which morning or evening in a tide run puts high water at sunrise or sunset, and how the tide sits at the light at every coastal spot.';
+
 export const AURORA_UPSELL_HEADING = 'Aurora forecasts';
 export const AURORA_UPSELL_BODY = 'See where the aurora should show, rated at each dark-sky location, with how far south it should reach.';
 
