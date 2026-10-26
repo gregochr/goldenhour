@@ -145,6 +145,111 @@ class SubRegionsJpaTest {
         assertThat(NameNamespaceGuard.areaAliasMinWords(AreaKind.NAMED)).isEqualTo(2);
     }
 
+    // --- the extra name rules for a sub-region (mirroring V191's pre-flight) ---
+
+    @Test
+    @DisplayName("a sub-region name or alias inside an ENABLED region name is refused; inside a disabled one is not")
+    void subRegionName_insideARegionName() {
+        assertThatThrownBy(() -> subRegion("Yorkshire Dales", dales))
+                .isInstanceOf(NameClashException.class).hasMessageContaining("region name 'The Yorkshire Dales'");
+        assertThatThrownBy(() -> subRegion("Swaledale", dales, "Lake District"))
+                .isInstanceOf(NameClashException.class).hasMessageContaining("The Lake District");
+        entityManager.persistAndFlush(RegionEntity.builder().name("Old Moorland").enabled(false)
+                .createdAt(LocalDateTime.of(2026, 2, 22, 12, 0)).build());
+
+        assertThat(subRegion("Moorland", dales).name()).isEqualTo("Moorland");
+    }
+
+    @Test
+    @DisplayName("a sub-region name or alias may not sit inside another area's name or alias")
+    void subRegionName_insideAnotherArea() {
+        subRegion("Upper Swaledale Country", dales, "Swale Valley");
+
+        assertThatThrownBy(() -> subRegion("Wensleydale", dales, "Swale Valley Walk"))
+                .isInstanceOf(NameClashException.class).hasMessageContaining("contains 'Swale Valley'");
+        assertThatThrownBy(() -> subRegion("Nidderdale", dales, "Swale Valley"))
+                .isInstanceOf(NameClashException.class);
+        assertThatThrownBy(() -> subRegion("Swaledale Country", dales))
+                .isInstanceOf(NameClashException.class).hasMessageContaining("is part of");
+    }
+
+    @Test
+    @DisplayName("a sub-region name that contains another area's name is refused, for a named area's name and "
+            + "a sub-region's alias alike")
+    void subRegionName_containingAnotherArea() {
+        subRegion("Wensleydale", dales, "Upper Wensleydale");
+        areaService.create(new AreaRequest("Roman Wall", List.of("Wall Country")));
+
+        assertThatThrownBy(() -> subRegion("Wensleydale Cheese Country", dales))
+                .isInstanceOf(NameClashException.class).hasMessageContaining("contains 'Wensleydale'");
+        assertThatThrownBy(() -> subRegion("Swaledale", dales, "Upper Wensleydale Way"))
+                .isInstanceOf(NameClashException.class).hasMessageContaining("Upper Wensleydale");
+        assertThatThrownBy(() -> subRegion("Roman Wall Walks", dales))
+                .isInstanceOf(NameClashException.class).hasMessageContaining("named area 'Roman Wall'");
+        assertThatThrownBy(() -> subRegion("Wall Country Walks", dales))
+                .isInstanceOf(NameClashException.class).hasMessageContaining("Wall Country");
+    }
+
+    @Test
+    @DisplayName("the one exception: \"Hadrian's Wall & Tynedale\" may contain the NAMED area \"Hadrian's Wall\", "
+            + "and nothing else like it")
+    void subRegionName_theWallException() {
+        areaService.create(new AreaRequest("Hadrian's Wall", List.of("Roman Wall")));
+
+        assertThat(subRegion("Hadrian's Wall & Tynedale", lakes, "Tynedale").name())
+                .isEqualTo("Hadrian's Wall & Tynedale");
+        assertThatThrownBy(() -> subRegion("Hadrian's Wall Path", dales))
+                .isInstanceOf(NameClashException.class).hasMessageContaining("contains 'Hadrian's Wall'");
+        assertThatThrownBy(() -> subRegion("Hadrian's Wall & Tynedale Way", dales))
+                .isInstanceOf(NameClashException.class);
+    }
+
+    @Test
+    @DisplayName("the exception needs the NAMED Wall area: a sub-region called \"Hadrian's Wall\" does not allow it")
+    void subRegionName_exceptionNeedsTheNamedArea() {
+        subRegion("Hadrian's Wall", lakes);
+
+        assertThatThrownBy(() -> subRegion("Hadrian's Wall & Tynedale", dales))
+                .isInstanceOf(NameClashException.class);
+    }
+
+    @Test
+    @DisplayName("renaming a sub-region is not a clash with its own old names")
+    void subRegionName_ownNamesAreNotAClash() {
+        AreaDto created = subRegion("Swaledale", dales, "Teesdale");
+
+        AreaDto renamed = areaService.update(created.id(), new AreaRequest("Swaledale Dale Country",
+                List.of("Teesdale", "Swaledale")));
+
+        assertThat(renamed.aliases()).containsExactly("Swaledale", "Teesdale");
+    }
+
+    // --- the persistence context after a native write ---
+
+    @Test
+    @DisplayName("a move followed by a read in the same transaction sees the move, with no reload in between")
+    void move_thenRead_withoutReload() {
+        AreaDto swale = subRegion("Swaledale", dales);
+        AreaDto wensley = subRegion("Wensleydale", dales);
+        LocationEntity force = location("High Force", dales);
+        membership.assign(force, swale.id());
+        assertThat(membership.membersByArea()).containsEntry(swale.id(), List.of(force.getId()));
+        assertThat(membership.subRegionOf(force.getId())).contains(swale.id());
+
+        membership.assign(force, wensley.id());
+
+        assertThat(membership.membersByArea()).doesNotContainKey(swale.id())
+                .containsEntry(wensley.id(), List.of(force.getId()));
+        assertThat(membership.membersOf(swale.id())).isEmpty();
+        assertThat(membership.subRegionOf(force.getId())).contains(wensley.id());
+        assertThat(areaService.findAll()).filteredOn(a -> a.id().equals(wensley.id()))
+                .singleElement().satisfies(a -> assertThat(a.locationIds()).containsExactly(force.getId()));
+
+        membership.clear(force.getId());
+        assertThat(membership.membersByArea()).isEmpty();
+        assertThat(membership.reconcileRegion(force)).as("already cleared").isFalse();
+    }
+
     // --- updating ---
 
     @Test

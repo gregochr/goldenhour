@@ -108,7 +108,7 @@ public class AreaService {
         List<String> aliases = NameNamespaceGuard.cleanAliases(request.aliases(),
                 NameNamespaceGuard.areaAliasMinWords(kind),
                 "An area alias");
-        checkNames(name, aliases, null);
+        checkNames(name, aliases, null, kind);
         AreaEntity area = new AreaEntity();
         area.setName(name);
         area.setKind(kind);
@@ -139,7 +139,7 @@ public class AreaService {
         List<String> aliases = NameNamespaceGuard.cleanAliases(request.aliases(),
                 NameNamespaceGuard.areaAliasMinWords(area.getKind()),
                 "An area alias");
-        checkNames(name, aliases, id);
+        checkNames(name, aliases, id, area.getKind());
         area.setName(name);
         area.getAliases().clear();
         area.getAliases().addAll(aliases);
@@ -210,7 +210,14 @@ public class AreaService {
                         + ": move them to another sub-region before deleting it");
             }
         }
-        areaRepository.delete(area);
+        try {
+            areaRepository.delete(area);
+            areaRepository.flush();
+        } catch (DataIntegrityViolationException e) {
+            // A member was added between the count above and the delete: the RESTRICT key caught it.
+            throw new AreaConflictException("'" + area.getName() + "' still has locations, or is still in use: "
+                    + "move them to another sub-region before deleting it");
+        }
         LOG.info("Deleted named area '{}'", area.getName());
     }
 
@@ -232,7 +239,7 @@ public class AreaService {
     }
 
     /** Every name against the namespace, and against the others in the same request. */
-    private void checkNames(String name, List<String> aliases, Long excludeAreaId) {
+    private void checkNames(String name, List<String> aliases, Long excludeAreaId, AreaKind kind) {
         List<String> all = new ArrayList<>();
         all.add(name);
         all.addAll(aliases);
@@ -244,6 +251,12 @@ public class AreaService {
             Optional<String> clash = nameGuard.areaNameClash(candidate, excludeAreaId);
             if (clash.isPresent()) {
                 throw new NameClashException(clash.get());
+            }
+            if (kind == AreaKind.SUB_REGION) {
+                clash = nameGuard.subRegionNameClash(candidate, excludeAreaId);
+                if (clash.isPresent()) {
+                    throw new NameClashException(clash.get());
+                }
             }
         }
     }

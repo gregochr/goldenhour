@@ -430,6 +430,15 @@ BEGIN
         RAISE EXCEPTION 'V191 pre-flight: region(s) missing: %', problem;
     END IF;
 
+    -- The name check below compares different owners, so a seeded name that is already an area's own name
+    -- (the unique index would fail the INSERT with a less helpful message) is caught here.
+    SELECT string_agg(a.name, ', ') INTO problem
+    FROM pf_area a
+    WHERE EXISTS (SELECT 1 FROM area x WHERE pg_temp.v191_fold(x.name) = pg_temp.v191_fold(a.name));
+    IF problem IS NOT NULL THEN
+        RAISE EXCEPTION 'V191 pre-flight: sub-region name(s) already exist as an area: %', problem;
+    END IF;
+
     SELECT string_agg(d.candidate, ', ') INTO problem
     FROM (SELECT lower(replace(candidate, '’', '''')) AS candidate
           FROM pf_member

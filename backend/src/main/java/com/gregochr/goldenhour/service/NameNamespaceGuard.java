@@ -2,11 +2,13 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.AreaEntity;
 import com.gregochr.goldenhour.entity.AreaKind;
+import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.LocationAliasEntity;
 import com.gregochr.goldenhour.model.LocationNameRow;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationAliasRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.util.PlaceNames;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +35,10 @@ public class NameNamespaceGuard {
     private static final int MIN_LENGTH = 2;
     private static final int MAX_LENGTH = 80;
 
+    /** The one allowed containment: the sub-region name, and the V189 named area it contains. */
+    private static final List<String> WALL_SUB_REGION_WORDS = PlaceNames.words("Hadrian's Wall & Tynedale");
+    private static final List<String> WALL_AREA_WORDS = PlaceNames.words("Hadrian's Wall");
+
     /** The fewest words a named area's alias may have ("the Wall" alone is too loose). */
     static final int NAMED_ALIAS_MIN_WORDS = 2;
 
@@ -42,6 +48,7 @@ public class NameNamespaceGuard {
     private final LocationRepository locationRepository;
     private final LocationAliasRepository locationAliasRepository;
     private final AreaRepository areaRepository;
+    private final RegionRepository regionRepository;
 
     /**
      * Constructs the guard.
@@ -49,9 +56,12 @@ public class NameNamespaceGuard {
      * @param locationRepository      the locations
      * @param locationAliasRepository the location aliases
      * @param areaRepository          the named areas
+     * @param regionRepository        the regions, for the sub-region rule
      */
     public NameNamespaceGuard(LocationRepository locationRepository,
-            LocationAliasRepository locationAliasRepository, AreaRepository areaRepository) {
+            LocationAliasRepository locationAliasRepository, AreaRepository areaRepository,
+            RegionRepository regionRepository) {
+        this.regionRepository = regionRepository;
         this.locationRepository = locationRepository;
         this.locationAliasRepository = locationAliasRepository;
         this.areaRepository = areaRepository;
@@ -154,6 +164,67 @@ public class NameNamespaceGuard {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * The extra rules for a {@link AreaKind#SUB_REGION} name or alias, on top of {@link #areaNameClash}: it
+     * may not sit inside (as a run of whole words) an enabled region's name, nor sit inside or contain another
+     * area's name or alias (Ask picks an area by its longest matched run, so a nested name would hijack the
+     * longer one). V191's pre-flight enforces the same rules on the seed. The one allowed containment is the
+     * name "Hadrian's Wall &amp; Tynedale" over the named area "Hadrian's Wall"; a disabled region is invisible
+     * to Ask and is not checked.
+     *
+     * @param candidate     the sub-region's name or alias
+     * @param excludeAreaId the sub-region being edited, whose own names are not a clash; null for a new one
+     * @return the clash, or empty
+     */
+    @Transactional(readOnly = true)
+    public Optional<String> subRegionNameClash(String candidate, Long excludeAreaId) {
+        List<String> words = PlaceNames.words(candidate);
+        if (words.isEmpty()) {
+            return Optional.empty();
+        }
+        for (RegionEntity region : regionRepository.findAllByEnabledTrueOrderByNameAsc()) {
+            if (PlaceNames.containsRun(PlaceNames.words(region.getName()), words)) {
+                return Optional.of("'" + candidate + "' is part of the region name '" + region.getName() + "'");
+            }
+        }
+        for (AreaEntity area : areaRepository.findAll()) {
+            if (Objects.equals(area.getId(), excludeAreaId)) {
+                continue;
+            }
+            Optional<String> clash = nestedNameClash(candidate, words, area, area.getName());
+            if (clash.isEmpty()) {
+                for (String alias : area.getAliases()) {
+                    clash = nestedNameClash(candidate, words, area, alias);
+                    if (clash.isPresent()) {
+                        break;
+                    }
+                }
+            }
+            if (clash.isPresent()) {
+                return clash;
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** One other area name or alias against a sub-region candidate: inside it, or containing it. */
+    private static Optional<String> nestedNameClash(String candidate, List<String> words, AreaEntity area,
+            String other) {
+        List<String> otherWords = PlaceNames.words(other);
+        boolean inside = PlaceNames.containsRun(otherWords, words);
+        boolean containing = PlaceNames.containsRun(words, otherWords);
+        if (!inside && !containing) {
+            return Optional.empty();
+        }
+        if (!inside && area.getKind() == AreaKind.NAMED && other.equals(area.getName())
+                && words.equals(WALL_SUB_REGION_WORDS) && otherWords.equals(WALL_AREA_WORDS)) {
+            return Optional.empty();
+        }
+        return Optional.of("'" + candidate + "' " + (inside ? "is part of" : "contains") + " '" + other
+                + "', a name for the " + (area.isSubRegion() ? "sub-region" : "named area") + " '" + area.getName()
+                + "'");
     }
 
     /**

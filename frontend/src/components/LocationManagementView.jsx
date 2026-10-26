@@ -262,6 +262,46 @@ function typesOrDefault(types) {
  * @param {object} props
  * @param {function} props.onLocationsChanged - Called when locations are added/updated/toggled.
  */
+/**
+ * The sub-region select shared by the edit row and the add form: only the sub-regions of the chosen region, and
+ * nothing at all when that region has none. The empty choice is offered only when it means something (a
+ * location with a sub-region cannot be left with none by a plain pick, since the API has no "clear").
+ */
+function SubRegionSelect({ subRegions, regionId, value, onChange, canBeEmpty, className, id, testId }) {
+  const options = subRegions.filter((a) => String(a.regionId) === String(regionId));
+  if (options.length === 0) return null;
+  return (
+    <select
+      id={id}
+      className={className}
+      aria-label="Sub-region"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      data-testid={testId}
+    >
+      {canBeEmpty && <option value="">— No sub-region —</option>}
+      {options.map((a) => (
+        <option key={a.id} value={a.id}>{a.name}</option>
+      ))}
+    </select>
+  );
+}
+
+SubRegionSelect.propTypes = {
+  subRegions: PropTypes.arrayOf(PropTypes.shape({
+    id: PropTypes.number.isRequired,
+    name: PropTypes.string.isRequired,
+    regionId: PropTypes.number,
+  })).isRequired,
+  regionId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+  value: PropTypes.string.isRequired,
+  onChange: PropTypes.func.isRequired,
+  canBeEmpty: PropTypes.bool.isRequired,
+  className: PropTypes.string,
+  id: PropTypes.string,
+  testId: PropTypes.string.isRequired,
+};
+
 export default function LocationManagementView({ onLocationsChanged }) {
   const [locations, setLocations] = useState([]);
   const [regions, setRegions] = useState([]);
@@ -294,6 +334,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [addLocationTypes, setAddLocationTypes] = useState(['LANDSCAPE']);
   const [addTideTypes, setAddTideTypes] = useState([]);
   const [addRegionId, setAddRegionId] = useState('');
+  const [addSubRegionId, setAddSubRegionId] = useState('');
   const [enrichmentData, setEnrichmentData] = useState(null);
   const [enriching, setEnriching] = useState(false);
   const [addOverlooksWater, setAddOverlooksWater] = useState(false);
@@ -344,8 +385,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
   }
 
   /** Reads the areas again after a location was saved, and tells the Areas section to do the same. */
-  async function refreshAreas() {
-    setAreasVersion((v) => v + 1);
+  async function refreshAreas(bump = true) {
+    if (bump) setAreasVersion((v) => v + 1);
     try {
       setAreas(await fetchAreas());
     } catch {
@@ -410,6 +451,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setAddLocationTypes(['LANDSCAPE']);
     setAddTideTypes([]);
     setAddRegionId('');
+    setAddSubRegionId('');
     setEnrichmentData(null);
     setEnriching(false);
     setAddOverlooksWater(false);
@@ -544,6 +586,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
         } catch (aliasErr) {
           await refreshLocations();
           onLocationsChanged();
+          // The location itself is saved: what the form holds for region and sub-region is now the stored truth.
+          setEditValues((prev) => (prev
+            ? { ...prev, regionBaseline: prev.regionId, subRegionBaseline: prev.subRegionId }
+            : prev));
           setEditError('Location saved; its other names were not');
           setAliasDetail(aliasErr?.response?.data?.error ?? '');
           return;
@@ -618,6 +664,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         locationTypes: addLocationTypes,
         tideTypes: addIsCoastal ? addTideTypes : [],
         regionId: addRegionId ? Number(addRegionId) : null,
+        subRegionId: addSubRegionId ? Number(addSubRegionId) : null,
       });
     } else {
       if (!geocodeResult) return;
@@ -631,6 +678,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         locationTypes: addLocationTypes,
         tideTypes: addIsCoastal ? addTideTypes : [],
         regionId: addRegionId ? Number(addRegionId) : null,
+        subRegionId: addSubRegionId ? Number(addSubRegionId) : null,
         bortleClass: enrichmentData?.bortleClass ?? null,
         skyBrightnessSqm: enrichmentData?.skyBrightnessSqm ?? null,
         elevationMetres: enrichmentData?.elevationMetres ?? null,
@@ -663,8 +711,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
         overlooksWater: confirmData.overlooksWater,
         coastalTidal: confirmData.coastalTidal,
         mistProne: confirmData.mistProne === true,
+        ...(confirmData.subRegionId ? { subRegionId: confirmData.subRegionId } : {}),
       });
       await refreshLocations();
+      await refreshAreas();
       handleCancel();
     } catch (err) {
       setError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
@@ -679,6 +729,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
       try {
         await setLocationEnabled(loc.id, !loc.enabled);
         await refreshLocations();
+        // The "no sub-region" count only covers enabled locations.
+        await refreshAreas();
       } catch (err) {
         console.error('Failed to toggle location enabled:', err);
       }
@@ -894,22 +946,15 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                     <option key={r.id} value={r.id}>{r.name}</option>
                                   ))}
                                 </select>
-                                {subRegions.some((a) => String(a.regionId) === editValues.regionId) && (
-                                  <select
-                                    className={`${inlineSelectClass} mt-1`}
-                                    aria-label="Sub-region"
-                                    value={editValues.subRegionId}
-                                    onChange={(e) => handleEditChange('subRegionId', e.target.value)}
-                                    data-testid="inline-edit-sub-region"
-                                  >
-                                    {(!editValues.subRegionBaseline || editValues.regionId !== editValues.regionBaseline) && (
-                                      <option value="">— No sub-region —</option>
-                                    )}
-                                    {subRegions.filter((a) => String(a.regionId) === editValues.regionId).map((a) => (
-                                      <option key={a.id} value={a.id}>{a.name}</option>
-                                    ))}
-                                  </select>
-                                )}
+                                <SubRegionSelect
+                                  subRegions={subRegions}
+                                  regionId={editValues.regionId}
+                                  value={editValues.subRegionId}
+                                  onChange={(v) => handleEditChange('subRegionId', v)}
+                                  canBeEmpty={!editValues.subRegionBaseline || editValues.regionId !== editValues.regionBaseline}
+                                  className={`${inlineSelectClass} mt-1`}
+                                  testId="inline-edit-sub-region"
+                                />
                                 <label className="mt-1 flex items-start gap-1 text-xs text-plex-text-secondary cursor-pointer">
                                   <input
                                     className="shrink-0 mt-0.5"
@@ -1159,7 +1204,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
             <p className="text-sm text-plex-text-muted">No locations configured. Add one to get started.</p>
           )}
 
-          {!loading && <AreasSection locations={locations} reloadKey={areasVersion} />}
+          {!loading && <AreasSection locations={locations} reloadKey={areasVersion} onAreasChanged={() => refreshAreas(false)} />}
         </>
       )}
 
@@ -1390,7 +1435,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                 id="add-region"
                 className={selectClass}
                 value={addRegionId}
-                onChange={(e) => setAddRegionId(e.target.value)}
+                onChange={(e) => { setAddRegionId(e.target.value); setAddSubRegionId(''); }}
                 data-testid="add-region"
               >
                 <option value="">— None —</option>
@@ -1398,6 +1443,16 @@ export default function LocationManagementView({ onLocationsChanged }) {
                   <option key={r.id} value={r.id}>{r.name}</option>
                 ))}
               </select>
+              <SubRegionSelect
+                subRegions={subRegions}
+                regionId={addRegionId}
+                value={addSubRegionId}
+                onChange={setAddSubRegionId}
+                canBeEmpty
+                id="add-sub-region"
+                className={`${selectClass} mt-2`}
+                testId="add-sub-region"
+              />
             </div>
           </div>
 

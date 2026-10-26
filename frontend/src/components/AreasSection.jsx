@@ -26,8 +26,10 @@ const inputClass = 'w-full bg-plex-surface-light border border-plex-border round
  * @param {object} props
  * @param {Array<{id: number, name: string, enabled?: boolean}>} props.locations every location, for the picker
  * @param {number} [props.reloadKey] changes when a location was saved, so memberships are read again
+ * @param {() => void} [props.onAreasChanged] called after an area is created, renamed or deleted, so a
+ *   parent that lists sub-regions (the location form's select) can read them again
  */
-export default function AreasSection({ locations, reloadKey = 0 }) {
+export default function AreasSection({ locations, reloadKey = 0, onAreasChanged = undefined }) {
   const [areas, setAreas] = useState([]);
   // Enabled, regioned locations with no sub-region: null until read, and left null when the read fails.
   const [uncovered, setUncovered] = useState(null);
@@ -51,7 +53,7 @@ export default function AreasSection({ locations, reloadKey = 0 }) {
   useEffect(() => {
     let cancelled = false;
     fetchAreas()
-      .then((data) => { if (!cancelled) setAreas(data); })
+      .then((data) => { if (!cancelled) { setLoadError(''); setAreas(data); } })
       .catch(() => { if (!cancelled) setLoadError('Could not load areas.'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     fetchUncoveredLocations()
@@ -107,6 +109,7 @@ export default function AreasSection({ locations, reloadKey = 0 }) {
       const created = await createArea({ name: nameText, aliases: parseAliases(aliasText) });
       setAreas((prev) => [...prev, created]);
       setCreating(false);
+      if (onAreasChanged) onAreasChanged();
     } catch (err) {
       setFailure({ key: 'new', message: errorText(err, 'Failed to create the area.') });
     } finally {
@@ -122,6 +125,7 @@ export default function AreasSection({ locations, reloadKey = 0 }) {
     try {
       replaceArea(await updateArea(id, { name: nameText, aliases: parseAliases(aliasText) }));
       setSaved(`names-${id}`);
+      if (onAreasChanged) onAreasChanged();
     } catch (err) {
       setFailure({ key: `edit-${id}`, message: errorText(err, 'Failed to save the names.') });
     } finally {
@@ -152,6 +156,7 @@ export default function AreasSection({ locations, reloadKey = 0 }) {
       setAreas((prev) => prev.filter((a) => a.id !== id));
       setConfirmDeleteId(null);
       if (editingId === id) setEditingId(null);
+      if (onAreasChanged) onAreasChanged();
     } catch (err) {
       setFailure({ key: `delete-${id}`, message: errorText(err, 'Failed to delete the area.') });
     } finally {
@@ -450,4 +455,5 @@ AreasSection.propTypes = {
     enabled: PropTypes.bool,
   })).isRequired,
   reloadKey: PropTypes.number,
+  onAreasChanged: PropTypes.func,
 };

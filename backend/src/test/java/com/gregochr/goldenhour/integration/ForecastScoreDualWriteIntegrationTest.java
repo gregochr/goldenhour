@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.TokenUsage;
+import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.PipelineRunRepository;
@@ -67,6 +68,9 @@ class ForecastScoreDualWriteIntegrationTest extends IntegrationTestBase {
     private static final TargetType SUNSET = TargetType.SUNSET;
 
     @Autowired
+    private AreaRepository areaRepository;
+
+    @Autowired
     private ForecastResultHandler forecastResultHandler;
     @Autowired
     private ForecastScoreRepository forecastScoreRepository;
@@ -93,6 +97,8 @@ class ForecastScoreDualWriteIntegrationTest extends IntegrationTestBase {
         forecastScoreRepository.deleteAll();
         pipelineRunRepository.deleteAll();
         locationRepository.deleteAll();
+        // V191: a sub-region's region_id FK is RESTRICT, so the areas go before the regions.
+        areaRepository.deleteAll();
         regionRepository.deleteAll();
     }
 

@@ -2,9 +2,9 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.AreaEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.LocationSubRegionEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.exception.AreaConflictException;
+import com.gregochr.goldenhour.model.SubRegionMemberRow;
 import com.gregochr.goldenhour.model.UncoveredLocationDto;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -64,8 +64,8 @@ public class SubRegionMembershipService {
     @Transactional(readOnly = true)
     public Map<Long, List<Long>> membersByArea() {
         Map<Long, List<Long>> byArea = new LinkedHashMap<>();
-        for (LocationSubRegionEntity row : membership.findAll()) {
-            byArea.computeIfAbsent(row.getAreaId(), id -> new ArrayList<>()).add(row.getLocationId());
+        for (SubRegionMemberRow row : membership.findAllRows()) {
+            byArea.computeIfAbsent(row.areaId(), id -> new ArrayList<>()).add(row.locationId());
         }
         byArea.values().forEach(ids -> ids.sort(Comparator.naturalOrder()));
         return byArea;
@@ -79,8 +79,7 @@ public class SubRegionMembershipService {
      */
     @Transactional(readOnly = true)
     public List<Long> membersOf(Long areaId) {
-        return membership.findByAreaId(areaId).stream().map(LocationSubRegionEntity::getLocationId).sorted()
-                .toList();
+        return membership.findLocationIdsByAreaId(areaId).stream().sorted().toList();
     }
 
     /**
@@ -102,7 +101,7 @@ public class SubRegionMembershipService {
      */
     @Transactional(readOnly = true)
     public Optional<Long> subRegionOf(Long locationId) {
-        return membership.findByLocationId(locationId).map(LocationSubRegionEntity::getAreaId);
+        return membership.findAreaIdsByLocationId(locationId).stream().findFirst();
     }
 
     /**
@@ -158,8 +157,7 @@ public class SubRegionMembershipService {
     @Transactional
     public void assign(LocationEntity location, Long areaId) {
         AreaEntity area = requireAssignable(areaId, location.getRegion());
-        Long previous = membership.findByLocationId(location.getId()).map(LocationSubRegionEntity::getAreaId)
-                .orElse(null);
+        Long previous = membership.findAreaIdsByLocationId(location.getId()).stream().findFirst().orElse(null);
         if (Objects.equals(previous, area.getId())) {
             return;
         }
@@ -198,11 +196,11 @@ public class SubRegionMembershipService {
      */
     @Transactional
     public boolean reconcileRegion(LocationEntity location) {
-        Optional<LocationSubRegionEntity> current = membership.findByLocationId(location.getId());
-        if (current.isEmpty()) {
+        Optional<Long> currentAreaId = membership.findAreaIdsByLocationId(location.getId()).stream().findFirst();
+        if (currentAreaId.isEmpty()) {
             return false;
         }
-        AreaEntity area = areaRepository.findById(current.get().getAreaId()).orElse(null);
+        AreaEntity area = areaRepository.findById(currentAreaId.get()).orElse(null);
         Long areaRegionId = area == null || area.getRegion() == null ? null : area.getRegion().getId();
         Long locationRegionId = location.getRegion() == null ? null : location.getRegion().getId();
         if (areaRegionId != null && areaRegionId.equals(locationRegionId)) {
@@ -210,7 +208,7 @@ public class SubRegionMembershipService {
         }
         membership.deleteMembership(location.getId());
         LOG.warn("Location '{}' left sub-region '{}' because its region changed; it now has no sub-region",
-                location.getName(), area == null ? current.get().getAreaId() : area.getName());
+                location.getName(), area == null ? currentAreaId.get() : area.getName());
         return true;
     }
 

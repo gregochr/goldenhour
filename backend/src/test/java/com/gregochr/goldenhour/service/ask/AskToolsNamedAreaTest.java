@@ -567,6 +567,34 @@ class AskToolsNamedAreaTest {
     }
 
     @Test
+    @DisplayName("worst case with the 'Also matched areas' note at its maximum: five other 80-character area "
+            + "names, every word of them in the query, on top of every other note, still at most 4,500 characters")
+    void areaWorstCaseWithAlsoMatchedAreasFitsHalfTheCap() {
+        List<AskSnapshot.Area> areas = new ArrayList<>();
+        StringBuilder query = new StringBuilder();
+        Long[] members = {1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L};
+        for (char c = 'A'; c <= 'G'; c++) {
+            String name = ("Sub Region " + c + " Of The Long Named Northern Uplands And Coast Country "
+                    + "Walks Extra Words Padding Padding").substring(0, 80).strip();
+            areas.add(new AskSnapshot.Area(name, List.of(), Set.of(members)));
+            query.append(name).append(' ');
+        }
+        AskSnapshot snapshot = areaWorstCase().withNames(areas, Map.of());
+
+        AskToolResult<LookUpPlaceResult> result = tools(snapshot).lookUpPlace(
+                new LookUpPlaceArgs(query.toString(), null));
+        LookUpPlaceResult payload = ok(result);
+
+        assertThat(payload.note()).contains("Also matched areas: ").contains("this result is for ")
+                .contains(AskTools.AREA_PLACES_CUT_NOTE).endsWith(AskTools.AREA_SUGGEST_NOTE);
+        String alsoMatched = payload.note().substring(payload.note().indexOf("Also matched areas: "));
+        assertThat(alsoMatched.substring(0, alsoMatched.indexOf(';')).split(", "))
+                .as("capped at MAX_ALSO_AREAS").hasSize(AskTools.MAX_ALSO_AREAS);
+        System.out.println("[look_up_place] also-matched-areas worst-case payload chars: " + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
+    }
+
+    @Test
     @DisplayName("worst case for a place found by another name: six rows, each with a 40-character matchedAlias, "
             + "still at most 4,500 characters")
     void aliasPlaceWorstCaseFitsHalfTheCap() {

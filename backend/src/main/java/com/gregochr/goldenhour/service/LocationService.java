@@ -123,6 +123,7 @@ public class LocationService {
      * @throws IllegalArgumentException if name is blank, lat/lon are out of range,
      *                                  or a location with the same name already exists
      */
+    @Transactional
     public LocationEntity add(AddLocationRequest request) {
         if (request.name() == null || request.name().isBlank()) {
             throw new IllegalArgumentException("Location name must not be blank");

@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
+import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
@@ -74,6 +75,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ForecastBatchPipelineIntegrationTest extends IntegrationTestBase {
 
     @Autowired
+    private AreaRepository areaRepository;
+
+    @Autowired
     private BatchSubmissionService batchSubmissionService;
 
     @Autowired
@@ -113,6 +117,8 @@ class ForecastBatchPipelineIntegrationTest extends IntegrationTestBase {
         forecastBatchRepository.deleteAll();
         forecastScoreRepository.deleteAll();
         locationRepository.deleteAll();
+        // V191: a sub-region's region_id FK is RESTRICT, so the areas go before the regions.
+        areaRepository.deleteAll();
         regionRepository.deleteAll();
     }
 

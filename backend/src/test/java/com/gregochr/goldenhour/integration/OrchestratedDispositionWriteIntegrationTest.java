@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CandidateDisposition;
+import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
@@ -70,6 +71,9 @@ import static org.mockito.Mockito.when;
 class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
 
     @Autowired
+    private AreaRepository areaRepository;
+
+    @Autowired
     private PipelineOrchestrator orchestrator;
 
     @Autowired
@@ -120,6 +124,8 @@ class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
         jobRunRepository.deleteAll();
         pipelineRunRepository.deleteAll();
         locationRepository.deleteAll();
+        // V191: a sub-region's region_id FK is RESTRICT, so the areas go before the regions.
+        areaRepository.deleteAll();
         regionRepository.deleteAll();
     }
 

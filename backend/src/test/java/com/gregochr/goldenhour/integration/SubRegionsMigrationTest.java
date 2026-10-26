@@ -379,6 +379,20 @@ class SubRegionsMigrationTest {
     }
 
     @Test
+    @DisplayName("pre-flight: a sub-region name that already exists as an area (in any case or punctuation) "
+            + "stops the migration with a clear message")
+    void preflightRaisesWhenASeededNameAlreadyExistsAsAnArea() throws SQLException {
+        assertPreflightRaises(st -> st.executeUpdate("INSERT INTO area (name) VALUES ('swaledale')"),
+                "already exist as an area", "Swaledale");
+        // Same folding as the guard: the curly apostrophe and a dash for the ampersand do not make a different name.
+        try (Connection c = connect(); Statement st = c.createStatement()) {
+            st.executeUpdate("DELETE FROM area WHERE name = 'swaledale'");
+            st.executeUpdate("INSERT INTO area (name) VALUES ('Hadrian’s Wall - Tynedale')");
+        }
+        assertThatThrownBy(() -> flyway("191").migrate()).hasMessageContaining("V191 pre-flight");
+    }
+
+    @Test
     @DisplayName("pre-flight: an existing area whose alias is a sub-region's name stops the migration")
     void preflightRaisesOnAnExistingAreaAliasEqualToAName() throws SQLException {
         assertPreflightRaises(st -> {

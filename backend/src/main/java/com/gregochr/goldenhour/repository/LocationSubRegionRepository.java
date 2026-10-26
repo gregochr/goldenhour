@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.LocationSubRegionEntity;
+import com.gregochr.goldenhour.model.SubRegionMemberRow;
 import com.gregochr.goldenhour.model.UncoveredLocationDto;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -9,7 +10,6 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Reads, and with three native statements writes, {@code location_sub_region} (V191).
@@ -24,27 +24,34 @@ import java.util.Optional;
 public interface LocationSubRegionRepository extends Repository<LocationSubRegionEntity, Long> {
 
     /**
-     * Every membership row.
+     * Every membership row as scalars. Reads are scalar projections, never managed entities, on purpose: the
+     * writers below are native statements the persistence context cannot see, so a managed entity read earlier
+     * in the same transaction would be stale, and clearing the context instead would detach the caller's own
+     * entities. A scalar query always asks the database.
      *
      * @return all rows
      */
-    List<LocationSubRegionEntity> findAll();
+    @Query("select new com.gregochr.goldenhour.model.SubRegionMemberRow(m.areaId, m.locationId) "
+            + "from LocationSubRegionEntity m")
+    List<SubRegionMemberRow> findAllRows();
 
     /**
-     * The membership of one location, if it has one.
+     * The sub-region a location belongs to, if any.
      *
      * @param locationId the location
-     * @return the row, or empty
+     * @return a list of at most one area id
      */
-    Optional<LocationSubRegionEntity> findByLocationId(Long locationId);
+    @Query("select m.areaId from LocationSubRegionEntity m where m.locationId = :locationId")
+    List<Long> findAreaIdsByLocationId(@Param("locationId") Long locationId);
 
     /**
      * The members of one sub-region.
      *
      * @param areaId the sub-region's area id
-     * @return its rows
+     * @return its member location ids
      */
-    List<LocationSubRegionEntity> findByAreaId(Long areaId);
+    @Query("select m.locationId from LocationSubRegionEntity m where m.areaId = :areaId")
+    List<Long> findLocationIdsByAreaId(@Param("areaId") Long areaId);
 
     /**
      * How many locations a sub-region holds.
@@ -73,7 +80,7 @@ public interface LocationSubRegionRepository extends Repository<LocationSubRegio
      * @param areaId     the new sub-region
      * @return rows changed: 1, or 0 when the location has no membership yet
      */
-    @Modifying(flushAutomatically = true)
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
     @Transactional
     @Query(value = "UPDATE location_sub_region SET area_id = :areaId WHERE location_id = :locationId",
             nativeQuery = true)
@@ -86,7 +93,7 @@ public interface LocationSubRegionRepository extends Repository<LocationSubRegio
      * @param areaId     the sub-region
      * @return rows inserted (1)
      */
-    @Modifying(flushAutomatically = true)
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
     @Transactional
     @Query(value = "INSERT INTO location_sub_region (location_id, area_id) VALUES (:locationId, :areaId)",
             nativeQuery = true)
@@ -98,7 +105,7 @@ public interface LocationSubRegionRepository extends Repository<LocationSubRegio
      * @param locationId the location
      * @return rows deleted: 1, or 0 when it had none
      */
-    @Modifying(flushAutomatically = true)
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
     @Transactional
     @Query(value = "DELETE FROM location_sub_region WHERE location_id = :locationId", nativeQuery = true)
     int deleteMembership(@Param("locationId") Long locationId);

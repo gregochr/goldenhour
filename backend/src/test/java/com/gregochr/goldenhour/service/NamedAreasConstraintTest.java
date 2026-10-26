@@ -85,6 +85,20 @@ class NamedAreasConstraintTest {
     }
 
     @Test
+    @DisplayName("delete() turns a foreign-key violation at flush (a member added in the gap) into a 409")
+    void delete_violation_isAConflict() {
+        AreaEntity loaded = new AreaEntity();
+        loaded.setName("Swaledale");
+        when(areaRepository.findById(3L)).thenReturn(Optional.of(loaded));
+        org.mockito.Mockito.doThrow(new DataIntegrityViolationException("location_sub_region_area_id_fkey"))
+                .when(areaRepository).flush();
+
+        assertThatThrownBy(() -> areaService.delete(3L))
+                .isInstanceOf(com.gregochr.goldenhour.exception.AreaConflictException.class)
+                .hasMessageContaining("Swaledale");
+    }
+
+    @Test
     @DisplayName("setLocations() turns a violation at flush into a NameClashException (409)")
     void setLocations_violation_isAClash() {
         AreaEntity loaded = new AreaEntity();

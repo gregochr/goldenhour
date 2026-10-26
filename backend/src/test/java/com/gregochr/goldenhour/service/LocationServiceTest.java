@@ -1435,6 +1435,16 @@ class LocationServiceTest {
         verifyNoInteractions(subRegionMembership);
     }
 
+    @Test
+    @DisplayName("add() and update() are each one transaction, so a failed sub-region assignment leaves no "
+            + "committed location")
+    void addAndUpdate_areTransactional() throws NoSuchMethodException {
+        assertThat(LocationService.class.getMethod("add", AddLocationRequest.class)
+                .isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class)).isTrue();
+        assertThat(LocationService.class.getMethod("update", Long.class, UpdateLocationRequest.class)
+                .isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class)).isTrue();
+    }
+
     private LocationEntity buildEntity(String name, double lat, double lon) {
         return LocationEntity.builder()
                 .id(1L)
