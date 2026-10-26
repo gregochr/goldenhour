@@ -365,8 +365,10 @@ public class ForecastDtoMapper {
      * Maps a single entity to a DTO, shaping the Pro-only fields by user tier.
      *
      * <p>For LITE users, {@code fierySkyPotential}, {@code goldenHourPotential}, {@code summary}
-     * and {@code headline} are null; the star rating is free. For PRO/ADMIN users, the enhanced
-     * directional scores, summary and headline are used directly.
+     * and {@code headline} are null, as are the tide heights ({@code nextHighTideHeightMetres},
+     * {@code nextLowTideHeightMetres}) and the tide match ({@code tideAligned}); the star rating, tide
+     * state, high/low-water times and surge block are free. For PRO/ADMIN users, the enhanced
+     * directional scores, summary, headline and tide heights are used directly.
      *
      * @param entity     the forecast evaluation entity
      * @param isLiteUser true if the caller is a LITE_USER
@@ -469,6 +471,11 @@ public class ForecastDtoMapper {
         }
 
         TideDetails tide = TideDetails.orEmpty(entity.getTide());
+        // Tide heights and the per-location tide match are Pro/Admin only (owner decision 2026-10-26);
+        // state, high/low-water times and the surge block stay free for every role.
+        BigDecimal nextHighTideHeight = isLiteUser ? null : tide.getNextHighHeightMetres();
+        BigDecimal nextLowTideHeight = isLiteUser ? null : tide.getNextLowHeightMetres();
+        Boolean tideAligned = isLiteUser ? null : tide.getAligned();
         DirectionalCloudDetails dc = DirectionalCloudDetails.orEmpty(entity.getDirectionalCloud());
         CloudApproachDetails approach = CloudApproachDetails.orEmpty(entity.getCloudApproach());
         StormSurgeDetails surge = StormSurgeDetails.orEmpty(entity.getSurge());
@@ -511,10 +518,10 @@ public class ForecastDtoMapper {
                 entity.getDewPointCelsius(),
                 tide.getState(),
                 tide.getNextHighTime(),
-                tide.getNextHighHeightMetres(),
+                nextHighTideHeight,
                 tide.getNextLowTime(),
-                tide.getNextLowHeightMetres(),
-                tide.getAligned(),
+                nextLowTideHeight,
+                tideAligned,
                 dc.getSolarLow(),
                 dc.getSolarMid(),
                 dc.getSolarHigh(),
