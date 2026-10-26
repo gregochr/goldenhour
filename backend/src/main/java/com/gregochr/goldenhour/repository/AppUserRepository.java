@@ -673,6 +673,16 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
     int startSubRegionGraceIfUnset(@Param("id") Long id, @Param("graceUntil") LocalDate graceUntil);
 
     /**
+     * The id of the user with a login name, read as a scalar so no entity is loaded: the picks service takes the
+     * row lock ({@link #findByIdForUpdate}) BEFORE any entity read, so what it then decides from is not stale.
+     *
+     * @param username the login name
+     * @return the id, or empty if there is no such user
+     */
+    @Query("SELECT u.id FROM AppUserEntity u WHERE u.username = :username")
+    Optional<Long> findIdByUsername(@Param("username") String username);
+
+    /**
      * Stamps a reader's sub-region change unconditionally: a first choice, or a change inside the grace period.
      *
      * @param id  the user's primary key
@@ -716,12 +726,13 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
 
     /**
      * Clears the change stamp of every reader who has picked a given sub-region: the admin is removing it, and
-     * the re-pick must be free (sub-regions-plan §4.3). Run before the picks are deleted.
+     * the re-pick must be free (sub-regions-plan §4.3). Run before the picks are deleted. It does NOT clear the
+     * persistence context: its only caller, {@code AreaService.delete}, still holds the area it is about to delete.
      *
      * @param areaId the sub-region being removed
      * @return how many readers were cleared
      */
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
     @Transactional
     @Query("UPDATE AppUserEntity u SET u.subRegionsChangedAt = NULL WHERE u.id IN "
             + "(SELECT p.userId FROM AppUserSubRegionEntity p WHERE p.areaId = :areaId)")

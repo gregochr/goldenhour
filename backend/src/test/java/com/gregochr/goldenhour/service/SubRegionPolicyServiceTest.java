@@ -142,6 +142,18 @@ class SubRegionPolicyServiceTest {
     }
 
     @Test
+    @DisplayName("describe() refuses a candidate outside 1..the number of sub-regions, like the PUT")
+    void describe_validatesTheCandidate() {
+        when(policyRepository.findById((short) 1)).thenReturn(Optional.of(row(3)));
+        when(areaRepository.countByKind(AreaKind.SUB_REGION)).thenReturn(5L);
+
+        assertThatThrownBy(() -> service.describe(0)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("The limit must be between 1 and 5 (the number of sub-regions); 0 is not");
+        assertThatThrownBy(() -> service.describe(6)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("The limit must be between 1 and 5 (the number of sub-regions); 6 is not");
+    }
+
+    @Test
     @DisplayName("describe() counts the readers a candidate limit would leave over, or the saved limit's")
     void describe_countsAgainstTheCandidate() {
         when(policyRepository.findById((short) 1)).thenReturn(Optional.of(row(3)));

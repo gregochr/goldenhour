@@ -8,6 +8,9 @@ import SortableHeader from './shared/SortableHeader.jsx';
 import useSortAndFilter from '../hooks/useSortAndFilter.js';
 import { formatInstantUk } from '../utils/conversions.js';
 
+/** Columns in the users table (expand, name, email, role, created, last active, sub-regions, status, actions). */
+const USER_TABLE_COLUMNS = 9;
+
 /**
  * User management view with list/add/edit modes, sorting, filtering, and consistent card pattern.
  */
@@ -411,7 +414,7 @@ export default function UserManagementView() {
                       </tr>
                       {expandedUserId === user.id && (
                         <tr className="border-b border-plex-surface" data-testid={`user-detail-${user.id}`}>
-                          <td colSpan={9} className="py-3 px-4 bg-plex-surface-light/50">
+                          <td colSpan={USER_TABLE_COLUMNS} className="py-3 px-4 bg-plex-surface-light/50">
                             <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs">
                               <div className="flex gap-x-4">
                                 <span className="text-plex-text-muted font-medium">Legal</span>
@@ -456,7 +459,7 @@ export default function UserManagementView() {
                   ))}
                   {filteredUsers.length === 0 && users.length > 0 && (
                     <tr>
-                      <td colSpan={8} className="py-4 text-center text-xs text-plex-text-muted">
+                      <td colSpan={USER_TABLE_COLUMNS} className="py-4 text-center text-xs text-plex-text-muted">
                         No users match the current filters.
                       </td>
                     </tr>
@@ -464,7 +467,7 @@ export default function UserManagementView() {
                   {pageUsers.length > 0 && pageUsers.length < pagination.pageSize && (
                     Array.from({ length: pagination.pageSize - pageUsers.length }, (_, i) => (
                       <tr key={`spacer-${i}`} aria-hidden="true">
-                        <td colSpan={8} className="py-2 text-sm">&nbsp;</td>
+                        <td colSpan={USER_TABLE_COLUMNS} className="py-2 text-sm">&nbsp;</td>
                       </tr>
                     ))
                   )}

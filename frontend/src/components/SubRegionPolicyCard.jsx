@@ -25,7 +25,8 @@ export default function SubRegionPolicyCard() {
   const [policy, setPolicy] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [draft, setDraft] = useState('');
-  const [overLimit, setOverLimit] = useState(0);
+  // The readers-affected check for the current draft: { state: 'ready' | 'checking' | 'failed', count }.
+  const [preview, setPreview] = useState({ state: 'ready', count: 0 });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [savedNote, setSavedNote] = useState('');
@@ -39,7 +40,7 @@ export default function SubRegionPolicyCard() {
         setPolicy(loaded);
         setDraft(String(loaded.liteLimit));
         latestDraft.current = String(loaded.liteLimit);
-        setOverLimit(loaded.liteUsersOverLimit);
+        setPreview({ state: 'ready', count: loaded.liteUsersOverLimit });
       })
       .catch((err) => {
         if (!cancelled) setLoadError(apiErrorMessage(err, 'Could not load the sub-region limit.'));
@@ -58,6 +59,7 @@ export default function SubRegionPolicyCard() {
 
   const candidate = parseLimit(draft, policy.maxLimit);
   const changed = candidate !== null && candidate !== policy.liteLimit;
+  const overLimit = preview.count;
 
   function handleChange(event) {
     const text = event.target.value;
@@ -67,16 +69,17 @@ export default function SubRegionPolicyCard() {
     latestDraft.current = text;
     const next = parseLimit(text, policy.maxLimit);
     if (next === null || next === policy.liteLimit) {
-      setOverLimit(next === null ? 0 : policy.liteUsersOverLimit);
+      setPreview({ state: 'ready', count: next === null ? 0 : policy.liteUsersOverLimit });
       return;
     }
+    setPreview({ state: 'checking', count: 0 });
     getSubRegionPolicy(next)
-      .then((preview) => {
+      .then((answer) => {
         // A slower answer for an earlier keystroke must not overwrite the count for the current one.
-        if (latestDraft.current === text) setOverLimit(preview.liteUsersOverLimit);
+        if (latestDraft.current === text) setPreview({ state: 'ready', count: answer.liteUsersOverLimit });
       })
       .catch(() => {
-        if (latestDraft.current === text) setOverLimit(0);
+        if (latestDraft.current === text) setPreview({ state: 'failed', count: 0 });
       });
   }
 
@@ -90,7 +93,7 @@ export default function SubRegionPolicyCard() {
       setPolicy(saved);
       setDraft(String(saved.liteLimit));
       latestDraft.current = String(saved.liteLimit);
-      setOverLimit(saved.liteUsersOverLimit);
+      setPreview({ state: 'ready', count: saved.liteUsersOverLimit });
       setSavedNote(`Saved: Lite readers may now pick up to ${saved.liteLimit}.`);
     } catch (err) {
       setSaveError(apiErrorMessage(err, 'Could not save the sub-region limit.'));
@@ -120,6 +123,7 @@ export default function SubRegionPolicyCard() {
             max={policy.maxLimit}
             value={draft}
             onChange={handleChange}
+            disabled={saving}
             className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
           />
         </div>
@@ -127,7 +131,7 @@ export default function SubRegionPolicyCard() {
           type="button"
           className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={handleSave}
-          disabled={!changed || saving}
+          disabled={!changed || saving || preview.state !== 'ready'}
         >
           {saving ? 'Saving...' : 'Save'}
         </button>
@@ -137,7 +141,17 @@ export default function SubRegionPolicyCard() {
           Enter a whole number from 1 to {policy.maxLimit}.
         </p>
       )}
-      {candidate !== null && overLimit > 0 && (
+      {candidate !== null && preview.state === 'checking' && (
+        <p className="text-xs text-plex-text-muted" role="status" data-testid="sub-region-policy-checking">
+          Checking…
+        </p>
+      )}
+      {candidate !== null && preview.state === 'failed' && (
+        <p className="text-xs text-red-400" role="alert" data-testid="sub-region-policy-check-failed">
+          Couldn&apos;t check how many readers are affected.
+        </p>
+      )}
+      {candidate !== null && preview.state === 'ready' && overLimit > 0 && (
         <p className="text-xs text-amber-400" role="status" data-testid="sub-region-policy-warning">
           {overLimit} Lite {overLimit === 1 ? 'reader holds' : 'readers hold'} more than {candidate}{' '}
           {candidate === 1 ? 'pick' : 'picks'}. They keep them until they next change.

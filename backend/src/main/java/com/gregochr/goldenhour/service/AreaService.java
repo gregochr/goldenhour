@@ -234,7 +234,7 @@ public class AreaService {
             throw new AreaConflictException("'" + area.getName() + "' still has locations, or is still in use: "
                     + "move them to another sub-region before deleting it");
         }
-        LOG.info("Deleted named area '{}'", area.getName());
+        LOG.info("Deleted {} '{}'", area.isSubRegion() ? "sub-region" : "named area", area.getName());
     }
 
     /**

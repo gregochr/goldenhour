@@ -75,10 +75,14 @@ public class SubRegionPolicyService {
      * @param candidate a limit the admin is considering, so the response counts the readers it would leave
      *                  over their limit; null for the saved one
      * @return the saved limit, the largest limit allowed, and the over-limit count for the candidate
+     * @throws IllegalArgumentException if the candidate is outside 1..the number of sub-regions (HTTP 400)
      */
     @Transactional(readOnly = true)
     public SubRegionPolicyResponse describe(Integer candidate) {
         Snapshot now = current();
+        if (candidate != null) {
+            requireInRange(candidate, maxLimit());
+        }
         int against = candidate == null ? now.limit() : candidate;
         return new SubRegionPolicyResponse(now.limit(), maxLimit(), countOver(against), against,
                 now.updatedAt(), now.updatedBy());
@@ -100,10 +104,7 @@ public class SubRegionPolicyService {
         if (liteLimit == null) {
             throw new IllegalArgumentException("liteLimit is required");
         }
-        if (liteLimit < 1 || liteLimit > max) {
-            throw new IllegalArgumentException("The limit must be between 1 and " + max
-                    + " (the number of sub-regions); " + liteLimit + " is not");
-        }
+        requireInRange(liteLimit, max);
         SubRegionPolicyEntity row = policyRepository.findById(SubRegionPolicyEntity.ONLY_ID)
                 .orElseGet(SubRegionPolicyEntity::new);
         row.setLiteLimit(liteLimit.shortValue());
@@ -114,6 +115,13 @@ public class SubRegionPolicyService {
         LOG.info("Lite sub-region pick limit set to {} by {}", liteLimit, LogSanitizer.sanitize(updatedBy));
         return new SubRegionPolicyResponse(liteLimit, max, countOver(liteLimit), liteLimit, row.getUpdatedAt(),
                 row.getUpdatedBy());
+    }
+
+    private static void requireInRange(int limit, int max) {
+        if (limit < 1 || limit > max) {
+            throw new IllegalArgumentException("The limit must be between 1 and " + max
+                    + " (the number of sub-regions); " + limit + " is not");
+        }
     }
 
     /** The largest limit that can be saved: the number of sub-regions, never above the table's CHECK. */

@@ -533,6 +533,21 @@ class UserSubRegionServiceJpaTest {
     }
 
     @Test
+    @DisplayName("an admin's first picks for a reader with no grace start it (today + 7 - 1); a reader whose "
+            + "grace has started keeps its end date")
+    void admin_firstPicksStartGrace() {
+        service.adminReplacePicks(userId, List.of(berwick));
+
+        assertThat(graceUntilOf(userId)).isEqualTo(LocalDate.of(2026, 11, 1));
+        assertThat(changedAtOf(userId)).as("the admin set clears the lock stamp").isNull();
+
+        Long other = user("started", UserRole.LITE_USER);
+        standing(other, "2026-09-01", null);
+        service.adminReplacePicks(other, List.of(keswick));
+        assertThat(graceUntilOf(other)).isEqualTo(LocalDate.of(2026, 9, 1));
+    }
+
+    @Test
     @DisplayName("an admin may clear a reader's picks with an empty list, but not exceed the limit or name a "
             + "non-sub-region")
     void admin_validation() {

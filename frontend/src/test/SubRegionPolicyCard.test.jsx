@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import SubRegionPolicyCard from '../components/SubRegionPolicyCard.jsx';
 
 vi.mock('../api/subRegionPolicyApi.js', () => ({
@@ -68,6 +68,54 @@ describe('SubRegionPolicyCard', () => {
       .toHaveTextContent('1 Lite reader holds more than 1 pick.');
   });
 
+  it('shows Checking… and keeps Save disabled until the check for the current draft has answered', async () => {
+    const pending = deferred();
+    getSubRegionPolicy.mockResolvedValueOnce(SAVED).mockReturnValueOnce(pending.promise);
+    render(<SubRegionPolicyCard />);
+
+    fireEvent.change(await screen.findByLabelText('Picks per Lite reader'), { target: { value: '2' } });
+
+    expect(screen.getByTestId('sub-region-policy-checking')).toHaveTextContent('Checking…');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+    await act(async () => {
+      pending.resolve({ ...SAVED, candidateLimit: 2, liteUsersOverLimit: 0 });
+    });
+
+    expect(screen.queryByTestId('sub-region-policy-checking')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+  });
+
+  it('says it could not check, rather than showing 0, when the check fails, and keeps Save disabled', async () => {
+    getSubRegionPolicy.mockResolvedValueOnce(SAVED).mockRejectedValueOnce(new Error('network'));
+    render(<SubRegionPolicyCard />);
+
+    fireEvent.change(await screen.findByLabelText('Picks per Lite reader'), { target: { value: '2' } });
+
+    expect(await screen.findByTestId('sub-region-policy-check-failed'))
+      .toHaveTextContent("Couldn't check how many readers are affected");
+    expect(screen.queryByTestId('sub-region-policy-warning')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('disables the box while a save is in flight', async () => {
+    const pending = deferred();
+    getSubRegionPolicy.mockResolvedValueOnce(SAVED).mockResolvedValueOnce({ ...SAVED, candidateLimit: 2 });
+    saveSubRegionPolicy.mockReturnValue(pending.promise);
+    render(<SubRegionPolicyCard />);
+    fireEvent.change(await screen.findByLabelText('Picks per Lite reader'), { target: { value: '2' } });
+    await screen.findByRole('button', { name: 'Save' });
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(screen.getByLabelText('Picks per Lite reader')).toBeDisabled();
+    await act(async () => {
+      pending.resolve({ ...SAVED, liteLimit: 2, candidateLimit: 2 });
+    });
+    expect(screen.getByLabelText('Picks per Lite reader')).toBeEnabled();
+  });
+
   it('ignores a slow answer for an earlier keystroke', async () => {
     const slow = deferred();
     getSubRegionPolicy
@@ -96,6 +144,7 @@ describe('SubRegionPolicyCard', () => {
     render(<SubRegionPolicyCard />);
     fireEvent.change(await screen.findByLabelText('Picks per Lite reader'), { target: { value: '2' } });
 
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(await screen.findByTestId('sub-region-policy-saved'))
@@ -129,6 +178,7 @@ describe('SubRegionPolicyCard', () => {
     render(<SubRegionPolicyCard />);
     fireEvent.change(await screen.findByLabelText('Picks per Lite reader'), { target: { value: '4' } });
 
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(await screen.findByTestId('sub-region-policy-save-error'))

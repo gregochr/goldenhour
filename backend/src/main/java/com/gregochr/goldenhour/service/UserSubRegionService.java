@@ -128,7 +128,8 @@ public class UserSubRegionService {
      */
     @Transactional
     public SubRegionState replacePicks(String username, List<Long> areaIds) {
-        AppUserEntity user = requireUser(username);
+        AppUserEntity user = lockUser(userRepository.findIdByUsername(username)
+                .orElseThrow(() -> new NoSuchElementException("User not found: " + username)));
         if (user.getRole() != UserRole.LITE_USER) {
             throw new AccessDeniedException("Only a Lite account picks sub-regions");
         }
@@ -176,13 +177,19 @@ public class UserSubRegionService {
      */
     @Transactional
     public SubRegionState adminReplacePicks(Long userId, List<Long> areaIds) {
-        AppUserEntity user = reload(userId);
+        AppUserEntity user = lockUser(userId);
         List<Long> desired = validate(areaIds, policy.getLiteLimit(), true);
         Set<Long> currentSet = new HashSet<>(pickRepository.findAreaIdsByUserId(userId));
         Set<Long> removed = new HashSet<>(currentSet);
         removed.removeAll(desired);
         List<Long> added = desired.stream().filter(id -> !currentSet.contains(id)).toList();
-        write(userId, removed, added, LocalDateTime.now(clock));
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (currentSet.isEmpty() && !desired.isEmpty()) {
+            // A reader's first picks, whoever made them, start their grace period (a no-op if one has started).
+            userRepository.startSubRegionGraceIfUnset(userId,
+                    ForecastHorizon.today(clock).plusDays(properties.getGraceDays() - 1L));
+        }
+        write(userId, removed, added, now);
         userRepository.clearSubRegionsChangedAt(userId);
         LOG.info("Admin set sub-region picks for user id={} to {}", userId, desired);
         return buildState(reload(user.getId()), false);
@@ -431,6 +438,18 @@ public class UserSubRegionService {
     private AppUserEntity requireUser(String username) {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new NoSuchElementException("User not found: " + username));
+    }
+
+    /**
+     * Takes the user row's lock ({@code SELECT ... FOR UPDATE}) as the first thing a write does, so two requests
+     * for one reader run one after the other: the second reads the picks and dates the first committed, and
+     * cannot slip past the limit or the grace start. It is the first entity read of the transaction on purpose
+     * (a managed copy loaded earlier could be stale). The conditional lock-term update stays as the guard on the
+     * lock term itself.
+     */
+    private AppUserEntity lockUser(Long userId) {
+        return userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new NoSuchElementException("No user with id " + userId));
     }
 
     private AppUserEntity reload(Long userId) {

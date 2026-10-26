@@ -84,7 +84,8 @@ class UserSubRegionServiceTest {
 
     /** Stubs everything a PUT of {@code [BAMBURGH]} over {@code [BERWICK]} reads before the lock decision. */
     private void stubSwap(AppUserEntity user) {
-        when(userRepository.findByUsername("anna")).thenReturn(Optional.of(user));
+        when(userRepository.findIdByUsername("anna")).thenReturn(Optional.of(USER_ID));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(user));
         when(policy.getLiteLimit()).thenReturn(3);
         when(areaRepository.findAllById(Set.of(BAMBURGH))).thenReturn(List.of(subRegion(BAMBURGH)));
         when(pickRepository.findAreaIdsByUserId(USER_ID)).thenReturn(List.of(BERWICK));
@@ -160,7 +161,8 @@ class UserSubRegionServiceTest {
     @DisplayName("a duplicate-key race on a pick surfaces as a 409 conflict, not a 500")
     void duplicateKeyRace_isAConflict() {
         AppUserEntity user = lite(LocalDate.of(2026, 10, 1), null);
-        when(userRepository.findByUsername("anna")).thenReturn(Optional.of(user));
+        when(userRepository.findIdByUsername("anna")).thenReturn(Optional.of(USER_ID));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(user));
         when(policy.getLiteLimit()).thenReturn(3);
         when(areaRepository.findAllById(Set.of(BAMBURGH))).thenReturn(List.of(subRegion(BAMBURGH)));
         when(pickRepository.findAreaIdsByUserId(USER_ID)).thenReturn(List.of());
@@ -170,6 +172,25 @@ class UserSubRegionServiceTest {
         assertThatThrownBy(() -> service.replacePicks("anna", List.of(BAMBURGH)))
                 .isInstanceOf(AreaConflictException.class)
                 .hasMessageContaining("changed at the same moment");
+    }
+
+    @Test
+    @DisplayName("the user row is locked FOR UPDATE before the picks are read, so concurrent PUTs for one "
+            + "reader run one after the other")
+    void rowLock_isTakenBeforeThePicksAreRead() {
+        AppUserEntity user = lite(LocalDate.of(2026, 10, 1), null);
+        stubSwap(user);
+        when(userRepository.stampSubRegionsChangedIfUnlocked(USER_ID, NOW_LOCAL, LocalDateTime.of(2026, 11, 11, 0, 0)))
+                .thenReturn(1);
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(areaRepository.findByKind(AreaKind.SUB_REGION)).thenReturn(List.of());
+        when(membership.findEnabledMemberRows()).thenReturn(List.of());
+
+        service.replacePicks("anna", List.of(BAMBURGH));
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(userRepository, pickRepository);
+        order.verify(userRepository).findByIdForUpdate(USER_ID);
+        order.verify(pickRepository).findAreaIdsByUserId(USER_ID);
     }
 
     @Test
