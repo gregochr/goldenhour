@@ -254,7 +254,9 @@ eclipse.md`, and a `changelog.d/` entry per PR.
 - **`tideState` + `tideType`** (existing) and the coastal rating itself, which reflects the tide.
 - **Stale client role:** a promoted session (role written at sign-in only) may show Coming up's rows and
   the door together until sign-in; a demoted one shows neither. Cosmetic.
-- **Claude's region prose** may say "tide alignment" (it is fed `tideAlignedCount`; Q7).
+- ~~**Claude's region prose** may say "tide alignment" (it is fed `tideAlignedCount`; Q7).~~ **Fixed** by
+  the gloss-prompt PR (`audit-followups-plan.md` P): the gloss is no longer fed `tideAlignedCount` and its
+  prompt forbids saying the tide suits or aligns. Takes effect on the first briefing build after release.
 
 ## 6. Tests that pin today's Lite-visible behaviour (to update, not delete)
 Backend: `BriefingRoleShaperTest` (`:91-129`, classification sets `:268-320,424-475`),
@@ -280,7 +282,7 @@ Backend: `BriefingRoleShaperTest` (`:91-129`, classification sets `:268-320,424-
 5. **Rising-tide badge (A7):** client-only gate, accepted open path. *Default: accept.*
 6. **`tideRun` (B3):** strip whole for Lite (no reader). *Default: strip whole.*
 7. **"Tide alignment" in Claude's region prose:** leave it in this series; record it as an open path and
-   raise a separate prompt change (prompt edits need the owner's prompt-regression run). *Default: leave.*
+   raise a separate prompt change (prompt edits need the owner's prompt-regression run). *Default: leave.* **Status: fixed by the gloss-prompt PR (`audit-followups-plan.md` P).**
 8. **Run heights:** free. *Default: free.*
 9. **Coming up door:** one door, on the first withheld tide card. *Default: one per feed.*
 10. **Tide triage reason (A9):** Lite sees a plain stand-down without the tide reason; the stand-down

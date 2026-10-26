@@ -461,6 +461,20 @@ class BriefingGlossServiceTest {
                 .contains("Never write a key in the headline or detail");
     }
 
+    @Test
+    @DisplayName("the system prompt carries the TIDES rule and no tide-alignment example")
+    void systemPrompt_carriesTidesRule() {
+        glossFor("{\"headline\": \"High cirrus\", \"detail\": \"Fine.\"}");
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        String systemPrompt = captor.getValue().system().get()
+                .asTextBlockParams().get(0).text();
+        assertThat(systemPrompt).contains("TIDES: you may mention a king or spring tide")
+                .contains("Never say whether the tide suits, matches or aligns")
+                .doesNotContain("No tide alignment");
+    }
+
     // ── Hierarchy reassembly (immutable records) ─────────────────────────────
 
     @Test
@@ -647,7 +661,7 @@ class BriefingGlossServiceTest {
 
         String json = glossService.buildUserMessage(item);
 
-        assertThat(json).contains("\"tideAlignedCount\":1");
+        assertThat(json).doesNotContain("tideAlignedCount");
         assertThat(json).contains("\"coastalLocationCount\":1");
         assertThat(json).contains("\"hasKingTide\":true");
     }
