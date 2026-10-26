@@ -19,6 +19,7 @@ vi.mock('../api/tideApi', () => ({
 }));
 vi.mock('../api/areaApi', () => ({
   fetchAreas: vi.fn(),
+  fetchUncoveredLocations: vi.fn(),
   createArea: vi.fn(),
   updateArea: vi.fn(),
   setAreaLocations: vi.fn(),
@@ -29,7 +30,9 @@ vi.mock('../api/areaApi', () => ({
 
 import { fetchLocations, updateLocation } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
-import { fetchAreas, fetchLocationAliases, setLocationAliases } from '../api/areaApi';
+import {
+  fetchAreas, fetchUncoveredLocations, fetchLocationAliases, setLocationAliases,
+} from '../api/areaApi';
 
 const HEADLAND = {
   id: 1, name: 'Hartlepool Headland', lat: 54.69, lon: -1.17, enabled: true,
@@ -47,6 +50,7 @@ describe('LocationManagementView — "Also known as"', () => {
     fetchLocations.mockResolvedValue([HEADLAND]);
     fetchRegions.mockResolvedValue([]);
     fetchAreas.mockResolvedValue([]);
+    fetchUncoveredLocations.mockResolvedValue([]);
     fetchLocationAliases.mockResolvedValue({ 1: ['The Heugh', 'Heugh Battery'] });
     updateLocation.mockResolvedValue({});
     setLocationAliases.mockResolvedValue(['Heugh Lighthouse']);

@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace, enrichLocation } from '../api/forecastApi.js';
 import { fetchRegions } from '../api/regionApi.js';
 import { fetchTideStats } from '../api/tideApi.js';
-import { fetchLocationAliases, setLocationAliases } from '../api/areaApi.js';
+import { fetchAreas, fetchLocationAliases, setLocationAliases } from '../api/areaApi.js';
 import { parseAliases, formatAliases } from '../utils/aliasText.js';
 import AreasSection from './AreasSection.jsx';
 import LocationAlerts from './LocationAlerts.jsx';
@@ -262,6 +262,46 @@ function typesOrDefault(types) {
  * @param {object} props
  * @param {function} props.onLocationsChanged - Called when locations are added/updated/toggled.
  */
+/**
+ * The sub-region select shared by the edit row and the add form: only the sub-regions of the chosen region, and
+ * nothing at all when that region has none. The empty choice is offered only when it means something (a
+ * location with a sub-region cannot be left with none by a plain pick, since the API has no "clear").
+ */
+function SubRegionSelect({ subRegions, regionId, value, onChange, canBeEmpty, className, id, testId }) {
+  const options = subRegions.filter((a) => String(a.regionId) === String(regionId));
+  if (options.length === 0) return null;
+  return (
+    <select
+      id={id}
+      className={className}
+      aria-label="Sub-region"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      data-testid={testId}
+    >
+      {canBeEmpty && <option value="">— No sub-region —</option>}
+      {options.map((a) => (
+        <option key={a.id} value={a.id}>{a.name}</option>
+      ))}
+    </select>
+  );
+}
+
+SubRegionSelect.propTypes = {
+  subRegions: PropTypes.arrayOf(PropTypes.shape({
+    id: PropTypes.number.isRequired,
+    name: PropTypes.string.isRequired,
+    regionId: PropTypes.number,
+  })).isRequired,
+  regionId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+  value: PropTypes.string.isRequired,
+  onChange: PropTypes.func.isRequired,
+  canBeEmpty: PropTypes.bool.isRequired,
+  className: PropTypes.string,
+  id: PropTypes.string,
+  testId: PropTypes.string.isRequired,
+};
+
 export default function LocationManagementView({ onLocationsChanged }) {
   const [locations, setLocations] = useState([]);
   const [regions, setRegions] = useState([]);
@@ -273,6 +313,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [editSaving, setEditSaving] = useState(false);
   // Other names per location id; null until loaded, and stays null if the load fails so the field is
   // disabled rather than offering to overwrite names it never saw.
+  // Every area and sub-region (null until read). A location's sub-region is the SUB_REGION area listing it; it is
+  // read here, never derived from names, and written through the location's own save (subRegionId).
+  const [areas, setAreas] = useState(null);
+  const [areasVersion, setAreasVersion] = useState(0);
   const [aliasesByLocation, setAliasesByLocation] = useState(null);
   const [aliasesFailed, setAliasesFailed] = useState(false);
   const [aliasDetail, setAliasDetail] = useState('');
@@ -290,6 +334,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [addLocationTypes, setAddLocationTypes] = useState(['LANDSCAPE']);
   const [addTideTypes, setAddTideTypes] = useState([]);
   const [addRegionId, setAddRegionId] = useState('');
+  const [addSubRegionId, setAddSubRegionId] = useState('');
   const [enrichmentData, setEnrichmentData] = useState(null);
   const [enriching, setEnriching] = useState(false);
   const [addOverlooksWater, setAddOverlooksWater] = useState(false);
@@ -324,6 +369,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
 
   const sf = useSortAndFilter('name', 'asc', locationAccessors);
 
+  const subRegions = useMemo(() => (areas ?? []).filter((a) => a.kind === 'SUB_REGION'), [areas]);
+
   const filteredLocations = useMemo(() => sf.apply(optimisticLocations), [sf, optimisticLocations]);
 
   const { pageItems: pageLocations, ...pagination } = usePagination(filteredLocations);
@@ -337,7 +384,29 @@ export default function LocationManagementView({ onLocationsChanged }) {
     }
   }
 
+  /** Reads the areas again after a location was saved, and tells the Areas section to do the same. */
+  async function refreshAreas(bump = true) {
+    if (bump) setAreasVersion((v) => v + 1);
+    try {
+      setAreas(await fetchAreas());
+    } catch {
+      // Keep what was read before
+    }
+  }
+
   useEffect(() => {
+    fetchAreas()
+      .then((data) => {
+        setAreas(data);
+        // An editor opened before the areas landed starts its sub-region now.
+        setEditValues((prev) => {
+          if (!prev || prev.subRegionsLoaded) return prev;
+          const current = data.find((a) => a.kind === 'SUB_REGION' && a.locationIds.includes(prev.locId));
+          const id = current ? String(current.id) : '';
+          return { ...prev, subRegionId: id, subRegionBaseline: id, subRegionsLoaded: true };
+        });
+      })
+      .catch(() => { /* no sub-region select; the Areas section reports its own load failure */ });
     Promise.all([fetchLocations(), fetchRegions()])
       .then(([locs, regs]) => { setLocations(locs); setRegions(regs); })
       .finally(() => setLoading(false));
@@ -382,12 +451,18 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setAddLocationTypes(['LANDSCAPE']);
     setAddTideTypes([]);
     setAddRegionId('');
+    setAddSubRegionId('');
     setEnrichmentData(null);
     setEnriching(false);
     setAddOverlooksWater(false);
     setAddCoastalTidal(false);
     setAddMistProne(false);
     setError('');
+  }
+
+  function currentSubRegionId(locationId) {
+    const current = subRegions.find((a) => a.locationIds.includes(locationId));
+    return current ? String(current.id) : '';
   }
 
   function handleStartEdit(loc) {
@@ -400,6 +475,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
       locationTypes: typesOrDefault(loc.locationType),
       tideTypes: Array.isArray(loc.tideType) ? [...loc.tideType] : [],
       regionId: loc.region?.id ? String(loc.region.id) : '',
+      regionBaseline: loc.region?.id ? String(loc.region.id) : '',
+      subRegionId: currentSubRegionId(loc.id),
+      subRegionBaseline: currentSubRegionId(loc.id),
+      subRegionsLoaded: areas !== null,
       mistProne: loc.mistProne === true,
       locId: loc.id,
       aliases: formatAliases(aliasesByLocation?.[loc.id]),
@@ -430,6 +509,15 @@ export default function LocationManagementView({ onLocationsChanged }) {
   function handleEditChange(field, value) {
     setEditValues((prev) => {
       const next = { ...prev, [field]: value };
+      if (field === 'regionId') {
+        // A sub-region belongs to one region: keep the pick only while it is still in the chosen region, and
+        // put the location's own back when the region goes back to what it was.
+        const stillInRegion = subRegions.some(
+          (a) => String(a.id) === prev.subRegionId && String(a.regionId) === value,
+        );
+        if (value === prev.regionBaseline) next.subRegionId = prev.subRegionBaseline;
+        else if (!stillInRegion) next.subRegionId = '';
+      }
       if (field === 'locationTypes') {
         const wasCoastal = (prev.locationTypes || []).includes('SEASCAPE');
         const isCoastal = value.includes('SEASCAPE');
@@ -470,6 +558,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setEditSaving(true);
     setEditError('');
     setAliasDetail('');
+    const subRegionChange = editValues.subRegionId && editValues.subRegionId !== editValues.subRegionBaseline
+      ? { subRegionId: Number(editValues.subRegionId) }
+      : {};
     try {
       await updateLocation(editingRowId, {
         name: editValues.name.trim(),
@@ -480,7 +571,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
         tideTypes: editIsCoastal ? editValues.tideTypes : [],
         regionId: editValues.regionId ? Number(editValues.regionId) : null,
         mistProne: editValues.mistProne === true,
+        ...subRegionChange,
       });
+      // The region and sub-region may both have moved memberships: read them again.
+      await refreshAreas();
       // Other names are a separate write, AFTER the location's own save succeeds, and only when the field
       // was edited: an unedited field must never overwrite names it may not have seen.
       // The comparison is against the text the field STARTED with (recorded when the editor opened, or when
@@ -492,6 +586,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
         } catch (aliasErr) {
           await refreshLocations();
           onLocationsChanged();
+          // The location itself is saved: what the form holds for region and sub-region is now the stored truth.
+          setEditValues((prev) => (prev
+            ? { ...prev, regionBaseline: prev.regionId, subRegionBaseline: prev.subRegionId }
+            : prev));
           setEditError('Location saved; its other names were not');
           setAliasDetail(aliasErr?.response?.data?.error ?? '');
           return;
@@ -566,6 +664,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         locationTypes: addLocationTypes,
         tideTypes: addIsCoastal ? addTideTypes : [],
         regionId: addRegionId ? Number(addRegionId) : null,
+        subRegionId: addSubRegionId ? Number(addSubRegionId) : null,
       });
     } else {
       if (!geocodeResult) return;
@@ -579,6 +678,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         locationTypes: addLocationTypes,
         tideTypes: addIsCoastal ? addTideTypes : [],
         regionId: addRegionId ? Number(addRegionId) : null,
+        subRegionId: addSubRegionId ? Number(addSubRegionId) : null,
         bortleClass: enrichmentData?.bortleClass ?? null,
         skyBrightnessSqm: enrichmentData?.skyBrightnessSqm ?? null,
         elevationMetres: enrichmentData?.elevationMetres ?? null,
@@ -611,8 +711,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
         overlooksWater: confirmData.overlooksWater,
         coastalTidal: confirmData.coastalTidal,
         mistProne: confirmData.mistProne === true,
+        ...(confirmData.subRegionId ? { subRegionId: confirmData.subRegionId } : {}),
       });
       await refreshLocations();
+      await refreshAreas();
       handleCancel();
     } catch (err) {
       setError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
@@ -627,6 +729,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
       try {
         await setLocationEnabled(loc.id, !loc.enabled);
         await refreshLocations();
+        // The "no sub-region" count only covers enabled locations.
+        await refreshAreas();
       } catch (err) {
         console.error('Failed to toggle location enabled:', err);
       }
@@ -842,6 +946,15 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                     <option key={r.id} value={r.id}>{r.name}</option>
                                   ))}
                                 </select>
+                                <SubRegionSelect
+                                  subRegions={subRegions}
+                                  regionId={editValues.regionId}
+                                  value={editValues.subRegionId}
+                                  onChange={(v) => handleEditChange('subRegionId', v)}
+                                  canBeEmpty={!editValues.subRegionBaseline || editValues.regionId !== editValues.regionBaseline}
+                                  className={`${inlineSelectClass} mt-1`}
+                                  testId="inline-edit-sub-region"
+                                />
                                 <label className="mt-1 flex items-start gap-1 text-xs text-plex-text-secondary cursor-pointer">
                                   <input
                                     className="shrink-0 mt-0.5"
@@ -1091,7 +1204,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
             <p className="text-sm text-plex-text-muted">No locations configured. Add one to get started.</p>
           )}
 
-          {!loading && <AreasSection locations={locations} />}
+          {!loading && <AreasSection locations={locations} reloadKey={areasVersion} onAreasChanged={() => refreshAreas(false)} />}
         </>
       )}
 
@@ -1322,7 +1435,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                 id="add-region"
                 className={selectClass}
                 value={addRegionId}
-                onChange={(e) => setAddRegionId(e.target.value)}
+                onChange={(e) => { setAddRegionId(e.target.value); setAddSubRegionId(''); }}
                 data-testid="add-region"
               >
                 <option value="">— None —</option>
@@ -1330,6 +1443,16 @@ export default function LocationManagementView({ onLocationsChanged }) {
                   <option key={r.id} value={r.id}>{r.name}</option>
                 ))}
               </select>
+              <SubRegionSelect
+                subRegions={subRegions}
+                regionId={addRegionId}
+                value={addSubRegionId}
+                onChange={setAddSubRegionId}
+                canBeEmpty
+                id="add-sub-region"
+                className={`${selectClass} mt-2`}
+                testId="add-sub-region"
+              />
             </div>
           </div>
 

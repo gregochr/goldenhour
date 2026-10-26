@@ -1,9 +1,12 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.AreaKind;
+import com.gregochr.goldenhour.exception.AreaConflictException;
 import com.gregochr.goldenhour.exception.NameClashException;
 import com.gregochr.goldenhour.model.AreaDto;
 import com.gregochr.goldenhour.model.AreaLocationsRequest;
 import com.gregochr.goldenhour.model.AreaRequest;
+import com.gregochr.goldenhour.model.UncoveredLocationDto;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -148,6 +151,76 @@ class AreaControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/areas serves a sub-region's kind, region and members")
+    void getAreas_subRegion_servesKindAndRegion() throws Exception {
+        when(areaService.findAll()).thenReturn(List.of(new AreaDto(9L, "Swaledale", List.of("Teesdale"),
+                List.of(3L, 4L), AreaKind.SUB_REGION, 4L, "The Yorkshire Dales")));
+
+        mockMvc.perform(get("/api/areas"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].kind").value("SUB_REGION"))
+                .andExpect(jsonPath("$[0].regionId").value(4))
+                .andExpect(jsonPath("$[0].regionName").value("The Yorkshire Dales"))
+                .andExpect(jsonPath("$[0].locationIds.length()").value(2));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/areas hands the service the kind and region of a sub-region")
+    void createArea_subRegion_passesKindAndRegion() throws Exception {
+        AreaRequest request = new AreaRequest("Swaledale", List.of("Teesdale"), AreaKind.SUB_REGION, 4L);
+        when(areaService.create(request)).thenReturn(new AreaDto(9L, "Swaledale", List.of("Teesdale"), List.of(),
+                AreaKind.SUB_REGION, 4L, "The Yorkshire Dales"));
+
+        mockMvc.perform(post("/api/areas").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Swaledale\",\"aliases\":[\"Teesdale\"],\"kind\":\"SUB_REGION\","
+                                + "\"regionId\":4}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.kind").value("SUB_REGION"));
+        verify(areaService).create(request);
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("DELETE /api/areas/{id} returns 409 with the reason when a sub-region still has members")
+    void deleteArea_subRegionWithMembers_returns409() throws Exception {
+        org.mockito.Mockito.doThrow(new AreaConflictException("Sub-region 'Swaledale' still has 12 locations"))
+                .when(areaService).delete(9L);
+
+        mockMvc.perform(delete("/api/areas/9"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Sub-region 'Swaledale' still has 12 locations"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/areas/{id}/locations returns 400 with the reason for a sub-region")
+    void setAreaLocations_subRegion_returns400() throws Exception {
+        when(areaService.setLocations(9L, new AreaLocationsRequest(List.of(1L))))
+                .thenThrow(new IllegalArgumentException("'Swaledale' is a sub-region"));
+
+        mockMvc.perform(put("/api/areas/9/locations").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"locationIds\":[1]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("'Swaledale' is a sub-region"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/areas/uncovered-locations lists the enabled, regioned locations with no sub-region")
+    void getUncoveredLocations_asAdmin_returnsThem() throws Exception {
+        when(areaService.findUncoveredLocations()).thenReturn(
+                List.of(new UncoveredLocationDto(12L, "Bamburgh Castle", 5L, "Northumberland & Tyneside")));
+
+        mockMvc.perform(get("/api/areas/uncovered-locations"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(12))
+                .andExpect(jsonPath("$[0].name").value("Bamburgh Castle"))
+                .andExpect(jsonPath("$[0].regionName").value("Northumberland & Tyneside"));
+    }
+
+    @Test
     @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("every /api/areas mapping is 403 for PRO_USER and never reaches the service")
     void areas_proUser_returns403() throws Exception {
@@ -163,6 +236,7 @@ class AreaControllerTest extends AbstractControllerTest {
 
     private void assertForbiddenEverywhere() throws Exception {
         mockMvc.perform(get("/api/areas")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/areas/uncovered-locations")).andExpect(status().isForbidden());
         mockMvc.perform(post("/api/areas").contentType(MediaType.APPLICATION_JSON).content(WALL))
                 .andExpect(status().isForbidden());
         mockMvc.perform(put("/api/areas/7").contentType(MediaType.APPLICATION_JSON).content(WALL))

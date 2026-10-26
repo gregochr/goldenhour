@@ -136,9 +136,13 @@ class AskPromptBuilderTest {
                         + "Wall\"): look_up_place then returns how its places rate in each window; answer from "
                         + "those stars, never as picks.")
                 .contains("To suggest places in a named area, call rank_spots with areaName.")
+                .contains("Each call covers one named area: when the question names several (\"Swaledale or "
+                        + "Wensleydale\"), call once per area; a result's \"Also matched areas\" note lists the "
+                        + "ones it did not answer.")
                 .contains("A place may also be found by another name (\"the Heugh\"); call it by its listed "
                         + "name, adding the name the reader used.");
-        assertThat(ready).doesNotContain("named area").doesNotContain("areaName");
+        assertThat(ready).doesNotContain("named area").doesNotContain("areaName")
+                .doesNotContain("Also matched areas");
         assertThat(AskPromptBuilder.RULES).doesNotContain("named area");
     }
 

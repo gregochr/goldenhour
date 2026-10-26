@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
-  fetchAreas, createArea, updateArea, setAreaLocations, deleteArea,
+  fetchAreas, fetchUncoveredLocations, createArea, updateArea, setAreaLocations, deleteArea,
 } from '../api/areaApi.js';
 import { parseAliases, formatAliases, errorText } from '../utils/aliasText.js';
+
+/** The most uncovered locations the coverage line names before it says "and N more". */
+const UNCOVERED_NAMES_SHOWN = 12;
 
 const inputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-2 py-1 text-xs text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold';
 
@@ -15,11 +18,21 @@ const inputClass = 'w-full bg-plex-surface-light border border-plex-border round
  * them apart: the membership endpoint is the only writer of an area's locations, so renaming can never touch
  * the members. Every error shown is the server's own text, which names a clash.
  *
+ * <p>A sub-region (kind SUB_REGION) is an area that partitions a region, with one member per location. It is
+ * listed here with its region and its members read-only: a location's sub-region is set on the location itself
+ * (its edit form), so the one-per-location rule cannot be broken from here. A line under the heading names the
+ * enabled locations that have a region but no sub-region yet.
+ *
  * @param {object} props
  * @param {Array<{id: number, name: string, enabled?: boolean}>} props.locations every location, for the picker
+ * @param {number} [props.reloadKey] changes when a location was saved, so memberships are read again
+ * @param {() => void} [props.onAreasChanged] called after an area is created, renamed or deleted, so a
+ *   parent that lists sub-regions (the location form's select) can read them again
  */
-export default function AreasSection({ locations }) {
+export default function AreasSection({ locations, reloadKey = 0, onAreasChanged = undefined }) {
   const [areas, setAreas] = useState([]);
+  // Enabled, regioned locations with no sub-region: null until read, and left null when the read fails.
+  const [uncovered, setUncovered] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   // The failure message and WHICH form it belongs to ('new', 'edit-<id>', 'delete-<id>'), so a late result can
@@ -40,11 +53,17 @@ export default function AreasSection({ locations }) {
   useEffect(() => {
     let cancelled = false;
     fetchAreas()
-      .then((data) => { if (!cancelled) setAreas(data); })
+      .then((data) => { if (!cancelled) { setLoadError(''); setAreas(data); } })
       .catch(() => { if (!cancelled) setLoadError('Could not load areas.'); })
       .finally(() => { if (!cancelled) setLoading(false); });
+    fetchUncoveredLocations()
+      .then((data) => { if (!cancelled) setUncovered(data); })
+      .catch(() => { /* the coverage line is simply not shown */ });
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadKey]);
+
+  const locationNames = useMemo(() => new Map(locations.map((l) => [l.id, l.name])), [locations]);
+  const hasSubRegions = areas.some((a) => a.kind === 'SUB_REGION');
 
   const sortedLocations = useMemo(
     () => [...locations].sort((a, b) => a.name.localeCompare(b.name)),
@@ -90,6 +109,7 @@ export default function AreasSection({ locations }) {
       const created = await createArea({ name: nameText, aliases: parseAliases(aliasText) });
       setAreas((prev) => [...prev, created]);
       setCreating(false);
+      if (onAreasChanged) onAreasChanged();
     } catch (err) {
       setFailure({ key: 'new', message: errorText(err, 'Failed to create the area.') });
     } finally {
@@ -105,6 +125,7 @@ export default function AreasSection({ locations }) {
     try {
       replaceArea(await updateArea(id, { name: nameText, aliases: parseAliases(aliasText) }));
       setSaved(`names-${id}`);
+      if (onAreasChanged) onAreasChanged();
     } catch (err) {
       setFailure({ key: `edit-${id}`, message: errorText(err, 'Failed to save the names.') });
     } finally {
@@ -135,6 +156,7 @@ export default function AreasSection({ locations }) {
       setAreas((prev) => prev.filter((a) => a.id !== id));
       setConfirmDeleteId(null);
       if (editingId === id) setEditingId(null);
+      if (onAreasChanged) onAreasChanged();
     } catch (err) {
       setFailure({ key: `delete-${id}`, message: errorText(err, 'Failed to delete the area.') });
     } finally {
@@ -151,7 +173,7 @@ export default function AreasSection({ locations }) {
     });
   }
 
-  function renderNameFields(prefix) {
+  function renderNameFields(prefix, subRegion = false) {
     return (
       <div className="flex flex-col gap-2">
         <div>
@@ -168,7 +190,9 @@ export default function AreasSection({ locations }) {
         </div>
         <div>
           <label htmlFor={`${prefix}-aliases`} className="block text-xs text-plex-text-secondary mb-1">
-            Also known as (comma-separated, each at least two words)
+            {subRegion
+              ? 'Also known as (comma-separated, one word or more each)'
+              : 'Also known as (comma-separated, each at least two words)'}
           </label>
           <input
             id={`${prefix}-aliases`}
@@ -205,6 +229,19 @@ export default function AreasSection({ locations }) {
         </button>
         )}
       </div>
+
+      {uncovered !== null && uncovered.length > 0 && (
+        <p className="text-xs text-amber-400" data-testid="areas-uncovered">
+          {uncovered.length} enabled {uncovered.length === 1 ? 'location has' : 'locations have'} no sub-region:{' '}
+          {uncovered.slice(0, UNCOVERED_NAMES_SHOWN).map((l) => `${l.name} (${l.regionName})`).join(', ')}
+          {uncovered.length > UNCOVERED_NAMES_SHOWN ? `, and ${uncovered.length - UNCOVERED_NAMES_SHOWN} more` : ''}
+        </p>
+      )}
+      {uncovered !== null && uncovered.length === 0 && hasSubRegions && (
+        <p className="text-xs text-plex-text-muted" data-testid="areas-all-covered">
+          Every enabled location with a region is in a sub-region.
+        </p>
+      )}
 
       {loading && <p className="text-sm text-plex-text-muted animate-pulse">Loading areas...</p>}
       {loadError && <p className="text-xs text-red-400" data-testid="areas-load-error">{loadError}</p>}
@@ -246,6 +283,9 @@ export default function AreasSection({ locations }) {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm text-plex-text" data-testid={`area-name-${area.id}`}>{area.name}</p>
+                  <p className="text-xs text-plex-text-muted" data-testid={`area-kind-${area.id}`}>
+                    {area.kind === 'SUB_REGION' ? `Sub-region of ${area.regionName ?? 'its region'}` : 'Named area'}
+                  </p>
                   <p className="text-xs text-plex-text-secondary" data-testid={`area-aliases-${area.id}`}>
                     {area.aliases.length > 0 ? `Also: ${formatAliases(area.aliases)}` : 'No other names'}
                   </p>
@@ -278,7 +318,9 @@ export default function AreasSection({ locations }) {
               {confirmDeleteId === area.id && (
                 <div className="flex items-center gap-2 text-xs" data-testid={`area-delete-confirm-${area.id}`}>
                   <span className="text-plex-text">
-                    Delete {area.name}? Its places stay; only the area goes.
+                    {area.kind === 'SUB_REGION'
+                      ? `Delete ${area.name}? Only a sub-region with no locations can be deleted.`
+                      : `Delete ${area.name}? Its places stay; only the area goes.`}
                   </span>
                   <button
                     type="button"
@@ -305,7 +347,7 @@ export default function AreasSection({ locations }) {
 
               {editing && (
                 <div className="flex flex-col gap-3" data-testid={`area-editor-${area.id}`}>
-                  {renderNameFields(`area-${area.id}`)}
+                  {renderNameFields(`area-${area.id}`, area.kind === 'SUB_REGION')}
                   <div className="flex justify-end">
                     <button
                       type="button"
@@ -321,54 +363,77 @@ export default function AreasSection({ locations }) {
                     <p className="text-xs text-plex-text-secondary" data-testid="area-saved">Saved</p>
                   )}
 
-                  <fieldset className="flex flex-col gap-1">
-                    <legend className="text-xs text-plex-text-secondary">
-                      Places in this area ({members.size} selected)
-                    </legend>
-                    <label htmlFor={`area-${area.id}-filter`} className="block text-xs text-plex-text-secondary">
-                      Filter places
-                    </label>
-                    <input
-                      id={`area-${area.id}-filter`}
-                      type="text"
-                      className={inputClass}
-                      value={memberFilter}
-                      onChange={(e) => setMemberFilter(e.target.value)}
-                      placeholder="Filter places by name"
-                      data-testid="area-member-filter"
-                    />
-                    <ul className="max-h-48 overflow-y-auto border border-plex-border rounded p-1" data-testid="area-member-list">
-                      {shownLocations.map((loc) => (
-                        <li key={loc.id}>
-                          <label className="flex items-center gap-2 text-xs text-plex-text cursor-pointer py-0.5">
-                            <input
-                              type="checkbox"
-                              checked={members.has(loc.id)}
-                              onChange={() => toggleMember(loc.id)}
-                              data-testid={`area-member-${loc.id}`}
-                            />
-                            <span>{loc.name}{loc.enabled === false ? ' (disabled)' : ''}</span>
-                          </label>
-                        </li>
-                      ))}
-                      {shownLocations.length === 0 && (
-                        <li className="text-xs text-plex-text-muted p-1">No places match.</li>
+                  {area.kind === 'SUB_REGION' ? (
+                    <div className="flex flex-col gap-1" data-testid={`area-readonly-members-${area.id}`}>
+                      <p className="text-xs text-plex-text-secondary">
+                        Places in this sub-region ({area.locationIds.length})
+                      </p>
+                      <p className="text-xs text-plex-text-muted">
+                        Membership is set on the location (its Sub-region field when you edit it), not here.
+                      </p>
+                      <ul className="max-h-48 overflow-y-auto border border-plex-border rounded p-1" data-testid="area-member-readonly-list">
+                        {area.locationIds.map((id) => (
+                          <li key={id} className="text-xs text-plex-text py-0.5">
+                            {locationNames.get(id) ?? `Location ${id}`}
+                          </li>
+                        ))}
+                        {area.locationIds.length === 0 && (
+                          <li className="text-xs text-plex-text-muted p-1">No places yet.</li>
+                        )}
+                      </ul>
+                    </div>
+                  ) : (
+                    <>
+                      <fieldset className="flex flex-col gap-1">
+                        <legend className="text-xs text-plex-text-secondary">
+                          Places in this area ({members.size} selected)
+                        </legend>
+                        <label htmlFor={`area-${area.id}-filter`} className="block text-xs text-plex-text-secondary">
+                          Filter places
+                        </label>
+                        <input
+                          id={`area-${area.id}-filter`}
+                          type="text"
+                          className={inputClass}
+                          value={memberFilter}
+                          onChange={(e) => setMemberFilter(e.target.value)}
+                          placeholder="Filter places by name"
+                          data-testid="area-member-filter"
+                        />
+                        <ul className="max-h-48 overflow-y-auto border border-plex-border rounded p-1" data-testid="area-member-list">
+                          {shownLocations.map((loc) => (
+                            <li key={loc.id}>
+                              <label className="flex items-center gap-2 text-xs text-plex-text cursor-pointer py-0.5">
+                                <input
+                                  type="checkbox"
+                                  checked={members.has(loc.id)}
+                                  onChange={() => toggleMember(loc.id)}
+                                  data-testid={`area-member-${loc.id}`}
+                                />
+                                <span>{loc.name}{loc.enabled === false ? ' (disabled)' : ''}</span>
+                              </label>
+                            </li>
+                          ))}
+                          {shownLocations.length === 0 && (
+                            <li className="text-xs text-plex-text-muted p-1">No places match.</li>
+                          )}
+                        </ul>
+                      </fieldset>
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          className="btn-primary text-xs"
+                          onClick={handleSaveMembers}
+                          disabled={busy}
+                          data-testid="area-save-members"
+                        >
+                          Save members
+                        </button>
+                      </div>
+                      {saved === `members-${area.id}` && (
+                        <p className="text-xs text-plex-text-secondary" data-testid="area-saved">Saved</p>
                       )}
-                    </ul>
-                  </fieldset>
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      className="btn-primary text-xs"
-                      onClick={handleSaveMembers}
-                      disabled={busy}
-                      data-testid="area-save-members"
-                    >
-                      Save members
-                    </button>
-                  </div>
-                  {saved === `members-${area.id}` && (
-                    <p className="text-xs text-plex-text-secondary" data-testid="area-saved">Saved</p>
+                    </>
                   )}
                   {failure?.key === `edit-${area.id}` && (
                     <p className="text-xs text-red-400" data-testid="area-error">{failure.message}</p>
@@ -389,4 +454,6 @@ AreasSection.propTypes = {
     name: PropTypes.string.isRequired,
     enabled: PropTypes.bool,
   })).isRequired,
+  reloadKey: PropTypes.number,
+  onAreasChanged: PropTypes.func,
 };

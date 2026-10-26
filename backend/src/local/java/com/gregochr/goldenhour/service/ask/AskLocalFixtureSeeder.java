@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.entity.AreaEntity;
+import com.gregochr.goldenhour.entity.AreaKind;
 import com.gregochr.goldenhour.entity.LocationAliasEntity;
 import com.gregochr.goldenhour.entity.LocationAliasId;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -22,6 +23,7 @@ import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.PlanWindowProjector;
 import com.gregochr.goldenhour.service.SolarEventFreshness;
+import com.gregochr.goldenhour.service.SubRegionMembershipService;
 import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import com.gregochr.goldenhour.util.ForecastHorizon;
@@ -141,6 +143,12 @@ public class AskLocalFixtureSeeder {
     /** The fixture's named area (local H2 only), over Hadrian's Wall Crags and Kielder Water. */
     static final String FIXTURE_AREA = "Hadrian's Wall";
 
+    /** The fixture's sub-region (local H2 only), in the fixture coast region, over the same two locations. */
+    static final String FIXTURE_SUB_REGION = "Fixture Tynedale Country";
+
+    /** The fixture sub-region's one-word alias (a sub-region's aliases may be one word). */
+    static final String FIXTURE_SUB_REGION_ALIAS = "Tynedale";
+
     /** The fixture's other name for Bamburgh Beach. */
     static final String FIXTURE_ALIAS = "The Sands";
 
@@ -174,6 +182,7 @@ public class AskLocalFixtureSeeder {
     private final Clock clock;
     private final AreaRepository areaRepository;
     private final LocationAliasRepository aliasRepository;
+    private final SubRegionMembershipService subRegionMembership;
 
     /**
      * Creates the seeder, with no named area or location alias.
@@ -199,7 +208,7 @@ public class AskLocalFixtureSeeder {
     }
 
     /**
-     * Creates the seeder, which also writes the fixture's named area and location alias.
+     * Creates the seeder, which also writes the fixture's named area and location alias, but no sub-region.
      *
      * @param regionRepository      regions
      * @param locationRepository    locations
@@ -214,15 +223,45 @@ public class AskLocalFixtureSeeder {
      * @param areaRepository        named areas; null skips them
      * @param aliasRepository       location aliases; null skips them
      */
-    @Autowired
     public AskLocalFixtureSeeder(RegionRepository regionRepository,
             LocationRepository locationRepository, TideExtremeRepository tideExtremeRepository,
             BriefingEvaluationService evaluationService, BriefingService briefingService,
             AskSnapshotBuilder snapshotBuilder, SolarEventFreshness freshness,
             DataSource dataSource, Environment environment, Clock clock,
             AreaRepository areaRepository, LocationAliasRepository aliasRepository) {
+        this(regionRepository, locationRepository, tideExtremeRepository, evaluationService, briefingService,
+                snapshotBuilder, freshness, dataSource, environment, clock, areaRepository, aliasRepository,
+                null);
+    }
+
+    /**
+     * Creates the seeder, which also writes the fixture's named area, one sub-region and one location alias.
+     *
+     * @param regionRepository      regions
+     * @param locationRepository    locations
+     * @param tideExtremeRepository stored tide extremes
+     * @param evaluationService     the service the batch pipeline writes {@code cached_evaluation} through
+     * @param briefingService       builds the briefing
+     * @param snapshotBuilder       reads back what Ask now sees, for the summary line
+     * @param freshness             the project's one answer to "now" and to solar event times
+     * @param dataSource            the datasource, checked to be H2 before anything is written
+     * @param environment           the environment, checked for the {@code local} profile
+     * @param clock                 the application clock
+     * @param areaRepository        named areas; null skips them
+     * @param aliasRepository       location aliases; null skips them
+     * @param subRegionMembership   the only writer of sub-region membership; null skips the sub-region
+     */
+    @Autowired
+    public AskLocalFixtureSeeder(RegionRepository regionRepository,
+            LocationRepository locationRepository, TideExtremeRepository tideExtremeRepository,
+            BriefingEvaluationService evaluationService, BriefingService briefingService,
+            AskSnapshotBuilder snapshotBuilder, SolarEventFreshness freshness,
+            DataSource dataSource, Environment environment, Clock clock,
+            AreaRepository areaRepository, LocationAliasRepository aliasRepository,
+            SubRegionMembershipService subRegionMembership) {
         this.areaRepository = areaRepository;
         this.aliasRepository = aliasRepository;
+        this.subRegionMembership = subRegionMembership;
         this.regionRepository = regionRepository;
         this.locationRepository = locationRepository;
         this.tideExtremeRepository = tideExtremeRepository;
@@ -368,9 +407,32 @@ public class AskLocalFixtureSeeder {
             area.setLocationIds(new HashSet<>(Set.of(crags.getId(), kielder.getId())));
             areaRepository.save(area);
         }
+        seedSubRegion(crags, kielder);
         if (!aliasRepository.existsById(new LocationAliasId(beach.getId(), FIXTURE_ALIAS))) {
             aliasRepository.save(new LocationAliasEntity(beach.getId(), FIXTURE_ALIAS));
         }
+    }
+
+    /**
+     * Writes one sub-region of the fixture region holding the Wall Crags and Kielder Water, so the admin Areas
+     * section and Ask's sub-region lookups have data locally (a local schema is built by Hibernate, and V191's
+     * seed never runs). Idempotent. Skipped when no membership service was given.
+     */
+    private void seedSubRegion(LocationEntity first, LocationEntity second) {
+        if (subRegionMembership == null) {
+            return;
+        }
+        AreaEntity area = areaRepository.findAll().stream()
+                .filter(a -> FIXTURE_SUB_REGION.equals(a.getName())).findFirst().orElseGet(() -> {
+                    AreaEntity created = new AreaEntity();
+                    created.setName(FIXTURE_SUB_REGION);
+                    created.setKind(AreaKind.SUB_REGION);
+                    created.setRegion(first.getRegion());
+                    created.setAliases(new HashSet<>(Set.of(FIXTURE_SUB_REGION_ALIAS)));
+                    return areaRepository.save(created);
+                });
+        subRegionMembership.assign(first, area.getId());
+        subRegionMembership.assign(second, area.getId());
     }
 
     // -- windows ------------------------------------------------------------------------------

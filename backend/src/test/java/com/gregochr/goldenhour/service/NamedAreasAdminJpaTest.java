@@ -31,7 +31,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * the normalised comparison, both shadowing rules, and the trap that a rename must keep the members.
  */
 @DataJpaTest
-@Import({AreaService.class, LocationAliasService.class, NameNamespaceGuard.class})
+@Import({AreaService.class, LocationAliasService.class, NameNamespaceGuard.class,
+        SubRegionMembershipService.class})
 class NamedAreasAdminJpaTest {
 
     @Autowired

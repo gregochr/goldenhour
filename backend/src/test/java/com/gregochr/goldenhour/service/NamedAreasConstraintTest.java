@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.AreaRequest;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationAliasRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.RegionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,12 +44,19 @@ class NamedAreasConstraintTest {
     @Mock
     private NameNamespaceGuard guard;
 
+    @Mock
+    private RegionRepository regionRepository;
+
+    @Mock
+    private SubRegionMembershipService membershipService;
+
     private AreaService areaService;
     private LocationAliasService aliasService;
 
     @BeforeEach
     void setUp() {
-        areaService = new AreaService(areaRepository, locationRepository, guard);
+        areaService = new AreaService(areaRepository, locationRepository, regionRepository, guard,
+                membershipService);
         aliasService = new LocationAliasService(aliasRepository, locationRepository, guard);
     }
 
@@ -74,6 +82,20 @@ class NamedAreasConstraintTest {
 
         assertThatThrownBy(() -> areaService.update(3L, new AreaRequest("Kielder", List.of("Kielder Forest"))))
                 .isInstanceOf(NameClashException.class);
+    }
+
+    @Test
+    @DisplayName("delete() turns a foreign-key violation at flush (a member added in the gap) into a 409")
+    void delete_violation_isAConflict() {
+        AreaEntity loaded = new AreaEntity();
+        loaded.setName("Swaledale");
+        when(areaRepository.findById(3L)).thenReturn(Optional.of(loaded));
+        org.mockito.Mockito.doThrow(new DataIntegrityViolationException("location_sub_region_area_id_fkey"))
+                .when(areaRepository).flush();
+
+        assertThatThrownBy(() -> areaService.delete(3L))
+                .isInstanceOf(com.gregochr.goldenhour.exception.AreaConflictException.class)
+                .hasMessageContaining("Swaledale");
     }
 
     @Test

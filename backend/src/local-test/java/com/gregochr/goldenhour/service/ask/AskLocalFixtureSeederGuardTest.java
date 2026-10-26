@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.SolarEventFreshness;
+import com.gregochr.goldenhour.service.SubRegionMembershipService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -48,6 +49,7 @@ class AskLocalFixtureSeederGuardTest {
                 .withBean(TideExtremeRepository.class, () -> mock(TideExtremeRepository.class))
                 .withBean(AreaRepository.class, () -> mock(AreaRepository.class))
                 .withBean(LocationAliasRepository.class, () -> mock(LocationAliasRepository.class))
+                .withBean(SubRegionMembershipService.class, () -> mock(SubRegionMembershipService.class))
                 .withBean(BriefingEvaluationService.class, () -> mock(BriefingEvaluationService.class))
                 .withBean(BriefingService.class, () -> mock(BriefingService.class))
                 .withBean(AskSnapshotBuilder.class, () -> mock(AskSnapshotBuilder.class))

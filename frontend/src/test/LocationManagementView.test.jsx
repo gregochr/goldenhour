@@ -18,6 +18,7 @@ vi.mock('../api/regionApi', () => ({
 
 vi.mock('../api/areaApi', () => ({
   fetchAreas: vi.fn(),
+  fetchUncoveredLocations: vi.fn(),
   createArea: vi.fn(),
   updateArea: vi.fn(),
   setAreaLocations: vi.fn(),
@@ -36,7 +37,7 @@ import {
   fetchLocations, addLocation, updateLocation, geocodePlace, enrichLocation, resetLocationFailures,
 } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
-import { fetchAreas, fetchLocationAliases } from '../api/areaApi';
+import { fetchAreas, fetchUncoveredLocations, fetchLocationAliases } from '../api/areaApi';
 import { fetchTideStats } from '../api/tideApi';
 
 const MOCK_LOCATIONS = [
@@ -78,6 +79,7 @@ describe('LocationManagementView', () => {
     fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
     fetchRegions.mockResolvedValue([]);
     fetchAreas.mockResolvedValue([]);
+    fetchUncoveredLocations.mockResolvedValue([]);
     fetchLocationAliases.mockResolvedValue({});
   });
 

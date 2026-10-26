@@ -142,8 +142,15 @@ public class AskTools {
     /** What every named-area lookup ends with. */
     static final String AREA_SUGGEST_NOTE = "To suggest places here, call rank_spots with areaName.";
 
-    /** The longest list of known named areas an unknown {@code areaName} error gives. */
-    static final int KNOWN_AREAS_CAP = 200;
+    /**
+     * The longest list of known named areas an unknown {@code areaName} error gives. Sized so every name fits
+     * with the 24 sub-regions beside the ordinary areas (the 25 names are about 650 characters); a longer list
+     * is cut, not refused.
+     */
+    static final int KNOWN_AREAS_CAP = 1_200;
+
+    /** The most other area names the "also matched areas" note gives. */
+    static final int MAX_ALSO_AREAS = 5;
 
     /** What {@code look_up_place} notes when no place in the windows carries the name. */
     static final String NO_SUCH_PLACE_NOTE = "No place by that name is in these windows.";
@@ -957,9 +964,10 @@ public class AskTools {
         }
         // An exact place match, by name or alias, always beats a named area, so a place is never hidden by one.
         boolean exactPlace = inScope.values().stream().anyMatch(m -> m.exact);
-        AskSnapshot.Area area = exactPlace ? null : matchArea(snapshot.areas(), wanted);
-        if (area != null) {
-            return namedAreaResult(area, windows, inScope);
+        List<AskSnapshot.Area> matchedAreas = exactPlace ? List.of() : matchingAreas(snapshot.areas(), wanted);
+        if (!matchedAreas.isEmpty()) {
+            return namedAreaResult(matchedAreas.getFirst(), matchedAreas.subList(1, matchedAreas.size()), windows,
+                    inScope);
         }
         if (inScope.isEmpty()) {
             return finish(LOOK_UP, new LookUpPlaceResult(List.of(),
@@ -1030,10 +1038,13 @@ public class AskTools {
 
     /**
      * The named-area branch of {@code look_up_place}: how the area's places rate in each of (at most four of) the
-     * requested windows. An explanation, never evidence: nothing here can become a pick.
+     * requested windows. An explanation, never evidence: nothing here can become a pick. Only the single
+     * longest match is answered; {@code otherAreas} (the rest, in match order) are named in a note, so
+     * "Swaledale or Wensleydale?" is not silently answered as Swaledale alone.
      */
     private AskToolResult<LookUpPlaceResult> namedAreaResult(AskSnapshot.Area area,
-            List<AskSnapshot.Window> requested, Map<Long, PlaceMatch> partialPlaces) {
+            List<AskSnapshot.Area> otherAreas, List<AskSnapshot.Window> requested,
+            Map<Long, PlaceMatch> partialPlaces) {
         List<AskSnapshot.Window> shown = requested.stream().limit(MAX_AREA_WINDOWS).toList();
         List<AreaWindow> windows = new ArrayList<>();
         Map<String, String> reasons = new LinkedHashMap<>();
@@ -1096,6 +1107,12 @@ public class AskTools {
         if (!alsoMatched.isEmpty()) {
             note = joinNotes(note, "Also matched places: " + String.join(", ", alsoMatched)
                     + "; ask about one by name.");
+        }
+        if (!otherAreas.isEmpty()) {
+            note = joinNotes(note, "Also matched areas: "
+                    + String.join(", ", otherAreas.stream().map(AskSnapshot.Area::name).limit(MAX_ALSO_AREAS)
+                    .toList())
+                    + "; this result is for " + area.name() + " only, so call look_up_place once per area.");
         }
         if (windows.isEmpty()) {
             note = joinNotes(note, anyOutOfScope ? AREA_OUT_OF_SCOPE_NOTE : AREA_NO_PLACES_NOTE);
@@ -1212,27 +1229,54 @@ public class AskTools {
      * @return the area, or null
      */
     static AskSnapshot.Area matchArea(List<AskSnapshot.Area> areas, List<String> wanted) {
-        AskSnapshot.Area best = null;
-        int bestRun = 0;
+        List<AskSnapshot.Area> matched = matchingAreas(areas, wanted);
+        return matched.isEmpty() ? null : matched.getFirst();
+    }
+
+    /** An area and the words of the longest run of its name or aliases that a query contained. */
+    private record AreaHit(AskSnapshot.Area area, List<String> run) {
+    }
+
+    /**
+     * Every named area a query names, best first: the longest matched run, then name order. The first is what
+     * {@link #matchArea} returns; the rest are what the "also matched areas" note lists, so a question naming
+     * two areas ("Swaledale or Wensleydale") is not answered as the first alone without saying so.
+     *
+     * <p>An area whose matched words are only a part of the best match's words is not "also" matched: a
+     * question for "Hadrian's Wall & Tynedale" also contains the words of the ordinary area "Hadrian's Wall",
+     * and listing it would offer a second lookup for the same place.
+     *
+     * @param areas  the named areas
+     * @param wanted the query's words
+     * @return the matching areas, best first; empty when none matches
+     */
+    static List<AskSnapshot.Area> matchingAreas(List<AskSnapshot.Area> areas, List<String> wanted) {
+        List<AreaHit> hits = new ArrayList<>();
         for (AskSnapshot.Area area : areas) {
-            int run = 0;
+            List<String> run = List.of();
             List<String> nameWords = placeWords(area.name());
             if (containsRun(wanted, nameWords)) {
-                run = nameWords.size();
+                run = nameWords;
             }
             for (String alias : area.aliases()) {
                 List<String> words = placeWords(alias);
-                if (containsRun(wanted, words)) {
-                    run = Math.max(run, words.size());
+                if (words.size() > run.size() && containsRun(wanted, words)) {
+                    run = words;
                 }
             }
-            if (run > bestRun || (run == bestRun && run > 0
-                    && String.CASE_INSENSITIVE_ORDER.compare(area.name(), best.name()) < 0)) {
-                best = area;
-                bestRun = run;
+            if (!run.isEmpty()) {
+                hits.add(new AreaHit(area, run));
             }
         }
-        return best;
+        hits.sort(Comparator.<AreaHit>comparingInt(hit -> hit.run().size()).reversed()
+                .thenComparing(hit -> hit.area().name(), String.CASE_INSENSITIVE_ORDER));
+        List<AskSnapshot.Area> matched = new ArrayList<>();
+        for (AreaHit hit : hits) {
+            if (matched.isEmpty() || !containsRun(hits.getFirst().run(), hit.run())) {
+                matched.add(hit.area());
+            }
+        }
+        return matched;
     }
 
     /**
