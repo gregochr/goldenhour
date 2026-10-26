@@ -1,0 +1,15 @@
+Account notification
+
+Hi [(${username})],
+
+We wanted to let you know that your PhotoCast account has been removed.
+Any forecast data and preferences associated with your account have been
+deleted.
+
+If you believe this was done in error, or if you have any questions,
+please contact us at privacy@photocast.online.
+
+Thank you for trying PhotoCast. We hope to see you again in the future.
+
+--
+PhotoCast — Golden hour, forecast and ranked by AI
