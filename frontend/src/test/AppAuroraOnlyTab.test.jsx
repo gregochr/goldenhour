@@ -36,6 +36,7 @@ vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
 vi.mock('../api/auroraApi.js', () => ({
   getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
   getAuroraStatus: vi.fn(),
+  getAuroraAlert: vi.fn().mockResolvedValue(null),
   getAuroraLocations: vi.fn().mockResolvedValue([]),
   getAuroraForecastResults: vi.fn().mockResolvedValue([]),
   getAuroraForecastAvailableDates: vi.fn().mockResolvedValue([]),
@@ -74,7 +75,7 @@ import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getSettings, getReach, getDriveTimes } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
-import { getAuroraStatus } from '../api/auroraApi.js';
+import { getAuroraAlert, getAuroraStatus } from '../api/auroraApi.js';
 import { getNlcSighting } from '../api/nlcApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
@@ -170,6 +171,7 @@ beforeEach(() => {
   getDriveTimes.mockReset().mockResolvedValue({});
   fetchTravelDayRanges.mockReset().mockResolvedValue([]);
   getAuroraStatus.mockReset().mockResolvedValue(null);
+  getAuroraAlert.mockReset().mockResolvedValue(null);
   getNlcSighting.mockReset().mockResolvedValue(null);
   getAstroConditions.mockReset().mockResolvedValue(null);
   getAlmanac.mockReset().mockResolvedValue({ entries: [] });
@@ -242,11 +244,16 @@ describe('App - the Map tab without a solar forecast (C3)', () => {
     expect(screen.queryByTestId('stub-map-pane')).not.toBeInTheDocument();
   });
 
-  it('leaves a LITE account unchanged: no pane, even if a status somehow arrived', async () => {
-    getAuroraStatus.mockResolvedValue(REAL_STRONG);
+  it('leaves a LITE account unchanged: no pane, even while a real alert is running (it reads /alert, never /status)', async () => {
+    getAuroraAlert.mockResolvedValue({
+      level: 'STRONG', active: true, triggerType: 'realtime', allOvercast: false, currentNightEndsAt: null,
+    });
     renderApp('LITE_USER');
     await screen.findByTestId('stub-shell');
-    await statusLanded();
+    await waitFor(() => expect(getAuroraAlert).toHaveBeenCalled());
+    await act(async () => { await getAuroraAlert.mock.results[0].value; });
+    await settle();
+    expect(getAuroraStatus).not.toHaveBeenCalled();
     expect(screen.queryByTestId('stub-map-pane')).not.toBeInTheDocument();
   });
 

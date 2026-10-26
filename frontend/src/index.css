@@ -13516,6 +13516,40 @@ button.wf-mchip:hover {
   font-weight: 400;
   color: var(--color-plex-text-secondary);
 }
+/* The LITE banner (docs/engineering/aurora-lite-alert-plan.md §2.3): no field, no best site, no map door. Its
+   text-only live region keeps the card body's column rhythm, and its Pro door sits under it. */
+.wf-aurora-lite-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.wf-aurora-lite-door { align-self: flex-start; }
+/* ⚠️ The card's door shrinks to its trigger (`align-self: flex-start`), so the popover's `min(360px, 100%)`
+   would resolve against that ~120px box: give it a viewport-based width, as the `--foot` door does. */
+.wf-aurora-card--lite .wf-pro-upsell {
+  width: min(360px, calc(100vw - 32px));
+  z-index: 19;
+}
+.wf-aurora-card--lite,
+.wf-aurora-strip--lite { cursor: default; }
+/* ⚠️ The strip is a single flex row with `overflow: hidden`, which would clip the door's absolutely
+   positioned popover. The Lite strip therefore lets it overflow and anchors the popover to the STRIP
+   itself (the door is `position: static`, the strip is `position: relative`), full strip width, so it
+   cannot run off a 320px phone. The glow bar keeps to the strip: with no clip, ANY shadow on a 2px bar
+   leaks past its left edge and below the strip (a negative spread collapses a bar that thin), so the
+   Lite bar draws no glow, only its lit width, and the strip's corner radius stands in for the clip. */
+.wf-aurora-strip--lite { overflow: visible; }
+.wf-aurora-strip--lite::after {
+  border-bottom-left-radius: 12px;
+  box-shadow: none;
+}
+.wf-aurora-strip--lite .wf-pro-upsell-door { position: static; flex: none; }
+.wf-aurora-strip--lite .wf-pro-upsell {
+  left: 0;
+  right: 0;
+  width: auto;
+  z-index: 19;
+}
 /* ── end Aurora alert banner ── */
 
 /* ══ Ask PhotoCast — the conversation (docs/engineering/ask-photocast-plan.md §2.6, F1a) ══════════

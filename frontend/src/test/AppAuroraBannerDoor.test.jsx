@@ -39,6 +39,7 @@ vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
 vi.mock('../api/auroraApi.js', () => ({
   getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
   getAuroraStatus: vi.fn(),
+  getAuroraAlert: vi.fn().mockResolvedValue(null),
   getAuroraLocations: vi.fn(() => Promise.resolve([])),
   getAuroraForecastResults: vi.fn(() => Promise.resolve([])),
 }));
@@ -88,7 +89,7 @@ import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getSettings, getReach, getDriveTimes } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
-import { getAuroraStatus } from '../api/auroraApi.js';
+import { getAuroraAlert, getAuroraStatus } from '../api/auroraApi.js';
 import { getNlcSighting } from '../api/nlcApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
@@ -159,6 +160,7 @@ beforeEach(() => {
   getDriveTimes.mockReset().mockResolvedValue({});
   fetchTravelDayRanges.mockReset().mockResolvedValue([]);
   getAuroraStatus.mockReset().mockResolvedValue(alert());
+  getAuroraAlert.mockReset().mockResolvedValue(null);
   getNlcSighting.mockReset().mockResolvedValue(null);
   getAstroConditions.mockReset().mockResolvedValue(null);
   getAlmanac.mockReset().mockResolvedValue({ entries: [] });
@@ -281,9 +283,28 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
     expect(MapPaneStub.lastProps.handoff).toMatchObject({ source: 'plan', eventType: 'AURORA' });
   });
 
-  it('a LITE reader has no aurora status, so no banner and therefore no door', async () => {
-    getAuroraStatus.mockResolvedValue(null);
+  it('a LITE reader gets the Lite banner from /alert, with no Map door and no /status request', async () => {
+    getAuroraAlert.mockResolvedValue({
+      level: 'MODERATE', active: true, triggerType: 'forecast', allOvercast: false,
+      currentNightDate: TODAY, currentNightEndsAt: '2026-01-16T06:00:00Z',
+    });
     renderApp('LITE_USER');
+
+    const banner = await screen.findByTestId('aurora-banner');
+    await act(async () => { fireEvent.click(banner); });
+
+    expect(banner).toHaveAttribute('data-actionable', 'false');
+    expect(screen.getByTestId('aurora-banner-upsell-trigger')).toBeInTheDocument();
+    expect(screen.queryByTestId('aurora-banner-cta')).toBeNull();
+    expect(getAuroraStatus).not.toHaveBeenCalled();
+    expect(MapPaneStub.lastProps?.handoff ?? null).toBeNull();
+    expect(ShellStub.lastProps.tabRequest ?? null).toBeNull();
+  });
+
+  it('a LITE reader with a quiet alert has no banner', async () => {
+    getAuroraAlert.mockResolvedValue({ level: 'QUIET', active: false, triggerType: null, allOvercast: false });
+    renderApp('LITE_USER');
+    await waitFor(() => expect(getAuroraAlert).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId('stub-shell')).toBeInTheDocument());
 
     expect(screen.queryByTestId('aurora-banner')).toBeNull();

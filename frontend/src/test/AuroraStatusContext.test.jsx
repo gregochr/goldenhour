@@ -38,11 +38,16 @@ import { act, render, screen } from '@testing-library/react';
 vi.mock('../api/auroraApi.js', () => ({
   getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
   getAuroraStatus: vi.fn(),
+  getAuroraAlert: vi.fn().mockResolvedValue(null),
   getAuroraLocations: vi.fn(() => Promise.resolve([])),
   getAuroraForecastResults: vi.fn(() => Promise.resolve([])),
   getAuroraViewline: vi.fn(() => Promise.resolve({ active: false })),
   getAuroraForecastViewline: vi.fn(() => Promise.resolve({ active: false })),
 }));
+
+// The provider picks its endpoint from the reader's role; a mutable one lets a test be a LITE reader.
+let mockRole = 'PRO_USER';
+vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole }) }));
 
 // The field thumbnail pulls the heat kernel and wants a canvas jsdom does not have; this suite is
 // about WHICH status is on screen, not what is drawn, so the thumbnail is a placeholder.
@@ -57,6 +62,7 @@ import { resolveAuroraNight } from '../utils/mapDates.js';
 import {
   getAuroraForecastViewline,
   getAuroraLocations,
+  getAuroraAlert,
   getAuroraStatus,
   getAuroraViewline,
 } from '../api/auroraApi.js';
@@ -161,6 +167,7 @@ async function poll() {
 const banner = () => screen.queryByRole('alert');
 
 beforeEach(() => {
+  mockRole = 'PRO_USER';
   // Intervals only: the provider's poll fires when a test says so and not otherwise. Every wait in
   // this file is an awaited `act`, never a `findBy*` or `waitFor`, whose own polling runs on
   // `setInterval`.
@@ -173,6 +180,8 @@ beforeEach(() => {
   // and take the banner down, which is exactly what several negatives below assert.)
   getAuroraStatus.mockReset();
   getAuroraStatus.mockRejectedValue(new Error('unexpected getAuroraStatus call'));
+  getAuroraAlert.mockReset();
+  getAuroraAlert.mockRejectedValue(new Error('unexpected getAuroraAlert call'));
   getAuroraLocations.mockClear();
   getAuroraViewline.mockClear();
   getAuroraForecastViewline.mockClear();
@@ -574,5 +583,68 @@ describe('AuroraStatusProvider — the page re-reads the night in progress when 
     await act(async () => { vi.advanceTimersByTime(0); });
 
     expect(night()).toHaveTextContent('2026-08-14');
+  });
+});
+
+describe('AuroraStatusProvider — the role picks the endpoint (aurora-lite-alert-plan.md L2)', () => {
+  /** Shows what the provider exposes, so a test reads `status` and `liteAlert` off the real context. */
+  function Probe() {
+    const { status, liteAlert } = useAuroraStatus();
+    return (
+      <>
+        <span data-testid="probe-status">{status ? status.level : 'none'}</span>
+        <span data-testid="probe-lite">{liteAlert ? liteAlert.level : 'none'}</span>
+      </>
+    );
+  }
+  const probeTree = () => (
+    <AuroraStatusProvider>
+      <Probe />
+    </AuroraStatusProvider>
+  );
+  const LITE_ALERT = { level: 'MODERATE', active: true, triggerType: 'forecast', allOvercast: false };
+
+  it('a LITE reader polls /alert and never /status; liteAlert is set and status stays null', async () => {
+    mockRole = 'LITE_USER';
+    getAuroraAlert.mockResolvedValue({ ...LITE_ALERT });
+
+    await act(async () => { render(probeTree()); });
+    await refocus();
+    await poll();
+
+    expect(getAuroraAlert).toHaveBeenCalledTimes(3);
+    expect(getAuroraStatus).not.toHaveBeenCalled();
+    expect(screen.getByTestId('probe-lite')).toHaveTextContent('MODERATE');
+    expect(screen.getByTestId('probe-status')).toHaveTextContent('none');
+  });
+
+  it.each(['PRO_USER', 'ADMIN'])('a %s reader never calls /alert and liteAlert stays null', async (role) => {
+    mockRole = role;
+    getAuroraStatus.mockResolvedValue({ ...ALERT });
+
+    await act(async () => { render(probeTree()); });
+    await refocus();
+
+    expect(getAuroraAlert).not.toHaveBeenCalled();
+    expect(getAuroraStatus).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('probe-status')).toHaveTextContent('MODERATE');
+    expect(screen.getByTestId('probe-lite')).toHaveTextContent('none');
+  });
+
+  it('applies LITE answers in the order they were asked: a late older answer is dropped', async () => {
+    mockRole = 'LITE_USER';
+    const first = deferred();
+    const second = deferred();
+    getAuroraAlert
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+
+    await act(async () => { render(probeTree()); });
+    await refocus();
+    await land(() => second.resolve({ level: 'STRONG', active: true }));
+    expect(screen.getByTestId('probe-lite')).toHaveTextContent('STRONG');
+    await land(() => first.resolve({ ...LITE_ALERT }));
+
+    expect(screen.getByTestId('probe-lite')).toHaveTextContent('STRONG');
   });
 });

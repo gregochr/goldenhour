@@ -8,7 +8,7 @@ import ChangePasswordPage from './components/ChangePasswordPage.jsx';
 import ForgotPasswordPage from './components/auth/ForgotPasswordPage.jsx';
 import ResetPasswordPage from './components/auth/ResetPasswordPage.jsx';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
-import AuroraBanner from './components/AuroraBanner.jsx';
+import AuroraBannerRoot from './components/AuroraBannerRoot.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
@@ -817,7 +817,7 @@ function AppInner() {
           {/* The banner's two doors, each WITHHELD when it would lead nowhere (the dead-control ban): the
               Map tab when it is offered at all (a forecast, or a real alert - `auroraTabOn`), and
               Operations for a SIMULATED alert, which has no map (`utils/auroraTab.js`), for an admin. */}
-          <AuroraBanner
+          <AuroraBannerRoot
             onViewOnMap={hasForecastData || auroraTabOn ? handleAuroraViewOnMap : undefined}
             onOpenSimulated={isAdmin ? openOperations : undefined}
           />

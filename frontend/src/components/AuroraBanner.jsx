@@ -401,7 +401,7 @@ const MODEL_SHAPE = PropTypes.shape({
  * to the whole strip (`background-size: calc(100% / var(--fill-ratio))` — a division by a number is
  * the one thing calc() allows, and a percentage cannot be one).
  */
-function rootVars(m, extra) {
+export function rootVars(m, extra) {
   return {
     '--acc': m.sev.acc,
     '--acc-ink': m.sev.ink,
