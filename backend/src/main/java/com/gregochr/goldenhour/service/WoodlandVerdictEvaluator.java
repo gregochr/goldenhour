@@ -30,7 +30,7 @@ import java.util.List;
  *
  * <p><strong>What it deliberately does not do.</strong> It produces no rating and calls no model.
  * The thresholds below are photographic priors, not measurements — nothing in this project can yet
- * score them, because {@code actual_outcome} has no rows. They are therefore set to be *cheap to
+ * score them, because the legacy outcome store never held rows. They are therefore set to be *cheap to
  * be wrong about*: deterministic, free to run, and revertible with one migration. A woodland
  * subject rated by Claude is a separate, later decision that should wait for evidence.
  */

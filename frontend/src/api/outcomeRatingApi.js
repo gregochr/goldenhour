@@ -9,8 +9,7 @@ const BASE_URL = '/api';
  * <p>Nothing here is cached. The rows are personal, and `/api/outcome/ratings*` is on
  * `HttpCachingConfigTest`'s never-filtered list, so the browser never persists a body a logout
  * cannot reach; `hooks/useOutcomeRatings.js` holds them in component state alone and never touches
- * `utils/swrCache.js`. This is a different record from the older `actual_outcome` one that
- * `forecastApi.js`'s `fetchOutcomes`/`recordOutcome` read and write.
+ * `utils/swrCache.js`.
  */
 
 /**

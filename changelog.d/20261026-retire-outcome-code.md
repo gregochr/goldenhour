@@ -1,0 +1,3 @@
+### Removed — legacy free-text outcome API, service and UI leftovers
+
+The older `POST /api/outcome`, `GET /api/outcome` and `GET /api/outcome/all` endpoints, `OutcomeService`, `ActualOutcomeEntity`/repository, their models, the unmounted `OutcomeModal` and the `forecastApi` outcome bindings are deleted; the legacy store held no rows and had no UI since February. The calibration report (`GET /api/admin/calibration`) now scores readers' "How was it?" ratings only, and its buckets no longer carry `meanAbsoluteFierySkyError` (no reader). The empty `actual_outcome` table is left in place for one release; a later release drops it.

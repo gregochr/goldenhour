@@ -403,7 +403,6 @@ describe('form-field focus outlines — their call sites', () => {
     const expectedFiles = [
       'components/AuroraSimulateModal.jsx',
       'components/LocationManagementView.jsx',
-      'components/OutcomeModal.jsx',
       'components/RegionManagementView.jsx',
       'components/UserManagementView.jsx',
       'components/shared/SortableHeader.jsx',

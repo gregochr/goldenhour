@@ -11,31 +11,16 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Unit tests for {@link CalibrationPair}'s two projection constructors and its dedup key.
+ * Unit tests for {@link CalibrationPair}'s projection constructors and its dedup key.
  */
 class CalibrationPairTest {
 
     private static final LocalDate DATE = LocalDate.of(2026, 5, 10);
     private static final LocalDateTime RUN = LocalDateTime.of(2026, 5, 9, 1, 0);
 
-    private CalibrationPair oldTable(long outcomeId) {
-        return new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1, RUN, EvaluationModel.HAIKU,
-                3, 50, 60, 4, 70, 80, true, outcomeId, null, null);
-    }
-
     private CalibrationPair rating(long userId) {
         return new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1, RUN, EvaluationModel.HAIKU,
                 3, 50, 60, 4, userId, null, null);
-    }
-
-    @Test
-    @DisplayName("an actual_outcome pair is keyed on its outcome row and keeps every column")
-    void oldTableConstructor_keysOnOutcomeRow() {
-        CalibrationPair pair = oldTable(7L);
-
-        assertThat(pair.outcomeKey()).isEqualTo("outcome:7");
-        assertThat(pair.actualFierySky()).isEqualTo(70);
-        assertThat(pair.wentOut()).isTrue();
     }
 
     @Test
@@ -54,8 +39,6 @@ class CalibrationPairTest {
     @DisplayName("slotHorizonKey separates outcomes of one slot but not runs of one forecast")
     void slotHorizonKey_includesOutcomeIdentity() {
         assertThat(rating(11L).slotHorizonKey()).isNotEqualTo(rating(12L).slotHorizonKey());
-        assertThat(rating(11L).slotHorizonKey()).isNotEqualTo(oldTable(11L).slotHorizonKey());
-        assertThat(oldTable(7L).slotHorizonKey()).isNotEqualTo(oldTable(8L).slotHorizonKey());
         // Same outcome, a later run of the same forecast: the same key, so the newest wins.
         CalibrationPair laterRun = new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1,
                 RUN.plusHours(12), EvaluationModel.HAIKU, 5, null, null, 4, 11L, null, null);
@@ -72,20 +55,15 @@ class CalibrationPairTest {
     }
 
     @Test
-    @DisplayName("V187: the two projection shapes carry the band, and only the rating one a tag")
+    @DisplayName("V187: the rating projection carries the band and the tag")
     void projectionConstructors_carryBandAndTag() {
         CalibrationPair fromRating = new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1, RUN,
                 EvaluationModel.HAIKU, 3, 50, 60, 4, 11L, null, null, "LIKELY",
                 com.gregochr.goldenhour.entity.SeenTag.MIST);
-        CalibrationPair fromOutcome = new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1, RUN,
-                EvaluationModel.HAIKU, 3, 50, 60, 4, 70, 80, true, 9L, null, null, "LIKELY");
 
         assertThat(fromRating.mistPotential()).isEqualTo("LIKELY");
         assertThat(fromRating.seen()).isEqualTo(com.gregochr.goldenhour.entity.SeenTag.MIST);
         assertThat(fromRating.outcomeKey()).isEqualTo("rating:11");
-        assertThat(fromOutcome.mistPotential()).isEqualTo("LIKELY");
-        assertThat(fromOutcome.seen()).isNull();
-        assertThat(fromOutcome.outcomeKey()).isEqualTo("outcome:9");
     }
 
     private CalibrationPair withMist(String band) {

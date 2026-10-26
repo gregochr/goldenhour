@@ -30,7 +30,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
  * cloud-verification accuracy channel.
  *
  * <p><strong>Why the archive is the highest-consequence silent-wrong on the Open-Meteo surface.</strong>
- * {@code actual_outcome} is empty, so reanalysis is the only thing that can score a past forecast.
+ * The legacy outcome store was empty, so reanalysis is the only thing that can score a past forecast.
  * A wrong {@code start_date}/{@code end_date} still returns HTTP 200 with a well-formed body — for
  * the wrong day. The verification report then looks plausible and means nothing. Unlike a units
  * bug there is no downstream magnitude that looks obviously off.

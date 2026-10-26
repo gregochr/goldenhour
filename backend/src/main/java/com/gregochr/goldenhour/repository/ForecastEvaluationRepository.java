@@ -282,38 +282,6 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
     int abandonPendingOlderThan(@Param("cutoff") LocalDateTime cutoff);
 
     /**
-     * Pairs every rated evaluation with the outcome a photographer recorded for the same slot.
-     *
-     * <p>Joins {@code forecast_evaluation} to {@code actual_outcome} on the natural key both share
-     * — location, date and target type. One slot yields one row per {@code daysAhead}, which is
-     * deliberate: it is what lets accuracy be scored per forecast horizon. Callers are expected to
-     * keep only the latest {@code forecastRunAt} within each (slot, horizon) group, since a slot
-     * can be re-evaluated by both the nightly batch and the intraday refresh.
-     *
-     * <p>Both ratings must be present; nothing else is filtered. In particular an outcome recorded
-     * with {@code wentOut = false} still counts — a photographer can rate a sky they watched from
-     * a window — so the flag is projected rather than applied.
-     *
-     * @param from start of the outcome window (inclusive)
-     * @param to   end of the outcome window (inclusive)
-     * @return forecast/outcome pairs, unordered
-     */
-    @Query("SELECT new com.gregochr.goldenhour.model.CalibrationPair("
-            + " e.location.name, e.targetDate, e.targetType, e.daysAhead, e.forecastRunAt,"
-            + " e.evaluationModel, e.rating, e.fierySkyPotential, e.goldenHourPotential,"
-            + " o.actualRating, o.fierySkyActual, o.goldenHourActual, o.wentOut, o.id,"
-            + " e.appBuild, e.promptHash, e.mistPotential)"
-            + " FROM ForecastEvaluationEntity e, ActualOutcomeEntity o"
-            + " WHERE e.location.id = o.location.id"
-            + " AND e.targetDate = o.outcomeDate"
-            + " AND e.targetType = o.targetType"
-            + " AND e.rating IS NOT NULL"
-            + " AND o.actualRating IS NOT NULL"
-            + " AND o.outcomeDate BETWEEN :from AND :to")
-    List<CalibrationPair> findCalibrationPairs(
-            @Param("from") LocalDate from, @Param("to") LocalDate to);
-
-    /**
      * Pairs each reader's {@code outcome_rating} with the forecast row it resolved to when it was
      * written, so the calibration gate can score forecasts against what readers saw.
      *

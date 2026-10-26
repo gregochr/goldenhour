@@ -133,24 +133,6 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
-    @DisplayName("The outcome endpoint is deliberately excluded — free-text notes stay no-store, no ETag")
-    void outcomeEndpointStaysNoStoreForPrivacy() throws Exception {
-        // Outcomes carry user-authored free-text notes. They are kept on no-store so their bodies are
-        // never persisted to the browser's on-disk HTTP cache (which JS can't evict on logout).
-        when(outcomeService.queryAll(any(), any())).thenReturn(List.of());
-
-        MvcResult result = mockMvc.perform(get("/api/outcome/all")
-                        .param("from", "2026-01-01")
-                        .param("to", "2026-01-07"))
-                .andExpect(status().isOk())
-                .andExpect(header().doesNotExist(HttpHeaders.ETAG))
-                .andReturn();
-
-        assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
-    }
-
-    @Test
     @WithMockUser(roles = "LITE_USER")
     @DisplayName("The role-free aurora nights endpoint carries an ETag for a LITE reader and 304s when unchanged")
     void auroraNightsEndpointRevalidatesForLite() throws Exception {
@@ -379,15 +361,7 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
     void personalDataReadsStayNoStore() throws Exception {
         // Encodes the exclusion decisions so a later reviewer can't quietly reverse them: the
         // browser's on-disk HTTP cache can't be evicted from JS on logout, so user-authored text
-        // (outcome notes, travel-day notes) and home-derived data must never be stored there.
-        when(outcomeService.queryAll(any(), any())).thenReturn(List.of());
-
-        MvcResult outcomes = mockMvc.perform(get("/api/outcome/all")
-                        .param("from", "2026-01-01").param("to", "2026-01-07"))
-                .andExpect(header().doesNotExist(HttpHeaders.ETAG))
-                .andReturn();
-        assertThat(outcomes.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
-
+        // (travel-day notes) and home-derived data must never be stored there.
         MvcResult settings = mockMvc.perform(get("/api/user/settings")).andReturn();
         assertThat(settings.getResponse().getHeader(HttpHeaders.ETAG)).isNull();
     }

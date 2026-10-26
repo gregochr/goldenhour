@@ -99,25 +99,6 @@ class ModelTest {
     }
 
     @Test
-    @DisplayName("ActualOutcome components are accessible after construction")
-    void actualOutcome_componentsAccessible() {
-        LocalDate date = LocalDate.of(2026, 2, 20);
-        ActualOutcome outcome = new ActualOutcome(
-                54.7753, -1.5849, "Durham UK", date, TargetType.SUNSET,
-                true, 65, 78, "Beautiful warm light.", null);
-
-        assertThat(outcome.locationLat()).isEqualTo(54.7753);
-        assertThat(outcome.locationLon()).isEqualTo(-1.5849);
-        assertThat(outcome.locationName()).isEqualTo("Durham UK");
-        assertThat(outcome.outcomeDate()).isEqualTo(date);
-        assertThat(outcome.targetType()).isEqualTo(TargetType.SUNSET);
-        assertThat(outcome.wentOut()).isTrue();
-        assertThat(outcome.fierySkyActual()).isEqualTo(65);
-        assertThat(outcome.goldenHourActual()).isEqualTo(78);
-        assertThat(outcome.notes()).isEqualTo("Beautiful warm light.");
-    }
-
-    @Test
     @DisplayName("withDirectionalCloud returns copy with directional data attached")
     void atmosphericData_withDirectionalCloud() {
         AtmosphericData base = TestAtmosphericData.defaults();

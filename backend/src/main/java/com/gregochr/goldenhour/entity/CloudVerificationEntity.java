@@ -31,7 +31,7 @@ import java.time.LocalDateTime;
  * ({@code farLowCloud} at 226 km — the centre of a 4 km mid canvas's blocking corridor and only
  * the near edge of an 8 km cirrus one, whose centre is ~319 km; the 113 km gate reads neither).
  *
- * <p>Unlike {@code actual_outcome} this needs no human: it verifies the <em>cloud</em> claims the
+ * <p>This needs no human: it verifies the <em>cloud</em> claims the
  * scoring rules rest on, not the aesthetic judgement. It cannot tell you a sunset was beautiful —
  * only whether the gap and the canvas were really there.
  *

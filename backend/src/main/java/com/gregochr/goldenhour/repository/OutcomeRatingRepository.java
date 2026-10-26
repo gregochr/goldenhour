@@ -219,7 +219,7 @@ public interface OutcomeRatingRepository extends JpaRepository<OutcomeRatingEnti
 
     /**
      * Every user's rating of one slot with the username joined, newest first — the admin's "all
-     * ratings" list. A theta join, the house shape ({@code findCalibrationPairs}): the entity holds
+     * ratings" list. A theta join, the house shape ({@code findCalibrationPairsFromRatings}): the entity holds
      * the user as a plain id.
      *
      * @param locationId the location

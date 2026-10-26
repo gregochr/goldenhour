@@ -322,7 +322,7 @@ gets lost.
   process-wide: while one is in flight, the state a *later* `useActionState` returns waits on it. So
   one `new Promise(() => {})` does not stay inside its own test — every subsequent submit in the
   file sits on its pending label with its error state never committing. Hand the test the resolver
-  and settle it before the test ends; `OutcomeModal.test.jsx` and `LoginPage.test.jsx` both do, with
+  and settle it before the test ends; `LoginPage.test.jsx` does, with
   an `afterEach` net so an assertion that throws first cannot poison the rest of the file.
 - Do not let a real timer armed by the code under test outlive the test's `afterEach`. It fires
   after the hook has put back whatever its callback reaches for. `createEventSource.test.js` drove a

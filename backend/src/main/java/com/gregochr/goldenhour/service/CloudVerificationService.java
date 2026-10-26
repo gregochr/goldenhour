@@ -28,9 +28,9 @@ import java.util.stream.Collectors;
 /**
  * Scores past forecasts' cloud claims against reanalysed cloud from Open-Meteo's archive.
  *
- * <p>Exists because {@code actual_outcome} is empty: no photographer has ever recorded what a sky
- * did, so every scoring rule — including the cloud-approach veto, which forces rating 1–2 on a
- * large share of evaluations — is unvalidated. Aesthetic quality still needs a human, but every
+ * <p>Exists because no photographer ever recorded what a sky did (the legacy outcome store was
+ * empty and is retired), so every scoring rule — including the cloud-approach veto, which forces
+ * rating 1–2 on a large share of evaluations — is unvalidated. Aesthetic quality still needs a human, but every
  * threshold those rules actually turn on is a <em>cloud</em> claim, and cloud is machine-checkable.
  *
  * <p>Two claims are verified per evaluation: low cloud at the solar horizon decides whether the
