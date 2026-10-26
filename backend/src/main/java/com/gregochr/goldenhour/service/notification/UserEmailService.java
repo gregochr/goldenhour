@@ -346,6 +346,52 @@ public class UserEmailService {
         }
     }
 
+    /**
+     * Sends a waitlist invitation: a link to the app's {@code /register} page carrying the one-time invite
+     * token in the URL fragment ({@code #invite=}). Asynchronous; logs the waitlist row id only, never the
+     * address (the address at DEBUG at most).
+     *
+     * @param waitlistId the waitlist row's primary key, the only identifier logged
+     * @param email      the invited address
+     * @param rawToken   the raw invite token (included in the link URL)
+     * @param expiresAt  when the invitation stops working, shown as a date
+     */
+    @Async
+    public void sendWaitlistInviteEmail(Long waitlistId, String email, String rawToken, LocalDateTime expiresAt) {
+        if (!canSend(email)) {
+            return;
+        }
+        try {
+            Context context = new Context();
+            // The slot every email template greets from: a waitlisted reader has no username, so it is the address.
+            context.setVariable("username", email);
+            context.setVariable("inviteUrl", inviteLink(rawToken));
+            context.setVariable("expiresOn", expiresAt.format(LAPSES_ON_FORMAT));
+            String html = templateEngine.process("waitlist-invite-email", context);
+            String text = templateEngine.process(TEXT_TEMPLATE_PREFIX + "waitlist-invite-email", context);
+
+            sendEmail(email, "PhotoCast — a place has opened for you", text, html);
+            LOG.info("Waitlist invitation sent for waitlist id={}", waitlistId);
+            LOG.debug("Waitlist invitation address {}", LogSanitizer.sanitize(email));
+        } catch (Exception ex) {
+            LOG.error("Failed to send waitlist invitation for waitlist id={}: {}", waitlistId,
+                    ex.getClass().getSimpleName());
+            LOG.debug("Waitlist invitation failure detail: {}", LogSanitizer.sanitize(ex.getMessage()));
+        }
+    }
+
+    /**
+     * Builds the registration link a waitlist invitation carries: {@code <app>/register#invite=<token>}. It
+     * is NOT {@code #token=}, which the app treats as an email-verification link. The fragment never reaches
+     * the server or a {@code Referer}.
+     *
+     * @param rawToken the raw invite token (a UUID string, so it needs no encoding)
+     * @return the absolute URL
+     */
+    private String inviteLink(String rawToken) {
+        return appBaseUrl() + "/register#invite=" + rawToken;
+    }
+
     /** The app origin without a trailing slash: where a reader signs in. */
     private String appBaseUrl() {
         return frontendBaseUrl.endsWith("/")

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>A place has opened — PhotoCast</title>
+    <th:block th:replace="~{fragments/email-brand :: brandHead}"></th:block>
+</head>
+<body style="margin:0;padding:0;background-color:#181210;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#181210;padding:32px 16px;">
+    <tr>
+        <td align="center">
+            <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color:#221A15;border:1px solid #3A2C23;border-radius:12px;overflow:hidden;">
+                <!-- Header -->
+                <tr th:replace="~{fragments/email-brand :: brandHeader}"></tr>
+                <!-- Body -->
+                <tr>
+                    <td style="padding:32px;text-align:left;">
+                        <h2 style="margin:0 0 20px;color:#F2E7D3;font-family:'Newsreader',Georgia,'Times New Roman',serif;font-size:22px;font-weight:600;line-height:1.2;">A place has opened for you</h2>
+                        <p style="margin:0 0 16px;color:#F2E7D3;font-size:15px;line-height:1.6;">
+                            Hello,
+                        </p>
+                        <p style="margin:0 0 24px;color:#ABA192;font-size:15px;line-height:1.6;">
+                            You asked to be told when a place opened on PhotoCast. One has. This invitation is for
+                            <strong th:text="${username}" style="color:#F2E7D3;">you@example.com</strong>
+                            and works until <strong th:text="${expiresOn}" style="color:#F2E7D3;">Friday 30 October</strong>.
+                        </p>
+                        <!-- CTA Button (table-based for email compatibility) -->
+                        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+                            <tr>
+                                <td align="center" style="background-color:#F2E7D3;border-radius:8px;">
+                                    <a th:href="${inviteUrl}" href="#"
+                                       style="display:inline-block;padding:14px 28px;color:#181210;font-size:16px;font-weight:600;text-decoration:none;letter-spacing:0.3px;">
+                                        Claim my place
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>
+                        <p style="margin:0 0 16px;color:#ABA192;font-size:13px;line-height:1.5;">
+                            Register with this same address. The invitation works once, and only for it.
+                        </p>
+                        <p style="margin:0 0 8px;color:#ABA192;font-size:13px;line-height:1.5;">
+                            If the button doesn't work, copy and paste this URL into your browser:
+                        </p>
+                        <p th:text="${inviteUrl}" style="margin:0;color:#ABA192;font-size:12px;word-break:break-all;font-family:'IBM Plex Mono','Courier New',monospace;">
+                            https://app.photocast.online/register
+                        </p>
+
+                    </td>
+                </tr>
+                <!-- Footer -->
+                <tr th:replace="~{fragments/email-brand :: brandFooter}"></tr>
+            </table>
+        </td>
+    </tr>
+</table>
+</body>
+</html>

@@ -39,6 +39,7 @@ import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
 import { AskProvider } from './context/AskContext.jsx';
 import { takeLinkToken } from './utils/oneTimeLinkToken.js';
+import { takeInviteToken } from './utils/inviteLinkToken.js';
 
 // Code-split the heavy subtrees so they stay out of the initial bundle: the Leaflet map stack and
 // the admin-only Manage view (which also pulls in recharts). They load on demand behind the
@@ -91,6 +92,10 @@ function AuthGate() {
     window.location.pathname === '/reset' ? null : takeLinkToken()
   ));
 
+  // A waitlist invitation (`/register#invite=`, lifted from the address once per page load) opens the
+  // registration form with the token. A signed-in browser ignores it (cleared below).
+  const [inviteToken, setInviteToken] = useState(() => takeInviteToken());
+
   // Once authenticated, clear any leftover verify token from URL and state.
   // RegisterPage unmounts before its own cleanup can run, so we handle it here.
   useEffect(() => {
@@ -102,6 +107,14 @@ function AuthGate() {
       setVerifyToken(null);
     }
   }, [token, verifyToken]);
+
+  useEffect(() => {
+    if (token && inviteToken) {
+      // An invitation is for a signed-out reader: once a session exists it must not resurface at sign-out.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setInviteToken(null);
+    }
+  }, [token, inviteToken]);
 
   if (resetToken) {
     return (
@@ -142,8 +155,16 @@ function AuthGate() {
         />
       );
     }
-    if (showRegister) {
-      return <RegisterPage onBackToLogin={() => setShowRegister(false)} />;
+    if (showRegister || inviteToken) {
+      return (
+        <RegisterPage
+          inviteToken={inviteToken}
+          onBackToLogin={() => {
+            setInviteToken(null);
+            setShowRegister(false);
+          }}
+        />
+      );
     }
     return (
       <LoginPage

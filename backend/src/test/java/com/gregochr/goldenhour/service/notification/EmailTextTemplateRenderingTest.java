@@ -74,7 +74,12 @@ class EmailTextTemplateRenderingTest {
                 Arguments.of("dormancy-warning-email",
                         Map.of("username", "alice", "signInUrl", "https://app.photocast.online",
                                 "inactiveDays", 90, "deletesOn", "Friday 14 November"),
-                        "https://app.photocast.online"));
+                        "https://app.photocast.online"),
+                Arguments.of("waitlist-invite-email",
+                        Map.of("username", "alice@example.com", "inviteUrl",
+                                "https://app.photocast.online/register#invite=w1",
+                                "expiresOn", "Friday 14 November"),
+                        "https://app.photocast.online/register#invite=w1"));
     }
 
     private static String renderText(String template, Map<String, Object> variables) {

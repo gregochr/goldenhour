@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { getWaitlist } from '../api/waitlistApi.js';
+import userEvent from '@testing-library/user-event';
+import { getWaitlist, inviteWaitlistEntry, removeWaitlistEntry } from '../api/waitlistApi.js';
 import WaitlistManagementView from '../components/WaitlistManagementView.jsx';
 
 vi.mock('../api/waitlistApi.js', () => ({
   getWaitlist: vi.fn(),
+  inviteWaitlistEntry: vi.fn(),
+  removeWaitlistEntry: vi.fn(),
 }));
 
 describe('WaitlistManagementView', () => {
@@ -152,10 +155,11 @@ describe('WaitlistManagementView', () => {
     });
 
     const headers = screen.getByTestId('waitlist-table').querySelectorAll('thead th');
-    expect(headers).toHaveLength(3);
+    expect(headers).toHaveLength(4);
     expect(headers[0]).toHaveTextContent('#');
     expect(headers[1]).toHaveTextContent('Email');
     expect(headers[2]).toHaveTextContent('Submitted');
+    expect(headers[3]).toHaveTextContent('Invitation');
   });
 
   it('handles API failure gracefully without crashing', async () => {
@@ -183,5 +187,101 @@ describe('WaitlistManagementView', () => {
     });
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  describe('invitations and removal', () => {
+    const FRESH = { id: 1, email: 'alice@example.com', submittedAt: '2026-04-05T10:00:00', invitedAt: null, inviteExpiresAt: null };
+    const INVITED = {
+      ...FRESH, invitedAt: '2026-04-09T08:00:00', inviteExpiresAt: '2026-04-16T08:00:00',
+    };
+
+    it('shows an Invite button and no invitation state for a row never invited', async () => {
+      getWaitlist.mockResolvedValue([FRESH]);
+
+      render(<WaitlistManagementView onCountChange={vi.fn()} />);
+
+      expect(await screen.findByTestId('waitlist-invite-0')).toHaveTextContent('Invite');
+      expect(screen.getByTestId('waitlist-invite-0')).not.toHaveTextContent('again');
+      expect(screen.queryByTestId('waitlist-invited-0')).not.toBeInTheDocument();
+    });
+
+    it('shows "Invited <date> · expires <date>" and offers Invite again for an invited row', async () => {
+      getWaitlist.mockResolvedValue([INVITED]);
+
+      render(<WaitlistManagementView onCountChange={vi.fn()} />);
+
+      const state = await screen.findByTestId('waitlist-invited-0');
+      expect(state).toHaveTextContent(/Invited 9 Apr 2026 · expires 16 Apr 2026/);
+      expect(screen.getByTestId('waitlist-invite-0')).toHaveTextContent('Invite again');
+    });
+
+    it('Invite calls the API for that row, then reloads so the dates come from the server', async () => {
+      const user = userEvent.setup();
+      getWaitlist.mockResolvedValueOnce([FRESH]).mockResolvedValueOnce([INVITED]);
+      inviteWaitlistEntry.mockResolvedValue({ message: 'Invitation sent' });
+
+      render(<WaitlistManagementView onCountChange={vi.fn()} />);
+      await user.click(await screen.findByTestId('waitlist-invite-0'));
+
+      await waitFor(() => expect(inviteWaitlistEntry).toHaveBeenCalledWith(1));
+      expect(await screen.findByTestId('waitlist-invited-0')).toHaveTextContent('expires 16 Apr 2026');
+      expect(screen.getByTestId('waitlist-notice')).toHaveTextContent('Invitation sent.');
+    });
+
+    it('a refused invitation shows the server sentence and changes nothing', async () => {
+      const user = userEvent.setup();
+      getWaitlist.mockResolvedValue([FRESH]);
+      inviteWaitlistEntry.mockRejectedValue({ response: { status: 400, data: { error: 'Not ASCII' } } });
+
+      render(<WaitlistManagementView onCountChange={vi.fn()} />);
+      await user.click(await screen.findByTestId('waitlist-invite-0'));
+
+      expect(await screen.findByTestId('waitlist-action-error')).toHaveTextContent('Not ASCII');
+      expect(screen.queryByTestId('waitlist-invited-0')).not.toBeInTheDocument();
+      expect(getWaitlist).toHaveBeenCalledTimes(1);
+    });
+
+    it('Remove asks first, and Keep backs out without calling the API', async () => {
+      const user = userEvent.setup();
+      getWaitlist.mockResolvedValue([FRESH]);
+
+      render(<WaitlistManagementView onCountChange={vi.fn()} />);
+      await user.click(await screen.findByTestId('waitlist-remove-0'));
+      expect(removeWaitlistEntry).not.toHaveBeenCalled();
+      await user.click(screen.getByTestId('waitlist-remove-cancel-0'));
+
+      expect(screen.getByTestId('waitlist-remove-0')).toBeInTheDocument();
+      expect(removeWaitlistEntry).not.toHaveBeenCalled();
+    });
+
+    it('confirming Remove deletes that row, drops it from the table and updates the count', async () => {
+      const user = userEvent.setup();
+      const other = { id: 2, email: 'bob@example.com', submittedAt: '2026-04-07T14:30:00' };
+      getWaitlist.mockResolvedValue([FRESH, other]);
+      removeWaitlistEntry.mockResolvedValue(undefined);
+      const onCountChange = vi.fn();
+
+      render(<WaitlistManagementView onCountChange={onCountChange} />);
+      await user.click(await screen.findByTestId('waitlist-remove-0'));
+      await user.click(screen.getByTestId('waitlist-remove-confirm-0'));
+
+      await waitFor(() => expect(removeWaitlistEntry).toHaveBeenCalledWith(1));
+      await waitFor(() => expect(screen.queryByText('alice@example.com')).not.toBeInTheDocument());
+      expect(screen.getByTestId('waitlist-email-0')).toHaveTextContent('bob@example.com');
+      expect(onCountChange).toHaveBeenLastCalledWith(1);
+    });
+
+    it('a failed Remove keeps the row and says so', async () => {
+      const user = userEvent.setup();
+      getWaitlist.mockResolvedValue([FRESH]);
+      removeWaitlistEntry.mockRejectedValue(new Error('boom'));
+
+      render(<WaitlistManagementView onCountChange={vi.fn()} />);
+      await user.click(await screen.findByTestId('waitlist-remove-0'));
+      await user.click(screen.getByTestId('waitlist-remove-confirm-0'));
+
+      expect(await screen.findByTestId('waitlist-action-error')).toHaveTextContent('Could not remove');
+      expect(screen.getByTestId('waitlist-email-0')).toHaveTextContent('alice@example.com');
+    });
   });
 });

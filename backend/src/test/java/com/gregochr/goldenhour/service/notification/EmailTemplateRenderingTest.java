@@ -68,7 +68,12 @@ class EmailTemplateRenderingTest {
                 Arguments.of("dormancy-warning-email", "Sign in to keep your account",
                         Map.of("username", "alice", "signInUrl", "https://app.photocast.online",
                                 "inactiveDays", 90, "deletesOn", "Friday 14 November"),
-                        "https://app.photocast.online"));
+                        "https://app.photocast.online"),
+                Arguments.of("waitlist-invite-email", "A place has opened for you",
+                        Map.of("username", "alice@example.com", "inviteUrl",
+                                "https://app.photocast.online/register#invite=w1",
+                                "expiresOn", "Friday 14 November"),
+                        "https://app.photocast.online/register#invite=w1"));
     }
 
     static Stream<Arguments> linkTemplates() {

@@ -117,10 +117,11 @@ import { getAlmanac } from '../api/almanacApi.js';
 import { subscribeToRunNotifications } from '../api/runProgressApi.js';
 import { getTodaysLight } from '../api/lightApi.js';
 import {
-  verifyEmail, requestPasswordReset, resetPassword, setPasswordForNewUser,
+  verifyEmail, requestPasswordReset, resetPassword, setPasswordForNewUser, register,
 } from '../api/authApi.js';
 import { setRewind } from '../utils/rewind.js';
 import { resetLinkTokenForTests } from '../utils/oneTimeLinkToken.js';
+import { resetInviteTokenForTests } from '../utils/inviteLinkToken.js';
 import userEvent from '@testing-library/user-event';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -172,6 +173,7 @@ const renderApp = ({ role = 'PRO_USER' } = {}) => {
 
 beforeEach(() => {
   resetLinkTokenForTests(); // the link token is read once per page load; tests are separate loads
+  resetInviteTokenForTests();
   localStorage.clear();
   window.location.hash = '';
   // Implementations re-asserted per test, not inherited: `vi.clearAllMocks` clears calls, not
@@ -1935,6 +1937,93 @@ describe('App — the auth gate', () => {
     expect(await screen.findByTestId('forgot-done-message'))
       .toHaveTextContent("If that email has an account, we've sent a reset link.");
     expect(requestPasswordReset).toHaveBeenCalledWith('chris@example.com', 'ts');
+  });
+});
+
+// ── A waitlist invitation (`/register#invite=`) opens registration, signed out only ──────────────
+
+describe('App — waitlist invitation link', () => {
+  beforeEach(() => {
+    register.mockReset().mockResolvedValue({ message: 'Verification email sent', email: 'new@example.com' });
+    verifyEmail.mockReset().mockReturnValue(new Promise(() => {}));
+  });
+
+  afterEach(() => {
+    window.history.pushState({}, '', '/');
+    delete window.turnstile;
+  });
+
+  it('signed out: opens the registration form straight away, and the address is clean', async () => {
+    openLink('/register#invite=inv-raw');
+    render(<App />);
+
+    expect(await screen.findByTestId('register-form')).toBeInTheDocument();
+    expect(screen.queryByTestId('login-submit')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/register');
+    expect(window.location.hash).toBe('');
+    expect(verifyEmail).not.toHaveBeenCalled();
+  });
+
+  it('signed out: the registration it submits carries the invitation token', async () => {
+    const user = userEvent.setup();
+    window.turnstile = {
+      render: vi.fn((_c, opts) => { opts.callback('ts'); return 'w'; }),
+      remove: vi.fn(),
+      reset: vi.fn(),
+    };
+    openLink('/register#invite=inv-raw');
+    render(<App />);
+
+    await user.type(await screen.findByTestId('reg-email'), 'new@example.com');
+    await user.type(screen.getByTestId('reg-username'), 'newuser');
+    await user.click(screen.getByTestId('reg-terms-accepted'));
+    await user.click(screen.getByTestId('reg-submit'));
+
+    await waitFor(() => expect(register).toHaveBeenCalledWith(
+      'newuser', 'new@example.com', 'ts', false, true, 'inv-raw',
+    ));
+  });
+
+  it('signed out: Back to sign in leaves the form and does not bring it back', async () => {
+    const user = userEvent.setup();
+    register.mockRejectedValue({ response: { status: 403, data: { error: 'Early access is currently full' } } });
+    window.turnstile = {
+      render: vi.fn((_c, opts) => { opts.callback('ts'); return 'w'; }),
+      remove: vi.fn(),
+      reset: vi.fn(),
+    };
+    openLink('/register#invite=inv-raw');
+    render(<App />);
+    await user.type(await screen.findByTestId('reg-email'), 'new@example.com');
+    await user.type(screen.getByTestId('reg-username'), 'newuser');
+    await user.click(screen.getByTestId('reg-terms-accepted'));
+    await user.click(screen.getByTestId('reg-submit'));
+    await screen.findByTestId('waitlist-step');
+
+    await user.click(screen.getByText('Back to sign in'));
+
+    expect(await screen.findByTestId('login-submit')).toBeInTheDocument();
+    expect(screen.queryByTestId('register-form')).not.toBeInTheDocument();
+  });
+
+  it('signed in: ignores the invitation, mounts the app, and the address is clean', async () => {
+    localStorage.setItem('goldenhour_token', 'old-access');
+    localStorage.setItem('goldenhour_role', 'PRO_USER');
+    openLink('/register#invite=inv-raw');
+    render(<App />);
+
+    expect(await screen.findByTestId('window-first-shell')).toBeInTheDocument();
+    expect(screen.queryByTestId('register-form')).not.toBeInTheDocument();
+    expect(window.location.hash).toBe('');
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('a verification link is not mistaken for an invitation', async () => {
+    openLink('/verify#token=vtok');
+    render(<App />);
+
+    await waitFor(() => expect(verifyEmail).toHaveBeenCalledWith('vtok'));
+    expect(screen.queryByTestId('register-form')).not.toBeInTheDocument();
   });
 });
 

@@ -143,7 +143,7 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @Test
     @DisplayName("RegistrationClosedException is mapped to 403 Forbidden")
     void handleRegistrationClosed_returns403() throws Exception {
-        when(registrationService.register(anyString(), anyString(), anyBoolean()))
+        when(registrationService.register(anyString(), anyString(), anyBoolean(), any()))
                 .thenThrow(new RegistrationClosedException());
 
         mockMvc.perform(post("/api/auth/register")

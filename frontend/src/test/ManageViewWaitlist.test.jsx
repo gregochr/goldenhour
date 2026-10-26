@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import apiClient from '../api/axiosClient.js';
-import { getWaitlist } from '../api/waitlistApi.js';
+import { getWaitlist, inviteWaitlistEntry, removeWaitlistEntry } from '../api/waitlistApi.js';
 import ManageView from '../components/ManageView.jsx';
 
 vi.mock('../api/waitlistApi.js', () => ({
   getWaitlist: vi.fn(),
+  inviteWaitlistEntry: vi.fn(),
+  removeWaitlistEntry: vi.fn(),
 }));
 
 // ManageView renders a tree of admin views; the Operations group's default tab
@@ -187,5 +190,35 @@ describe('ManageView — Waitlist tab', () => {
     });
 
     expect(screen.queryByTestId('waitlist-count-badge')).not.toBeInTheDocument();
+  });
+
+  it('Invite from the Waitlist tab calls the invite API for that row and shows the dates from the reload', async () => {
+    const user = userEvent.setup();
+    const fresh = { id: 5, email: 'a@b.com', submittedAt: '2026-04-01T00:00:00', invitedAt: null, inviteExpiresAt: null };
+    const invited = { ...fresh, invitedAt: '2026-04-09T08:00:00', inviteExpiresAt: '2026-04-16T08:00:00' };
+    getWaitlist.mockResolvedValueOnce([fresh]).mockResolvedValueOnce([fresh]).mockResolvedValue([invited]);
+    inviteWaitlistEntry.mockResolvedValue({ message: 'Invitation sent' });
+
+    render(<ManageView onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('manage-tab-waitlist'));
+    await user.click(await screen.findByTestId('waitlist-invite-0'));
+
+    await waitFor(() => expect(inviteWaitlistEntry).toHaveBeenCalledWith(5));
+    expect(await screen.findByTestId('waitlist-invited-0')).toHaveTextContent('expires 16 Apr 2026');
+  });
+
+  it('removing the last entry clears the tab badge', async () => {
+    const user = userEvent.setup();
+    getWaitlist.mockResolvedValue([{ id: 5, email: 'a@b.com', submittedAt: '2026-04-01T00:00:00' }]);
+    removeWaitlistEntry.mockResolvedValue(undefined);
+
+    render(<ManageView onComplete={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId('waitlist-count-badge')).toHaveTextContent('1'));
+    fireEvent.click(screen.getByTestId('manage-tab-waitlist'));
+    await user.click(await screen.findByTestId('waitlist-remove-0'));
+    await user.click(screen.getByTestId('waitlist-remove-confirm-0'));
+
+    await waitFor(() => expect(removeWaitlistEntry).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(screen.queryByTestId('waitlist-count-badge')).not.toBeInTheDocument());
   });
 });

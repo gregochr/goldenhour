@@ -559,6 +559,58 @@ class UserEmailServiceTest {
         verify(mailSender).send(mimeMessage);
     }
 
+    /** Matches the waitlist invitation's context: the address in the greeting slot, the link and the date. */
+    private static IContext inviteContext() {
+        return argThat(ctx -> ctx instanceof Context c
+                && "alice@example.com".equals(c.getVariable("username"))
+                && "https://app.photocast.online/register#invite=raw-invite".equals(c.getVariable("inviteUrl"))
+                && "Friday 14 March".equals(c.getVariable("expiresOn")));
+    }
+
+    @Test
+    @DisplayName("the waitlist invitation links to /register#invite= (not #token=), tolerates a trailing slash "
+            + "in the base URL, and sends with its subject")
+    void waitlistInvite_linksToRegisterWithTheInviteFragment() throws Exception {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online/");
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("waitlist-invite-email"), inviteContext())).thenReturn("<html></html>");
+        when(templateEngine.process(eq("text/waitlist-invite-email"), inviteContext())).thenReturn("plain text");
+
+        service.sendWaitlistInviteEmail(5L, "alice@example.com", "raw-invite", LocalDateTime.of(2031, 3, 14, 10, 0));
+
+        verify(mimeMessage).setSubject("PhotoCast — a place has opened for you", "UTF-8");
+        verify(mailSender).send(mimeMessage);
+    }
+
+    @Test
+    @DisplayName("the waitlist invitation is skipped with no sender or a blank address, rendering nothing")
+    void waitlistInvite_cannotSend_skips() {
+        LocalDateTime expires = LocalDateTime.of(2031, 3, 14, 10, 0);
+
+        new UserEmailService(null, templateEngine, new RegistrationProperties())
+                .sendWaitlistInviteEmail(5L, "alice@example.com", "raw-invite", expires);
+        new UserEmailService(mailSender, templateEngine, new RegistrationProperties())
+                .sendWaitlistInviteEmail(5L, " ", "raw-invite", expires);
+
+        verify(templateEngine, never()).process(any(String.class), any(IContext.class));
+    }
+
+    @Test
+    @DisplayName("the waitlist invitation survives a mail failure without throwing")
+    void waitlistInvite_mailFailure_isSwallowed() {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("waitlist-invite-email"), inviteContext())).thenReturn("<html></html>");
+        when(templateEngine.process(eq("text/waitlist-invite-email"), inviteContext())).thenReturn("plain text");
+        doThrow(new MailSendException("SMTP down")).when(mailSender).send(mimeMessage);
+
+        service.sendWaitlistInviteEmail(5L, "alice@example.com", "raw-invite", LocalDateTime.of(2031, 3, 14, 10, 0));
+
+        verify(mailSender).send(mimeMessage);
+    }
+
     @Test
     @DisplayName("the id-only account-deleted mail renders the same template and sends it")
     void accountDeletedByIdSendsTheSameMail() {

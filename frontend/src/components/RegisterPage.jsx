@@ -21,7 +21,7 @@ const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIF
  * (login-registration plan §2 #2); {@code RegisterPage} rendered alone cannot show that, which is why
  * the gate has its own test.
  */
-export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
+export default function RegisterPage({ verifyToken = null, inviteToken = null, onBackToLogin }) {
   const { completeRegistration, finishRegistration, suppressPostcodePrompt } = useAuth();
   const [step, setStep] = useState(verifyToken ? STEPS.VERIFY : STEPS.REGISTER);
   const [username, setUsername] = useState('');
@@ -49,6 +49,11 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   const [turnstileLoadFailed, setTurnstileLoadFailed] = useState(false);
   const [waitlistEmail, setWaitlistEmail] = useState('');
   const [waitlistSubmitted, setWaitlistSubmitted] = useState(false);
+  // The waitlist step has its OWN Turnstile: the register step's token is spent by the failed register
+  // call, and the two widgets are never mounted together. Strict like registration: no token, no submit.
+  const [waitlistTurnstileToken, setWaitlistTurnstileToken] = useState('');
+  const [waitlistTurnstileResetKey, setWaitlistTurnstileResetKey] = useState(0);
+  const [waitlistTurnstileLoadFailed, setWaitlistTurnstileLoadFailed] = useState(false);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -106,11 +111,12 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
     setError('');
     setLoading(true);
     try {
-      await register(username, email, turnstileToken, marketingOptIn, termsAccepted);
+      await register(username, email, turnstileToken, marketingOptIn, termsAccepted, inviteToken);
       setStep(STEPS.CHECK_EMAIL);
     } catch (err) {
       if (err?.response?.status === 403) {
         setWaitlistEmail(email);
+        setWaitlistTurnstileToken('');
         setStep(STEPS.WAITLIST);
       } else {
         setError(err?.response?.data?.error ?? 'Registration failed. Please try again.');
@@ -168,10 +174,12 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
     setError('');
     setLoading(true);
     try {
-      await submitWaitlist(waitlistEmail);
+      await submitWaitlist(waitlistEmail, waitlistTurnstileToken);
       setWaitlistSubmitted(true);
     } catch (err) {
       setError(err?.response?.data?.error ?? 'Something went wrong. Please try again.');
+      setWaitlistTurnstileToken('');
+      setWaitlistTurnstileResetKey((k) => k + 1);
     } finally {
       setLoading(false);
     }
@@ -477,7 +485,8 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               <form onSubmit={handleWaitlistSubmit} className="flex flex-col gap-4">
                 <AuthHeading>Early access is full</AuthHeading>
                 <p className="text-xs text-plex-text-secondary">
-                  We&apos;re currently at capacity. Leave your email and we&apos;ll notify you when a spot opens up.
+                  We&apos;re currently at capacity. Leave your email and we&apos;ll email you an invitation when a
+                  place opens.
                 </p>
                 <input
                   type="email"
@@ -489,10 +498,28 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
                   disabled={loading}
                   required
                 />
+                {!waitlistTurnstileLoadFailed && (
+                  <TurnstileWidget
+                    key={`wait-${waitlistTurnstileResetKey}`}
+                    onVerify={(token) => setWaitlistTurnstileToken(token)}
+                    onExpire={() => setWaitlistTurnstileToken('')}
+                    onLoadFail={() => setWaitlistTurnstileLoadFailed(true)}
+                  />
+                )}
+                {waitlistTurnstileLoadFailed && (
+                  <p className="text-xs text-plex-text-secondary" role="status" data-testid="waitlist-turnstile-unavailable">
+                    Security check couldn&apos;t load. Try another browser, or turn off your ad-blocker for this page.
+                  </p>
+                )}
                 {error && (
                   <p className="text-xs text-plex-error" role="alert" data-testid="waitlist-error">{error}</p>
                 )}
-                <button type="submit" className="btn-primary" data-testid="waitlist-submit" disabled={loading}>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  data-testid="waitlist-submit"
+                  disabled={loading || !waitlistTurnstileToken}
+                >
                   {loading ? 'Submitting…' : 'Notify me'}
                 </button>
               </form>
@@ -500,7 +527,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               <>
                 <AuthHeading>You&apos;re on the list</AuthHeading>
                 <p className="text-xs text-plex-text-secondary" data-testid="waitlist-success">
-                  We&apos;ll be in touch when a spot opens up.
+                  We&apos;ll email you an invitation when a place opens.
                 </p>
               </>
             )}
@@ -528,5 +555,6 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
 
 RegisterPage.propTypes = {
   verifyToken: PropTypes.string,
+  inviteToken: PropTypes.string,
   onBackToLogin: PropTypes.func.isRequired,
 };

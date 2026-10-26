@@ -70,11 +70,15 @@ class RegistrationServiceTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
+    @Mock
+    private WaitlistService waitlistService;
+
     @InjectMocks
     private RegistrationService registrationService;
 
     /** Stubs the registration cap and default role for tests that call {@code register()}. */
     private void stubRegistrationDefaults() {
+        when(registrationProperties.isEnabled()).thenReturn(true);
         when(registrationProperties.getMaxUsers()).thenReturn(10);
         when(registrationProperties.getDefaultRole()).thenReturn("PRO_USER");
         when(userRepository.countByRoleNot(UserRole.ADMIN)).thenReturn(0L);
@@ -91,7 +95,7 @@ class RegistrationServiceTest {
         when(jwtService.hashToken("raw-token-uuid")).thenReturn("hashed-token");
         when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        AppUserEntity result = registrationService.register("alice", "alice@example.com", true);
+        AppUserEntity result = registrationService.register("alice", "alice@example.com", true, null);
 
         assertThat(result.getUsername()).isEqualTo("alice");
         verify(userService).createPendingUser("alice", "alice@example.com", true, UserRole.PRO_USER);
@@ -110,7 +114,7 @@ class RegistrationServiceTest {
         when(jwtService.hashToken("raw-token-uuid")).thenReturn("hashed-token");
         when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        registrationService.register("bob", "bob@example.com", false);
+        registrationService.register("bob", "bob@example.com", false, null);
 
         verify(userService).createPendingUser("bob", "bob@example.com", false, UserRole.PRO_USER);
     }
@@ -118,10 +122,11 @@ class RegistrationServiceTest {
     @Test
     @DisplayName("register throws RegistrationClosedException when cap is reached")
     void register_capReached_throws() {
+        when(registrationProperties.isEnabled()).thenReturn(true);
         when(registrationProperties.getMaxUsers()).thenReturn(3);
         when(userRepository.countByRoleNot(UserRole.ADMIN)).thenReturn(3L);
 
-        assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com", true))
+        assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com", true, null))
                 .isInstanceOf(RegistrationClosedException.class)
                 .hasMessage("Early access is currently full");
     }
@@ -129,6 +134,7 @@ class RegistrationServiceTest {
     @Test
     @DisplayName("register allows signup when count is one below the cap")
     void register_oneBelowCap_succeeds() {
+        when(registrationProperties.isEnabled()).thenReturn(true);
         when(registrationProperties.getMaxUsers()).thenReturn(3);
         when(registrationProperties.getDefaultRole()).thenReturn("PRO_USER");
         when(userRepository.countByRoleNot(UserRole.ADMIN)).thenReturn(2L);
@@ -140,7 +146,7 @@ class RegistrationServiceTest {
         when(jwtService.hashToken("raw-token")).thenReturn("hashed");
         when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        AppUserEntity result = registrationService.register("alice", "alice@example.com", true);
+        AppUserEntity result = registrationService.register("alice", "alice@example.com", true, null);
 
         assertThat(result.getUsername()).isEqualTo("alice");
         verify(userService).createPendingUser("alice", "alice@example.com", true, UserRole.PRO_USER);
@@ -149,16 +155,18 @@ class RegistrationServiceTest {
     @Test
     @DisplayName("register rejects signup when count exceeds the cap")
     void register_overCap_throws() {
+        when(registrationProperties.isEnabled()).thenReturn(true);
         when(registrationProperties.getMaxUsers()).thenReturn(3);
         when(userRepository.countByRoleNot(UserRole.ADMIN)).thenReturn(5L);
 
-        assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com", true))
+        assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com", true, null))
                 .isInstanceOf(RegistrationClosedException.class);
     }
 
     @Test
     @DisplayName("register uses configured default role (e.g. LITE_USER)")
     void register_usesConfiguredRole() {
+        when(registrationProperties.isEnabled()).thenReturn(true);
         when(registrationProperties.getMaxUsers()).thenReturn(100);
         when(registrationProperties.getDefaultRole()).thenReturn("LITE_USER");
         when(userRepository.countByRoleNot(UserRole.ADMIN)).thenReturn(0L);
@@ -170,7 +178,7 @@ class RegistrationServiceTest {
         when(jwtService.hashToken("tok")).thenReturn("hash");
         when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        registrationService.register("carol", "carol@example.com", true);
+        registrationService.register("carol", "carol@example.com", true, null);
 
         verify(userService).createPendingUser("carol", "carol@example.com", true, UserRole.LITE_USER);
     }
@@ -182,7 +190,7 @@ class RegistrationServiceTest {
         when(userService.createPendingUser("alice", "alice@example.com", true, UserRole.PRO_USER))
                 .thenThrow(new IllegalArgumentException("Username already exists"));
 
-        assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com", true))
+        assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com", true, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Username already exists");
     }
@@ -194,7 +202,7 @@ class RegistrationServiceTest {
         when(userService.createPendingUser("bob", "alice@example.com", true, UserRole.PRO_USER))
                 .thenThrow(new IllegalArgumentException("Email already registered"));
 
-        assertThatThrownBy(() -> registrationService.register("bob", "alice@example.com", true))
+        assertThatThrownBy(() -> registrationService.register("bob", "alice@example.com", true, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Email already registered");
     }
@@ -364,7 +372,7 @@ class RegistrationServiceTest {
     void resendVerification_fourRequestsThroughARealLimiter_fourthSendsNothing() {
         RegistrationService real = new RegistrationService(userService, userRepository, tokenRepository,
                 jwtService, userEmailService, registrationProperties, new AuthAttemptLimiter(),
-                verificationTokenIssuer, credentialChangeWriter, passwordEncoder);
+                verificationTokenIssuer, credentialChangeWriter, passwordEncoder, waitlistService);
         AppUserEntity pending = buildPendingUser(1L, "alice", "alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(pending));
         when(verificationTokenIssuer.issue(1L))
@@ -570,6 +578,7 @@ class RegistrationServiceTest {
         InOrder order = inOrder(passwordEncoder, credentialChangeWriter);
         order.verify(passwordEncoder).encode("MyP@ssw0rd!");
         order.verify(credentialChangeWriter).consumeVerificationAndApply(1L, 42L, "encoded", Change.activation());
+        verify(waitlistService).removeByEmail("alice@example.com");
         verify(tokenRepository, never()).delete(any());
         verify(userService, never()).listAllUsers();
     }
@@ -628,6 +637,76 @@ class RegistrationServiceTest {
                 .hasMessageContaining("Invalid or expired verification token");
         verifyNoInteractions(passwordEncoder);
         verifyNoInteractions(credentialChangeWriter);
+    }
+
+    /** Stubs a full house: ten of ten places taken, default role LITE_USER. */
+    private void stubFullHouse() {
+        when(registrationProperties.isEnabled()).thenReturn(true);
+        when(registrationProperties.getMaxUsers()).thenReturn(10);
+        when(userRepository.countByRoleNot(UserRole.ADMIN)).thenReturn(10L);
+    }
+
+    private void stubCreatePending(String username, String email) {
+        when(registrationProperties.getDefaultRole()).thenReturn("LITE_USER");
+        when(userService.createPendingUser(username, email, false, UserRole.LITE_USER))
+                .thenReturn(buildPendingUser(1L, username, email));
+        when(jwtService.generateRefreshToken()).thenReturn("raw-token");
+        when(jwtService.hashToken("raw-token")).thenReturn("hashed");
+        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    @Test
+    @DisplayName("a redeemed invitation skips the cap: registration succeeds with the cap full")
+    void register_validInvite_skipsTheCap() {
+        when(registrationProperties.isEnabled()).thenReturn(true);
+        when(waitlistService.redeemInvite("invite-raw", "alice@example.com")).thenReturn(true);
+        stubCreatePending("alice", "alice@example.com");
+
+        AppUserEntity result = registrationService.register("alice", "alice@example.com", false, "invite-raw");
+
+        assertThat(result.getUsername()).isEqualTo("alice");
+        verify(userRepository, never()).countByRoleNot(any());
+        verify(userService).createPendingUser("alice", "alice@example.com", false, UserRole.LITE_USER);
+    }
+
+    @Test
+    @DisplayName("an invitation that does not redeem (expired, used, or another address) falls back to the cap "
+            + "and gets the ordinary refusal")
+    void register_unredeemedInvite_hitsTheCap() {
+        stubFullHouse();
+        when(waitlistService.redeemInvite("stale-raw", "alice@example.com")).thenReturn(false);
+
+        assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com", false, "stale-raw"))
+                .isInstanceOf(RegistrationClosedException.class)
+                .hasMessage("Early access is currently full");
+        verifyNoInteractions(userService);
+    }
+
+    @Test
+    @DisplayName("an invitation does not open a disabled registration, and is not even redeemed")
+    void register_disabled_refusesEvenWithAnInvite() {
+        when(registrationProperties.isEnabled()).thenReturn(false);
+
+        assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com", false, "invite-raw"))
+                .isInstanceOf(RegistrationClosedException.class);
+        verifyNoInteractions(waitlistService);
+        verifyNoInteractions(userService);
+    }
+
+    @Test
+    @DisplayName("setPasswordAndActivate still activates when clearing the waitlist row fails")
+    void setPasswordAndActivate_waitlistFailure_doesNotFailTheActivation() {
+        EmailVerificationTokenEntity token = buildToken(42L, true, LocalDateTime.now().plusHours(12));
+        when(jwtService.hashToken("raw-token")).thenReturn("hash");
+        when(tokenRepository.findByTokenHash("hash")).thenReturn(Optional.of(token));
+        when(passwordEncoder.encode("MyP@ssw0rd!")).thenReturn("encoded");
+        when(credentialChangeWriter.consumeVerificationAndApply(1L, 42L, "encoded", Change.activation()))
+                .thenReturn(new CredentialChangeOutcome(42L, "alice", "alice@example.com", 1L));
+        org.mockito.Mockito.doThrow(new RuntimeException("db down")).when(waitlistService)
+                .removeByEmail("alice@example.com");
+
+        assertThat(registrationService.setPasswordAndActivate("raw-token", "MyP@ssw0rd!"))
+                .isEqualTo(new RegistrationService.Activation(42L, "encoded"));
     }
 
     private EmailVerificationTokenEntity buildToken(Long userId, boolean verified, LocalDateTime expiresAt) {
