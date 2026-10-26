@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.AreaKind;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.AreaConflictException;
 import com.gregochr.goldenhour.exception.NameClashException;
 import com.gregochr.goldenhour.model.AreaDto;
@@ -17,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -49,6 +52,9 @@ class SubRegionsJpaTest {
 
     @Autowired
     private TestEntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     private RegionEntity dales;
     private RegionEntity lakes;
@@ -491,5 +497,62 @@ class SubRegionsJpaTest {
         membership.clear(9_999L);
 
         assertThat(membership.membersByArea()).isEmpty();
+    }
+    // --- readers' picks (V192) ---
+
+    private Long reader(String name) {
+        AppUserEntity user = AppUserEntity.builder().username(name).password("hash").role(UserRole.LITE_USER)
+                .enabled(true).createdAt(LocalDateTime.of(2026, 1, 1, 12, 0)).build();
+        Long id = entityManager.persistAndGetId(user, Long.class);
+        entityManager.flush();
+        return id;
+    }
+
+    @Test
+    @DisplayName("deleting a sub-region removes the readers' picks of it and clears THOSE readers' change "
+            + "locks, leaving other readers' picks and locks alone")
+    void deleteSubRegion_clearsPickersLocksAndPicks() {
+        AreaDto doomed = subRegion("Doomed Dale", dales);
+        AreaDto kept = subRegion("Kept Dale", dales);
+        Long picker = reader("picker");
+        Long bystander = reader("bystander");
+        jdbc.update("UPDATE app_user SET sub_regions_changed_at = ?", LocalDateTime.of(2026, 10, 20, 10, 0));
+        jdbc.update("INSERT INTO app_user_sub_region (user_id, area_id, created_at) VALUES (?, ?, now())",
+                picker, doomed.id());
+        jdbc.update("INSERT INTO app_user_sub_region (user_id, area_id, created_at) VALUES (?, ?, now())",
+                picker, kept.id());
+        jdbc.update("INSERT INTO app_user_sub_region (user_id, area_id, created_at) VALUES (?, ?, now())",
+                bystander, kept.id());
+        reload();
+
+        areaService.delete(doomed.id());
+
+        assertThat(jdbc.queryForList("SELECT area_id FROM app_user_sub_region WHERE user_id = ?", Long.class,
+                picker)).containsExactly(kept.id());
+        assertThat(jdbc.queryForList("SELECT area_id FROM app_user_sub_region WHERE user_id = ?", Long.class,
+                bystander)).containsExactly(kept.id());
+        assertThat(jdbc.queryForObject("SELECT sub_regions_changed_at FROM app_user WHERE id = ?",
+                LocalDateTime.class, picker)).as("the picker's re-pick is free").isNull();
+        assertThat(jdbc.queryForObject("SELECT sub_regions_changed_at FROM app_user WHERE id = ?",
+                LocalDateTime.class, bystander)).isEqualTo(LocalDateTime.of(2026, 10, 20, 10, 0));
+    }
+
+    @Test
+    @DisplayName("a refused delete (the sub-region still has members) leaves picks and locks as they were")
+    void deleteSubRegionWithMembers_isRefusedBeforeTouchingPicks() {
+        AreaDto occupied = subRegion("Occupied Dale", dales);
+        membership.assign(location("Some Force", dales), occupied.id());
+        Long picker = reader("holder");
+        jdbc.update("UPDATE app_user SET sub_regions_changed_at = ?", LocalDateTime.of(2026, 10, 20, 10, 0));
+        jdbc.update("INSERT INTO app_user_sub_region (user_id, area_id, created_at) VALUES (?, ?, now())",
+                picker, occupied.id());
+        reload();
+
+        assertThatThrownBy(() -> areaService.delete(occupied.id())).isInstanceOf(AreaConflictException.class);
+
+        assertThat(jdbc.queryForList("SELECT area_id FROM app_user_sub_region WHERE user_id = ?", Long.class,
+                picker)).containsExactly(occupied.id());
+        assertThat(jdbc.queryForObject("SELECT sub_regions_changed_at FROM app_user WHERE id = ?",
+                LocalDateTime.class, picker)).isEqualTo(LocalDateTime.of(2026, 10, 20, 10, 0));
     }
 }

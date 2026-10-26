@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.LocationSubRegionEntity;
+import com.gregochr.goldenhour.model.SubRegionLocationRow;
 import com.gregochr.goldenhour.model.SubRegionMemberRow;
 import com.gregochr.goldenhour.model.UncoveredLocationDto;
 import org.springframework.data.jpa.repository.Modifying;
@@ -34,6 +35,17 @@ public interface LocationSubRegionRepository extends Repository<LocationSubRegio
     @Query("select new com.gregochr.goldenhour.model.SubRegionMemberRow(m.areaId, m.locationId) "
             + "from LocationSubRegionEntity m")
     List<SubRegionMemberRow> findAllRows();
+
+    /**
+     * Every ENABLED location that belongs to a sub-region, with its name and position: what the picker shows
+     * (counts, example names) and what home-distance suggestions are measured from. Disabled locations keep
+     * their membership but are not offered.
+     *
+     * @return one row per enabled member
+     */
+    @Query("select new com.gregochr.goldenhour.model.SubRegionLocationRow(m.areaId, l.id, l.name, l.lat, l.lon) "
+            + "from LocationSubRegionEntity m, LocationEntity l where l.id = m.locationId and l.enabled = true")
+    List<SubRegionLocationRow> findEnabledMemberRows();
 
     /**
      * The sub-region a location belongs to, if any.

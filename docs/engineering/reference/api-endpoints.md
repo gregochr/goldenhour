@@ -137,8 +137,11 @@
 > journey from the old town — unknown is safe, wrong is not — and the nightly
 > `region_drive_time_refresh` job refills them.
 
+### Sub-region pick limit (ADMIN)
+`GET /api/admin/sub-region-policy[?candidate=n]` (`{liteLimit, maxLimit, liteUsersOverLimit, candidateLimit, updatedAt, updatedBy}`; `maxLimit` is the number of sub-regions, at most 24; `liteUsersOverLimit` counts Lite readers holding more picks than `candidate`, or than the saved limit when none is asked about, so the Operations control can warn BEFORE a lowered value is saved) | `PUT /api/admin/sub-region-policy` `{liteLimit}` (400 unless 1..`maxLimit`; answers the same body with the count against the new limit; readers over it keep their picks until they next change).
+
 ### Users (ADMIN)
-`GET|POST /api/users` | `PUT /api/users/{id}/enabled|role|reset-password|email` | `POST /api/users/{id}/resend-verification` | `DELETE /api/users/{id}`
+`GET|POST /api/users` (each summary carries `subRegions`, the names of the sub-regions the user has picked, `[]` for none) | `PUT /api/users/{id}/enabled|role|reset-password|email` | `POST /api/users/{id}/resend-verification` | `DELETE /api/users/{id}` | `GET /api/users/{id}/sub-regions` (the user's picks and standing, without options; 404 unknown user) | `PUT /api/users/{id}/sub-regions` `{areaIds[]}` (sets the picks past the change rule and clears the user's lock stamp, leaving the grace end; `[]` clears them; 400 for an id that is not a sub-region, a duplicate or more than the limit, 404 unknown user) | `DELETE /api/users/{id}/sub-regions/lock` (clears `sub_regions_changed_at` so the next change is free; 204, 404)
 
 > `DELETE /api/users/{id}` takes the same row lock and the same `purgeUserRows` as self-service deletion (so a user holding
 > drive times is deletable on Postgres — it was not before 2026-10-17), refuses to delete the calling admin (409), and sends the
@@ -411,6 +414,7 @@ persisted phone tide mode — Auto/Always/Off, `map-mobile-sheet-plan.md` M4 —
 shape exactly; read and written by the phone Layers section's Tide segment since M5) |
 `PUT /api/user/settings/coming-up-seen` (Coming up tab badge's last-seen write, plan D3/P5 — see
 CLAUDE.md's Almanac section) |
+`GET /api/user/settings/sub-regions` (any role; sub-regions-plan §4.3: `{enforced, limit, picks[{areaId,name,regionName}], options[{regionId,regionName,subRegions[{areaId,name,locationCount,exampleLocations[2]}]}], suggested[areaId], status, freeUntil?, nextChangeOn?, overLimit?}`, `status` FIRST_CHOICE, FREE_UNTIL, OPEN, LOCKED or NOT_APPLICABLE; Pro and Admin get NOT_APPLICABLE with no options; `suggested` is the `limit` sub-regions nearest the reader's home, only when they have a home and no picks; `enforced` only reports `photocast.sub-regions.enforce`; the path is pinned in `HttpCachingConfigTest.personalDataPathsAreNeverFiltered`) | `PUT /api/user/settings/sub-regions` `{areaIds[]}` (LITE_USER only, Pro/Admin 403; replaces the picks under the change rule; 400 for an empty list, more than the limit, a duplicate or a non-`SUB_REGION` id; 409 `{error, code: "SUB_REGIONS_LOCKED", nextChangeOn}`, or a plain 409 for a lost duplicate-key race; 200 with the new state; an identical set is a 200 no-op) |
 `PUT /api/user/settings/postcode-prompt-dismissed` (no body, idempotent: stamps `postcode_prompt_dismissed_at` and answers the settings with `postcodePromptDue: false`; its response carries a null `homePlaceName`, so a client must not feed it into place state)
 
 > Previously documented as `GET|PUT /api/user-settings`, a path that has never existed —

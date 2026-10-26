@@ -8,6 +8,9 @@ import SortableHeader from './shared/SortableHeader.jsx';
 import useSortAndFilter from '../hooks/useSortAndFilter.js';
 import { formatInstantUk } from '../utils/conversions.js';
 
+/** Columns in the users table (expand, name, email, role, created, last active, sub-regions, status, actions). */
+const USER_TABLE_COLUMNS = 9;
+
 /**
  * User management view with list/add/edit modes, sorting, filtering, and consistent card pattern.
  */
@@ -304,13 +307,17 @@ export default function UserManagementView() {
                     <th className="pb-1 font-medium align-top w-[3%]">
                       <div className="h-[26px]" />
                     </th>
-                    <SortableHeader label="Username" sortKey="username" className="w-[13%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('username')} onFilter={(v) => sf.setFilter('username', v)} />
-                    <SortableHeader label="Email" sortKey="email" className="w-[21%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('email')} onFilter={(v) => sf.setFilter('email', v)} />
+                    <SortableHeader label="Username" sortKey="username" className="w-[12%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('username')} onFilter={(v) => sf.setFilter('username', v)} />
+                    <SortableHeader label="Email" sortKey="email" className="w-[17%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('email')} onFilter={(v) => sf.setFilter('email', v)} />
                     <SortableHeader label="Role" sortKey="role" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('role')} onFilter={(v) => sf.setFilter('role', v)} />
-                    <SortableHeader label="Created" sortKey="created" className="w-[11%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
-                    <SortableHeader label="Last Active" sortKey="lastActive" className="w-[13%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('lastActive')} onFilter={(v) => sf.setFilter('lastActive', v)} />
-                    <SortableHeader label="Status" sortKey="status" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
-                    <th className="pb-1 font-medium align-top w-[19%]">
+                    <SortableHeader label="Created" sortKey="created" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
+                    <SortableHeader label="Last Active" sortKey="lastActive" className="w-[12%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('lastActive')} onFilter={(v) => sf.setFilter('lastActive', v)} />
+                    <th className="pb-1 font-medium align-top w-[9%]" scope="col">
+                      <span className="text-xs text-plex-text-muted whitespace-nowrap">Sub-regions</span>
+                      <div className="mt-1 h-[26px]" />
+                    </th>
+                    <SortableHeader label="Status" sortKey="status" className="w-[9%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
+                    <th className="pb-1 font-medium align-top w-[18%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
                       <div className="mt-1 h-[26px]" />
                     </th>
@@ -347,6 +354,13 @@ export default function UserManagementView() {
                         </td>
                         <td className="py-2 text-plex-text-muted text-xs">
                           {user.lastActiveAt ? user.lastActiveAt.slice(0, 16).replace('T', ' ') : 'Never'}
+                        </td>
+                        <td
+                          className="py-2 text-plex-text-secondary text-xs truncate"
+                          title={(user.subRegions ?? []).join(', ')}
+                          data-testid={`user-sub-regions-${user.id}`}
+                        >
+                          {user.subRegions?.length ? user.subRegions.join(', ') : '—'}
                         </td>
                         <td className="py-2">
                           <button
@@ -400,7 +414,7 @@ export default function UserManagementView() {
                       </tr>
                       {expandedUserId === user.id && (
                         <tr className="border-b border-plex-surface" data-testid={`user-detail-${user.id}`}>
-                          <td colSpan={8} className="py-3 px-4 bg-plex-surface-light/50">
+                          <td colSpan={USER_TABLE_COLUMNS} className="py-3 px-4 bg-plex-surface-light/50">
                             <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs">
                               <div className="flex gap-x-4">
                                 <span className="text-plex-text-muted font-medium">Legal</span>
@@ -445,7 +459,7 @@ export default function UserManagementView() {
                   ))}
                   {filteredUsers.length === 0 && users.length > 0 && (
                     <tr>
-                      <td colSpan={8} className="py-4 text-center text-xs text-plex-text-muted">
+                      <td colSpan={USER_TABLE_COLUMNS} className="py-4 text-center text-xs text-plex-text-muted">
                         No users match the current filters.
                       </td>
                     </tr>
@@ -453,7 +467,7 @@ export default function UserManagementView() {
                   {pageUsers.length > 0 && pageUsers.length < pagination.pageSize && (
                     Array.from({ length: pagination.pageSize - pageUsers.length }, (_, i) => (
                       <tr key={`spacer-${i}`} aria-hidden="true">
-                        <td colSpan={8} className="py-2 text-sm">&nbsp;</td>
+                        <td colSpan={USER_TABLE_COLUMNS} className="py-2 text-sm">&nbsp;</td>
                       </tr>
                     ))
                   )}

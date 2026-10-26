@@ -17,6 +17,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -42,6 +43,21 @@ class UserControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/users carries each reader's sub-region picks by name, and [] for a reader with none")
+    void getUsers_includesSubRegionPicks() throws Exception {
+        when(userService.listAllUsers()).thenReturn(List.of(
+                buildUser(1L, "alice", UserRole.LITE_USER), buildUser(2L, "bob", UserRole.LITE_USER)));
+        when(userSubRegionService.pickNamesByUser()).thenReturn(Map.of(1L, List.of("Swaledale", "Wensleydale")));
+
+        mockMvc.perform(get("/api/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].subRegions[0]").value("Swaledale"))
+                .andExpect(jsonPath("$[0].subRegions[1]").value("Wensleydale"))
+                .andExpect(jsonPath("$[1].subRegions").isEmpty());
+    }
 
     @Test
     @WithMockUser(roles = "ADMIN")

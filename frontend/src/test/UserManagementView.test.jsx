@@ -271,4 +271,24 @@ describe('UserManagementView', () => {
 
     expect(screen.getByText('Add New User')).toBeInTheDocument();
   });
+  it('shows each reader\'s sub-region picks in their own column, and a dash for a reader with none', async () => {
+    const users = makeMockUsers(2);
+    users[0].subRegions = ['Swaledale', 'Wensleydale'];
+    users[1].subRegions = [];
+    getUsers.mockResolvedValue(users);
+
+    render(<UserManagementView />);
+
+    expect(await screen.findByRole('columnheader', { name: 'Sub-regions' })).toBeInTheDocument();
+    expect(screen.getByTestId('user-sub-regions-1')).toHaveTextContent('Swaledale, Wensleydale');
+    expect(screen.getByTestId('user-sub-regions-2')).toHaveTextContent('—');
+  });
+
+  it('copes with a user summary that carries no subRegions field', async () => {
+    getUsers.mockResolvedValue(makeMockUsers(1));
+
+    render(<UserManagementView />);
+
+    expect(await screen.findByTestId('user-sub-regions-1')).toHaveTextContent('—');
+  });
 });

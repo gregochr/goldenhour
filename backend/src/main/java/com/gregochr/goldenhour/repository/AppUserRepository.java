@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -656,6 +657,98 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
             + "WHERE u.username = :username")
     int updatePostcodePromptDismissedAtByUsername(@Param("username") String username,
             @Param("dismissedAt") Instant dismissedAt);
+
+    /**
+     * Starts a reader's sub-region grace period, but only while none has started (sub-regions-plan §4.3,
+     * "sets {@code graceUntil} if it is null"). Column-scoped, like every write to the sub-region columns.
+     *
+     * @param id         the user's primary key
+     * @param graceUntil the last free-change day (a UK civil date, inclusive)
+     * @return 1 if it was set; 0 if a grace period had already started (or there is no such user)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.subRegionsGraceUntil = :graceUntil "
+            + "WHERE u.id = :id AND u.subRegionsGraceUntil IS NULL")
+    int startSubRegionGraceIfUnset(@Param("id") Long id, @Param("graceUntil") LocalDate graceUntil);
+
+    /**
+     * The id of the user with a login name, read as a scalar so no entity is loaded: the picks service takes the
+     * row lock ({@link #findByIdForUpdate}) BEFORE any entity read, so what it then decides from is not stale.
+     *
+     * @param username the login name
+     * @return the id, or empty if there is no such user
+     */
+    @Query("SELECT u.id FROM AppUserEntity u WHERE u.username = :username")
+    Optional<Long> findIdByUsername(@Param("username") String username);
+
+    /**
+     * Stamps a reader's sub-region change unconditionally: a first choice, or a change inside the grace period.
+     *
+     * @param id  the user's primary key
+     * @param now when the change was made (UTC wall clock)
+     * @return 1 if stamped; 0 if there is no such user
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.subRegionsChangedAt = :now WHERE u.id = :id")
+    int stampSubRegionsChanged(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    /**
+     * The lock check and its stamp as ONE statement (sub-regions-plan §4.3, Concurrency): stamps only while
+     * nothing is stamped or the stamp is older than {@code cutoff}, so two overlapping swaps cannot both pass.
+     * The row count is the answer; 0 means locked, and the caller throws, rolling back the picks it was about
+     * to write.
+     *
+     * @param id     the user's primary key
+     * @param now    when the change was made (UTC wall clock)
+     * @param cutoff the start of the first UK day on which the lock has ended, as a UTC wall-clock instant
+     *               ({@code ForecastHorizon.ukDayStartUtc}); a stamp strictly before it is unlocked
+     * @return 1 if the change may go ahead and was stamped; 0 if it is still locked
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.subRegionsChangedAt = :now WHERE u.id = :id "
+            + "AND (u.subRegionsChangedAt IS NULL OR u.subRegionsChangedAt < :cutoff)")
+    int stampSubRegionsChangedIfUnlocked(@Param("id") Long id, @Param("now") LocalDateTime now,
+            @Param("cutoff") LocalDateTime cutoff);
+
+    /**
+     * Clears a reader's change stamp, so their next change is not locked (an admin action).
+     *
+     * @param id the user's primary key
+     * @return 1 if cleared; 0 if there is no such user
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.subRegionsChangedAt = NULL WHERE u.id = :id")
+    int clearSubRegionsChangedAt(@Param("id") Long id);
+
+    /**
+     * Clears the change stamp of every reader who has picked a given sub-region: the admin is removing it, and
+     * the re-pick must be free (sub-regions-plan §4.3). Run before the picks are deleted. It does NOT clear the
+     * persistence context: its only caller, {@code AreaService.delete}, still holds the area it is about to delete.
+     *
+     * @param areaId the sub-region being removed
+     * @return how many readers were cleared
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.subRegionsChangedAt = NULL WHERE u.id IN "
+            + "(SELECT p.userId FROM AppUserSubRegionEntity p WHERE p.areaId = :areaId)")
+    int clearSubRegionsChangedAtForPickersOf(@Param("areaId") Long areaId);
+
+    /**
+     * How many readers of a role hold more sub-region picks than a limit: the number the admin is warned of
+     * before lowering the limit.
+     *
+     * @param role  the role to count (LITE_USER)
+     * @param limit the limit to compare against
+     * @return the number of readers holding strictly more than {@code limit}
+     */
+    @Query("SELECT COUNT(u) FROM AppUserEntity u WHERE u.role = :role AND "
+            + "(SELECT COUNT(p) FROM AppUserSubRegionEntity p WHERE p.userId = u.id) > :limit")
+    long countHoldingMorePicksThan(@Param("role") UserRole role, @Param("limit") long limit);
 
     /**
      * Deletes the account, but only while it is still the one the caller authenticated and verified: a
