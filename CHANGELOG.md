@@ -5,6 +5,78 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.33.1] - 2026-10-26
+
+### Fixed — account emails carry a plain-text version for spam filters
+
+Every account email (welcome, password reset by an administrator, reset-by-link, verification, the two
+verification reminders and the account-removed notice) was HTML-only, which Outlook/Hotmail and Gmail spam
+filters mark down. Each is now a `multipart/alternative` message: a hand-written plain-text part first, then
+the same HTML as before. The text twins live in `templates/text/*.txt`, rendered by a TEXT-mode Thymeleaf
+resolver for `text/*` template names (`EmailTextTemplateConfig`); the HTML templates and their copy are
+unchanged.
+
+### Changed — the Lite viewline chip becomes a Pro door
+
+During a real Moderate or Strong aurora alert, a Lite reader now gets a "Viewline" Pro door at the Map's bottom-left (it opens a short worded explanation of what Pro adds, upward so it stays on the map), with the ✕ beside it to close it for the session. The old chip ("Aurora viewline available — upgrade to Pro") could never show, because a Lite client had no aurora status; the door reads the same role-free alert as the Lite banner and follows its rules (gone when the night ends, hidden when every dark-sky site is overcast unless the storm is Strong). Pro and Admin never see it.
+
+### Changed — a quiet aurora run gives nobody a night row
+
+A stored aurora night now counts as a night worth a map row only if its best rating is at least 3 stars
+(the owner's scale: the lowest star worth a trip). A quiet run, where every location is 1 or 2 stars or
+only triaged, no longer adds a row for Pro, Admin or the Lite "Aurora tonight" door; `available-dates` and
+`GET /api/aurora/nights` change together. A live MODERATE or STRONG alert still gives its night a row.
+Admins no longer browse quiet runs on the map; the run's own response still shows them.
+
+### Added — Lite readers see the aurora alert level, with a Pro door
+
+When a real Moderate or Strong aurora alert is up, a Lite reader now gets the aurora banner too: the level, whether it is a forecast for tonight or active now, and "Look north, low on the horizon, after dark.", with a "Aurora forecast" Pro door where Pro readers see the field, the best site and the viewline. It reads the new role-free `GET /api/aurora/alert` and follows the Pro banner's rules (hidden when every dark-sky site is overcast unless the storm is Strong, gone when the night ends, dismissible per level for the session). A Lite client no longer polls `/api/aurora/status` and takes a 403 every five minutes, and the banner makes no scores, locations, forecast-results or viewline request. Pro and Admin banners are unchanged.
+
+### Added — a role-free aurora alert endpoint for the Lite banner
+
+`GET /api/aurora/alert` (any authenticated role) serves the alert level, whether it is active, the trigger
+type, an `allOvercast` flag and the current night, and nothing a Pro reader pays for (no Kp, counts or
+ratings). A simulation answers QUIET. It is ETag-revalidatable, `/api/aurora/status` stays Pro/Admin, and
+"an active, alert-worthy live alert" is now defined once and shared with `/api/aurora/nights`.
+
+### Changed — the landing page's "Understand what makes the light" and "Ask PhotoCast" features are shorter
+
+Both cards are trimmed to two paragraphs and the Ask screenshot is removed for now, so the phone feature cards (which share the tallest card's height) carry far less empty space. Desktop shows the same shorter text.
+
+### Changed — the landing page names PhotoCast in the field story, and the phone feature cards share one height
+
+Section 01 ("From PhotoCast to photograph") and a few other lines now say PhotoCast instead of "the
+forecast". On the phone, the feature cards in the swipe carousel now all take the tallest card's
+height, so the page below no longer jumps as you swipe, and the Ask screenshot is a little smaller.
+Desktop and tablet layout are unchanged.
+
+### Docs — plan: aurora for Lite becomes a Pro door, not an absence
+
+`docs/engineering/aurora-pro-door-plan.md`: Lite accounts get aurora hidden today. The plan adds a
+role-free `GET /api/aurora/nights` (which nights a Pro reader would see an aurora row for, nothing
+else) and a "Aurora tonight · Pro" upsell door after the Map's window list on desktop and phone. Two
+phases, B1 (backend) and F1 (frontend).
+
+### Added — a role-free aurora nights endpoint for the Lite door
+
+`GET /api/aurora/nights` answers, for any signed-in role, which nights a Pro reader would be offered an
+aurora row for (stored scoring-run nights from the current night on, plus the current night while a
+real MODERATE or STRONG alert is live) and when the current night ends. It carries dates only, never a
+rating, location or summary, and never counts a simulation. It lives in its own controller so the Pro
+gate on the rest of `/api/aurora/*` is untouched, and it revalidates by ETag. Nothing in the app calls
+it yet: it is the signal the Lite "aurora is Pro" door will read next.
+
+### Added — Lite readers get an "Aurora tonight" Pro door in the Map's window list
+
+A LITE account has never been able to tell that aurora forecasts exist: every aurora surface was hidden from it. When a night is on offer, the Map's window list now ends with one door, "Aurora tonight" (or "Aurora tomorrow night", "Aurora Tuesday night"), with the Pro pill, that opens a short worded explanation of what Pro adds. It sits under the list on desktop and in the Windows section of the phone sheet. It reads the new role-free `GET /api/aurora/nights`, polled every five minutes for LITE readers only; PRO and ADMIN make no request and see no door. The window menu's arrow keys no longer reach the door, and Focus leaving the door (Escape, or the door going away) goes to the window pill on desktop and to the sheet's usual fallback on the phone.
+
+### Docs — plan: a Lite aurora banner, the viewline door, and quiet nights
+
+`docs/engineering/aurora-lite-alert-plan.md` plans the owner's answers to the aurora Pro door questions:
+a stored aurora night counts only when its best rating reaches 3★ (for every role), a role-free
+`GET /api/aurora/alert`, a level-only Lite banner with a Pro door, and the dead viewline chip turned into
+a house-pattern Pro door. Plan only; the build waits for the owner.
+
 ## [v2.33.0] - 2026-10-25
 
 ### Fixed — event streams authenticate with the Authorization header

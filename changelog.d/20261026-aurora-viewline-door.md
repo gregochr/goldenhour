@@ -1,3 +1,0 @@
-### Changed — the Lite viewline chip becomes a Pro door
-
-During a real Moderate or Strong aurora alert, a Lite reader now gets a "Viewline" Pro door at the Map's bottom-left (it opens a short worded explanation of what Pro adds, upward so it stays on the map), with the ✕ beside it to close it for the session. The old chip ("Aurora viewline available — upgrade to Pro") could never show, because a Lite client had no aurora status; the door reads the same role-free alert as the Lite banner and follows its rules (gone when the night ends, hidden when every dark-sky site is overcast unless the storm is Strong). Pro and Admin never see it.
