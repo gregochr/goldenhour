@@ -1,9 +1,11 @@
 package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.entity.AreaEntity;
+import com.gregochr.goldenhour.entity.AreaKind;
 import com.gregochr.goldenhour.entity.LocationAliasEntity;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationAliasRepository;
+import com.gregochr.goldenhour.service.SubRegionMembershipService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -24,7 +26,9 @@ class RepositoryAskAreasTest {
 
     private final AreaRepository areaRepository = mock(AreaRepository.class);
     private final LocationAliasRepository aliasRepository = mock(LocationAliasRepository.class);
-    private final RepositoryAskAreas areas = new RepositoryAskAreas(areaRepository, aliasRepository);
+    private final SubRegionMembershipService subRegionMembership = mock(SubRegionMembershipService.class);
+    private final RepositoryAskAreas areas = new RepositoryAskAreas(areaRepository, aliasRepository,
+            subRegionMembership);
 
     private static AreaEntity area(String name, Set<String> aliases, Set<Long> locations) {
         AreaEntity entity = new AreaEntity();
@@ -52,6 +56,32 @@ class RepositoryAskAreasTest {
         assertThat(names.locationAliases().get(5L)).containsExactly("The Heugh", "Heugh Battery",
                 "Heugh Lighthouse");
         assertThat(names.locationAliases().get(6L)).containsExactly("Nab");
+    }
+
+    @Test
+    @DisplayName("a sub-region's members come from location_sub_region, not area_location, and a named area's "
+            + "stay as they were")
+    void subRegionMembersComeFromTheMembershipTable() {
+        AreaEntity swaledale = area("Swaledale", Set.of("Teesdale"), Set.of(99L));
+        swaledale.setId(11L);
+        swaledale.setKind(AreaKind.SUB_REGION);
+        AreaEntity empty = area("Nidderdale", Set.of(), Set.of());
+        empty.setId(12L);
+        empty.setKind(AreaKind.SUB_REGION);
+        AreaEntity wall = area("Hadrian's Wall", Set.of("Roman Wall"), Set.of(1L, 2L));
+        wall.setId(13L);
+        when(areaRepository.findAll()).thenReturn(List.of(swaledale, empty, wall));
+        when(subRegionMembership.membersByArea()).thenReturn(Map.of(11L, List.of(5L, 6L)));
+
+        AskAreas.Names names = areas.load();
+
+        assertThat(names.areas()).extracting(AskSnapshot.Area::name)
+                .containsExactly("Hadrian's Wall", "Nidderdale", "Swaledale");
+        assertThat(names.areas().get(0).locationIds()).containsExactlyInAnyOrder(1L, 2L);
+        assertThat(names.areas().get(1).locationIds()).isEmpty();
+        assertThat(names.areas().get(2).locationIds()).as("not the stale area_location row 99")
+                .containsExactlyInAnyOrder(5L, 6L);
+        assertThat(names.areas().get(2).aliases()).containsExactly("Teesdale");
     }
 
     @Test

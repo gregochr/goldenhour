@@ -52,7 +52,9 @@ public class AskPromptBuilder {
             that it is not in the forecast; otherwise the place is not in the forecast. The name may be \
             a named area, a group of places such as a landmark ("Hadrian's Wall"): look_up_place then \
             returns how its places rate in each window; answer from those stars, never as picks. To \
-            suggest places in a named area, call rank_spots with areaName. A place may also be found by \
+            suggest places in a named area, call rank_spots with areaName. Each call covers one named \
+            area: when the question names several ("Swaledale or Wensleydale"), call once per area; \
+            a result's "Also matched areas" note lists the ones it did not answer. A place may also be found by \
             another name ("the Heugh"); call it by its listed name, adding the name the reader used.
             """;
 

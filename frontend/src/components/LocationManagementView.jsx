@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace, enrichLocation } from '../api/forecastApi.js';
 import { fetchRegions } from '../api/regionApi.js';
 import { fetchTideStats } from '../api/tideApi.js';
-import { fetchLocationAliases, setLocationAliases } from '../api/areaApi.js';
+import { fetchAreas, fetchLocationAliases, setLocationAliases } from '../api/areaApi.js';
 import { parseAliases, formatAliases } from '../utils/aliasText.js';
 import AreasSection from './AreasSection.jsx';
 import LocationAlerts from './LocationAlerts.jsx';
@@ -273,6 +273,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [editSaving, setEditSaving] = useState(false);
   // Other names per location id; null until loaded, and stays null if the load fails so the field is
   // disabled rather than offering to overwrite names it never saw.
+  // Every area and sub-region (null until read). A location's sub-region is the SUB_REGION area listing it; it is
+  // read here, never derived from names, and written through the location's own save (subRegionId).
+  const [areas, setAreas] = useState(null);
+  const [areasVersion, setAreasVersion] = useState(0);
   const [aliasesByLocation, setAliasesByLocation] = useState(null);
   const [aliasesFailed, setAliasesFailed] = useState(false);
   const [aliasDetail, setAliasDetail] = useState('');
@@ -324,6 +328,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
 
   const sf = useSortAndFilter('name', 'asc', locationAccessors);
 
+  const subRegions = useMemo(() => (areas ?? []).filter((a) => a.kind === 'SUB_REGION'), [areas]);
+
   const filteredLocations = useMemo(() => sf.apply(optimisticLocations), [sf, optimisticLocations]);
 
   const { pageItems: pageLocations, ...pagination } = usePagination(filteredLocations);
@@ -337,7 +343,29 @@ export default function LocationManagementView({ onLocationsChanged }) {
     }
   }
 
+  /** Reads the areas again after a location was saved, and tells the Areas section to do the same. */
+  async function refreshAreas() {
+    setAreasVersion((v) => v + 1);
+    try {
+      setAreas(await fetchAreas());
+    } catch {
+      // Keep what was read before
+    }
+  }
+
   useEffect(() => {
+    fetchAreas()
+      .then((data) => {
+        setAreas(data);
+        // An editor opened before the areas landed starts its sub-region now.
+        setEditValues((prev) => {
+          if (!prev || prev.subRegionsLoaded) return prev;
+          const current = data.find((a) => a.kind === 'SUB_REGION' && a.locationIds.includes(prev.locId));
+          const id = current ? String(current.id) : '';
+          return { ...prev, subRegionId: id, subRegionBaseline: id, subRegionsLoaded: true };
+        });
+      })
+      .catch(() => { /* no sub-region select; the Areas section reports its own load failure */ });
     Promise.all([fetchLocations(), fetchRegions()])
       .then(([locs, regs]) => { setLocations(locs); setRegions(regs); })
       .finally(() => setLoading(false));
@@ -390,6 +418,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setError('');
   }
 
+  function currentSubRegionId(locationId) {
+    const current = subRegions.find((a) => a.locationIds.includes(locationId));
+    return current ? String(current.id) : '';
+  }
+
   function handleStartEdit(loc) {
     setEditingRowId(loc.id);
     setEditValues({
@@ -400,6 +433,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
       locationTypes: typesOrDefault(loc.locationType),
       tideTypes: Array.isArray(loc.tideType) ? [...loc.tideType] : [],
       regionId: loc.region?.id ? String(loc.region.id) : '',
+      regionBaseline: loc.region?.id ? String(loc.region.id) : '',
+      subRegionId: currentSubRegionId(loc.id),
+      subRegionBaseline: currentSubRegionId(loc.id),
+      subRegionsLoaded: areas !== null,
       mistProne: loc.mistProne === true,
       locId: loc.id,
       aliases: formatAliases(aliasesByLocation?.[loc.id]),
@@ -430,6 +467,15 @@ export default function LocationManagementView({ onLocationsChanged }) {
   function handleEditChange(field, value) {
     setEditValues((prev) => {
       const next = { ...prev, [field]: value };
+      if (field === 'regionId') {
+        // A sub-region belongs to one region: keep the pick only while it is still in the chosen region, and
+        // put the location's own back when the region goes back to what it was.
+        const stillInRegion = subRegions.some(
+          (a) => String(a.id) === prev.subRegionId && String(a.regionId) === value,
+        );
+        if (value === prev.regionBaseline) next.subRegionId = prev.subRegionBaseline;
+        else if (!stillInRegion) next.subRegionId = '';
+      }
       if (field === 'locationTypes') {
         const wasCoastal = (prev.locationTypes || []).includes('SEASCAPE');
         const isCoastal = value.includes('SEASCAPE');
@@ -470,6 +516,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setEditSaving(true);
     setEditError('');
     setAliasDetail('');
+    const subRegionChange = editValues.subRegionId && editValues.subRegionId !== editValues.subRegionBaseline
+      ? { subRegionId: Number(editValues.subRegionId) }
+      : {};
     try {
       await updateLocation(editingRowId, {
         name: editValues.name.trim(),
@@ -480,7 +529,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
         tideTypes: editIsCoastal ? editValues.tideTypes : [],
         regionId: editValues.regionId ? Number(editValues.regionId) : null,
         mistProne: editValues.mistProne === true,
+        ...subRegionChange,
       });
+      // The region and sub-region may both have moved memberships: read them again.
+      await refreshAreas();
       // Other names are a separate write, AFTER the location's own save succeeds, and only when the field
       // was edited: an unedited field must never overwrite names it may not have seen.
       // The comparison is against the text the field STARTED with (recorded when the editor opened, or when
@@ -842,6 +894,22 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                     <option key={r.id} value={r.id}>{r.name}</option>
                                   ))}
                                 </select>
+                                {subRegions.some((a) => String(a.regionId) === editValues.regionId) && (
+                                  <select
+                                    className={`${inlineSelectClass} mt-1`}
+                                    aria-label="Sub-region"
+                                    value={editValues.subRegionId}
+                                    onChange={(e) => handleEditChange('subRegionId', e.target.value)}
+                                    data-testid="inline-edit-sub-region"
+                                  >
+                                    {(!editValues.subRegionBaseline || editValues.regionId !== editValues.regionBaseline) && (
+                                      <option value="">— No sub-region —</option>
+                                    )}
+                                    {subRegions.filter((a) => String(a.regionId) === editValues.regionId).map((a) => (
+                                      <option key={a.id} value={a.id}>{a.name}</option>
+                                    ))}
+                                  </select>
+                                )}
                                 <label className="mt-1 flex items-start gap-1 text-xs text-plex-text-secondary cursor-pointer">
                                   <input
                                     className="shrink-0 mt-0.5"
@@ -1091,7 +1159,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
             <p className="text-sm text-plex-text-muted">No locations configured. Add one to get started.</p>
           )}
 
-          {!loading && <AreasSection locations={locations} />}
+          {!loading && <AreasSection locations={locations} reloadKey={areasVersion} />}
         </>
       )}
 

@@ -3,9 +3,20 @@ import apiClient from './axiosClient.js';
 const BASE_URL = '/api';
 
 /**
- * Fetches every named area (admin only).
+ * @typedef {object} Area
+ * @property {number} id
+ * @property {string} name
+ * @property {string[]} aliases
+ * @property {number[]} locationIds the member locations; a sub-region's are read-only (set on each location)
+ * @property {'NAMED'|'SUB_REGION'} kind
+ * @property {number|null} regionId the region a sub-region partitions; null for a named area
+ * @property {string|null} regionName
+ */
+
+/**
+ * Fetches every named area and sub-region (admin only).
  *
- * @returns {Promise<Array<{id: number, name: string, aliases: string[], locationIds: number[]}>>}
+ * @returns {Promise<Area[]>}
  */
 export async function fetchAreas() {
   const response = await apiClient.get(`${BASE_URL}/areas`);
@@ -16,7 +27,7 @@ export async function fetchAreas() {
  * Creates a named area with no members. A name that clashes with another answers 409.
  *
  * @param {{name: string, aliases: string[]}} body
- * @returns {Promise<{id: number, name: string, aliases: string[], locationIds: number[]}>}
+ * @returns {Promise<Area>}
  */
 export async function createArea(body) {
   const response = await apiClient.post(`${BASE_URL}/areas`, body);
@@ -28,7 +39,7 @@ export async function createArea(body) {
  *
  * @param {number} id
  * @param {{name: string, aliases: string[]}} body
- * @returns {Promise<{id: number, name: string, aliases: string[], locationIds: number[]}>}
+ * @returns {Promise<Area>}
  */
 export async function updateArea(id, body) {
   const response = await apiClient.put(`${BASE_URL}/areas/${id}`, body);
@@ -36,11 +47,12 @@ export async function updateArea(id, body) {
 }
 
 /**
- * Replaces an area's membership. The only call that changes which locations belong to it.
+ * Replaces a named area's membership. The only call that changes which locations belong to it. A sub-region is
+ * refused (400): its members are set on each location, through its subRegionId.
  *
  * @param {number} id
  * @param {number[]} locationIds
- * @returns {Promise<{id: number, name: string, aliases: string[], locationIds: number[]}>}
+ * @returns {Promise<Area>}
  */
 export async function setAreaLocations(id, locationIds) {
   const response = await apiClient.put(`${BASE_URL}/areas/${id}/locations`, { locationIds });
@@ -48,13 +60,23 @@ export async function setAreaLocations(id, locationIds) {
 }
 
 /**
- * Deletes an area. Its members stay locations.
+ * Deletes an area. Its members stay locations. A sub-region that still has members answers 409.
  *
  * @param {number} id
  * @returns {Promise<void>}
  */
 export async function deleteArea(id) {
   await apiClient.delete(`${BASE_URL}/areas/${id}`);
+}
+
+/**
+ * Fetches the enabled locations that have a region but no sub-region (admin only).
+ *
+ * @returns {Promise<Array<{id: number, name: string, regionId: number, regionName: string}>>}
+ */
+export async function fetchUncoveredLocations() {
+  const response = await apiClient.get(`${BASE_URL}/areas/uncovered-locations`);
+  return response.data;
 }
 
 /**

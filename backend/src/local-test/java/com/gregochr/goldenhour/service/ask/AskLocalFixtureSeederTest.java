@@ -15,12 +15,14 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationAliasRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.LocationSubRegionRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.SolarEventFreshness;
 import com.gregochr.goldenhour.service.SolarService;
+import com.gregochr.goldenhour.service.SubRegionMembershipService;
 import com.gregochr.goldenhour.service.VerdictSampleGate;
 import com.gregochr.goldenhour.service.ask.AskLocalFixtureSeeder.Fixture;
 import org.junit.jupiter.api.BeforeEach;
@@ -81,6 +83,8 @@ class AskLocalFixtureSeederTest {
     private AreaRepository areas;
     @Autowired
     private LocationAliasRepository aliases;
+    @Autowired
+    private LocationSubRegionRepository subRegionRows;
 
     private final BriefingEvaluationService evaluation = mock(BriefingEvaluationService.class);
     private final BriefingService briefing = mock(BriefingService.class);
@@ -137,6 +141,31 @@ class AskLocalFixtureSeederTest {
 
         assertThat(areas.findAll()).isEmpty();
         assertThat(aliases.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("given the membership service it also writes one sub-region of the fixture coast region over the "
+            + "Wall Crags and Kielder Water, once however often it runs")
+    void seedsASubRegion() {
+        StandardEnvironment local = new StandardEnvironment();
+        local.setActiveProfiles("local");
+        SubRegionMembershipService membership = new SubRegionMembershipService(subRegionRows, areas, locations);
+        AskLocalFixtureSeeder withSubRegion = new AskLocalFixtureSeeder(regions, locations, tides, evaluation,
+                briefing, snapshots, new SolarEventFreshness(new SolarService(), clock), dataSource, local, clock,
+                areas, aliases, membership);
+
+        withSubRegion.seed();
+        withSubRegion.seed();
+
+        assertThat(areas.findAll()).extracting(a -> a.getName() + "/" + a.getKind())
+                .containsExactlyInAnyOrder(AskLocalFixtureSeeder.FIXTURE_AREA + "/NAMED",
+                        AskLocalFixtureSeeder.FIXTURE_SUB_REGION + "/SUB_REGION");
+        var subRegion = areas.findAll().stream().filter(a -> a.isSubRegion()).findFirst().orElseThrow();
+        assertThat(subRegion.getRegion().getName()).isEqualTo(Fixture.COAST);
+        assertThat(subRegion.getAliases()).containsExactly(AskLocalFixtureSeeder.FIXTURE_SUB_REGION_ALIAS);
+        assertThat(membership.membersOf(subRegion.getId())).containsExactlyInAnyOrder(
+                locations.findByName("Hadrian's Wall Crags (fixture)").orElseThrow().getId(),
+                locations.findByName("Kielder Water (fixture)").orElseThrow().getId());
     }
 
     // -- regions and locations --------------------------------------------------------------

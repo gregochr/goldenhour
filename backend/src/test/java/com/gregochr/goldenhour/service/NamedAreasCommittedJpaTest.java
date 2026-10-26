@@ -28,7 +28,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * guard loaded stay managed, so a bulk delete followed by a save of the same keys issues no INSERT).
  */
 @DataJpaTest
-@Import({AreaService.class, LocationAliasService.class, NameNamespaceGuard.class})
+@Import({AreaService.class, LocationAliasService.class, NameNamespaceGuard.class,
+        SubRegionMembershipService.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class NamedAreasCommittedJpaTest {
 

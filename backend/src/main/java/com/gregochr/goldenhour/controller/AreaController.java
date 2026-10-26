@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.model.AreaDto;
 import com.gregochr.goldenhour.model.AreaLocationsRequest;
 import com.gregochr.goldenhour.model.AreaRequest;
+import com.gregochr.goldenhour.model.UncoveredLocationDto;
 import com.gregochr.goldenhour.service.AreaService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -51,9 +52,20 @@ public class AreaController {
     }
 
     /**
-     * Creates a named area with no members.
+     * Lists the enabled locations that have a region but no sub-region: the ones still to be placed.
      *
-     * @param request the name and aliases
+     * @return the uncovered locations, by region then name
+     */
+    @GetMapping("/uncovered-locations")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<UncoveredLocationDto> getUncoveredLocations() {
+        return areaService.findUncoveredLocations();
+    }
+
+    /**
+     * Creates a named area, or a sub-region when the request says so, with no members.
+     *
+     * @param request the name and aliases, and for a sub-region its kind and region
      * @return the new area (HTTP 201)
      */
     @PostMapping
@@ -78,7 +90,7 @@ public class AreaController {
     }
 
     /**
-     * Replaces an area's membership.
+     * Replaces a named area's membership. A sub-region is refused (HTTP 400): its members are set on each location.
      *
      * @param id      the area's primary key
      * @param request the member location ids
@@ -92,7 +104,7 @@ public class AreaController {
     }
 
     /**
-     * Deletes an area.
+     * Deletes an area. A sub-region that still has members is refused (HTTP 409).
      *
      * @param id the area's primary key
      * @throws java.util.NoSuchElementException if no such area exists (HTTP 404)

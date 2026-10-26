@@ -46,6 +46,7 @@ public class LocationService {
     private final TideService tideService;
     private final LocationEnrichmentService locationEnrichmentService;
     private final NameNamespaceGuard nameGuard;
+    private final SubRegionMembershipService subRegionMembership;
 
     /**
      * Constructs a {@code LocationService}.
@@ -56,13 +57,16 @@ public class LocationService {
      * @param locationEnrichmentService supplies the Open-Meteo snapped grid cell when a location
      *                                  is saved without one, or is moved
      * @param nameGuard          the shared name rules: a location name may not shadow a named area or an alias
+     * @param subRegionMembership the only writer of which sub-region a location belongs to
      */
     public LocationService(LocationRepository locationRepository,
                            RegionRepository regionRepository,
                            TideService tideService,
                            LocationEnrichmentService locationEnrichmentService,
-                           NameNamespaceGuard nameGuard) {
+                           NameNamespaceGuard nameGuard,
+                           SubRegionMembershipService subRegionMembership) {
         this.nameGuard = nameGuard;
+        this.subRegionMembership = subRegionMembership;
         this.locationRepository = locationRepository;
         this.regionRepository = regionRepository;
         this.tideService = tideService;
@@ -155,6 +159,10 @@ public class LocationService {
         }
 
         RegionEntity region = resolveRegion(request.regionId());
+        if (request.subRegionId() != null) {
+            // Refuse a sub-region of another region BEFORE the location exists, so nothing is left half-made.
+            subRegionMembership.requireAssignable(request.subRegionId(), region);
+        }
 
         LocationEntity entity = LocationEntity.builder()
                 .name(request.name())
@@ -175,6 +183,9 @@ public class LocationService {
                 .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
         LocationEntity saved = locationRepository.save(entity);
+        if (request.subRegionId() != null) {
+            subRegionMembership.assign(saved, request.subRegionId());
+        }
 
         if (isCoastal(saved) && !tideService.hasStoredExtremes(saved.getId())) {
             tideService.fetchAndStoreTideExtremes(saved);
@@ -272,8 +283,16 @@ public class LocationService {
             location.setTideType(new HashSet<>());
         }
 
+        boolean regionChanged = false;
         if (request.regionId() != null) {
-            location.setRegion(resolveRegion(request.regionId()));
+            RegionEntity newRegion = resolveRegion(request.regionId());
+            regionChanged = location.getRegion() == null
+                    || !location.getRegion().getId().equals(newRegion.getId());
+            location.setRegion(newRegion);
+        }
+        if (request.subRegionId() != null) {
+            // Checked against the region as this same request leaves it, and before the save.
+            subRegionMembership.requireAssignable(request.subRegionId(), location.getRegion());
         }
 
         if (request.mistProne() != null) {
@@ -289,6 +308,15 @@ public class LocationService {
         refreshGridCell(location, coordinatesMoved);
 
         LocationEntity saved = locationRepository.save(location);
+
+        // A region change strands a membership in a sub-region of the old region: drop it (and say so), then
+        // honour a sub-region this same request names.
+        if (regionChanged) {
+            subRegionMembership.reconcileRegion(saved);
+        }
+        if (request.subRegionId() != null) {
+            subRegionMembership.assign(saved, request.subRegionId());
+        }
 
         if (isCoastal(saved) && !tideService.hasStoredExtremes(saved.getId())) {
             tideService.fetchAndStoreTideExtremes(saved);

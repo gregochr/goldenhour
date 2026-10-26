@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.client.PostcodeLookupException;
 import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
+import com.gregochr.goldenhour.exception.AreaConflictException;
 import com.gregochr.goldenhour.exception.NameClashException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
@@ -76,6 +77,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NameClashException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public ErrorResponse handleNameClash(NameClashException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link AreaConflictException} to HTTP 409: an admin change to an area or to sub-region membership
+     * that the current state forbids (a sub-region that still has members, a lost race).
+     *
+     * @param ex the exception, whose message says what to do instead
+     * @return an error response body
+     */
+    @ExceptionHandler(AreaConflictException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ErrorResponse handleAreaConflict(AreaConflictException ex) {
         return new ErrorResponse(ex.getMessage());
     }
 

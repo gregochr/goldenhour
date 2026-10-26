@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.AreaEntity;
 import com.gregochr.goldenhour.entity.LocationAliasEntity;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationAliasRepository;
+import com.gregochr.goldenhour.service.SubRegionMembershipService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -11,12 +12,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * {@link AskAreas} over the area and location-alias tables. The entities' lazy collections are read and mapped
+ * {@link AskAreas} over the area and location-alias tables (and, for a sub-region, {@code location_sub_region}).
+ * The entities' lazy collections are read and mapped
  * inside one read-only transaction, so nothing lazy escapes. A failure is logged and read as no names: Ask must
  * still answer.
  */
@@ -27,26 +31,34 @@ public class RepositoryAskAreas implements AskAreas {
 
     private final AreaRepository areaRepository;
     private final LocationAliasRepository aliasRepository;
+    private final SubRegionMembershipService subRegionMembership;
 
     /**
      * Creates the reader.
      *
-     * @param areaRepository  the named areas
-     * @param aliasRepository the location aliases
+     * @param areaRepository      the named areas
+     * @param aliasRepository     the location aliases
+     * @param subRegionMembership where a sub-region's members are read from ({@code location_sub_region})
      */
-    public RepositoryAskAreas(AreaRepository areaRepository, LocationAliasRepository aliasRepository) {
+    public RepositoryAskAreas(AreaRepository areaRepository, LocationAliasRepository aliasRepository,
+            SubRegionMembershipService subRegionMembership) {
         this.areaRepository = areaRepository;
         this.aliasRepository = aliasRepository;
+        this.subRegionMembership = subRegionMembership;
     }
 
     @Override
     @Transactional(readOnly = true)
     public Names load() {
         try {
+            // A sub-region is an area like any other to Ask, but its members are not in area_location.
+            Map<Long, List<Long>> subRegionMembers = subRegionMembership.membersByArea();
             List<AskSnapshot.Area> areas = new ArrayList<>();
             for (AreaEntity area : areaRepository.findAll()) {
-                areas.add(new AskSnapshot.Area(area.getName(), AskAreas.sortAliases(area.getAliases()),
-                        area.getLocationIds()));
+                Set<Long> members = area.isSubRegion()
+                        ? new HashSet<>(subRegionMembers.getOrDefault(area.getId(), List.of()))
+                        : area.getLocationIds();
+                areas.add(new AskSnapshot.Area(area.getName(), AskAreas.sortAliases(area.getAliases()), members));
             }
             areas.sort(Comparator.comparing(AskSnapshot.Area::name, String.CASE_INSENSITIVE_ORDER));
             Map<Long, List<String>> byLocation = new LinkedHashMap<>();

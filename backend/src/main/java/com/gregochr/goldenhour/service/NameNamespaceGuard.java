@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.AreaEntity;
+import com.gregochr.goldenhour.entity.AreaKind;
 import com.gregochr.goldenhour.entity.LocationAliasEntity;
 import com.gregochr.goldenhour.model.LocationNameRow;
 import com.gregochr.goldenhour.repository.AreaRepository;
@@ -32,6 +33,12 @@ public class NameNamespaceGuard {
     private static final int MIN_LENGTH = 2;
     private static final int MAX_LENGTH = 80;
 
+    /** The fewest words a named area's alias may have ("the Wall" alone is too loose). */
+    static final int NAMED_ALIAS_MIN_WORDS = 2;
+
+    /** The fewest words a sub-region's alias may have: one-word dale and town names ("Keswick") are allowed. */
+    static final int SUB_REGION_ALIAS_MIN_WORDS = 1;
+
     private final LocationRepository locationRepository;
     private final LocationAliasRepository locationAliasRepository;
     private final AreaRepository areaRepository;
@@ -48,6 +55,17 @@ public class NameNamespaceGuard {
         this.locationRepository = locationRepository;
         this.locationAliasRepository = locationAliasRepository;
         this.areaRepository = areaRepository;
+    }
+
+    /**
+     * The fewest words an alias of an area of this kind may have: one for a sub-region, two for a named area.
+     * (A one-word alias that a location's name contains is still refused, by {@link #areaNameClash}.)
+     *
+     * @param kind the area's kind
+     * @return the minimum word count
+     */
+    static int areaAliasMinWords(AreaKind kind) {
+        return kind == AreaKind.SUB_REGION ? SUB_REGION_ALIAS_MIN_WORDS : NAMED_ALIAS_MIN_WORDS;
     }
 
     /**

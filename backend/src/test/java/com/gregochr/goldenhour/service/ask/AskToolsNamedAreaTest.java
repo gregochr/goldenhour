@@ -678,10 +678,10 @@ class AskToolsNamedAreaTest {
     }
 
     @Test
-    @DisplayName("an unknown name is capped at 40 characters and the known list at 200")
+    @DisplayName("an unknown name is capped at 40 characters and the known list at KNOWN_AREAS_CAP")
     void unknownAreaErrorIsBounded() {
         List<AskSnapshot.Area> many = new ArrayList<>();
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 90; i++) {
             many.add(new AskSnapshot.Area("Named Area Number " + i, List.of(), Set.of(1L)));
         }
         AskSnapshot snapshot = wallSnapshot().withNames(many, Map.of());

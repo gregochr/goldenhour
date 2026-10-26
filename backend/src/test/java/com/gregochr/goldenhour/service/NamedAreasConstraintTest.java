@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.AreaRequest;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationAliasRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.RegionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,12 +44,19 @@ class NamedAreasConstraintTest {
     @Mock
     private NameNamespaceGuard guard;
 
+    @Mock
+    private RegionRepository regionRepository;
+
+    @Mock
+    private SubRegionMembershipService membershipService;
+
     private AreaService areaService;
     private LocationAliasService aliasService;
 
     @BeforeEach
     void setUp() {
-        areaService = new AreaService(areaRepository, locationRepository, guard);
+        areaService = new AreaService(areaRepository, locationRepository, regionRepository, guard,
+                membershipService);
         aliasService = new LocationAliasService(aliasRepository, locationRepository, guard);
     }
 

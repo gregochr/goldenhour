@@ -4,6 +4,7 @@ import AreasSection from '../components/AreasSection.jsx';
 
 vi.mock('../api/areaApi', () => ({
   fetchAreas: vi.fn(),
+  fetchUncoveredLocations: vi.fn(),
   createArea: vi.fn(),
   updateArea: vi.fn(),
   setAreaLocations: vi.fn(),
@@ -13,7 +14,7 @@ vi.mock('../api/areaApi', () => ({
 }));
 
 import {
-  fetchAreas, createArea, updateArea, setAreaLocations, deleteArea,
+  fetchAreas, fetchUncoveredLocations, createArea, updateArea, setAreaLocations, deleteArea,
 } from '../api/areaApi';
 
 const KIELDER = { id: 8, name: 'Kielder', aliases: [], locationIds: [3] };
@@ -43,6 +44,7 @@ describe('AreasSection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchAreas.mockResolvedValue([WALL]);
+    fetchUncoveredLocations.mockResolvedValue([]);
   });
 
   it('lists each area with its name, other names and member count', async () => {
@@ -259,6 +261,148 @@ describe('AreasSection', () => {
 
     fireEvent.click(screen.getByTestId('area-edit-8'));
     expect(within(screen.getByTestId('area-editor-8')).queryByTestId('area-error')).not.toBeInTheDocument();
+  });
+
+  describe('sub-regions', () => {
+    const SWALEDALE = {
+      id: 21, name: 'Swaledale', aliases: ['Teesdale'], locationIds: [1, 3], kind: 'SUB_REGION',
+      regionId: 4, regionName: 'The Yorkshire Dales',
+    };
+
+    it('says whether each area is a named area or a sub-region, and which region the sub-region is in', async () => {
+      fetchAreas.mockResolvedValue([WALL, SWALEDALE]);
+      render(<AreasSection locations={LOCATIONS} />);
+
+      expect(await screen.findByTestId('area-kind-21')).toHaveTextContent('Sub-region of The Yorkshire Dales');
+      expect(screen.getByTestId('area-kind-7')).toHaveTextContent('Named area');
+      expect(screen.getByTestId('area-count-21')).toHaveTextContent('2 places');
+    });
+
+    it('lists a sub-region\'s members read-only, with the note that membership is set on the location', async () => {
+      fetchAreas.mockResolvedValue([SWALEDALE]);
+      render(<AreasSection locations={LOCATIONS} />);
+
+      fireEvent.click(await screen.findByTestId('area-edit-21'));
+
+      const members = screen.getByTestId('area-readonly-members-21');
+      expect(within(members).getByText('Walltown Crags')).toBeInTheDocument();
+      expect(within(members).getByText('Allen Banks')).toBeInTheDocument();
+      expect(within(members).getByText(/Membership is set on the location/)).toBeInTheDocument();
+      expect(screen.queryByTestId('area-save-members')).not.toBeInTheDocument();
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('area-member-filter')).not.toBeInTheDocument();
+    });
+
+    it('still renames a sub-region and says its other names may be one word', async () => {
+      fetchAreas.mockResolvedValue([SWALEDALE]);
+      updateArea.mockResolvedValue({ ...SWALEDALE, aliases: ['Keld', 'Teesdale'] });
+      render(<AreasSection locations={LOCATIONS} />);
+
+      fireEvent.click(await screen.findByTestId('area-edit-21'));
+      expect(screen.getByLabelText('Also known as (comma-separated, one word or more each)')).toBeInTheDocument();
+      fireEvent.change(screen.getByTestId('area-aliases-input'), { target: { value: 'Keld, Teesdale' } });
+      fireEvent.click(screen.getByTestId('area-save-names'));
+
+      expect(await screen.findByTestId('area-saved')).toBeInTheDocument();
+      expect(updateArea).toHaveBeenCalledWith(21, { name: 'Swaledale', aliases: ['Keld', 'Teesdale'] });
+      expect(setAreaLocations).not.toHaveBeenCalled();
+    });
+
+    it('keeps the two-word hint for a named area', async () => {
+      render(<AreasSection locations={LOCATIONS} />);
+
+      fireEvent.click(await screen.findByTestId('area-edit-7'));
+
+      expect(screen.getByLabelText('Also known as (comma-separated, each at least two words)')).toBeInTheDocument();
+    });
+
+    it('words the delete confirm for a sub-region, and shows the server\'s 409 when it still has members', async () => {
+      fetchAreas.mockResolvedValue([SWALEDALE]);
+      deleteArea.mockRejectedValue(clash("Sub-region 'Swaledale' still has 2 locations: move them first"));
+      render(<AreasSection locations={LOCATIONS} />);
+
+      fireEvent.click(await screen.findByTestId('area-delete-21'));
+      expect(screen.getByTestId('area-delete-confirm-21'))
+        .toHaveTextContent('Only a sub-region with no locations can be deleted.');
+      fireEvent.click(screen.getByTestId('area-delete-yes-21'));
+
+      expect(await screen.findByTestId('area-error')).toHaveTextContent('still has 2 locations');
+      expect(screen.getByTestId('area-row-21')).toBeInTheDocument();
+    });
+
+    it('names the enabled locations that have no sub-region, with their regions', async () => {
+      fetchAreas.mockResolvedValue([SWALEDALE]);
+      fetchUncoveredLocations.mockResolvedValue([
+        { id: 30, name: 'Bamburgh Castle', regionId: 5, regionName: 'Northumberland & Tyneside' },
+        { id: 31, name: 'Cat Bells', regionId: 3, regionName: 'The Lake District' },
+      ]);
+      render(<AreasSection locations={LOCATIONS} />);
+
+      const line = await screen.findByTestId('areas-uncovered');
+      expect(line).toHaveTextContent(
+        '2 enabled locations have no sub-region: Bamburgh Castle (Northumberland & Tyneside), '
+        + 'Cat Bells (The Lake District)',
+      );
+      expect(screen.queryByTestId('areas-all-covered')).not.toBeInTheDocument();
+    });
+
+    it('uses the singular for one uncovered location, and cuts a long list with a count', async () => {
+      fetchAreas.mockResolvedValue([SWALEDALE]);
+      fetchUncoveredLocations.mockResolvedValueOnce([
+        { id: 30, name: 'Bamburgh Castle', regionId: 5, regionName: 'Northumberland & Tyneside' },
+      ]);
+      const first = render(<AreasSection locations={LOCATIONS} />);
+      expect(await screen.findByTestId('areas-uncovered'))
+        .toHaveTextContent('1 enabled location has no sub-region: Bamburgh Castle');
+      first.unmount();
+
+      const many = Array.from({ length: 15 }, (_, i) => (
+        { id: 100 + i, name: `Crag ${i + 1}`, regionId: 4, regionName: 'The Yorkshire Dales' }
+      ));
+      fetchUncoveredLocations.mockResolvedValueOnce(many);
+      render(<AreasSection locations={LOCATIONS} />);
+      const line = await screen.findByTestId('areas-uncovered');
+      expect(line).toHaveTextContent('15 enabled locations have no sub-region');
+      expect(line).toHaveTextContent('Crag 12 (The Yorkshire Dales), and 3 more');
+      expect(line).not.toHaveTextContent('Crag 13');
+    });
+
+    it('says every location is covered when sub-regions exist and none is left out, and is silent without sub-regions', async () => {
+      fetchAreas.mockResolvedValue([SWALEDALE]);
+      const first = render(<AreasSection locations={LOCATIONS} />);
+      expect(await screen.findByTestId('areas-all-covered')).toBeInTheDocument();
+      expect(screen.queryByTestId('areas-uncovered')).not.toBeInTheDocument();
+      first.unmount();
+
+      fetchAreas.mockResolvedValue([WALL]);
+      render(<AreasSection locations={LOCATIONS} />);
+      await screen.findByTestId('area-row-7');
+      expect(screen.queryByTestId('areas-all-covered')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('areas-uncovered')).not.toBeInTheDocument();
+    });
+
+    it('shows no coverage line when the coverage read fails, and still lists the areas', async () => {
+      fetchUncoveredLocations.mockRejectedValue(new Error('boom'));
+      render(<AreasSection locations={LOCATIONS} />);
+
+      expect(await screen.findByTestId('area-row-7')).toBeInTheDocument();
+      expect(screen.queryByTestId('areas-uncovered')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('areas-all-covered')).not.toBeInTheDocument();
+    });
+
+    it('reads the areas and the coverage again when reloadKey changes', async () => {
+      const { rerender } = render(<AreasSection locations={LOCATIONS} reloadKey={0} />);
+      await screen.findByTestId('area-row-7');
+      expect(fetchAreas).toHaveBeenCalledTimes(1);
+      expect(fetchUncoveredLocations).toHaveBeenCalledTimes(1);
+
+      fetchAreas.mockResolvedValue([WALL, SWALEDALE]);
+      rerender(<AreasSection locations={LOCATIONS} reloadKey={1} />);
+
+      expect(await screen.findByTestId('area-row-21')).toBeInTheDocument();
+      expect(fetchAreas).toHaveBeenCalledTimes(2);
+      expect(fetchUncoveredLocations).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('opening a delete confirm on one row leaves another row\'s unsaved editor alone', async () => {
