@@ -37,6 +37,12 @@ public class RegistrationService {
     /** Verification tokens expire after 24 hours. */
     private static final int TOKEN_EXPIRY_HOURS = 24;
 
+    /** How long the rotated setup token lives, at most. */
+    static final int SETUP_TOKEN_MINUTES = 30;
+
+    /** The sentence for an unknown, rotated or already-used link. */
+    static final String LINK_USED = "This link has already been used \u2014 sign in or request a new one";
+
     /** Maximum tokens a user can request in the rate-limit window. */
     private static final int RATE_LIMIT_MAX_TOKENS = 3;
 
@@ -71,6 +77,15 @@ public class RegistrationService {
      * @param passwordHash the BCrypt hash just written
      */
     public record Activation(Long userId, String passwordHash) {
+    }
+
+    /**
+     * The result of a successful verification.
+     *
+     * @param userId     the verified account's primary key
+     * @param setupToken the raw rotated token that {@code set-password} accepts (never mailed)
+     */
+    public record VerifiedEmail(Long userId, String setupToken) {
     }
 
     /**
@@ -156,30 +171,42 @@ public class RegistrationService {
     }
 
     /**
-     * Verifies an email verification token.
+     * Verifies an email verification token and rotates it.
+     *
+     * <p>The emailed link is single-use: one conditional update swaps its hash for a fresh one (the
+     * {@code setupToken}, returned here and never mailed) and marks it verified, with an expiry of at
+     * most {@value #SETUP_TOKEN_MINUTES} minutes from now. Of two concurrent verifications exactly one
+     * gets the row; the other, and any later reuse of the mailed link, is told the link has been used.
+     * {@code set-password} accepts only the rotated value.
      *
      * @param rawToken the raw token string from the verification link
-     * @return the user ID associated with the verified token
-     * @throws IllegalArgumentException if the token is invalid, expired, or already used
+     * @return the user ID and the setup token that authorises the password step
+     * @throws IllegalArgumentException if the token is unknown, expired or already used
      */
     @Transactional
-    public Long verifyEmail(String rawToken) {
+    public VerifiedEmail verifyEmail(String rawToken) {
         String hash = jwtService.hashToken(rawToken);
         EmailVerificationTokenEntity token = tokenRepository.findByTokenHash(hash)
-                .orElseThrow(() -> new IllegalArgumentException("Invalid verification token"));
+                .orElseThrow(() -> new IllegalArgumentException(LINK_USED));
 
         if (token.isVerified()) {
-            throw new IllegalArgumentException("This verification link has already been used");
+            throw new IllegalArgumentException(LINK_USED);
         }
-        if (token.getExpiresAt().isBefore(LocalDateTime.now())) {
+        LocalDateTime now = LocalDateTime.now();
+        if (token.getExpiresAt().isBefore(now)) {
             throw new IllegalArgumentException("This verification link has expired");
         }
 
-        token.setVerified(true);
-        tokenRepository.save(token);
+        String setupToken = jwtService.generateRefreshToken();
+        LocalDateTime cap = now.plusMinutes(SETUP_TOKEN_MINUTES);
+        LocalDateTime expiresAt = token.getExpiresAt().isBefore(cap) ? token.getExpiresAt() : cap;
+        if (tokenRepository.rotateOnVerify(token.getId(), hash, jwtService.hashToken(setupToken),
+                expiresAt) != 1) {
+            throw new IllegalArgumentException(LINK_USED);
+        }
 
         LOG.info("Email verified: userId={}", token.getUserId());
-        return token.getUserId();
+        return new VerifiedEmail(token.getUserId(), setupToken);
     }
 
     /**

@@ -331,7 +331,7 @@ public class AuthController {
      * Verifies an email address using the token from the verification link.
      *
      * @param body map containing {@code token}
-     * @return 200 with userId and verified flag, or 400 if token is invalid/expired/used
+     * @return 200 with userId, verified flag and the rotated {@code setupToken}, or 400 if the token is bad
      */
     @PostMapping("/verify-email")
     public ResponseEntity<Map<String, Object>> verifyEmail(@RequestBody Map<String, String> body) {
@@ -342,8 +342,9 @@ public class AuthController {
         }
 
         try {
-            Long userId = registrationService.verifyEmail(token);
-            return ResponseEntity.ok(Map.of("userId", userId, "verified", true));
+            RegistrationService.VerifiedEmail verified = registrationService.verifyEmail(token);
+            return ResponseEntity.ok(Map.of("userId", verified.userId(), "verified", true,
+                    "setupToken", verified.setupToken()));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", ex.getMessage()));
@@ -529,17 +530,14 @@ public class AuthController {
     }
 
     /**
-     * Revokes the caller's refresh token, effectively logging them out.
+     * Logs the caller out: ends the presented refresh token and every outstanding access token.
      *
      * @param body map containing {@code refreshToken}
      * @return 200 on success
      */
     @PostMapping("/logout")
     public ResponseEntity<Map<String, Object>> logout(@RequestBody Map<String, String> body) {
-        String rawRefresh = body.get("refreshToken");
-        if (rawRefresh != null) {
-            authenticationService.revokeRefreshToken(rawRefresh);
-        }
+        authenticationService.logout(body.get("refreshToken"), authenticatedUsername());
         return ResponseEntity.ok(Map.of("message", "Logged out"));
     }
 

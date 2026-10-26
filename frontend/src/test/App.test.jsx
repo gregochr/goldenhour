@@ -1950,7 +1950,7 @@ describe('App — registration stays on RegisterPage through HOME and the Welcom
   const PASSWORD = 'Abcdef1!';
 
   beforeEach(() => {
-    verifyEmail.mockReset().mockResolvedValue(undefined);
+    verifyEmail.mockReset().mockResolvedValue({ userId: 7, verified: true, setupToken: 'setup-tok' });
     setPasswordForNewUser.mockReset().mockResolvedValue(RESET_SESSION);
     markPostcodePromptDismissed.mockReset().mockResolvedValue({ postcodePromptDue: false });
   });
@@ -1967,6 +1967,7 @@ describe('App — registration stays on RegisterPage through HOME and the Welcom
     await user.type(screen.getByTestId('sp-confirm'), PASSWORD);
     await user.click(screen.getByTestId('sp-submit'));
     await screen.findByRole('heading', { level: 2, name: "Where's home?" });
+    expect(setPasswordForNewUser).toHaveBeenCalledWith('setup-tok', PASSWORD);
   }
 
   /** Fires the Welcome's two-second timer by hand, inside act, and returns whether it was there. */

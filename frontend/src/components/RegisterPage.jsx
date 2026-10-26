@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 import { register, resendVerification, verifyEmail, setPasswordForNewUser, submitWaitlist } from '../api/authApi.js';
@@ -28,8 +28,13 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  // The verification token, not the user id, identifies the account when the password is set.
-  const [verifiedToken, setVerifiedToken] = useState(null);
+  // The ROTATED setup token returned by verify, not the emailed link and not the user id, identifies the
+  // account when the password is set. React state only: never storage, never the URL.
+  const [setupToken, setSetupToken] = useState(null);
+  // True once a verify has succeeded. StrictMode fires the verify effect twice in dev (a double click can
+  // in prod): the second call loses the server's compare-and-set and fails with "already used", which
+  // must not overwrite the password step the first one opened.
+  const verifiedRef = useRef(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
@@ -58,10 +63,13 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
     setLoading(true);
     setError('');
     try {
-      await verifyEmail(token);
-      setVerifiedToken(token);
+      const data = await verifyEmail(token);
+      verifiedRef.current = true;
+      setSetupToken(data?.setupToken ?? null);
+      setError('');
       setStep(STEPS.SET_PASSWORD);
     } catch (err) {
+      if (verifiedRef.current) return; // a late failure of a duplicate verify, after SET_PASSWORD opened
       setError(err?.response?.data?.error ?? 'Verification failed. The link may be invalid or expired.');
     } finally {
       setLoading(false);
@@ -145,7 +153,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
     setError('');
     setLoading(true);
     try {
-      const data = await setPasswordForNewUser(verifiedToken, password);
+      const data = await setPasswordForNewUser(setupToken, password);
       completeRegistration(data);
       setStep(STEPS.HOME);
     } catch (err) {

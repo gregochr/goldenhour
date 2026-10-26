@@ -190,6 +190,59 @@ describe('AuthContext', () => {
     });
   });
 
+  describe('logout ordering', () => {
+    it('clears storage and the in-memory token BEFORE the logout request resolves, and posts the captured '
+      + 'refresh token', async () => {
+      localStorage.setItem(TOKEN_KEY, 'jwt');
+      localStorage.setItem(REFRESH_KEY, 'the-refresh');
+      let releaseRequest;
+      let storageDuringRequest;
+      AuthApi.logout.mockImplementation(() => new Promise((resolve) => {
+        storageDuringRequest = {
+          token: localStorage.getItem(TOKEN_KEY), refresh: localStorage.getItem(REFRESH_KEY),
+        };
+        releaseRequest = resolve;
+      }));
+      render(
+        <AuthProvider>
+          <AuthStateDisplay />
+        </AuthProvider>
+      );
+      expect(screen.getByTestId('token')).toHaveTextContent('jwt');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('logout-btn'));
+      });
+
+      // The request is still pending, and the session is already gone locally.
+      expect(AuthApi.logout).toHaveBeenCalledWith('the-refresh');
+      expect(storageDuringRequest).toEqual({ token: null, refresh: null });
+      expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+      expect(localStorage.getItem(REFRESH_KEY)).toBeNull();
+      expect(screen.getByTestId('token')).toHaveTextContent('null');
+
+      await act(async () => { releaseRequest(); });
+    });
+
+    it('still ends the session locally when the logout request fails', async () => {
+      localStorage.setItem(TOKEN_KEY, 'jwt');
+      localStorage.setItem(REFRESH_KEY, 'the-refresh');
+      AuthApi.logout.mockRejectedValue(new Error('network'));
+      render(
+        <AuthProvider>
+          <AuthStateDisplay />
+        </AuthProvider>
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('logout-btn'));
+      });
+
+      expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+      expect(screen.getByTestId('token')).toHaveTextContent('null');
+    });
+  });
+
   describe('token-refreshed event', () => {
     it('re-syncs token from localStorage when goldenhour:token-refreshed fires', () => {
       localStorage.setItem(TOKEN_KEY, 'old-jwt');

@@ -42,13 +42,14 @@ const renderWithProbe = () => render(
 
 /** Walks the verified link through Set password and waits for the HOME step. */
 const toHome = async (user) => {
-  vi.spyOn(AuthApi, 'verifyEmail').mockResolvedValue(undefined);
+  vi.spyOn(AuthApi, 'verifyEmail').mockResolvedValue({ userId: 7, verified: true, setupToken: 'setup-tok' });
   vi.spyOn(AuthApi, 'setPasswordForNewUser').mockResolvedValue(SESSION);
   renderWithProbe();
   await screen.findByTestId('set-password-form');
   await user.type(screen.getByTestId('sp-password'), 'Abcdef1!');
   await user.type(screen.getByTestId('sp-confirm'), 'Abcdef1!');
   await user.click(screen.getByTestId('sp-submit'));
+  expect(AuthApi.setPasswordForNewUser).toHaveBeenCalledWith('setup-tok', 'Abcdef1!');
   return screen.findByTestId('home-step');
 };
 

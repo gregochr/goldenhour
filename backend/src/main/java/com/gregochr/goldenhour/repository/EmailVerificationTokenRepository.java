@@ -95,4 +95,22 @@ public interface EmailVerificationTokenRepository extends JpaRepository<EmailVer
     @Transactional
     @Query("DELETE FROM EmailVerificationTokenEntity t WHERE t.tokenHash = :tokenHash")
     int deleteByTokenHashInBulk(@Param("tokenHash") String tokenHash);
+
+    /**
+     * Rotates an unverified link into the verified setup token, by compare-and-set: the row changes only
+     * while it still holds the hash the caller read and is still unverified, so of two concurrent
+     * verifications exactly one gets a row count of 1 (token-hardening plan, T (a)).
+     *
+     * @param id        the token's primary key
+     * @param oldHash   the hash of the emailed link, which the row must still hold
+     * @param newHash   the hash of the fresh setup token
+     * @param expiresAt the new expiry (never later than the old one)
+     * @return 1 if this call rotated the row; 0 if it was already used, rotated or gone
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE EmailVerificationTokenEntity t SET t.tokenHash = :newHash, t.verified = true, "
+            + "t.expiresAt = :expiresAt WHERE t.id = :id AND t.tokenHash = :oldHash AND t.verified = false")
+    int rotateOnVerify(@Param("id") Long id, @Param("oldHash") String oldHash,
+            @Param("newHash") String newHash, @Param("expiresAt") LocalDateTime expiresAt);
 }

@@ -30,7 +30,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -691,31 +690,120 @@ class AuthenticationServiceTest {
     }
 
     @Nested
-    class RevokeRefreshToken {
+    class Logout {
 
-        @Test
-        @DisplayName("marks a known token revoked")
-        void knownToken_revoked() {
-            RefreshTokenEntity stored = RefreshTokenEntity.builder()
-                    .id(10L).tokenHash("hash").userId(1L)
-                    .expiresAt(LocalDateTime.now().plusDays(10)).revoked(false).build();
+        private RefreshTokenEntity stored(boolean revoked, LocalDateTime expiresAt) {
+            return RefreshTokenEntity.builder()
+                    .id(10L).tokenHash("hash").userId(1L).expiresAt(expiresAt).revoked(revoked).build();
+        }
+
+        private void presenting(RefreshTokenEntity token) {
             when(jwtService.hashToken("raw")).thenReturn("hash");
-            when(refreshTokenRepository.findByTokenHash("hash")).thenReturn(Optional.of(stored));
-
-            service.revokeRefreshToken("raw");
-
-            verify(refreshTokenRepository).save(argThat(RefreshTokenEntity::isRevoked));
+            when(refreshTokenRepository.findByTokenHash("hash")).thenReturn(Optional.of(token));
         }
 
         @Test
-        @DisplayName("unknown token is a silent no-op")
-        void unknownToken_noop() {
+        @DisplayName("a live refresh token: lock the account first, revoke that token by compare-and-set, "
+                + "then bump the credential version -- in that order")
+        void liveRefreshToken_locksRevokesThenBumps() {
+            presenting(stored(false, LocalDateTime.now().plusDays(10)));
+            when(userRepository.lockAccount(1L)).thenReturn(Optional.of(new AppUserRepository.LockedAccount(
+                    true, "hashed-password", "a@b.c", "admin", UserRole.ADMIN, 0L, null, false, true, null)));
+
+            service.logout("raw", null);
+
+            InOrder order = inOrder(userRepository, refreshTokenRepository);
+            order.verify(userRepository).lockAccount(1L);
+            order.verify(refreshTokenRepository).revokeIfActive("hash");
+            order.verify(userRepository).bumpCredentialsVersion(1L);
+            // Nothing else was touched: no save, no family revoke, no credential-change update.
+            verify(refreshTokenRepository).findByTokenHash("hash");
+            org.mockito.Mockito.verifyNoMoreInteractions(refreshTokenRepository, userRepository);
+            verifyNoInteractions(familyRevoker, credentialChangeWriter);
+        }
+
+        @Test
+        @DisplayName("an EXPIRED refresh token identifies nobody: no lock, no revoke, no version bump")
+        void expiredRefreshToken_doesNotBump() {
+            presenting(stored(false, LocalDateTime.now().minusMinutes(1)));
+
+            service.logout("raw", null);
+
+            verify(userRepository, never()).lockAccount(1L);
+            verify(userRepository, never()).bumpCredentialsVersion(1L);
+            verify(refreshTokenRepository, never()).revokeIfActive("hash");
+        }
+
+        @Test
+        @DisplayName("an already-REVOKED refresh token identifies nobody: a replayed logout cannot be used to "
+                + "log the owner out")
+        void revokedRefreshToken_doesNotBump() {
+            presenting(stored(true, LocalDateTime.now().plusDays(10)));
+
+            service.logout("raw", null);
+
+            verify(userRepository, never()).lockAccount(1L);
+            verify(userRepository, never()).bumpCredentialsVersion(1L);
+            verify(refreshTokenRepository, never()).revokeIfActive("hash");
+        }
+
+        @Test
+        @DisplayName("an unknown token and no principal is a silent no-op")
+        void unknownTokenNoPrincipal_noop() {
             when(jwtService.hashToken("raw")).thenReturn("hash");
             when(refreshTokenRepository.findByTokenHash("hash")).thenReturn(Optional.empty());
 
-            service.revokeRefreshToken("raw");
+            service.logout("raw", null);
 
-            verify(refreshTokenRepository, never()).save(any());
+            verify(userRepository, never()).bumpCredentialsVersion(1L);
+        }
+
+        @Test
+        @DisplayName("no token at all and no principal does nothing")
+        void nothingPresented_noop() {
+            service.logout(null, null);
+
+            verifyNoInteractions(refreshTokenRepository, jwtService, userRepository);
+        }
+
+        @Test
+        @DisplayName("an unusable token falls back to the authenticated principal: version bumped, the "
+                + "presented (dead) token still passed to the conditional revoke")
+        void deadTokenWithPrincipal_bumpsForThePrincipal() {
+            presenting(stored(true, LocalDateTime.now().plusDays(10)));
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(userRepository.lockAccount(1L)).thenReturn(Optional.of(new AppUserRepository.LockedAccount(
+                    true, "hashed-password", "a@b.c", "admin", UserRole.ADMIN, 0L, null, false, true, null)));
+
+            service.logout("raw", "admin");
+
+            verify(refreshTokenRepository).revokeIfActive("hash");
+            verify(userRepository).bumpCredentialsVersion(1L);
+        }
+
+        @Test
+        @DisplayName("a principal with no refresh token bumps the version and revokes nothing")
+        void principalOnly_bumpsWithoutRevoking() {
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(userRepository.lockAccount(1L)).thenReturn(Optional.of(new AppUserRepository.LockedAccount(
+                    true, "hashed-password", "a@b.c", "admin", UserRole.ADMIN, 0L, null, false, true, null)));
+
+            service.logout(null, "admin");
+
+            verify(userRepository).bumpCredentialsVersion(1L);
+            verify(refreshTokenRepository, never()).revokeIfActive("hash");
+        }
+
+        @Test
+        @DisplayName("an account that vanished before the lock is a no-op")
+        void accountGone_noop() {
+            presenting(stored(false, LocalDateTime.now().plusDays(10)));
+            when(userRepository.lockAccount(1L)).thenReturn(Optional.empty());
+
+            service.logout("raw", null);
+
+            verify(userRepository, never()).bumpCredentialsVersion(1L);
+            verify(refreshTokenRepository, never()).revokeIfActive("hash");
         }
     }
 

@@ -80,14 +80,11 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Capture the refresh token, then clear storage and in-memory tokens BEFORE the API call. The server
+    // bumps the credential version on logout, so a 401 in the window would otherwise make the axios
+    // interceptor post /refresh with the just-revoked token, which reads as theft and revokes every
+    // device's family.
     const storedRefresh = readStorage(REFRESH_KEY);
-    try {
-      if (storedRefresh) {
-        await apiLogout(storedRefresh);
-      }
-    } catch {
-      // Ignore errors on logout — clean up locally regardless
-    }
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(REFRESH_KEY);
     localStorage.removeItem(ROLE_KEY);
@@ -106,6 +103,13 @@ export function AuthProvider({ children }) {
     setMarketingEmailOptIn(true);
     setRegistrationPending(false);
     setPostcodePromptSuppressed(false);
+    try {
+      if (storedRefresh) {
+        await apiLogout(storedRefresh);
+      }
+    } catch {
+      // Ignore errors on logout: the session is already cleared locally
+    }
   }, []);
 
   /**

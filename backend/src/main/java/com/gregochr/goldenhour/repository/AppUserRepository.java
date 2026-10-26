@@ -362,6 +362,19 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
             @Param("expectedVersion") long expectedVersion, @Param("now") Instant now);
 
     /**
+     * Bumps the credential version and nothing else — logout's way of killing every outstanding access
+     * token. Deliberately not {@link #applyCredentialChange}: {@code credentials_changed_at} is not
+     * stamped, so a replayed refresh token revoked by a logout still reads as {@code REVOKED_SEEN}.
+     *
+     * @param id the user's primary key
+     * @return 1 if bumped; 0 if the row is gone
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.credentialsVersion = u.credentialsVersion + 1 WHERE u.id = :id")
+    int bumpCredentialsVersion(@Param("id") Long id);
+
+    /**
      * {@link #applyCredentialChange} without a new password: the {@code password} column is not in the
      * statement, so a change that waited on the row lock behind a concurrent password change (an admin
      * disable) can never write back the stale hash it loaded before the lock.

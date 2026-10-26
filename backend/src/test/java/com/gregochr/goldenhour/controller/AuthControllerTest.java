@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.model.AuthTokens;
 import com.gregochr.goldenhour.repository.AppUserRepository.LockedAccount;
+import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.RegistrationService.Activation;
 import com.gregochr.goldenhour.service.AuthAttemptLimiter.Window;
 import com.gregochr.goldenhour.service.JwtService;
@@ -598,27 +599,29 @@ class AuthControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("POST /api/auth/verify-email returns 200 with userId for valid token")
     void verifyEmail_valid_returns200() throws Exception {
-        when(registrationService.verifyEmail("valid-token")).thenReturn(42L);
+        when(registrationService.verifyEmail("valid-token")).thenReturn(
+                new RegistrationService.VerifiedEmail(42L, "setup-raw"));
 
         mockMvc.perform(post("/api/auth/verify-email")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"token\":\"valid-token\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value(42))
-                .andExpect(jsonPath("$.verified").value(true));
+                .andExpect(jsonPath("$.verified").value(true))
+                .andExpect(jsonPath("$.setupToken").value("setup-raw"));
     }
 
     @Test
     @DisplayName("POST /api/auth/verify-email returns 400 for invalid token")
     void verifyEmail_invalid_returns400() throws Exception {
         when(registrationService.verifyEmail("bad-token"))
-                .thenThrow(new IllegalArgumentException("Invalid verification token"));
+                .thenThrow(new IllegalArgumentException("This link has already been used"));
 
         mockMvc.perform(post("/api/auth/verify-email")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"token\":\"bad-token\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Invalid verification token"));
+                .andExpect(jsonPath("$.error").value("This link has already been used"));
     }
 
     @Test
@@ -1184,7 +1187,7 @@ class AuthControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/auth/logout returns 200")
+    @DisplayName("POST /api/auth/logout with a live refresh token revokes it and bumps the credential version")
     void logout_validRequest_returns200() throws Exception {
         String rawRefresh = jwtService.generateRefreshToken();
         String hash = jwtService.hashToken(rawRefresh);
@@ -1196,7 +1199,6 @@ class AuthControllerTest extends AbstractControllerTest {
                 .revoked(false)
                 .build();
         when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(stored));
-        when(refreshTokenRepository.save(any())).thenReturn(stored);
 
         String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
 
@@ -1206,6 +1208,40 @@ class AuthControllerTest extends AbstractControllerTest {
                         .content("{\"refreshToken\":\"" + rawRefresh + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Logged out"));
+
+        verify(refreshTokenRepository).revokeIfActive(hash);
+        verify(userRepository).bumpCredentialsVersion(1L);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/logout with an authenticated Bearer and no refresh token bumps the version "
+            + "for that principal")
+    void logout_bearerOnly_bumpsForThePrincipal() throws Exception {
+        String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .header("Authorization", "Bearer " + validJwt)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+
+        verify(userRepository).bumpCredentialsVersion(1L);
+        verifyNoInteractions(refreshTokenRepository);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/logout anonymously with an unknown token is a 200 that changes nothing -- "
+            + "the anonymous principal is never a user")
+    void logout_anonymousUnknownToken_changesNothing() throws Exception {
+        when(refreshTokenRepository.findByTokenHash(anyString())).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"nobody\"}"))
+                .andExpect(status().isOk());
+
+        verify(userRepository, never()).bumpCredentialsVersion(1L);
+        verify(userRepository, never()).findByUsername("anonymousUser");
     }
 
     @Test

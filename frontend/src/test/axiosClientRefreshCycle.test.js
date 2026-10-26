@@ -67,6 +67,29 @@ describe('axiosClient — refresh cycle against the real authApi', () => {
     expect(localStorage.getItem(REFRESH_KEY)).toBeNull();
   });
 
+  it('(a2) a 401 during logout, with storage already cleared, posts no /refresh and does not expire a session',
+    async () => {
+      // AuthContext.logout captures the refresh token, clears storage, THEN posts /logout. The server has
+      // already bumped the credential version, so an in-flight request can 401 in that window.
+      localStorage.setItem(TOKEN_KEY, 'old');
+      localStorage.setItem(REFRESH_KEY, 'old-r');
+      const captured = localStorage.getItem(REFRESH_KEY);
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(REFRESH_KEY);
+      adapter.mockImplementation(reject401);
+
+      const results = await settle(Promise.allSettled([
+        authApi.logout(captured),
+        apiClient.get('/api/briefing'),
+      ]));
+
+      expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+      expect(count('/api/auth/refresh')).toBe(0);
+      expect(count('/api/auth/logout')).toBe(1);
+      expect(count('/api/briefing')).toBe(1);
+      expect(events('goldenhour:session-expired')).toHaveLength(0);
+    });
+
   it('(b) two concurrent 401s share one refresh and both reject', async () => {
     localStorage.setItem(TOKEN_KEY, 'old');
     localStorage.setItem(REFRESH_KEY, 'old-r');
