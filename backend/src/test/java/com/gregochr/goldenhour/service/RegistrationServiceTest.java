@@ -380,73 +380,124 @@ class RegistrationServiceTest {
                 .sendVerificationEmail("alice@example.com", "alice", "new-token");
     }
 
-    @Test
-    @DisplayName("verifyEmail marks token as verified and returns userId")
-    void verifyEmail_validToken_returnsUserId() {
-        EmailVerificationTokenEntity token = EmailVerificationTokenEntity.builder()
+    private EmailVerificationTokenEntity unverified(LocalDateTime expiresAt) {
+        return EmailVerificationTokenEntity.builder()
                 .id(1L)
                 .tokenHash("hash123")
                 .userId(42L)
-                .expiresAt(LocalDateTime.now().plusHours(12))
+                .expiresAt(expiresAt)
                 .verified(false)
                 .createdAt(LocalDateTime.now().minusHours(1))
                 .build();
-        when(jwtService.hashToken("raw-token")).thenReturn("hash123");
-        when(tokenRepository.findByTokenHash("hash123")).thenReturn(Optional.of(token));
-        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        Long userId = registrationService.verifyEmail("raw-token");
-
-        assertThat(userId).isEqualTo(42L);
-        assertThat(token.isVerified()).isTrue();
-        verify(tokenRepository).save(token);
     }
 
     @Test
-    @DisplayName("verifyEmail throws when token is invalid")
-    void verifyEmail_invalidToken_throws() {
+    @DisplayName("verifyEmail rotates the token by compare-and-set and returns the userId and a fresh setup "
+            + "token that is not the mailed one")
+    void verifyEmail_validToken_rotatesAndReturnsSetupToken() {
+        EmailVerificationTokenEntity token = unverified(LocalDateTime.now().plusHours(12));
+        when(jwtService.hashToken("raw-token")).thenReturn("hash123");
+        when(jwtService.generateRefreshToken()).thenReturn("setup-raw");
+        when(jwtService.hashToken("setup-raw")).thenReturn("setup-hash");
+        when(tokenRepository.findByTokenHash("hash123")).thenReturn(Optional.of(token));
+        when(tokenRepository.rotateOnVerify(eq(1L), eq("hash123"), eq("setup-hash"), any())).thenReturn(1);
+
+        RegistrationService.VerifiedEmail verified = registrationService.verifyEmail("raw-token");
+
+        assertThat(verified.userId()).isEqualTo(42L);
+        assertThat(verified.setupToken()).isEqualTo("setup-raw").isNotEqualTo("raw-token");
+        verify(tokenRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("the setup token lives at most 30 minutes from now, and never longer than the link had left")
+    void verifyEmail_expiryIsTheEarlierOfThirtyMinutesAndTheLinksOwn() {
+        when(jwtService.hashToken(anyString())).thenReturn("hash123");
+        when(jwtService.generateRefreshToken()).thenReturn("setup-raw");
+        when(tokenRepository.rotateOnVerify(any(), any(), any(), any())).thenReturn(1);
+        org.mockito.ArgumentCaptor<LocalDateTime> expiry = org.mockito.ArgumentCaptor.forClass(LocalDateTime.class);
+
+        when(tokenRepository.findByTokenHash("hash123"))
+                .thenReturn(Optional.of(unverified(LocalDateTime.now().plusHours(12))));
+        LocalDateTime before = LocalDateTime.now();
+        registrationService.verifyEmail("raw-token");
+        verify(tokenRepository).rotateOnVerify(any(), any(), any(), expiry.capture());
+        assertThat(expiry.getValue()).isBetween(before.plusMinutes(30), LocalDateTime.now().plusMinutes(30));
+
+        LocalDateTime soon = LocalDateTime.now().plusMinutes(5);
+        when(tokenRepository.findByTokenHash("hash123")).thenReturn(Optional.of(unverified(soon)));
+        registrationService.verifyEmail("raw-token");
+        verify(tokenRepository, org.mockito.Mockito.times(2))
+                .rotateOnVerify(any(), any(), any(), expiry.capture());
+        assertThat(expiry.getValue()).isEqualTo(soon);
+    }
+
+    @Test
+    @DisplayName("a second verify of the mailed link, which the rotation made unknown, is 'already been used' "
+            + "-- also for a never-issued token, replacing 'Invalid verification token'")
+    void verifyEmail_unknownToken_isAlreadyUsed() {
         when(jwtService.hashToken("bad-token")).thenReturn("bad-hash");
         when(tokenRepository.findByTokenHash("bad-hash")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> registrationService.verifyEmail("bad-token"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Invalid");
+                .hasMessage(RegistrationService.LINK_USED)
+                .hasMessageContaining("already been used");
+        verify(tokenRepository, never()).rotateOnVerify(any(), any(), any(), any());
     }
 
     @Test
     @DisplayName("verifyEmail throws when token is expired")
     void verifyEmail_expiredToken_throws() {
-        EmailVerificationTokenEntity token = EmailVerificationTokenEntity.builder()
-                .tokenHash("hash")
-                .userId(1L)
-                .expiresAt(LocalDateTime.now().minusHours(1))
-                .verified(false)
-                .createdAt(LocalDateTime.now().minusDays(2))
-                .build();
-        when(jwtService.hashToken("expired-token")).thenReturn("hash");
-        when(tokenRepository.findByTokenHash("hash")).thenReturn(Optional.of(token));
+        when(jwtService.hashToken("expired-token")).thenReturn("hash123");
+        when(tokenRepository.findByTokenHash("hash123"))
+                .thenReturn(Optional.of(unverified(LocalDateTime.now().minusHours(1))));
 
         assertThatThrownBy(() -> registrationService.verifyEmail("expired-token"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("expired");
+        verify(tokenRepository, never()).rotateOnVerify(any(), any(), any(), any());
     }
 
     @Test
-    @DisplayName("verifyEmail throws when token has already been used")
-    void verifyEmail_alreadyUsed_throws() {
-        EmailVerificationTokenEntity token = EmailVerificationTokenEntity.builder()
-                .tokenHash("hash")
-                .userId(1L)
-                .expiresAt(LocalDateTime.now().plusHours(12))
-                .verified(true)
-                .createdAt(LocalDateTime.now().minusHours(1))
-                .build();
-        when(jwtService.hashToken("used-token")).thenReturn("hash");
-        when(tokenRepository.findByTokenHash("hash")).thenReturn(Optional.of(token));
+    @DisplayName("verifyEmail throws 'already been used' for a row already verified")
+    void verifyEmail_alreadyVerified_throws() {
+        EmailVerificationTokenEntity token = unverified(LocalDateTime.now().plusHours(12));
+        token.setVerified(true);
+        when(jwtService.hashToken("used-token")).thenReturn("hash123");
+        when(tokenRepository.findByTokenHash("hash123")).thenReturn(Optional.of(token));
 
         assertThatThrownBy(() -> registrationService.verifyEmail("used-token"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("already been used");
+                .hasMessage(RegistrationService.LINK_USED);
+        verify(tokenRepository, never()).rotateOnVerify(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("losing the compare-and-set to a concurrent verify (zero rows) is 'already been used' and "
+            + "no setup token is returned")
+    void verifyEmail_lostTheCompareAndSet_isAlreadyUsed() {
+        when(jwtService.hashToken("raw-token")).thenReturn("hash123");
+        when(jwtService.generateRefreshToken()).thenReturn("setup-raw");
+        when(tokenRepository.findByTokenHash("hash123"))
+                .thenReturn(Optional.of(unverified(LocalDateTime.now().plusHours(12))));
+        when(tokenRepository.rotateOnVerify(any(), any(), any(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> registrationService.verifyEmail("raw-token"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(RegistrationService.LINK_USED);
+    }
+
+    @Test
+    @DisplayName("set-password with the MAILED token fails once the row has been rotated: the old hash no "
+            + "longer exists, so nothing is activated")
+    void setPassword_withTheMailedTokenAfterRotation_fails() {
+        when(jwtService.hashToken("mailed")).thenReturn("mailed-hash");
+        when(tokenRepository.findByTokenHash("mailed-hash")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> registrationService.setPasswordAndActivate("mailed", "MyP@ssw0rd!"))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(credentialChangeWriter);
     }
 
     @Test

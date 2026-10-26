@@ -1,3 +1,4 @@
+import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -305,7 +306,7 @@ describe('RegisterPage visual foundation', () => {
 
   describe('the set-password step', () => {
     const toSetPassword = async () => {
-      vi.spyOn(AuthApi, 'verifyEmail').mockResolvedValue(undefined);
+      vi.spyOn(AuthApi, 'verifyEmail').mockResolvedValue({ userId: 7, verified: true, setupToken: 'setup-tok' });
       renderPage({ verifyToken: 'tok' });
       await screen.findByTestId('set-password-form');
     };
@@ -372,7 +373,7 @@ describe('RegisterPage visual foundation', () => {
       const error = await screen.findByTestId('sp-error');
       expect(error).toHaveTextContent('Nope');
       expect(error).toHaveClass('text-plex-error');
-      expect(AuthApi.setPasswordForNewUser).toHaveBeenCalledWith('tok', 'Abcdef1!');
+      expect(AuthApi.setPasswordForNewUser).toHaveBeenCalledWith('setup-tok', 'Abcdef1!');
     });
 
     it('left-aligns the Success card with the Welcome heading and the unchanged copy', async () => {
@@ -632,7 +633,7 @@ describe('RegisterPage registration form (R2b)', () => {
 
   describe('the set-password step needs no security check', () => {
     const toSetPassword = async () => {
-      vi.spyOn(AuthApi, 'verifyEmail').mockResolvedValue(undefined);
+      vi.spyOn(AuthApi, 'verifyEmail').mockResolvedValue({ userId: 7, verified: true, setupToken: 'setup-tok' });
       renderPage({ verifyToken: 'tok' });
       await screen.findByTestId('set-password-form');
     };
@@ -667,7 +668,7 @@ describe('RegisterPage registration form (R2b)', () => {
       await user.click(screen.getByTestId('sp-submit'));
 
       await waitFor(() => expect(AuthApi.setPasswordForNewUser).toHaveBeenCalledTimes(1));
-      expect(AuthApi.setPasswordForNewUser.mock.calls[0]).toEqual(['tok', 'Abcdef1!']);
+      expect(AuthApi.setPasswordForNewUser.mock.calls[0]).toEqual(['setup-tok', 'Abcdef1!']);
     });
 
     it('keeps submit disabled until every rule passes, including the confirmation matching', async () => {
@@ -678,6 +679,72 @@ describe('RegisterPage registration form (R2b)', () => {
 
       // The confirmation does not match yet.
       expect(screen.getByTestId('sp-submit')).toBeDisabled();
+    });
+  });
+
+  describe('the rotated setup token', () => {
+    const fillAndSubmit = async (user) => {
+      await user.type(screen.getByTestId('sp-password'), 'Abcdef1!');
+      await user.type(screen.getByTestId('sp-confirm'), 'Abcdef1!');
+      await user.click(screen.getByTestId('sp-submit'));
+    };
+
+    it('a double-fired verify (StrictMode, a double click) whose SECOND call is refused as already used '
+      + 'still lands on the password step with no error, and posts the setup token', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(AuthApi, 'verifyEmail')
+        .mockResolvedValueOnce({ userId: 7, verified: true, setupToken: 'setup-tok' })
+        .mockRejectedValue({ response: { data: { error: 'This link has already been used' } } });
+      vi.spyOn(AuthApi, 'setPasswordForNewUser').mockResolvedValue({
+        accessToken: 'a', refreshToken: 'r', role: 'LITE_USER', username: 'newuser',
+      });
+      render(
+        <React.StrictMode>
+          <AuthProvider>
+            <RegisterPage verifyToken="tok" onBackToLogin={vi.fn()} />
+          </AuthProvider>
+        </React.StrictMode>,
+      );
+
+      await screen.findByTestId('set-password-form');
+      await waitFor(() => expect(AuthApi.verifyEmail).toHaveBeenCalledTimes(2));
+      expect(screen.queryByTestId('verify-error')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('sp-error')).not.toBeInTheDocument();
+      expect(screen.getByTestId('set-password-form')).toBeInTheDocument();
+
+      await fillAndSubmit(user);
+      await waitFor(() => expect(AuthApi.setPasswordForNewUser).toHaveBeenCalledTimes(1));
+      expect(AuthApi.setPasswordForNewUser.mock.calls[0]).toEqual(['setup-tok', 'Abcdef1!']);
+    });
+
+    it('a failure that lands BEFORE the winning verify resolves is cleared when the success arrives', async () => {
+      let resolveWinner;
+      vi.spyOn(AuthApi, 'verifyEmail')
+        .mockReturnValueOnce(new Promise((resolve) => { resolveWinner = resolve; }))
+        .mockRejectedValue({ response: { data: { error: 'This link has already been used' } } });
+      render(
+        <React.StrictMode>
+          <AuthProvider>
+            <RegisterPage verifyToken="tok" onBackToLogin={vi.fn()} />
+          </AuthProvider>
+        </React.StrictMode>,
+      );
+      await screen.findByTestId('verify-error');
+
+      resolveWinner({ userId: 7, verified: true, setupToken: 'setup-tok' });
+
+      await screen.findByTestId('set-password-form');
+      expect(screen.queryByTestId('verify-error')).not.toBeInTheDocument();
+    });
+
+    it('keeps the setup token in React state only: never in storage or the URL', async () => {
+      vi.spyOn(AuthApi, 'verifyEmail').mockResolvedValue({ userId: 7, verified: true, setupToken: 'setup-tok' });
+      renderPage({ verifyToken: 'tok' });
+      await screen.findByTestId('set-password-form');
+
+      expect(JSON.stringify({ ...localStorage })).not.toContain('setup-tok');
+      expect(JSON.stringify({ ...sessionStorage })).not.toContain('setup-tok');
+      expect(window.location.href).not.toContain('setup-tok');
     });
   });
 });

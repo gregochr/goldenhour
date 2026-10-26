@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
+import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.exception.TooManyAttemptsException;
@@ -326,18 +327,47 @@ public class AuthenticationService {
     }
 
     /**
-     * Revokes the refresh token if it exists, effectively logging the holder out. Unknown
-     * tokens are ignored.
+     * Logs a caller out: revokes the presented refresh token and bumps the account's credential
+     * version, so every outstanding access token dies at its next request (other devices take one
+     * silent refresh). An open SSE stream is cut only when it reconnects.
      *
-     * @param rawRefreshToken the raw refresh token supplied by the client
+     * <p>The account is identified only from an UNREVOKED, UNEXPIRED refresh token or, failing that, an
+     * authenticated non-anonymous principal; an unknown, revoked or expired token with no principal
+     * does nothing. In one transaction: the account row is locked first (parent before children, as
+     * {@link TokenIssuer#rotate} does), the presented token revoked with the conditional
+     * {@code revokeIfActive}, then the version bumped by the column-scoped
+     * {@code bumpCredentialsVersion} — deliberately not the credential-change update, so
+     * {@code credentials_changed_at} is not stamped and a replay of the revoked token still reads as
+     * {@code REVOKED_SEEN}. Called through the Spring proxy by the controller.
+     *
+     * @param rawRefreshToken the raw refresh token the client presented, or null
+     * @param principalName   the authenticated, non-anonymous username, or null
      */
     @Transactional
-    public void revokeRefreshToken(String rawRefreshToken) {
-        String hash = jwtService.hashToken(rawRefreshToken);
-        refreshTokenRepository.findByTokenHash(hash).ifPresent(token -> {
-            token.setRevoked(true);
-            refreshTokenRepository.save(token);
-        });
+    public void logout(String rawRefreshToken, String principalName) {
+        String hash = null;
+        Long userId = null;
+        if (rawRefreshToken != null && !rawRefreshToken.isBlank()) {
+            hash = jwtService.hashToken(rawRefreshToken);
+            RefreshTokenEntity stored = refreshTokenRepository.findByTokenHash(hash).orElse(null);
+            if (stored != null && !stored.isRevoked() && !stored.getExpiresAt().isBefore(LocalDateTime.now())) {
+                userId = stored.getUserId();
+            }
+        }
+        if (userId == null && principalName != null) {
+            userId = userRepository.findByUsername(principalName).map(AppUserEntity::getId).orElse(null);
+        }
+        if (userId == null) {
+            return;
+        }
+        if (userRepository.lockAccount(userId).isEmpty()) {
+            return;
+        }
+        if (hash != null) {
+            refreshTokenRepository.revokeIfActive(hash);
+        }
+        userRepository.bumpCredentialsVersion(userId);
+        LOG.info("Logout: user id {}", userId);
     }
 
     /**

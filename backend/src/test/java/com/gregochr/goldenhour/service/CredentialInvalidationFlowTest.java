@@ -361,6 +361,70 @@ class CredentialInvalidationFlowTest {
     }
 
     @Test
+    @DisplayName("verify-email rotates the mailed link: it returns a setupToken, a second verify of the mailed "
+            + "link is 400 'already been used', set-password with the mailed token is refused and with the "
+            + "setupToken activates")
+    void verifyEmail_rotatesTheLink_andOnlyTheSetupTokenActivates() throws Exception {
+        long pendingId = users.save(AppUserEntity.builder().username("newbie").email("newbie@example.com")
+                .password("").role(UserRole.LITE_USER).enabled(false).createdAt(LocalDateTime.now())
+                .build()).getId();
+        verificationTokens.save(EmailVerificationTokenEntity.builder().tokenHash(jwtService.hashToken("mailed"))
+                .userId(pendingId).expiresAt(LocalDateTime.now().plusHours(12)).verified(false)
+                .createdAt(LocalDateTime.now()).build());
+
+        JsonNode verified = postJson("/api/auth/verify-email", "{\"token\":\"mailed\"}", 200);
+        String setupToken = verified.get("setupToken").asText();
+        assertThat(setupToken).isNotBlank().isNotEqualTo("mailed");
+
+        JsonNode second = postJson("/api/auth/verify-email", "{\"token\":\"mailed\"}", 400);
+        assertThat(second.get("error").asText()).contains("already been used");
+        postJson("/api/auth/set-password", "{\"token\":\"mailed\",\"password\":\"" + NEW_PASSWORD + "\"}", 400);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM email_verification_token WHERE user_id = ? "
+                + "AND expires_at <= ?", Integer.class, pendingId, LocalDateTime.now().plusMinutes(31)))
+                .as("the rotated row expires within 30 minutes").isEqualTo(1);
+
+        postJson("/api/auth/set-password",
+                "{\"token\":\"" + setupToken + "\",\"password\":\"" + NEW_PASSWORD + "\"}", 200);
+        login("newbie", NEW_PASSWORD);
+    }
+
+    @Test
+    @DisplayName("logout kills the access token of EVERY device at its next request, leaves the other device's "
+            + "refresh token alive for one silent refresh, and a replay of the logged-out refresh token still "
+            + "reads as theft (credentials_changed_at is not stamped)")
+    void logout_endsEveryAccessToken_butNotEveryRefreshToken() throws Exception {
+        JsonNode laptop = login("reader", OLD_PASSWORD);
+        JsonNode phone = login("reader", OLD_PASSWORD);
+        String laptopRefresh = laptop.get("refreshToken").asText();
+
+        postJson("/api/auth/logout", "{\"refreshToken\":\"" + laptopRefresh + "\"}", 200);
+
+        assertThat(credentialsVersion(readerId)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT credentials_changed_at FROM app_user WHERE id = ?",
+                java.sql.Timestamp.class, readerId)).as("logout is not a credential change").isNull();
+        reachesTheApp(laptop.get("accessToken").asText(), 401);
+        reachesTheApp(phone.get("accessToken").asText(), 401);
+        // The phone takes one silent refresh and carries on with a token at the new version.
+        JsonNode phoneAgain = postJson("/api/auth/refresh",
+                "{\"refreshToken\":\"" + phone.get("refreshToken").asText() + "\"}", 200);
+        reachesTheApp(phoneAgain.get("accessToken").asText(), 200);
+
+        // The logged-out refresh token, replayed, is REVOKED_SEEN: refused AND the family is revoked.
+        refresh(laptopRefresh, 401);
+        refresh(phoneAgain.get("refreshToken").asText(), 401);
+    }
+
+    @Test
+    @DisplayName("an anonymous logout with an unknown refresh token is a 200 that touches no account")
+    void logout_anonymousUnknownToken_touchesNothing() throws Exception {
+        postJson("/api/auth/logout", "{\"refreshToken\":\"never-issued\"}", 200);
+        postJson("/api/auth/logout", "{}", 200);
+
+        assertThat(credentialsVersion(readerId)).isZero();
+        assertThat(credentialsVersion(adminId)).isZero();
+    }
+
+    @Test
     @DisplayName("an admin create refuses a non-ASCII address with the sentence register uses")
     void adminCreate_refusesANonAsciiAddress() throws Exception {
         String admin = login("boss", ADMIN_PASSWORD).get("accessToken").asText();

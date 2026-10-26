@@ -302,9 +302,15 @@ After the first release that carries step 1 (and again after 4b):
 
 - Remove the `?token=` fallback (step 3) in a release after step 3 has been live > 24 h.
 - Audit §1.3 #5: rotate the token at verify (or bind `set-password` to a short window after
-  `verify-email`); revoke access tokens at logout.
+  `verify-email`); revoke access tokens at logout. **Status (2026-10-26): built** (audit-followups
+  plan, section T): `verify-email` rotates the emailed link by compare-and-set into a `setupToken`
+  (30-minute cap, held in React state only) that `set-password` alone accepts, so a leaked emailed
+  link is dead once used; `logout` revokes the presented refresh token and bumps the credential
+  version, so every outstanding access token dies at its next request. An open SSE stream is cut
+  only when it reconnects.
 - Reload after verification shows "already used" and the reader cannot reach set-password without
-  a new link (pre-existing; unchanged by step 2).
+  a new link (pre-existing; unchanged by step 2, and now the same sentence for any reuse of the
+  emailed link, since verify rotates it).
 
 ## 5. Review gates per PR
 

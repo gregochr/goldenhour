@@ -322,6 +322,39 @@ class TokenIssuerTest {
         }
 
         @Test
+        @DisplayName("a token revoked by a LOGOUT (bumpCredentialsVersion, which stamps nothing) is still "
+                + "REVOKED_SEEN: logout raises the version, not credentials_changed_at")
+        void tokenRevokedByLogout_isStillTheftEvidence() {
+            String hash = storeRefreshToken("logged-out", false, LocalDateTime.now().plusDays(10));
+            refreshTokens.revokeIfActive(hash);
+
+            assertThat(users.bumpCredentialsVersion(userId)).isEqualTo(1);
+
+            assertThat(jdbc.queryForObject("SELECT credentials_version FROM app_user WHERE id = ?",
+                    Long.class, userId)).isEqualTo(1L);
+            assertThat(jdbc.queryForObject("SELECT credentials_changed_at FROM app_user WHERE id = ?",
+                    java.sql.Timestamp.class, userId)).isNull();
+            assertThat(issuer.rotate(hash).status()).isEqualTo(RotationStatus.REVOKED_SEEN);
+        }
+
+        @Test
+        @DisplayName("rotateOnVerify is a compare-and-set: the first call rotates the unverified row, a second "
+                + "with the same old hash changes nothing")
+        void rotateOnVerify_isACompareAndSet() {
+            Long id = verificationTokens.save(com.gregochr.goldenhour.entity.EmailVerificationTokenEntity.builder()
+                    .tokenHash("old-hash").userId(userId).expiresAt(LocalDateTime.now().plusHours(5))
+                    .verified(false).createdAt(LocalDateTime.now()).build()).getId();
+            LocalDateTime expiry = LocalDateTime.now().plusMinutes(30);
+
+            assertThat(verificationTokens.rotateOnVerify(id, "old-hash", "new-hash", expiry)).isEqualTo(1);
+            assertThat(verificationTokens.rotateOnVerify(id, "old-hash", "other-hash", expiry)).isZero();
+
+            assertThat(verificationTokens.findByTokenHash("new-hash")).get()
+                    .satisfies(t -> assertThat(t.isVerified()).isTrue());
+            assertThat(verificationTokens.findByTokenHash("old-hash")).isEmpty();
+        }
+
+        @Test
         @DisplayName("an account whose credentials never changed has no stamp to compare: REVOKED_SEEN")
         void neverChangedAccount_isTheftEvidence() {
             String revoked = storeRefreshToken("rotated-away", true, LocalDateTime.now().plusDays(10));

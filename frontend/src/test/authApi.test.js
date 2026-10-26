@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import apiClient from '../api/axiosClient.js';
-import { setPasswordForNewUser, register, requestPasswordReset, resetPassword } from '../api/authApi.js';
+import {
+  setPasswordForNewUser, register, requestPasswordReset, resetPassword, verifyEmail, logout,
+} from '../api/authApi.js';
 
 vi.mock('../api/axiosClient.js', () => ({ default: { post: vi.fn() }, SKIP_AUTH_REFRESH: 'skipAuthRefresh' }));
 
@@ -27,6 +29,21 @@ describe('authApi request bodies', () => {
     await setPasswordForNewUser('verify-token', 'Abcdef1!', 'stale-turnstile');
 
     expect(Object.keys(apiClient.post.mock.calls[0][1])).toEqual(['token', 'password']);
+  });
+
+  it('verifyEmail posts the emailed token and returns the rotated setupToken the server answers with', async () => {
+    apiClient.post.mockResolvedValue({ data: { userId: 7, verified: true, setupToken: 'setup-tok' } });
+
+    const data = await verifyEmail('mailed-token');
+
+    expect(apiClient.post).toHaveBeenCalledWith('/api/auth/verify-email', { token: 'mailed-token' }, SKIP);
+    expect(data.setupToken).toBe('setup-tok');
+  });
+
+  it('logout posts the captured refresh token and opts out of the refresh cycle', async () => {
+    await logout('the-refresh');
+
+    expect(apiClient.post).toHaveBeenCalledWith('/api/auth/logout', { refreshToken: 'the-refresh' }, SKIP);
   });
 
   it('register sends marketingEmailOptIn as the string "false" when the box is unticked', async () => {
