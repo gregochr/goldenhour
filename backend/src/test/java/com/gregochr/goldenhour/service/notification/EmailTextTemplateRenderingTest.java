@@ -70,7 +70,11 @@ class EmailTextTemplateRenderingTest {
                         "https://app.photocast.online/reset#token=r1"),
                 Arguments.of("account-deleted-email",
                         Map.of("username", "alice"),
-                        "alice"));
+                        "alice"),
+                Arguments.of("dormancy-warning-email",
+                        Map.of("username", "alice", "signInUrl", "https://app.photocast.online",
+                                "inactiveDays", 90, "deletesOn", "Friday 14 November"),
+                        "https://app.photocast.online"));
     }
 
     private static String renderText(String template, Map<String, Object> variables) {

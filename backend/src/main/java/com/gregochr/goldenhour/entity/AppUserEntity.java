@@ -270,6 +270,15 @@ public class AppUserEntity implements UserDetails {
     private LocalDateTime finalReminderSentAt;
 
     /**
+     * When the dormant-account sweep warned this reader that their account will be deleted (JVM default zone,
+     * zone-less like {@code created_at}), or null. Only a warning stamped AFTER the reader's last activity
+     * counts: a later sign-in makes it stale. Written only by
+     * {@code AppUserRepository#stampDormancyWarning}, after the mail sender accepted the warning.
+     */
+    @Column(name = "dormancy_warning_sent_at", updatable = false, insertable = false)
+    private LocalDateTime dormancyWarningSentAt;
+
+    /**
      * The last day (a UK civil date, inclusive) of this reader's free sub-region changes, or {@code null}
      * before their first choice (V192, sub-regions-plan D4). Set once, by the first choice.
      *

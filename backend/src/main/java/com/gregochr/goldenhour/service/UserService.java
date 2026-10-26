@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.repository.AppUserRepository.DormancyState;
 import com.gregochr.goldenhour.repository.AppUserRepository.LockedAccount;
 import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
 import com.gregochr.goldenhour.repository.PasswordResetTokenRepository;
@@ -399,6 +400,44 @@ public class UserService implements UserDetailsService {
         releaseEmailClaim(account.email());
         LOG.info("Abandoned pending registration purged: id={}", id);
         return true;
+    }
+
+    /**
+     * Deletes a dormant LITE_USER the dormant-account sweep has warned and waited for (the caller sends the
+     * account-deleted email after this method has returned and its transaction has committed).
+     *
+     * <p>One transaction, the admin delete's order (user row first): the row is locked and read as a scalar
+     * ({@link AppUserRepository#lockDormancyState}); the method stops unless the account is STILL an enabled
+     * LITE_USER with a password and a non-blank email, STILL inactive at or before {@code inactiveCutoff}, and
+     * STILL carries a warning stamped after its last activity and at or before {@code warnCutoff}. Then the
+     * dependent rows are purged ({@link #purgeUserRows}), the row is deleted by the conditional
+     * {@link AppUserRepository#deleteDormantIfUnchanged} (which re-checks every one of those conditions in its
+     * WHERE), and the email claim is released. A promotion, a disable or a sign-in at any point saves the
+     * account.
+     *
+     * @param id             the account's primary key
+     * @param inactiveCutoff the latest last-activity instant that is still dormant (now minus the inactive days)
+     * @param warnCutoff     the latest warning instant whose grace period has ended (now minus the grace days)
+     * @return the deleted account's name and stored address, for the after-commit email; empty if the account
+     *         no longer qualifies
+     */
+    @Transactional
+    public Optional<DeletedAccount> purgeDormant(Long id, LocalDateTime inactiveCutoff, LocalDateTime warnCutoff) {
+        DormancyState state = userRepository.lockDormancyState(id).orElse(null);
+        if (state == null || !state.touchable() || state.lastActivity().isAfter(inactiveCutoff)) {
+            return Optional.empty();
+        }
+        LocalDateTime warned = state.warningSentAt();
+        if (warned == null || !warned.isAfter(state.lastActivity()) || warned.isAfter(warnCutoff)) {
+            return Optional.empty();
+        }
+        purgeUserRows(id);
+        if (userRepository.deleteDormantIfUnchanged(id, UserRole.LITE_USER, inactiveCutoff, warnCutoff) != 1) {
+            throw new IllegalStateException("Dormant user " + id + " no longer qualified under its row lock");
+        }
+        releaseEmailClaim(state.email());
+        LOG.info("Dormant account purged: id={}", id);
+        return Optional.of(new DeletedAccount(state.username(), state.email()));
     }
 
     /**

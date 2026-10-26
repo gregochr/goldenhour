@@ -40,4 +40,21 @@ public final class TimestampColumns {
             default -> throw new IllegalStateException("Unreadable timestamp column: " + value.getClass());
         };
     }
+
+    /**
+     * Converts a native-query value of a zone-less {@code TIMESTAMP} column to a {@link LocalDateTime} in the
+     * JVM default zone (the frame such columns are written in).
+     *
+     * @param value the column value, possibly null
+     * @return the local date-time, or null for a null column
+     * @throws IllegalStateException if the value is of a type no driver is expected to return
+     */
+    public static LocalDateTime toLocalDateTime(Object value) {
+        return switch (value) {
+            case null -> null;
+            case LocalDateTime local -> local;
+            case Timestamp timestamp -> timestamp.toLocalDateTime();
+            default -> throw new IllegalStateException("Unreadable timestamp column: " + value.getClass());
+        };
+    }
 }

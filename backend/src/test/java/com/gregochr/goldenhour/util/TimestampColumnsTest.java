@@ -44,6 +44,18 @@ class TimestampColumnsTest {
     }
 
     @Test
+    @DisplayName("a zone-less TIMESTAMP reads as the same local date-time from a Timestamp or a LocalDateTime")
+    void toLocalDateTimeReadsBothDriverTypes() {
+        LocalDateTime value = LocalDateTime.of(2031, 6, 30, 10, 0);
+
+        assertThat(TimestampColumns.toLocalDateTime(Timestamp.valueOf(value))).isEqualTo(value);
+        assertThat(TimestampColumns.toLocalDateTime(value)).isEqualTo(value);
+        assertThat(TimestampColumns.toLocalDateTime(null)).isNull();
+        assertThatThrownBy(() -> TimestampColumns.toLocalDateTime("2031-06-30"))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("java.lang.String");
+    }
+
+    @Test
     @DisplayName("a null column is a null instant")
     void nullIsNull() {
         assertThat(TimestampColumns.toInstant(null)).isNull();

@@ -12,6 +12,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.scheduling.support.CronTrigger;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -423,7 +425,19 @@ public class DynamicSchedulerService {
         }
 
         taskScheduler.schedule(wrapTarget(jobKey, target, true), Instant.now());
-        LOG.info("Triggered immediate run for job '{}'", LogSanitizer.sanitize(jobKey));
+        LOG.info("Triggered immediate run for job '{}' by {}", LogSanitizer.sanitize(jobKey),
+                LogSanitizer.sanitize(actingUsername()));
+    }
+
+    /**
+     * Names the authenticated caller on the request thread that reached {@link #triggerNow} (the admin
+     * "Run now" button), so a manual run of a job that deletes data is attributable.
+     *
+     * @return the caller's username, or {@code "unknown"} when there is no authenticated caller
+     */
+    private static String actingUsername() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        return authentication != null && authentication.getName() != null ? authentication.getName() : "unknown";
     }
 
     /**

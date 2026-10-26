@@ -287,6 +287,14 @@ photocast:
     pending-hold-hours: 168
     first-reminder-hours-left: 72
     final-reminder-hours-left: 24
+  # Dormant-account sweep (docs/engineering/audit-followups-plan.md, D). A LITE_USER (never Pro or Admin)
+  # unused for inactive-days is warned by email, and deleted grace-days later if they have not signed in.
+  # The job row is seeded PAUSED; resume it from the Scheduler screen. dry-run defaults to TRUE: the sweep
+  # then only logs what it would warn and delete (also on "Run now"). Set dry-run: false only when ready.
+  dormancy:
+    dry-run: true            # true = send nothing, stamp nothing, delete nothing; log projections only
+    inactive-days: 90        # days without activity before the warning; at least 30
+    grace-days: 14           # days between the warning and the deletion; at least 7
   sub-regions:
     enforce: false           # when true, a Lite reader's ratings are limited to their picks (S3 onwards; S2 only reports it)
     grace-days: 7            # a reader's first choice starts this many days (inclusive) of free changes
