@@ -268,7 +268,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath(topic + ".expandedDetail.bluebellMetrics.bestScore").doesNotExist())
                 .andExpect(jsonPath(topic + ".expandedDetail.bluebellMetrics.scoringLocationCount").value(2))
                 .andExpect(jsonPath(groupLocations + "[0].bluebellLocationMetrics.score").value(5))
-                .andExpect(jsonPath(groupLocations + "[0].badge").value("Best"))
+                .andExpect(jsonPath(groupLocations + "[0].badge").doesNotExist())
                 .andExpect(jsonPath(groupLocations + "[1].locationName").value(UNPICKED))
                 .andExpect(jsonPath(groupLocations + "[1].bluebellLocationMetrics").doesNotExist())
                 .andExpect(jsonPath(groupLocations + "[1].locationType").value("Open fell"));
@@ -287,6 +287,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
                 .andReturn();
 
         assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
+        assertThat(result.getResponse().getHeader(HttpHeaders.ETAG)).as("no ETag on a shaped body").isNull();
     }
 
     @Test
@@ -402,6 +403,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
                 .andReturn();
 
         assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
+        assertThat(result.getResponse().getHeader(HttpHeaders.ETAG)).as("no ETag on a shaped body").isNull();
     }
 
     @Test
@@ -455,6 +457,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
                 .andReturn();
 
         assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
+        assertThat(result.getResponse().getHeader(HttpHeaders.ETAG)).as("no ETag on a shaped body").isNull();
     }
 
     @Test
@@ -495,6 +498,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
                 .andReturn();
 
         assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
+        assertThat(result.getResponse().getHeader(HttpHeaders.ETAG)).as("no ETag on a shaped body").isNull();
     }
 
     @Test
@@ -525,6 +529,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
                 .andReturn();
 
         assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
+        assertThat(result.getResponse().getHeader(HttpHeaders.ETAG)).as("no ETag on a shaped body").isNull();
     }
 
     @Test
@@ -616,6 +621,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
                 .andReturn();
 
         assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
+        assertThat(result.getResponse().getHeader(HttpHeaders.ETAG)).as("no ETag on a shaped body").isNull();
     }
 
     @Test
@@ -635,6 +641,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
                 .andReturn();
 
         assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
+        assertThat(result.getResponse().getHeader(HttpHeaders.ETAG)).as("no ETag on a shaped body").isNull();
     }
 
     @Test
@@ -681,6 +688,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
                 .andReturn();
 
         assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
+        assertThat(result.getResponse().getHeader(HttpHeaders.ETAG)).as("no ETag on a shaped body").isNull();
     }
 
     @Test

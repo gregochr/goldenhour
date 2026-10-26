@@ -69,6 +69,16 @@ public record ExpandedHotTopicDetail(
         public LocationEntry withoutBluebellRating() {
             return new LocationEntry(locationName, locationType, null, null, tideLocationMetrics);
         }
+
+        /**
+         * Returns this entry without its badge (the "Best" mark states a ranking).
+         *
+         * @return a copy with {@code badge} null
+         */
+        public LocationEntry withoutBadge() {
+            return new LocationEntry(locationName, locationType, null, bluebellLocationMetrics,
+                    tideLocationMetrics);
+        }
     }
 
     // ── Pill-level metrics ─────────────────────────────────────────────────

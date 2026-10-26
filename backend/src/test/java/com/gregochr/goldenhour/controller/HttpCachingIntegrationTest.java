@@ -406,7 +406,16 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
                 Set.of(TargetType.SUNRISE, TargetType.SUNSET))).thenReturn(List.of());
         when(locationService.findAllEnabled()).thenReturn(List.of());
 
-        for (String path : List.of("/api/briefing/digest", "/api/briefing/evaluate/scores", "/api/forecast")) {
+        com.gregochr.goldenhour.entity.LocationEntity crasterLocation = com.gregochr.goldenhour.entity
+                .LocationEntity.builder().id(8L).name("Craster").lat(55.47).lon(-1.59).build();
+        var detailEntity = com.gregochr.goldenhour.entity.ForecastEvaluationEntity.builder()
+                .id(42L).location(crasterLocation).targetDate(LocalDate.of(2026, 3, 8)).build();
+        when(forecastEvaluationRepository.findById(42L)).thenReturn(java.util.Optional.of(detailEntity));
+        when(dtoMapper.toDto(detailEntity, true)).thenReturn(forecastDetailDto());
+        when(astroConditionsRepository.findByForecastDate(LocalDate.of(2026, 4, 1))).thenReturn(List.of());
+
+        for (String path : List.of("/api/briefing/digest", "/api/briefing/evaluate/scores", "/api/forecast",
+                "/api/forecast/42", "/api/astro/conditions?date=2026-04-01")) {
             MvcResult result = mockMvc.perform(get(path))
                     .andExpect(status().isOk())
                     .andExpect(header().doesNotExist(HttpHeaders.ETAG))
@@ -450,6 +459,20 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/briefing")
                         .header(HttpHeaders.IF_NONE_MATCH, first.getResponse().getHeader(HttpHeaders.ETAG)))
                 .andExpect(status().isNotModified());
+    }
+
+    private static com.gregochr.goldenhour.model.ForecastEvaluationDto forecastDetailDto() {
+        try {
+            var comps = com.gregochr.goldenhour.model.ForecastEvaluationDto.class.getRecordComponents();
+            Class<?>[] types = new Class<?>[comps.length];
+            for (int i = 0; i < comps.length; i++) {
+                types[i] = comps[i].getType();
+            }
+            return com.gregochr.goldenhour.model.ForecastEvaluationDto.class.getDeclaredConstructor(types)
+                    .newInstance(new Object[comps.length]);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static DailyBriefingResponse briefingResponse() {

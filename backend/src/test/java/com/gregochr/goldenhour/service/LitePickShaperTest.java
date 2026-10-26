@@ -406,6 +406,68 @@ class LitePickShaperTest {
         assertThat(shaped).isEqualTo(aurora);
     }
 
+    @Test
+    @DisplayName("Hot topics: a gated entry follows the allowed ones, by name, and 'Best' goes unless all are allowed")
+    void hotTopics_orderGatedEntriesAfterAllowedAndDropBestUnlessAllAllowed() {
+        ExpandedHotTopicDetail detail = new ExpandedHotTopicDetail(List.of(
+                new RegionGroup("Mixed", null, null, null, List.of(
+                        new LocationEntry("Zeta", "Woodland", "Best",
+                                new BluebellLocationMetrics(5, "WOODLAND", "z"), null),
+                        new LocationEntry(PICKED, "Woodland", null,
+                                new BluebellLocationMetrics(4, "WOODLAND", "p"), null),
+                        new LocationEntry("Alpha", "Woodland", null,
+                                new BluebellLocationMetrics(3, "WOODLAND", "a"), null))),
+                new RegionGroup("Allowed", null, null, null, List.of(
+                        new LocationEntry(PICKED, "Woodland", "Best",
+                                new BluebellLocationMetrics(5, "WOODLAND", "p"), null)))),
+                new BluebellMetrics(5, "Excellent", 4), null);
+        HotTopic topic = new HotTopic("BLUEBELL", "Bluebell conditions", "x today", DAY, 1, "BLUEBELL",
+                List.of(), "d", detail);
+
+        List<RegionGroup> groups = shaper.shapeBriefing(briefing(List.of(), List.of(), null, List.of(topic)),
+                scopeOfPicked()).hotTopics().get(0).expandedDetail().regionGroups();
+
+        assertThat(groups.get(0).locations()).extracting(LocationEntry::locationName)
+                .containsExactly(PICKED, "Alpha", "Zeta");
+        assertThat(groups.get(0).locations()).extracting(LocationEntry::badge).containsOnlyNulls();
+        assertThat(groups.get(1).locations().get(0).badge()).as("every entry allowed: Best stays")
+                .isEqualTo("Best");
+    }
+
+    @Test
+    @DisplayName("Window badges: the bluebell badge loses its chips and best-site summary; other badges are kept")
+    void windowBadges_bluebellBadgeIsStripped() {
+        BriefingWindow.Badge bluebell = new BriefingWindow.Badge("BLUEBELL", "Bluebell conditions",
+                "Carpet in bloom today", List.of(HotTopicFact.metric("conditions", "5/5 · excellent")), "06:00",
+                3, "note", null, null);
+        BriefingWindow.Badge aurora = new BriefingWindow.Badge("AURORA", "Aurora", "Kp 6",
+                List.of(HotTopicFact.metric("kp", "6")), null, 1, null, null, null);
+        BriefingWindow window = new BriefingWindow(AT, DisplayVerdict.WORTH_IT, 5, Confidence.HIGH, null,
+                List.of(bluebell, aurora), null, null, null);
+
+        List<BriefingWindow.Badge> badges = eventOf(shaper.shapeBriefing(
+                briefing(List.of(), List.of(), window, List.of()), scopeOfPicked())).window().badges();
+
+        assertThat(badges.get(0).facts()).isEmpty();
+        assertThat(badges.get(0).detail()).isEqualTo("today");
+        assertThat(badges.get(0).label()).isEqualTo("Bluebell conditions");
+        assertThat(badges.get(0).note()).isEqualTo("note");
+        assertThat(badges.get(1)).isEqualTo(aurora);
+    }
+
+    @Test
+    @DisplayName("dayLabelOnly keeps a real day label and otherwise yields an empty string, never the original text")
+    void dayLabelOnly_fallsBackToEmpty() {
+        assertThat(LitePickShaper.dayLabelOnly("Carpet in bloom today")).isEqualTo("today");
+        assertThat(LitePickShaper.dayLabelOnly("Great light tomorrow")).isEqualTo("tomorrow");
+        assertThat(LitePickShaper.dayLabelOnly("Good Saturday")).isEqualTo("Saturday");
+        assertThat(LitePickShaper.dayLabelOnly("tomorrow")).isEqualTo("tomorrow");
+        assertThat(LitePickShaper.dayLabelOnly("Carpet in bloom at Craster")).isEmpty();
+        assertThat(LitePickShaper.dayLabelOnly("5/5 excellent")).isEmpty();
+        assertThat(LitePickShaper.dayLabelOnly("")).isEmpty();
+        assertThat(LitePickShaper.dayLabelOnly(null)).isEmpty();
+    }
+
     // ------------------------------------------------------------------ the other payloads
 
     @Test

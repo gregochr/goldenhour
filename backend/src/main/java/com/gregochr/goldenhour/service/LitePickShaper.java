@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.BriefingDigestResponse;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
@@ -27,6 +28,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -176,7 +179,19 @@ public class LitePickShaper {
         List<BriefingSlot> unregioned = es.unregioned().stream().map(BriefingSlot::forGated).toList();
         BriefingEventSummary shaped = es.withRegions(regions).withUnregioned(unregioned);
         // The window's verdict and confidence stay free (Q5); its best star is taken from every place.
-        return shaped.window() == null ? shaped : shaped.withWindow(shaped.window().withBestRating(null));
+        return shaped.window() == null ? shaped : shaped.withWindow(shapeWindow(shaped.window()));
+    }
+
+    private static BriefingWindow shapeWindow(BriefingWindow window) {
+        BriefingWindow shaped = window.withBestRating(null);
+        // PlanWindowProjector copies a topic's detail and facts into the window's badge, so the bluebell
+        // badge carries the same best-site summary and "N/5" chips the topic itself loses below.
+        if (window.badges().stream().anyMatch(b -> BLUEBELL.equals(b.type()))) {
+            shaped = shaped.withBadges(window.badges().stream()
+                    .map(b -> BLUEBELL.equals(b.type()) ? b.withoutFacts(dayLabelOnly(b.detail())) : b)
+                    .toList());
+        }
+        return shaped;
     }
 
     private static BriefingRegion shapeRegion(BriefingRegion region, PickScope scope) {
@@ -207,17 +222,39 @@ public class LitePickShaper {
         List<ExpandedHotTopicDetail.RegionGroup> groups = expanded.regionGroups() == null ? null
                 : expanded.regionGroups().stream().map(group -> new ExpandedHotTopicDetail.RegionGroup(
                         group.regionName(), group.glossHeadline(), group.glossDetail(), group.verdict(),
-                        group.locations() == null ? null : group.locations().stream()
-                                .map(entry -> shapeEntry(entry, scope, bluebellTopic)).toList())).toList();
+                        shapeEntries(group.locations(), scope, bluebellTopic))).toList();
         ExpandedHotTopicDetail.BluebellMetrics metrics = expanded.bluebellMetrics() == null ? null
                 : expanded.bluebellMetrics().withoutScore();
         return new ExpandedHotTopicDetail(groups, metrics, expanded.tideMetrics());
     }
 
-    private static ExpandedHotTopicDetail.LocationEntry shapeEntry(ExpandedHotTopicDetail.LocationEntry entry,
-            PickScope scope, boolean bluebellTopic) {
-        boolean carriesRating = bluebellTopic || entry.bluebellLocationMetrics() != null;
-        return carriesRating && !scope.allowsName(entry.locationName()) ? entry.withoutBluebellRating() : entry;
+    /**
+     * A region's entries, shaped. The list is ranked best first, so the order of the gated entries would give
+     * their ranking away: the allowed entries keep their order and come first, the gated ones follow by name,
+     * and the "Best" badge (the region's top rating) is kept only when every entry in the region is allowed.
+     */
+    private static List<ExpandedHotTopicDetail.LocationEntry> shapeEntries(
+            List<ExpandedHotTopicDetail.LocationEntry> entries, PickScope scope, boolean bluebellTopic) {
+        if (entries == null) {
+            return null;
+        }
+        List<ExpandedHotTopicDetail.LocationEntry> shaped = new ArrayList<>();
+        List<ExpandedHotTopicDetail.LocationEntry> gated = new ArrayList<>();
+        for (ExpandedHotTopicDetail.LocationEntry entry : entries) {
+            boolean carriesRating = bluebellTopic || entry.bluebellLocationMetrics() != null;
+            if (!carriesRating || scope.allowsName(entry.locationName())) {
+                shaped.add(entry);
+            } else {
+                gated.add(entry.withoutBluebellRating());
+            }
+        }
+        gated.sort(Comparator.comparing(ExpandedHotTopicDetail.LocationEntry::locationName,
+                Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
+        shaped.addAll(gated);
+        if (!gated.isEmpty()) {
+            shaped = shaped.stream().map(e -> e.badge() == null ? e : e.withoutBadge()).toList();
+        }
+        return shaped;
     }
 
     /**
@@ -225,19 +262,32 @@ public class LitePickShaper {
      * summary that opens {@code detail}, the "N/5 · label" and "N sites scoring 4+/5" facts, and the glance
      * chip that prints the first fact. They go from every shaped response (the picked places keep their own
      * per-location metrics in the expanded detail). {@code detail} is the best summary, a space, then a
-     * one-word day label, so only the last word is kept.
+     * one-word day label (see {@link #dayLabelOnly}).
      */
     private static HotTopic withoutBluebellAggregates(HotTopic topic) {
         HotTopic shaped = topic.withScience(null, topic.note());
-        String detail = topic.detail();
-        if (detail != null) {
-            shaped = shaped.withDetail(detail.substring(detail.lastIndexOf(' ') + 1));
-        }
+        shaped = shaped.withDetail(dayLabelOnly(topic.detail()));
         GlanceLine glance = topic.glance();
         if (glance != null) {
             shaped = shaped.withGlance(new GlanceLine(null, null, glance.badge(), glance.weather()));
         }
         return shaped;
+    }
+
+    /**
+     * The day label alone. A bluebell {@code detail} is the best site's summary, a space, then a one-word day
+     * label ({@code BluebellHotTopicStrategy#isDayLabel}). Only a last word that really is a day label is
+     * kept; a detail of any other shape yields an empty string, never the original text.
+     *
+     * @param detail the topic's or badge's detail (may be null)
+     * @return the day label, or an empty string
+     */
+    static String dayLabelOnly(String detail) {
+        if (detail == null) {
+            return "";
+        }
+        String last = detail.substring(detail.lastIndexOf(' ') + 1);
+        return BluebellHotTopicStrategy.isDayLabel(last) ? last : "";
     }
 
     // ------------------------------------------------------------------ the other endpoints
