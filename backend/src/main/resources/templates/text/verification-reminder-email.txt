@@ -1,0 +1,20 @@
+[# th:if="${finalReminder}"]Last day to claim your place[/][# th:unless="${finalReminder}"]Your place is still held[/]
+
+Hi [(${username})],
+
+[# th:unless="${finalReminder}"]You started signing up for PhotoCast but never verified your email. Your
+early-access place is held until [(${lapsesOn})] ([(${daysLeft})] more days).[/][# th:if="${finalReminder}"]You started signing up for PhotoCast but never verified your email. Your
+early-access place is released tomorrow ([(${lapsesOn})]).[/]
+
+Verify my email:
+[(${verificationUrl})]
+
+This link expires in 24 hours.
+
+Changed your mind? Do nothing — the place lapses on its own and the
+sign-up is deleted.
+
+If the link doesn't work, copy and paste it into your browser.
+
+--
+PhotoCast — Golden hour, forecast and ranked by AI

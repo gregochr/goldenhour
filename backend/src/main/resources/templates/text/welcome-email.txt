@@ -1,0 +1,19 @@
+Your account is ready
+
+Hi [(${username})],
+
+Your PhotoCast account has been created. Use the credentials below to
+sign in for the first time.
+
+Username:
+[(${username})]
+
+Temporary password:
+[(${temporaryPassword})]
+
+You will be asked to choose a new password when you first sign in.
+
+If you did not expect this email, you can safely ignore it.
+
+--
+PhotoCast — Golden hour, forecast and ranked by AI

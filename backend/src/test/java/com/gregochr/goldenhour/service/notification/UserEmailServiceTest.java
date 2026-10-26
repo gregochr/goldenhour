@@ -1,7 +1,10 @@
 package com.gregochr.goldenhour.service.notification;
 
 import com.gregochr.goldenhour.config.RegistrationProperties;
+import jakarta.mail.BodyPart;
+import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMultipart;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,6 +21,7 @@ import org.thymeleaf.context.IContext;
 import org.thymeleaf.templateresolver.ClassLoaderTemplateResolver;
 
 import java.time.LocalDateTime;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -77,12 +81,15 @@ class UserEmailServiceTest {
         UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("welcome-email"), any(IContext.class)))
+        when(templateEngine.process(eq("welcome-email"), credentialsCtx()))
                 .thenReturn("<html>Welcome</html>");
+        when(templateEngine.process(eq("text/welcome-email"), credentialsCtx()))
+                .thenReturn("plain text");
 
         service.sendWelcomeEmail("alice@example.com", "alice", "TempPass1!");
 
-        verify(templateEngine).process(eq("welcome-email"), any(IContext.class));
+        verify(templateEngine).process(eq("welcome-email"), credentialsCtx());
+        verify(templateEngine).process(eq("text/welcome-email"), credentialsCtx());
         verify(mailSender).send(mimeMessage);
     }
 
@@ -92,12 +99,15 @@ class UserEmailServiceTest {
         UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("password-reset-email"), any(IContext.class)))
+        when(templateEngine.process(eq("password-reset-email"), credentialsCtx()))
                 .thenReturn("<html>Reset</html>");
+        when(templateEngine.process(eq("text/password-reset-email"), credentialsCtx()))
+                .thenReturn("plain text");
 
         service.sendPasswordResetEmail("alice@example.com", "alice", "TempPass1!");
 
-        verify(templateEngine).process(eq("password-reset-email"), any(IContext.class));
+        verify(templateEngine).process(eq("password-reset-email"), credentialsCtx());
+        verify(templateEngine).process(eq("text/password-reset-email"), credentialsCtx());
         verify(mailSender).send(mimeMessage);
     }
 
@@ -121,12 +131,17 @@ class UserEmailServiceTest {
     private Context renderedContext(String template, Runnable send) throws Exception {
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq(template), any(IContext.class))).thenReturn("<html></html>");
+        when(templateEngine.process(eq(template), ctx("username", "alice"))).thenReturn("<html></html>");
+        when(templateEngine.process(eq("text/" + template), ctx("username", "alice"))).thenReturn("plain text");
 
         send.run();
 
         ArgumentCaptor<IContext> captor = ArgumentCaptor.forClass(IContext.class);
         verify(templateEngine).process(eq(template), captor.capture());
+        ArgumentCaptor<IContext> textCaptor = ArgumentCaptor.forClass(IContext.class);
+        verify(templateEngine).process(eq("text/" + template), textCaptor.capture());
+        assertThat(textCaptor.getValue()).as("the text part renders from the HTML part's context")
+                .isSameAs(captor.getValue());
         return (Context) captor.getValue();
     }
 
@@ -162,8 +177,10 @@ class UserEmailServiceTest {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("password-reset-link-email"), any(IContext.class)))
+        when(templateEngine.process(eq("password-reset-link-email"), resetCtx("reset-raw-token")))
                 .thenReturn("<html>Reset link</html>");
+        when(templateEngine.process(eq("text/password-reset-link-email"), ctx("username", "alice", "resetUrl", "https://app.photocast.online/reset#token=reset-raw-token")))
+                .thenReturn("plain text");
 
         service.sendPasswordResetLinkEmail("Alice@Example.com", "alice", "reset-raw-token");
 
@@ -173,6 +190,7 @@ class UserEmailServiceTest {
         assertThat(context.getVariable("resetUrl"))
                 .isEqualTo("https://app.photocast.online/reset#token=reset-raw-token");
         assertThat(context.getVariable("username")).isEqualTo("alice");
+        verify(templateEngine).process(eq("text/password-reset-link-email"), ctx("username", "alice", "resetUrl", "https://app.photocast.online/reset#token=reset-raw-token"));
         verify(mimeMessage).setSubject("Reset your PhotoCast password", "UTF-8");
         verify(mailSender).send(mimeMessage);
     }
@@ -194,8 +212,10 @@ class UserEmailServiceTest {
     void sendPasswordResetLinkEmail_sendFails_doesNotPropagate() {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
         when(mailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
-        when(templateEngine.process(eq("password-reset-link-email"), any(IContext.class)))
+        when(templateEngine.process(eq("password-reset-link-email"), resetCtx("tok")))
                 .thenReturn("<html></html>");
+        when(templateEngine.process(eq("text/password-reset-link-email"), ctx("username", "alice", "resetUrl", "https://app.photocast.online/reset#token=tok")))
+                .thenReturn("plain text");
 
         service.sendPasswordResetLinkEmail("alice@example.com", "alice", "tok");
     }
@@ -227,18 +247,83 @@ class UserEmailServiceTest {
                 .doesNotContain("<b>alice</b>");
     }
 
+    /** Sends through a real MimeMessage and returns the saved multipart body. */
+    private MimeMultipart sendAndCaptureMultipart(Runnable send) throws Exception {
+        MimeMessage real = new MimeMessage(Session.getInstance(new Properties()));
+        when(mailSender.createMimeMessage()).thenReturn(real);
+        send.run();
+        verify(mailSender).send(real);
+        real.saveChanges();
+        assertThat(real.getContentType()).startsWith("multipart/alternative");
+        return (MimeMultipart) real.getContent();
+    }
+
+    @Test
+    @DisplayName("the reset-link email is multipart/alternative: plain text first, then the HTML")
+    void resetLinkEmail_isMultipartAlternativeWithTextFirst() throws Exception {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+        when(templateEngine.process(eq("password-reset-link-email"), resetCtx("tok")))
+                .thenReturn("<html>Reset link</html>");
+        when(templateEngine.process(eq("text/password-reset-link-email"), ctx("username", "alice", "resetUrl", "https://app.photocast.online/reset#token=tok")))
+                .thenReturn("Reset link as text");
+
+        MimeMultipart multipart = sendAndCaptureMultipart(
+                () -> service.sendPasswordResetLinkEmail("alice@example.com", "alice", "tok"));
+
+        assertThat(multipart.getCount()).isEqualTo(2);
+        BodyPart plain = multipart.getBodyPart(0);
+        BodyPart html = multipart.getBodyPart(1);
+        assertThat(plain.getContentType()).startsWith("text/plain");
+        assertThat(plain.getContent()).isEqualTo("Reset link as text");
+        assertThat(html.getContentType()).startsWith("text/html");
+        assertThat(html.getContent()).isEqualTo("<html>Reset link</html>");
+        verify(templateEngine).process(eq("text/password-reset-link-email"), ctx("username", "alice", "resetUrl", "https://app.photocast.online/reset#token=tok"));
+    }
+
+    @Test
+    @DisplayName("the verification email is multipart/alternative and both templates see the same context values")
+    void verificationEmail_isMultipartAndRendersBothFromOneContext() throws Exception {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+        when(templateEngine.process(eq("verification-email"), verifyCtx("tok")))
+                .thenReturn("<html>Verify</html>");
+        when(templateEngine.process(eq("text/verification-email"), ctx("username", "alice", "holdDays", 7, "verificationUrl", "https://app.photocast.online/verify#token=tok")))
+                .thenReturn("Verify as text");
+
+        MimeMultipart multipart = sendAndCaptureMultipart(
+                () -> service.sendVerificationEmail("alice@example.com", "alice", "tok"));
+
+        assertThat(multipart.getBodyPart(0).getContentType()).startsWith("text/plain");
+        assertThat(multipart.getBodyPart(0).getContent()).isEqualTo("Verify as text");
+        assertThat(multipart.getBodyPart(1).getContentType()).startsWith("text/html");
+        assertThat(multipart.getBodyPart(1).getContent()).isEqualTo("<html>Verify</html>");
+
+        ArgumentCaptor<IContext> htmlCtx = ArgumentCaptor.forClass(IContext.class);
+        ArgumentCaptor<IContext> textCtx = ArgumentCaptor.forClass(IContext.class);
+        verify(templateEngine).process(eq("verification-email"), htmlCtx.capture());
+        verify(templateEngine).process(eq("text/verification-email"), textCtx.capture());
+        assertThat(textCtx.getValue()).isSameAs(htmlCtx.getValue());
+        Context context = (Context) textCtx.getValue();
+        assertThat(context.getVariable("verificationUrl"))
+                .isEqualTo("https://app.photocast.online/verify#token=tok");
+        assertThat(context.getVariable("username")).isEqualTo("alice");
+        assertThat(context.getVariable("holdDays")).isEqualTo(7);
+    }
+
     @Test
     @DisplayName("sendVerificationEmail renders template and sends HTML email")
     void sendVerificationEmail_validInput_sendsEmail() {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("verification-email"), any(IContext.class)))
+        when(templateEngine.process(eq("verification-email"), verifyCtx("raw-token-uuid")))
                 .thenReturn("<html>Verify</html>");
+        when(templateEngine.process(eq("text/verification-email"), ctx("username", "alice", "holdDays", 7, "verificationUrl", "https://app.photocast.online/verify#token=raw-token-uuid")))
+                .thenReturn("plain text");
 
         service.sendVerificationEmail("alice@example.com", "alice", "raw-token-uuid");
 
-        verify(templateEngine).process(eq("verification-email"), any(IContext.class));
+        verify(templateEngine).process(eq("verification-email"), ctx("username", "alice", "holdDays", 7, "verificationUrl", "https://app.photocast.online/verify#token=raw-token-uuid"));
+        verify(templateEngine).process(eq("text/verification-email"), ctx("username", "alice", "holdDays", 7, "verificationUrl", "https://app.photocast.online/verify#token=raw-token-uuid"));
         verify(mailSender).send(mimeMessage);
     }
 
@@ -258,12 +343,15 @@ class UserEmailServiceTest {
         UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("account-deleted-email"), any(IContext.class)))
+        when(templateEngine.process(eq("account-deleted-email"), ctx("username", "alice")))
                 .thenReturn("<html>Deleted</html>");
+        when(templateEngine.process(eq("text/account-deleted-email"), ctx("username", "alice")))
+                .thenReturn("plain text");
 
         service.sendAccountDeletedEmail("alice@example.com", "alice");
 
-        verify(templateEngine).process(eq("account-deleted-email"), any(IContext.class));
+        verify(templateEngine).process(eq("account-deleted-email"), ctx("username", "alice"));
+        verify(templateEngine).process(eq("text/account-deleted-email"), ctx("username", "alice"));
         verify(mailSender).send(mimeMessage);
     }
 
@@ -275,6 +363,37 @@ class UserEmailServiceTest {
         service.sendAccountDeletedEmail("test@example.com", "alice");
 
         verify(templateEngine, never()).process(any(String.class), any(IContext.class));
+    }
+
+    /** The context both temporary-password mails are rendered with. */
+    private static IContext credentialsCtx() {
+        return ctx("username", "alice", "temporaryPassword", "TempPass1!");
+    }
+
+    /** The context the reset-link mail is rendered with for this token (the test base URL). */
+    private static IContext resetCtx(String token) {
+        return ctx("username", "alice", "resetUrl", "https://app.photocast.online/reset#token=" + token);
+    }
+
+    /** The context the verification mail is rendered with for this token (the test base URL, 7-day hold). */
+    private static IContext verifyCtx(String token) {
+        return ctx("username", "alice", "holdDays", 7,
+                "verificationUrl", "https://app.photocast.online/verify#token=" + token);
+    }
+
+    /** Matches a template context carrying these name/value pairs (extra variables are tolerated). */
+    private static IContext ctx(Object... namesAndValues) {
+        return argThat(c -> {
+            if (!(c instanceof Context context)) {
+                return false;
+            }
+            for (int i = 0; i < namesAndValues.length; i += 2) {
+                if (!namesAndValues[i + 1].equals(context.getVariable((String) namesAndValues[i]))) {
+                    return false;
+                }
+            }
+            return true;
+        });
     }
 
     /** Matches the reminder template's context exactly: link, flag, days left and the lapse date. */
@@ -327,6 +446,8 @@ class UserEmailServiceTest {
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("verification-reminder-email"), reminderContext("tok", true)))
                 .thenReturn("<html></html>");
+        when(templateEngine.process(eq("text/verification-reminder-email"), reminderContext("tok", true)))
+                .thenReturn("plain text");
         doThrow(new MailSendException("SMTP down")).when(mailSender).send(mimeMessage);
 
         assertThat(service.sendVerificationReminderEmail("a@example.com", "alice", "tok", true,
@@ -341,6 +462,8 @@ class UserEmailServiceTest {
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("verification-reminder-email"), reminderContext("fresh-tok", false)))
                 .thenReturn("<html></html>");
+        when(templateEngine.process(eq("text/verification-reminder-email"), reminderContext("fresh-tok", false)))
+                .thenReturn("plain text");
 
         boolean sent = service.sendVerificationReminderEmail("a@example.com", "alice", "fresh-tok", false,
                 LocalDateTime.of(2031, 3, 14, 10, 0));
@@ -366,6 +489,8 @@ class UserEmailServiceTest {
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("verification-reminder-email"), reminderContext("fresh-tok", true)))
                 .thenReturn("<html></html>");
+        when(templateEngine.process(eq("text/verification-reminder-email"), reminderContext("fresh-tok", true)))
+                .thenReturn("plain text");
 
         boolean sent = service.sendVerificationReminderEmail("a@example.com", "alice", "fresh-tok", true,
                 LocalDateTime.of(2031, 3, 14, 10, 0));

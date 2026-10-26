@@ -1,9 +1,12 @@
 package com.gregochr.goldenhour.service.notification;
 
+import com.gregochr.goldenhour.config.EmailTextTemplateConfig;
 import com.gregochr.goldenhour.config.RegistrationProperties;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMultipart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +25,10 @@ import java.util.Locale;
 /**
  * Sends transactional emails to users for account creation, verification and password resets.
  *
+ * <p>Every message is {@code multipart/alternative}: a hand-written plain-text part (the {@code text/<name>}
+ * template) followed by the HTML part, rendered from the same Thymeleaf context. HTML-only mail is marked down
+ * by Outlook/Hotmail and Gmail spam filters.
+ *
  * <p>Methods are {@link Async} so they never block the admin's HTTP response.
  * Failures are caught and logged — a mail delivery problem must never prevent
  * the controller from returning the temporary password to the admin.
@@ -34,6 +41,7 @@ import java.util.Locale;
 public class UserEmailService {
 
     private static final Logger LOG = LoggerFactory.getLogger(UserEmailService.class);
+    private static final String TEXT_TEMPLATE_PREFIX = EmailTextTemplateConfig.TEXT_TEMPLATE_PREFIX;
     private static final String FROM_ADDRESS = "noreply@photocast.online";
     private static final DateTimeFormatter LAPSES_ON_FORMAT =
             DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.UK);
@@ -50,7 +58,7 @@ public class UserEmailService {
      * Constructs a {@code UserEmailService}.
      *
      * @param mailSender     Spring mail sender (optional — null when SMTP is not configured)
-     * @param templateEngine Thymeleaf template engine for rendering HTML emails
+     * @param templateEngine Thymeleaf template engine for rendering the HTML and plain-text emails
      * @param registrationProperties the hold window, for the day counts the sign-up emails speak in
      */
     public UserEmailService(
@@ -88,8 +96,9 @@ public class UserEmailService {
             context.setVariable("username", username);
             context.setVariable("temporaryPassword", temporaryPassword);
             String html = templateEngine.process("welcome-email", context);
+            String text = templateEngine.process(TEXT_TEMPLATE_PREFIX + "welcome-email", context);
 
-            sendHtmlEmail(email, "Welcome to PhotoCast — Your Account is Ready", html);
+            sendEmail(email, "Welcome to PhotoCast — Your Account is Ready", text, html);
             LOG.info("Welcome email sent to {} for user {}",
                     LogSanitizer.sanitize(email), LogSanitizer.sanitize(username));
         } catch (Exception ex) {
@@ -116,8 +125,9 @@ public class UserEmailService {
             context.setVariable("username", username);
             context.setVariable("temporaryPassword", temporaryPassword);
             String html = templateEngine.process("password-reset-email", context);
+            String text = templateEngine.process(TEXT_TEMPLATE_PREFIX + "password-reset-email", context);
 
-            sendHtmlEmail(email, "PhotoCast — Your Password Has Been Reset", html);
+            sendEmail(email, "PhotoCast — Your Password Has Been Reset", text, html);
             LOG.info("Password reset email sent to {} for user {}",
                     LogSanitizer.sanitize(email), LogSanitizer.sanitize(username));
         } catch (Exception ex) {
@@ -146,8 +156,9 @@ public class UserEmailService {
             context.setVariable("verificationUrl", verificationUrl);
             context.setVariable("holdDays", holdDays());
             String html = templateEngine.process("verification-email", context);
+            String text = templateEngine.process(TEXT_TEMPLATE_PREFIX + "verification-email", context);
 
-            sendHtmlEmail(email, "PhotoCast — Verify Your Email Address", html);
+            sendEmail(email, "PhotoCast — Verify Your Email Address", text, html);
             LOG.info("Verification email sent to {} for user {}",
                     LogSanitizer.sanitize(email), LogSanitizer.sanitize(username));
         } catch (Exception ex) {
@@ -184,11 +195,12 @@ public class UserEmailService {
                     / RegistrationProperties.HOURS_PER_DAY);
             context.setVariable("lapsesOn", placeLapsesAt.format(LAPSES_ON_FORMAT));
             String html = templateEngine.process("verification-reminder-email", context);
+            String text = templateEngine.process(TEXT_TEMPLATE_PREFIX + "verification-reminder-email", context);
             String subject = finalReminder
                     ? "PhotoCast — last day to claim your place"
                     : "PhotoCast — your place is held for " + registrationProperties.getFirstReminderHoursLeft()
                             / RegistrationProperties.HOURS_PER_DAY + " more days";
-            sendHtmlEmail(email, subject, html);
+            sendEmail(email, subject, text, html);
             LOG.info("Verification reminder sent for user {}", LogSanitizer.sanitize(username));
             LOG.debug("Verification reminder address {}", LogSanitizer.sanitize(email));
             return true;
@@ -225,8 +237,9 @@ public class UserEmailService {
             context.setVariable("username", username);
             context.setVariable("resetUrl", resetUrl);
             String html = templateEngine.process("password-reset-link-email", context);
+            String text = templateEngine.process(TEXT_TEMPLATE_PREFIX + "password-reset-link-email", context);
 
-            sendHtmlEmail(email, "Reset your PhotoCast password", html);
+            sendEmail(email, "Reset your PhotoCast password", text, html);
             LOG.info("Password reset link email sent to {} for user {}",
                     LogSanitizer.sanitize(email), LogSanitizer.sanitize(username));
         } catch (Exception ex) {
@@ -251,8 +264,9 @@ public class UserEmailService {
             Context context = new Context();
             context.setVariable("username", username);
             String html = templateEngine.process("account-deleted-email", context);
+            String text = templateEngine.process(TEXT_TEMPLATE_PREFIX + "account-deleted-email", context);
 
-            sendHtmlEmail(email, "PhotoCast — Your Account Has Been Removed", html);
+            sendEmail(email, "PhotoCast — Your Account Has Been Removed", text, html);
             LOG.info("Account deleted email sent to {} for user {}",
                     LogSanitizer.sanitize(email), LogSanitizer.sanitize(username));
         } catch (Exception ex) {
@@ -292,7 +306,7 @@ public class UserEmailService {
         return true;
     }
 
-    private void sendHtmlEmail(String to, String subject, String htmlBody) throws MessagingException {
+    private void sendEmail(String to, String subject, String plainText, String htmlBody) throws MessagingException {
         // Jakarta Mail's ServiceLoader.load() fails on async/ForkJoinPool threads inside
         // Spring Boot fat JARs — set the app classloader so it can find StreamProvider.
         ClassLoader original = Thread.currentThread().getContextClassLoader();
@@ -303,7 +317,16 @@ public class UserEmailService {
             helper.setFrom(FROM_ADDRESS);
             helper.setTo(to);
             helper.setSubject(subject);
-            helper.setText(htmlBody, true);
+            // Built by hand so the top-level type is multipart/alternative, plain text first (the helper's
+            // multipart modes all wrap the alternative part in multipart/mixed or /related).
+            MimeMultipart alternative = new MimeMultipart("alternative");
+            MimeBodyPart textPart = new MimeBodyPart();
+            textPart.setText(plainText, "UTF-8", "plain");
+            alternative.addBodyPart(textPart);
+            MimeBodyPart htmlPart = new MimeBodyPart();
+            htmlPart.setText(htmlBody, "UTF-8", "html");
+            alternative.addBodyPart(htmlPart);
+            message.setContent(alternative);
             mailSender.send(message);
         } finally {
             Thread.currentThread().setContextClassLoader(original);
