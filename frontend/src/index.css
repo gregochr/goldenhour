@@ -4255,6 +4255,41 @@ button.wf-hc.also.on:hover {
   z-index: 19;
 }
 .wf-pro-upsell-trigger { max-width: 100%; }
+/* Upward variant, for a door at the map's bottom-left (`.wf-map-chrome-bl`, which hugs the bottom edge): the
+   popover opens ABOVE the trigger. The door is shrink-to-fit inside the flex column, so `100%` would make it
+   trigger-wide: the same viewport-based width as `--foot`, at the same z-index below the sticky lens bar. */
+.wf-pro-upsell-door--up .wf-pro-upsell {
+  top: auto;
+  bottom: calc(100% + 6px);
+  width: min(360px, calc(100vw - 32px));
+  z-index: 19;
+}
+/* The LITE viewline door's row: the Pro door and its dismiss cross, on the legend chip's surface (panel
+   fill, border, pill radius) so they never sit bare on the map tiles. */
+.wf-viewline-upsell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 8px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 999px;
+  background: var(--color-plex-panel);
+  font-size: 11px;
+}
+.wf-viewline-upsell-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  color: var(--color-plex-text-muted);
+  transition: color 150ms;
+}
+.wf-viewline-upsell-dismiss:hover { color: var(--color-plex-text); }
+.wf-viewline-upsell-dismiss:focus-visible {
+  outline: 2px solid var(--color-plex-text);
+  outline-offset: 2px;
+}
 /* Inline variant, for a door that lives inside a scroll box (the window control's menu, the phone peek sheet):
    an absolutely positioned popover off the last item would be clipped there, so it sits in the flow instead. */
 .wf-pro-upsell-door--inline .wf-pro-upsell {

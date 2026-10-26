@@ -105,7 +105,8 @@ let role = 'PRO_USER';
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
 let auroraStatus = null;
-vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: auroraStatus }) }));
+let liteAlert = null;
+vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: auroraStatus, liteAlert }) }));
 let viewlineAnswer = null;
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: viewlineAnswer, source: viewlineAnswer ? 'live' : null }) }));
 vi.mock('../api/auroraApi.js', () => ({
@@ -358,6 +359,7 @@ beforeEach(() => {
   fitBounds.mockClear();
   markerNonce += 1;
   auroraStatus = null;
+  liteAlert = null;
   viewlineAnswer = { active: true, points: [{ latitude: 54, longitude: -3 }] };
   role = 'PRO_USER';
   mapEventHandlers = [];
@@ -1712,13 +1714,13 @@ describe('MapView heat — scope is excluded from the filters chip\'s own count'
  */
 describe('MapView heat — the Legend panel (map-tab-v2-plan.md §3 P10)', () => {
   it('stacks with the LITE viewline-upsell chip rather than one suppressing the other (adversarial review C1/C3)', async () => {
-    // The two are independent axes: the upsell keys on `auroraStatus`'s ALERT LEVEL, live
+    // The two are independent axes: the upsell keys on `liteAlert`'s ALERT LEVEL, live
     // regardless of which event type is on screen; the Legend chip keys on
     // `heatOffered`, which excludes AURORA MODE specifically — and a LITE reader can never enter
     // aurora mode at all (`viewlineEnabled` is PRO/ADMIN-only), so an alert can fire while they sit
     // on an ordinary Heat-view sunset. A prior revision wrongly assumed these were the same axis.
     role = 'LITE_USER';
-    auroraStatus = { level: 'MODERATE' };
+    liteAlert = { level: 'MODERATE', active: true, allOvercast: false, currentNightEndsAt: null };
     await renderMap({ heat: heatProp() });
     const upsell = screen.getByTestId('viewline-upsell-chip');
     const legendChip = screen.getByTestId('wf-legend-chip');
