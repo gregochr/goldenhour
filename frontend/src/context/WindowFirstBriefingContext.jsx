@@ -122,6 +122,55 @@ function stripBriefingScores(briefing) {
   };
 }
 
+const TIDE_BADGE_TYPES = new Set(['SPRING_TIDE', 'KING_TIDE']);
+
+/**
+ * Removes, for a Lite reader, the structured fields that relate the tide to the light
+ * (docs/engineering/tide-light-pro-plan.md F1): each window's {@code tide.nearestOffset}, the
+ * {@code detail} and {@code eventTime} of its spring/king window badges, and big seas'
+ * {@code alignedEvent}/{@code gapMinutes}/{@code gapSide} and {@code structures[].aligned}. Only whole
+ * fields go; no prose is edited. Defence in depth ahead of the server strip (B1), and it scrubs a
+ * pre-B1 body still held in the Lite SWR entry.
+ */
+function stripTideLight(briefing) {
+  if (!briefing) return briefing;
+  const stripWindow = (win) => {
+    if (!win) return win;
+    return {
+      ...win,
+      ...(win.tide && { tide: { ...win.tide, nearestOffset: null } }),
+      ...(Array.isArray(win.badges) && {
+        badges: win.badges.map((b) => (TIDE_BADGE_TYPES.has(b?.type)
+          ? { ...b, detail: null, eventTime: null }
+          : b)),
+      }),
+    };
+  };
+  return {
+    ...briefing,
+    ...(Array.isArray(briefing.days) && {
+      days: briefing.days.map((day) => ({
+        ...day,
+        ...(Array.isArray(day.eventSummaries) && {
+          eventSummaries: day.eventSummaries.map((ev) => (
+            ev?.window ? { ...ev, window: stripWindow(ev.window) } : ev)),
+        }),
+      })),
+    }),
+    ...(Array.isArray(briefing.bigSeas) && {
+      bigSeas: briefing.bigSeas.map((d) => ({
+        ...d,
+        alignedEvent: null,
+        gapMinutes: null,
+        gapSide: null,
+        ...(Array.isArray(d.structures) && {
+          structures: d.structures.map((st) => ({ ...st, aligned: false })),
+        }),
+      })),
+    }),
+  };
+}
+
 const WindowFirstBriefingContext = createContext({
   briefing: null,
   loading: false,
@@ -669,7 +718,7 @@ export function WindowFirstBriefingProvider({
   // memo chain below runs exactly as before); locked it is a copy whose slots lack the scores and the
   // written why. Region prose is untouched. `rawBriefing` is only ever read here and by the SWR write.
   const briefing = useMemo(
-    () => (scoresLocked ? stripBriefingScores(rawBriefing) : rawBriefing),
+    () => (scoresLocked ? stripTideLight(stripBriefingScores(rawBriefing)) : rawBriefing),
     [rawBriefing, scoresLocked],
   );
 

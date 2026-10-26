@@ -4,6 +4,7 @@ import InfoTip from './InfoTip.jsx';
 import { badgeChannel } from '../utils/windowFirstCards.js';
 import { topicFacts } from '../utils/windowFirstRows.js';
 import { topicStyle } from '../utils/topicPalette.js';
+import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 
 /**
  * The popup's topic rows — every topic landing on this window, with the science behind it.
@@ -84,6 +85,7 @@ import { topicStyle } from '../utils/topicPalette.js';
  */
 export default function WindowTopicRows({ rows, emphasisTopic = null }) {
   const containerRef = useRef(null);
+  const { tideLocked } = useWindowFirstBriefing();
   // Once per emphasis, NOT per render of `rows`: the briefing polls every ten minutes and rebuilds
   // `rows`, and a re-scroll then would yank a reader who had since scrolled elsewhere. The shell
   // clears the emphasis whenever the open window changes, so `emphasisTopic` going null → type is
@@ -118,7 +120,11 @@ export default function WindowTopicRows({ rows, emphasisTopic = null }) {
         // 47 of 61 coastal locations`: the topic is one object shared by both of its windows, so its
         // line is the ALIGNED window's, and the join now succeeds on both. The badge is the
         // window-specific payload and the topic is the day-level fallback, so the badge wins.
-        const detail = badge.detail || topic?.detail || null;
+        //
+        // Tide-light-pro plan F1: a Lite reader's tide badges never fall back to the topic's
+        // sentence, which is the OTHER window's alignment line ("aligned with sunrise at 47 of 61").
+        const tideType = badge.type === 'SPRING_TIDE' || badge.type === 'KING_TIDE';
+        const detail = badge.detail || (tideLocked && tideType ? null : topic?.detail) || null;
         const science = topic?.description || null;
         // From the BADGE, which is where the served facts ride — the joined topic carries none.
         const facts = (badge.facts || []).length > 0 ? topicFacts(badge) : [];

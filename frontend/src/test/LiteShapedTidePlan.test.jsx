@@ -38,7 +38,8 @@ const LITE_TIDE = {
   direction: 'FALLING',
   nearestType: 'HW',
   nearestTime: '19:28',
-  nearestOffset: '1h43 before sunset',
+  // The offset to the light is Pro (tide-light-pro-plan.md): a Lite window carries none.
+  nearestOffset: null,
   range: '4.9 m',
   rangeAnomaly: '1.2 m above an average tide',
   seas: '0.3 m · smooth',
@@ -48,6 +49,7 @@ const LITE_TIDE = {
 // The PRO shape of the same window: a real curve with positions and a height at the light.
 const PRO_TIDE = {
   ...LITE_TIDE,
+  nearestOffset: '1h43 before sunset',
   curve: [0, 0.5, 1, 0.5],
   windowPosition: 0.5,
   windowLevel: 0.5,
@@ -67,6 +69,19 @@ describe.each([
     expect(text).toContain('falling');
     expect(text).toContain('HW 19:28');
     expect(text).toContain('1.2 m above an average tide');
+  });
+
+  it(pro ? 'draws the offset to the light (Pro and Admin)'
+    : 'draws the clock with no offset to the light and no trailing "·"', () => {
+    render(<WindowAttributeRow row={row} />);
+    const facts = screen.getAllByTestId('window-attribute-fact').map((f) => f.textContent.trim());
+    if (pro) {
+      expect(facts.join('|')).toContain('1h43 before sunset');
+    } else {
+      expect(facts).toContain('HW 19:28');
+      expect(facts.join('|')).not.toMatch(/before|after|sunset|sunrise/);
+      expect(facts.every((f) => !f.endsWith('·'))).toBe(true);
+    }
   });
 
   it(pro ? 'draws the sparkline, its mark and the height at the light'

@@ -44,6 +44,23 @@ const renderEntry = (over, onGoToPlan = vi.fn(), onShowOnMap = vi.fn()) => {
   return { ...result, onGoToPlan, onShowOnMap };
 };
 
+describe('WindowComingUpEntry — a card with no event-water facts (Lite after the server strip)', () => {
+  it('is still a complete card: title, tag, the size facts, the action', () => {
+    renderEntry({ facts: [FACTS[0]] });
+    expect(screen.getByTestId('coming-up-title')).toHaveTextContent('Spring tide run');
+    const chips = within(screen.getByTestId('coming-up-facts')).getAllByTestId('coming-up-fact');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toHaveTextContent('range 4.6 m');
+    expect(screen.getByTestId('coming-up-facts')).not.toHaveTextContent(/before|after|aligned/);
+  });
+
+  it('draws no fact line at all when the size facts are absent too', () => {
+    renderEntry({ facts: [] });
+    expect(screen.queryByTestId('coming-up-facts')).toBeNull();
+    expect(screen.getByTestId('coming-up-title')).toBeInTheDocument();
+  });
+});
+
 describe('WindowComingUpEntry — the rail', () => {
   it('renders the day-of-week only when the rail carries one', () => {
     renderEntry({ rail: { dow: 'Wed', day: '2', month: 'Sept', isRange: false, countdown: 'in 5 days' } });

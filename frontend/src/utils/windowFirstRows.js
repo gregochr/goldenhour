@@ -153,6 +153,10 @@ function tideFacts(tide) {
   if (tide.nearestType && tide.nearestTime && tide.nearestOffset) {
     facts.push(fact([base(`${tide.nearestType} ${tide.nearestTime} ·`),
       strong(tide.nearestOffset)]));
+  } else if (tide.nearestType && tide.nearestTime) {
+    // A Lite reader's offset is withheld (tide-light-pro-plan.md): the clock is a tide-table fact
+    // and stays, with no trailing "·".
+    facts.push(fact([base(`${tide.nearestType} ${tide.nearestTime}`)]));
   }
 
   // Already formatted upstream as `0.3 m · smooth`. Independently nullable: waves reach T+4 while

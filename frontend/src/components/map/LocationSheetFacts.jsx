@@ -51,7 +51,7 @@ export default function LocationSheetFacts({
 
   const badges = detailBadges(detail, { eventType, isPro });
   const comfort = comfortRows(forecast);
-  const footer = generatedFooter(forecast, detail, triageSuperseded);
+  const footer = generatedFooter(forecast, detail, triageSuperseded, isPro);
   if (!detailLoading && badges.length === 0 && comfort.length === 0 && !footer) return null;
 
   return (

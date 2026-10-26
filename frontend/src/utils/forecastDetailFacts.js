@@ -162,7 +162,8 @@ export function detailBadges(detail, { eventType, isPro }) {
         text: 'Bluebell conditions — Upgrade to Pro',
       });
   }
-  const tide = risingTideOf(detail);
+  // Pro and Admin only (tide-light-pro-plan.md A7): the offset to the light is Pro.
+  const tide = isPro ? risingTideOf(detail) : null;
   if (tide) {
     const eventWord = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
     badges.push({
@@ -235,16 +236,21 @@ export function comfortRows(forecast) {
  * @param {?object} detail the detail row ({@code evaluationModel}), or null
  * @param {boolean} triageSuperseded true when a live rating outranks this row's triage verdict, so
  *   the "not evaluated by Claude" clause would contradict the rating shown
+ * @param {boolean} [isPro] false for a Lite reader, who gets the generic reason for a tide stand-down
  * @returns {?string}
  */
-export function generatedFooter(forecast, detail, triageSuperseded = false) {
+export function generatedFooter(forecast, detail, triageSuperseded = false, isPro = true) {
   if (!forecast?.forecastRunAt) return null;
   const base = formatGeneratedAtFull(forecast.forecastRunAt);
   if (!base) return null;
   const evaluationModel = detail?.evaluationModel;
   const model = evaluationModel && evaluationModel !== 'WILDLIFE' ? modelLabel(evaluationModel) : null;
   if (forecast.triageReason && !triageSuperseded) {
-    const reason = TRIAGE_REASON_LABELS[forecast.triageReason] ?? TRIAGE_REASON_LABELS.GENERIC;
+    // A Lite reader is not told the tide missed the location's light (tide-light-pro-plan.md A9):
+    // the stand-down stays, the tide wording goes.
+    const reasonKey = !isPro && forecast.triageReason === 'TIDE_MISALIGNED'
+      ? 'GENERIC' : forecast.triageReason;
+    const reason = TRIAGE_REASON_LABELS[reasonKey] ?? TRIAGE_REASON_LABELS.GENERIC;
     return model
       ? `Forecast generated: ${base} (${model} run, but not evaluated by Claude due to ${reason})`
       : `Forecast generated: ${base} (not evaluated by Claude due to ${reason})`;
