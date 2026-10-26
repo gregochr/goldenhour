@@ -81,7 +81,7 @@ class UserEmailServiceTest {
         UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("welcome-email"), any(IContext.class)))
+        when(templateEngine.process(eq("welcome-email"), credentialsCtx()))
                 .thenReturn("<html>Welcome</html>");
         when(templateEngine.process(eq("text/welcome-email"), credentialsCtx()))
                 .thenReturn("plain text");
@@ -99,7 +99,7 @@ class UserEmailServiceTest {
         UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("password-reset-email"), any(IContext.class)))
+        when(templateEngine.process(eq("password-reset-email"), credentialsCtx()))
                 .thenReturn("<html>Reset</html>");
         when(templateEngine.process(eq("text/password-reset-email"), credentialsCtx()))
                 .thenReturn("plain text");
@@ -131,7 +131,7 @@ class UserEmailServiceTest {
     private Context renderedContext(String template, Runnable send) throws Exception {
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq(template), any(IContext.class))).thenReturn("<html></html>");
+        when(templateEngine.process(eq(template), ctx("username", "alice"))).thenReturn("<html></html>");
         when(templateEngine.process(eq("text/" + template), ctx("username", "alice"))).thenReturn("plain text");
 
         send.run();
@@ -177,7 +177,7 @@ class UserEmailServiceTest {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("password-reset-link-email"), any(IContext.class)))
+        when(templateEngine.process(eq("password-reset-link-email"), resetCtx("reset-raw-token")))
                 .thenReturn("<html>Reset link</html>");
         when(templateEngine.process(eq("text/password-reset-link-email"), ctx("username", "alice", "resetUrl", "https://app.photocast.online/reset#token=reset-raw-token")))
                 .thenReturn("plain text");
@@ -212,7 +212,7 @@ class UserEmailServiceTest {
     void sendPasswordResetLinkEmail_sendFails_doesNotPropagate() {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
         when(mailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
-        when(templateEngine.process(eq("password-reset-link-email"), any(IContext.class)))
+        when(templateEngine.process(eq("password-reset-link-email"), resetCtx("tok")))
                 .thenReturn("<html></html>");
         when(templateEngine.process(eq("text/password-reset-link-email"), ctx("username", "alice", "resetUrl", "https://app.photocast.online/reset#token=tok")))
                 .thenReturn("plain text");
@@ -262,7 +262,7 @@ class UserEmailServiceTest {
     @DisplayName("the reset-link email is multipart/alternative: plain text first, then the HTML")
     void resetLinkEmail_isMultipartAlternativeWithTextFirst() throws Exception {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
-        when(templateEngine.process(eq("password-reset-link-email"), any(IContext.class)))
+        when(templateEngine.process(eq("password-reset-link-email"), resetCtx("tok")))
                 .thenReturn("<html>Reset link</html>");
         when(templateEngine.process(eq("text/password-reset-link-email"), ctx("username", "alice", "resetUrl", "https://app.photocast.online/reset#token=tok")))
                 .thenReturn("Reset link as text");
@@ -284,7 +284,7 @@ class UserEmailServiceTest {
     @DisplayName("the verification email is multipart/alternative and both templates see the same context values")
     void verificationEmail_isMultipartAndRendersBothFromOneContext() throws Exception {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
-        when(templateEngine.process(eq("verification-email"), any(IContext.class)))
+        when(templateEngine.process(eq("verification-email"), verifyCtx("tok")))
                 .thenReturn("<html>Verify</html>");
         when(templateEngine.process(eq("text/verification-email"), ctx("username", "alice", "holdDays", 7, "verificationUrl", "https://app.photocast.online/verify#token=tok")))
                 .thenReturn("Verify as text");
@@ -315,7 +315,7 @@ class UserEmailServiceTest {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("verification-email"), any(IContext.class)))
+        when(templateEngine.process(eq("verification-email"), verifyCtx("raw-token-uuid")))
                 .thenReturn("<html>Verify</html>");
         when(templateEngine.process(eq("text/verification-email"), ctx("username", "alice", "holdDays", 7, "verificationUrl", "https://app.photocast.online/verify#token=raw-token-uuid")))
                 .thenReturn("plain text");
@@ -343,7 +343,7 @@ class UserEmailServiceTest {
         UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("account-deleted-email"), any(IContext.class)))
+        when(templateEngine.process(eq("account-deleted-email"), ctx("username", "alice")))
                 .thenReturn("<html>Deleted</html>");
         when(templateEngine.process(eq("text/account-deleted-email"), ctx("username", "alice")))
                 .thenReturn("plain text");
@@ -368,6 +368,17 @@ class UserEmailServiceTest {
     /** The context both temporary-password mails are rendered with. */
     private static IContext credentialsCtx() {
         return ctx("username", "alice", "temporaryPassword", "TempPass1!");
+    }
+
+    /** The context the reset-link mail is rendered with for this token (the test base URL). */
+    private static IContext resetCtx(String token) {
+        return ctx("username", "alice", "resetUrl", "https://app.photocast.online/reset#token=" + token);
+    }
+
+    /** The context the verification mail is rendered with for this token (the test base URL, 7-day hold). */
+    private static IContext verifyCtx(String token) {
+        return ctx("username", "alice", "holdDays", 7,
+                "verificationUrl", "https://app.photocast.online/verify#token=" + token);
     }
 
     /** Matches a template context carrying these name/value pairs (extra variables are tolerated). */
