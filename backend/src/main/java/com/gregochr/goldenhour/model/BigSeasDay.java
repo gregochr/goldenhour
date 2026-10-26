@@ -69,4 +69,21 @@ public record BigSeasDay(
     public BigSeasDay {
         structures = List.copyOf(structures);
     }
+
+    /**
+     * Returns this day as a LITE reader may see it. Where the high water falls against the light is
+     * a Pro fact (tide-light-pro-plan.md section 3, B1): {@code alignedEvent}, {@code gapMinutes} and
+     * {@code gapSide} are null and every structure's {@code aligned} is false. The daylight
+     * high-water facts ({@code daylightHighWater}, {@code daylightStart}, {@code daylightEnd}) and
+     * the high-water clock stay: "the high water falls in daylight" is a when-fact, free for every
+     * role.
+     *
+     * @return the shaped copy
+     */
+    public BigSeasDay forLite() {
+        return new BigSeasDay(date, windowStart, windowEnd, hwTime, null, null, null, waveHeightM,
+                waveDirectionDeg, wavePeriodS,
+                structures.stream().map(BigSeasStructure::forLite).toList(), otherWindows,
+                daylightHighWater, daylightStart, daylightEnd);
+    }
 }

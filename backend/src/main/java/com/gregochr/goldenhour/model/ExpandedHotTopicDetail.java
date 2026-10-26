@@ -25,6 +25,17 @@ public record ExpandedHotTopicDetail(
         TideMetrics tideMetrics) {
 
     /**
+     * Returns this detail as a LITE reader may see it: the tide metrics narrowed to
+     * {@link TideMetrics#forLite()}, everything else unchanged.
+     *
+     * @return the shaped copy, or this when there are no tide metrics
+     */
+    public ExpandedHotTopicDetail forLite() {
+        return tideMetrics == null ? this
+                : new ExpandedHotTopicDetail(regionGroups, bluebellMetrics, tideMetrics.forLite());
+    }
+
+    /**
      * A group of locations within a single region.
      *
      * @param regionName    display name of the region
@@ -109,11 +120,22 @@ public record ExpandedHotTopicDetail(
      *
      * @param tidalClassification  "King tide" or "Spring tide"
      * @param lunarPhase           current moon phase name (e.g. "Full Moon")
-     * @param sunriseAlignedCount  coastal locations with tide aligned at sunrise
-     * @param sunsetAlignedCount   coastal locations with tide aligned at sunset
+     * @param sunriseAlignedCount  coastal locations with tide aligned at sunrise; null on the Lite wire
+     * @param sunsetAlignedCount   coastal locations with tide aligned at sunset; null on the Lite wire
      */
     public record TideMetrics(String tidalClassification, String lunarPhase,
-            int sunriseAlignedCount, int sunsetAlignedCount) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer sunriseAlignedCount,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer sunsetAlignedCount) {
+
+        /**
+         * Returns these metrics as a LITE reader may see them: the two aligned counts, which state
+         * how many locations have the water at the light, are null (and so absent from the wire).
+         *
+         * @return a copy with both counts null
+         */
+        public TideMetrics forLite() {
+            return new TideMetrics(tidalClassification, lunarPhase, null, null);
+        }
     }
 
     // ── Per-location typed metrics ─────────────────────────────────────────

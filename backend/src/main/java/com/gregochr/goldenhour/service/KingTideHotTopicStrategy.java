@@ -179,7 +179,9 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                     null,
                     coastalRegions,
                     KING_TIDE_DESCRIPTION,
-                    expandedDetail);
+                    expandedDetail)
+                    .withLiteDetail(buildKingTideDetail(new Alignment(null, false),
+                            coastalLocations.size()));
             CoastalTideFactsBuilder.CoastalScience science =
                     coastalTideFactsBuilder.buildKing(candidate, coastalLocations);
             if (science != null) {

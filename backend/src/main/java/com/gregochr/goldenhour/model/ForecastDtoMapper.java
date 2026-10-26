@@ -183,7 +183,7 @@ public class ForecastDtoMapper {
                 entity.getRating(),
                 fierySky,
                 goldenHour,
-                triage.getReason(),
+                isLiteUser ? TriageReason.forLite(triage.getReason()) : triage.getReason(),
                 null,
                 null,
                 entity.getTemperatureCelsius(),
@@ -211,6 +211,7 @@ public class ForecastDtoMapper {
             boolean isLiteUser) {
         LocalDate date = view.date();
         TargetType type = view.targetType();
+        boolean tideReasonHidden = isLiteUser && view.triageReason() == TriageReason.TIDE_MISALIGNED;
         double lat = location.getLat();
         double lon = location.getLon();
 
@@ -247,9 +248,9 @@ public class ForecastDtoMapper {
                 view.rating(),
                 isLiteUser ? null : view.fierySkyPotential(),
                 isLiteUser ? null : view.goldenHourPotential(),
-                view.triageReason(),
+                isLiteUser ? TriageReason.forLite(view.triageReason()) : view.triageReason(),
                 isLiteUser ? null : view.summary(),
-                view.triageMessage(),
+                tideReasonHidden ? null : view.triageMessage(),
                 null,
                 null,
                 null,
@@ -481,6 +482,9 @@ public class ForecastDtoMapper {
         StormSurgeDetails surge = StormSurgeDetails.orEmpty(entity.getSurge());
         InversionDetails inversion = InversionDetails.orEmpty(entity.getInversion());
         TriageDetails triage = TriageDetails.orEmpty(entity.getTriage());
+        // A tide-misaligned stand-down states the water against the light, a Pro fact: Lite is served
+        // the plain GENERIC stand-down with no message (tide-light-pro-plan.md A9).
+        boolean tideReasonHidden = isLiteUser && triage.getReason() == TriageReason.TIDE_MISALIGNED;
 
         return new ForecastEvaluationDto(
                 entity.getId(),
@@ -551,8 +555,8 @@ public class ForecastDtoMapper {
                 bluebellScore,
                 bluebellSummary,
                 bluebellExposure,
-                triage.getReason(),
-                triage.getMessage(),
+                isLiteUser ? TriageReason.forLite(triage.getReason()) : triage.getReason(),
+                tideReasonHidden ? null : triage.getMessage(),
                 headline,
                 wave.waveHeightMetres(),
                 wave.seaState(),

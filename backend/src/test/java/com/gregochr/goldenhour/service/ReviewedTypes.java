@@ -101,7 +101,7 @@ final class ReviewedTypes {
                 "alertLevel", "label", "moonIlluminationPct", "moonPhase", "peakKp", "regions")),
         entry("HotTopic", Set.of(
                 "date", "description", "detail", "eveningWindow", "eventTime", "eventType", "expandedDetail",
-                "facts", "filterAction", "glance", "label", "locationNames", "morningWindow", "note",
+                "facts", "filterAction", "glance", "label", "liteDetail", "locationNames", "morningWindow", "note",
                 "priority", "rarityNote", "regions", "safetyNote", "surgeRun", "tideRun", "type")),
         entry("ExpandedHotTopicDetail", Set.of(
                 "bluebellMetrics", "regionGroups", "tideMetrics")),

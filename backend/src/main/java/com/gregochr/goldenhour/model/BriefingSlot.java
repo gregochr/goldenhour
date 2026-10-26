@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TideStatisticalSize;
+import com.gregochr.goldenhour.service.BriefingVerdictEvaluator.StanddownReason;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -305,14 +306,20 @@ public record BriefingSlot(
      * are free for every role.
      *
      * <p>The slot's {@link TideInfo} is also narrowed to {@link TideInfo#forLite()}: the
-     * per-location tide match and heights are Pro, as they are on the window's per-location facts.
+     * per-location tide match, the heights and the tide against the light are Pro, as they are on the
+     * window's per-location facts. A {@link #standdownReason} that is the tide mismatch states the
+     * water against the light, so it is null too; the verdict itself stays.
      *
      * @return a new slot with the potentials, the written why and the Pro tide fields removed
      */
     public BriefingSlot forLite() {
         TideInfo liteTide = tide == null ? null : tide.forLite();
+        // A tide-mismatch stand-down reason states the water against the light (Pro); the verdict
+        // itself stays. Any other reason is free.
+        String liteStanddown = StanddownReason.TIDE_MISMATCH.label().equals(standdownReason)
+                ? null : standdownReason;
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, liteTide,
-                flags, standdownReason, claudeRating, skyRating, null, null, null,
+                flags, liteStanddown, claudeRating, skyRating, null, null, null,
                 displayVerdict, null, canopy, eclipse, neighbourOutlier, gated);
     }
 
@@ -710,18 +717,18 @@ public record BriefingSlot(
          * {@link LocationTideFact#forLite()}: the per-location match ({@code tideAligned},
          * {@code tideAlignmentQuality}, {@code tideShortfall}, {@code tideFitPhrase}) and every
          * height ({@code tideHeight}, {@code tideLevel}, {@code nearestHighTideHeight}) are null.
-         * The state, the nearest high's time, the king/spring flags, the lunar facts and the
-         * solar-offset facts stay: they back the free spring and king hot topics and the free
-         * "tide on the light" fact. Built on the canonical constructor so a component added later
-         * cannot be defaulted away silently.
+         * The tide against the light is Pro too (tide-light-pro-plan.md): {@code
+         * nearestSolarOffsetMinutes}, {@code nearestExtremeKind}, {@code tideOnTheLight} and {@code
+         * nearestSolarOffsetPhrase} are null. The state, the nearest high's time, the king/spring
+         * flags and the lunar facts stay: they back the free spring and king hot topics. Built on
+         * the canonical constructor so a component added later cannot be defaulted away silently.
          *
          * @return a copy with the Pro tide fields null
          */
         public TideInfo forLite() {
             return new TideInfo(tideState, null, nearestHighTideTime, null, heightAboveP95,
                     heightAboveSpringThreshold, lunarTideType, lunarPhase, moonAtPerigee,
-                    nearestSolarOffsetMinutes, nearestExtremeKind, tideOnTheLight,
-                    nearestSolarOffsetPhrase, null, tideDirection, null, null, null, null);
+                    null, null, null, null, null, tideDirection, null, null, null, null);
         }
 
         /**

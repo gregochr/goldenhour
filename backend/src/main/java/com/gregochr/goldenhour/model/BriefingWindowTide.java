@@ -161,8 +161,9 @@ public record BriefingWindowTide(
 
     /**
      * Returns this tide as the LITE role is served it: the curve, the positions, the extremes and
-     * the height at the light removed; the state, direction, nearest extreme, range, range anomaly
-     * and sea state kept.
+     * the height at the light removed, and so is {@code nearestOffset} (how far that extreme sits
+     * from the light is a Pro fact, tide-light-pro-plan.md); the state, direction, nearest extreme
+     * type and time, range, range anomaly and sea state kept.
      *
      * <p>Rebuilt through the canonical constructor, never the legacy twelve-field one (which would
      * default the four trailing components away without a trace). {@code curve} becomes the empty
@@ -172,7 +173,7 @@ public record BriefingWindowTide(
      */
     public BriefingWindowTide forLite() {
         return new BriefingWindowTide(locationName, state, direction, nearestType, nearestTime,
-                nearestOffset, range, rangeAnomaly, seas, List.of(), null, null, null, null, null,
+                null, range, rangeAnomaly, seas, List.of(), null, null, null, null, null,
                 null);
     }
 

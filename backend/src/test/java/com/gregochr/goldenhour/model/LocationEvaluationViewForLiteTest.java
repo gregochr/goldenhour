@@ -74,4 +74,32 @@ class LocationEvaluationViewForLiteTest {
 
         assertThat(full).isEqualTo(full());
     }
+
+    @Test
+    @DisplayName("forLite serves a TIDE_MISALIGNED stand-down as GENERIC with no message (A9); the rating stays")
+    void forLiteHidesTheTideTriageReason() {
+        LocationEvaluationView tide = new LocationEvaluationView(7L, "Bamburgh", 3L, "North East",
+                LocalDate.of(2026, 10, 25), TargetType.SUNSET,
+                LocationEvaluationView.Source.FORECAST_EVALUATION_TRIAGE, null, null, null, null,
+                TriageReason.TIDE_MISALIGNED, "No high tide aligned with golden/blue hour window",
+                "SONNET", null, DisplayVerdict.STAND_DOWN, null, null, null, null);
+
+        LocationEvaluationView lite = tide.forLite();
+
+        assertThat(lite.triageReason()).isEqualTo(TriageReason.GENERIC);
+        assertThat(lite.triageMessage()).isNull();
+        assertThat(lite.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        assertThat(tide.triageReason()).as("the input is not mutated").isEqualTo(TriageReason.TIDE_MISALIGNED);
+        assertThat(tide.triageMessage()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("TriageReason.forLite changes only TIDE_MISALIGNED")
+    void triageReasonForLiteChangesOnlyTheTideReason() {
+        for (TriageReason r : TriageReason.values()) {
+            assertThat(TriageReason.forLite(r))
+                    .isEqualTo(r == TriageReason.TIDE_MISALIGNED ? TriageReason.GENERIC : r);
+        }
+        assertThat(TriageReason.forLite(null)).isNull();
+    }
 }

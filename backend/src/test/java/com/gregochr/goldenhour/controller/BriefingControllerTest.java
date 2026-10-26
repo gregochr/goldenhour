@@ -1,11 +1,18 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.BriefingModelTestResultEntity;
+import com.gregochr.goldenhour.entity.CoastalStructure;
 import com.gregochr.goldenhour.entity.BriefingModelTestRunEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.model.BigSeasDay;
+import com.gregochr.goldenhour.model.BigSeasStructure;
 import com.gregochr.goldenhour.model.BriefingWindowTide;
+import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
+import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.TideRunDay;
+import com.gregochr.goldenhour.service.BriefingRoleShaper;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingWindow;
@@ -19,6 +26,9 @@ import com.gregochr.goldenhour.model.Verdict;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -27,6 +37,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
@@ -413,7 +424,10 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideLevel").doesNotExist())
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideState").value("HIGH"))
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideDirection").value("RISING"))
-                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideOnTheLight").value(true))
+                // The tide against the light is Pro (tide-light-pro-plan.md B1).
+                .andExpect(jsonPath(WINDOW + ".tide.nearestOffset").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideOnTheLight").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].nearestSolarOffsetPhrase").doesNotExist())
                 .andExpect(jsonPath(SLOT + ".flags.length()").value(1))
                 .andExpect(jsonPath(SLOT + ".flags[0]").value("Clear all layers"));
     }
@@ -430,6 +444,10 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath(WINDOW + ".tide.windowPosition").value(0.88))
                 .andExpect(jsonPath(WINDOW + ".tide.windowLevel").value(0.42))
                 .andExpect(jsonPath(WINDOW + ".tide.heightAtWindow").value("3.1 m"))
+                .andExpect(jsonPath(WINDOW + ".tide.nearestOffset").value("1h43 before sunset"))
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideOnTheLight").value(true))
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].nearestSolarOffsetPhrase")
+                        .value("HW 06:12 · 25m after sunrise"))
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideAligned").value(true))
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideFitPhrase")
                         .value("Tide suits this spot"))
@@ -446,8 +464,144 @@ class BriefingControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(WINDOW + ".tide.curve.length()").value(3))
+                .andExpect(jsonPath(WINDOW + ".tide.nearestOffset").value("1h43 before sunset"))
+                .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideOnTheLight").value(true))
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideAligned").value(true))
                 .andExpect(jsonPath(SLOT + ".flags[0]").value("Tide aligned"));
+    }
+
+    // ── GET /api/briefing: the tide at the light (tide-light-pro-plan.md section 3, B1) ───────
+
+    private static final String ALIGNED_SENTENCE = "tide aligned with sunrise at 47 of 61 coastal locations";
+    private static final String LITE_SENTENCE = "61 coastal locations";
+
+    /** A briefing with a king-tide topic, its window badge, a big-seas day and a tide-mismatch stand-down. */
+    private static DailyBriefingResponse tideLightBriefing() {
+        LocalDate day = LocalDate.of(2026, 10, 11);
+        HotTopic king = new HotTopic(
+                "KING_TIDE", "King tide", ALIGNED_SENTENCE, day, 1, null, List.of("North East"), "d",
+                new ExpandedHotTopicDetail(List.of(), null,
+                        new ExpandedHotTopicDetail.TideMetrics("King tide", "Full Moon", 47, 3)),
+                "SUNRISE", "06:41", null, null, null, null, null,
+                new TideRunDay("KING RUN", 1, 3, "SUN 11", "Whitby", "4.2 m",
+                        null, null, null, null, "06:41", "17:55", null, List.of(),
+                        "HW 07:12 · 31m after sunrise", true, true, "sunrise", "HW 07:12 · 31m after sunrise",
+                        null, false, null),
+                null, null, null, null).withLiteDetail(LITE_SENTENCE);
+        BriefingWindow window = new BriefingWindow(null, DisplayVerdict.WORTH_IT, 4, null, null,
+                List.of(new BriefingWindow.Badge("KING_TIDE", "King tide", ALIGNED_SENTENCE, List.of(),
+                        "06:41", 2, null, null, null)), null, null, null);
+        BriefingSlot slot = new BriefingSlot(7L, "Bamburgh", LocalDateTime.of(2026, 10, 11, 6, 0),
+                Verdict.STANDDOWN, null, null, List.of(), "Tide mismatch", null, null, null, null, null,
+                DisplayVerdict.STAND_DOWN, null, false, null);
+        BriefingRegion region = new BriefingRegion("North East", Verdict.GO, "s", List.of(),
+                List.of(slot), null, null, null, null, null, null, DisplayVerdict.AWAITING, 0,
+                null, false, null);
+        BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE,
+                List.of(region), List.of(), null, window);
+        LocalDateTime hw = LocalDateTime.of(2026, 10, 11, 7, 12);
+        BigSeasDay seas = new BigSeasDay(day, hw.minusHours(1), hw.plusHours(1), hw,
+                BigSeasDay.AlignedEvent.SUNRISE, 31L, BigSeasDay.GapSide.AFTER, 4.2, 80, 9.5,
+                List.of(new BigSeasStructure(243L, "Roker Pier", CoastalStructure.PIER, 4.2, 80, 9.5, 90, hw,
+                        true)),
+                0, false, null, null);
+        return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "h",
+                List.of(new BriefingDay(day, List.of(summary))),
+                List.of(), null, null, false, false, 0, null, List.of(king), List.of())
+                .withBigSeas(List.of(seas));
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/briefing as LITE: no alignment sentence, run row, event, aligned counts, badge detail "
+            + "or clock, big-seas gap, aligned flag or tide-mismatch reason; the topic and daylight HW stay")
+    void getBriefing_liteTideLightIsStripped() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(tideLightBriefing());
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hotTopics.length()").value(1))
+                .andExpect(jsonPath("$.hotTopics[0].type").value("KING_TIDE"))
+                .andExpect(jsonPath("$.hotTopics[0].label").value("King tide"))
+                .andExpect(jsonPath("$.hotTopics[0].detail").value(LITE_SENTENCE))
+                .andExpect(jsonPath("$.hotTopics[0].liteDetail").doesNotExist())
+                .andExpect(jsonPath("$.hotTopics[0].tideRun").doesNotExist())
+                .andExpect(jsonPath("$.hotTopics[0].eventType").doesNotExist())
+                .andExpect(jsonPath("$.hotTopics[0].eventTime").doesNotExist())
+                .andExpect(jsonPath("$.hotTopics[0].expandedDetail.tideMetrics.tidalClassification")
+                        .value("King tide"))
+                .andExpect(jsonPath("$.hotTopics[0].expandedDetail.tideMetrics.sunriseAlignedCount").doesNotExist())
+                .andExpect(jsonPath("$.hotTopics[0].expandedDetail.tideMetrics.sunsetAlignedCount").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".badges[0].detail").value(LITE_SENTENCE))
+                .andExpect(jsonPath(WINDOW + ".badges[0].eventTime").doesNotExist())
+                .andExpect(jsonPath(SLOT + ".standdownReason").doesNotExist())
+                .andExpect(jsonPath(SLOT + ".verdict").value("STANDDOWN"))
+                .andExpect(jsonPath("$.bigSeas[0].alignedEvent").doesNotExist())
+                .andExpect(jsonPath("$.bigSeas[0].gapMinutes").doesNotExist())
+                .andExpect(jsonPath("$.bigSeas[0].gapSide").doesNotExist())
+                .andExpect(jsonPath("$.bigSeas[0].structures[0].aligned").value(false))
+                .andExpect(jsonPath("$.bigSeas[0].hwTime").value("2026-10-11T07:12:00"))
+                .andExpect(jsonPath("$.bigSeas[0].structures[0].label").value("Roker Pier"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("GET /api/briefing as PRO keeps the alignment sentence, run row, event, counts, badge and gap")
+    void getBriefing_proKeepsTideLight() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(tideLightBriefing());
+
+        assertProTideLight();
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/briefing as ADMIN gets exactly what PRO gets (Admin = Pro)")
+    void getBriefing_adminKeepsTideLight() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(tideLightBriefing());
+
+        assertProTideLight();
+    }
+
+    private void assertProTideLight() throws Exception {
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hotTopics[0].detail").value(ALIGNED_SENTENCE))
+                .andExpect(jsonPath("$.hotTopics[0].liteDetail").doesNotExist())
+                .andExpect(jsonPath("$.hotTopics[0].tideRun.alignedEvent").value("sunrise"))
+                .andExpect(jsonPath("$.hotTopics[0].eventType").value("SUNRISE"))
+                .andExpect(jsonPath("$.hotTopics[0].eventTime").value("06:41"))
+                .andExpect(jsonPath("$.hotTopics[0].expandedDetail.tideMetrics.sunriseAlignedCount").value(47))
+                .andExpect(jsonPath("$.hotTopics[0].expandedDetail.tideMetrics.sunsetAlignedCount").value(3))
+                .andExpect(jsonPath(WINDOW + ".badges[0].detail").value(ALIGNED_SENTENCE))
+                .andExpect(jsonPath(WINDOW + ".badges[0].eventTime").value("06:41"))
+                .andExpect(jsonPath(SLOT + ".standdownReason").value("Tide mismatch"))
+                .andExpect(jsonPath("$.bigSeas[0].alignedEvent").value("SUNRISE"))
+                .andExpect(jsonPath("$.bigSeas[0].gapMinutes").value(31))
+                .andExpect(jsonPath("$.bigSeas[0].gapSide").value("AFTER"))
+                .andExpect(jsonPath("$.bigSeas[0].structures[0].aligned").value(true));
+    }
+
+    @Test
+    @DisplayName("PRO and ADMIN are served the service's own object (isSameAs): nothing is rebuilt, so the "
+            + "body is byte-identical; LITE and an unrecognised role are served a shaped copy")
+    void getBriefing_proAndAdminAreServedTheServiceObjectItself() {
+        DailyBriefingResponse served = tideLightBriefing();
+        when(briefingService.getCachedBriefingForApi()).thenReturn(served);
+        BriefingController controller = new BriefingController(briefingService, null, null,
+                new BriefingRoleShaper(),
+                new com.gregochr.goldenhour.service.LitePickShaper(null,
+                        new com.gregochr.goldenhour.config.SubRegionProperties()));
+
+        assertThat(controller.getBriefing(auth("ROLE_PRO_USER")).getBody()).isSameAs(served);
+        assertThat(controller.getBriefing(auth("ROLE_ADMIN")).getBody()).isSameAs(served);
+        assertThat(controller.getBriefing(auth("ROLE_LITE_USER")).getBody()).isNotSameAs(served);
+        assertThat(controller.getBriefing(auth("ROLE_USER")).getBody()).isNotSameAs(served);
+        assertThat(controller.getBriefing(auth("ROLE_USER")).getBody().hotTopics().get(0).tideRun()).isNull();
+        assertThat(served.hotTopics().get(0).tideRun()).as("the service object is never mutated").isNotNull();
+    }
+
+    private static Authentication auth(String authority) {
+        return new UsernamePasswordAuthenticationToken("u", "p", List.of(new SimpleGrantedAuthority(authority)));
     }
 
     @Test

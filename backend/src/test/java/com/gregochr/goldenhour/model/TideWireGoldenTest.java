@@ -77,23 +77,21 @@ class TideWireGoldenTest {
     }
 
     @Test
-    @DisplayName("LITE: the stripped window tide keeps an empty curve and omits the rest")
+    @DisplayName("LITE: the stripped window tide keeps an empty curve and a null offset, omits the rest")
     void liteTideWire() {
         assertThat(mapper.writeValueAsString(fullTide().forLite())).isEqualTo("{"
                 + "\"locationName\":\"Whitby\",\"state\":\"MID\",\"direction\":\"FALLING\","
                 + "\"nearestType\":\"HW\",\"nearestTime\":\"19:28\","
-                + "\"nearestOffset\":\"1h43 before sunset\",\"range\":\"4.9 m\","
+                + "\"nearestOffset\":null,\"range\":\"4.9 m\","
                 + "\"rangeAnomaly\":\"1.2 m above an average tide\",\"seas\":\"0.3 m · smooth\","
                 + "\"curve\":[]}");
     }
 
     @Test
-    @DisplayName("LITE: the stripped tide fact keeps the state and light facts and omits the match")
+    @DisplayName("LITE: the stripped tide fact keeps the state and direction, omits the match and the light facts")
     void liteFactWire() {
         assertThat(mapper.writeValueAsString(fullFact().forLite())).isEqualTo("{"
                 + "\"locationId\":7,\"locationName\":\"Bamburgh\",\"tideState\":\"HIGH\","
-                + "\"tideOnTheLight\":true,"
-                + "\"nearestSolarOffsetPhrase\":\"HW 06:12 · 25m after sunrise\","
                 + "\"tideDirection\":\"RISING\"}");
     }
 }

@@ -82,6 +82,12 @@ public class BriefingController {
      * every {@code window.pick} removed, {@code bestBets} empty and {@code bestBetModel},
      * {@code bestBetStatus} and {@code bestBetsWithdrawn} null.
      *
+     * <p>The tide at the light is Pro and Admin too (docs/engineering/tide-light-pro-plan.md): LITE
+     * gets the spring and king topics without their alignment sentence, run row, resolved light and
+     * aligned counts, no offset from the light on the window tide or the per-location facts, no
+     * aligned light on a window badge, and the big-seas gap and aligned flags removed. PRO and ADMIN
+     * are served the service object itself, byte-identical.
+     *
      * <p><b>Enforcement (docs/engineering/sub-regions-plan.md S3).</b> With
      * {@code photocast.sub-regions.enforce} on, a caller who is not positively PRO_USER or ADMIN is also
      * shaped by their sub-region picks by {@link LitePickShaper}, after the live overlays: every slot outside

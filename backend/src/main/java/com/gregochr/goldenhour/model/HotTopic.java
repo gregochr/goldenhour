@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -63,6 +64,12 @@ import java.util.List;
  *                       phone), an optional PEAK/FULL badge and whether it is weather-driven. Served
  *                       so the client never composes it per type; null on a topic nothing has
  *                       decorated (including cached JSON written before the field existed)
+ * @param liteDetail     the light-free sentence a LITE reader is served in place of {@code detail}
+ *                       for a spring or king tide topic ("12 coastal locations"), or null. An
+ *                       in-memory carrier, never serialised by either mapper
+ *                       ({@code @JsonIgnore}): the persisted briefing JSON reloaded after a restart
+ *                       has none, and {@link #forLite()} then serves no detail at all (fail closed,
+ *                       tide-light-pro-plan.md section 2) rather than the Pro sentence
  */
 public record HotTopic(
         String type,
@@ -98,7 +105,9 @@ public record HotTopic(
         @JsonInclude(JsonInclude.Include.NON_NULL)
         String safetyNote,
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        GlanceLine glance) implements Comparable<HotTopic> {
+        GlanceLine glance,
+        @JsonIgnore
+        String liteDetail) implements Comparable<HotTopic> {
 
     /** The served anchor of a topic whose window runs from its date's dusk to the next dawn. */
     public static final String EVENT_NIGHT = "NIGHT";
@@ -124,11 +133,11 @@ public record HotTopic(
     }
 
     /**
-     * Explicit canonical constructor with Jackson annotations so that cached briefing
-     * JSON written before the {@code description}, {@code expandedDetail}, {@code eventType},
-     * {@code eventTime}, {@code locationNames}, {@code facts} or {@code note} fields were added
-     * deserialises correctly. When a field is absent from the JSON, Jackson passes {@code null} and
-     * this constructor defaults it to {@code null}.
+     * Jackson creator, with explicit property names so that cached briefing JSON written before
+     * the {@code description}, {@code expandedDetail}, {@code eventType}, {@code eventTime},
+     * {@code locationNames}, {@code facts} or {@code note} fields were added deserialises
+     * correctly. When a field is absent from the JSON, Jackson passes {@code null}. {@code liteDetail}
+     * is never serialised, so it is absent here and defaults to {@code null}.
      */
     @JsonCreator
     public HotTopic(
@@ -153,27 +162,9 @@ public record HotTopic(
             @JsonProperty("rarityNote") String rarityNote,
             @JsonProperty("safetyNote") String safetyNote,
             @JsonProperty("glance") GlanceLine glance) {
-        this.type = type;
-        this.label = label;
-        this.detail = detail;
-        this.date = date;
-        this.priority = priority;
-        this.filterAction = filterAction;
-        this.regions = regions;
-        this.description = description;
-        this.expandedDetail = expandedDetail;
-        this.eventType = eventType;
-        this.eventTime = eventTime;
-        this.locationNames = locationNames;
-        this.eveningWindow = eveningWindow;
-        this.morningWindow = morningWindow;
-        this.facts = facts;
-        this.note = note;
-        this.tideRun = tideRun;
-        this.surgeRun = surgeRun;
-        this.rarityNote = rarityNote;
-        this.safetyNote = safetyNote;
-        this.glance = glance;
+        this(type, label, detail, date, priority, filterAction, regions, description,
+                expandedDetail, eventType, eventTime, locationNames, eveningWindow, morningWindow,
+                facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance, null);
     }
 
     /**
@@ -217,7 +208,8 @@ public record HotTopic(
     public HotTopic withEvent(String eventType, String eventTime) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
+                glance, liteDetail);
     }
 
     /**
@@ -230,7 +222,8 @@ public record HotTopic(
     public HotTopic withLocations(List<String> locationNames) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
+                glance, liteDetail);
     }
 
     /**
@@ -243,7 +236,8 @@ public record HotTopic(
     public HotTopic withNlcWindows(NlcWindow eveningWindow, NlcWindow morningWindow) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
+                glance, liteDetail);
     }
 
     /**
@@ -257,7 +251,8 @@ public record HotTopic(
     public HotTopic withScience(List<HotTopicFact> facts, String note) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
+                glance, liteDetail);
     }
 
     /**
@@ -272,7 +267,8 @@ public record HotTopic(
     public HotTopic withExpandedDetail(ExpandedHotTopicDetail expandedDetail) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
+                glance, liteDetail);
     }
 
     /**
@@ -284,7 +280,8 @@ public record HotTopic(
     public HotTopic withTideRun(TideRunDay tideRun) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
+                glance, liteDetail);
     }
 
     /**
@@ -299,7 +296,8 @@ public record HotTopic(
     public HotTopic withSurgeRun(SurgeRunDay surgeRun) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
+                glance, liteDetail);
     }
 
     /**
@@ -312,19 +310,8 @@ public record HotTopic(
     public HotTopic withRarity(String rarityNote) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
-    }
-
-    /**
-     * Returns a copy of this topic with a different {@code detail} line.
-     *
-     * @param newDetail the detail text, or null
-     * @return a new {@link HotTopic} with only {@code detail} replaced
-     */
-    public HotTopic withDetail(String newDetail) {
-        return new HotTopic(type, label, newDetail, date, priority, filterAction, regions,
-                description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
+                glance, liteDetail);
     }
 
     /**
@@ -340,7 +327,8 @@ public record HotTopic(
     public HotTopic withSafety(String safetyNote) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
+                glance, liteDetail);
     }
 
     /**
@@ -353,7 +341,64 @@ public record HotTopic(
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
                 eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
-                glance);
+                glance, liteDetail);
+    }
+
+    /**
+     * Returns a copy of this topic carrying the light-free sentence a LITE reader is served in place
+     * of {@link #detail()}.
+     *
+     * @param liteDetail the sentence (for a tide topic, its "N coastal locations" clause), or null
+     * @return a new {@link HotTopic} with {@code liteDetail} set
+     */
+    public HotTopic withLiteDetail(String liteDetail) {
+        return new HotTopic(type, label, detail, date, priority, filterAction, regions,
+                description, expandedDetail, eventType, eventTime, locationNames,
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
+                glance, liteDetail);
+    }
+
+    /**
+     * Returns a copy of this topic carrying the given detail line, every other component unchanged.
+     *
+     * @param newDetail the replacement detail, or null
+     * @return a new {@link HotTopic} with {@code detail} replaced
+     */
+    public HotTopic withDetail(String newDetail) {
+        return new HotTopic(type, label, newDetail, date, priority, filterAction, regions,
+                description, expandedDetail, eventType, eventTime, locationNames,
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote,
+                glance, liteDetail);
+    }
+
+    /**
+     * Returns this topic as a LITE reader may see it. Only a spring or king tide topic changes:
+     * everything that relates the water to the light goes (tide-light-pro-plan.md), and the
+     * topic itself, its label, date, regions, size facts and locations stay (the two-question rule).
+     *
+     * <ul>
+     *   <li>{@code detail} becomes {@link #liteDetail()}, <b>and null when that is null</b> (a
+     *       reloaded or simulated topic carries none: fail closed, never the Pro sentence);</li>
+     *   <li>{@code tideRun} (the run row, whose verdict, alignment and phrase all state the water
+     *       against the light) is null;</li>
+     *   <li>{@code eventType} and {@code eventTime}, resolved to the aligned light for a tide
+     *       topic, are null;</li>
+     *   <li>the tide metrics' aligned counts are null.</li>
+     * </ul>
+     *
+     * <p>Any other topic is returned as the same instance.
+     *
+     * @return the shaped copy, or this for a non-tide topic
+     */
+    public HotTopic forLite() {
+        if (!"SPRING_TIDE".equals(type) && !"KING_TIDE".equals(type)) {
+            return this;
+        }
+        ExpandedHotTopicDetail liteExpanded = expandedDetail == null ? null : expandedDetail.forLite();
+        return new HotTopic(type, label, liteDetail, date, priority, filterAction, regions,
+                description, liteExpanded, null, null, locationNames,
+                eveningWindow, morningWindow, facts, note, null, surgeRun, rarityNote, safetyNote,
+                glance, liteDetail);
     }
 
     /**

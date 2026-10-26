@@ -169,6 +169,7 @@ class KingTideHotTopicStrategyTest {
         assertThat(topic.date()).isEqualTo(TODAY);
         assertThat(topic.detail()).doesNotContain("today");
         assertThat(topic.detail()).contains("2 coastal locations");
+        assertThat(topic.liteDetail()).isEqualTo("2 coastal locations");
         assertThat(topic.regions()).containsExactly("Northumberland",
                 "The North Yorkshire Coast");
         assertThat(topic.description()).contains("King tides");
@@ -263,6 +264,11 @@ class KingTideHotTopicStrategyTest {
         assertThat(topics.get(0).detail()).doesNotContain("today");
         assertThat(topics.get(1).date()).isEqualTo(TODAY.plusDays(1));
         assertThat(topics.get(1).detail()).contains("no tide alignment");
+        // The Lite sentence never names the light, on an aligned and an unaligned day alike, and is
+        // the same count clause (tide-light-pro-plan.md B1).
+        assertThat(topics.get(0).liteDetail()).isEqualTo("1 coastal location");
+        assertThat(topics.get(1).liteDetail()).isEqualTo("1 coastal location");
+        assertThat(topics.get(0).forLite().detail()).isEqualTo("1 coastal location");
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
+import com.gregochr.goldenhour.model.TriageReason;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.DisplayName;
@@ -148,6 +149,67 @@ class BriefingEvaluationControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$[0].fierySkyPotential").doesNotExist())
                 .andExpect(jsonPath("$[0].goldenHourPotential").doesNotExist())
                 .andExpect(jsonPath("$[0].summary").doesNotExist());
+    }
+
+    private void stubTideTriagedScores() {
+        LocalDate today = ForecastHorizon.today(Clock.systemUTC());
+        LocationEvaluationView tide = new LocationEvaluationView(7L, "Bamburgh", 3L, "North East",
+                LocalDate.of(2026, 10, 25), TargetType.SUNSET,
+                LocationEvaluationView.Source.FORECAST_EVALUATION_TRIAGE, null, null, null, null,
+                TriageReason.TIDE_MISALIGNED, "No high tide aligned with golden/blue hour window",
+                "SONNET", null, DisplayVerdict.STAND_DOWN, null, null, null, null);
+        when(evaluationViewService.forDateRange(
+                today.minusDays(ForecastHorizon.SERVE_PAST_DAYS),
+                today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS),
+                Set.of(TargetType.SUNRISE, TargetType.SUNSET))).thenReturn(List.of(tide));
+    }
+
+    @Test
+    @DisplayName("GET /scores gives LITE (and an unrecognised role) a tide stand-down as GENERIC, no message")
+    @WithMockUser(roles = "LITE_USER")
+    void scores_liteTideTriageIsGeneric() throws Exception {
+        stubTideTriagedScores();
+
+        mockMvc.perform(get("/api/briefing/evaluate/scores"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].triageReason").value("GENERIC"))
+                .andExpect(jsonPath("$[0].triageMessage").doesNotExist())
+                .andExpect(jsonPath("$[0].displayVerdict").value("STAND_DOWN"));
+    }
+
+    @Test
+    @DisplayName("GET /scores fails closed on the tide stand-down for a role it does not recognise")
+    @WithMockUser(roles = "USER")
+    void scores_unrecognisedRoleTideTriageIsGeneric() throws Exception {
+        stubTideTriagedScores();
+
+        mockMvc.perform(get("/api/briefing/evaluate/scores"))
+                .andExpect(jsonPath("$[0].triageReason").value("GENERIC"))
+                .andExpect(jsonPath("$[0].triageMessage").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("GET /scores gives PRO_USER and ADMIN the tide stand-down reason and message (Admin = Pro)")
+    @WithMockUser(roles = "PRO_USER")
+    void scores_proKeepsTideTriage() throws Exception {
+        stubTideTriagedScores();
+
+        mockMvc.perform(get("/api/briefing/evaluate/scores"))
+                .andExpect(jsonPath("$[0].triageReason").value("TIDE_MISALIGNED"))
+                .andExpect(jsonPath("$[0].triageMessage")
+                        .value("No high tide aligned with golden/blue hour window"));
+    }
+
+    @Test
+    @DisplayName("GET /scores gives ADMIN the tide stand-down reason and message (Admin = Pro)")
+    @WithMockUser(roles = "ADMIN")
+    void scores_adminKeepsTideTriage() throws Exception {
+        stubTideTriagedScores();
+
+        mockMvc.perform(get("/api/briefing/evaluate/scores"))
+                .andExpect(jsonPath("$[0].triageReason").value("TIDE_MISALIGNED"))
+                .andExpect(jsonPath("$[0].triageMessage")
+                        .value("No high tide aligned with golden/blue hour window"));
     }
 
     @Test

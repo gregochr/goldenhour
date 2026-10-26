@@ -66,17 +66,19 @@ public record LocationTideFact(
     }
 
     /**
-     * Returns this fact as the LITE role is served it: the per-location match and the per-spot
-     * height and curve position removed, the free state, direction and light facts kept.
+     * Returns this fact as the LITE role is served it: the per-location match, the per-spot
+     * height and curve position, and the tide against the light ({@code tideOnTheLight},
+     * {@code nearestSolarOffsetPhrase}) removed; the free state and direction kept.
      *
      * <p>Rebuilt through the canonical constructor so a component added later cannot be defaulted
      * away silently; the reflection completeness test fails until it is classified.
      *
      * @return a copy with {@code tideAligned}, {@code tideAlignmentQuality}, {@code tideShortfall},
-     *         {@code tideFitPhrase}, {@code tideHeight} and {@code tideLevel} null
+     *         {@code tideFitPhrase}, {@code tideHeight}, {@code tideLevel}, {@code tideOnTheLight}
+     *         and {@code nearestSolarOffsetPhrase} null
      */
     public LocationTideFact forLite() {
         return new LocationTideFact(locationId, locationName, tideState, null, null,
-                tideOnTheLight, nearestSolarOffsetPhrase, null, tideDirection, null, null, null);
+                null, null, null, tideDirection, null, null, null);
     }
 }

@@ -505,6 +505,9 @@ class SpringTideHotTopicStrategyTest {
 
         assertThat(topics.get(0).detail()).isEqualTo(
                 "tide aligned with sunrise at 1 of 1 coastal location");
+        // Lite is served the count alone, never the alignment (tide-light-pro-plan.md B1).
+        assertThat(topics.get(0).liteDetail()).isEqualTo("1 coastal location");
+        assertThat(topics.get(0).forLite().detail()).isEqualTo("1 coastal location");
     }
 
     @Test
@@ -521,6 +524,7 @@ class SpringTideHotTopicStrategyTest {
         assertThat(topics.get(0).detail()).isEqualTo(
                 "no sunrise or sunset"
                         + " alignment, but good coastal foreground \u00b7 1 coastal location");
+        assertThat(topics.get(0).liteDetail()).isEqualTo("1 coastal location");
     }
 
     @Test
