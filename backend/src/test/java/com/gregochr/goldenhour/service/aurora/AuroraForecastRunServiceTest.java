@@ -478,6 +478,17 @@ class AuroraForecastRunServiceTest {
     }
 
     @Test
+    @DisplayName("getAvailableDates asks the repository for nights at the MIN_OFFERED_NIGHT_STARS threshold")
+    void getAvailableDates_passesMinStarsConstant() {
+        when(resultRepository.findForecastDatesWithMinStarsExcludingSimulated(
+                AuroraForecastRunService.MIN_OFFERED_NIGHT_STARS))
+                .thenReturn(List.of(TODAY));
+
+        assertThat(service.getAvailableDates()).containsExactly(TODAY.toString());
+        assertThat(AuroraForecastRunService.MIN_OFFERED_NIGHT_STARS).isEqualTo(3);
+    }
+
+    @Test
     @DisplayName("getResultsForDate's window matches computeWindowForDate for that same date")
     void getResultsForDate_windowMatchesComputeWindowForDate() {
         LocationEntity loc = LocationEntity.builder()

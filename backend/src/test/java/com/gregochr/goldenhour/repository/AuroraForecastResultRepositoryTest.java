@@ -93,17 +93,78 @@ class AuroraForecastResultRepositoryTest {
         assertThat(found.get(0).getLocation().getName()).isEqualTo("Embleton Bay");
     }
 
-    @Test
-    @DisplayName("findDistinctForecastDatesExcludingSimulated omits a night whose only rows are "
-            + "simulated")
-    void findDistinctForecastDates_omitsSimulatedOnlyNight() {
-        LocalDate realNight = NIGHT;
-        LocalDate simulatedOnlyNight = NIGHT.plusDays(1);
-        result(realNight, false);
-        result(simulatedOnlyNight, true);
+    private void night(LocalDate date, boolean simulated, int stars, boolean triaged) {
+        repository.save(AuroraForecastResultEntity.builder()
+                .location(location)
+                .forecastDate(date)
+                .runTimestamp(Instant.parse("2026-03-21T18:00:00Z"))
+                .stars(stars)
+                .summary("Night")
+                .triaged(triaged)
+                .source(triaged ? "triage" : "claude")
+                .alertLevel("MODERATE")
+                .maxKp(5.5)
+                .simulated(simulated)
+                .build());
+    }
 
-        assertThat(repository.findDistinctForecastDatesExcludingSimulated())
-                .containsExactly(realNight);
+    @Test
+    @DisplayName("findForecastDatesWithMinStars omits a night whose only rows are simulated")
+    void findForecastDates_omitsSimulatedOnlyNight() {
+        result(NIGHT, false);
+        result(NIGHT.plusDays(1), true);
+
+        assertThat(repository.findForecastDatesWithMinStarsExcludingSimulated(3))
+                .containsExactly(NIGHT);
+    }
+
+    @Test
+    @DisplayName("findForecastDatesWithMinStars excludes a night whose best rating is 2 stars")
+    void findForecastDates_excludesTwoStarNight() {
+        night(NIGHT, false, 2, false);
+        night(NIGHT, false, 1, true);
+
+        assertThat(repository.findForecastDatesWithMinStarsExcludingSimulated(3)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findForecastDatesWithMinStars includes a night whose best rating is exactly 3 stars")
+    void findForecastDates_includesThreeStarNight() {
+        night(NIGHT, false, 3, false);
+
+        assertThat(repository.findForecastDatesWithMinStarsExcludingSimulated(3))
+                .containsExactly(NIGHT);
+    }
+
+    @Test
+    @DisplayName("findForecastDatesWithMinStars includes a night mixing a triaged 1-star and a Claude 4-star")
+    void findForecastDates_mixedTriagedAndClaude_included() {
+        night(NIGHT, false, 1, true);
+        night(NIGHT, false, 4, false);
+
+        assertThat(repository.findForecastDatesWithMinStarsExcludingSimulated(3))
+                .containsExactly(NIGHT);
+    }
+
+    @Test
+    @DisplayName("findForecastDatesWithMinStars ignores a simulated 5-star row on a real quiet night")
+    void findForecastDates_simulatedFiveStar_ignored() {
+        night(NIGHT, false, 2, false);
+        night(NIGHT, true, 5, false);
+
+        assertThat(repository.findForecastDatesWithMinStarsExcludingSimulated(3)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findForecastDatesWithMinStars returns qualifying dates in ascending order, once each")
+    void findForecastDates_ordered() {
+        night(NIGHT.plusDays(2), false, 5, false);
+        night(NIGHT, false, 3, false);
+        night(NIGHT, false, 4, false);
+        night(NIGHT.plusDays(1), false, 2, false);
+
+        assertThat(repository.findForecastDatesWithMinStarsExcludingSimulated(3))
+                .containsExactly(NIGHT, NIGHT.plusDays(2));
     }
 
     @Test
