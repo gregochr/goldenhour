@@ -470,8 +470,9 @@ miss, no "0 of N" and no sparkline.
   the `roster` counts); `ExpandedHotTopicDetail.tideMetrics()` aligned counts; and the king-tide headline
   "tide aligned with …" (`KingTideHotTopicStrategy.java:293`, drawn at `WindowTopicRows.jsx:117`). These
   are under the two-question rule.
-- Claude's region and best-bet prose (fed `tideAlignedCount`: `BriefingGlossService.java:295`,
-  `BriefingRollupBuilder.java:461–515`, `BestBetPromptText.java:155`).
+- Claude's best-bet prose (fed `tideAlignedCount`: `BriefingRollupBuilder.java:461–515`,
+  `BestBetPromptText.java:155`). **Status: the region gloss is fixed** (`audit-followups-plan.md` P): it is
+  no longer fed `tideAlignedCount` (was `BriefingGlossService.java:295`) and its prompt forbids a tide match.
 - The `TIDE_MISALIGNED` stand-down: the verdict, the slot's "Tide mismatch" reason, the
   `/api/briefing/evaluate/scores` `triageReason`, and its client label "tide not aligned with location
   preference" (`utils/forecastDetailFacts.js:41`, `LocationSheetFacts`). It is a **rating**: the

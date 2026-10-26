@@ -116,12 +116,15 @@ public class BriefingGlossService {
             Examples: "Heavy rain washes out the sky", "Sun blocked at the eastern horizon", \
             "Blanket overcast — no canvas, no colour". Do NOT use optimistic language like \
             "worth a look" or "promising" for STANDDOWN regions.
+            TIDES: you may mention a king or spring tide as a fact about the coast. Never say \
+            whether the tide suits, matches or aligns with any location, or with the sunrise or \
+            sunset. This overrides any other instruction about tide factors.
             Respond with ONLY a JSON object. No markdown, no code fences, no preamble, \
             no trailing text. The response must start with { and end with }.
             Example: {"headline": "High cirrus canvas — colour potential", \
             "detail": "40% high cloud provides a canvas for colour at sunset. \
             Low cloud is minimal at 15%, keeping the horizon clear. \
-            No tide alignment but conditions favour warm tones."}""";
+            The clear horizon favours warm tones."}""";
 
     private final AnthropicApiClient anthropicApiClient;
     private final ObjectMapper objectMapper;
@@ -292,8 +295,6 @@ public class BriefingGlossService {
         boolean buildingTrend = region.slots().stream()
                 .anyMatch(s -> s.flags().contains("Cloud building"));
 
-        long tideAlignedCount = region.slots().stream()
-                .filter(s -> Boolean.TRUE.equals(s.tide().tideAligned())).count();
         boolean hasKingTide = region.slots().stream().anyMatch(s -> s.tide().heightAboveP95());
         boolean hasSpringTide = region.slots().stream().anyMatch(s -> s.tide().heightAboveSpringThreshold());
         long coastalCount = region.slots().stream()
@@ -314,7 +315,6 @@ public class BriefingGlossService {
             node.put("cloudHigh", cloudHigh);
             node.put("clearAllLayers", clearAllLayers);
             node.put("buildingTrend", buildingTrend);
-            node.put("tideAlignedCount", tideAlignedCount);
             node.put("hasKingTide", hasKingTide);
             node.put("hasSpringTide", hasSpringTide);
             node.put("coastalLocationCount", coastalCount);
