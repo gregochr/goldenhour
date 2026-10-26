@@ -1,6 +1,6 @@
 # Sub-regions: guidebook areas, Lite picks, and Ask — build plan
 
-Status: **plan v2**, 2026-10-26. Reviewed by five adversarial lenses (data model, enforcement and caching, Ask,
+Status: **plan v2, decided**, 2026-10-26 (owner answered §9 in full). Reviewed by five adversarial lenses (data model, enforcement and caching, Ask,
 picks and the change rule, consistency and phasing); every finding is folded in, and §10 records what each lens
 changed. Owner-approved inputs: the sub-region list and allocation (§3, Appendix A), the change rule's shape (§4.3),
 and that Ask must understand sub-regions (§6). Open decisions are in §9; no phase starts until the questions marked
@@ -123,7 +123,7 @@ rule in §3.1 (checked by script against the roster, the region names and each o
 | Buttermere, Loweswater & Ennerdale | Buttermere valley |
 | Hadrian's Wall & Tynedale | South Tyne, North Tyne |
 
-If Q4 allows one-word aliases, add (each passes §3.1; several are words of their own sub-region's name, which is
+Q4 allows one-word aliases for sub-regions, so V191 also seeds (each passes §3.1; several are words of their own sub-region's name, which is
 allowed): Teesdale, Ribblesdale, Dentdale, Langdales, Ambleside, Windermere, Hawkshead, Derwentwater, Borrowdale,
 Keswick, Haweswater, Eskdale, Ennerdale, Teesside, Flamborough, Coquetdale, Rothbury, Malhamdale, Airedale, and
 Tynedale and Kielder (for Hadrian's Wall & Tynedale).
@@ -319,24 +319,12 @@ server strip dark until S5's client is in, so S3 may land first.
 1. ~~Q1~~ **Decided (owner, 2026-10-26):** an admin setting, default 3 (D5, §5.2).
 2. ~~Q2~~ **Decided (owner, 2026-10-26):** the sub-region is "Hadrian's Wall & Tynedale"; the V189 "Hadrian's Wall"
    area stays unchanged (§3.1).
-3. **Q3 (S1): the inland Moors name.** Recommended: **"Inland North York Moors"**. It must not be a run of the region
-   name "North York Moors & Coast".
-4. **Q4 (S1): one-word aliases for sub-regions** (Teesdale, Keswick, Ennerdale …)? Recommended: **yes, for
-   `SUB_REGION` only**, since that is how people name these places, at the cost of a small guard change and its tests.
-5. **Q5 (S3, S5): what Lite sees outside its picks.** The locations themselves (markers, names) with a Pro door, or
-   nothing? And the region-level `displayVerdict`, `verdictLabel` and prose, and the window `verdict`/`confidence`:
-   free (they summarise every location, including unpicked ones; the prose counts spots such as "three rated Go" but
-   names none) or stripped? Recommended: locations visible without ratings; region and window verdicts and prose
-   free; every per-location star and every best or mean star stripped (§4.2).
-6. **Q6 (S3): hot topics** free in every region, with embedded per-location ratings stripped (D7)? Recommended: yes.
-7. **Q7 (S3): astro night-sky stars** (`/api/astro/conditions`, per location, open to Lite today) and **past
-   windows** (`/api/forecast?date=` in the past): inside the ration or outside it? Recommended: both inside (astro is a
-   per-location star; past windows inside is simplest and consistent).
-8. **Q8 (S3): shaped Lite bodies sent `no-store`** (§5.3)? Recommended: yes.
-9. **Q9 (S5): zero picks.** Recommended: no default picks saved; the zero-picks prompt shows the suggestions.
-10. **Q10 (S4): picker hidden until enforcement is on?** Recommended: yes.
-11. **Q11 (S2): the change rule as written in §4.3** (grace from the first choice; add-only changes free after grace;
-    every swap stamps the lock)?
+3. ~~Q3~~–~~Q11~~ **Decided (owner, 2026-10-26): every recommendation accepted.** So: Q3 "Inland North York Moors";
+   Q4 one-word aliases allowed for `SUB_REGION` areas only (`NAMED` areas keep the two-word minimum), and §3.2's
+   one-word list is seeded; Q5 locations visible without ratings, region and window verdicts and prose free, every
+   per-location, best and mean star stripped; Q6 hot topics free with embedded ratings stripped; Q7 astro stars and
+   past windows inside the ration; Q8 `no-store` for shaped Lite bodies; Q9 no default picks, the zero-picks prompt
+   shows suggestions; Q10 picker hidden until enforcement is on; Q11 the change rule as written in §4.3.
 
 ## §10 Review record (2026-10-26)
 
