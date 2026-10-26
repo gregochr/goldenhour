@@ -238,8 +238,13 @@ public class AuthController {
      * the email reservation surfaces from the service as a {@link DataIntegrityViolationException} and is
      * translated here, outside the rolled-back transaction, to the same 409 a plain duplicate gets.
      *
-     * @param body map containing {@code username} and {@code email}
-     * @return 200 with confirmation message, 400 for validation errors, 409 for duplicates
+     * <p>An optional {@code inviteToken} (a waitlist invitation) lets a registration for the address it was sent
+     * to past the early-access cap, once. Anything else about it (wrong address, expired, used, unknown) is
+     * ignored here and the normal cap applies, so the response never says whether a token was valid.
+     *
+     * @param body map containing {@code username} and {@code email}, and optionally {@code inviteToken}
+     * @return 200 with confirmation message, 400 for validation errors, 403 when registration is closed,
+     *         409 for duplicates
      */
     @PostMapping("/register")
     public ResponseEntity<Map<String, Object>> register(@RequestBody Map<String, String> body) {
@@ -285,7 +290,7 @@ public class AuthController {
         boolean marketingEmailOptIn = "true".equalsIgnoreCase(body.get("marketingEmailOptIn"));
 
         try {
-            registrationService.register(username, email.trim(), marketingEmailOptIn);
+            registrationService.register(username, email.trim(), marketingEmailOptIn, body.get("inviteToken"));
             LOG.info("Registration: user='{}' email='{}'",
                     LogSanitizer.sanitize(username), LogSanitizer.sanitize(email.trim()));
             return ResponseEntity.ok(Map.of(

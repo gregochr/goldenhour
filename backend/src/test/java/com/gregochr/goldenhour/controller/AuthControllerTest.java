@@ -418,7 +418,7 @@ class AuthControllerTest extends AbstractControllerTest {
         AppUserEntity pending = AppUserEntity.builder()
                 .id(10L).username("newuser").password("").role(UserRole.LITE_USER)
                 .email("new@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
-        when(registrationService.register("newuser", "new@example.com", false)).thenReturn(pending);
+        when(registrationService.register("newuser", "new@example.com", false, null)).thenReturn(pending);
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -429,8 +429,59 @@ class AuthControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.email").value("new@example.com"));
 
         // The field is absent, and an absent field is not consent (plan §1 #15).
-        verify(registrationService).register("newuser", "new@example.com", false);
-        verify(registrationService, never()).register(anyString(), anyString(), eq(true));
+        verify(registrationService).register("newuser", "new@example.com", false, null);
+        verify(registrationService, never()).register("newuser", "new@example.com", true, null);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register hands the invite token to the service verbatim, with Turnstile still "
+            + "verified")
+    void register_withInviteToken_forwardsIt() throws Exception {
+        AppUserEntity pending = AppUserEntity.builder()
+                .id(10L).username("newuser").password("").role(UserRole.LITE_USER)
+                .email("new@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
+        when(registrationService.register("newuser", "new@example.com", false, "invite-raw")).thenReturn(pending);
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
+                                + "\"termsAccepted\":\"true\",\"inviteToken\":\"invite-raw\","
+                                + "\"turnstileToken\":\"tok\"}"))
+                .andExpect(status().isOk());
+
+        verify(turnstileService).verify("tok");
+        verify(registrationService).register("newuser", "new@example.com", false, "invite-raw");
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register with an invite token and a failing Turnstile is a 400: the invite "
+            + "does not waive the CAPTCHA, and is not redeemed")
+    void register_withInviteTokenAndBadCaptcha_returns400() throws Exception {
+        when(turnstileService.verify("bad")).thenReturn(false);
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
+                                + "\"termsAccepted\":\"true\",\"inviteToken\":\"invite-raw\","
+                                + "\"turnstileToken\":\"bad\"}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(registrationService);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register with an unusable invite is the ordinary 403, naming nothing about the "
+            + "token")
+    void register_withUnusableInvite_isTheOrdinary403() throws Exception {
+        when(registrationService.register("newuser", "new@example.com", false, "stale"))
+                .thenThrow(new RegistrationClosedException());
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
+                                + "\"termsAccepted\":\"true\",\"inviteToken\":\"stale\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Early access is currently full"));
     }
 
     @Test
@@ -439,7 +490,7 @@ class AuthControllerTest extends AbstractControllerTest {
         AppUserEntity pending = AppUserEntity.builder()
                 .id(10L).username("newuser").password("").role(UserRole.LITE_USER)
                 .email("new@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
-        when(registrationService.register("newuser", "new@example.com", true)).thenReturn(pending);
+        when(registrationService.register("newuser", "new@example.com", true, null)).thenReturn(pending);
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -447,7 +498,7 @@ class AuthControllerTest extends AbstractControllerTest {
                                 + "\"marketingEmailOptIn\":\"true\",\"termsAccepted\":\"true\"}"))
                 .andExpect(status().isOk());
 
-        verify(registrationService).register("newuser", "new@example.com", true);
+        verify(registrationService).register("newuser", "new@example.com", true, null);
     }
 
     @Test
@@ -456,7 +507,7 @@ class AuthControllerTest extends AbstractControllerTest {
         AppUserEntity pending = AppUserEntity.builder()
                 .id(10L).username("newuser").password("").role(UserRole.LITE_USER)
                 .email("new@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
-        when(registrationService.register("newuser", "new@example.com", false)).thenReturn(pending);
+        when(registrationService.register("newuser", "new@example.com", false, null)).thenReturn(pending);
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -464,7 +515,7 @@ class AuthControllerTest extends AbstractControllerTest {
                                 + "\"marketingEmailOptIn\":\"yes\",\"termsAccepted\":\"true\"}"))
                 .andExpect(status().isOk());
 
-        verify(registrationService).register("newuser", "new@example.com", false);
+        verify(registrationService).register("newuser", "new@example.com", false, null);
     }
 
     @Test
@@ -496,13 +547,13 @@ class AuthControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.error").value("CAPTCHA verification failed. Please try again."));
 
         verifyNoInteractions(turnstileGate);
-        verify(registrationService, never()).register(anyString(), anyString(), anyBoolean());
+        verify(registrationService, never()).register("newuser", "new@example.com", false, null);
     }
 
     @Test
     @DisplayName("POST /api/auth/register returns 409 for duplicate username")
     void register_duplicateUsername_returns409() throws Exception {
-        when(registrationService.register("taken", "new@example.com", false))
+        when(registrationService.register("taken", "new@example.com", false, null))
                 .thenThrow(new IllegalArgumentException("Username already exists"));
 
         mockMvc.perform(post("/api/auth/register")
@@ -821,7 +872,7 @@ class AuthControllerTest extends AbstractControllerTest {
                 .id(10L).username("newuser").password("").role(UserRole.LITE_USER)
                 .email("new@example.com").enabled(false).createdAt(LocalDateTime.now())
                 .marketingEmailOptIn(false).build();
-        when(registrationService.register("newuser", "new@example.com", false)).thenReturn(pending);
+        when(registrationService.register("newuser", "new@example.com", false, null)).thenReturn(pending);
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -1247,7 +1298,7 @@ class AuthControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("POST /api/auth/register returns 403 when registration cap is reached")
     void register_capReached_returns403() throws Exception {
-        when(registrationService.register(eq("newuser"), eq("new@example.com"), anyBoolean()))
+        when(registrationService.register("newuser", "new@example.com", false, null))
                 .thenThrow(new RegistrationClosedException());
 
         mockMvc.perform(post("/api/auth/register")
@@ -1313,7 +1364,7 @@ class AuthControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("POST /api/auth/register: a lost race on the email reservation is a 409 'Email already registered'")
     void register_emailReservationViolation_returns409() throws Exception {
-        when(registrationService.register("newuser", "new@example.com", false))
+        when(registrationService.register("newuser", "new@example.com", false, null))
                 .thenThrow(new DataIntegrityViolationException("could not execute statement",
                         new SQLException("ERROR: duplicate key value violates unique constraint "
                                 + "\"pk_app_user_email_claim\"")));
@@ -1329,7 +1380,7 @@ class AuthControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("POST /api/auth/register: a lost race on the username key is a 409 'Username already taken'")
     void register_usernameViolation_returns409() throws Exception {
-        when(registrationService.register("newuser", "new@example.com", false))
+        when(registrationService.register("newuser", "new@example.com", false, null))
                 .thenThrow(new DataIntegrityViolationException("could not execute statement",
                         new SQLException("ERROR: duplicate key value violates unique constraint "
                                 + "\"app_user_username_key\"")));
@@ -1345,7 +1396,7 @@ class AuthControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("POST /api/auth/register: a violation of any other key is not dressed up as a 409")
     void register_otherViolation_isNotAConflict() throws Exception {
-        when(registrationService.register("newuser", "new@example.com", false))
+        when(registrationService.register("newuser", "new@example.com", false, null))
                 .thenThrow(new DataIntegrityViolationException("could not execute statement",
                         new SQLException("null value in column \"role\" violates not-null constraint")));
 

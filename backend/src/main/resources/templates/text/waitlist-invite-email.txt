@@ -1,0 +1,15 @@
+A place has opened for you
+
+Hello,
+
+You asked to be told when a place opened on PhotoCast. One has. This
+invitation is for [(${username})] and works until [(${expiresOn})].
+
+Claim your place:
+[(${inviteUrl})]
+
+Register with this same address. The invitation works once, and only for
+it.
+
+--
+PhotoCast — Golden hour, forecast and ranked by AI

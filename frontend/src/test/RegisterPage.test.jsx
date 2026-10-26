@@ -111,7 +111,7 @@ describe('RegisterPage', () => {
       expect(screen.getByTestId('waitlist-success')).toBeInTheDocument();
     });
 
-    expect(AuthApi.submitWaitlist).toHaveBeenCalledWith('wait@example.com');
+    expect(AuthApi.submitWaitlist).toHaveBeenCalledWith('wait@example.com', 'test-turnstile-token');
   });
 
   it('shows error on waitlist submit failure', async () => {
@@ -188,6 +188,164 @@ describe('RegisterPage', () => {
 
     await user.click(screen.getByText('Back to sign in'));
     expect(onBack).toHaveBeenCalledOnce();
+  });
+});
+
+/** Waitlist invitations and the waitlist step's own CAPTCHA (audit-followups-plan.md, W). */
+describe('RegisterPage waitlist invitations', () => {
+  const full = { response: { status: 403, data: { error: 'Early access is currently full' } } };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installTurnstileMock();
+  });
+
+  afterEach(() => {
+    delete window.turnstile;
+  });
+
+  async function fillAndSubmit(user) {
+    await user.type(screen.getByTestId('reg-username'), 'newuser');
+    await user.type(screen.getByTestId('reg-email'), 'new@example.com');
+    await user.click(screen.getByTestId('reg-terms-accepted'));
+    await user.click(screen.getByTestId('reg-submit'));
+  }
+
+  it('sends the invite token from the link with the registration', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(AuthApi, 'register').mockResolvedValue(undefined);
+    renderPage({ inviteToken: 'invite-raw' });
+
+    await fillAndSubmit(user);
+
+    await waitFor(() => {
+      expect(AuthApi.register).toHaveBeenCalledWith(
+        'newuser', 'new@example.com', 'test-turnstile-token', false, true, 'invite-raw',
+      );
+    });
+  });
+
+  it('sends null (no invitation) when the page was not opened from an invitation', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(AuthApi, 'register').mockResolvedValue(undefined);
+    renderPage();
+
+    await fillAndSubmit(user);
+
+    await waitFor(() => {
+      expect(AuthApi.register).toHaveBeenCalledWith(
+        'newuser', 'new@example.com', 'test-turnstile-token', false, true, null,
+      );
+    });
+  });
+
+  it('an invitation that is refused still lands on the waitlist step', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(AuthApi, 'register').mockRejectedValue(full);
+    renderPage({ inviteToken: 'stale' });
+
+    await fillAndSubmit(user);
+
+    expect(await screen.findByTestId('waitlist-step')).toBeInTheDocument();
+  });
+
+  it('the waitlist step promises an emailed invitation, and shows it again once submitted', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(AuthApi, 'register').mockRejectedValue(full);
+    vi.spyOn(AuthApi, 'submitWaitlist').mockResolvedValue({ message: "You're on the list" });
+    renderPage();
+
+    await fillAndSubmit(user);
+    const step = await screen.findByTestId('waitlist-step');
+    expect(step).toHaveTextContent("we'll email you an invitation when a place opens");
+
+    await user.click(screen.getByTestId('waitlist-submit'));
+    expect(await screen.findByTestId('waitlist-success'))
+      .toHaveTextContent("We'll email you an invitation when a place opens.");
+  });
+
+  it('mounts exactly one Turnstile on the waitlist step (the register one is gone) and sends its token', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(AuthApi, 'register').mockRejectedValue(full);
+    vi.spyOn(AuthApi, 'submitWaitlist').mockResolvedValue({ message: 'ok' });
+    renderPage();
+
+    await fillAndSubmit(user);
+    await screen.findByTestId('waitlist-step');
+
+    expect(screen.getAllByTestId('turnstile-widget')).toHaveLength(1);
+    await user.click(screen.getByTestId('waitlist-submit'));
+    await waitFor(() => {
+      expect(AuthApi.submitWaitlist).toHaveBeenCalledWith('new@example.com', 'test-turnstile-token');
+    });
+  });
+
+  it('keeps the waitlist submit disabled until the challenge produces a token', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(AuthApi, 'register').mockRejectedValue(full);
+    let waitlistCallback;
+    window.turnstile = {
+      render: vi.fn((_container, opts) => {
+        // The register step's widget answers at once; the waitlist step's stays pending.
+        if (window.turnstile.render.mock.calls.length === 1) opts.callback('register-token');
+        else waitlistCallback = opts.callback;
+        return 'widget-id';
+      }),
+      remove: vi.fn(),
+      reset: vi.fn(),
+    };
+    renderPage();
+
+    await fillAndSubmit(user);
+    await screen.findByTestId('waitlist-step');
+
+    expect(screen.getByTestId('waitlist-submit')).toBeDisabled();
+    waitlistCallback('waitlist-token');
+    await waitFor(() => expect(screen.getByTestId('waitlist-submit')).toBeEnabled());
+  });
+
+  it('says so, and keeps submit disabled, when the waitlist Turnstile cannot load (no fallback)', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(AuthApi, 'register').mockRejectedValue(full);
+    vi.spyOn(AuthApi, 'submitWaitlist').mockResolvedValue({ message: 'ok' });
+    let renders = 0;
+    window.turnstile = {
+      render: vi.fn((_container, opts) => {
+        renders += 1;
+        if (renders === 1) {
+          opts.callback('register-token');
+          return 'widget-id';
+        }
+        throw new Error('domain not whitelisted');
+      }),
+      remove: vi.fn(),
+      reset: vi.fn(),
+    };
+    renderPage();
+
+    await fillAndSubmit(user);
+
+    expect(await screen.findByTestId('waitlist-turnstile-unavailable')).toBeInTheDocument();
+    expect(screen.getByTestId('waitlist-submit')).toBeDisabled();
+    expect(AuthApi.submitWaitlist).not.toHaveBeenCalled();
+  });
+
+  it('a 429 from the waitlist shows the server sentence and asks for a fresh challenge', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(AuthApi, 'register').mockRejectedValue(full);
+    vi.spyOn(AuthApi, 'submitWaitlist').mockRejectedValue({
+      response: { status: 429, data: { error: 'Too many attempts. Please wait a few minutes and try again.' } },
+    });
+    renderPage();
+
+    await fillAndSubmit(user);
+    await screen.findByTestId('waitlist-step');
+    const rendersBefore = window.turnstile.render.mock.calls.length;
+    await user.click(screen.getByTestId('waitlist-submit'));
+
+    expect(await screen.findByText('Too many attempts. Please wait a few minutes and try again.'))
+      .toBeInTheDocument();
+    await waitFor(() => expect(window.turnstile.render.mock.calls.length).toBeGreaterThan(rendersBefore));
   });
 });
 
@@ -523,7 +681,7 @@ describe('RegisterPage registration form (R2b)', () => {
 
       await waitFor(() => {
         expect(AuthApi.register).toHaveBeenCalledWith(
-          'newuser', 'new@example.com', 'test-turnstile-token', false, true,
+          'newuser', 'new@example.com', 'test-turnstile-token', false, true, null,
         );
       });
     });
@@ -541,7 +699,7 @@ describe('RegisterPage registration form (R2b)', () => {
 
       await waitFor(() => {
         expect(AuthApi.register).toHaveBeenCalledWith(
-          'newuser', 'new@example.com', 'test-turnstile-token', true, true,
+          'newuser', 'new@example.com', 'test-turnstile-token', true, true, null,
         );
       });
     });

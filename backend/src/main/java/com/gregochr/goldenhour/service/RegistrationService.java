@@ -68,6 +68,7 @@ public class RegistrationService {
     private final VerificationTokenIssuer verificationTokenIssuer;
     private final CredentialChangeWriter credentialChangeWriter;
     private final PasswordEncoder passwordEncoder;
+    private final WaitlistService waitlistService;
 
     /**
      * The account a verification link activated, and the hash it now holds — what the caller needs to
@@ -91,20 +92,35 @@ public class RegistrationService {
     /**
      * Registers a new pending user and sends a verification email.
      *
+     * <p>A valid waitlist invitation for this address skips the early-access cap check, and only that:
+     * {@code photocast.registration.enabled=false} refuses everyone. The invitation is redeemed inside this
+     * transaction, so a registration that fails (a taken username) gives it back. An invitation that is
+     * absent, unknown, expired, used or issued to another address falls through to the cap, with the same
+     * refusal as no invitation at all.
+     *
      * @param username            the desired login name
      * @param email               the user's email address
      * @param marketingEmailOptIn whether the user opted in to marketing emails
+     * @param inviteToken         the raw waitlist invitation token, or null
      * @return the created pending user
      * @throws IllegalArgumentException      if the username or email is already taken
-     * @throws RegistrationClosedException   if the early-access cap has been reached
+     * @throws RegistrationClosedException   if registration is disabled, or the cap has been reached and no
+     *                                       valid invitation was presented
      */
     @Transactional
-    public AppUserEntity register(String username, String email, boolean marketingEmailOptIn) {
-        long nonAdminCount = userRepository.countByRoleNot(UserRole.ADMIN);
-        if (nonAdminCount >= registrationProperties.getMaxUsers()) {
-            LOG.info("Registration cap reached ({}/{}): rejecting username='{}'",
-                    nonAdminCount, registrationProperties.getMaxUsers(), LogSanitizer.sanitize(username));
+    public AppUserEntity register(String username, String email, boolean marketingEmailOptIn,
+            String inviteToken) {
+        if (!registrationProperties.isEnabled()) {
+            LOG.info("Registration disabled: rejecting username='{}'", LogSanitizer.sanitize(username));
             throw new RegistrationClosedException();
+        }
+        if (!waitlistService.redeemInvite(inviteToken, email)) {
+            long nonAdminCount = userRepository.countByRoleNot(UserRole.ADMIN);
+            if (nonAdminCount >= registrationProperties.getMaxUsers()) {
+                LOG.info("Registration cap reached ({}/{}): rejecting username='{}'",
+                        nonAdminCount, registrationProperties.getMaxUsers(), LogSanitizer.sanitize(username));
+                throw new RegistrationClosedException();
+            }
         }
 
         UserRole role = UserRole.valueOf(registrationProperties.getDefaultRole());
@@ -244,7 +260,18 @@ public class RegistrationService {
         CredentialChangeOutcome outcome = credentialChangeWriter.consumeVerificationAndApply(token.getId(),
                 token.getUserId(), encoded, Change.activation());
         LOG.info("User activated: id={}", outcome.userId());
+        clearWaitlistEntry(outcome);
         return new Activation(outcome.userId(), encoded);
+    }
+
+    /** An activated account no longer waits: drop its waitlist row (by address) and never fail the activation. */
+    private void clearWaitlistEntry(CredentialChangeOutcome outcome) {
+        try {
+            waitlistService.removeByEmail(outcome.email());
+        } catch (RuntimeException ex) {
+            LOG.warn("Could not clear the waitlist entry of activated user id={}: {}", outcome.userId(),
+                    ex.getClass().getSimpleName());
+        }
     }
 
     private void saveVerificationToken(String rawToken, Long userId) {

@@ -17,6 +17,30 @@
 > and `<app>/reset?token=` (`UserEmailService.appLink`); `/reset` opens the reset page even on a browser that is already signed
 > in. `/api/auth/**` is `permitAll`, so an unauthenticated call arrives as the principal `anonymousUser`: `/change-password`
 > and `/marketing-emails` refuse it (401) and `/register` refuses that username (409).
+>
+> `/register` also accepts an optional `inviteToken` (a waitlist invitation). A token that is live, unused and issued to
+> the request's own address (compared case-insensitively) is redeemed in the registration's transaction and skips ONLY the
+> early-access cap check: Turnstile still applies, and `photocast.registration.enabled=false` refuses everyone, invited or not.
+> Any other token (unknown, expired, used, another address) is ignored and the ordinary cap applies, with the same 403 "Early
+> access is currently full" (no leak). The waitlist row is deleted at activation (`/set-password`), by the account's stored
+> address, not at register.
+
+### Waitlist (public sign-up; ADMIN management)
+`POST /api/waitlist` `{email, turnstileToken}` (public, no JWT) | `GET /api/admin/waitlist` | `POST /api/admin/waitlist/{id}/invite` | `DELETE /api/admin/waitlist/{id}`
+
+> `POST /api/waitlist` answers 200 `{"message": "You're on the list"}` for a new address AND an already-listed one (idempotent,
+> including a lost unique-key race); 400 for a missing or malformed address, or a Turnstile token that fails or is missing
+> (strict: no fallback); **429** "Too many attempts. Please wait a few minutes and try again." from `AuthAttemptLimiter` (60
+> an hour overall, 5 per client address per 15 minutes; a refused attempt is never a silent 200). The log carries the row id,
+> never the address.
+>
+> `GET /api/admin/waitlist` returns `[{id, email, submittedAt, invitedAt, inviteExpiresAt}]`, oldest first; the invitation's
+> token hash and used mark are never served. `POST .../{id}/invite` mints a random token, stores its SHA-256 hash with
+> `invited_at` and a 7-day expiry (clearing `invite_used_at`; a re-invite replaces the earlier token) and mails
+> `waitlist-invite-email` with `<app>/register#invite=<token>` (the fragment form, NOT `#token=`, which the app reads as a
+> verification link): **200** `{message}`; **400** for a non-ASCII address (registration rejects those); **404** unknown id;
+> **503** when no mail sender is configured (nothing is stored). `DELETE .../{id}`: **204**, or **404** unknown id. Both
+> management calls are ADMIN only (403 for Lite and Pro, 401 unauthenticated).
 
 ### Auth (Bearer required)
 `POST /api/auth/logout|change-password` | `PUT /api/auth/marketing-emails`

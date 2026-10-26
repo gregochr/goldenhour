@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import apiClient from '../api/axiosClient.js';
 import {
-  setPasswordForNewUser, register, requestPasswordReset, resetPassword, verifyEmail, logout,
+  setPasswordForNewUser, register, requestPasswordReset, resetPassword, verifyEmail, logout, submitWaitlist,
 } from '../api/authApi.js';
 
 vi.mock('../api/axiosClient.js', () => ({ default: { post: vi.fn() }, SKIP_AUTH_REFRESH: 'skipAuthRefresh' }));
@@ -44,6 +44,28 @@ describe('authApi request bodies', () => {
     await logout('the-refresh');
 
     expect(apiClient.post).toHaveBeenCalledWith('/api/auth/logout', { refreshToken: 'the-refresh' }, SKIP);
+  });
+
+  it('register sends inviteToken when one is given, and no inviteToken key at all when not', async () => {
+    await register('newuser', 'new@example.com', 'tok', false, true, 'invite-raw');
+    expect(apiClient.post).toHaveBeenLastCalledWith('/api/auth/register', {
+      username: 'newuser',
+      email: 'new@example.com',
+      turnstileToken: 'tok',
+      marketingEmailOptIn: 'false',
+      termsAccepted: 'true',
+      inviteToken: 'invite-raw',
+    }, SKIP);
+
+    await register('newuser', 'new@example.com', 'tok', false, true, null);
+    expect(Object.keys(apiClient.post.mock.calls[1][1])).not.toContain('inviteToken');
+  });
+
+  it('submitWaitlist posts the address and its Turnstile token', async () => {
+    await submitWaitlist('wait@example.com', 'wtok');
+
+    expect(apiClient.post).toHaveBeenCalledWith('/api/waitlist',
+      { email: 'wait@example.com', turnstileToken: 'wtok' }, SKIP);
   });
 
   it('register sends marketingEmailOptIn as the string "false" when the box is unticked', async () => {

@@ -38,4 +38,23 @@ public class WaitlistEmailEntity {
     /** Timestamp when the email was submitted. */
     @Column(name = "submitted_at", nullable = false)
     private LocalDateTime submittedAt;
+
+    /**
+     * SHA-256 hex of the invitation token mailed to this address, or null if never invited. Written only by
+     * {@code WaitlistEmailRepository.markInvited}; never serialised.
+     */
+    @Column(name = "invite_token_hash", length = 64, unique = true, insertable = false, updatable = false)
+    private String inviteTokenHash;
+
+    /** When the current invitation was sent, or null. Scoped updates only. */
+    @Column(name = "invited_at", insertable = false, updatable = false)
+    private LocalDateTime invitedAt;
+
+    /** When the current invitation stops working, or null. Scoped updates only. */
+    @Column(name = "invite_expires_at", insertable = false, updatable = false)
+    private LocalDateTime inviteExpiresAt;
+
+    /** When the current invitation was redeemed at registration, or null. Scoped updates only. */
+    @Column(name = "invite_used_at", insertable = false, updatable = false)
+    private LocalDateTime inviteUsedAt;
 }

@@ -58,12 +58,15 @@ export async function changePassword(newPassword, turnstileToken) {
  * @param {string} turnstileToken - Cloudflare Turnstile verification token.
  * @param {boolean} marketingEmailOptIn - Whether the user opts in to marketing emails.
  * @param {boolean} termsAccepted - Whether the user accepted the Terms & Conditions and Privacy Policy.
+ * @param {string|null} [inviteToken] - A waitlist invitation token from the emailed link; sent only when present.
  * @returns {Promise<{message: string, email: string}>}
  */
-export async function register(username, email, turnstileToken, marketingEmailOptIn, termsAccepted) {
+export async function register(username, email, turnstileToken, marketingEmailOptIn, termsAccepted,
+  inviteToken = null) {
   const response = await apiClient.post(`${BASE_URL}/register`, {
     username, email, turnstileToken, marketingEmailOptIn: String(marketingEmailOptIn),
     termsAccepted: String(termsAccepted),
+    ...(inviteToken ? { inviteToken } : {}),
   }, { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }
@@ -121,10 +124,11 @@ export async function setPasswordForNewUser(token, password) {
  * Submits an email address to the waitlist when early-access registration is full.
  *
  * @param {string} email - The email address to add to the waitlist.
- * @returns {Promise<{message: string}>}
+ * @param {string} turnstileToken - The Turnstile response token (a failing or missing one is a 400).
+ * @returns {Promise<{message: string}>} A 429 means the attempt bounds were reached.
  */
-export async function submitWaitlist(email) {
-  const response = await apiClient.post('/api/waitlist', { email }, { [SKIP_AUTH_REFRESH]: true });
+export async function submitWaitlist(email, turnstileToken) {
+  const response = await apiClient.post('/api/waitlist', { email, turnstileToken }, { [SKIP_AUTH_REFRESH]: true });
   return response.data;
 }
 
