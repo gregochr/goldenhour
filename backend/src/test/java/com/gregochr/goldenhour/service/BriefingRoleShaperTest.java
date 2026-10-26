@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.BestBet;
@@ -438,9 +439,124 @@ class BriefingRoleShaperTest {
             if (SLOT_STRIPPED.contains(c.getName())) {
                 assertThat(value).as(c.getName()).isNull();
                 assertThat(c.getAccessor().invoke(full)).as(c.getName() + " in the fixture").isNotNull();
+            } else if (c.getName().equals("tide")) {
+                assertThat(value).as("tide is narrowed by TideInfo.forLite, covered separately")
+                        .isEqualTo(full.tide().forLite());
             } else {
                 assertThat(value).as(c.getName()).isEqualTo(c.getAccessor().invoke(full));
             }
+        }
+    }
+
+    private static final Set<String> TIDE_INFO_STRIPPED = Set.of("tideAligned", "tideAlignmentQuality",
+            "tideShortfall", "tideFitPhrase", "tideHeight", "tideLevel", "nearestHighTideHeight");
+    private static final Set<String> TIDE_INFO_KEPT = Set.of("tideState", "nearestHighTideTime",
+            "heightAboveP95", "heightAboveSpringThreshold", "lunarTideType", "lunarPhase", "moonAtPerigee",
+            "nearestSolarOffsetMinutes", "nearestExtremeKind", "tideOnTheLight", "nearestSolarOffsetPhrase",
+            "tideDirection");
+
+    /** A slot tide block with every component set, so a stripped one cannot hide behind a null. */
+    private static BriefingSlot.TideInfo fullSlotTide() {
+        return new BriefingSlot.TideInfo("HIGH", true, AT, new BigDecimal("4.9"), true, true,
+                LunarTideType.KING_TIDE, "Full moon", true, 30, "HW", true, "HW 06:30 · 30m after sunrise",
+                0.83, "RISING", "4.9 m", "HIGHER", "Tide suits this spot", 0.61);
+    }
+
+    private static BriefingSlot slotWithFullTide(List<String> flags) {
+        BriefingSlot base = scoredSlot(flags);
+        return base.withTide(fullSlotTide());
+    }
+
+    @Test
+    @DisplayName("Every slot TideInfo component is classified kept or stripped")
+    void everyTideInfoComponentIsClassified() {
+        assertThat(componentNames(BriefingSlot.TideInfo.class))
+                .as("a new component must be classified here and handled in TideInfo.forLite()")
+                .containsExactlyInAnyOrderElementsOf(union(TIDE_INFO_STRIPPED, TIDE_INFO_KEPT));
+    }
+
+    @Test
+    @DisplayName("TideInfo.forLite nulls exactly the stripped components and keeps the rest verbatim")
+    void tideInfoForLiteNullsExactlyTheStrippedComponents() throws Exception {
+        BriefingSlot.TideInfo full = fullSlotTide();
+        BriefingSlot.TideInfo lite = full.forLite();
+
+        for (RecordComponent c : BriefingSlot.TideInfo.class.getRecordComponents()) {
+            Object value = c.getAccessor().invoke(lite);
+            Object original = c.getAccessor().invoke(full);
+            assertThat(original).as(c.getName() + " in the fixture").isNotNull();
+            if (TIDE_INFO_STRIPPED.contains(c.getName())) {
+                assertThat(value).as(c.getName()).isNull();
+            } else {
+                assertThat(value).as(c.getName()).isEqualTo(original);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("LITE: regioned and unregioned slots lose the tide match and heights, keep the rest")
+    void forLite_narrowsTheSlotTideBlock() {
+        DailyBriefingResponse lite = shaper.forLite(responseOf(
+                slotWithFullTide(List.of()), slotWithFullTide(List.of("Tide aligned"))));
+
+        for (BriefingSlot s : List.of(summaryOf(lite).regions().get(0).slots().get(0),
+                summaryOf(lite).unregioned().get(0))) {
+            BriefingSlot.TideInfo t = s.tide();
+            assertThat(t.tideAligned()).isNull();
+            assertThat(t.tideAlignmentQuality()).isNull();
+            assertThat(t.tideShortfall()).isNull();
+            assertThat(t.tideFitPhrase()).isNull();
+            assertThat(t.tideHeight()).isNull();
+            assertThat(t.tideLevel()).isNull();
+            assertThat(t.nearestHighTideHeight()).isNull();
+            assertThat(t.tideState()).isEqualTo("HIGH");
+            assertThat(t.nearestHighTideTime()).isEqualTo(AT);
+            assertThat(t.heightAboveP95()).isTrue();
+            assertThat(t.heightAboveSpringThreshold()).isTrue();
+            assertThat(t.lunarTideType()).isEqualTo(LunarTideType.KING_TIDE);
+            assertThat(t.tideOnTheLight()).isTrue();
+            assertThat(t.tideDirection()).isEqualTo("RISING");
+        }
+    }
+
+    @Test
+    @DisplayName("LITE: a slot with no tide block stays without one")
+    void forLite_keepsANullSlotTideNull() {
+        BriefingSlot noTide = scoredSlot(List.of()).withTide(null);
+
+        assertThat(noTide.forLite().tide()).isNull();
+    }
+
+    @Test
+    @DisplayName("PRO and ADMIN: the shaper is not applied, so the slot tide block stays whole")
+    void proBodyKeepsTheWholeSlotTide() {
+        BriefingSlot slot = slotWithFullTide(List.of());
+
+        assertThat(slot.tide()).isEqualTo(fullSlotTide());
+        shaper.forLite(responseOf(slot, slot));
+        assertThat(slot.tide()).as("the shaper copies, never edits").isEqualTo(fullSlotTide());
+    }
+
+    @Test
+    @DisplayName("LITE JSON: the serialised slot carries no value for the stripped tide keys, PRO JSON carries all")
+    void liteSlotJsonOmitsTheStrippedTideKeys() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper()
+                .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        BriefingSlot full = slotWithFullTide(List.of());
+
+        com.fasterxml.jackson.databind.JsonNode lite = mapper.readTree(mapper.writeValueAsString(full.forLite()));
+        com.fasterxml.jackson.databind.JsonNode pro = mapper.readTree(mapper.writeValueAsString(full));
+
+        for (String key : TIDE_INFO_STRIPPED) {
+            // nearestHighTideHeight is not NON_NULL (a pre-existing wire shape), so LITE carries
+            // it as an explicit null; what matters is that no value reaches the reader.
+            assertThat(lite.path(key).isMissingNode() || lite.path(key).isNull())
+                    .as("LITE carries a value for " + key).isTrue();
+            assertThat(pro.path(key).isMissingNode() || pro.path(key).isNull())
+                    .as("PRO carries a value for " + key).isFalse();
+        }
+        for (String key : TIDE_INFO_KEPT) {
+            assertThat(lite.has(key)).as("LITE has " + key).isTrue();
         }
     }
 

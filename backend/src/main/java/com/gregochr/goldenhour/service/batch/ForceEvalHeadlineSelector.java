@@ -150,7 +150,7 @@ public final class ForceEvalHeadlineSelector {
                     for (BriefingSlot slot : region.slots()) {
                         if (slot.verdict() == Verdict.GO) {
                             goNames.add(slot.locationName());
-                            if (slot.tide() != null && slot.tide().tideAligned()) {
+                            if (slot.tide() != null && Boolean.TRUE.equals(slot.tide().tideAligned())) {
                                 tideAligned++;
                             }
                         }

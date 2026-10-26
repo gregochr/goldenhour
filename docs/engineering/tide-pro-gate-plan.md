@@ -414,6 +414,24 @@ notification path reads the window tide.
 5. **Under Q2's alternative** (the match stays on the Plan tab), B1 strips only the curve rows of the
    table, and F1's client gate is the Map's only enforcement.
 
+### 7.1a 2026-10-26 addendum: the slot `TideInfo` was missed; now stripped
+
+The table above covered the window block, the window's per-location facts and the two slot flags, but not
+each slot's own tide block, `BriefingSlot.TideInfo` (`@JsonUnwrapped`), which `BriefingSlot.forLite()` passed
+through untouched. `TideInfo.forLite()` now mirrors `LocationTideFact`'s split and nulls `tideAligned`,
+`tideAlignmentQuality`, `tideShortfall`, `tideFitPhrase`, `tideHeight`, `tideLevel` and
+`nearestHighTideHeight` (a height; the window block keeps the nearest extreme's time and type, never its
+height). Kept: `tideState`, `nearestHighTideTime`, `heightAboveP95`, `heightAboveSpringThreshold` (they feed
+the free spring and king hot topics and the rollups' king/spring counts; they are size flags, not the match),
+`lunarTideType`, `lunarPhase`, `moonAtPerigee`, `nearestSolarOffsetMinutes`, `nearestExtremeKind`,
+`tideOnTheLight`, `nearestSolarOffsetPhrase`, `tideDirection`. `TideInfo.tideAligned` became a
+`@JsonInclude(NON_NULL) Boolean`; the four internal readers on a `TideInfo` (`BriefingVerdictEvaluator`,
+`ForceEvalHeadlineSelector`, `BriefingRollupBuilder`, `BriefingGlossService`) use
+`Boolean.TRUE.equals(...)`. A reflection completeness test classifies every `TideInfo` component.
+Note: on the live `GET /api/briefing` path `ServedBriefingAssembler.stripSlotTide` already sets every
+slot's `tide` to null (window-tide-facts P5), so the leak was latent; this makes the shaper correct on its
+own for any body that still carries a slot tide.
+
 ### 7.2 What B1 changes on LITE's Plan tab (F0 makes it render cleanly)
 
 B1 changes the Plan tab for LITE, so it **gets the UI review cadence and a browser check** *(rev)*:
