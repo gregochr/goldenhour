@@ -15,7 +15,8 @@ import java.time.LocalDateTime;
  * @param wavePeriodS      mean wave period, seconds
  * @param facesDeg         compass bearing the structure faces
  * @param hwTime           this structure's high water, UTC with no zone
- * @param aligned          whether its window contains its own date's sunrise or sunset
+ * @param aligned          whether its window contains its own date's sunrise or sunset; always
+ *                         false on the Lite wire
  */
 public record BigSeasStructure(
         long locationId,
@@ -27,4 +28,16 @@ public record BigSeasStructure(
         int facesDeg,
         LocalDateTime hwTime,
         boolean aligned) {
+
+    /**
+     * Returns this structure as a LITE reader may see it: {@code aligned} is false (the ring is
+     * drawn for a structure whose window contains a light, which is a Pro fact); every other
+     * component, the sea state and the high-water clock included, stays.
+     *
+     * @return the shaped copy
+     */
+    public BigSeasStructure forLite() {
+        return new BigSeasStructure(locationId, label, structure, waveHeightM, waveDirectionDeg,
+                wavePeriodS, facesDeg, hwTime, false);
+    }
 }

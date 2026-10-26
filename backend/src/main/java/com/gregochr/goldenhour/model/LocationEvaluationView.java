@@ -135,8 +135,10 @@ public record LocationEvaluationView(
 
     /**
      * Returns a copy of this view as a LITE reader may see it: the Fiery Sky and Golden Hour
-     * potentials and the written {@link #summary} are null, everything else (the star rating,
-     * the verdict, the stand-down reason, the light times) unchanged.
+     * potentials and the written {@link #summary} are null, and a {@link TriageReason#TIDE_MISALIGNED}
+     * stand-down is served as {@link TriageReason#GENERIC} with no message (it states the water
+     * against the light, a Pro fact); everything else (the star rating, the verdict, any other
+     * stand-down reason, the light times) unchanged.
      *
      * @return a new view with the Pro-only fields removed
      */
@@ -144,7 +146,9 @@ public record LocationEvaluationView(
         return new LocationEvaluationView(
                 locationId, locationName, regionId, regionName, date, targetType, source,
                 rating, null, null, null,
-                triageReason, triageMessage, evaluationModel, evaluatedAt, displayVerdict,
+                TriageReason.forLite(triageReason),
+                triageReason == TriageReason.TIDE_MISALIGNED ? null : triageMessage,
+                evaluationModel, evaluatedAt, displayVerdict,
                 goldenHourStart, goldenHourEnd, blueHourStart, blueHourEnd, gated);
     }
 

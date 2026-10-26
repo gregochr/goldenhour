@@ -185,7 +185,10 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                     null,
                     coastalRegions,
                     SPRING_TIDE_DESCRIPTION,
-                    expandedDetail);
+                    expandedDetail)
+                    .withLiteDetail(buildSpringTideDetail(
+                            new KingTideHotTopicStrategy.Alignment(null, false),
+                            coastalLocations.size()));
             CoastalTideFactsBuilder.CoastalScience science =
                     coastalTideFactsBuilder.buildSpring(day, coastalLocations);
             if (science != null) {

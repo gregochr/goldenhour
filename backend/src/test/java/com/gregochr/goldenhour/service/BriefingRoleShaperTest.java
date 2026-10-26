@@ -103,7 +103,7 @@ class BriefingRoleShaperTest {
         assertThat(lite.direction()).isEqualTo(BriefingWindowTide.Direction.FALLING);
         assertThat(lite.nearestType()).isEqualTo("HW");
         assertThat(lite.nearestTime()).isEqualTo("19:28");
-        assertThat(lite.nearestOffset()).isEqualTo("1h43 before sunset");
+        assertThat(lite.nearestOffset()).as("how far HW sits from the light is Pro").isNull();
         assertThat(lite.range()).isEqualTo("4.9 m");
         assertThat(lite.rangeAnomaly()).isEqualTo("1.2 m above an average tide");
         assertThat(lite.seas()).isEqualTo("0.3 m · smooth");
@@ -125,8 +125,8 @@ class BriefingRoleShaperTest {
         assertThat(lite.locationName()).isEqualTo("Bamburgh");
         assertThat(lite.tideState()).isEqualTo("HIGH");
         assertThat(lite.tideDirection()).isEqualTo("RISING");
-        assertThat(lite.tideOnTheLight()).isTrue();
-        assertThat(lite.nearestSolarOffsetPhrase()).isEqualTo("HW 06:12 · 25m after sunrise");
+        assertThat(lite.tideOnTheLight()).as("the tide against the light is Pro").isNull();
+        assertThat(lite.nearestSolarOffsetPhrase()).isNull();
     }
 
     @Test
@@ -140,8 +140,14 @@ class BriefingRoleShaperTest {
     }
 
     @Test
-    @DisplayName("LITE: a STANDDOWN verdict and its reason survive the flag strip (it is a rating)")
+    @DisplayName("LITE: a STANDDOWN verdict survives the flag strip (it is a rating); a tide-mismatch "
+            + "reason goes, any other reason stays")
     void forLite_keepsStanddownVerdictAndReason() {
+        BriefingSlot other = new BriefingSlot(7L, "Bamburgh", AT, Verdict.STANDDOWN, null, null,
+                List.of(), "Building cloud", null, null, null, null, null,
+                DisplayVerdict.AWAITING, null, false, null);
+        assertThat(other.forLite().standdownReason()).isEqualTo("Building cloud");
+        assertThat(other.forLite().verdict()).isEqualTo(Verdict.STANDDOWN);
         BriefingSlot standdown = new BriefingSlot(7L, "Bamburgh", AT, Verdict.STANDDOWN, null, null,
                 List.of("Tide not aligned"), "Tide mismatch", null, null, null, null, null,
                 DisplayVerdict.AWAITING, null, false, null);
@@ -155,7 +161,7 @@ class BriefingRoleShaperTest {
 
         assertThat(lite.flags()).isEmpty();
         assertThat(lite.verdict()).isEqualTo(Verdict.STANDDOWN);
-        assertThat(lite.standdownReason()).isEqualTo("Tide mismatch");
+        assertThat(lite.standdownReason()).as("the tide-mismatch reason states the water vs the light").isNull();
     }
 
     @Test
@@ -270,8 +276,8 @@ class BriefingRoleShaperTest {
     @DisplayName("Every BriefingWindow component is classified kept or stripped")
     void everyBriefingWindowComponentIsClassified() {
         Set<String> stripped = Set.of("pick");
-        Set<String> handledAsTide = Set.of("tide", "tideFacts");
-        Set<String> kept = Set.of("eventTime", "verdict", "bestRating", "confidence", "badges",
+        Set<String> handledAsTide = Set.of("tide", "tideFacts", "badges");
+        Set<String> kept = Set.of("eventTime", "verdict", "bestRating", "confidence",
                 "topRarityRank");
 
         assertThat(componentNames(BriefingWindow.class))
@@ -283,10 +289,10 @@ class BriefingRoleShaperTest {
     @DisplayName("Every DailyBriefingResponse component is classified kept or stripped")
     void everyDailyBriefingResponseComponentIsClassified() {
         Set<String> stripped = Set.of("bestBets", "bestBetModel", "bestBetStatus", "bestBetsWithdrawn");
-        Set<String> rebuiltViaDays = Set.of("days");
+        Set<String> rebuiltViaDays = Set.of("days", "hotTopics", "bigSeas");
         Set<String> kept = Set.of("generatedAt", "headline", "auroraTonight", "auroraTomorrow",
-                "stale", "partialFailure", "failedLocationCount", "hotTopics", "seasonalFeatures",
-                "renderedEvents", "previousGeneratedAt", "bigSeas", "allowedLocationIds");
+                "stale", "partialFailure", "failedLocationCount", "seasonalFeatures",
+                "renderedEvents", "previousGeneratedAt", "allowedLocationIds");
 
         assertThat(componentNames(DailyBriefingResponse.class))
                 .as("a new component must be classified here and handled in forLite()")
@@ -297,9 +303,9 @@ class BriefingRoleShaperTest {
     @DisplayName("Every BriefingWindowTide component is classified kept or stripped")
     void everyBriefingWindowTideComponentIsClassified() {
         Set<String> stripped = Set.of("curve", "windowPosition", "windowLevel", "sunrisePosition",
-                "sunsetPosition", "extremes", "heightAtWindow");
+                "sunsetPosition", "extremes", "heightAtWindow", "nearestOffset");
         Set<String> kept = Set.of("locationName", "state", "direction", "nearestType", "nearestTime",
-                "nearestOffset", "range", "rangeAnomaly", "seas");
+                "range", "rangeAnomaly", "seas");
 
         assertThat(componentNames(BriefingWindowTide.class))
                 .as("a new component must be classified here and handled in forLite()")
@@ -310,9 +316,8 @@ class BriefingRoleShaperTest {
     @DisplayName("Every LocationTideFact component is classified kept or stripped")
     void everyLocationTideFactComponentIsClassified() {
         Set<String> stripped = Set.of("tideAligned", "tideAlignmentQuality", "tideShortfall",
-                "tideFitPhrase", "tideHeight", "tideLevel");
-        Set<String> kept = Set.of("locationId", "locationName", "tideState", "tideDirection",
-                "tideOnTheLight", "nearestSolarOffsetPhrase");
+                "tideFitPhrase", "tideHeight", "tideLevel", "tideOnTheLight", "nearestSolarOffsetPhrase");
+        Set<String> kept = Set.of("locationId", "locationName", "tideState", "tideDirection");
 
         assertThat(componentNames(LocationTideFact.class))
                 .as("a new component must be classified here and handled in forLite()")
@@ -323,7 +328,7 @@ class BriefingRoleShaperTest {
     @DisplayName("forLite nulls exactly the stripped components, no more and no fewer")
     void forLiteNullsExactlyTheStrippedComponents() throws Exception {
         Set<String> strippedTide = Set.of("windowPosition", "windowLevel", "sunrisePosition",
-                "sunsetPosition", "extremes", "heightAtWindow");
+                "sunsetPosition", "extremes", "heightAtWindow", "nearestOffset");
         for (RecordComponent c : BriefingWindowTide.class.getRecordComponents()) {
             Object value = c.getAccessor().invoke(fullTide().forLite());
             if (c.getName().equals("curve")) {
@@ -333,7 +338,7 @@ class BriefingRoleShaperTest {
             }
         }
         Set<String> strippedFact = Set.of("tideAligned", "tideAlignmentQuality", "tideShortfall",
-                "tideFitPhrase", "tideHeight", "tideLevel");
+                "tideFitPhrase", "tideHeight", "tideLevel", "tideOnTheLight", "nearestSolarOffsetPhrase");
         for (RecordComponent c : LocationTideFact.class.getRecordComponents()) {
             Object value = c.getAccessor().invoke(fullFact().forLite());
             assertThat(value == null).as(c.getName()).isEqualTo(strippedFact.contains(c.getName()));
@@ -449,10 +454,10 @@ class BriefingRoleShaperTest {
     }
 
     private static final Set<String> TIDE_INFO_STRIPPED = Set.of("tideAligned", "tideAlignmentQuality",
-            "tideShortfall", "tideFitPhrase", "tideHeight", "tideLevel", "nearestHighTideHeight");
+            "tideShortfall", "tideFitPhrase", "tideHeight", "tideLevel", "nearestHighTideHeight",
+            "nearestSolarOffsetMinutes", "nearestExtremeKind", "tideOnTheLight", "nearestSolarOffsetPhrase");
     private static final Set<String> TIDE_INFO_KEPT = Set.of("tideState", "nearestHighTideTime",
             "heightAboveP95", "heightAboveSpringThreshold", "lunarTideType", "lunarPhase", "moonAtPerigee",
-            "nearestSolarOffsetMinutes", "nearestExtremeKind", "tideOnTheLight", "nearestSolarOffsetPhrase",
             "tideDirection");
 
     /** A slot tide block with every component set, so a stripped one cannot hide behind a null. */
@@ -514,7 +519,10 @@ class BriefingRoleShaperTest {
             assertThat(t.heightAboveP95()).isTrue();
             assertThat(t.heightAboveSpringThreshold()).isTrue();
             assertThat(t.lunarTideType()).isEqualTo(LunarTideType.KING_TIDE);
-            assertThat(t.tideOnTheLight()).isTrue();
+            assertThat(t.tideOnTheLight()).isNull();
+            assertThat(t.nearestSolarOffsetMinutes()).isNull();
+            assertThat(t.nearestExtremeKind()).isNull();
+            assertThat(t.nearestSolarOffsetPhrase()).isNull();
             assertThat(t.tideDirection()).isEqualTo("RISING");
         }
     }

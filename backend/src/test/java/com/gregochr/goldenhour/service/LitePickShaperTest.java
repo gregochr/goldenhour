@@ -769,7 +769,7 @@ class LitePickShaperTest {
                 Set.of("expandedDetail", "detail", "facts", "glance"),
                 Set.of("type", "label", "date", "priority", "filterAction", "regions", "description",
                         "eventType", "eventTime", "locationNames", "eveningWindow", "morningWindow", "note",
-                        "tideRun", "surgeRun", "rarityNote", "safetyNote")));
+                        "tideRun", "surgeRun", "rarityNote", "safetyNote", "liteDetail")));
         assertThat(names(ExpandedHotTopicDetail.class)).containsExactlyInAnyOrderElementsOf(
                 Set.of("regionGroups", "bluebellMetrics", "tideMetrics"));
         assertThat(names(RegionGroup.class)).containsExactlyInAnyOrderElementsOf(

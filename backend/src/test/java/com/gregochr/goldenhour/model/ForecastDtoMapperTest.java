@@ -643,10 +643,8 @@ class ForecastDtoMapperTest {
         assertThat(dto.triageMessage()).isNull();
     }
 
-    @Test
-    @DisplayName("toDto() preserves triage fields for LITE users (not gated behind basic tier)")
-    void toDto_liteUser_mapsTriageFields() {
-        ForecastEvaluationEntity entity = ForecastEvaluationEntity.builder()
+    private static ForecastEvaluationEntity tideTriagedEntity() {
+        return ForecastEvaluationEntity.builder()
                 .id(100L)
                 .location(LOCATION)
                 .locationLat(BigDecimal.valueOf(54.7753))
@@ -657,11 +655,65 @@ class ForecastDtoMapperTest {
                 .daysAhead(0)
                 .triage(new TriageDetails(TriageReason.TIDE_MISALIGNED, "No high tide in golden/blue hour window"))
                 .build();
+    }
 
-        ForecastEvaluationDto dto = mapper.toDto(entity, true);
+    @Test
+    @DisplayName("toDto() serves LITE a tide-misaligned stand-down as GENERIC with no message (A9)")
+    void toDto_liteUser_hidesTheTideTriageReason() {
+        ForecastEvaluationDto dto = mapper.toDto(tideTriagedEntity(), true);
+
+        assertThat(dto.triageReason()).isEqualTo(TriageReason.GENERIC);
+        assertThat(dto.triageMessage()).isNull();
+    }
+
+    @Test
+    @DisplayName("toDto() serves PRO and ADMIN (isLiteUser false) the tide reason and its message")
+    void toDto_proAndAdmin_keepTheTideTriageReason() {
+        ForecastEvaluationDto dto = mapper.toDto(tideTriagedEntity(), false);
 
         assertThat(dto.triageReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
         assertThat(dto.triageMessage()).isEqualTo("No high tide in golden/blue hour window");
+    }
+
+    @Test
+    @DisplayName("toDto() leaves every other triage reason and its message untouched for LITE")
+    void toDto_liteUser_keepsOtherTriageReasons() {
+        ForecastEvaluationEntity entity = tideTriagedEntity();
+        entity.setTriage(new TriageDetails(TriageReason.HIGH_CLOUD, "Heavy cloud at the horizon"));
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, true);
+
+        assertThat(dto.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+        assertThat(dto.triageMessage()).isEqualTo("Heavy cloud at the horizon");
+    }
+
+    @Test
+    @DisplayName("toListDto() serves LITE the tide reason as GENERIC and PRO/ADMIN as it is")
+    void toListDto_tideReasonIsRoleShaped() {
+        ForecastEvaluationEntity entity = tideTriagedEntity();
+
+        assertThat(mapper.toListDtoList(List.of(entity), true).get(0).triageReason())
+                .isEqualTo(TriageReason.GENERIC);
+        assertThat(mapper.toListDtoList(List.of(entity), false).get(0).triageReason())
+                .isEqualTo(TriageReason.TIDE_MISALIGNED);
+    }
+
+    @Test
+    @DisplayName("toSparseListDto() serves LITE a tide-misaligned view as GENERIC with no message; PRO/ADMIN keep it")
+    void toSparseListDto_tideReasonIsRoleShaped() {
+        LocationEvaluationView tide = new LocationEvaluationView(7L, "Bamburgh", 3L, "North East",
+                LocalDate.of(2026, 10, 25), TargetType.SUNSET,
+                LocationEvaluationView.Source.FORECAST_EVALUATION_TRIAGE, null, null, null, null,
+                TriageReason.TIDE_MISALIGNED, "No high tide aligned", "SONNET", null,
+                DisplayVerdict.STAND_DOWN, null, null, null, null);
+
+        ForecastListDto lite = mapper.toSparseListDto(tide, LOCATION, true);
+        ForecastListDto pro = mapper.toSparseListDto(tide, LOCATION, false);
+
+        assertThat(lite.triageReason()).isEqualTo(TriageReason.GENERIC);
+        assertThat(lite.triageMessage()).isNull();
+        assertThat(pro.triageReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
+        assertThat(pro.triageMessage()).isEqualTo("No high tide aligned");
     }
 
     @Test

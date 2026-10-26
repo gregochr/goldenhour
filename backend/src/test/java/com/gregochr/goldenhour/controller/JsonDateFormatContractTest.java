@@ -160,7 +160,7 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing renders the bigSeas block's LocalDate and LocalDateTime fields in the "
             + "pinned wire format, with enums as names and the unaligned nulls omitted")
     void getBriefing_pinsBigSeasFormat() throws Exception {

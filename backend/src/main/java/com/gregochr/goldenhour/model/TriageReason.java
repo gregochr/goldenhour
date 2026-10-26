@@ -29,6 +29,18 @@ public enum TriageReason {
     GENERIC;
 
     /**
+     * Returns the reason as a LITE reader may see it: a tide-misaligned stand-down states the water
+     * against the light (a Pro fact, tide-light-pro-plan.md A9), so it is served as {@link #GENERIC};
+     * every other reason, and null, is unchanged. The stand-down itself is untouched.
+     *
+     * @param reason the stored reason (may be null)
+     * @return the reason a LITE reader is served
+     */
+    public static TriageReason forLite(TriageReason reason) {
+        return reason == TIDE_MISALIGNED ? GENERIC : reason;
+    }
+
+    /**
      * Returns the categorised reason corresponding to a triage rule.
      *
      * @param rule the internal triage rule, or {@code null}

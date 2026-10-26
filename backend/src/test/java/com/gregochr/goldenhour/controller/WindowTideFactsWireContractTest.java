@@ -134,4 +134,45 @@ class WindowTideFactsWireContractTest extends AbstractControllerTest {
             }
         }
     }
+
+    private void stubFullFact() {
+        LocationTideFact full = new LocationTideFact(7L, "Bamburgh", "HIGH", true, 0.61, true,
+                "HW 06:12 · 25m after sunrise", 0.83, "RISING", "4.9 m", "wants higher",
+                "Tide suits this spot");
+        BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(), List.of(), null,
+                window(List.of(full)));
+        when(briefingService.getCachedBriefingForApi()).thenReturn(new DailyBriefingResponse(
+                LocalDateTime.of(2026, 10, 8, 6, 0), "h",
+                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
+                List.of(), null, null, false, false, 0, null, List.of(), List.of()));
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("LITE: window.tideFacts keeps the state and direction but carries neither the tide-on-the-light "
+            + "flag nor the offset phrase (tide-light-pro-plan.md B1)")
+    void getBriefing_liteFactCarriesNoLightKeys() throws Exception {
+        stubFullFact();
+
+        String fact = "$.days[0].eventSummaries[0].window.tideFacts[0]";
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(jsonPath(fact + ".tideState").value("HIGH"))
+                .andExpect(jsonPath(fact + ".tideDirection").value("RISING"))
+                .andExpect(jsonPath(fact + ".tideOnTheLight").doesNotExist())
+                .andExpect(jsonPath(fact + ".nearestSolarOffsetPhrase").doesNotExist())
+                .andExpect(jsonPath(fact + ".tideAligned").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("ADMIN gets the light keys exactly as PRO does (Admin = Pro)")
+    void getBriefing_adminFactCarriesTheLightKeys() throws Exception {
+        stubFullFact();
+
+        String fact = "$.days[0].eventSummaries[0].window.tideFacts[0]";
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(jsonPath(fact + ".tideOnTheLight").value(true))
+                .andExpect(jsonPath(fact + ".nearestSolarOffsetPhrase").value("HW 06:12 · 25m after sunrise"))
+                .andExpect(jsonPath(fact + ".tideAligned").value(true));
+    }
 }
