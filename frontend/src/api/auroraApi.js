@@ -22,6 +22,26 @@ export async function getAuroraStatus() {
 }
 
 /**
+ * Fetches the level-only aurora alert a LITE reader's banner is built from
+ * (docs/engineering/aurora-lite-alert-plan.md §2.2). Open to every authenticated role, and the only
+ * aurora status request a LITE reader makes. Carries the level, whether it is active, how it was
+ * triggered, whether every dark-sky site is overcast and the current night's end: no Kp, count or site.
+ *
+ * <p>Resolves null on any error, so a failed read draws no banner rather than a broken one.
+ *
+ * @returns {Promise<?{level: string, active: boolean, triggerType: ?string, allOvercast: boolean,
+ *   currentNightDate: ?string, currentNightEndsAt: ?string}>} the alert, or null
+ */
+export async function getAuroraAlert() {
+  try {
+    const response = await apiClient.get(`${BASE_URL}/alert`);
+    return response.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetches the nights a Pro reader's window control would offer an aurora row for right now
  * (docs/engineering/aurora-pro-door-plan.md §2.1). Open to every authenticated role: the Lite
  * reader's "Aurora tonight" Pro door is driven by it. Carries only dates, no rating or location.

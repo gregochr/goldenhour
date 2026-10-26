@@ -42,7 +42,10 @@ vi.mock('../api/settingsApi.js', () => ({
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
-vi.mock('../api/auroraApi.js', () => ({ getAuroraStatus: vi.fn() }));
+vi.mock('../api/auroraApi.js', () => ({
+  getAuroraStatus: vi.fn(),
+  getAuroraAlert: vi.fn().mockResolvedValue(null),
+}));
 vi.mock('../api/nlcApi.js', () => ({ getNlcSighting: vi.fn() }));
 vi.mock('../api/astroApi.js', () => ({ getAstroConditions: vi.fn() }));
 vi.mock('../api/almanacApi.js', () => ({ getAlmanac: vi.fn(), ALMANAC_DAYS: 90 }));

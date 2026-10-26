@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import { getAuroraStatus } from '../api/auroraApi.js';
+import { getAuroraAlert, getAuroraStatus } from '../api/auroraApi.js';
+import { useAuth } from './AuthContext.jsx';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -13,7 +14,7 @@ const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
  */
 const NIGHT_END_RECHECK_MS = 60 * 1000;
 
-const AuroraStatusContext = createContext({ status: null, loading: false });
+const AuroraStatusContext = createContext({ status: null, liteAlert: null, loading: false });
 
 /**
  * Fetches aurora status once (5-minute poll + refetch on window focus) and shares it via context,
@@ -32,7 +33,13 @@ const AuroraStatusContext = createContext({ status: null, loading: false });
  * @param {{children: React.ReactNode}} props
  */
 export function AuroraStatusProvider({ children }) {
+  const { role } = useAuth();
+  // A LITE reader is not allowed `/api/aurora/status` (Pro and Admin only), so it polls the role-free
+  // `/api/aurora/alert` instead (docs/engineering/aurora-lite-alert-plan.md §2.3) and the answer lands in
+  // `liteAlert`; `status` stays null for LITE, so every Pro-shaped consumer sees what it always saw.
+  const isLite = role === 'LITE_USER';
   const [status, setStatus] = useState(null);
+  const [liteAlert, setLiteAlert] = useState(null);
   const [loading, setLoading] = useState(true);
   const intervalRef = useRef(null);
   // The two halves of that ordering: how many requests have been made, and the number of the
@@ -48,11 +55,9 @@ export function AuroraStatusProvider({ children }) {
   // newer request is out would leave the status older than it needs to be if that request then
   // failed. Here only an applied answer moves the mark, so a failed request blocks nothing.
   //
-  // ⚠️ Both rest on what is true today: the effect has no dependencies, so every request asks one
-  // unkeyed question, and the catch writes nothing. The cleanup cancels nothing, so if the effect
-  // ever gains a dependency (a role, say), a request from a run that the change superseded would
-  // still carry a number, and could land an answer to the old question over the new one. It would
-  // then need a per-run `cancelled` as well, as `useAuroraViewline` has.
+  // ⚠️ The effect is keyed on the role, which picks the endpoint, so a request from a run the change
+  // superseded must not land its answer over the new one: each run carries its own `cancelled` flag, as
+  // `useAuroraViewline` does. The counters still span runs (one numbering for whichever endpoint is polled).
   const requestedRef = useRef(0);
   const appliedRef = useRef(0);
 
@@ -63,7 +68,7 @@ export function AuroraStatusProvider({ children }) {
   // passed, and every consumer with it — App's date clamp and the map's night list re-read the night
   // in the same commit, as they do when a fresh status lands.
   const [, setNightEnded] = useState(0);
-  const nightEndsAt = status?.currentNightEndsAt ?? null;
+  const nightEndsAt = liteAlert?.currentNightEndsAt ?? status?.currentNightEndsAt ?? null;
   useEffect(() => {
     const end = Date.parse(nightEndsAt);
     if (Number.isNaN(end)) return undefined; // no end, or one that does not parse
@@ -83,18 +88,21 @@ export function AuroraStatusProvider({ children }) {
   }, [nightEndsAt]);
 
   useEffect(() => {
+    let cancelled = false;
     async function fetchStatus() {
       requestedRef.current += 1;
       const request = requestedRef.current;
       try {
-        const data = await getAuroraStatus();
+        const data = isLite ? await getAuroraAlert() : await getAuroraStatus();
+        if (cancelled) return; // this run was superseded (the role changed)
         if (request < appliedRef.current) return; // a newer answer is already on screen
         appliedRef.current = request;
-        setStatus(data); // null for 403 (free-tier) — consumers render nothing
+        if (isLite) setLiteAlert(data);
+        else setStatus(data); // null for 403 (free-tier) — consumers render nothing
       } catch {
         // Network errors are transient — retain existing status
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -107,13 +115,14 @@ export function AuroraStatusProvider({ children }) {
     window.addEventListener('focus', handleFocus);
 
     return () => {
+      cancelled = true;
       clearInterval(intervalRef.current);
       window.removeEventListener('focus', handleFocus);
     };
-  }, []);
+  }, [isLite]);
 
   return (
-    <AuroraStatusContext.Provider value={{ status, loading }}>
+    <AuroraStatusContext.Provider value={{ status, liteAlert, loading }}>
       {children}
     </AuroraStatusContext.Provider>
   );
@@ -124,10 +133,12 @@ AuroraStatusProvider.propTypes = {
 };
 
 /**
- * Reads the shared aurora status. Returns {@code { status: null, loading: false }} when used
- * outside an {@link AuroraStatusProvider}, so consumers degrade gracefully.
+ * Reads the shared aurora status. Returns {@code { status: null, liteAlert: null, loading: false }}
+ * when used outside an {@link AuroraStatusProvider}, so consumers degrade gracefully. {@code status}
+ * is the Pro-shaped status (Pro and Admin only); {@code liteAlert} is the level-only alert a LITE
+ * reader gets instead (null for everyone else).
  *
- * @returns {{ status: object|null, loading: boolean }}
+ * @returns {{ status: object|null, liteAlert: object|null, loading: boolean }}
  */
 export function useAuroraStatusContext() {
   return useContext(AuroraStatusContext);

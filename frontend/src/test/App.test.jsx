@@ -79,6 +79,7 @@ vi.mock('../utils/initialTab.js', () => ({ resolveInitialTab: () => 'plan' }));
 vi.mock('../api/auroraApi.js', () => ({
   getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
   getAuroraStatus: vi.fn(),
+  getAuroraAlert: vi.fn().mockResolvedValue(null),
   getAuroraLocations: vi.fn(() => Promise.resolve([])),
   getAuroraForecastResults: vi.fn(() => Promise.resolve([])),
 }));
