@@ -242,7 +242,8 @@ export default function MarkerPopupContent({
   const isSunrise = eventType === 'SUNRISE';
   // The rising-tide warning and golden/blue-hour pills are detail-derived
   // (nextHighTideTime + golden/blue-hour times are not in the slim payload).
-  const risingTide = detail ? risingTideOf(detail) : null;
+  // Pro and Admin only (tide-light-pro-plan.md): it relates the tide to the light; same rule as the sheet.
+  const risingTide = detail && role !== 'LITE_USER' ? risingTideOf(detail) : null;
   const eventTime  = forecast ? formatEventTimeUk(forecast.solarEventTime) : null;
   const goldenStart = detail ? formatEventTimeUk(detail.goldenHourStart) : null;
   const goldenEnd   = detail ? formatEventTimeUk(detail.goldenHourEnd) : null;

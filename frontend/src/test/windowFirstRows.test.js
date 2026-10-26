@@ -188,14 +188,27 @@ describe('buildWindowRows — what a window may state as an attribute row', () =
         .toEqual(['seas 0.3 m · smooth']);
     });
 
-    it('omits the nearest-extreme chip rather than half-stating it', () => {
-      // The row is the whole accessible answer — the sparkline beside it is aria-hidden — so a
-      // fact that cannot be completed must be absent, never approximated.
+    it.each([['HW', '19:28'], ['LW', '13:02']])(
+      'draws the %s clock alone, never ending in "·", when the offset is withheld (Lite)',
+      (type, time) => {
+        // tide-light-pro-plan.md F1: the clock is a tide-table fact; the offset to the light is Pro.
+        const [row] = buildWindowRows({
+          tide: tide({ nearestType: type, nearestTime: time, nearestOffset: null }), badges: [],
+        });
+
+        expect(chips(row)).toContain(`${type} ${time}`);
+        expect(chips(row).every((c) => !c.trim().endsWith('·'))).toBe(true);
+        expect(chips(row).join(' ')).not.toMatch(/before|after/);
+      },
+    );
+
+    it('omits the nearest-extreme chip when its clock is missing too', () => {
+      // The row is the whole accessible answer, so a fact that cannot be completed is absent.
       const [row] = buildWindowRows({
-        tide: tide({ nearestOffset: null }), badges: [],
+        tide: tide({ nearestOffset: null, nearestTime: null }), badges: [],
       });
 
-      expect(chips(row).join(' ')).not.toContain('19:28');
+      expect(chips(row).join(' ')).not.toContain('HW');
       expect(chips(row)[0]).toBe('mid tide, falling');
     });
 

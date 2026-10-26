@@ -180,6 +180,43 @@ describe('comfortRows', () => {
   });
 });
 
+describe('tide-light-pro: the rising-tide badge and the tide triage reason', () => {
+  const RISING = { nextHighTideTime: '2026-08-14T20:30:00', solarEventTime: '2026-08-14T20:10:00' };
+  // ADMIN reaches these functions with the same isPro flag as PRO (Admin includes Pro).
+  const PRO_LIKE = [['PRO', PRO], ['ADMIN', { eventType: 'SUNSET', isPro: true }]];
+
+  it.each(PRO_LIKE)('builds the rising-tide badge for %s', (_n, ctx) => {
+    expect(keys(detailBadges(RISING, ctx))).toContain('rising-tide');
+  });
+
+  it('does not build the rising-tide badge for a Lite reader', () => {
+    expect(keys(detailBadges(RISING, LITE))).not.toContain('rising-tide');
+  });
+
+  const run = { forecastRunAt: '2026-08-14T05:00:00', triageReason: 'TIDE_MISALIGNED' };
+
+  it.each(PRO_LIKE)('keeps the tide wording in the triage footer for %s', (_n, ctx) => {
+    expect(generatedFooter(run, null, false, ctx.isPro))
+      .toContain('tide not aligned with location preference');
+  });
+
+  it('defaults to the Pro reading when no tier is passed', () => {
+    expect(generatedFooter(run, null)).toContain('tide not aligned');
+  });
+
+  it('gives a Lite reader the generic not-evaluated line for a tide stand-down', () => {
+    const footer = generatedFooter(run, null, false, false);
+    expect(footer).toBe('Forecast generated: 14 Aug 2026 06:00 '
+      + '(not evaluated by Claude due to regional conditions predicted poor)');
+    expect(footer).not.toMatch(/tide/i);
+  });
+
+  it('leaves a Lite reader\'s other triage reasons alone', () => {
+    expect(generatedFooter({ ...run, triageReason: 'PRECIPITATION' }, null, false, false))
+      .toContain('active precipitation forecast at event time');
+  });
+});
+
 describe('generatedFooter', () => {
   const forecast = { forecastRunAt: '2026-08-14T05:00:00' };
 

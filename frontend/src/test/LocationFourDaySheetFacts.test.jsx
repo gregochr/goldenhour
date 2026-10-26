@@ -159,9 +159,37 @@ describe('LocationFourDaySheet — the forecast detail block', () => {
     const bluebell = within(facts).getByTestId('location-sheet-fact-bluebell');
     expect(bluebell).toHaveTextContent('Bluebell conditions — Upgrade to Pro');
     expect(bluebell).toHaveAttribute('data-locked', 'true');
-    // Sea state, surge, rising tide carry no gate in the popup and none here.
+    // Sea state and surge carry no gate in the popup and none here. The rising-tide badge relates the
+    // tide to the light, so it is Pro and Admin (tide-light-pro-plan.md F1).
     expect(within(facts).getByTestId('location-sheet-fact-sea-state')).toBeInTheDocument();
-    expect(within(facts).getByTestId('location-sheet-fact-rising-tide')).toBeInTheDocument();
+    expect(within(facts).queryByTestId('location-sheet-fact-rising-tide')).not.toBeInTheDocument();
+  });
+
+  it('shows the rising-tide badge to a Pro or Admin reader (both reach the sheet as isPro)', async () => {
+    setup({ isPro: true });
+    const facts = await screen.findByTestId('location-sheet-facts');
+    expect(await within(facts).findByTestId('location-sheet-fact-rising-tide')).toBeInTheDocument();
+  });
+
+  it('words a tide stand-down generically for a Lite reader and with the tide for Pro', async () => {
+    // The sunrise row is rated (it opens on arrival); the sunset row is the unrated, triaged one.
+    const tideTriaged = { ...SUNSET_ROW, triageReason: 'TIDE_MISALIGNED' };
+    const rated = buildScoreIndex([
+      { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNRISE', rating: 5, summary: 'Clear.' },
+    ]);
+    const props = { location: locationWith(tideTriaged, SUNRISE_ROW), scoreIndex: rated };
+    const footerOf = async () => {
+      await screen.findByTestId('location-sheet-fact-surge');
+      fireEvent.click(within(rowEl('2026-08-14:SUNSET')).getByTestId('location-sheet-row-toggle'));
+      return within(rowEl('2026-08-14:SUNSET')).findByTestId('location-sheet-generated');
+    };
+    const lite = setup({ isPro: false, ...props });
+    const liteFooter = await footerOf();
+    expect(liteFooter).toHaveTextContent('regional conditions predicted poor');
+    expect(liteFooter).not.toHaveTextContent(/tide/i);
+    lite.unmount();
+    setup({ isPro: true, ...props });
+    expect(await footerOf()).toHaveTextContent('tide not aligned with location preference');
   });
 
   it('degrades to the slim-row facts when the detail fetch fails — no badges, no error', async () => {
