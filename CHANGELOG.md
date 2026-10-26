@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.33.3] - 2026-10-26
+
+### Changed — tide heights and the tide match are Pro on the last two open paths
+
+`GET /api/tides`, `/api/tides/stats` and `/api/tides/stats/all` now serve Pro and Admin only; a Lite
+reader gets 403. `GET /api/forecast/{id}` drops `nextHighTideHeightMetres`, `nextLowTideHeightMetres` and
+`tideAligned` for Lite and keeps the tide state, the high and low water times, the lunar tide type and
+the surge fields for everyone. No Lite screen read either path, so nothing visible changes for Lite;
+Pro and Admin responses are unchanged.
+
+### Changed — the landing page marks tide matching as Pro
+
+The "Plan around the tides" feature card now carries the Pro pill, and its copy says what each tier gets: Pro shows the tide curve at the light and matches coastal locations to the tide, while Lite still shows the state of the tide at sunrise and sunset and highlights notable tides such as spring tides.
+
+### Changed — the landing page says coastal ratings account for the tide on every plan
+
+The tides paragraph on the landing page and the FAQ now states that ratings at coastal
+locations take the tide into account for everyone, and that Lite additionally shows the state of
+the tide at sunrise and sunset and highlights notable tides such as spring tides.
+
 ## [v2.33.2] - 2026-10-26
 
 ### Changed — the Lite briefing shaper narrows each slot's tide block too (a guard, not a live leak)
