@@ -64,7 +64,11 @@ class EmailTemplateRenderingTest {
                         "https://app.photocast.online/reset#token=r1"),
                 Arguments.of("account-deleted-email", "Account notification",
                         Map.of("username", "alice"),
-                        "alice"));
+                        "alice"),
+                Arguments.of("dormancy-warning-email", "Sign in to keep your account",
+                        Map.of("username", "alice", "signInUrl", "https://app.photocast.online",
+                                "inactiveDays", 90, "deletesOn", "Friday 14 November"),
+                        "https://app.photocast.online"));
     }
 
     static Stream<Arguments> linkTemplates() {

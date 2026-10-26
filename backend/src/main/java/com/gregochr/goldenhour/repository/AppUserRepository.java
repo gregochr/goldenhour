@@ -797,4 +797,181 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
     @Transactional
     @Query("DELETE FROM AppUserEntity u WHERE u.id = :id")
     int deleteAccountById(@Param("id") Long id);
+
+    /**
+     * Lists the dormant-account sweep's candidates: LITE_USER accounts that are enabled, hold a password (so are
+     * not pending), carry a non-blank email, and were last active at or before a cutoff. "Last active" is
+     * {@code COALESCE(last_active_at, created_at)}. Pro, Admin, disabled, pending and address-less accounts are
+     * never returned.
+     *
+     * @param role   the one role the sweep may touch (LITE_USER)
+     * @param cutoff the latest last-activity instant considered (now minus the inactive days), JVM default zone
+     * @return the candidates with the sweep's bookkeeping
+     */
+    @Query("SELECT u.id AS id, u.username AS username, u.email AS email, u.createdAt AS createdAt, "
+            + "u.lastActiveAt AS lastActiveAt, u.dormancyWarningSentAt AS dormancyWarningSentAt "
+            + "FROM AppUserEntity u WHERE u.role = :role AND u.enabled = true AND u.password <> '' "
+            + "AND u.email IS NOT NULL AND TRIM(u.email) <> '' "
+            + "AND COALESCE(u.lastActiveAt, u.createdAt) <= :cutoff")
+    List<DormancyCandidate> findDormancyCandidates(@Param("role") UserRole role,
+            @Param("cutoff") LocalDateTime cutoff);
+
+    /**
+     * Stamps the dormancy warning, and only while the account is still a dormant LITE_USER with no valid
+     * warning: a compare-and-set whose row count is the answer. A promotion, a disable, a sign-in since the
+     * cutoff or an already-valid warning (stamped after the last activity) makes it 0. Run only AFTER the mail
+     * sender accepted the warning.
+     *
+     * @param id     the user's primary key
+     * @param now    when the warning was sent, JVM default zone
+     * @param role   LITE_USER
+     * @param cutoff the latest last-activity instant that is still dormant (now minus the inactive days)
+     * @return 1 if stamped; 0 if the account no longer qualifies
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.dormancyWarningSentAt = :now WHERE u.id = :id AND u.role = :role "
+            + "AND u.enabled = true AND u.password <> '' AND u.email IS NOT NULL AND TRIM(u.email) <> '' "
+            + "AND COALESCE(u.lastActiveAt, u.createdAt) <= :cutoff "
+            + "AND (u.dormancyWarningSentAt IS NULL "
+            + "OR u.dormancyWarningSentAt <= COALESCE(u.lastActiveAt, u.createdAt))")
+    int stampDormancyWarning(@Param("id") Long id, @Param("now") LocalDateTime now, @Param("role") UserRole role,
+            @Param("cutoff") LocalDateTime cutoff);
+
+    /**
+     * Deletes a dormant account, but only while EVERY condition still holds: a compare-and-set whose row count
+     * is the answer. Role, enabled, password, a non-blank email, inactivity at or before
+     * {@code inactiveCutoff}, and a warning stamped after the last activity and at or before
+     * {@code warnCutoff} are all in the WHERE, so a promotion, a disable or a sign-in between the locked read
+     * and this statement deletes nothing. A count of 0 makes the caller throw, rolling its purge back.
+     *
+     * @param id             the user's primary key
+     * @param role           LITE_USER
+     * @param inactiveCutoff the latest last-activity instant that is still dormant
+     * @param warnCutoff     the latest warning instant whose grace period has ended
+     * @return 1 if the account was deleted; 0 if it no longer qualifies (or is gone)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("DELETE FROM AppUserEntity u WHERE u.id = :id AND u.role = :role AND u.enabled = true "
+            + "AND u.password <> '' AND u.email IS NOT NULL AND TRIM(u.email) <> '' "
+            + "AND COALESCE(u.lastActiveAt, u.createdAt) <= :inactiveCutoff "
+            + "AND u.dormancyWarningSentAt IS NOT NULL "
+            + "AND u.dormancyWarningSentAt > COALESCE(u.lastActiveAt, u.createdAt) "
+            + "AND u.dormancyWarningSentAt <= :warnCutoff")
+    int deleteDormantIfUnchanged(@Param("id") Long id, @Param("role") UserRole role,
+            @Param("inactiveCutoff") LocalDateTime inactiveCutoff, @Param("warnCutoff") LocalDateTime warnCutoff);
+
+    /**
+     * Raw {@code SELECT … FOR UPDATE} behind {@link #lockDormancyState}: one row of
+     * {@code role, enabled, password, email, username, created_at, last_active_at, dormancy_warning_sent_at}.
+     * A native scalar query, like {@link #lockAccountRow}, so it can never hand back a stale managed entity.
+     *
+     * @param id the user's primary key
+     * @return zero or one row of column values
+     */
+    @Query(value = "SELECT u.role, u.enabled, u.password, u.email, u.username, u.created_at, u.last_active_at, "
+            + "u.dormancy_warning_sent_at FROM app_user u WHERE u.id = :id FOR UPDATE", nativeQuery = true)
+    List<Object[]> lockDormancyRow(@Param("id") Long id);
+
+    /**
+     * Locks the user's row and reads the state the dormant purge decides on, as it is NOW.
+     *
+     * @param id the user's primary key
+     * @return the locked row's state, or empty if no user has that id
+     */
+    default Optional<DormancyState> lockDormancyState(Long id) {
+        List<Object[]> rows = lockDormancyRow(id);
+        if (rows.isEmpty()) {
+            return Optional.empty();
+        }
+        Object[] row = rows.get(0);
+        return Optional.of(new DormancyState(UserRole.valueOf((String) row[0]), (Boolean) row[1], (String) row[2],
+                (String) row[3], (String) row[4], TimestampColumns.toLocalDateTime(row[5]),
+                TimestampColumns.toLocalDateTime(row[6]), TimestampColumns.toLocalDateTime(row[7])));
+    }
+
+    /**
+     * The locked account state the dormant purge decides on.
+     *
+     * @param role          the account's role
+     * @param enabled       whether the account may sign in
+     * @param password      the stored hash; empty for a pending registration
+     * @param email         the stored address
+     * @param username      the login name
+     * @param createdAt     when the account was created, JVM default zone
+     * @param lastActiveAt  the most recent activity, or null if none was ever stamped
+     * @param warningSentAt when the dormancy warning was stamped, or null
+     */
+    record DormancyState(UserRole role, boolean enabled, String password, String email, String username,
+            LocalDateTime createdAt, LocalDateTime lastActiveAt, LocalDateTime warningSentAt) {
+
+        /**
+         * Returns the moment the account was last in use: {@code COALESCE(last_active_at, created_at)}.
+         *
+         * @return the last activity
+         */
+        public LocalDateTime lastActivity() {
+            return lastActiveAt != null ? lastActiveAt : createdAt;
+        }
+
+        /**
+         * Reports whether the account is an enabled, addressable LITE_USER holding a password: the "who" the
+         * sweep may ever touch.
+         *
+         * @return true for an enabled LITE_USER with a password and a non-blank email
+         */
+        public boolean touchable() {
+            return role == UserRole.LITE_USER && enabled && password != null && !password.isEmpty()
+                    && email != null && !email.isBlank();
+        }
+    }
+
+    /**
+     * A dormant-sweep candidate's bookkeeping.
+     */
+    interface DormancyCandidate {
+
+        /**
+         * Returns the primary key.
+         *
+         * @return the user id
+         */
+        Long getId();
+
+        /**
+         * Returns the login name (never logged by the sweep).
+         *
+         * @return the username
+         */
+        String getUsername();
+
+        /**
+         * Returns the stored address (never logged by the sweep).
+         *
+         * @return the email
+         */
+        String getEmail();
+
+        /**
+         * Returns when the account was created.
+         *
+         * @return {@code created_at}, JVM default zone
+         */
+        LocalDateTime getCreatedAt();
+
+        /**
+         * Returns the most recent activity stamp.
+         *
+         * @return {@code last_active_at}, or null if never stamped
+         */
+        LocalDateTime getLastActiveAt();
+
+        /**
+         * Returns when the dormancy warning was stamped.
+         *
+         * @return {@code dormancy_warning_sent_at}, or null
+         */
+        LocalDateTime getDormancyWarningSentAt();
+    }
 }

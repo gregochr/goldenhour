@@ -504,4 +504,91 @@ class UserEmailServiceTest {
         assertThat(context.getVariable("finalReminder")).isEqualTo(true);
         verify(mimeMessage).setSubject("PhotoCast — last day to claim your place", "UTF-8");
     }
+
+    /** Matches the dormancy warning's context exactly: the sign-in link, the days and the deletion date. */
+    private static IContext dormancyContext() {
+        return argThat(ctx -> ctx instanceof Context c
+                && "alice".equals(c.getVariable("username"))
+                && "https://app.photocast.online".equals(c.getVariable("signInUrl"))
+                && Integer.valueOf(90).equals(c.getVariable("inactiveDays"))
+                && "Friday 14 March".equals(c.getVariable("deletesOn")));
+    }
+
+    @Test
+    @DisplayName("the dormancy warning returns false with no sender and for a blank address, rendering nothing")
+    void dormancyWarning_cannotSend_returnsFalse() {
+        LocalDateTime deletable = LocalDateTime.of(2031, 3, 14, 10, 0);
+
+        assertThat(new UserEmailService(null, templateEngine, new RegistrationProperties())
+                .sendDormancyWarningEmail(7L, "a@example.com", "alice", 90, deletable)).isFalse();
+        assertThat(new UserEmailService(mailSender, templateEngine, new RegistrationProperties())
+                .sendDormancyWarningEmail(7L, " ", "alice", 90, deletable)).isFalse();
+
+        verify(templateEngine, never()).process(any(String.class), any(IContext.class));
+    }
+
+    @Test
+    @DisplayName("the dormancy warning returns false when the mailer throws a MailException")
+    void dormancyWarning_mailException_returnsFalse() {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("dormancy-warning-email"), dormancyContext())).thenReturn("<html></html>");
+        when(templateEngine.process(eq("text/dormancy-warning-email"), dormancyContext())).thenReturn("plain text");
+        doThrow(new MailSendException("SMTP down")).when(mailSender).send(mimeMessage);
+
+        assertThat(service.sendDormancyWarningEmail(7L, "a@example.com", "alice", 90,
+                LocalDateTime.of(2031, 3, 14, 10, 0))).isFalse();
+    }
+
+    @Test
+    @DisplayName("the dormancy warning carries the sign-in URL (trailing slash tolerated), days, date and subject; "
+            + "true on send")
+    void dormancyWarning_carriesTheSignInUrlAndSubject() throws Exception {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online/");
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("dormancy-warning-email"), dormancyContext())).thenReturn("<html></html>");
+        when(templateEngine.process(eq("text/dormancy-warning-email"), dormancyContext())).thenReturn("plain text");
+
+        boolean sent = service.sendDormancyWarningEmail(7L, "a@example.com", "alice", 90,
+                LocalDateTime.of(2031, 3, 14, 10, 0));
+
+        assertThat(sent).isTrue();
+        verify(mimeMessage).setSubject("PhotoCast — sign in to keep your account", "UTF-8");
+        verify(mailSender).send(mimeMessage);
+    }
+
+    @Test
+    @DisplayName("the id-only account-deleted mail renders the same template and sends it")
+    void accountDeletedByIdSendsTheSameMail() {
+        UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("account-deleted-email"), ctx("username", "alice")))
+                .thenReturn("<html>Deleted</html>");
+        when(templateEngine.process(eq("text/account-deleted-email"), ctx("username", "alice")))
+                .thenReturn("plain text");
+
+        service.sendAccountDeletedEmail(7L, "alice@example.com", "alice");
+
+        verify(mailSender).send(mimeMessage);
+    }
+
+    @Test
+    @DisplayName("the id-only account-deleted mail skips with no sender and survives a mail failure")
+    void accountDeletedById_skipsAndSurvives() {
+        new UserEmailService(null, templateEngine, new RegistrationProperties())
+                .sendAccountDeletedEmail(7L, "alice@example.com", "alice");
+        verify(templateEngine, never()).process(any(String.class), any(IContext.class));
+
+        UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
+        when(mailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
+        when(templateEngine.process(eq("account-deleted-email"), ctx("username", "alice")))
+                .thenReturn("<html>Deleted</html>");
+        when(templateEngine.process(eq("text/account-deleted-email"), ctx("username", "alice")))
+                .thenReturn("plain text");
+
+        service.sendAccountDeletedEmail(7L, "alice@example.com", "alice");
+    }
 }

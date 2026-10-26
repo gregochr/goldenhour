@@ -277,6 +277,83 @@ public class UserEmailService {
     }
 
     /**
+     * Sends the dormant-account warning: the account has been unused for a long while and will be deleted
+     * unless the reader signs in first. SYNCHRONOUS (not {@link Async}) and returning whether the mail left,
+     * because the dormant sweep stamps its warning only after the sender accepted it.
+     *
+     * <p>Logs the account id only: no address and no username is written to the log by this path (the address
+     * at DEBUG at most).
+     *
+     * @param userId        the account's primary key, the only identifier logged
+     * @param email         the recipient's stored address
+     * @param username      the account's login name, shown in the greeting
+     * @param inactiveDays  the number of days of inactivity the mail speaks of
+     * @param deletableFrom the earliest moment the account may be deleted, shown as a date
+     * @return true only when the mail sender accepted the message; false when no sender is configured, the
+     *         address is blank, or anything went wrong (logged at WARN, without the message text)
+     */
+    public boolean sendDormancyWarningEmail(Long userId, String email, String username, int inactiveDays,
+            LocalDateTime deletableFrom) {
+        if (!canSend(email)) {
+            return false;
+        }
+        try {
+            Context context = new Context();
+            context.setVariable("username", username);
+            context.setVariable("signInUrl", appBaseUrl());
+            context.setVariable("inactiveDays", inactiveDays);
+            context.setVariable("deletesOn", deletableFrom.format(LAPSES_ON_FORMAT));
+            String html = templateEngine.process("dormancy-warning-email", context);
+            String text = templateEngine.process(TEXT_TEMPLATE_PREFIX + "dormancy-warning-email", context);
+            sendEmail(email, "PhotoCast — sign in to keep your account", text, html);
+            LOG.info("Dormancy warning sent for user id={}", userId);
+            LOG.debug("Dormancy warning address {}", LogSanitizer.sanitize(email));
+            return true;
+        } catch (Exception ex) {
+            LOG.warn("Failed to send dormancy warning for user id={}: {}", userId, ex.getClass().getSimpleName());
+            LOG.debug("Dormancy warning failure detail: {}", LogSanitizer.sanitize(ex.getMessage()));
+            return false;
+        }
+    }
+
+    /**
+     * Sends the account-deleted notice to a reader the dormant sweep has deleted. Same message as
+     * {@link #sendAccountDeletedEmail(String, String)}, but this path logs the account id only: no address and
+     * no username is written to the log (the address at DEBUG at most).
+     *
+     * @param userId   the deleted account's former primary key, the only identifier logged
+     * @param email    the recipient's stored address
+     * @param username the account's login name, shown in the greeting
+     */
+    @Async
+    public void sendAccountDeletedEmail(Long userId, String email, String username) {
+        if (!canSend(email)) {
+            return;
+        }
+        try {
+            Context context = new Context();
+            context.setVariable("username", username);
+            String html = templateEngine.process("account-deleted-email", context);
+            String text = templateEngine.process(TEXT_TEMPLATE_PREFIX + "account-deleted-email", context);
+
+            sendEmail(email, "PhotoCast — Your Account Has Been Removed", text, html);
+            LOG.info("Account deleted email sent for former user id={}", userId);
+            LOG.debug("Account deleted address {}", LogSanitizer.sanitize(email));
+        } catch (Exception ex) {
+            LOG.error("Failed to send account deleted email for former user id={}: {}", userId,
+                    ex.getClass().getSimpleName());
+            LOG.debug("Account deleted failure detail: {}", LogSanitizer.sanitize(ex.getMessage()));
+        }
+    }
+
+    /** The app origin without a trailing slash: where a reader signs in. */
+    private String appBaseUrl() {
+        return frontendBaseUrl.endsWith("/")
+                ? frontendBaseUrl.substring(0, frontendBaseUrl.length() - 1)
+                : frontendBaseUrl;
+    }
+
+    /**
      * Builds a link to a path on the app origin carrying a one-time token in the URL fragment
      * ({@code #token=}), tolerating a configured base URL with or without a trailing slash. A fragment
      * is never sent to the server, so the token stays out of the nginx access log, Cloudflare's request

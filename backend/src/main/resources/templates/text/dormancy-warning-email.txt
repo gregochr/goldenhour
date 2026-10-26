@@ -1,0 +1,16 @@
+Sign in to keep your account
+
+Hi [(${username})],
+
+You have not used PhotoCast for [(${inactiveDays})] days. Your account will
+be deleted from [(${deletesOn})] unless you sign in before then.
+
+Sign in to keep it:
+[(${signInUrl})]
+
+Signing in once is enough. If you would rather the account went, do nothing
+— it is deleted on its own, along with your forecast data and
+preferences.
+
+--
+PhotoCast — Golden hour, forecast and ranked by AI

@@ -78,6 +78,8 @@ Running the app locally needs no Docker either (H2 file DB).
 
 **Local H2 and V190's columns.** An existing local H2 file gains `app_user.verification_reminders_sent` and `final_reminder_sent_at` through `ddl-auto: update` (the entity's `columnDefinition` carries the `DEFAULT 0`). If it ever refuses, delete `backend/data/goldenhour.mv.db`. Local profiles never run Flyway, so the `pending_registration_sweep` scheduler row is absent locally and the job never fires there: exercise it with its tests.
 
+**Local H2 and V193's column.** `app_user.dormancy_warning_sent_at` arrives in a local H2 file through `ddl-auto: update` (a nullable `TIMESTAMP`, no default needed). Likewise the `dormant_account_sweep` scheduler row (V193, seeded PAUSED) is absent locally, so the dormant-account sweep never fires there and "Run now" has no job to run: exercise it with `DormantAccountSweepJobTest` and the repository and purge tests. `photocast.dormancy.dry-run` defaults to true.
+
 Default local credentials: `admin` / `golden2026`
 
 H2 console: `http://localhost:8082/h2-console` (JDBC: `jdbc:h2:file:./data/goldenhour`, user: `sa`, pass: empty). Reset: delete `backend/data/goldenhour.mv.db` and `.lock.db`.
