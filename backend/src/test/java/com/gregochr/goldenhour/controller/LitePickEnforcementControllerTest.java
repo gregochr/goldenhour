@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -42,10 +42,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -85,6 +87,9 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private com.gregochr.goldenhour.service.SolarEventFreshness solarEventFreshness;
 
     private void enforcementOnWithPicks() {
         when(subRegionProperties.isEnforce()).thenReturn(true);
@@ -511,8 +516,16 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
         ForecastEvaluationEntity picked = entity(1L, BAMBURGH, yesterday);
         ForecastEvaluationEntity unpicked = entity(2L, CRASTER, yesterday);
         // Yesterday's sunset has passed for both places, so each is served as of its event.
+        // The callback supplies each place's own sunset instant; the matcher evaluates it for both places.
+        Instant bamburghSunset = solarEventFreshness.eventTime(BAMBURGH, yesterday, TargetType.SUNSET)
+                .toInstant(ZoneOffset.UTC);
+        Instant crasterSunset = solarEventFreshness.eventTime(CRASTER, yesterday, TargetType.SUNSET)
+                .toInstant(ZoneOffset.UTC);
         when(asOfEventResolver.resolveAll(eq(List.of(BAMBURGH, CRASTER)), eq(yesterday), eq(TargetType.SUNSET),
-                any())).thenReturn(Map.of(
+                argThat((Function<LocationEntity, Instant> events) ->
+                        bamburghSunset.equals(events.apply(BAMBURGH))
+                                && crasterSunset.equals(events.apply(CRASTER)))))
+                .thenReturn(Map.of(
                         PICKED_ID, new AsOfEventResolver.AsOfEvent(null, 1L, null, null, 4, picked),
                         UNPICKED_ID, new AsOfEventResolver.AsOfEvent(null, 2L, null, null, 3, unpicked)));
         when(dtoMapper.toListDtoList(List.of(picked, unpicked), true)).thenReturn(
