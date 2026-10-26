@@ -171,6 +171,25 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "LITE_USER")
+    @DisplayName("The role-free aurora alert endpoint carries an ETag for a LITE reader and 304s when unchanged")
+    void auroraAlertEndpointRevalidatesForLite() throws Exception {
+        when(forecastRunService.currentNight()).thenReturn(new com.gregochr.goldenhour.model.CurrentNight(
+                LocalDate.of(2026, 10, 25), java.time.Instant.parse("2026-10-26T05:41:00Z")));
+
+        MvcResult first = mockMvc.perform(get("/api/aurora/alert"))
+                .andExpect(status().isOk())
+                .andExpect(header().exists(HttpHeaders.ETAG))
+                .andReturn();
+        assertThat(first.getResponse().getHeader(HttpHeaders.CACHE_CONTROL))
+                .contains("private").contains("no-cache").doesNotContain("no-store");
+
+        mockMvc.perform(get("/api/aurora/alert")
+                        .header(HttpHeaders.IF_NONE_MATCH, first.getResponse().getHeader(HttpHeaders.ETAG)))
+                .andExpect(status().isNotModified());
+    }
+
+    @Test
     @WithMockUser
     @DisplayName("The lazy popup-detail endpoint is revalidatable and 304s when unchanged")
     void forecastDetailEndpointRevalidates() throws Exception {

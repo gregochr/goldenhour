@@ -67,6 +67,8 @@ class HttpCachingConfigTest {
         "/api/aurora/status",
         // Role-free, dates only: the same body for every reader.
         "/api/aurora/nights",
+        // Role-free alert level for the Lite banner: the same body for every reader.
+        "/api/aurora/alert",
         "/api/nlc/sighting",
         "/api/almanac",
         // The shared region-base drive-time matrix. User-independent geography, which is the whole
