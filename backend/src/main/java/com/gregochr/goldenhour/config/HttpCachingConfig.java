@@ -88,6 +88,9 @@ public class HttpCachingConfig {
             // role-free answer behind the Lite Pro door), so it carries no personal data and
             // revalidates like its neighbour above.
             "/api/aurora/nights",
+            // The role-free alert behind the Lite banner: level, trigger, overcast flag and night only,
+            // identical for every reader and role, so no personal data and the same revalidation.
+            "/api/aurora/alert",
             "/api/nlc/sighting",
             // The almanac feed is ephemeris: identical for every user and stable for a whole day,
             // so it is the strongest revalidation candidate here. Safe to share because it carries

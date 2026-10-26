@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.aurora;
 
-import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.AuroraNightsResponse;
 import com.gregochr.goldenhour.model.CurrentNight;
 import org.springframework.stereotype.Service;
@@ -55,11 +54,8 @@ public class AuroraNightsService {
                 dates.add(date);
             }
         }
-        if (stateCache.getSimulatedData() == null) {
-            AlertLevel level = stateCache.getCurrentLevel();
-            if (stateCache.isActive() && level != null && level.isAlertWorthy()) {
-                dates.add(night.date());
-            }
+        if (AuroraLiveAlert.read(stateCache).alertWorthy()) {
+            dates.add(night.date());
         }
         List<String> nights = dates.stream().map(LocalDate::toString).toList();
         return new AuroraNightsResponse(nights, night.endsAt());
