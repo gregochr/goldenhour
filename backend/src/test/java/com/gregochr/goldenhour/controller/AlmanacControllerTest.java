@@ -6,11 +6,15 @@ import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
 import com.gregochr.goldenhour.model.comingup.ComingUpDayMark;
 import com.gregochr.goldenhour.model.comingup.ComingUpDayRange;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
+import com.gregochr.goldenhour.model.comingup.ComingUpFact;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.AlmanacService;
+import com.gregochr.goldenhour.service.comingup.ComingUpRoleShaper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -18,7 +22,10 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -200,5 +207,113 @@ class AlmanacControllerTest extends AbstractControllerTest {
             + "this fails if that inheritance ever stops applying")
     void anonymousIsRejected() throws Exception {
         mockMvc.perform(get("/api/almanac")).andExpect(status().isUnauthorized());
+    }
+
+    // -------------------------------------------------------------------------
+    // Role shaping (tide-light-pro-plan.md §3 B2): the tide against the light is Pro and Admin.
+    // -------------------------------------------------------------------------
+
+    private static final String PRO_LABEL = "Sun 16 – Tue 18 Aug · biggest Mon 17 · 4.9 m · HW 15:48";
+    private static final String LITE_LABEL = "Sun 16 – Tue 18 Aug · biggest Mon 17 · 4.9 m";
+
+    /** A run carrying a range row, an event-water row and an aligned clock, so the roles differ. */
+    private static ComingUpEntry lightEntry() {
+        return springRun()
+                .withFacts(List.of(
+                        new ComingUpFact(List.of(new ComingUpFact.Segment("range 4.9 m", "base"))),
+                        new ComingUpFact(List.of(new ComingUpFact.Segment("sunrise · HW 07:40, 10m before",
+                                "base")), ComingUpFact.Kind.EVENT_WATER)))
+                .withCoincidence(List.of(new ComingUpCoincidenceLine("coastal", "Spring tide run", PRO_LABEL,
+                        "spring-tide", LITE_LABEL)));
+    }
+
+    @Test
+    @DisplayName("a LITE reader gets no event-water rows and no aligned clock, and the entry says so")
+    @WithMockUser(roles = {"LITE_USER"})
+    void liteBodyHasNoLightRows() throws Exception {
+        when(almanacService.getFeed(90)).thenReturn(response(lightEntry()));
+
+        mockMvc.perform(get("/api/almanac"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].facts.length()").value(1))
+                .andExpect(jsonPath("$.entries[0].facts[0].segments[0].text").value("range 4.9 m"))
+                .andExpect(jsonPath("$.entries[0].coincidence[0].factsLabel").value(LITE_LABEL))
+                .andExpect(jsonPath("$.entries[0].lightRowsWithheld").value(true))
+                .andExpect(jsonPath("$.entries[0].coincidence[0].liteFactsLabel").doesNotExist())
+                .andExpect(jsonPath("$.entries[0].facts[0].kind").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("a PRO reader gets the full rows and clock, and no lightRowsWithheld key")
+    @WithMockUser(roles = {"PRO_USER"})
+    void proBodyKeepsTheLightRows() throws Exception {
+        when(almanacService.getFeed(90)).thenReturn(response(lightEntry()));
+
+        mockMvc.perform(get("/api/almanac"))
+                .andExpect(jsonPath("$.entries[0].facts.length()").value(2))
+                .andExpect(jsonPath("$.entries[0].coincidence[0].factsLabel").value(PRO_LABEL))
+                .andExpect(jsonPath("$.entries[0].lightRowsWithheld").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("an ADMIN gets exactly the Pro body (Admin includes Pro)")
+    @WithMockUser(roles = {"ADMIN"})
+    void adminBodyKeepsTheLightRows() throws Exception {
+        when(almanacService.getFeed(90)).thenReturn(response(lightEntry()));
+
+        mockMvc.perform(get("/api/almanac"))
+                .andExpect(jsonPath("$.entries[0].facts.length()").value(2))
+                .andExpect(jsonPath("$.entries[0].coincidence[0].factsLabel").value(PRO_LABEL))
+                .andExpect(jsonPath("$.entries[0].lightRowsWithheld").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("Pro and Admin are handed the service's feed itself, never a copy")
+    void proAndAdminAreTheServiceFeedItself() {
+        AlmanacService service = mock(AlmanacService.class);
+        ComingUpResponse feed = response(lightEntry());
+        when(service.getFeed(90)).thenReturn(feed);
+        AlmanacController controller = new AlmanacController(service, new ComingUpRoleShaper());
+
+        assertThat(controller.getAlmanac(90, authWith("ROLE_PRO_USER"))).isSameAs(feed);
+        assertThat(controller.getAlmanac(90, authWith("ROLE_ADMIN"))).isSameAs(feed);
+    }
+
+    @Test
+    @DisplayName("fail closed: an unknown role, a missing authentication and an unauthenticated token are Lite")
+    void anythingElseIsLite() {
+        AlmanacService service = mock(AlmanacService.class);
+        ComingUpResponse feed = response(lightEntry());
+        when(service.getFeed(90)).thenReturn(feed);
+        AlmanacController controller = new AlmanacController(service, new ComingUpRoleShaper());
+        TestingAuthenticationToken unauthenticated = new TestingAuthenticationToken("u", "p", "ROLE_PRO_USER");
+        unauthenticated.setAuthenticated(false);
+
+        for (Authentication auth : new Authentication[] {authWith("ROLE_LITE_USER"),
+                authWith("ROLE_MYSTERY"), unauthenticated, null}) {
+            ComingUpEntry served = controller.getAlmanac(90, auth).entries().getFirst();
+            assertThat(served.facts()).hasSize(1);
+            assertThat(served.coincidence().getFirst().factsLabel()).isEqualTo(LITE_LABEL);
+            assertThat(served.lightRowsWithheld()).isTrue();
+        }
+        // The cached feed is never mutated by shaping.
+        assertThat(feed.entries().getFirst().facts()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("the days value reaches the service unchanged for every role")
+    void daysReachesTheServiceForEveryRole() {
+        AlmanacService service = mock(AlmanacService.class);
+        when(service.getFeed(30)).thenReturn(response());
+        AlmanacController controller = new AlmanacController(service, new ComingUpRoleShaper());
+
+        controller.getAlmanac(30, authWith("ROLE_LITE_USER"));
+        controller.getAlmanac(30, authWith("ROLE_PRO_USER"));
+
+        verify(service, times(2)).getFeed(30);
+    }
+
+    private static Authentication authWith(String authority) {
+        return new TestingAuthenticationToken("u", "p", authority);
     }
 }

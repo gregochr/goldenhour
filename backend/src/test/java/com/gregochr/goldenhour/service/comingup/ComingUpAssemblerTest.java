@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
 import com.gregochr.goldenhour.model.TideStats;
+import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
 import com.gregochr.goldenhour.model.comingup.ComingUpDayMark;
 import com.gregochr.goldenhour.model.comingup.ComingUpDayRange;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
@@ -1162,6 +1163,68 @@ class ComingUpAssemblerTest {
         assertThat(assembler.assemble(BUILT, List.of(neither, moon)).entries().getFirst()
                 .coincidence().getFirst().factsLabel())
                 .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m"));
+    }
+
+    @Test
+    @DisplayName("B2: only the sunrise and sunset high-water rows carry kind EVENT_WATER; the range "
+            + "row and every other row carry none")
+    void eventWaterRowsAreTaggedAndNothingElse() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                eventMeta("07:40", "-10", oct(28), true, "15:48", "-52", oct(27), true, false));
+
+        List<ComingUpFact> facts = assembler.assemble(BUILT, List.of(run)).entries().getFirst().facts();
+
+        assertThat(facts).extracting(ComingUpFact::kind).containsExactly(
+                null, ComingUpFact.Kind.EVENT_WATER, ComingUpFact.Kind.EVENT_WATER);
+    }
+
+    @Test
+    @DisplayName("B2: a supermoon-hosted merged card tags the run's event rows too, and not its own")
+    void mergedCardEventRowsAreTagged() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                eventMeta("07:40", "-10", oct(28), true, "15:48", "-52", oct(27), true, false));
+        AlmanacEvent moon = supermoon(oct(20), oct(30), oct(26));
+
+        ComingUpEntry merged = assembler.assemble(BUILT, List.of(run, moon)).entries().getFirst();
+
+        assertThat(merged.facts()).extracting(ComingUpFact::kind)
+                .filteredOn(kind -> kind == ComingUpFact.Kind.EVENT_WATER).hasSize(2);
+        assertThat(merged.facts()).filteredOn(f -> f.kind() == null)
+                .noneMatch(f -> factText(f).startsWith("sunrise") || factText(f).startsWith("sunset"));
+    }
+
+    @Test
+    @DisplayName("B2: liteFactsLabel is the factsLabel without the aligned clock; the Pro factsLabel is "
+            + "unchanged; a line with no clock has equal labels")
+    void liteFactsLabelDropsOnlyTheClock() {
+        stubRunAtSeaham();
+        AlmanacEvent aligned = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                eventMeta("07:40", "-10", oct(27), true, "15:48", "-52", oct(27), true, false));
+        AlmanacEvent moon = supermoon(oct(26), oct(26), oct(26));
+
+        ComingUpCoincidenceLine tideLine = assembler.assemble(BUILT, List.of(aligned, moon))
+                .entries().getFirst().coincidence().getFirst();
+        assertThat(tideLine.factsLabel())
+                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m · HW 15:48"));
+        assertThat(tideLine.liteFactsLabel())
+                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m"));
+
+        AlmanacEvent neither = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                eventMeta("07:40", "-10", oct(27), false, "15:48", "-52", oct(28), true, false));
+        ComingUpCoincidenceLine noClock = assembler.assemble(BUILT, List.of(neither, moon))
+                .entries().getFirst().coincidence().getFirst();
+        assertThat(noClock.liteFactsLabel()).isEqualTo(noClock.factsLabel());
+
+        ComingUpCoincidenceLine moonLine = assembler.assemble(BUILT, List.of(aligned, moon))
+                .entries().getFirst().coincidence().get(1);
+        assertThat(moonLine.liteFactsLabel()).isEqualTo(moonLine.factsLabel());
+    }
+
+    private static String factText(ComingUpFact fact) {
+        return fact.segments().stream().map(ComingUpFact.Segment::text)
+                .collect(java.util.stream.Collectors.joining());
     }
 
     @Test

@@ -12,9 +12,9 @@ import java.util.List;
  * conditions panel (coming-up-glance plan B2).
  *
  * <p>Carries no per-user data (plan D2) — {@code isNew}, the badge and the since-line are all
- * client-derived from this user-independent payload plus the reader's own
- * {@code comingUpLastSeenDate} (D12), which is exactly what keeps this response safe to
- * ETag-revalidate and share.
+ * client-derived from the payload plus the reader's own {@code comingUpLastSeenDate} (D12). The
+ * payload is role-shaped at the HTTP edge only ({@code ComingUpRoleShaper}); the body is hashed for
+ * the ETag, so the two variants never share a validator.
  *
  * @param builtFor   the served UK civil date the feed was built for
  * @param bands      the surprise-score band edges; null until P2
@@ -32,5 +32,15 @@ public record ComingUpResponse(
      */
     public ComingUpResponse {
         entries = entries == null ? List.of() : List.copyOf(entries);
+    }
+
+    /**
+     * Returns a copy with {@code entries} replaced.
+     *
+     * @param newEntries the replacement entries
+     * @return the copy
+     */
+    public ComingUpResponse withEntries(List<ComingUpEntry> newEntries) {
+        return new ComingUpResponse(builtFor, bands, counts, newEntries);
     }
 }

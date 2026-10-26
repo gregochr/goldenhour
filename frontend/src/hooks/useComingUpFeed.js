@@ -111,7 +111,8 @@ export default function useComingUpFeed(enabled, todayStr) {
       try {
         const data = await getAlmanac();
         if (isStale()) return;
-        // The wrapped ComingUpResponse, always — the endpoint has no 204 and no role variance. A
+        // The wrapped ComingUpResponse, always — the endpoint has no 204; its body is role-shaped (a Lite copy
+        // has no event-water facts and marks `lightRowsWithheld`) but always the same wrapper. A
         // non-object would mean something upstream changed shape, and rendering an empty feed is
         // better than crashing the pane. `typeof [] === 'object'` in JS, so the array check is
         // its own clause — without it a reverted/mixed-version backend still serving the old bare

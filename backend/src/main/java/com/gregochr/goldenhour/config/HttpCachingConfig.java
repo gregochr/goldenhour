@@ -91,9 +91,11 @@ public class HttpCachingConfig {
             // identical for every reader and role, so no personal data and the same revalidation.
             "/api/aurora/alert",
             "/api/nlc/sighting",
-            // The almanac feed is ephemeris: identical for every user and stable for a whole day,
-            // so it is the strongest revalidation candidate here. Safe to share because it carries
-            // no per-user data — the rule that keeps the home-derived /api/user/settings paths off this list.
+            // The almanac feed is ephemeris and stable for a whole day, so it is a strong revalidation
+            // candidate. It is role-shaped, not personal: a Lite reader's body lacks the tide-at-the-light
+            // rows (tide-light-pro-plan.md B2), and the ETag is hashed from the shaped body, so the
+            // variants never share a validator. It carries no per-user data — the rule that keeps the
+            // home-derived /api/user/settings paths off this list.
             "/api/almanac",
             // The region-base drive-time matrix: how far every location is from each region's base
             // town. Admin-managed geography, identical for every reader, and it changes only when

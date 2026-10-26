@@ -74,6 +74,10 @@ import java.util.Objects;
  * @param rangeAverageMetres the mean daily tidal range over the past year at the run's representative
  *                      (1 dp): the average the day bars' dashed line and {@code tide.delta} share;
  *                      served only with {@code dayRanges} and a sufficient year sample
+ * @param lightRowsWithheld true only on a Lite reader's copy where the role shaper dropped a
+ *                      sunrise/sunset high-water row or a coincidence clock (the water against the
+ *                      light is Pro and Admin only, tide-light-pro-plan.md §3 B2); absent from the wire
+ *                      when false, so a Pro or Admin body is unchanged
  */
 public record ComingUpEntry(
         LocalDate startDate,
@@ -110,7 +114,9 @@ public record ComingUpEntry(
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
         List<ComingUpDayRange> dayRanges,
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        Double rangeAverageMetres) {
+        Double rangeAverageMetres,
+        @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+        boolean lightRowsWithheld) {
 
     /**
      * Normalises the collections so a consumer never has to null-check them, and requires the
@@ -129,6 +135,60 @@ public record ComingUpEntry(
         coincidence = coincidence == null ? List.of() : List.copyOf(coincidence);
         dayMarks = dayMarks == null ? List.of() : List.copyOf(dayMarks);
         dayRanges = dayRanges == null ? List.of() : List.copyOf(dayRanges);
+    }
+
+    /**
+     * Builds an entry whose light rows are not withheld (every path except the Lite role shaper).
+     */
+    public ComingUpEntry(LocalDate startDate, LocalDate endDate, AlmanacKind kind, String type,
+            String title, String detail, Map<String, String> meta, List<String> regions,
+            LocalDate enteredWindow, String id, String family, String kindTag, String superlative,
+            String metric, String prose, List<ComingUpFact> facts, String aside, String threshold,
+            String scoreNote, ComingUpAction action, Double bits, boolean interim, ComingUpTide tide,
+            List<ComingUpCoincidenceLine> coincidence, String joinNote, List<ComingUpDayMark> dayMarks,
+            List<ComingUpDayRange> dayRanges, Double rangeAverageMetres) {
+        this(startDate, endDate, kind, type, title, detail, meta, regions, enteredWindow, id, family,
+                kindTag, superlative, metric, prose, facts, aside, threshold, scoreNote, action, bits,
+                interim, tide, coincidence, joinNote, dayMarks, dayRanges, rangeAverageMetres, false);
+    }
+
+    /**
+     * Returns a copy with {@code facts} replaced.
+     *
+     * @param newFacts the replacement fact rows
+     * @return the copy
+     */
+    public ComingUpEntry withFacts(List<ComingUpFact> newFacts) {
+        return new ComingUpEntry(startDate, endDate, kind, type, title, detail, meta, regions,
+                enteredWindow, id, family, kindTag, superlative, metric, prose, newFacts, aside,
+                threshold, scoreNote, action, bits, interim, tide, coincidence, joinNote, dayMarks,
+                dayRanges, rangeAverageMetres, lightRowsWithheld);
+    }
+
+    /**
+     * Returns a copy with {@code coincidence} replaced.
+     *
+     * @param newCoincidence the replacement coincidence lines
+     * @return the copy
+     */
+    public ComingUpEntry withCoincidence(List<ComingUpCoincidenceLine> newCoincidence) {
+        return new ComingUpEntry(startDate, endDate, kind, type, title, detail, meta, regions,
+                enteredWindow, id, family, kindTag, superlative, metric, prose, facts, aside,
+                threshold, scoreNote, action, bits, interim, tide, newCoincidence, joinNote, dayMarks,
+                dayRanges, rangeAverageMetres, lightRowsWithheld);
+    }
+
+    /**
+     * Returns a copy with {@code lightRowsWithheld} replaced.
+     *
+     * @param withheld whether the light rows were withheld
+     * @return the copy
+     */
+    public ComingUpEntry withLightRowsWithheld(boolean withheld) {
+        return new ComingUpEntry(startDate, endDate, kind, type, title, detail, meta, regions,
+                enteredWindow, id, family, kindTag, superlative, metric, prose, facts, aside,
+                threshold, scoreNote, action, bits, interim, tide, coincidence, joinNote, dayMarks,
+                dayRanges, rangeAverageMetres, withheld);
     }
 
     /**
