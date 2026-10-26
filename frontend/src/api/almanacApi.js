@@ -31,9 +31,12 @@ export const ALMANAC_DAYS = 90;
  * for a LITE user, and it always returns the wrapper — an empty {@code entries} list at worst,
  * never a 204. A failure here is a real failure and the caller renders it.
  *
- * <p>The path is ETag-revalidated ({@code HttpCachingConfig}) and carries no per-user data, so a
- * repeat load costs a 304 and the browser reconstructs the body below the XHR layer. Do not add
- * {@code If-None-Match} by hand — axios would reject the bare 304 as an error.
+ * <p>The path is ETag-revalidated ({@code HttpCachingConfig}) and carries no per-user data, but the
+ * body is role-shaped: a Lite reader's copy has the sunrise/sunset high-water rows removed and the
+ * entry marked {@code lightRowsWithheld}. The ETag is hashed from the shaped body, so a repeat load
+ * costs a 304 within one role and a validator never crosses roles. The browser reconstructs the body
+ * below the XHR layer. Do not add {@code If-None-Match} by hand — axios would reject the bare 304 as
+ * an error.
  *
  * @returns {Promise<object>} the wrapped feed — see {@code ComingUpResponse}
  */

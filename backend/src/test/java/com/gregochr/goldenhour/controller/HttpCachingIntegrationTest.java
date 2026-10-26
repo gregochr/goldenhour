@@ -23,6 +23,12 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.model.LocationTideFact;
+import com.gregochr.goldenhour.model.AlmanacEvent;
+import com.gregochr.goldenhour.model.AlmanacKind;
+import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
+import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
+import com.gregochr.goldenhour.model.comingup.ComingUpFact;
+import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import java.time.Clock;
@@ -273,6 +279,75 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
                         .value(3))
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].window.tideFacts[0].tideAligned")
                         .value(true));
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/almanac: the body is role-shaped, so a validator never crosses Lite, Pro and "
+            + "Admin, and Admin gets Pro's body and validator")
+    void almanacEtagDoesNotCrossRoles() throws Exception {
+        // The fixture really carries an event-water row and an aligned clock; otherwise every role's
+        // body would be identical, hash the same, and a 304 would be correct.
+        when(almanacService.getFeed(90)).thenReturn(almanacFeedWithLightRows());
+
+        String liteEtag = mockMvc.perform(get("/api/almanac"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].facts.length()").value(1))
+                .andExpect(jsonPath("$.entries[0].lightRowsWithheld").value(true))
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+        String proEtag = mockMvc.perform(get("/api/almanac").with(user("pro").roles("PRO_USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].facts.length()").value(2))
+                .andExpect(jsonPath("$.entries[0].lightRowsWithheld").doesNotExist())
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+        String adminEtag = mockMvc.perform(get("/api/almanac").with(user("admin").roles("ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].facts.length()").value(2))
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+
+        assertThat(proEtag).as("a role-shaped body must hash differently").isNotEqualTo(liteEtag);
+        assertThat(adminEtag).as("Admin gets the Pro body, hence the Pro validator").isEqualTo(proEtag);
+
+        // LITE presents PRO's validator: it must get the LITE body, not a 304.
+        mockMvc.perform(get("/api/almanac").header(HttpHeaders.IF_NONE_MATCH, proEtag))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].facts.length()").value(1))
+                .andExpect(jsonPath("$.entries[0].coincidence[0].factsLabel").value("Sun 16 – Tue 18 Aug"));
+        // And LITE's own validator still 304s for LITE.
+        mockMvc.perform(get("/api/almanac").header(HttpHeaders.IF_NONE_MATCH, liteEtag))
+                .andExpect(status().isNotModified());
+        // The reverse: PRO and ADMIN present LITE's validator and get the full 200.
+        mockMvc.perform(get("/api/almanac").header(HttpHeaders.IF_NONE_MATCH, liteEtag)
+                        .with(user("pro").roles("PRO_USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].facts.length()").value(2))
+                .andExpect(jsonPath("$.entries[0].coincidence[0].factsLabel")
+                        .value("Sun 16 – Tue 18 Aug · HW 15:48"));
+        mockMvc.perform(get("/api/almanac").header(HttpHeaders.IF_NONE_MATCH, liteEtag)
+                        .with(user("admin").roles("ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].facts.length()").value(2));
+        // Each privileged role's own validator still 304s.
+        mockMvc.perform(get("/api/almanac").header(HttpHeaders.IF_NONE_MATCH, proEtag)
+                        .with(user("pro").roles("PRO_USER")))
+                .andExpect(status().isNotModified());
+        mockMvc.perform(get("/api/almanac").header(HttpHeaders.IF_NONE_MATCH, adminEtag)
+                        .with(user("admin").roles("ADMIN")))
+                .andExpect(status().isNotModified());
+    }
+
+    private static ComingUpResponse almanacFeedWithLightRows() {
+        AlmanacEvent event = new AlmanacEvent(LocalDate.of(2026, 8, 16), LocalDate.of(2026, 8, 18),
+                AlmanacKind.ALMANAC, "spring-tide", "Spring tide run", "detail", java.util.Map.of(),
+                List.of());
+        ComingUpEntry entry = ComingUpEntry.from(event, LocalDate.of(2026, 5, 19))
+                .withFacts(List.of(
+                        new ComingUpFact(List.of(new ComingUpFact.Segment("range 4.9 m", "base"))),
+                        new ComingUpFact(List.of(new ComingUpFact.Segment("sunrise · HW 07:40, 10m before",
+                                "base")), ComingUpFact.Kind.EVENT_WATER)))
+                .withCoincidence(List.of(new ComingUpCoincidenceLine("coastal", "Spring tide run",
+                        "Sun 16 – Tue 18 Aug · HW 15:48", "spring-tide", "Sun 16 – Tue 18 Aug")));
+        return new ComingUpResponse(LocalDate.of(2026, 8, 16), null, null, List.of(entry));
     }
 
     @Test

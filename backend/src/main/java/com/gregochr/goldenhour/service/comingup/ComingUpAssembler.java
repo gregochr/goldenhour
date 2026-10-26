@@ -742,7 +742,7 @@ public class ComingUpAssembler {
                     + (partial ? " on the days measured" : "") + EVENT_SEPARATOR + "nearest "
                     + water + ", " + nb(eventOffset(gap, null)) + EVENT_SEPARATOR + day, "base"));
         }
-        return Optional.of(new ComingUpFact(segs));
+        return Optional.of(new ComingUpFact(segs, ComingUpFact.Kind.EVENT_WATER));
     }
 
     /**
@@ -1019,7 +1019,8 @@ public class ComingUpAssembler {
 
     private ComingUpCoincidenceLine coincidenceLine(Staged topic, LocationEntity runRepresentative) {
         return new ComingUpCoincidenceLine(topic.family, topic.event.title(),
-                coincidenceFacts(topic, runRepresentative), topic.event.type());
+                coincidenceFacts(topic, runRepresentative, true), topic.event.type(),
+                coincidenceFacts(topic, runRepresentative, false));
     }
 
     // ── Per-type vocabulary: day marks, coincidence facts, join note (plan §2.2) ───────────
@@ -1043,9 +1044,12 @@ public class ComingUpAssembler {
     /**
      * One topic's coincidence-line facts, as a plain string. A tide run reads its own span, true peak
      * day, range and (only when the alignment is on the peak day) the alignment clock; a supermoon
-     * reads its span and the moonrise at the merged run's representative.
+     * reads its span and the moonrise at the merged run's representative. {@code withLightClock} false
+     * builds the Lite label: the same string without the alignment clock, the only clause that
+     * states where high water falls against the light (tide-light-pro-plan.md §3 B2).
      */
-    private String coincidenceFacts(Staged topic, LocationEntity runRepresentative) {
+    private String coincidenceFacts(Staged topic, LocationEntity runRepresentative,
+            boolean withLightClock) {
         String span = spanLabel(topic.event.startDate(), topic.event.endDate());
         if (TYPE_SUPERMOON.equals(topic.event.type())) {
             return span + moonriseClause(topic, runRepresentative);
@@ -1061,7 +1065,7 @@ public class ComingUpAssembler {
             } else if (topic.metric != null) {
                 label.append(SEPARATOR).append(nb(topic.metric));
             }
-            String clock = peakDayAlignedClock(meta, truePeak);
+            String clock = withLightClock ? peakDayAlignedClock(meta, truePeak) : null;
             if (clock != null) {
                 label.append(SEPARATOR).append(nb(clock));
             }
