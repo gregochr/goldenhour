@@ -19,6 +19,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -45,6 +46,10 @@ import java.util.List;
  *
  * <p>⚠️ The consequence to know: setting one of these fields on an existing row and calling
  * {@code save()} writes nothing to that column. Inserts are unaffected, and so is reading.
+ *
+ * <p><strong>So are the two sub-region change columns</strong> ({@code subRegionsGraceUntil},
+ * {@code subRegionsChangedAt}, V192): the lock check and its stamp are one conditional scoped update, and a
+ * stale whole-entity save must never write an old stamp back over a newer one.
  *
  * <p><strong>The credential and authority columns follow the same rule</strong> (login-registration
  * plan §2 #13): {@code password}, {@code enabled}, {@code passwordChangeRequired}, {@code role},
@@ -263,6 +268,28 @@ public class AppUserEntity implements UserDetails {
      */
     @Column(name = "final_reminder_sent_at", updatable = false, insertable = false)
     private LocalDateTime finalReminderSentAt;
+
+    /**
+     * The last day (a UK civil date, inclusive) of this reader's free sub-region changes, or {@code null}
+     * before their first choice (V192, sub-regions-plan D4). Set once, by the first choice.
+     *
+     * <p>Not updatable through the entity — see the class Javadoc. Written only by
+     * {@code AppUserRepository.startSubRegionGraceIfUnset}.
+     */
+    @Column(name = "sub_regions_grace_until", updatable = false)
+    private LocalDate subRegionsGraceUntil;
+
+    /**
+     * When this reader last made a sub-region change that starts the lock (UTC wall clock, zone-less like
+     * {@code created_at}), or {@code null} when nothing is locked (V192, sub-regions-plan D4). Compared only as
+     * a UK civil date.
+     *
+     * <p>Not updatable through the entity — see the class Javadoc. Written only by
+     * {@code AppUserRepository.stampSubRegionsChanged}, {@code stampSubRegionsChangedIfUnlocked} and
+     * {@code clearSubRegionsChangedAt}.
+     */
+    @Column(name = "sub_regions_changed_at", updatable = false)
+    private LocalDateTime subRegionsChangedAt;
 
     /**
      * Returns a single {@link GrantedAuthority} derived from {@link #role}.

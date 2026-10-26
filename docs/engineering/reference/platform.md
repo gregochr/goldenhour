@@ -16,3 +16,38 @@
 ## Drive times from home are Pro (pro-features-gate-plan.md D1, 2026-10-25)
 
 The client half. `WindowFirstBriefingContext` derives `driveLocked = role is not PRO_USER/ADMIN` (context default `false` for a provider-less render) and, when locked, **never calls `getReach()`**; `reachById` stays empty, so every drive and leave line (spot card, peek, sheet meta and row leave, callout facts, the popup's "within reach" wording) goes absent exactly as for an account with no postcode. The away-origin swap to the region-base matrix (`effectiveReachById`) is unchanged, so a Lite reader keeps region-base minutes as lines. A stale demoted client that still thinks it is Pro gets a 403 from `/api/user/settings/reach`; the existing `.catch` empties the map (no error state, no retry). Settings hides the `Last calculated:` stamp for non-Pro (it goes stale once the nightly job stops measuring the account). `forecastApi.refreshDriveTimes` (dead, posted to the removed `/api/locations/drive-times`) was deleted. The server half is D2.
+
+## Lite sub-region picks and the change rule (sub-regions-plan S2)
+
+A Lite reader holds up to *n* sub-regions (`SUB_REGION` areas): rows in `app_user_sub_region`, plus two
+`app_user` columns, `sub_regions_grace_until` (a UK civil date, inclusive) and `sub_regions_changed_at` (a UTC
+wall-clock stamp). Both columns are `updatable = false` and written only by the scoped `@Modifying` updates on
+`AppUserRepository` (`startSubRegionGraceIfUnset`, `stampSubRegionsChanged`, `stampSubRegionsChangedIfUnlocked`,
+`clearSubRegionsChangedAt`, `clearSubRegionsChangedAtForPickersOf`): the *Column-scoped writes* invariant. *n* is
+the single `sub_region_policy` row (default 3, 1..24), read through `SubRegionPolicyService` and edited in the
+Operations tab's Sub-regions sub-tab; `photocast.sub-regions.grace-days` (7) and `lock-days` (30) are config.
+Pro and Admin never pick: `GET` says `NOT_APPLICABLE`, `PUT` is 403, and picks a demoted-from-Lite Pro still holds
+are kept, unused. `photocast.sub-regions.enforce` is only *reported* by S2; nothing is shaped by it until S3.
+
+**The rule** (`UserSubRegionService`, `Clock`-injected, UK civil dates only via `ForecastHorizon.today` /
+`civilDate`; `LocalDateTime.now(clock)` for stamps):
+
+- *First choice* (no picks): always allowed; sets `graceUntil = today + grace-days - 1` if it is null; stamps.
+- *During grace* (`today <= graceUntil`): any change is allowed and stamps.
+- *After grace*: an add-only change under the limit is allowed and stamps nothing; a change that removes a pick
+  needs `today >= nextChangeOn = max(graceUntil + 1, changedOn + lock-days)` and stamps.
+- An identical set is a 200 no-op. A reader over a lowered limit is flagged `overLimit` and may submit a
+  removals-only change without a lock (it stamps nothing); a swap is still locked.
+- An admin deleting a sub-region (`AreaService.delete`) clears that area's pickers' `sub_regions_changed_at`
+  and deletes the picks, so the re-pick is free.
+- Admin tools (`/api/users/{id}/sub-regions`) set picks past the rule (clearing the stamp, leaving the grace end)
+  and lift a lock.
+
+**Concurrency.** The lock check and its stamp are one conditional `UPDATE ... WHERE id = :id AND
+(sub_regions_changed_at IS NULL OR sub_regions_changed_at < :cutoff)` whose row count is the answer; it runs in
+the same transaction as the pick delete and insert, so 0 rows (a lost race) rolls the change back and answers
+409 `SUB_REGIONS_LOCKED`. The `:cutoff` is `ForecastHorizon.ukDayStartUtc(today - lock-days + 1)`, so the SQL
+agrees with the Java civil-date comparison across a BST midnight. The pick limit is validated before the rule.
+
+**Not in S2.** The registration step (after `HOME`, skipped when `status` is `NOT_APPLICABLE` or `enforced` is
+false) and the Settings picker are S4; response shaping by the picks is S3.

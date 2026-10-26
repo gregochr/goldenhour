@@ -9,6 +9,8 @@ import com.gregochr.goldenhour.model.AreaDto;
 import com.gregochr.goldenhour.model.AreaLocationsRequest;
 import com.gregochr.goldenhour.model.AreaRequest;
 import com.gregochr.goldenhour.model.UncoveredLocationDto;
+import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.repository.AppUserSubRegionRepository;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
@@ -48,6 +50,8 @@ public class AreaService {
     private final RegionRepository regionRepository;
     private final NameNamespaceGuard nameGuard;
     private final SubRegionMembershipService membershipService;
+    private final AppUserRepository userRepository;
+    private final AppUserSubRegionRepository pickRepository;
 
     /**
      * Constructs the service.
@@ -57,15 +61,20 @@ public class AreaService {
      * @param regionRepository   the regions, for a sub-region's region
      * @param nameGuard          the shared name rules
      * @param membershipService  the sub-region members, which this service only reads
+     * @param userRepository     the users, whose sub-region change lock is cleared when a pick is removed
+     * @param pickRepository     the readers' sub-region picks, removed with the sub-region
      */
     public AreaService(AreaRepository areaRepository, LocationRepository locationRepository,
             RegionRepository regionRepository, NameNamespaceGuard nameGuard,
-            SubRegionMembershipService membershipService) {
+            SubRegionMembershipService membershipService, AppUserRepository userRepository,
+            AppUserSubRegionRepository pickRepository) {
         this.areaRepository = areaRepository;
         this.locationRepository = locationRepository;
         this.regionRepository = regionRepository;
         this.nameGuard = nameGuard;
         this.membershipService = membershipService;
+        this.userRepository = userRepository;
+        this.pickRepository = pickRepository;
     }
 
     /**
@@ -194,6 +203,8 @@ public class AreaService {
     /**
      * Deletes an area; its aliases and membership go with it. A sub-region that still has members is refused:
      * move its locations to another sub-region first.
+     * Deleting a sub-region also removes the readers' picks of it and clears those readers' change locks
+     * (sub-regions-plan §4.3).
      *
      * @param id the area's primary key
      * @throws NoSuchElementException if there is no such area (HTTP 404)
@@ -209,6 +220,11 @@ public class AreaService {
                         + (members == 1 ? " location" : " locations")
                         + ": move them to another sub-region before deleting it");
             }
+        }
+        if (area.isSubRegion()) {
+            // Readers who picked it get their change lock cleared (their re-pick is free), and the picks go.
+            userRepository.clearSubRegionsChangedAtForPickersOf(id);
+            pickRepository.deleteByAreaId(id);
         }
         try {
             areaRepository.delete(area);

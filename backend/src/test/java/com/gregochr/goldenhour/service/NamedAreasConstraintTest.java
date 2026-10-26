@@ -5,6 +5,8 @@ import com.gregochr.goldenhour.entity.LocationAliasEntity;
 import com.gregochr.goldenhour.exception.NameClashException;
 import com.gregochr.goldenhour.model.AreaLocationsRequest;
 import com.gregochr.goldenhour.model.AreaRequest;
+import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.repository.AppUserSubRegionRepository;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationAliasRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -50,13 +52,19 @@ class NamedAreasConstraintTest {
     @Mock
     private SubRegionMembershipService membershipService;
 
+    @Mock
+    private AppUserRepository userRepository;
+
+    @Mock
+    private AppUserSubRegionRepository pickRepository;
+
     private AreaService areaService;
     private LocationAliasService aliasService;
 
     @BeforeEach
     void setUp() {
         areaService = new AreaService(areaRepository, locationRepository, regionRepository, guard,
-                membershipService);
+                membershipService, userRepository, pickRepository);
         aliasService = new LocationAliasService(aliasRepository, locationRepository, guard);
     }
 

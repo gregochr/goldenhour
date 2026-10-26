@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.service.EmailClaims;
 import com.gregochr.goldenhour.service.PasswordResetResult;
 import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.UserService;
+import com.gregochr.goldenhour.service.UserSubRegionService;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import com.gregochr.goldenhour.util.EmailValidator;
 import com.gregochr.goldenhour.util.UniqueViolation;
@@ -54,6 +55,7 @@ public class UserController {
     private final UserService userService;
     private final UserEmailService userEmailService;
     private final RegistrationService registrationService;
+    private final UserSubRegionService userSubRegionService;
 
     /**
      * Returns all registered users without exposing password hashes.
@@ -62,8 +64,9 @@ public class UserController {
      */
     @GetMapping
     public ResponseEntity<List<Map<String, Object>>> listUsers() {
+        Map<Long, List<String>> picks = userSubRegionService.pickNamesByUser();
         List<Map<String, Object>> users = userService.listAllUsers().stream()
-                .map(this::toSummary)
+                .map(user -> toSummary(user, picks.getOrDefault(user.getId(), List.of())))
                 .toList();
         return ResponseEntity.ok(users);
     }
@@ -110,7 +113,7 @@ public class UserController {
         try {
             AppUserEntity created = userService.createUser(username, password, role, email.trim());
             userEmailService.sendWelcomeEmail(email.trim(), username, password);
-            return ResponseEntity.status(HttpStatus.CREATED).body(toSummary(created));
+            return ResponseEntity.status(HttpStatus.CREATED).body(toSummary(created, List.of()));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
         } catch (DataIntegrityViolationException ex) {
@@ -302,10 +305,11 @@ public class UserController {
     /**
      * Converts an {@link AppUserEntity} to a safe summary map that excludes the password.
      *
-     * @param user the entity to convert
-     * @return map with id, username, role, enabled, createdAt, and lastActiveAt
+     * @param user       the entity to convert
+     * @param subRegions the names of the sub-regions the user has picked (sub-regions-plan S2)
+     * @return map with id, username, role, enabled, createdAt, lastActiveAt and subRegions
      */
-    private Map<String, Object> toSummary(AppUserEntity user) {
+    private Map<String, Object> toSummary(AppUserEntity user, List<String> subRegions) {
         LocalDateTime createdAt = user.getCreatedAt();
         LocalDateTime lastActiveAt = user.getLastActiveAt();
         Map<String, Object> summary = new HashMap<>();
@@ -321,6 +325,7 @@ public class UserController {
         summary.put("termsVersion", user.getTermsVersion());
         summary.put("homePostcode", user.getHomePostcode());
         summary.put("marketingEmailOptIn", user.isMarketingEmailOptIn());
+        summary.put("subRegions", subRegions);
         return summary;
     }
 }

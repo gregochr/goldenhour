@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.exception.AreaConflictException;
 import com.gregochr.goldenhour.exception.NameClashException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
+import com.gregochr.goldenhour.exception.SubRegionsLockedException;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,6 +92,21 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.CONFLICT)
     public ErrorResponse handleAreaConflict(AreaConflictException ex) {
         return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link SubRegionsLockedException} to HTTP 409 {@code {error, code: SUB_REGIONS_LOCKED,
+     * nextChangeOn}}: a reader's sub-region change is inside the lock (sub-regions-plan §4.3).
+     *
+     * @param ex the exception, carrying the first date the change is allowed
+     * @return the 409 response
+     */
+    @ExceptionHandler(SubRegionsLockedException.class)
+    public ResponseEntity<Map<String, String>> handleSubRegionsLocked(SubRegionsLockedException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "error", ex.getMessage(),
+                "code", SubRegionsLockedException.CODE,
+                "nextChangeOn", ex.getNextChangeOn().toString()));
     }
 
     /**

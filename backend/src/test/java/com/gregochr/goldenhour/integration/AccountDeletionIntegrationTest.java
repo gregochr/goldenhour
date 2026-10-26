@@ -97,6 +97,9 @@ class AccountDeletionIntegrationTest extends IntegrationTestBase {
                 + " VALUES (?, ?, now() + interval '1 hour', now())", userId, "reset-" + userId);
         jdbc.update("INSERT INTO ask_log (user_id, scope_key, view, outcome, duration_ms)"
                 + " VALUES (?, 'ALL', 'plan', 'READY_MATCH', 12)", userId);
+        // V192: a sub-region pick (V191 seeds the sub-regions). Cascades with the account; no purge needed.
+        jdbc.update("INSERT INTO app_user_sub_region (user_id, area_id, created_at)"
+                + " SELECT ?, id, now() FROM area WHERE kind = 'SUB_REGION' ORDER BY id LIMIT 1", userId);
     }
 
     private int count(String table, long userId) {
@@ -133,6 +136,7 @@ class AccountDeletionIntegrationTest extends IntegrationTestBase {
         assertThat(count("outcome_rating", id)).isZero();
         assertThat(count("refresh_token", id)).isZero();
         assertThat(count("password_reset_token", id)).isZero();
+        assertThat(count("app_user_sub_region", id)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ask_log WHERE user_id IS NULL "
                 + "AND scope_key = 'ALL' AND outcome = 'READY_MATCH'", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM app_user_email_claim WHERE email_lower = ?",
@@ -152,6 +156,7 @@ class AccountDeletionIntegrationTest extends IntegrationTestBase {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM app_user WHERE id = ?", Integer.class, victim))
                 .isZero();
         assertThat(count("user_drive_time", victim)).isZero();
+        assertThat(count("app_user_sub_region", victim)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM app_user WHERE id = ?", Integer.class, boss))
                 .isEqualTo(1);
     }

@@ -273,6 +273,14 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected UserSettingsService settingsService;
 
+    /** The caller's sub-region picks and the admin tools over them. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.UserSubRegionService userSubRegionService;
+
+    /** The admin-set Lite pick limit. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.SubRegionPolicyService subRegionPolicyService;
+
     @MockitoBean
     protected com.gregochr.goldenhour.service.ask.AskService askService;
 

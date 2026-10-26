@@ -287,6 +287,10 @@ photocast:
     pending-hold-hours: 168
     first-reminder-hours-left: 72
     final-reminder-hours-left: 24
+  sub-regions:
+    enforce: false           # when true, a Lite reader's ratings are limited to their picks (S3 onwards; S2 only reports it)
+    grace-days: 7            # a reader's first choice starts this many days (inclusive) of free changes
+    lock-days: 30            # after grace, a change that swaps a pick out is allowed once per this many days
   best-bet:
     max-tokens: 4096        # response-token ceiling for the best-bet advisor JSON.
                             # A 1024 ceiling was observed truncating a verbose two-pick
