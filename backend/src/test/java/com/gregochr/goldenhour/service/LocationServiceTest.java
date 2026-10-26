@@ -29,7 +29,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -1321,8 +1320,9 @@ class LocationServiceTest {
     @Test
     @DisplayName("update() refuses a sub-region of another region, and saves and assigns nothing")
     void update_subRegionOfAnotherRegion_isRefused() {
-        existingInRegion(region(4L, "The Yorkshire Dales"));
-        when(subRegionMembership.requireAssignable(eq(88L), any(RegionEntity.class)))
+        RegionEntity dales = region(4L, "The Yorkshire Dales");
+        existingInRegion(dales);
+        when(subRegionMembership.requireAssignable(88L, dales))
                 .thenThrow(new IllegalArgumentException("Sub-region 'Keswick & Borrowdale' is in the region"));
 
         assertThatThrownBy(() -> locationService.update(1L, new UpdateLocationRequest(
@@ -1424,8 +1424,9 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() refuses a mismatched sub-region and saves no location")
     void add_subRegionOfAnotherRegion_savesNothing() {
-        when(regionRepository.findById(4L)).thenReturn(Optional.of(region(4L, "The Yorkshire Dales")));
-        when(subRegionMembership.requireAssignable(eq(88L), any(RegionEntity.class)))
+        RegionEntity dales = region(4L, "The Yorkshire Dales");
+        when(regionRepository.findById(4L)).thenReturn(Optional.of(dales));
+        when(subRegionMembership.requireAssignable(88L, dales))
                 .thenThrow(new IllegalArgumentException("wrong region"));
 
         assertThatThrownBy(() -> locationService.add(new AddLocationRequest("High Force", 54.65, -2.14,
