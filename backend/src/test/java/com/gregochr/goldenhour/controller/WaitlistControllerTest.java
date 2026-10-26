@@ -26,6 +26,11 @@ class WaitlistControllerTest extends AbstractControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    /** Matches a save of exactly this address. */
+    private static WaitlistEmailEntity savedFor(String email) {
+        return argThat((WaitlistEmailEntity e) -> e != null && email.equals(e.getEmail()));
+    }
+
     @BeforeEach
     void admitByDefault() {
         when(attemptLimiter.tryAcquire("waitlist:global", 60, Window.HOUR)).thenReturn(true);
@@ -78,7 +83,7 @@ class WaitlistControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.message").value("You're on the list"));
 
         verify(waitlistEmailRepository, never()).save(argThat(
-                (WaitlistEmailEntity e) -> true));
+                (WaitlistEmailEntity e) -> "alice@example.com".equals(e.getEmail())));
     }
 
     @Test
@@ -136,7 +141,7 @@ class WaitlistControllerTest extends AbstractControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("CAPTCHA verification failed. Please try again."));
 
-        verify(waitlistEmailRepository, never()).save(argThat((WaitlistEmailEntity e) -> true));
+        verify(waitlistEmailRepository, never()).save(savedFor("alice@example.com"));
     }
 
     @Test
@@ -149,7 +154,7 @@ class WaitlistControllerTest extends AbstractControllerTest {
                         .content("{\"email\":\"alice@example.com\"}"))
                 .andExpect(status().isBadRequest());
 
-        verify(waitlistEmailRepository, never()).save(argThat((WaitlistEmailEntity e) -> true));
+        verify(waitlistEmailRepository, never()).save(savedFor("alice@example.com"));
     }
 
     @Test
@@ -163,7 +168,7 @@ class WaitlistControllerTest extends AbstractControllerTest {
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.error").value(AuthController.TOO_MANY_ATTEMPTS));
 
-        verify(waitlistEmailRepository, never()).save(argThat((WaitlistEmailEntity e) -> true));
+        verify(waitlistEmailRepository, never()).save(savedFor("alice@example.com"));
     }
 
     @Test

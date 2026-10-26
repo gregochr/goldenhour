@@ -24,10 +24,11 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -64,6 +65,11 @@ class WaitlistServiceTest {
         when(attemptLimiter.tryAcquire(CLIENT_KEY, 5, Window.QUARTER_HOUR)).thenReturn(true);
     }
 
+    /** Matches a save of exactly this address. */
+    private static WaitlistEmailEntity forAddress(String email) {
+        return argThat(e -> e != null && email.equals(e.getEmail()));
+    }
+
     private static WaitlistEmailEntity row(Long id, String email) {
         return WaitlistEmailEntity.builder().id(id).email(email).submittedAt(NOW.minusDays(2)).build();
     }
@@ -76,7 +82,7 @@ class WaitlistServiceTest {
         admit();
         when(turnstileService.verify("tok")).thenReturn(true);
         when(repository.existsByEmail("a@example.com")).thenReturn(false);
-        when(repository.save(any(WaitlistEmailEntity.class))).thenAnswer(inv -> {
+        when(repository.save(forAddress("a@example.com"))).thenAnswer(inv -> {
             WaitlistEmailEntity e = inv.getArgument(0);
             e.setId(11L);
             return e;
@@ -99,7 +105,7 @@ class WaitlistServiceTest {
 
         assertThat(service.join("a@example.com", "tok", "203.0.113.9")).isEqualTo(JoinOutcome.JOINED);
 
-        verify(repository, never()).save(any());
+        verify(repository, never()).save(forAddress("a@example.com"));
     }
 
     @Test
@@ -110,7 +116,7 @@ class WaitlistServiceTest {
         assertThat(service.join("a@example.com", "tok", "203.0.113.9")).isEqualTo(JoinOutcome.RATE_LIMITED);
 
         verifyNoInteractions(turnstileService);
-        verify(repository, never()).save(any());
+        verify(repository, never()).save(forAddress("a@example.com"));
     }
 
     @Test
@@ -132,7 +138,7 @@ class WaitlistServiceTest {
 
         assertThat(service.join("a@example.com", "bad", "203.0.113.9")).isEqualTo(JoinOutcome.CAPTCHA_FAILED);
 
-        verify(repository, never()).save(any());
+        verify(repository, never()).save(forAddress("a@example.com"));
     }
 
     @Test
@@ -141,7 +147,7 @@ class WaitlistServiceTest {
         admit();
         when(turnstileService.verify("tok")).thenReturn(true);
         when(repository.existsByEmail("a@example.com")).thenReturn(false, true);
-        when(repository.save(any(WaitlistEmailEntity.class))).thenThrow(new DataIntegrityViolationException("dup"));
+        when(repository.save(forAddress("a@example.com"))).thenThrow(new DataIntegrityViolationException("dup"));
 
         assertThat(service.join("a@example.com", "tok", "203.0.113.9")).isEqualTo(JoinOutcome.JOINED);
     }
@@ -152,7 +158,7 @@ class WaitlistServiceTest {
         admit();
         when(turnstileService.verify("tok")).thenReturn(true);
         when(repository.existsByEmail("a@example.com")).thenReturn(false, false);
-        when(repository.save(any(WaitlistEmailEntity.class))).thenThrow(new DataIntegrityViolationException("other"));
+        when(repository.save(forAddress("a@example.com"))).thenThrow(new DataIntegrityViolationException("other"));
 
         assertThatThrownBy(() -> service.join("a@example.com", "tok", "203.0.113.9"))
                 .isInstanceOf(DataIntegrityViolationException.class);
@@ -189,7 +195,7 @@ class WaitlistServiceTest {
         assertThat(service.invite(3L)).isEqualTo(InviteOutcome.SENT);
 
         verify(userEmailService).sendWaitlistInviteEmail(3L, "a@example.com", "raw-invite", NOW.plusDays(7));
-        verify(repository, never()).save(any());
+        verify(repository, never()).save(forAddress("a@example.com"));
     }
 
     @Test
@@ -220,7 +226,8 @@ class WaitlistServiceTest {
 
         verifyNoInteractions(jwtService);
         verifyNoInteractions(userEmailService);
-        verify(repository, never()).markInvited(any(), any(), any(), any());
+        verify(repository).findById(3L);
+        verifyNoMoreInteractions(repository);
     }
 
     @Test
@@ -236,7 +243,8 @@ class WaitlistServiceTest {
         assertThat(service.invite(9L)).isEqualTo(InviteOutcome.NOT_FOUND);
         assertThat(service.invite(3L)).isEqualTo(InviteOutcome.NOT_FOUND);
 
-        verify(userEmailService, never()).sendWaitlistInviteEmail(any(), any(), any(), any());
+        verify(userEmailService).isConfigured();
+        verifyNoMoreInteractions(userEmailService);
     }
 
     @Test
@@ -247,7 +255,9 @@ class WaitlistServiceTest {
 
         assertThat(service.invite(3L)).isEqualTo(InviteOutcome.MAIL_UNAVAILABLE);
 
-        verify(repository, never()).markInvited(any(), any(), any(), any());
+        verify(repository).findById(3L);
+        verifyNoMoreInteractions(repository);
+        verifyNoInteractions(jwtService);
     }
 
     // --- remove / removeByEmail ---

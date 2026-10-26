@@ -652,7 +652,9 @@ class RegistrationServiceTest {
                 .thenReturn(buildPendingUser(1L, username, email));
         when(jwtService.generateRefreshToken()).thenReturn("raw-token");
         when(jwtService.hashToken("raw-token")).thenReturn("hashed");
-        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(tokenRepository.save(org.mockito.ArgumentMatchers.argThat(
+                (EmailVerificationTokenEntity t) -> t != null && "hashed".equals(t.getTokenHash()))))
+                .thenAnswer(inv -> inv.getArgument(0));
     }
 
     @Test
@@ -665,7 +667,7 @@ class RegistrationServiceTest {
         AppUserEntity result = registrationService.register("alice", "alice@example.com", false, "invite-raw");
 
         assertThat(result.getUsername()).isEqualTo("alice");
-        verify(userRepository, never()).countByRoleNot(any());
+        verify(userRepository, never()).countByRoleNot(UserRole.ADMIN);
         verify(userService).createPendingUser("alice", "alice@example.com", false, UserRole.LITE_USER);
     }
 

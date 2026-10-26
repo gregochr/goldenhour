@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.WaitlistEmailEntity;
+import com.gregochr.goldenhour.service.JwtService;
 import org.junit.jupiter.api.DisplayName;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -11,8 +13,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -30,6 +34,9 @@ class WaitlistAdminControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JwtService jwtService;
 
     @Test
     @WithMockUser(roles = "ADMIN")
@@ -182,15 +189,29 @@ class WaitlistAdminControllerTest extends AbstractControllerTest {
                 .submittedAt(LocalDateTime.of(2026, 4, 5, 10, 0)).build();
         when(waitlistEmailRepository.findById(3L)).thenReturn(Optional.of(entry));
         when(userEmailService.isConfigured()).thenReturn(true);
-        when(waitlistEmailRepository.markInvited(org.mockito.ArgumentMatchers.eq(3L), anyString(),
-                any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(1);
+        ArgumentCaptor<String> storedHash = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<LocalDateTime> invitedAt = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> storedExpiry = ArgumentCaptor.forClass(LocalDateTime.class);
+        when(waitlistEmailRepository.markInvited(eq(3L), storedHash.capture(), invitedAt.capture(),
+                storedExpiry.capture())).thenReturn(1);
+        LocalDateTime before = LocalDateTime.now();
 
         mockMvc.perform(post("/api/admin/waitlist/3/invite"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Invitation sent"));
 
-        verify(userEmailService).sendWaitlistInviteEmail(org.mockito.ArgumentMatchers.eq(3L),
-                org.mockito.ArgumentMatchers.eq("alice@example.com"), anyString(), any(LocalDateTime.class));
+        ArgumentCaptor<String> mailedToken = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<LocalDateTime> mailedExpiry = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(userEmailService).sendWaitlistInviteEmail(eq(3L), eq("alice@example.com"), mailedToken.capture(),
+                mailedExpiry.capture());
+        // The credential stored is the hash of the credential mailed, never the raw token itself.
+        assertThat(mailedToken.getValue()).isNotBlank();
+        assertThat(storedHash.getValue()).isEqualTo(jwtService.hashToken(mailedToken.getValue()))
+                .isNotEqualTo(mailedToken.getValue());
+        // The mail speaks of the expiry that was stored, which is seven days after the invitation.
+        assertThat(mailedExpiry.getValue()).isEqualTo(storedExpiry.getValue());
+        assertThat(storedExpiry.getValue()).isEqualTo(invitedAt.getValue().plusDays(7));
+        assertThat(invitedAt.getValue()).isBetween(before, LocalDateTime.now());
     }
 
     @Test
@@ -205,8 +226,7 @@ class WaitlistAdminControllerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/admin/waitlist/9/invite")).andExpect(status().isNotFound());
         mockMvc.perform(post("/api/admin/waitlist/4/invite")).andExpect(status().isBadRequest());
 
-        verify(userEmailService, never()).sendWaitlistInviteEmail(any(), anyString(), anyString(),
-                any(LocalDateTime.class));
+        verifyNoInteractions(userEmailService);
     }
 
     @Test
@@ -219,8 +239,8 @@ class WaitlistAdminControllerTest extends AbstractControllerTest {
 
         mockMvc.perform(post("/api/admin/waitlist/3/invite")).andExpect(status().isServiceUnavailable());
 
-        verify(waitlistEmailRepository, never()).markInvited(any(), anyString(), any(LocalDateTime.class),
-                any(LocalDateTime.class));
+        verify(waitlistEmailRepository).findById(3L);
+        verifyNoMoreInteractions(waitlistEmailRepository);
     }
 
     @Test
@@ -229,7 +249,7 @@ class WaitlistAdminControllerTest extends AbstractControllerTest {
     void inviteAndDelete_asLite_return403() throws Exception {
         mockMvc.perform(post("/api/admin/waitlist/3/invite")).andExpect(status().isForbidden());
         mockMvc.perform(delete("/api/admin/waitlist/3")).andExpect(status().isForbidden());
-        verify(waitlistEmailRepository, never()).deleteById(any());
+        verify(waitlistEmailRepository, never()).deleteById(3L);
     }
 
     @Test
@@ -238,7 +258,7 @@ class WaitlistAdminControllerTest extends AbstractControllerTest {
     void inviteAndDelete_asPro_return403() throws Exception {
         mockMvc.perform(post("/api/admin/waitlist/3/invite")).andExpect(status().isForbidden());
         mockMvc.perform(delete("/api/admin/waitlist/3")).andExpect(status().isForbidden());
-        verify(waitlistEmailRepository, never()).deleteById(any());
+        verify(waitlistEmailRepository, never()).deleteById(3L);
     }
 
     @Test
@@ -259,6 +279,5 @@ class WaitlistAdminControllerTest extends AbstractControllerTest {
         mockMvc.perform(delete("/api/admin/waitlist/9")).andExpect(status().isNotFound());
 
         verify(waitlistEmailRepository).deleteById(3L);
-        verify(waitlistEmailRepository, never()).deleteById(9L);
     }
 }

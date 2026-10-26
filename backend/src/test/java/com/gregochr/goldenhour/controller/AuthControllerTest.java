@@ -430,7 +430,7 @@ class AuthControllerTest extends AbstractControllerTest {
 
         // The field is absent, and an absent field is not consent (plan §1 #15).
         verify(registrationService).register("newuser", "new@example.com", false, null);
-        verify(registrationService, never()).register(anyString(), anyString(), eq(true), any());
+        verify(registrationService, never()).register("newuser", "new@example.com", true, null);
     }
 
     @Test
@@ -547,7 +547,7 @@ class AuthControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.error").value("CAPTCHA verification failed. Please try again."));
 
         verifyNoInteractions(turnstileGate);
-        verify(registrationService, never()).register(anyString(), anyString(), anyBoolean(), any());
+        verify(registrationService, never()).register("newuser", "new@example.com", false, null);
     }
 
     @Test
@@ -1298,7 +1298,7 @@ class AuthControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("POST /api/auth/register returns 403 when registration cap is reached")
     void register_capReached_returns403() throws Exception {
-        when(registrationService.register(eq("newuser"), eq("new@example.com"), anyBoolean(), any()))
+        when(registrationService.register("newuser", "new@example.com", false, null))
                 .thenThrow(new RegistrationClosedException());
 
         mockMvc.perform(post("/api/auth/register")

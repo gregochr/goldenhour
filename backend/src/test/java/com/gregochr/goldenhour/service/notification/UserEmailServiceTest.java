@@ -31,6 +31,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -593,7 +594,7 @@ class UserEmailServiceTest {
         new UserEmailService(mailSender, templateEngine, new RegistrationProperties())
                 .sendWaitlistInviteEmail(5L, " ", "raw-invite", expires);
 
-        verify(templateEngine, never()).process(any(String.class), any(IContext.class));
+        verifyNoInteractions(templateEngine);
     }
 
     @Test

@@ -17,7 +17,6 @@ import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -143,7 +142,7 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @Test
     @DisplayName("RegistrationClosedException is mapped to 403 Forbidden")
     void handleRegistrationClosed_returns403() throws Exception {
-        when(registrationService.register(anyString(), anyString(), anyBoolean(), any()))
+        when(registrationService.register("newuser", "new@example.com", false, null))
                 .thenThrow(new RegistrationClosedException());
 
         mockMvc.perform(post("/api/auth/register")
