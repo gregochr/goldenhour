@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.service.UserSubRegionService;
+import com.gregochr.goldenhour.service.LitePickShaper;
+import com.gregochr.goldenhour.config.SubRegionProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -40,6 +43,7 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -109,7 +113,8 @@ class ForecastHistoryQueryCountTest {
         return new ForecastController(forecastEvaluationRepository, locationService, commandFactory,
                 commandExecutor, scheduledForecastService, dtoMapper, evaluationViewService,
                 jobRunService, progressTracker, Runnable::run, Clock.systemUTC().withZone(ZoneOffset.UTC),
-                retryService, asOfEventResolver, solarEventFreshness);
+                retryService, asOfEventResolver, solarEventFreshness,
+                new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()));
     }
 
     @Test

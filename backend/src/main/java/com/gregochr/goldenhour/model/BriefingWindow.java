@@ -141,6 +141,18 @@ public record BriefingWindow(
     }
 
     /**
+     * Returns a copy with a different best rating — {@code null} removes the star (the reader's picks do not
+     * cover the places it was taken from).
+     *
+     * @param newBestRating the rating to serve, or null
+     * @return this window with only {@code bestRating} replaced
+     */
+    public BriefingWindow withBestRating(Integer newBestRating) {
+        return new BriefingWindow(eventTime, verdict, newBestRating, confidence, pick, badges,
+                topRarityRank, tide, tideFacts);
+    }
+
+    /**
      * Returns a copy carrying the given forecast-wide pick, every other component unchanged.
      *
      * @param newPick the pick, or null for none

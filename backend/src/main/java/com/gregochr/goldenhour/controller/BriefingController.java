@@ -9,6 +9,8 @@ import com.gregochr.goldenhour.service.BriefingDigestService;
 import com.gregochr.goldenhour.service.BriefingModelTestService;
 import com.gregochr.goldenhour.service.BriefingRoleShaper;
 import com.gregochr.goldenhour.service.BriefingService;
+import com.gregochr.goldenhour.service.LitePickShaper;
+import com.gregochr.goldenhour.service.PickScope;
 import com.gregochr.goldenhour.util.Authorities;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -39,6 +41,7 @@ public class BriefingController {
     private final BriefingModelTestService briefingModelTestService;
     private final BriefingDigestService briefingDigestService;
     private final BriefingRoleShaper briefingRoleShaper;
+    private final LitePickShaper litePickShaper;
 
     /**
      * Constructs a {@code BriefingController}.
@@ -47,15 +50,17 @@ public class BriefingController {
      * @param briefingModelTestService the service that runs briefing model comparisons
      * @param briefingDigestService    the service that projects the briefing into the digest
      * @param briefingRoleShaper       the shaper that strips Pro-only tide data for LITE readers
+     * @param litePickShaper           the shaper that strips ratings outside a Lite reader's sub-region picks
      */
     public BriefingController(BriefingService briefingService,
             BriefingModelTestService briefingModelTestService,
             BriefingDigestService briefingDigestService,
-            BriefingRoleShaper briefingRoleShaper) {
+            BriefingRoleShaper briefingRoleShaper, LitePickShaper litePickShaper) {
         this.briefingService = briefingService;
         this.briefingModelTestService = briefingModelTestService;
         this.briefingDigestService = briefingDigestService;
         this.briefingRoleShaper = briefingRoleShaper;
+        this.litePickShaper = litePickShaper;
     }
 
     /**
@@ -77,6 +82,13 @@ public class BriefingController {
      * every {@code window.pick} removed, {@code bestBets} empty and {@code bestBetModel},
      * {@code bestBetStatus} and {@code bestBetsWithdrawn} null.
      *
+     * <p><b>Enforcement (docs/engineering/sub-regions-plan.md S3).</b> With
+     * {@code photocast.sub-regions.enforce} on, a caller who is not positively PRO_USER or ADMIN is also
+     * shaped by their sub-region picks by {@link LitePickShaper}, after the live overlays: every slot outside
+     * the picks is {@code gated} and loses its ratings, the region and window best and mean stars go, the
+     * bluebell hot topic loses its ratings, and {@code allowedLocationIds} is served. That body is sent
+     * {@code Cache-Control: no-store} (no ETag): it reveals the reader's picks. Unshaped bodies are unchanged.
+     *
      * @param auth the caller's authentication
      * @return the cached briefing response with honesty filter applied, shaped for the caller's role
      */
@@ -88,7 +100,9 @@ public class BriefingController {
         }
         boolean pro = Authorities.hasRole(auth, UserRole.PRO_USER)
                 || Authorities.hasRole(auth, UserRole.ADMIN);
-        return ResponseEntity.ok(pro ? briefing : briefingRoleShaper.forLite(briefing));
+        PickScope scope = litePickShaper.scopeFor(auth);
+        DailyBriefingResponse byRole = pro ? briefing : briefingRoleShaper.forLite(briefing);
+        return LitePickShaper.respond(litePickShaper.shapeBriefing(byRole, scope), scope);
     }
 
     /**
@@ -119,7 +133,8 @@ public class BriefingController {
         }
         boolean pro = Authorities.hasRole(auth, UserRole.PRO_USER)
                 || Authorities.hasRole(auth, UserRole.ADMIN);
-        return ResponseEntity.ok(pro ? digest : liteDigest(digest));
+        PickScope scope = litePickShaper.scopeFor(auth);
+        return LitePickShaper.respond(litePickShaper.shapeDigest(pro ? digest : liteDigest(digest), scope), scope);
     }
 
     private static BriefingDigestResponse liteDigest(BriefingDigestResponse digest) {

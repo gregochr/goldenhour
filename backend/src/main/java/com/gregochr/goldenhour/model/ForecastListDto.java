@@ -45,6 +45,8 @@ import java.time.LocalDateTime;
  * @param windDirection wind bearing (comfort)
  * @param precipitation precipitation amount (comfort)
  * @param precipitationProbabilityPercent precipitation probability (comfort)
+ * @param gated {@code TRUE} when the row is outside the reader's sub-region picks and its rating fields were
+ *              removed by {@code LitePickShaper}, otherwise null (never {@code FALSE}). Gated is not unrated
  */
 public record ForecastListDto(
         Long id,
@@ -67,7 +69,46 @@ public record ForecastListDto(
         BigDecimal windSpeed,
         Integer windDirection,
         BigDecimal precipitation,
-        Integer precipitationProbabilityPercent) {
+        Integer precipitationProbabilityPercent,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean gated) {
+
+    /**
+     * Twenty-one-component form, defaulting {@code gated} to null (an unshaped row). Retained so every call
+     * site that predates the field keeps compiling unchanged; the withers thread {@code gated} through.
+     *
+     * @param id the forecast_evaluation id, or null for a sparse row
+     * @param locationName location name
+     * @param locationLat location latitude
+     * @param locationLon location longitude
+     * @param targetDate the forecast date
+     * @param targetType SUNRISE / SUNSET / HOURLY
+     * @param forecastRunAt when this slot was scored
+     * @param solarEventTime the solar event instant
+     * @param azimuthDeg solar azimuth
+     * @param rating 1-5 star rating
+     * @param fierySkyPotential role-selected Fiery Sky score
+     * @param goldenHourPotential role-selected Golden Hour score
+     * @param triageReason stand-down reason, or null
+     * @param summary the Claude "why" text (sparse rows only)
+     * @param triageMessage the triage detail text (sparse rows only)
+     * @param temperatureCelsius air temperature
+     * @param apparentTemperatureCelsius feels-like temperature
+     * @param windSpeed wind speed
+     * @param windDirection wind bearing
+     * @param precipitation precipitation amount
+     * @param precipitationProbabilityPercent precipitation probability
+     */
+    public ForecastListDto(Long id, String locationName, BigDecimal locationLat, BigDecimal locationLon,
+            LocalDate targetDate, TargetType targetType, LocalDateTime forecastRunAt,
+            LocalDateTime solarEventTime, Integer azimuthDeg, Integer rating, Integer fierySkyPotential,
+            Integer goldenHourPotential, TriageReason triageReason, String summary, String triageMessage,
+            Double temperatureCelsius, Double apparentTemperatureCelsius, BigDecimal windSpeed,
+            Integer windDirection, BigDecimal precipitation, Integer precipitationProbabilityPercent) {
+        this(id, locationName, locationLat, locationLon, targetDate, targetType, forecastRunAt,
+                solarEventTime, azimuthDeg, rating, fierySkyPotential, goldenHourPotential, triageReason,
+                summary, triageMessage, temperatureCelsius, apparentTemperatureCelsius, windSpeed,
+                windDirection, precipitation, precipitationProbabilityPercent, null);
+    }
 
     /**
      * A copy of this projection with a different star rating — how the as-of-event serve path puts
@@ -81,7 +122,7 @@ public record ForecastListDto(
                 forecastRunAt, solarEventTime, azimuthDeg, newRating, fierySkyPotential,
                 goldenHourPotential, triageReason, summary, triageMessage, temperatureCelsius,
                 apparentTemperatureCelsius, windSpeed, windDirection, precipitation,
-                precipitationProbabilityPercent);
+                precipitationProbabilityPercent, gated);
     }
 
     /**
@@ -97,6 +138,20 @@ public record ForecastListDto(
         return new ForecastListDto(id, locationName, locationLat, locationLon, targetDate, targetType,
                 forecastRunAt, solarEventTime, azimuthDeg, null, null, null, triageReason, summary,
                 triageMessage, temperatureCelsius, apparentTemperatureCelsius, windSpeed, windDirection,
-                precipitation, precipitationProbabilityPercent);
+                precipitation, precipitationProbabilityPercent, gated);
+    }
+
+    /**
+     * A copy for a reader whose sub-region picks do not cover this location: the star, both potentials, the
+     * written why, the stand-down reason and its message are removed, and {@link #gated} is set. The place,
+     * the date, the event, the times and the weather inputs stay.
+     *
+     * @return a gated copy
+     */
+    public ForecastListDto forGated() {
+        return new ForecastListDto(id, locationName, locationLat, locationLon, targetDate, targetType,
+                forecastRunAt, solarEventTime, azimuthDeg, null, null, null, null, null, null,
+                temperatureCelsius, apparentTemperatureCelsius, windSpeed, windDirection, precipitation,
+                precipitationProbabilityPercent, Boolean.TRUE);
     }
 }

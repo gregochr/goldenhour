@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.service.UserSubRegionService;
+import com.gregochr.goldenhour.service.LitePickShaper;
+import com.gregochr.goldenhour.config.SubRegionProperties;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
@@ -36,6 +39,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -115,9 +119,11 @@ class ForecastWindowAnchorTest {
         forecastController = new ForecastController(repository, locationService, commandFactory,
                 commandExecutor, scheduledForecastService, dtoMapper, evaluationViewService,
                 jobRunService, progressTracker, Runnable::run, LATE_BST_EVENING,
-                retryService, asOfEventResolver, solarEventFreshness);
+                retryService, asOfEventResolver, solarEventFreshness,
+                new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()));
         briefingEvaluationController = new BriefingEvaluationController(
-                briefingEvaluationService, evaluationViewService, LATE_BST_EVENING);
+                briefingEvaluationService, evaluationViewService, LATE_BST_EVENING,
+                new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()));
     }
 
     @Test

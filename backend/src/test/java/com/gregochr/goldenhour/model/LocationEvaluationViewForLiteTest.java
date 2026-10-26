@@ -25,7 +25,7 @@ class LocationEvaluationViewForLiteTest {
     private static final Set<String> KEPT = Set.of("locationId", "locationName", "regionId",
             "regionName", "date", "targetType", "source", "rating", "triageReason", "triageMessage",
             "evaluationModel", "evaluatedAt", "displayVerdict", "goldenHourStart", "goldenHourEnd",
-            "blueHourStart", "blueHourEnd");
+            "blueHourStart", "blueHourEnd", "gated");
 
     private static LocationEvaluationView full() {
         LocalDateTime t = LocalDateTime.of(2026, 10, 25, 16, 30);

@@ -21,7 +21,9 @@ import com.gregochr.goldenhour.service.ForecastCommand;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.LitePickShaper;
 import com.gregochr.goldenhour.service.LocationService;
+import com.gregochr.goldenhour.service.PickScope;
 import com.gregochr.goldenhour.service.PlanWindowProjector;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
@@ -92,6 +94,7 @@ public class ForecastController {
     private final FailedSlotRetryService retryService;
     private final AsOfEventResolver asOfEventResolver;
     private final SolarEventFreshness solarEventFreshness;
+    private final LitePickShaper litePickShaper;
 
     /**
      * Constructs a {@code ForecastController}.
@@ -111,6 +114,7 @@ public class ForecastController {
      * @param retryService              starts "Retry failed" runs for exactly the slots that failed
      * @param asOfEventResolver         what the reader had been shown for a passed slot at its event
      * @param solarEventFreshness       each place's own sunrise or sunset, for "has this slot passed"
+     * @param litePickShaper            strips ratings outside a Lite reader's sub-region picks
      */
     public ForecastController(ForecastEvaluationRepository repository,
             LocationService locationService, ForecastCommandFactory commandFactory,
@@ -120,7 +124,7 @@ public class ForecastController {
             JobRunService jobRunService,
             RunProgressTracker progressTracker, Executor forecastExecutor,
             Clock clock, FailedSlotRetryService retryService, AsOfEventResolver asOfEventResolver,
-            SolarEventFreshness solarEventFreshness) {
+            SolarEventFreshness solarEventFreshness, LitePickShaper litePickShaper) {
         this.repository = repository;
         this.locationService = locationService;
         this.commandFactory = commandFactory;
@@ -135,6 +139,7 @@ public class ForecastController {
         this.retryService = retryService;
         this.asOfEventResolver = asOfEventResolver;
         this.solarEventFreshness = solarEventFreshness;
+        this.litePickShaper = litePickShaper;
     }
 
     /**
@@ -347,7 +352,14 @@ public class ForecastController {
             }
             dtos.add(dtoMapper.toSparseListDto(view, loc, lite));
         }
-        return dtos;
+        // Enforcement (sub-regions-plan S3): after the role shaping above, a reader whose picks do not cover a
+        // place gets that row gated, past days included; the body is then no-store (it reveals the picks).
+        PickScope scope = litePickShaper.scopeFor(auth);
+        if (!scope.shaped()) {
+            return dtos;
+        }
+        LitePickShaper.markNoStore(scope);
+        return dtos.stream().map(dto -> litePickShaper.shapeListRow(dto, scope)).toList();
     }
 
     /** A passed slot and what the reader had been shown for it at its event. */
@@ -422,6 +434,11 @@ public class ForecastController {
      * headline, PRO/ADMIN get the enhanced (directional) values — so this endpoint cannot be used to
      * bypass the freemium score gating.
      *
+     * <p>With {@code photocast.sub-regions.enforce} on, an id whose location is outside a non-Pro reader's
+     * sub-region picks is served the gated evaluation, never the full one (ids are enumerable): no star, no
+     * potentials, no summary or headline, no bluebell score or summary, no stand-down reason, and
+     * {@code gated: true}; the weather and tide facts stay. The response is sent {@code no-store}.
+     *
      * @param id   the forecast_evaluation id (only persisted rich rows have one; sparse cached-only
      *             rows carry their summary inline in the list and never reach here)
      * @param auth the current authentication context
@@ -432,7 +449,14 @@ public class ForecastController {
     public ForecastEvaluationDto getForecastDetail(@PathVariable Long id, Authentication auth) {
         com.gregochr.goldenhour.entity.ForecastEvaluationEntity entity = repository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("No forecast evaluation with id " + id));
-        return dtoMapper.toDto(entity, isLiteUser(auth));
+        ForecastEvaluationDto dto = dtoMapper.toDto(entity, isLiteUser(auth));
+        PickScope scope = litePickShaper.scopeFor(auth);
+        if (!scope.shaped()) {
+            return dto;
+        }
+        LitePickShaper.markNoStore(scope);
+        Long locationId = entity.getLocation() == null ? null : entity.getLocation().getId();
+        return litePickShaper.shapeDetail(dto, locationId, scope);
     }
 
     /**

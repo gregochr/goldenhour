@@ -58,6 +58,17 @@ public record ExpandedHotTopicDetail(
             String badge,
             BluebellLocationMetrics bluebellLocationMetrics,
             TideLocationMetrics tideLocationMetrics) {
+
+        /**
+         * Returns this entry without its bluebell rating: the metrics (score, exposure, summary) and the
+         * "Best" badge, which states the entry is the region's top rating, are removed. The name and the
+         * location-type label stay, as does the tide detail.
+         *
+         * @return a copy for a reader whose sub-region picks do not cover this location
+         */
+        public LocationEntry withoutBluebellRating() {
+            return new LocationEntry(locationName, locationType, null, null, tideLocationMetrics);
+        }
     }
 
     // ── Pill-level metrics ─────────────────────────────────────────────────
@@ -65,11 +76,22 @@ public record ExpandedHotTopicDetail(
     /**
      * Pill-level bluebell metrics.
      *
-     * @param bestScore            highest bluebell rating (1–5) across all regions
-     * @param qualityLabel         human-readable quality: "Excellent" / "Good" / "Fair"
+     * @param bestScore            highest bluebell rating (1–5) across all regions; null when the reader's
+     *                             sub-region picks do not cover the rated places
+     * @param qualityLabel         human-readable quality: "Excellent" / "Good" / "Fair"; null with the score
      * @param scoringLocationCount number of locations included in the expanded detail
      */
-    public record BluebellMetrics(int bestScore, String qualityLabel, int scoringLocationCount) {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record BluebellMetrics(Integer bestScore, String qualityLabel, int scoringLocationCount) {
+
+        /**
+         * Returns these metrics without the best score and the label derived from it; the count stays.
+         *
+         * @return a copy for a shaped reader
+         */
+        public BluebellMetrics withoutScore() {
+            return new BluebellMetrics(null, null, scoringLocationCount);
+        }
     }
 
     /**

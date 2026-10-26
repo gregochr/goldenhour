@@ -93,6 +93,9 @@ import java.time.LocalDateTime;
  * @param seaState                       WMO sea-state band label, e.g. "very rough" (nullable — coastal only)
  * @param mistPotential                  Claude's valley mist reading at a mist-prone site, a
  *                                       {@code MistPotential} name (nullable; omitted from the wire when null)
+ * @param gated                          {@code TRUE} when the evaluation is outside the reader's sub-region picks
+ *                                       and its rating fields were removed by {@code LitePickShaper},
+ *                                       otherwise null (never {@code FALSE}). Gated is not unrated
  */
 public record ForecastEvaluationDto(
         Long id,
@@ -168,5 +171,33 @@ public record ForecastEvaluationDto(
         @JsonInclude(JsonInclude.Include.NON_NULL) String headline,
         @JsonInclude(JsonInclude.Include.NON_NULL) Double significantWaveHeightMetres,
         @JsonInclude(JsonInclude.Include.NON_NULL) String seaState,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String mistPotential) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String mistPotential,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean gated) {
+
+    /**
+     * Returns this evaluation for a reader whose sub-region picks do not cover its location
+     * (docs/engineering/sub-regions-plan.md §4.2): the star, both potentials, the Claude summary and
+     * headline, the bluebell score and summary, the Claude valley-mist reading, and the stand-down reason
+     * and message are removed, and {@link #gated} is set. The weather inputs, the tide and surge facts and
+     * the light times stay. Ids are enumerable, so an id outside the picks is served this, never the full
+     * evaluation.
+     *
+     * @return a gated copy
+     */
+    public ForecastEvaluationDto forGated() {
+        return new ForecastEvaluationDto(
+                id, locationName, locationLat, locationLon, targetDate, targetType, forecastRunAt, daysAhead,
+                null, null, null, null, solarEventTime, azimuthDeg, evaluationModel, lowCloud, midCloud,
+                highCloud, visibility, windSpeed, windDirection, precipitation, humidity, weatherCode,
+                boundaryLayerHeight, shortwaveRadiation, pm25, dust, aerosolOpticalDepth, temperatureCelsius,
+                apparentTemperatureCelsius, precipitationProbabilityPercent, dewPointCelsius, tideState,
+                nextHighTideTime, nextHighTideHeightMetres, nextLowTideTime, nextLowTideHeightMetres,
+                tideAligned, solarLowCloud, solarMidCloud, solarHighCloud, antisolarLowCloud,
+                antisolarMidCloud, antisolarHighCloud, solarTrendEventLowCloud, solarTrendEarliestLowCloud,
+                solarTrendBuilding, upwindCurrentLowCloud, upwindEventLowCloud, upwindDistanceKm,
+                lunarTideType, lunarPhase, surgeTotalMetres, surgePressureMetres, surgeWindMetres,
+                surgeRiskLevel, surgeAdjustedRangeMetres, surgeAstronomicalRangeMetres, inversionScore,
+                inversionPotential, goldenHourStart, goldenHourEnd, blueHourStart, blueHourEnd, null, null,
+                bluebellExposure, null, null, null, significantWaveHeightMetres, seaState, null, Boolean.TRUE);
+    }
 }

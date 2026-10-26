@@ -273,6 +273,14 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected com.gregochr.goldenhour.service.UserSubRegionService userSubRegionService;
 
+    /**
+     * Enforcement flag for {@code LitePickShaper} (sub-regions-plan S3). A mock so a test can turn enforcement
+     * on with {@code when(subRegionProperties.isEnforce()).thenReturn(true)}; it answers false (off) otherwise,
+     * which is the committed default, and Mockito resets it after each test.
+     */
+    @MockitoBean
+    protected com.gregochr.goldenhour.config.SubRegionProperties subRegionProperties;
+
     /** The admin-set Lite pick limit. */
     @MockitoBean
     protected com.gregochr.goldenhour.service.SubRegionPolicyService subRegionPolicyService;

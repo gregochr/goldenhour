@@ -556,6 +556,7 @@ public class ForecastDtoMapper {
                 headline,
                 wave.waveHeightMetres(),
                 wave.seaState(),
-                entity.getMistPotential());
+                entity.getMistPotential(),
+                null);
     }
 }
