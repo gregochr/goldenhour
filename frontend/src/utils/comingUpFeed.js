@@ -479,6 +479,9 @@ export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
     tide: entry.tide ?? null,
     coincidence: entry.coincidence ?? null,
     joinNote: entry.joinNote ?? null,
+    // Lite only: the server stripped this card's event-water rows (tide-light-pro-plan.md B2). A bare
+    // passthrough; WindowFirstComingUp decides which single card carries the Pro door.
+    lightRowsWithheld: entry.lightRowsWithheld === true,
     // The NEW flag + fresh box-shadow (design §4, plan P5) — D12's per-user-join computation,
     // imported rather than re-derived here (see this file's own class doc and comingUpArrivals.js's).
     isNew: isNewEntry(entry, lastSeenDate),

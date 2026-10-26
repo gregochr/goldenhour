@@ -1,5 +1,8 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import ProUpsellDoor, {
+  TIDE_LIGHT_UPSELL_LABEL, TIDE_LIGHT_UPSELL_HEADING, TIDE_LIGHT_UPSELL_BODY,
+} from './shared/ProUpsell.jsx';
 import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
 import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
 import { rangeBarHeight, BIG_RANGE_PERCENTILE } from '../utils/comingUpFeed.js';
@@ -245,6 +248,7 @@ DayChips.propTypes = {
     rangeAverage: PropTypes.number,
   }).isRequired,
   onShowOnMap: PropTypes.func.isRequired,
+  showTideLightDoor: PropTypes.bool,
 };
 
 /**
@@ -396,7 +400,9 @@ DayChips.propTypes = {
  * @param {function} props.onShowOnMap opens the Map tab (the structured door) for a `kind:'coming-up'` handoff object
  *                                     (D8) — the `coastal-spots`/`dark-sky-spots` destinations
  */
-export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) {
+export default function WindowComingUpEntry({
+  entry, onGoToPlan, onShowOnMap, showTideLightDoor = false,
+}) {
   const { rail } = entry;
   const glyph = entryGlyph(entry);
   // A tide-run card (hosted by the run, or by a supermoon that absorbed it) carries the sunrise and
@@ -642,6 +648,17 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
           {cardBody}
         </div>
       )}
+      {/* The Lite Pro door (tide-light-pro-plan.md F2). A SIBLING of the card, never inside it: an
+          interactive card with no day chips is itself a <button>, which has presentational children. */}
+      {showTideLightDoor && (
+        <ProUpsellDoor
+          label={TIDE_LIGHT_UPSELL_LABEL}
+          heading={TIDE_LIGHT_UPSELL_HEADING}
+          body={TIDE_LIGHT_UPSELL_BODY}
+          testIdPrefix="coming-up-tide-light-upsell"
+          className="wf-pro-upsell-door--inline"
+        />
+      )}
     </div>
   );
 }
@@ -710,7 +727,9 @@ WindowComingUpEntry.propTypes = {
     joinNote: PropTypes.string,
     isNew: PropTypes.bool.isRequired,
     inNext4Days: PropTypes.bool,
+    lightRowsWithheld: PropTypes.bool,
   }).isRequired,
   onGoToPlan: PropTypes.func.isRequired,
   onShowOnMap: PropTypes.func.isRequired,
+  showTideLightDoor: PropTypes.bool,
 };
