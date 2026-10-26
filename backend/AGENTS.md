@@ -100,8 +100,7 @@ Checkstyle and SpotBugs gate those in CI.
 
 8. **Auth gates that look like gaps but aren't.** `/api/tides*`, `/api/almanac`,
    `/api/regions/drive-times`, and everything under `/api/user/settings` are
-   Bearer-only with **no role gate**, deliberately (tests pin this). LITE users
-   may `POST /api/outcome` — observations are the scarce input to calibration.
+   Bearer-only with **no role gate**, deliberately (tests pin this).
    Conversely: `/api/user/settings*` must **never** be added to
    `HttpCachingConfig`'s ETag allow-list (personal data would persist in a
    browser cache JavaScript cannot evict on logout);

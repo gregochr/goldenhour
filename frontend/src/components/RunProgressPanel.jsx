@@ -324,7 +324,7 @@ const RunProgressPanel = ({
       )}
 
       {/* Why the retry did not start. role="alert" because it answers a press just made, as the
-          form errors in LoginPage and OutcomeModal do. It is unmounted when the button is pressed
+          form errors in LoginPage do. It is unmounted when the button is pressed
           again, so a repeat failure is announced afresh. */}
       {retryError && (
         <p className="text-xs text-red-400" role="alert" data-testid="retry-failed-error">

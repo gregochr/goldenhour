@@ -224,12 +224,10 @@ Two consequences worth stating plainly:
   33k rows carry a null rating. It is now, in practice, a triage and base-forecast table. The batch
   pipeline does the scoring, and its two sinks (`cached_evaluation`, `forecast_score`) last wrote
   within 0.3 seconds of each other — the dual write is healthy.
-- **This starves the calibration gate's OLD source.** `ForecastCalibrationService` joins `forecast_evaluation` to
-  `actual_outcome`; with ratings landing one day in fourteen it has almost nothing to score, before
-  even reaching the fact that `actual_outcome` has no rows. Not broken — starved. Worth knowing
-  before anyone cites it as evidence of forecast accuracy. ⚠️ Since the outcome-rating series (2026-10-15) the gate has a
-  SECOND source, readers' `outcome_rating` rows (below), which needs no natural-key match and no API-recorded `actual_rating` —
-  but it still reads `forecast_evaluation`: a rating pairs only with the one row it resolved to, and a rating whose row
+- **This starves the calibration gate's old, natural-key source.** That source (a join of `forecast_evaluation` to the
+  legacy `actual_outcome`, which never held a row) was deleted in audit-followups O1; the gate is now ratings-only. Worth knowing
+  before anyone cites the gate as evidence of forecast accuracy. ⚠️ The gate reads readers' `outcome_rating` rows (below), which need no
+  natural-key match — but it still reads `forecast_evaluation`: a rating pairs only with the one row it resolved to, and a rating whose row
   carries no star is not a pair, so the scarcity of rated rows limits it too.
 - ⚠️ **A nightly Gate 4 stability skip writes no row to either store, so it retracts at serve time
   instead.** When `NightlyEligibilityPolicy` declines to re-score a slot (`SKIPPED_STABILITY`), the

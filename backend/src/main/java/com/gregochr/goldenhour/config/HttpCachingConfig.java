@@ -55,7 +55,6 @@ public class HttpCachingConfig {
      * carrying user-authored text or home-derived personal data stays on Spring Security's
      * {@code no-store} default rather than lingering at rest on a shared machine:
      * <ul>
-     *   <li>{@code /api/outcome}, {@code /api/outcome/all} — user-authored free-text notes.</li>
      *   <li>{@code /api/travel-days} — carries an optional free-text note plus absence dates.</li>
      *   <li>{@code /api/user/settings}, {@code /api/user/settings/drive-times} — home postcode /
      *       lat-lon and home-proximity data. Also fetched at most once, so there is nothing to save.</li>
@@ -141,8 +140,7 @@ public class HttpCachingConfig {
 
     /**
      * Whether a request path may be answered with an ETag. Exactly the literal read paths plus the
-     * numeric-id detail endpoint — everything else (writes, SSE streams, admin endpoints, the
-     * free-text outcome reads) is excluded.
+     * numeric-id detail endpoint — everything else (writes, SSE streams, admin endpoints) is excluded.
      *
      * @param path the servlet path, with any context path already stripped
      * @return true when the path is revalidatable

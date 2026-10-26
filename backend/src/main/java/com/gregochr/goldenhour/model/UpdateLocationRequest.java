@@ -16,7 +16,7 @@ import java.util.Set;
  * {@code HashSet}, whose iteration order is not stable). A wood typed {@code [LANDSCAPE, WOODLAND]}
  * lost {@code WOODLAND} and went back to being scored against a sky it cannot see.
  *
- * @param name             optional new name (cascades to forecast_evaluation and actual_outcome)
+ * @param name             optional new name (cascades to forecast_evaluation)
  * @param lat              optional new latitude (null = don't change)
  * @param lon              optional new longitude (null = don't change)
  * @param solarEventTypes  which solar events to evaluate (null = don't change)

@@ -217,8 +217,8 @@ public class LocationService {
         double previousLat = location.getLat();
         double previousLon = location.getLon();
 
-        // Handle name change — no cascade needed, forecast_evaluation and actual_outcome
-        // reference location by ID, so renaming is a single-row update.
+        // Handle name change — no cascade needed, forecast_evaluation
+        // references location by ID, so renaming is a single-row update.
         if (request.name() != null && !request.name().isBlank()
                 && !request.name().equals(location.getName())) {
             String newName = request.name().trim();

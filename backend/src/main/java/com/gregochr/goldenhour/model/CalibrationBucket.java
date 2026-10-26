@@ -23,7 +23,6 @@ import java.util.List;
  * @param withinOneRate           fraction of pairs within one star (0–1)
  * @param missedOpportunities     predicted ≤ 2 but actual ≥ 4 — told to stay home on a good sky
  * @param wastedTrips             predicted ≥ 4 but actual ≤ 2 — sent out for a dud
- * @param meanAbsoluteFierySkyError mean absolute fiery-sky error (0–100), or {@code null}
  */
 public record CalibrationBucket(
         String key,
@@ -33,8 +32,7 @@ public record CalibrationBucket(
         Double exactMatchRate,
         Double withinOneRate,
         int missedOpportunities,
-        int wastedTrips,
-        Double meanAbsoluteFierySkyError) {
+        int wastedTrips) {
 
     /** Predicted rating at or below which the forecast is telling the photographer to stay home. */
     private static final int STAY_HOME_MAX = 2;
@@ -57,7 +55,7 @@ public record CalibrationBucket(
      */
     public static CalibrationBucket of(String key, List<CalibrationPair> pairs) {
         if (pairs == null || pairs.isEmpty()) {
-            return new CalibrationBucket(key, 0, null, null, null, null, 0, 0, null);
+            return new CalibrationBucket(key, 0, null, null, null, null, 0, 0);
         }
 
         int count = pairs.size();
@@ -67,8 +65,6 @@ public record CalibrationBucket(
         int withinOne = 0;
         int missed = 0;
         int wasted = 0;
-        int fierySum = 0;
-        int fieryCount = 0;
 
         for (CalibrationPair pair : pairs) {
             int error = pair.ratingError();
@@ -86,10 +82,6 @@ public record CalibrationBucket(
             if (pair.predictedRating() >= WORTH_IT_MIN && pair.actualRating() <= STAY_HOME_MAX) {
                 wasted++;
             }
-            if (pair.predictedFierySky() != null && pair.actualFierySky() != null) {
-                fierySum += Math.abs(pair.predictedFierySky() - pair.actualFierySky());
-                fieryCount++;
-            }
         }
 
         return new CalibrationBucket(
@@ -100,8 +92,7 @@ public record CalibrationBucket(
                 round((double) exact / count),
                 round((double) withinOne / count),
                 missed,
-                wasted,
-                fieryCount == 0 ? null : round((double) fierySum / fieryCount));
+                wasted);
     }
 
     /**

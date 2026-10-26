@@ -41,8 +41,8 @@ import java.util.Map;
  *                        on a morning the reader rated 4 or 5. Pairs are the same pairs as
  *                        {@code overall}, so a mist-prone pair is counted in both
  * @param mistProneSeenCounts what those pairs' readers said they saw: {@code seen} tag name to count,
- *                        with {@code UNTAGGED} for a rating given with no tag (and for every {@code
- *                        actual_outcome} pair); the counts sum to {@code mistProne.sampleCount()}.
+ *                        with {@code UNTAGGED} for a rating given with no tag; the counts sum
+ *                        to {@code mistProne.sampleCount()}.
  *                        Empty when {@code mistProne} is {@code null}. {@code NOT_SEEN} never
  *                        appears: a "didn't see it" rating is not a pair
  */

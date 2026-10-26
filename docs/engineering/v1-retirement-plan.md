@@ -980,6 +980,7 @@ Backend / product, out of this series' scope by the owner's instruction:
    readers (`docs/engineering/outcome-rating-plan.md`, O0–O6). `OutcomeModal.jsx` and
    `forecastApi.recordOutcome`/`fetchOutcomes` were left in place, as this item asked; the dead
    `forecastApi.fetchAllOutcomes` went with the series (O6), its one caller having stopped fetching in O4b.
+   **Status (2026-10-26): the leftovers are deleted** (audit-followups-plan §O1): `OutcomeModal.jsx` (+ test), `forecastApi.recordOutcome`/`fetchOutcomes`, and the whole legacy backend stack (`OutcomeController`, `OutcomeService`, `ActualOutcomeEntity`/repository, the models). The empty `actual_outcome` table stays one release and is dropped by O2.
 8. **Dead API bindings to live endpoints** — `authApi.updateMarketingEmailOptIn`,
    `auroraApi.resetAuroraState`/`triggerAuroraRun`, `metricsApi.getBuildInfo`,
    `skyRatingEvalApi.getSkyRatingEvalResults` — zero callers; deleting a client for a live admin

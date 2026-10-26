@@ -9,7 +9,7 @@ import java.util.List;
  * <p>The counterpart to {@link CalibrationReport} that needs no human. Where the calibration gate
  * scores predicted stars against a photographer's recorded rating, this scores predicted
  * <em>cloud</em> against reanalysis — so it works retroactively over every evaluation already in
- * the database, and it works while {@code actual_outcome} is still empty.
+ * the database.
  *
  * <p><strong>Read the separations, not the absolute numbers.</strong> The reanalysis baseline sits
  * systematically below the forecast model — measured at ~15pp at the observer and ~25pp at the

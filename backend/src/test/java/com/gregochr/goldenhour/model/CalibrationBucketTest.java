@@ -87,22 +87,6 @@ class CalibrationBucketTest {
     }
 
     @Test
-    @DisplayName("of() averages fiery-sky error only over pairs that captured both scores")
-    void of_fierySkyError_ignoresPairsMissingEitherScore() {
-        var withScores = new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1,
-                LocalDateTime.of(2026, 5, 9, 1, 0), EvaluationModel.HAIKU,
-                4, 80, 70, 4, 60, 50, true, 1L, null, null);
-        var missingActual = new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1,
-                LocalDateTime.of(2026, 5, 9, 1, 0), EvaluationModel.HAIKU,
-                4, 80, 70, 4, null, null, true, 1L, null, null);
-
-        var bucket = CalibrationBucket.of("ALL", List.of(withScores, missingActual));
-
-        assertThat(bucket.sampleCount()).isEqualTo(2);
-        assertThat(bucket.meanAbsoluteFierySkyError()).isEqualTo(20.0);
-    }
-
-    @Test
     @DisplayName("of() reports null metrics rather than dividing by zero on an empty bucket")
     void of_emptyBucket_reportsNullMetrics() {
         var bucket = CalibrationBucket.of("T+7", List.of());
@@ -111,13 +95,12 @@ class CalibrationBucketTest {
         assertThat(bucket.meanRatingError()).isNull();
         assertThat(bucket.meanAbsoluteRatingError()).isNull();
         assertThat(bucket.exactMatchRate()).isNull();
-        assertThat(bucket.meanAbsoluteFierySkyError()).isNull();
         assertThat(CalibrationBucket.of("T+7", null).sampleCount()).isZero();
     }
 
     private CalibrationPair pair(int predicted, int actual) {
         return new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1,
                 LocalDateTime.of(2026, 5, 9, 1, 0), EvaluationModel.HAIKU,
-                predicted, null, null, actual, null, null, true, 1L, null, null);
+                predicted, null, null, actual, 1L, null, null);
     }
 }

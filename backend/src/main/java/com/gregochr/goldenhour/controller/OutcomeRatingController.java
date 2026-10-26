@@ -21,8 +21,7 @@ import java.util.List;
 
 /**
  * REST controller for the per-user "how did it look?" rating of a past sunrise or sunset
- * ({@code docs/engineering/outcome-rating-plan.md} §2 #1). A different record from {@link
- * OutcomeController}'s {@code actual_outcome}, which has no user and is untouched.
+ * ({@code docs/engineering/outcome-rating-plan.md} §2 #1).
  *
  * <p>None of these paths is ETag-revalidated: they are per-user data, and {@code HttpCachingConfig}'s
  * revalidatable set is an exact-path allow-list (pinned by {@code

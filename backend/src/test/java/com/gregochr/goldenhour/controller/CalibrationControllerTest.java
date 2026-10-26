@@ -66,7 +66,7 @@ class CalibrationControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = "ADMIN")
     void getCalibration_servesMistProne() throws Exception {
         CalibrationBucket mist = new CalibrationBucket(
-                "MIST_LIKELY", 3, 0.0, 1.0, 0.33, 0.67, 1, 0, null);
+                "MIST_LIKELY", 3, 0.0, 1.0, 0.33, 0.67, 1, 0);
         CalibrationReport base = report();
         when(calibrationService.report(FROM, TO)).thenReturn(new CalibrationReport(base.from(), base.to(),
                 base.outcomesInRange(), base.scoredPairs(), base.overall(), base.byDaysAhead(),
@@ -100,13 +100,13 @@ class CalibrationControllerTest extends AbstractControllerTest {
 
     private CalibrationReport report() {
         CalibrationBucket overall = new CalibrationBucket(
-                "ALL", 12, 0.25, 0.75, 0.5, 0.83, 3, 1, 18.0);
+                "ALL", 12, 0.25, 0.75, 0.5, 0.83, 3, 1);
         CalibrationBucket sameDay = new CalibrationBucket(
-                "T+0", 6, 0.0, 0.5, 0.67, 1.0, 0, 0, 12.0);
+                "T+0", 6, 0.0, 0.5, 0.67, 1.0, 0, 0);
         CalibrationBucket build = new CalibrationBucket(
-                "v2.28.0", 6, 0.0, 0.5, 0.67, 1.0, 0, 0, 12.0);
+                "v2.28.0", 6, 0.0, 0.5, 0.67, 1.0, 0, 0);
         CalibrationBucket unknownPrompt = new CalibrationBucket(
-                "UNKNOWN", 12, 0.25, 0.75, 0.5, 0.83, 3, 1, 18.0);
+                "UNKNOWN", 12, 0.25, 0.75, 0.5, 0.83, 3, 1);
         return new CalibrationReport(FROM, TO, 9, 12, overall,
                 List.of(sameDay), List.of(overall), List.of(build), List.of(unknownPrompt));
     }

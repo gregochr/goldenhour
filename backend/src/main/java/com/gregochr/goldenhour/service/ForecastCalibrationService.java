@@ -4,7 +4,6 @@ import com.gregochr.goldenhour.entity.SeenTag;
 import com.gregochr.goldenhour.model.CalibrationBucket;
 import com.gregochr.goldenhour.model.CalibrationPair;
 import com.gregochr.goldenhour.model.CalibrationReport;
-import com.gregochr.goldenhour.repository.ActualOutcomeRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.OutcomeRatingRepository;
 import org.slf4j.Logger;
@@ -21,13 +20,13 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Scores forecasts against the outcomes photographers actually recorded.
+ * Scores forecasts against the ratings readers gave the sky they saw.
  *
  * <p>This is the project's only non-self-referential accuracy measure. The prompt-regression
  * tests compare Claude to hand-written expectations, the sky-rating eval harness compares band
  * assignments to fixtures, and the model-comparison harness compares models to each other — all
  * three can stay green while the forecast drifts away from reality. This service closes that gap
- * by joining {@code forecast_evaluation} to {@code actual_outcome} and to readers' per-user
+ * by joining {@code forecast_evaluation} to readers' per-user
  * {@code outcome_rating} records, and reporting error by forecast horizon, so a change to the
  * scoring rules can be justified against observation.
  *
@@ -48,28 +47,24 @@ public class ForecastCalibrationService {
     /** Bucket key of the mist-prone bucket: pairs whose forecast carried the LIKELY mist band. */
     static final String MIST_PRONE_KEY = "MIST_LIKELY";
 
-    /** {@code seen} count key for a rating given with no tag (and for every {@code actual_outcome}). */
+    /** {@code seen} count key for a rating given with no tag. */
     static final String UNTAGGED_KEY = "UNTAGGED";
 
     /** Bucket key used when a forecast row carried no recorded build or prompt fingerprint. */
     private static final String UNKNOWN_KEY = "UNKNOWN";
 
     private final ForecastEvaluationRepository forecastEvaluationRepository;
-    private final ActualOutcomeRepository actualOutcomeRepository;
     private final OutcomeRatingRepository outcomeRatingRepository;
 
     /**
      * Creates the calibration service.
      *
-     * @param forecastEvaluationRepository repository supplying forecast/outcome pairs
-     * @param actualOutcomeRepository      repository used to report outcome coverage
+     * @param forecastEvaluationRepository repository supplying forecast/rating pairs
      * @param outcomeRatingRepository      repository used to report rating coverage
      */
     public ForecastCalibrationService(ForecastEvaluationRepository forecastEvaluationRepository,
-            ActualOutcomeRepository actualOutcomeRepository,
             OutcomeRatingRepository outcomeRatingRepository) {
         this.forecastEvaluationRepository = forecastEvaluationRepository;
-        this.actualOutcomeRepository = actualOutcomeRepository;
         this.outcomeRatingRepository = outcomeRatingRepository;
     }
 
@@ -91,12 +86,10 @@ public class ForecastCalibrationService {
         }
 
         List<CalibrationPair> raw = new ArrayList<>(
-                forecastEvaluationRepository.findCalibrationPairs(from, to));
-        raw.addAll(forecastEvaluationRepository.findCalibrationPairsFromRatings(from, to));
+                forecastEvaluationRepository.findCalibrationPairsFromRatings(from, to));
         List<CalibrationPair> pairs = latestPerSlotHorizon(raw);
-        // Every row in the window in BOTH tables, "didn't see it" ratings included.
-        int outcomesInRange = actualOutcomeRepository.findAllByOutcomeDateBetween(from, to).size()
-                + Math.toIntExact(outcomeRatingRepository.countByEventDateBetween(from, to));
+        // Every rating in the window, "didn't see it" ratings included.
+        int outcomesInRange = Math.toIntExact(outcomeRatingRepository.countByEventDateBetween(from, to));
 
         List<CalibrationPair> mistPairs = pairs.stream().filter(CalibrationPair::mistLikely).toList();
 
@@ -130,8 +123,8 @@ public class ForecastCalibrationService {
      *
      * <p>A slot at a given horizon can be evaluated more than once — the nightly batch and the
      * intraday refresh both write rows — and counting both would weight that slot twice. The key
-     * includes the outcome's identity, so several readers' ratings of one slot (or a rating beside
-     * an {@code actual_outcome} row) each stay a pair; only runs of one forecast collapse.
+     * includes the rating's identity, so several readers' ratings of one slot each stay a pair;
+     * only runs of one forecast collapse.
      *
      * @param pairs the raw joined pairs
      * @return one pair per slot and horizon, newest run winning
