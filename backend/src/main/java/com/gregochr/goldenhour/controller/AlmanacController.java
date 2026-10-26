@@ -14,9 +14,10 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code SecurityConfig} gates {@code /api/**} at {@code .authenticated()} and this path is not in
  * the {@code permitAll} set, so authentication comes by inheritance and nothing needed adding. No
  * {@code @PreAuthorize} is present and none should be: this is ephemeris — tide runs, meteor peaks,
- * solstices — already visible in the forecast UI, and {@code GET /api/tides} is the standing
- * precedent for almanac data being Bearer rather than ADMIN. This project has already documented
- * one endpoint as ADMIN that the code never enforced, so the intent is written down here.
+ * solstices — already visible in the forecast UI, and carries no tide heights at the light.
+ * ({@code GET /api/tides} is no precedent: it became Pro/Admin on 2026-10-26 because it serves tide
+ * heights.) This project has already documented one endpoint as ADMIN that the code never
+ * enforced, so the intent is written down here.
  *
  * <p>The feed carries no per-user data, which is what lets it be ETag-revalidated and shared.
  */

@@ -19,9 +19,9 @@
  *
  * <p>The window's own context stays ungated for every role: the tide chips (state, direction, the
  * nearest extreme) and the topic facts. `freemium_ui_strategy.md` blurs cloud-layer breakdown,
- * aerosol metrics and the technical panel; tide state is almanac, and {@code GET /api/tides} is
- * deliberately Bearer rather than ADMIN for the same reason. What is Pro, since 2026-10-24, is
- * the tide CURVE (the Map's chart, the height at the light, the popup's sparkline) and the
+ * aerosol metrics and the technical panel; tide state is almanac. {@code GET /api/tides*} and the
+ * tide heights on {@code GET /api/forecast/{id}} are Pro and Admin only since 2026-10-26 (a LITE
+ * caller gets 403, or the fields nulled). What is Pro, since 2026-10-24, is the tide CURVE (the Map's chart, the height at the light, the popup's sparkline) and the
  * per-location MATCH (dimming, "N tides aligned", the tide-fit clauses) — the Map half is a client
  * lock (`tideLocked`), the Plan half arrives with the server strip. See
  * `docs/engineering/tide-pro-gate-plan.md` §2. No `role` is plumbed into this arm: a locked reader

@@ -18,6 +18,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -35,7 +36,7 @@ class TideControllerTest extends AbstractControllerTest {
     private MockMvc mockMvc;
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/tides returns 200 with extremes for a valid location and date")
     void getTidesForDate_validLocation_returnsExtremes() throws Exception {
         LocationEntity location = LocationEntity.builder()
@@ -67,7 +68,7 @@ class TideControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/tides returns 404 when location name is not found")
     void getTidesForDate_unknownLocation_returns404() throws Exception {
         when(locationService.findByName("Unknown Place"))
@@ -80,7 +81,7 @@ class TideControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/tides/stats returns 200 with stats for a coastal location")
     void getTideStats_validLocation_returnsStats() throws Exception {
         LocationEntity location = LocationEntity.builder()
@@ -109,7 +110,7 @@ class TideControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/tides/stats returns 204 when no tide data stored")
     void getTideStats_noData_returns204() throws Exception {
         LocationEntity location = LocationEntity.builder()
@@ -125,7 +126,7 @@ class TideControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/tides/stats/all returns stats for all coastal locations")
     void getAllTideStats_returnsCombinedStats() throws Exception {
         LocationEntity coastal = LocationEntity.builder()
@@ -155,6 +156,63 @@ class TideControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.['Berwick-Upon-Tweed'].avgHighMetres").value(1.4))
                 .andExpect(jsonPath("$.['Berwick-Upon-Tweed'].p95HighMetres").value(1.78))
                 .andExpect(jsonPath("$.['Durham']").doesNotExist());
+    }
+
+    // -------------------------------------------------------------------------
+    // Role gate: tide heights are Pro/Admin only (owner decision 2026-10-26)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/tides is 403 for LITE_USER and never reaches the services")
+    void getTidesForDate_liteUser_returns403() throws Exception {
+        mockMvc.perform(get("/api/tides")
+                        .param("locationName", "Berwick-Upon-Tweed")
+                        .param("date", "2026-02-24"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(locationService, tideService);
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/tides/stats is 403 for LITE_USER and never reaches the services")
+    void getTideStats_liteUser_returns403() throws Exception {
+        mockMvc.perform(get("/api/tides/stats").param("locationName", "Berwick-Upon-Tweed"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(locationService, tideService);
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/tides/stats/all is 403 for LITE_USER and never reaches the services")
+    void getAllTideStats_liteUser_returns403() throws Exception {
+        mockMvc.perform(get("/api/tides/stats/all"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(locationService, tideService);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/tides, /stats and /stats/all return 200 for ADMIN")
+    void tideEndpoints_admin_return200() throws Exception {
+        LocationEntity location = LocationEntity.builder()
+                .id(1L).name("Berwick-Upon-Tweed").lat(55.7702).lon(-2.0054)
+                .createdAt(LocalDateTime.of(2026, 2, 1, 0, 0)).build();
+        when(locationService.findByName("Berwick-Upon-Tweed")).thenReturn(location);
+        when(tideService.getTidesForDate(eq(1L), eq(LocalDate.of(2026, 2, 24)))).thenReturn(List.of());
+        when(tideService.getTideStats(1L)).thenReturn(Optional.empty());
+        when(locationService.findAllEnabled()).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/tides")
+                        .param("locationName", "Berwick-Upon-Tweed").param("date", "2026-02-24"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/tides/stats").param("locationName", "Berwick-Upon-Tweed"))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/tides/stats/all"))
+                .andExpect(status().isOk());
     }
 
     private TideExtremeEntity extreme(Long id, TideExtremeType type, LocalDateTime eventTime, double height) {

@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.TideService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -21,11 +22,13 @@ import java.util.Map;
  * REST controller for tide extreme data.
  *
  * <p>Exposes a single endpoint that returns all tide extremes for a given location
- * and UTC calendar day, ordered chronologically. Intended to drive the daily tide
- * schedule display in the map popup and forecast card UI.
+ * and UTC calendar day, ordered chronologically, plus height statistics. The payloads carry tide
+ * heights, which are a Pro feature (owner decision 2026-10-26), so every endpoint is restricted to
+ * PRO_USER and ADMIN; LITE_USER receives 403.
  */
 @RestController
 @RequestMapping("/api/tides")
+@PreAuthorize("hasAnyRole('ADMIN', 'PRO_USER')")
 public class TideController {
 
     private final LocationService locationService;

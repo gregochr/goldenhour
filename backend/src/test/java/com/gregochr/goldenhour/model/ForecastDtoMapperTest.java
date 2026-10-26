@@ -708,6 +708,64 @@ class ForecastDtoMapperTest {
                 .contains("\"mistPotential\":\"FOGBOUND\"");
     }
 
+    @Test
+    @DisplayName("toDto() nulls tide heights and the tide match for LITE but keeps state, times, lunar and surge")
+    void toDto_liteUser_losesTideHeightsAndMatchKeepsFreeTideFacts() {
+        ForecastEvaluationDto dto = mapper.toDto(buildFullEntity(), true);
+
+        assertThat(dto.nextHighTideHeightMetres()).isNull();
+        assertThat(dto.nextLowTideHeightMetres()).isNull();
+        assertThat(dto.tideAligned()).isNull();
+        assertThat(dto.tideState()).isEqualTo(TideState.HIGH);
+        assertThat(dto.nextHighTideTime()).isEqualTo(LocalDateTime.of(2026, 3, 8, 18, 30));
+        assertThat(dto.nextLowTideTime()).isEqualTo(LocalDateTime.of(2026, 3, 8, 12, 15));
+        assertThat(dto.lunarTideType()).isNotNull();
+        assertThat(dto.surgeTotalMetres()).isEqualTo(0.35);
+        assertThat(dto.surgeAdjustedRangeMetres()).isEqualTo(3.65);
+    }
+
+    @Test
+    @DisplayName("toDto() keeps tide heights and the tide match for PRO and ADMIN callers (isLiteUser=false)")
+    void toDto_proOrAdmin_keepsTideHeightsAndMatch() {
+        ForecastEvaluationDto dto = mapper.toDto(buildFullEntity(), false);
+
+        assertThat(dto.nextHighTideHeightMetres()).isEqualByComparingTo("4.50");
+        assertThat(dto.nextLowTideHeightMetres()).isEqualByComparingTo("1.20");
+        assertThat(dto.tideAligned()).isTrue();
+    }
+
+    @Test
+    @DisplayName("toDtoList() applies the same LITE tide-height shaping to every row")
+    void toDtoList_liteUser_losesTideHeightsOnEveryRow() {
+        List<ForecastEvaluationDto> dtos = mapper.toDtoList(List.of(buildFullEntity()), true);
+
+        assertThat(dtos).singleElement().satisfies(dto -> {
+            assertThat(dto.nextHighTideHeightMetres()).isNull();
+            assertThat(dto.nextLowTideHeightMetres()).isNull();
+            assertThat(dto.tideAligned()).isNull();
+            assertThat(dto.tideState()).isEqualTo(TideState.HIGH);
+        });
+    }
+
+    @Test
+    @DisplayName("wire: the detail JSON carries the three tide fields as null for LITE and populated for PRO")
+    void tideHeights_wireShape_liteVersusPro() throws Exception {
+        tools.jackson.databind.json.JsonMapper json = tools.jackson.databind.json.JsonMapper.builder().build();
+        ForecastEvaluationEntity entity = buildFullEntity();
+
+        String lite = json.writeValueAsString(mapper.toDto(entity, true));
+        String pro = json.writeValueAsString(mapper.toDto(entity, false));
+
+        tools.jackson.databind.JsonNode liteNode = json.readTree(lite);
+        for (String field : List.of("nextHighTideHeightMetres", "nextLowTideHeightMetres", "tideAligned")) {
+            assertThat(liteNode.path(field).isMissingNode() || liteNode.path(field).isNull())
+                    .as(field + " absent or null for LITE").isTrue();
+        }
+        assertThat(lite).contains("\"tideState\":\"HIGH\"", "nextHighTideTime", "surgeTotalMetres");
+        assertThat(pro).contains("\"nextHighTideHeightMetres\":4.5", "\"nextLowTideHeightMetres\":1.2",
+                "\"tideAligned\":true");
+    }
+
     private ForecastEvaluationEntity buildFullEntity() {
         return ForecastEvaluationEntity.builder()
                 .id(1L)
