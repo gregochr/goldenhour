@@ -1160,6 +1160,7 @@ describe('MapLabels — obstacle seeding from the live chrome', () => {
   // accident on the others.
   it.each([
     ['the LITE viewline upsell chip', 'viewline-upsell-chip'],
+    ['the LITE viewline door\'s open popover', 'viewline-upsell-popover'],
     ['the scored-locations legend', 'photocast-scored-legend'],
     // map-tab-v2-plan.md §3 P11 — the Regions jump list's own open dropdown, added to
     // `OBSTACLE_SELECTOR` alongside `wf-win-menu`/`wf-filters-panel` for the identical reason: it

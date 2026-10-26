@@ -18,7 +18,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 
 // ── Leaflet / react-leaflet stubs ────────────────────────────────────────────
 
@@ -72,8 +72,10 @@ const { stableAuroraStatus, stableViewline, viewlineHookCalls } = vi.hoisted(() 
   },
 }));
 
+// The Pro-shaped status, and the LITE reader's role-free alert (null unless a test sets it).
+let mockLiteAlert = null;
 vi.mock('../hooks/useAuroraStatus.js', () => ({
-  useAuroraStatus: () => ({ status: stableAuroraStatus }),
+  useAuroraStatus: () => ({ status: stableAuroraStatus, liteAlert: mockLiteAlert }),
 }));
 
 vi.mock('../hooks/useAuroraViewline.js', () => ({
@@ -259,16 +261,85 @@ describe('what MapView hands the viewline hook', () => {
   });
 });
 
-describe('MapView viewline upsell chip', () => {
+describe('MapView viewline upsell door', () => {
+  const ALERT = {
+    level: 'MODERATE', active: true, triggerType: 'forecast', allOvercast: false, currentNightEndsAt: null,
+  };
   beforeEach(() => {
     localStorage.clear();
     mockUseAuth.mockReturnValue({ role: 'LITE_USER' });
+    mockLiteAlert = { ...ALERT };
   });
-  afterEach(() => { localStorage.clear(); });
+  afterEach(() => { localStorage.clear(); mockLiteAlert = null; });
 
-  it('upsell chip visible for LITE user when aurora active regardless of event type', async () => {
+  it('shows a Viewline Pro door for a LITE reader on an alert, on any event type', async () => {
     await renderMap();
-    // LITE users cannot enter Aurora mode, but the upsell chip shows on any event type
+    // LITE users cannot enter Aurora mode, but the door shows on any event type
     expect(screen.getByTestId('viewline-upsell-chip')).toBeInTheDocument();
+    expect(screen.getByTestId('viewline-upsell-trigger')).toHaveTextContent('Viewline');
+    expect(screen.getByTestId('viewline-upsell-chip').textContent).not.toMatch(/upgrade/i);
+  });
+
+  it('opens a popover with the approved aurora copy and no upgrade wording', async () => {
+    await renderMap();
+    fireEvent.click(screen.getByTestId('viewline-upsell-trigger'));
+    expect(screen.getByTestId('viewline-upsell-heading')).toHaveTextContent('Aurora forecasts');
+    expect(screen.getByTestId('viewline-upsell-popover').textContent).not.toMatch(/upgrade/i);
+  });
+
+  it('Escape closes only the popover and leaves the door', async () => {
+    await renderMap();
+    fireEvent.click(screen.getByTestId('viewline-upsell-trigger'));
+    fireEvent.keyDown(screen.getByTestId('viewline-upsell-popover'), { key: 'Escape' });
+    expect(screen.queryByTestId('viewline-upsell-popover')).not.toBeInTheDocument();
+    expect(screen.getByTestId('viewline-upsell-trigger')).toBeInTheDocument();
+  });
+
+  it('the cross dismisses the whole door', async () => {
+    await renderMap();
+    fireEvent.click(screen.getByTestId('viewline-upsell-close'));
+    expect(screen.queryByTestId('viewline-upsell-chip')).not.toBeInTheDocument();
+  });
+
+  it('a PRO reader never sees it', async () => {
+    mockUseAuth.mockReturnValue({ role: 'PRO_USER' });
+    await renderMap();
+    expect(screen.queryByTestId('viewline-upsell-chip')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['no alert', null],
+    ['quiet', { ...ALERT, level: 'QUIET' }],
+    ['inactive', { ...ALERT, active: false }],
+    ['ended', { ...ALERT, currentNightEndsAt: '2020-01-01T00:00:00Z' }],
+    ['overcast, not STRONG', { ...ALERT, allOvercast: true }],
+  ])('a LITE reader with %s sees nothing', async (_name, alert) => {
+    mockLiteAlert = alert;
+    await renderMap();
+    expect(screen.queryByTestId('viewline-upsell-chip')).not.toBeInTheDocument();
+  });
+
+  it('a STRONG alert shows even when every dark-sky site is overcast', async () => {
+    mockLiteAlert = { ...ALERT, level: 'STRONG', allOvercast: true };
+    await renderMap();
+    expect(screen.getByTestId('viewline-upsell-chip')).toBeInTheDocument();
+  });
+
+  it('when the alert ends with focus inside the open popover, focus lands on the map pane root, not <body>', async () => {
+    const rendered = await renderMap();
+    fireEvent.click(screen.getByTestId('viewline-upsell-trigger'));
+    expect(screen.getByTestId('viewline-upsell-popover').contains(document.activeElement)).toBe(true);
+    mockLiteAlert = null;
+    await rendered.withProps({ autoEventType: 'SUNRISE' });
+    expect(screen.queryByTestId('viewline-upsell-chip')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(document.querySelector('.wf-map-tab'));
+  });
+
+  it('pressing the cross moves focus to the map pane, not <body>', async () => {
+    await renderMap();
+    screen.getByTestId('viewline-upsell-close').focus();
+    fireEvent.click(screen.getByTestId('viewline-upsell-close'));
+    expect(screen.queryByTestId('viewline-upsell-chip')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(document.querySelector('.wf-map-tab'));
   });
 });

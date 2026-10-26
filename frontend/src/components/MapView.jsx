@@ -11,7 +11,10 @@ import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
 import {
   getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates, getAuroraNights,
 } from '../api/auroraApi.js';
-import { auroraUpsellLabel } from './shared/ProUpsell.jsx';
+import ProUpsellDoor, {
+  auroraUpsellLabel, AURORA_UPSELL_BODY, AURORA_UPSELL_HEADING,
+} from './shared/ProUpsell.jsx';
+import { isLiteAlertShown } from '../utils/auroraLiteAlert.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { isTravelDate, formatEventTimeUk, parseUtcInstant } from '../utils/conversions.js';
@@ -1721,7 +1724,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const [tideViewBounds, setTideViewBounds] = useState(null);
   const handleTideBounds = useCallback((b) => setTideViewBounds(b), []);
-  const { status: auroraStatus } = useAuroraStatus();
+  const { status: auroraStatus, liteAlert } = useAuroraStatus();
   // The night aurora results are keyed to — from the backend, which owns the dusk/dawn rule.
   // Falls back to the local calendar date when status is absent (LITE, failed fetch, or a backend
   // older than the field), which is the behaviour this replaced — and once a status the provider is
@@ -1772,8 +1775,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // about whether a line exists (the fetch may be pending, failed or answer inactive).
   const viewlineEligible = viewlineEnabled && eventType === 'AURORA' && liveAuroraOnScreen;
   const [viewlineUpsellDismissed, setViewlineUpsellDismissed] = useState(false);
-  const showViewlineUpsell = role === 'LITE_USER' && !viewlineUpsellDismissed
-    && auroraStatus != null && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
+  // A LITE reader has no `/status`, so the chip reads the role-free `liteAlert` through the one shared gate
+  // (active, MODERATE/STRONG, night still current, not all-overcast unless STRONG), as the Lite banner does.
+  const showViewlineUpsell = role === 'LITE_USER' && !viewlineUpsellDismissed && isLiteAlertShown(liteAlert);
   // Always live, forecast as the fallback, never both: the hook asks both viewline endpoints and
   // offers one line. It needs only whether to poll — the forecast endpoint reads NOAA's live forecast
   // per request, so the alert's trigger and Kp are no longer its input.
@@ -7029,7 +7033,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
         {/* Bottom-left chrome (map-tab-v2-plan.md §3 P10) — the LITE viewline-upsell chip and
             the Legend chip STACK here rather than one suppressing the other. ⚠️ They are NOT
-            mutually exclusive: `showViewlineUpsell` is keyed on `auroraStatus`'s ALERT LEVEL
+            mutually exclusive: `showViewlineUpsell` is keyed on `liteAlert`'s ALERT LEVEL
             (a background poll, live regardless of which event type is on screen), while the
             Legend chip is keyed on `heatOffered` and, until A3, excludes AURORA MODE
             (`eventType === 'AURORA'`) by name — and a LITE reader can never enter aurora
@@ -7053,17 +7057,26 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           || (!isMobile && tideStripModel.visible) || tideUpsellOpen) && (
           <div ref={chromeBlRef} className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
             {showViewlineUpsell && (
-              <div
-                data-testid="viewline-upsell-chip"
-                className="bg-plex-surface/80 backdrop-blur-sm
-                  text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 flex items-center gap-2"
-                style={{ fontSize: '11px' }}
-              >
-                Aurora viewline available — upgrade to Pro
+              <div data-testid="viewline-upsell-chip" className="wf-viewline-upsell">
+                {/* The door's popover opens UPWARD (this column hugs the map's bottom edge). If the alert
+                    ends while focus is inside the door, or the cross is pressed, focus goes to the map pane
+                    root (tabIndex -1), not <body>, where the pane's Escape handler would never hear it. */}
+                <ProUpsellDoor
+                  label="Viewline"
+                  heading={AURORA_UPSELL_HEADING}
+                  body={AURORA_UPSELL_BODY}
+                  testIdPrefix="viewline-upsell"
+                  className="wf-pro-upsell-door--up"
+                  unmountFocusRef={mapPaneRef}
+                />
                 <button
-                  data-testid="viewline-upsell-dismiss"
-                  onClick={() => setViewlineUpsellDismissed(true)}
-                  className="text-plex-text-muted hover:text-plex-text transition-colors"
+                  type="button"
+                  data-testid="viewline-upsell-close"
+                  onClick={() => {
+                    setViewlineUpsellDismissed(true);
+                    mapPaneRef.current?.focus({ preventScroll: true });
+                  }}
+                  className="wf-viewline-upsell-dismiss"
                   aria-label="Dismiss"
                 >
                   ✕

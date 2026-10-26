@@ -119,6 +119,7 @@ const OBSTACLE_SELECTOR = [
   '[data-testid="wf-win-panel"]',
   '[data-testid="wf-reg-panel"]',
   '[data-testid="viewline-upsell-chip"]',
+  '[data-testid="viewline-upsell-popover"]',
   '[data-testid="photocast-scored-legend"]',
 ].join(', ');
 
