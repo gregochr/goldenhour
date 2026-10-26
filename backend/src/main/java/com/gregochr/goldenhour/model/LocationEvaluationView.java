@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.gregochr.goldenhour.entity.TargetType;
 
 import java.time.Instant;
@@ -42,6 +43,10 @@ import java.time.LocalDateTime;
  * @param goldenHourEnd       end of the golden hour, UTC, or null
  * @param blueHourStart       start of the blue hour, UTC, or null
  * @param blueHourEnd         end of the blue hour, UTC, or null
+ * @param gated               {@code TRUE} when the view is outside the reader's sub-region picks and its
+ *                            rating fields were removed by {@code LitePickShaper}, otherwise null (never
+ *                            {@code FALSE}, so an unshaped body is byte-identical to before the field).
+ *                            Gated is not unrated: the slot has a rating the reader may not see
  */
 public record LocationEvaluationView(
         Long locationId,
@@ -63,8 +68,45 @@ public record LocationEvaluationView(
         LocalDateTime goldenHourStart,
         LocalDateTime goldenHourEnd,
         LocalDateTime blueHourStart,
-        LocalDateTime blueHourEnd
+        LocalDateTime blueHourEnd,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean gated
 ) {
+
+    /**
+     * Twenty-component form, defaulting {@code gated} to null (an unshaped view). Retained so every call
+     * site that predates the field keeps compiling unchanged; the withers thread {@code gated} through.
+     *
+     * @param locationId          the location primary key
+     * @param locationName        the location display name
+     * @param regionId            the region primary key, or null
+     * @param regionName          the region display name, or null
+     * @param date                the forecast date
+     * @param targetType          SUNRISE or SUNSET
+     * @param source              which data source provided this view
+     * @param rating              1-5 star rating, or null
+     * @param summary             Claude's plain-English explanation, or null
+     * @param fierySkyPotential   fiery sky score 0-100, or null
+     * @param goldenHourPotential golden hour score 0-100, or null
+     * @param triageReason        categorised stand-down reason, or null
+     * @param triageMessage       formatted stand-down explanation, or null
+     * @param evaluationModel     the model that produced the evaluation, or null
+     * @param evaluatedAt         when the evaluation was produced, or null
+     * @param displayVerdict      unified colour/label signal
+     * @param goldenHourStart     start of the golden hour, UTC, or null
+     * @param goldenHourEnd       end of the golden hour, UTC, or null
+     * @param blueHourStart       start of the blue hour, UTC, or null
+     * @param blueHourEnd         end of the blue hour, UTC, or null
+     */
+    public LocationEvaluationView(Long locationId, String locationName, Long regionId, String regionName,
+            LocalDate date, TargetType targetType, Source source, Integer rating, String summary,
+            Integer fierySkyPotential, Integer goldenHourPotential, TriageReason triageReason,
+            String triageMessage, String evaluationModel, Instant evaluatedAt, DisplayVerdict displayVerdict,
+            LocalDateTime goldenHourStart, LocalDateTime goldenHourEnd, LocalDateTime blueHourStart,
+            LocalDateTime blueHourEnd) {
+        this(locationId, locationName, regionId, regionName, date, targetType, source, rating, summary,
+                fierySkyPotential, goldenHourPotential, triageReason, triageMessage, evaluationModel,
+                evaluatedAt, displayVerdict, goldenHourStart, goldenHourEnd, blueHourStart, blueHourEnd, null);
+    }
 
     /**
      * Returns a copy of this view carrying the four golden/blue hour boundary times.
@@ -88,7 +130,7 @@ public record LocationEvaluationView(
                 locationId, locationName, regionId, regionName, date, targetType, source,
                 rating, summary, fierySkyPotential, goldenHourPotential,
                 triageReason, triageMessage, evaluationModel, evaluatedAt, displayVerdict,
-                goldenStart, goldenEnd, blueStart, blueEnd);
+                goldenStart, goldenEnd, blueStart, blueEnd, gated);
     }
 
     /**
@@ -103,7 +145,25 @@ public record LocationEvaluationView(
                 locationId, locationName, regionId, regionName, date, targetType, source,
                 rating, null, null, null,
                 triageReason, triageMessage, evaluationModel, evaluatedAt, displayVerdict,
-                goldenHourStart, goldenHourEnd, blueHourStart, blueHourEnd);
+                goldenHourStart, goldenHourEnd, blueHourStart, blueHourEnd, gated);
+    }
+
+    /**
+     * Returns a copy of this view for a reader whose sub-region picks do not cover its location: the star,
+     * the written why, both potentials, the stand-down reason and message, the display verdict, and the
+     * provenance that would reveal one (the source, which tells a stand-down from a score, the model and
+     * the time) are removed, and {@link #gated} is set. The source becomes {@link Source#NONE}: nothing is
+     * served to this reader, which is not the same as nothing existing, and {@code gated} says which. The
+     * identity, the date, the event and the light times stay.
+     *
+     * @return a gated copy
+     */
+    public LocationEvaluationView forGated() {
+        return new LocationEvaluationView(
+                locationId, locationName, regionId, regionName, date, targetType, Source.NONE,
+                null, null, null, null,
+                null, null, null, null, null,
+                goldenHourStart, goldenHourEnd, blueHourStart, blueHourEnd, Boolean.TRUE);
     }
 
     /**

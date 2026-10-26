@@ -324,6 +324,28 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
     }
 
     /**
+     * Whether a word is one of the day labels {@link #formatDayLabel} writes at the end of a topic's
+     * {@code detail}: "today", "tomorrow", or a full UK weekday name.
+     *
+     * @param word the candidate (may be null)
+     * @return true when it is a day label
+     */
+    static boolean isDayLabel(String word) {
+        if (word == null) {
+            return false;
+        }
+        if ("today".equals(word) || "tomorrow".equals(word)) {
+            return true;
+        }
+        for (DayOfWeek dow : DayOfWeek.values()) {
+            if (dow.getDisplayName(TextStyle.FULL, Locale.UK).equals(word)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Returns a human-readable day label relative to {@code today}.
      *
      * @param date  the day to label

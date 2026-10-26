@@ -90,6 +90,13 @@ import java.util.List;
  *                            never at build time, so {@code daily_briefing_cache} never carries it.
  *                            The slot keeps its star; the flag only withholds its NAME as a single
  *                            best place
+ * @param gated               {@code TRUE} when this slot is outside the reader's sub-region picks and its
+ *                            rating fields have been removed at the HTTP edge by {@code LitePickShaper}
+ *                            (docs/engineering/sub-regions-plan.md D6), otherwise null — never
+ *                            {@code FALSE}, so an unshaped payload serialises exactly as it did before the
+ *                            field existed. A gated slot is <b>not unrated</b>: it has a rating the reader
+ *                            may not see, and no surface may count it as unrated or as an insufficient
+ *                            sample. <b>Serve-time only:</b> set by the shaper, never persisted
  */
 public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId,
@@ -109,7 +116,8 @@ public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) String claudeHeadline,
         boolean canopy,
         @JsonInclude(JsonInclude.Include.NON_NULL) EclipseSight eclipse,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean neighbourOutlier) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean neighbourOutlier,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean gated) {
 
     /**
      * Canonical constructor: takes an immutable copy of {@code flags}, so a caller's later changes
@@ -118,6 +126,42 @@ public record BriefingSlot(
      */
     public BriefingSlot {
         flags = List.copyOf(flags);
+    }
+
+    /**
+     * Legacy 18-argument constructor, retained so every call site that predates {@link #gated} keeps
+     * compiling unchanged. Defaults {@link #gated} to null, the "absent, not fabricated" convention.
+     *
+     * <p><b>Not used by the withers</b> — they thread {@link #gated} through from {@code this}.
+     *
+     * @param locationId          database id of the location, or null
+     * @param locationName        human-readable location name
+     * @param solarEventTime      UTC time of the sunrise or sunset
+     * @param verdict             GO, MARGINAL, or STANDDOWN
+     * @param weather             weather conditions at the observer point
+     * @param tide                tide data for coastal locations
+     * @param flags               human-readable flag strings
+     * @param standdownReason     primary reason for STANDDOWN verdict, null for GO/MARGINAL
+     * @param claudeRating        cached Claude 1-5 star rating, or null
+     * @param skyRating           the sky visitor's own component score, or null
+     * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
+     * @param goldenHourPotential cached Claude golden hour score 0-100, or null
+     * @param claudeSummary       cached Claude prose summary, or null
+     * @param displayVerdict      unified colour/label signal
+     * @param claudeHeadline      4-9 word Claude-authored card header, or null
+     * @param canopy              true when this slot came from the woodland evaluator
+     * @param eclipse             the lunar eclipse sight, or null
+     * @param neighbourOutlier    the neighbour guard's outlier mark, or null
+     */
+    public BriefingSlot(Long locationId, String locationName, LocalDateTime solarEventTime,
+            Verdict verdict, WeatherConditions weather, TideInfo tide, List<String> flags,
+            String standdownReason, Integer claudeRating, Integer skyRating,
+            Integer fierySkyPotential, Integer goldenHourPotential, String claudeSummary,
+            DisplayVerdict displayVerdict, String claudeHeadline, boolean canopy,
+            EclipseSight eclipse, Boolean neighbourOutlier) {
+        this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
+                standdownReason, claudeRating, skyRating, fierySkyPotential, goldenHourPotential,
+                claudeSummary, displayVerdict, claudeHeadline, canopy, eclipse, neighbourOutlier, null);
     }
 
     /**
@@ -228,7 +272,7 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, newTide,
                 flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
-                eclipse, neighbourOutlier);
+                eclipse, neighbourOutlier, gated);
     }
 
     /**
@@ -247,7 +291,7 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
-                eclipse, neighbourOutlier);
+                eclipse, neighbourOutlier, gated);
     }
 
     /**
@@ -269,7 +313,22 @@ public record BriefingSlot(
         TideInfo liteTide = tide == null ? null : tide.forLite();
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, liteTide,
                 flags, standdownReason, claudeRating, skyRating, null, null, null,
-                displayVerdict, null, canopy, eclipse, neighbourOutlier);
+                displayVerdict, null, canopy, eclipse, neighbourOutlier, gated);
+    }
+
+    /**
+     * Returns this slot as a reader whose picks do not cover it may see it (sub-regions-plan §4.2): the
+     * verdict, both stars, the display verdict, the stand-down reason, the flags, the neighbour mark and
+     * every other score or written why are removed, and {@link #gated} is set. The location, the event
+     * time, the weather and the tide facts stay. Rebuilt through the canonical constructor so a component
+     * added later is carried, not defaulted away.
+     *
+     * @return a gated copy
+     */
+    public BriefingSlot forGated() {
+        return new BriefingSlot(locationId, locationName, solarEventTime, null, weather, tide,
+                List.of(), null, null, null, null, null, null,
+                null, null, canopy, eclipse, null, Boolean.TRUE);
     }
 
     /**
@@ -282,7 +341,7 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 newFlags, standdownReason, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
-                eclipse, neighbourOutlier);
+                eclipse, neighbourOutlier, gated);
     }
 
     /**
@@ -297,7 +356,7 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
-                eclipse, neighbourOutlier);
+                eclipse, neighbourOutlier, gated);
     }
 
     /**
@@ -473,7 +532,7 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, rating, skyRating, fierySky, goldenHour, summary,
                 DisplayVerdict.resolve(rating, verdict), headline, canopy,
-                eclipse, neighbourOutlier);
+                eclipse, neighbourOutlier, gated);
     }
 
     /**

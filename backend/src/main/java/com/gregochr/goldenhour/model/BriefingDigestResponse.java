@@ -107,6 +107,17 @@ public record BriefingDigestResponse(
             @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId) {
 
         /**
+         * Returns this window without its best rating — the star is taken from places outside the reader's
+         * sub-region picks.
+         *
+         * @return a copy with {@code bestRating} null
+         */
+        public Window withoutBestRating() {
+            return new Window(date, event, eventTime, verdict, null, confidence, pick, headline,
+                    regionName, locationName, locationId);
+        }
+
+        /**
          * Returns this window without anything the forecast-wide pick supplied: {@code pick},
          * {@code headline}, {@code regionName}, {@code locationName} and {@code locationId} are all
          * null. The date, event, time, verdict, best rating and confidence are kept.

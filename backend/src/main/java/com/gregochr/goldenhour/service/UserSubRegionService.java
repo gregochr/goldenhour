@@ -223,6 +223,32 @@ public class UserSubRegionService {
         return byUser;
     }
 
+    /**
+     * The enabled locations a reader's picks cover, for enforcement (sub-regions-plan §5.3, D8): the members
+     * of the sub-regions the reader holds. A reader holding more than the limit (the admin lowered it) is
+     * served the first <em>n</em> picks by pick time (§4.3). A reader with no user row or no picks gets an
+     * empty list, which shapes everything as gated. The caller shapes fail-closed around this: any exception
+     * from here is "no picks".
+     *
+     * @param username the caller
+     * @return the covered enabled locations (id and name), in no promised order
+     */
+    @Transactional(readOnly = true)
+    public List<SubRegionLocationRow> pickedLocationRows(String username) {
+        Long userId = userRepository.findIdByUsername(username).orElse(null);
+        if (userId == null) {
+            return List.of();
+        }
+        Set<Long> picked = new HashSet<>(pickRepository.findAreaIdsByUserId(userId).stream()
+                .limit(policy.getLiteLimit()).toList());
+        if (picked.isEmpty()) {
+            return List.of();
+        }
+        return membership.findEnabledMemberRows().stream()
+                .filter(row -> picked.contains(row.areaId()))
+                .toList();
+    }
+
     // ------------------------------------------------------------------ the change rule
 
     /**

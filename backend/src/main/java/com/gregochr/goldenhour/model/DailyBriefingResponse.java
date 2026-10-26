@@ -75,6 +75,13 @@ import java.util.List;
  *                           so it never reaches {@code daily_briefing_cache}; omitted from the JSON
  *                           when null. It carries no personal data, so it is safe on the
  *                           ETag-shared payload.
+ * @param allowedLocationIds the ids of the locations whose ratings this reader may see, sorted, or
+ *                           {@code null} when the response is not shaped by the reader's sub-region picks
+ *                           (docs/engineering/sub-regions-plan.md D6). Present — possibly empty — exactly
+ *                           when {@code LitePickShaper} shaped the response, so the client never decides what
+ *                           is outside the picks: a slot is gated when the server says so, and this list is
+ *                           for surfaces that need to know which places the reader holds. Serve-time only,
+ *                           never persisted in {@code daily_briefing_cache}
  */
 public record DailyBriefingResponse(
         LocalDateTime generatedAt,
@@ -93,7 +100,8 @@ public record DailyBriefingResponse(
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean bestBetsWithdrawn,
         @JsonInclude(JsonInclude.Include.NON_NULL) List<PlanRenderedEvent> renderedEvents,
         @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime previousGeneratedAt,
-        @JsonInclude(JsonInclude.Include.NON_NULL) List<BigSeasDay> bigSeas) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<BigSeasDay> bigSeas,
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<Long> allowedLocationIds) {
 
     /**
      * Null-safe compact constructor — defensive copies for list fields only.
@@ -111,6 +119,54 @@ public record DailyBriefingResponse(
         seasonalFeatures = seasonalFeatures == null ? List.of() : List.copyOf(seasonalFeatures);
         renderedEvents = renderedEvents == null ? null : List.copyOf(renderedEvents);
         bigSeas = bigSeas == null ? null : List.copyOf(bigSeas);
+        allowedLocationIds = allowedLocationIds == null ? null : List.copyOf(allowedLocationIds);
+    }
+
+    /**
+     * Seventeen-component form, defaulting {@code allowedLocationIds} to null (an unshaped response).
+     * Retained so every call site that predates the field keeps compiling unchanged; the withers do not
+     * use it, they thread the field through from {@code this}.
+     *
+     * @param generatedAt         UTC generation timestamp
+     * @param headline            one-line summary
+     * @param days                per-day briefing data
+     * @param bestBets            best-bet picks
+     * @param auroraTonight       tonight's aurora summary or null
+     * @param auroraTomorrow      tomorrow's aurora summary or null
+     * @param stale               last-known-good flag
+     * @param partialFailure      partial-failure flag
+     * @param failedLocationCount failed location count
+     * @param bestBetModel        best-bet model display name
+     * @param hotTopics           hot topics
+     * @param seasonalFeatures    active seasonal feature keys
+     * @param bestBetStatus       best-bet outcome
+     * @param bestBetsWithdrawn   whether the honesty filter withdrew a pick
+     * @param renderedEvents      the events the Plan tab draws
+     * @param previousGeneratedAt the prior build stamp the deltas are measured against
+     * @param bigSeas             the big-seas days
+     */
+    public DailyBriefingResponse(
+            LocalDateTime generatedAt,
+            String headline,
+            List<BriefingDay> days,
+            List<BestBet> bestBets,
+            AuroraTonightSummary auroraTonight,
+            AuroraTomorrowSummary auroraTomorrow,
+            boolean stale,
+            boolean partialFailure,
+            int failedLocationCount,
+            String bestBetModel,
+            List<HotTopic> hotTopics,
+            List<String> seasonalFeatures,
+            BestBetStatus bestBetStatus,
+            Boolean bestBetsWithdrawn,
+            List<PlanRenderedEvent> renderedEvents,
+            LocalDateTime previousGeneratedAt,
+            List<BigSeasDay> bigSeas) {
+        this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
+                stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
+                seasonalFeatures, bestBetStatus, bestBetsWithdrawn, renderedEvents,
+                previousGeneratedAt, bigSeas, null);
     }
 
     /**
@@ -339,7 +395,7 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                renderedEvents, previousGeneratedAt, bigSeas);
+                renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds);
     }
 
     /**
@@ -361,7 +417,7 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                renderedEvents, newPreviousGeneratedAt, bigSeas);
+                renderedEvents, newPreviousGeneratedAt, bigSeas, allowedLocationIds);
     }
 
     /**
@@ -381,7 +437,7 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                newRenderedEvents, previousGeneratedAt, bigSeas);
+                newRenderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds);
     }
 
     /**
@@ -403,7 +459,7 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, days, newBestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, newBestBetsWithdrawn,
-                renderedEvents, previousGeneratedAt, bigSeas);
+                renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds);
     }
 
     /**
@@ -425,7 +481,7 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
                 newAuroraTonight, newAuroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, newHotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                renderedEvents, previousGeneratedAt, bigSeas);
+                renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds);
     }
 
     /**
@@ -438,7 +494,7 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                renderedEvents, previousGeneratedAt, newBigSeas);
+                renderedEvents, previousGeneratedAt, newBigSeas, allowedLocationIds);
     }
 
     /**
@@ -452,7 +508,7 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 newBestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                renderedEvents, previousGeneratedAt, bigSeas);
+                renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds);
     }
 
     /**
@@ -465,6 +521,20 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, hotTopics, seasonalFeatures, newBestBetStatus, bestBetsWithdrawn,
-                renderedEvents, previousGeneratedAt, bigSeas);
+                renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds);
+    }
+
+    /**
+     * Returns a copy served as shaped by the reader's sub-region picks.
+     *
+     * @param newHotTopics        the hot topics, shaped
+     * @param newAllowedLocationIds the picked locations' ids, sorted (empty when the reader holds none)
+     * @return a copy with both replaced
+     */
+    public DailyBriefingResponse withPickScope(List<HotTopic> newHotTopics, List<Long> newAllowedLocationIds) {
+        return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
+                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                bestBetModel, newHotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                renderedEvents, previousGeneratedAt, bigSeas, newAllowedLocationIds);
     }
 }

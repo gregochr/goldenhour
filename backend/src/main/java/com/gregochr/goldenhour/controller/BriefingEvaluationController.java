@@ -6,6 +6,8 @@ import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.service.LitePickShaper;
+import com.gregochr.goldenhour.service.PickScope;
 import com.gregochr.goldenhour.util.Authorities;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.springframework.http.ResponseEntity;
@@ -39,6 +41,7 @@ public class BriefingEvaluationController {
     private final BriefingEvaluationService evaluationService;
     private final EvaluationViewService evaluationViewService;
     private final Clock clock;
+    private final LitePickShaper litePickShaper;
 
     /**
      * Constructs a {@code BriefingEvaluationController}.
@@ -49,12 +52,14 @@ public class BriefingEvaluationController {
      *                              {@link ForecastHorizon} — the same anchor
      *                              {@code ForecastController}'s list endpoint uses, because the
      *                              two windows have to match
+     * @param litePickShaper        strips ratings outside a Lite reader's sub-region picks
      */
     public BriefingEvaluationController(BriefingEvaluationService evaluationService,
-            EvaluationViewService evaluationViewService, Clock clock) {
+            EvaluationViewService evaluationViewService, Clock clock, LitePickShaper litePickShaper) {
         this.evaluationService = evaluationService;
         this.evaluationViewService = evaluationViewService;
         this.clock = clock;
+        this.litePickShaper = litePickShaper;
     }
 
     /**
@@ -69,6 +74,10 @@ public class BriefingEvaluationController {
      * (docs/engineering/pro-features-gate-plan.md §6): a reader who is neither PRO_USER nor ADMIN
      * gets each row through {@link LocationEvaluationView#forLite()}. The check is fail-closed, and
      * the ETag is hashed from the body, so the two variants never share a validator.
+     *
+     * <p>With {@code photocast.sub-regions.enforce} on, a caller who is not positively PRO_USER or ADMIN
+     * also gets every row outside their sub-region picks gated by {@link LitePickShaper} (rating fields
+     * removed, {@code gated: true}), and the body is sent {@code Cache-Control: no-store} (no ETag).
      *
      * @param auth the caller's authentication
      * @return flat list of evaluation views with data (source != NONE), shaped for the caller's role
@@ -88,7 +97,10 @@ public class BriefingEvaluationController {
                 from, horizon, Set.of(TargetType.SUNRISE, TargetType.SUNSET));
         boolean pro = Authorities.hasRole(auth, UserRole.PRO_USER)
                 || Authorities.hasRole(auth, UserRole.ADMIN);
-        return ResponseEntity.ok(pro ? views : views.stream().map(LocationEvaluationView::forLite).toList());
+        PickScope scope = litePickShaper.scopeFor(auth);
+        List<LocationEvaluationView> byRole = pro ? views
+                : views.stream().map(LocationEvaluationView::forLite).toList();
+        return LitePickShaper.respond(litePickShaper.shapeScores(byRole, scope), scope);
     }
 
     /**

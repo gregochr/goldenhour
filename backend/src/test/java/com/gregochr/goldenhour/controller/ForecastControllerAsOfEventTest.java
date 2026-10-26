@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.service.UserSubRegionService;
+import com.gregochr.goldenhour.service.LitePickShaper;
+import com.gregochr.goldenhour.config.SubRegionProperties;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
@@ -60,6 +63,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -135,7 +139,8 @@ class ForecastControllerAsOfEventTest {
     private ForecastController controller(AsOfEventResolver resolver) {
         return new ForecastController(repository, locationService, commandFactory, commandExecutor,
                 scheduledForecastService, dtoMapper, evaluationViewService, jobRunService,
-                progressTracker, Runnable::run, NOW, retryService, resolver, solarEventFreshness);
+                progressTracker, Runnable::run, NOW, retryService, resolver, solarEventFreshness,
+                new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()));
     }
 
     // ── fixtures ────────────────────────────────────────────────────────────────

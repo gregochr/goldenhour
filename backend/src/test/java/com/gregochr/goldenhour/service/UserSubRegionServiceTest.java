@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.AreaKind;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.AreaConflictException;
 import com.gregochr.goldenhour.exception.SubRegionsLockedException;
+import com.gregochr.goldenhour.model.SubRegionLocationRow;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.AppUserSubRegionRepository;
 import com.gregochr.goldenhour.repository.AreaRepository;
@@ -204,5 +205,48 @@ class UserSubRegionServiceTest {
 
         verify(userRepository, never()).stampSubRegionsChangedIfUnlocked(USER_ID, NOW_LOCAL,
                 LocalDateTime.of(2026, 11, 11, 0, 0));
+    }
+
+    // --- enforcement: which locations a reader's picks cover (LitePickShaper's input) ---
+
+    private static SubRegionLocationRow member(Long areaId, Long locationId, String name) {
+        return new SubRegionLocationRow(areaId, locationId, name, 55.0, -1.5);
+    }
+
+    @Test
+    @DisplayName("pickedLocationRows returns the enabled members of the picked sub-regions only")
+    void pickedLocationRows_returnsMembersOfThePickedSubRegionsOnly() {
+        when(userRepository.findIdByUsername("anna")).thenReturn(Optional.of(USER_ID));
+        when(policy.getLiteLimit()).thenReturn(3);
+        when(pickRepository.findAreaIdsByUserId(USER_ID)).thenReturn(List.of(BERWICK));
+        SubRegionLocationRow inside = member(BERWICK, 1L, "Holy Island");
+        when(membership.findEnabledMemberRows()).thenReturn(List.of(inside, member(BAMBURGH, 2L, "Craster")));
+
+        assertThat(service.pickedLocationRows("anna")).containsExactly(inside);
+    }
+
+    @Test
+    @DisplayName("pickedLocationRows serves the first n picks by pick time when the limit was lowered")
+    void pickedLocationRows_overLimitUsesTheFirstNPicks() {
+        when(userRepository.findIdByUsername("anna")).thenReturn(Optional.of(USER_ID));
+        when(policy.getLiteLimit()).thenReturn(1);
+        when(pickRepository.findAreaIdsByUserId(USER_ID)).thenReturn(List.of(BERWICK, BAMBURGH));
+        SubRegionLocationRow first = member(BERWICK, 1L, "Holy Island");
+        when(membership.findEnabledMemberRows()).thenReturn(List.of(first, member(BAMBURGH, 2L, "Craster")));
+
+        assertThat(service.pickedLocationRows("anna")).containsExactly(first);
+    }
+
+    @Test
+    @DisplayName("pickedLocationRows is empty for an unknown user and for a reader with no picks")
+    void pickedLocationRows_emptyForNoUserOrNoPicks() {
+        when(userRepository.findIdByUsername("ghost")).thenReturn(Optional.empty());
+        when(userRepository.findIdByUsername("anna")).thenReturn(Optional.of(USER_ID));
+        when(policy.getLiteLimit()).thenReturn(3);
+        when(pickRepository.findAreaIdsByUserId(USER_ID)).thenReturn(List.of());
+
+        assertThat(service.pickedLocationRows("ghost")).isEmpty();
+        assertThat(service.pickedLocationRows("anna")).isEmpty();
+        verify(membership, never()).findEnabledMemberRows();
     }
 }

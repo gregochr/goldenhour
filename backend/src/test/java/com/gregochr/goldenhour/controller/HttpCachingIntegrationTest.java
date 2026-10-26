@@ -441,6 +441,115 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
         assertThat(settings.getResponse().getHeader(HttpHeaders.ETAG)).isNull();
     }
 
+    // ── Sub-region enforcement (sub-regions-plan S3, §5.3): a shaped Lite body is no-store ────────────
+
+    private void enforceWithNoPicks() {
+        when(subRegionProperties.isEnforce()).thenReturn(true);
+        when(userSubRegionService.pickedLocationRows("anna")).thenReturn(List.of());
+    }
+
+    @Test
+    @WithMockUser(username = "anna", roles = "LITE_USER")
+    @DisplayName("A Lite briefing shaped by sub-region picks is no-store with no ETag, so it can never 304")
+    void shapedLiteBriefingIsNoStoreWithNoEtag() throws Exception {
+        enforceWithNoPicks();
+        when(briefingService.getCachedBriefingForApi()).thenReturn(briefingResponse());
+
+        MvcResult first = mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist(HttpHeaders.ETAG))
+                .andExpect(jsonPath("$.allowedLocationIds.length()").value(0))
+                .andReturn();
+
+        assertThat(first.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store")
+                .doesNotContain("no-cache");
+        // Even a presented validator gets a fresh 200: there is nothing to match.
+        mockMvc.perform(get("/api/briefing").header(HttpHeaders.IF_NONE_MATCH, "\"anything\""))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(username = "anna", roles = "LITE_USER")
+    @DisplayName("Every other shaped read (digest, scores, forecast list) is no-store with no ETag")
+    void shapedLiteReadsAreNoStoreWithNoEtag() throws Exception {
+        enforceWithNoPicks();
+        when(briefingService.getCachedBriefingForApi()).thenReturn(briefingResponse());
+        LocalDate today = ForecastHorizon.today(Clock.systemUTC());
+        when(evaluationViewService.forDateRange(
+                today.minusDays(ForecastHorizon.SERVE_PAST_DAYS),
+                today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS),
+                Set.of(TargetType.SUNRISE, TargetType.SUNSET))).thenReturn(List.of());
+        when(locationService.findAllEnabled()).thenReturn(List.of());
+
+        com.gregochr.goldenhour.entity.LocationEntity crasterLocation = com.gregochr.goldenhour.entity
+                .LocationEntity.builder().id(8L).name("Craster").lat(55.47).lon(-1.59).build();
+        var detailEntity = com.gregochr.goldenhour.entity.ForecastEvaluationEntity.builder()
+                .id(42L).location(crasterLocation).targetDate(LocalDate.of(2026, 3, 8)).build();
+        when(forecastEvaluationRepository.findById(42L)).thenReturn(java.util.Optional.of(detailEntity));
+        when(dtoMapper.toDto(detailEntity, true)).thenReturn(forecastDetailDto());
+        when(astroConditionsRepository.findByForecastDate(LocalDate.of(2026, 4, 1))).thenReturn(List.of());
+
+        for (String path : List.of("/api/briefing/digest", "/api/briefing/evaluate/scores", "/api/forecast",
+                "/api/forecast/42", "/api/astro/conditions?date=2026-04-01")) {
+            MvcResult result = mockMvc.perform(get(path))
+                    .andExpect(status().isOk())
+                    .andExpect(header().doesNotExist(HttpHeaders.ETAG))
+                    .andReturn();
+            assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL))
+                    .as(path).contains("no-store").doesNotContain("no-cache");
+        }
+    }
+
+    @Test
+    @DisplayName("Pro with enforcement on keeps private, no-cache and the ETag, and still 304s")
+    void proKeepsRevalidatingWhenEnforcementIsOn() throws Exception {
+        when(subRegionProperties.isEnforce()).thenReturn(true);
+        when(briefingService.getCachedBriefingForApi()).thenReturn(briefingResponse());
+
+        MvcResult first = mockMvc.perform(get("/api/briefing").with(user("pat").roles("PRO_USER")))
+                .andExpect(status().isOk())
+                .andExpect(header().exists(HttpHeaders.ETAG))
+                .andReturn();
+
+        assertThat(first.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-cache")
+                .doesNotContain("no-store");
+        mockMvc.perform(get("/api/briefing").with(user("pat").roles("PRO_USER"))
+                        .header(HttpHeaders.IF_NONE_MATCH, first.getResponse().getHeader(HttpHeaders.ETAG)))
+                .andExpect(status().isNotModified());
+    }
+
+    @Test
+    @WithMockUser(username = "anna", roles = "LITE_USER")
+    @DisplayName("Lite with enforcement off keeps private, no-cache and the ETag, and still 304s")
+    void liteKeepsRevalidatingWhenEnforcementIsOff() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(briefingResponse());
+
+        MvcResult first = mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(header().exists(HttpHeaders.ETAG))
+                .andReturn();
+
+        assertThat(first.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-cache")
+                .doesNotContain("no-store");
+        mockMvc.perform(get("/api/briefing")
+                        .header(HttpHeaders.IF_NONE_MATCH, first.getResponse().getHeader(HttpHeaders.ETAG)))
+                .andExpect(status().isNotModified());
+    }
+
+    private static com.gregochr.goldenhour.model.ForecastEvaluationDto forecastDetailDto() {
+        try {
+            var comps = com.gregochr.goldenhour.model.ForecastEvaluationDto.class.getRecordComponents();
+            Class<?>[] types = new Class<?>[comps.length];
+            for (int i = 0; i < comps.length; i++) {
+                types[i] = comps[i].getType();
+            }
+            return com.gregochr.goldenhour.model.ForecastEvaluationDto.class.getDeclaredConstructor(types)
+                    .newInstance(new Object[comps.length]);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private static DailyBriefingResponse briefingResponse() {
         return new DailyBriefingResponse(
                 LocalDateTime.of(2026, 7, 25, 4, 0),

@@ -141,6 +141,29 @@ public record BriefingWindow(
     }
 
     /**
+     * Returns a copy with different badges.
+     *
+     * @param newBadges the badges to serve
+     * @return this window with only {@code badges} replaced
+     */
+    public BriefingWindow withBadges(List<Badge> newBadges) {
+        return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, newBadges,
+                topRarityRank, tide, tideFacts);
+    }
+
+    /**
+     * Returns a copy with a different best rating — {@code null} removes the star (the reader's picks do not
+     * cover the places it was taken from).
+     *
+     * @param newBestRating the rating to serve, or null
+     * @return this window with only {@code bestRating} replaced
+     */
+    public BriefingWindow withBestRating(Integer newBestRating) {
+        return new BriefingWindow(eventTime, verdict, newBestRating, confidence, pick, badges,
+                topRarityRank, tide, tideFacts);
+    }
+
+    /**
      * Returns a copy carrying the given forecast-wide pick, every other component unchanged.
      *
      * @param newPick the pick, or null for none
@@ -285,6 +308,19 @@ public record BriefingWindow(
             @JsonInclude(JsonInclude.Include.NON_NULL) String note,
             @JsonInclude(JsonInclude.Include.NON_NULL) String rarityNote,
             @JsonInclude(JsonInclude.Include.NON_NULL) String safetyNote) {
+
+        /**
+         * Returns this badge without its fact chips and with a different detail line: a topic whose chips
+         * are derived from the best-rated location (the bluebell topic) copies them here, so they go when the
+         * reader's picks do not cover that location.
+         *
+         * @param newDetail the detail to serve, or null
+         * @return a copy with {@code facts} empty and only {@code detail} replaced
+         */
+        public Badge withoutFacts(String newDetail) {
+            return new Badge(type, label, newDetail, List.of(), eventTime, rarityRank, note, rarityNote,
+                    safetyNote);
+        }
 
         /**
          * Canonical constructor: takes an immutable copy of {@code facts}, and reads a null list as

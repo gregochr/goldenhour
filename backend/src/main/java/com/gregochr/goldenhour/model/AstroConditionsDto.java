@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -33,6 +35,9 @@ import java.time.LocalDateTime;
  * @param nightEnd             end of the night window this score was evaluated over — nautical
  *                             dawn (the following morning), UTC. Same provenance as
  *                             {@code nightStart}.
+ * @param gated                {@code TRUE} when the location is outside the reader's sub-region picks and
+ *                             the stars and prose were removed by {@code LitePickShaper}, otherwise null
+ *                             (never {@code FALSE}). Gated is not unrated
  */
 public record AstroConditionsDto(
         Long locationId,
@@ -40,7 +45,7 @@ public record AstroConditionsDto(
         double lat,
         double lon,
         Integer bortleClass,
-        int stars,
+        Integer stars,
         String summary,
         String cloudExplanation,
         String visibilityExplanation,
@@ -49,6 +54,20 @@ public record AstroConditionsDto(
         String moonPhase,
         Double moonIlluminationPct,
         LocalDateTime nightStart,
-        LocalDateTime nightEnd
+        LocalDateTime nightEnd,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean gated
 ) {
+
+    /**
+     * Returns this night's conditions for a reader whose sub-region picks do not cover the location
+     * (docs/engineering/sub-regions-plan.md §4.2, §9 Q7): the stars, the summary sentence and the three
+     * explanations are removed and {@link #gated} is set. The location, the Bortle class, the date, the
+     * moon facts and the night window stay.
+     *
+     * @return a gated copy
+     */
+    public AstroConditionsDto forGated() {
+        return new AstroConditionsDto(locationId, locationName, lat, lon, bortleClass, null, null, null, null,
+                null, forecastDate, moonPhase, moonIlluminationPct, nightStart, nightEnd, Boolean.TRUE);
+    }
 }

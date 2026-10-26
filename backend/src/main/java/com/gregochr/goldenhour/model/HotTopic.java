@@ -316,6 +316,18 @@ public record HotTopic(
     }
 
     /**
+     * Returns a copy of this topic with a different {@code detail} line.
+     *
+     * @param newDetail the detail text, or null
+     * @return a new {@link HotTopic} with only {@code detail} replaced
+     */
+    public HotTopic withDetail(String newDetail) {
+        return new HotTopic(type, label, newDetail, date, priority, filterAction, regions,
+                description, expandedDetail, eventType, eventTime, locationNames,
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, rarityNote, safetyNote, glance);
+    }
+
+    /**
      * Returns a copy of this topic carrying a warning every surface that raises it must show.
      *
      * <p>Separate from {@link #withScience} on purpose. The science facts are premium detail and
