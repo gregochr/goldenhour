@@ -391,45 +391,65 @@ class RegistrationServiceTest {
                 .build();
     }
 
-    @Test
-    @DisplayName("verifyEmail rotates the token by compare-and-set and returns the userId and a fresh setup "
-            + "token that is not the mailed one")
-    void verifyEmail_validToken_rotatesAndReturnsSetupToken() {
-        EmailVerificationTokenEntity token = unverified(LocalDateTime.now().plusHours(12));
+    /** Stubs the mailed link's hash, the random setup token and its hash, as the service will ask for them. */
+    private void stubRotationHashes() {
         when(jwtService.hashToken("raw-token")).thenReturn("hash123");
         when(jwtService.generateRefreshToken()).thenReturn("setup-raw");
         when(jwtService.hashToken("setup-raw")).thenReturn("setup-hash");
-        when(tokenRepository.findByTokenHash("hash123")).thenReturn(Optional.of(token));
-        when(tokenRepository.rotateOnVerify(eq(1L), eq("hash123"), eq("setup-hash"), any())).thenReturn(1);
+    }
+
+    @Test
+    @DisplayName("verifyEmail rotates THIS row (id 1) from the mailed hash to the hash of the returned setup "
+            + "token, which differs from the mailed one")
+    void verifyEmail_validToken_rotatesAndReturnsSetupToken() {
+        stubRotationHashes();
+        when(tokenRepository.findByTokenHash("hash123"))
+                .thenReturn(Optional.of(unverified(LocalDateTime.now().plusHours(12))));
+        when(tokenRepository.rotateOnVerify(eq(1L), eq("hash123"), eq("setup-hash"),
+                org.mockito.ArgumentMatchers.any(LocalDateTime.class))).thenReturn(1);
 
         RegistrationService.VerifiedEmail verified = registrationService.verifyEmail("raw-token");
 
         assertThat(verified.userId()).isEqualTo(42L);
         assertThat(verified.setupToken()).isEqualTo("setup-raw").isNotEqualTo("raw-token");
-        verify(tokenRepository, never()).save(any());
+        // The hash stored is the hash of the token handed back, and it is not the mailed link's hash.
+        org.mockito.ArgumentCaptor<String> newHash = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(tokenRepository).rotateOnVerify(eq(1L), eq("hash123"), newHash.capture(),
+                org.mockito.ArgumentMatchers.any(LocalDateTime.class));
+        assertThat(newHash.getValue()).isEqualTo("setup-hash").isNotEqualTo("hash123");
+        verify(jwtService).hashToken(verified.setupToken());
+        verify(tokenRepository, never()).save(org.mockito.ArgumentMatchers.any(EmailVerificationTokenEntity.class));
     }
 
     @Test
-    @DisplayName("the setup token lives at most 30 minutes from now, and never longer than the link had left")
-    void verifyEmail_expiryIsTheEarlierOfThirtyMinutesAndTheLinksOwn() {
-        when(jwtService.hashToken(anyString())).thenReturn("hash123");
-        when(jwtService.generateRefreshToken()).thenReturn("setup-raw");
-        when(tokenRepository.rotateOnVerify(any(), any(), any(), any())).thenReturn(1);
-        org.mockito.ArgumentCaptor<LocalDateTime> expiry = org.mockito.ArgumentCaptor.forClass(LocalDateTime.class);
-
+    @DisplayName("the setup token lives 30 minutes from now when the link has hours left")
+    void verifyEmail_expiryIsThirtyMinutesWhenTheLinkHasLonger() {
+        stubRotationHashes();
         when(tokenRepository.findByTokenHash("hash123"))
                 .thenReturn(Optional.of(unverified(LocalDateTime.now().plusHours(12))));
+        org.mockito.ArgumentCaptor<LocalDateTime> expiry = org.mockito.ArgumentCaptor.forClass(LocalDateTime.class);
+        when(tokenRepository.rotateOnVerify(eq(1L), eq("hash123"), eq("setup-hash"), expiry.capture()))
+                .thenReturn(1);
+
         LocalDateTime before = LocalDateTime.now();
         registrationService.verifyEmail("raw-token");
-        verify(tokenRepository).rotateOnVerify(any(), any(), any(), expiry.capture());
-        assertThat(expiry.getValue()).isBetween(before.plusMinutes(30), LocalDateTime.now().plusMinutes(30));
 
+        assertThat(expiry.getValue()).isBetween(before.plusMinutes(30), LocalDateTime.now().plusMinutes(30));
+    }
+
+    @Test
+    @DisplayName("the setup token never outlives the link: with five minutes left the expiry is exactly the "
+            + "link's own")
+    void verifyEmail_expiryNeverExceedsTheLinksOwn() {
+        stubRotationHashes();
         LocalDateTime soon = LocalDateTime.now().plusMinutes(5);
         when(tokenRepository.findByTokenHash("hash123")).thenReturn(Optional.of(unverified(soon)));
-        registrationService.verifyEmail("raw-token");
-        verify(tokenRepository, org.mockito.Mockito.times(2))
-                .rotateOnVerify(any(), any(), any(), expiry.capture());
-        assertThat(expiry.getValue()).isEqualTo(soon);
+        when(tokenRepository.rotateOnVerify(1L, "hash123", "setup-hash", soon)).thenReturn(1);
+
+        RegistrationService.VerifiedEmail verified = registrationService.verifyEmail("raw-token");
+
+        assertThat(verified.setupToken()).isEqualTo("setup-raw");
+        verify(tokenRepository).rotateOnVerify(1L, "hash123", "setup-hash", soon);
     }
 
     @Test
@@ -443,7 +463,8 @@ class RegistrationServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(RegistrationService.LINK_USED)
                 .hasMessageContaining("already been used");
-        verify(tokenRepository, never()).rotateOnVerify(any(), any(), any(), any());
+        verify(tokenRepository).findByTokenHash("bad-hash");
+        org.mockito.Mockito.verifyNoMoreInteractions(tokenRepository);
     }
 
     @Test
@@ -456,7 +477,8 @@ class RegistrationServiceTest {
         assertThatThrownBy(() -> registrationService.verifyEmail("expired-token"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("expired");
-        verify(tokenRepository, never()).rotateOnVerify(any(), any(), any(), any());
+        verify(tokenRepository).findByTokenHash("hash123");
+        org.mockito.Mockito.verifyNoMoreInteractions(tokenRepository);
     }
 
     @Test
@@ -470,18 +492,19 @@ class RegistrationServiceTest {
         assertThatThrownBy(() -> registrationService.verifyEmail("used-token"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(RegistrationService.LINK_USED);
-        verify(tokenRepository, never()).rotateOnVerify(any(), any(), any(), any());
+        verify(tokenRepository).findByTokenHash("hash123");
+        org.mockito.Mockito.verifyNoMoreInteractions(tokenRepository);
     }
 
     @Test
     @DisplayName("losing the compare-and-set to a concurrent verify (zero rows) is 'already been used' and "
             + "no setup token is returned")
     void verifyEmail_lostTheCompareAndSet_isAlreadyUsed() {
-        when(jwtService.hashToken("raw-token")).thenReturn("hash123");
-        when(jwtService.generateRefreshToken()).thenReturn("setup-raw");
+        stubRotationHashes();
         when(tokenRepository.findByTokenHash("hash123"))
                 .thenReturn(Optional.of(unverified(LocalDateTime.now().plusHours(12))));
-        when(tokenRepository.rotateOnVerify(any(), any(), any(), any())).thenReturn(0);
+        when(tokenRepository.rotateOnVerify(eq(1L), eq("hash123"), eq("setup-hash"),
+                org.mockito.ArgumentMatchers.any(LocalDateTime.class))).thenReturn(0);
 
         assertThatThrownBy(() -> registrationService.verifyEmail("raw-token"))
                 .isInstanceOf(IllegalArgumentException.class)

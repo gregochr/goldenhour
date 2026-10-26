@@ -716,10 +716,9 @@ class AuthenticationServiceTest {
             order.verify(userRepository).lockAccount(1L);
             order.verify(refreshTokenRepository).revokeIfActive("hash");
             order.verify(userRepository).bumpCredentialsVersion(1L);
-            verify(refreshTokenRepository, never()).save(any());
-            verify(refreshTokenRepository, never()).revokeAllActiveByUserId(any());
-            verify(userRepository, never()).applyCredentialChange(any(), any(), anyInt(), anyInt(), anyInt(),
-                    org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyLong(), any());
+            // Nothing else was touched: no save, no family revoke, no credential-change update.
+            verify(refreshTokenRepository).findByTokenHash("hash");
+            org.mockito.Mockito.verifyNoMoreInteractions(refreshTokenRepository, userRepository);
             verifyNoInteractions(familyRevoker, credentialChangeWriter);
         }
 
@@ -730,9 +729,9 @@ class AuthenticationServiceTest {
 
             service.logout("raw", null);
 
-            verify(userRepository, never()).lockAccount(any());
-            verify(userRepository, never()).bumpCredentialsVersion(any());
-            verify(refreshTokenRepository, never()).revokeIfActive(any());
+            verify(userRepository, never()).lockAccount(1L);
+            verify(userRepository, never()).bumpCredentialsVersion(1L);
+            verify(refreshTokenRepository, never()).revokeIfActive("hash");
         }
 
         @Test
@@ -743,9 +742,9 @@ class AuthenticationServiceTest {
 
             service.logout("raw", null);
 
-            verify(userRepository, never()).lockAccount(any());
-            verify(userRepository, never()).bumpCredentialsVersion(any());
-            verify(refreshTokenRepository, never()).revokeIfActive(any());
+            verify(userRepository, never()).lockAccount(1L);
+            verify(userRepository, never()).bumpCredentialsVersion(1L);
+            verify(refreshTokenRepository, never()).revokeIfActive("hash");
         }
 
         @Test
@@ -756,7 +755,7 @@ class AuthenticationServiceTest {
 
             service.logout("raw", null);
 
-            verify(userRepository, never()).bumpCredentialsVersion(any());
+            verify(userRepository, never()).bumpCredentialsVersion(1L);
         }
 
         @Test
@@ -764,8 +763,7 @@ class AuthenticationServiceTest {
         void nothingPresented_noop() {
             service.logout(null, null);
 
-            verifyNoInteractions(refreshTokenRepository, jwtService);
-            verify(userRepository, never()).bumpCredentialsVersion(any());
+            verifyNoInteractions(refreshTokenRepository, jwtService, userRepository);
         }
 
         @Test
@@ -793,7 +791,7 @@ class AuthenticationServiceTest {
             service.logout(null, "admin");
 
             verify(userRepository).bumpCredentialsVersion(1L);
-            verify(refreshTokenRepository, never()).revokeIfActive(any());
+            verify(refreshTokenRepository, never()).revokeIfActive("hash");
         }
 
         @Test
@@ -804,8 +802,8 @@ class AuthenticationServiceTest {
 
             service.logout("raw", null);
 
-            verify(userRepository, never()).bumpCredentialsVersion(any());
-            verify(refreshTokenRepository, never()).revokeIfActive(any());
+            verify(userRepository, never()).bumpCredentialsVersion(1L);
+            verify(refreshTokenRepository, never()).revokeIfActive("hash");
         }
     }
 

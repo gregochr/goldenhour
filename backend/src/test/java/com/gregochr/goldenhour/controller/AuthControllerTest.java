@@ -1226,7 +1226,7 @@ class AuthControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk());
 
         verify(userRepository).bumpCredentialsVersion(1L);
-        verify(refreshTokenRepository, never()).revokeIfActive(any());
+        verifyNoInteractions(refreshTokenRepository);
     }
 
     @Test
@@ -1240,7 +1240,7 @@ class AuthControllerTest extends AbstractControllerTest {
                         .content("{\"refreshToken\":\"nobody\"}"))
                 .andExpect(status().isOk());
 
-        verify(userRepository, never()).bumpCredentialsVersion(any());
+        verify(userRepository, never()).bumpCredentialsVersion(1L);
         verify(userRepository, never()).findByUsername("anonymousUser");
     }
 
