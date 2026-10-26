@@ -60,8 +60,11 @@ bite), **DOC** (copy and code disagree).
    `JwtAuthenticationFilter`.
 5. Optional hardening: rotate the token at verify (or bind `set-password` to a short window after
    `verify-email`); a per-session revocation for access tokens on logout.
+   **Status: done (T, #1445)** — verification rotates to a 30-minute setup token; logout bumps the credentials version.
 
 ### 1.4 Legacy outcome API readable and writable by every account — CONFIRMED
+
+**Status: done (O1, #1443)** — the controller and API are removed; the `actual_outcome` table drop is pending (O2, a later release).
 
 - `controller/OutcomeController.java`: `GET /api/outcome`, `GET /api/outcome/all` and
   `POST /api/outcome` carry no `@PreAuthorize`. The only gate is `/api/**` authenticated, so a
@@ -79,6 +82,8 @@ bite), **DOC** (copy and code disagree).
   `v1-retirement-plan.md` §8. The Privacy Policy already describes this behaviour accurately.
 
 ### 1.5 Smaller findings
+
+**Status: Waitlist items done (W, #1451)** — Turnstile, rate limits, no address in the log, admin invite and remove.
 
 - **Waitlist** — POTENTIAL. `POST /api/waitlist` is `permitAll` with no Turnstile, rate limit or
   confirmation, so anyone can add a third party's address. The address is also logged at INFO;
@@ -115,6 +120,8 @@ house pattern. Until that ships, the site over-claims what Pro adds.
 `roles-and-gating.md` ("LITE gets basic scores … blurred metrics") is also stale.
 
 ### 2.2 Other copy facts checked
+
+**Status: dormant accounts — job built (D, #1448), seeded PAUSED and dry-run by default.**
 
 - **> 200 locations** — supported by production snapshots in docs: 253–263 enabled, about 231–238
   of them sunrise/sunset places. The count lives in the prod DB.

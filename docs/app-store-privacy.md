@@ -51,7 +51,7 @@ questionnaire; where Apple's own definition decides the answer and this reposito
 | **Identifiers → User ID** | the username (3–30 letters, digits, `-`, `_`) and the numeric account id (carried in the access token as `uid`) | `app_user.username`, `app_user.id` | yes | account, sign-in | account deleted |
 | **Location → (see note)** | an optional UK home postcode, its latitude/longitude, a local radius in miles | `app_user.home_postcode`, `home_latitude`, `home_longitude`, `local_radius_miles`; drive times derived from it in `user_drive_time` | yes | sunrise/sunset light times for the reader's place; drive times and the "within reach" lens; "close to home" in Ask | changed or account deleted |
 | **User Content → Other User Content** | outcome ratings the reader gives to a past sunrise or sunset (a location, a date, an event, 1–5 stars or "didn't see it", plus which forecast they had been shown); the question text a reader types into Ask PhotoCast | `outcome_rating`; `ask_log.normalised_question` (only for the two outcomes the engine answered, `CLAUDE_OK` and `CLAUDE_CANT`) | ratings: yes; Ask question: linked while the account exists, **unlinked after deletion** (§4) | the calibration of forecasts; Ask | ratings: account deleted; Ask question rows: 90 days |
-| **User Content → Other User Content (legacy)** | observations recorded through the OLD outcome API, `POST /api/outcome` (any authenticated role; no screen in the app since 2026-02-27): location name and coordinates, date, sunrise/sunset, whether the reader went out, a 1–5 rating, two 0–100 observation scores and a FREE-TEXT note | `actual_outcome` — **no user column, no foreign key to `app_user`** | **no** — a row cannot be traced to the account that wrote it | the calibration gate's original input (`ForecastCalibrationService`) | **indefinitely** — no cleanup job, and account deletion cannot reach a row it cannot attribute. **Readable by every authenticated account** (`GET /api/outcome`, `GET /api/outcome/all` return the notes). Production holds no row as of 2026-10-02 (CLAUDE.md, read-only check) — not re-verified here. Owner decision: retire or gate the route, or accept and disclose (disclosed on the landing page) |
+| **User Content → Other User Content (legacy; API removed in #1443, O1)** | observations that were recorded through the OLD outcome API, `POST /api/outcome` (no screen in the app since 2026-02-27; the controller no longer exists, so no route reads or writes the table; the `actual_outcome` table itself is dropped in a later release, O2): location name and coordinates, date, sunrise/sunset, whether the reader went out, a 1–5 rating, two 0–100 observation scores and a FREE-TEXT note | `actual_outcome` — **no user column, no foreign key to `app_user`** | **no** — a row cannot be traced to the account that wrote it | the calibration gate's original input (`ForecastCalibrationService`) | **indefinitely** — no cleanup job, and account deletion cannot reach a row it cannot attribute. **Readable by every authenticated account** (`GET /api/outcome`, `GET /api/outcome/all` return the notes). Production holds no row as of 2026-10-02 (CLAUDE.md, read-only check) — not re-verified here. Owner decision: retire or gate the route, or accept and disclose (disclosed on the landing page) |
 | **Usage Data → Product Interaction** | when the account last used the app (`last_active_at`, written at most once an hour); how many Ask questions it has asked today; one outcome row per answered Ask request (scope, view, outcome, duration — no text except as above) | `app_user.last_active_at`; `ask_usage`; `ask_log` | `last_active_at` and `ask_usage`: yes; `ask_log`: linked while the account exists | service operation and cost control | `ask_usage` and `last_active_at`: account deleted; `ask_log`: 90 days |
 | **Other** (not an Apple type) — consent records | whether the reader opted in to marketing email; when they accepted the Terms and which version | `app_user.marketing_email_opt_in`, `terms_accepted_at`, `terms_version` | yes | consent record | account deleted |
 
@@ -59,7 +59,7 @@ questionnaire; where Apple's own definition decides the answer and this reposito
 role, enabled state, last-active time, marketing flag (`GET /api/users`) — read the waitlist (`GET /api/admin/waitlist`), read
 every reader's rating of a slot (`GET /api/outcome/ratings/all`); whoever operates the host can read the logs, backups and database. A reader's
 home postcode and coordinates are served only to that reader (`/api/user/settings*` is never cached or shared). Ask metrics
-(`GET /api/admin/ask/metrics`) never return a question, raw or normalised. Other readers see none of it — with one exception: the legacy `actual_outcome` rows above, which any authenticated account can read in full, notes included. **Other `app_user`
+(`GET /api/admin/ask/metrics`) never return a question, raw or normalised. Other readers see none of it. **Other `app_user`
 columns:** `role`, `created_at`, `enabled`, the map colour and tide preferences, `coming_up_last_seen_at` (when the Coming up
 tab was last opened), `postcode_prompt_dismissed_at` (when the sign-in postcode prompt was dismissed) and the credential counter
 `credentials_version` / `credentials_changed_at` — account administration and preferences, linked, kept until deletion.
@@ -85,8 +85,10 @@ browser's `localStorage` (access and refresh tokens, role, username, a session-e
 found that prunes expired verification or reset-link rows (they hold a hash, never an address).
 
 **Waitlist.** When the early-access registration cap is full, the registration page offers a waitlist and the address typed is
-stored in `waitlist_email` (`email`, `submitted_at`). It is not linked to any account, an administrator can list it
-(`GET /api/admin/waitlist`), and **no code deletes a row** — removal is by request to privacy@photocast.online.
+stored in `waitlist_email` (`email`, `submitted_at`). It is not linked to any account, an administrator can list, invite or remove entries
+(`/api/admin/waitlist`; an invitation mails a seven-day registration link for that address only), the row is deleted when the
+address activates an account, and otherwise removal is by request to privacy@photocast.online. The public sign-up is
+Turnstile-checked and rate-limited, and logs the row id, not the address.
 
 **Pending registrations.** A registration that is never verified leaves an `app_user` row (disabled, no password) holding the
 username and address; no job was found that removes abandoned ones. Deleting such an account is an administrator action.
@@ -159,7 +161,7 @@ A confirmation email ("your account was removed") is then sent, after commit, to
 - **Application logs.** `goldenhour.log` is a daily-rolling file kept for **30 days** (50 MB per file, 1 GB cap —
   `logback-spring.xml`), and the console copy is also captured by Docker's `json-file` driver, rotated by size (10 MB × 3,
   `docker-compose.yml`), not by age. The lines include, as ordinary INFO/WARN output: usernames and email addresses at
-  registration, on every mail sent (verification, reset, welcome, "account removed") and at a waitlist sign-up; a successful
+  registration, on every mail sent (verification, reset, welcome, "account removed") (a waitlist sign-up logs the row id only); a successful
   sign-in's username and role; the typed identifier of a failed sign-in; a password change's username; the username with the
   postcode and coordinates at the moment a home is saved; a failed postcode lookup's postcode (and, per §1, possibly the
   reverse lookup's coordinates); the home coordinates against the user id in every drive-time measurement
@@ -194,7 +196,7 @@ Administrator deletion (`DELETE /api/users/{id}`) does the same purge and the sa
 | Application log | 30 days, 1 GB cap (file); Docker's console copy is size-rotated, not time-bound | `logback-spring.xml`, `docker-compose.yml` |
 | Database backups | 7 daily + 4 weekly; `pre-release/` dumps never rotated (production use **not verified**) | `scripts/backup-postgres.sh`, `scripts/pre-release-backup.sh` |
 | Account data, ratings, drive times | until deletion | §4 |
-| Dormant accounts | **no job deletes them** (the public policy says they "may be" deleted after 90 days of inactivity) | — |
+| Dormant accounts | `dormant_account_sweep` (D, #1448): a LITE account with no activity for 90 days is warned by email and deleted 14 days later if still inactive. **Seeded PAUSED and `photocast.dormancy.dry-run` defaults true: until the owner switches it on, nothing is warned or deleted.** | `DormantAccountSweepJob`, `DormancyProperties` |
 | Waitlist, unverified registrations, used/expired verification and reset rows | no pruning job found | — |
 
 ---
@@ -207,7 +209,7 @@ Administrator deletion (`DELETE /api/users/{id}`) does the same purge and the sa
 3. **The public policy's mail processor** said "SendGrid"; nothing in the repository uses SendGrid and the committed config
    sends through an SMTP host. R7 changed the public page to name the SMTP service generically — confirm the provider's
    legal name.
-4. **Dormant-account deletion** is a policy statement with no code behind it.
+4. **Dormant-account deletion** is built (D, #1448) but ships PAUSED and in dry-run; switching it on (read the dry-run log lines first, then set `photocast.dormancy.dry-run=false` and resume the job) is the owner's call.
 5. **The AASA file** carries the placeholder `TEAMID.BUNDLEID` until the owner supplies the real ids.
 6. **Marketing consent for non-self-registered accounts** — see §1; decide before any marketing sender exists.
 7. **A recommended code follow-up (not made here, R7 writes documents):** make `PostcodesIoClient` log the exception class,
