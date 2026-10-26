@@ -473,7 +473,7 @@ public class BriefingVerdictEvaluator {
         Map<String, Integer> countsByLabel = new LinkedHashMap<>();
         for (BriefingSlot slot : slots) {
             TideContext ctx = new TideContext(
-                    slot.tide().tideState(), slot.tide().tideAligned(),
+                    slot.tide().tideState(), Boolean.TRUE.equals(slot.tide().tideAligned()),
                     slot.tide().heightAboveP95(), slot.tide().heightAboveSpringThreshold(),
                     slot.tide().lunarTideType(), false);
             String label = combinedTideLabel(ctx);

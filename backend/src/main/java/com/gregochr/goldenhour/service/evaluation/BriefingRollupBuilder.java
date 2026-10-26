@@ -459,7 +459,7 @@ public final class BriefingRollupBuilder {
         long standdownCount = region.slots().stream()
                 .filter(s -> s.verdict() == Verdict.STANDDOWN).count();
         long tideAlignedCount = region.slots().stream()
-                .filter(s -> s.tide().tideAligned()).count();
+                .filter(s -> Boolean.TRUE.equals(s.tide().tideAligned())).count();
         long coastalCount = region.slots().stream()
                 .filter(s -> s.tide().tideState() != null).count();
 

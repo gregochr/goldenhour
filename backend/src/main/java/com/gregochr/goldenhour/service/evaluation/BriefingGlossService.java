@@ -293,7 +293,7 @@ public class BriefingGlossService {
                 .anyMatch(s -> s.flags().contains("Cloud building"));
 
         long tideAlignedCount = region.slots().stream()
-                .filter(s -> s.tide().tideAligned()).count();
+                .filter(s -> Boolean.TRUE.equals(s.tide().tideAligned())).count();
         boolean hasKingTide = region.slots().stream().anyMatch(s -> s.tide().heightAboveP95());
         boolean hasSpringTide = region.slots().stream().anyMatch(s -> s.tide().heightAboveSpringThreshold());
         long coastalCount = region.slots().stream()
