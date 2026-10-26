@@ -27,9 +27,10 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -1285,13 +1286,17 @@ class LocationServiceTest {
         return RegionEntity.builder().id(id).name(name).build();
     }
 
+    /** A save of a location called {@code name}: specific enough that a different location would not match. */
+    private static LocationEntity savedAs(String name) {
+        return argThat(l -> l != null && name.equals(l.getName()));
+    }
+
     private LocationEntity existingInRegion(RegionEntity region) {
         LocationEntity existing = buildEntity("High Force", 54.65, -2.14);
         existing.setGridLat(54.65);
         existing.setGridLng(-2.14);
         existing.setRegion(region);
         when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
-        lenient().when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         return existing;
     }
 
@@ -1300,7 +1305,8 @@ class LocationServiceTest {
             + "assigns the membership")
     void update_subRegionId_validatesThenAssigns() {
         RegionEntity dales = region(4L, "The Yorkshire Dales");
-        existingInRegion(dales);
+        LocationEntity existing = existingInRegion(dales);
+        when(locationRepository.save(existing)).thenReturn(existing);
 
         LocationEntity saved = locationService.update(1L, new UpdateLocationRequest(
                 null, null, null, null, null, null, null, null, 77L));
@@ -1309,22 +1315,22 @@ class LocationServiceTest {
         order.verify(subRegionMembership).requireAssignable(77L, dales);
         order.verify(locationRepository).save(saved);
         order.verify(subRegionMembership).assign(saved, 77L);
-        verify(subRegionMembership, never()).reconcileRegion(any());
+        verify(subRegionMembership, never()).reconcileRegion(any(LocationEntity.class));
     }
 
     @Test
     @DisplayName("update() refuses a sub-region of another region, and saves and assigns nothing")
     void update_subRegionOfAnotherRegion_isRefused() {
         existingInRegion(region(4L, "The Yorkshire Dales"));
-        when(subRegionMembership.requireAssignable(eq(88L), any()))
+        when(subRegionMembership.requireAssignable(eq(88L), any(RegionEntity.class)))
                 .thenThrow(new IllegalArgumentException("Sub-region 'Keswick & Borrowdale' is in the region"));
 
         assertThatThrownBy(() -> locationService.update(1L, new UpdateLocationRequest(
                 null, null, null, null, null, null, null, null, 88L)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Keswick & Borrowdale");
 
-        verify(locationRepository, never()).save(any());
-        verify(subRegionMembership, never()).assign(any(LocationEntity.class), any());
+        verify(locationRepository, never()).save(any(LocationEntity.class));
+        verify(subRegionMembership, never()).assign(any(LocationEntity.class), anyLong());
     }
 
     @Test
@@ -1332,6 +1338,7 @@ class LocationServiceTest {
             + "against the NEW region")
     void update_regionChange_reconcilesAndChecksTheNewRegion() {
         LocationEntity existing = existingInRegion(region(4L, "The Yorkshire Dales"));
+        when(locationRepository.save(existing)).thenReturn(existing);
         RegionEntity lakes = region(3L, "The Lake District");
         when(regionRepository.findById(3L)).thenReturn(Optional.of(lakes));
 
@@ -1349,32 +1356,35 @@ class LocationServiceTest {
     @DisplayName("update() that changes the region but names no sub-region leaves the location with none")
     void update_regionChangeAlone_reconcilesOnly() {
         LocationEntity existing = existingInRegion(region(4L, "The Yorkshire Dales"));
+        when(locationRepository.save(existing)).thenReturn(existing);
         when(regionRepository.findById(3L)).thenReturn(Optional.of(region(3L, "The Lake District")));
 
         locationService.update(1L, new UpdateLocationRequest(
                 null, null, null, null, null, null, 3L, null, null));
 
         verify(subRegionMembership).reconcileRegion(existing);
-        verify(subRegionMembership, never()).assign(any(LocationEntity.class), any());
+        verify(subRegionMembership, never()).assign(any(LocationEntity.class), anyLong());
     }
 
     @Test
     @DisplayName("update() that names the region the location already has does not reconcile")
     void update_sameRegion_doesNotReconcile() {
         RegionEntity dales = region(4L, "The Yorkshire Dales");
-        existingInRegion(dales);
+        LocationEntity existing = existingInRegion(dales);
+        when(locationRepository.save(existing)).thenReturn(existing);
         when(regionRepository.findById(4L)).thenReturn(Optional.of(region(4L, "The Yorkshire Dales")));
 
         locationService.update(1L, new UpdateLocationRequest(
                 null, null, null, null, null, null, 4L, null, null));
 
-        verify(subRegionMembership, never()).reconcileRegion(any());
+        verify(subRegionMembership, never()).reconcileRegion(any(LocationEntity.class));
     }
 
     @Test
     @DisplayName("update() that gives a location its first region reconciles (nothing to drop) without error")
     void update_firstRegion_reconciles() {
         LocationEntity existing = existingInRegion(null);
+        when(locationRepository.save(existing)).thenReturn(existing);
         when(regionRepository.findById(4L)).thenReturn(Optional.of(region(4L, "The Yorkshire Dales")));
 
         locationService.update(1L, new UpdateLocationRequest(
@@ -1386,7 +1396,8 @@ class LocationServiceTest {
     @Test
     @DisplayName("update() without a region or subRegionId never touches membership")
     void update_noSubRegionFields_leavesMembershipAlone() {
-        existingInRegion(region(4L, "The Yorkshire Dales"));
+        LocationEntity existing = existingInRegion(region(4L, "The Yorkshire Dales"));
+        when(locationRepository.save(existing)).thenReturn(existing);
 
         locationService.update(1L, new UpdateLocationRequest(
                 "High Force", null, null, null, null, null, null));
@@ -1399,14 +1410,14 @@ class LocationServiceTest {
     void add_subRegionId_validatesBeforeSaveThenAssigns() {
         RegionEntity dales = region(4L, "The Yorkshire Dales");
         when(regionRepository.findById(4L)).thenReturn(Optional.of(dales));
-        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(locationRepository.save(savedAs("High Force"))).thenAnswer(inv -> inv.getArgument(0));
 
         LocationEntity saved = locationService.add(new AddLocationRequest("High Force", 54.65, -2.14,
                 null, null, null, 4L, null, null, null, null, null, null, null, null, 77L));
 
         InOrder order = inOrder(subRegionMembership, locationRepository);
         order.verify(subRegionMembership).requireAssignable(77L, dales);
-        order.verify(locationRepository).save(any());
+        order.verify(locationRepository).save(savedAs("High Force"));
         order.verify(subRegionMembership).assign(saved, 77L);
     }
 
@@ -1414,20 +1425,20 @@ class LocationServiceTest {
     @DisplayName("add() refuses a mismatched sub-region and saves no location")
     void add_subRegionOfAnotherRegion_savesNothing() {
         when(regionRepository.findById(4L)).thenReturn(Optional.of(region(4L, "The Yorkshire Dales")));
-        when(subRegionMembership.requireAssignable(eq(88L), any()))
+        when(subRegionMembership.requireAssignable(eq(88L), any(RegionEntity.class)))
                 .thenThrow(new IllegalArgumentException("wrong region"));
 
         assertThatThrownBy(() -> locationService.add(new AddLocationRequest("High Force", 54.65, -2.14,
                 null, null, null, 4L, null, null, null, null, null, null, null, null, 88L)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("wrong region");
 
-        verify(locationRepository, never()).save(any());
+        verify(locationRepository, never()).save(any(LocationEntity.class));
     }
 
     @Test
     @DisplayName("add() without a subRegionId never touches membership")
     void add_noSubRegionId_leavesMembershipAlone() {
-        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(locationRepository.save(savedAs("High Force"))).thenAnswer(inv -> inv.getArgument(0));
 
         locationService.add(new AddLocationRequest("High Force", 54.65, -2.14,
                 null, null, null, null, null, null, null, null, null, null, null));
