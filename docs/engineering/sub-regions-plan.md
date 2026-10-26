@@ -1,43 +1,49 @@
 # Sub-regions: guidebook areas, Lite picks, and Ask — build plan
 
-Status: **plan**, 2026-10-26, unreviewed. Owner-approved inputs: the sub-region list and allocation (§3, Appendix A),
-the change rule (§4.3), and that Ask must understand sub-regions (§6). Open decisions are in §9; the phases in §8
-do not start until the ones marked *blocking* are answered.
+Status: **plan v2**, 2026-10-26. Reviewed by five adversarial lenses (data model, enforcement and caching, Ask,
+picks and the change rule, consistency and phasing); every finding is folded in, and §10 records what each lens
+changed. Owner-approved inputs: the sub-region list and allocation (§3, Appendix A), the change rule's shape (§4.3),
+and that Ask must understand sub-regions (§6). Open decisions are in §9; no phase starts until the questions marked
+as blocking it are answered.
 
 ## §1 What and why
 
 **Product change.** A Lite account picks up to *n* **sub-regions** (§9 Q1; the design brief assumes 3) and sees
-forecast ratings only for locations inside them. Pro and Admin see everything and never pick. This is a second
-freemium axis beside the existing field-level split (`docs/engineering/reference/roles-and-gating.md`,
-*Freemium split*). There are no users yet (owner, 2026-10-26), so there is no migration of existing Lite readers
-to manage.
+forecast ratings only for locations inside them. Pro and Admin see everything and never pick. There are no users yet
+(owner, 2026-10-26), so no existing Lite reader is migrated.
+
+**This supersedes part of a recorded owner decision.** `docs/engineering/reference/roles-and-gating.md`, *Freemium
+split* (2026-10-25, "matching photocast.online's pricing list, FAQ and Terms §4"), gives Lite "the star rating, the
+verdict, stand-downs, region prose, hot topics and Coming up" with no geographic limit. This plan narrows that to the
+reader's picks (owner, 2026-10-26). The narrowing takes effect only in S6 (§8), whose PR rewrites that section and
+`api-endpoints.md`, and which is gated on the public pricing, FAQ and Terms being updated first.
 
 **Why sub-regions rather than regions.** The four enabled regions are too few and too uneven to ration: Northumberland
-& Tyneside holds 101 locations from Berwick to Hartlepool, North York Moors & Coast 36. One region of four is either
-a quarter of the product or, in Northumberland, a two-hour drive.
+& Tyneside holds 101 locations from Berwick to Hartlepool, North York Moors & Coast 36.
 
 **Where the sub-regions come from.** The contents pages of six photography guides (Long Valley Books for all four
 regions; fotoVUE for the Lake District and Northumberland), adjusted by the owner and checked against the production
-roster exported on 2026-10-26 (263 locations, all enabled). 24 sub-regions, 6 to 16 locations each (§3).
+roster exported on 2026-10-26 (263 locations, all enabled): 24 sub-regions of 6 to 16 locations (§3).
 
-**What sub-regions are not.** They are not a forecast unit. The regional verdict, `VerdictSampleGate`, the honesty
-filter and every rating store stay keyed on region. A sub-region is a labelled set of locations used for **gating**
-and **naming** only; it never carries a verdict of its own. (The statistical case for sub-region *verdicts* is a
-separate, unbuilt measurement: `ask-window-context-plan.md` §3, R1. Nothing here depends on it.)
+**What sub-regions are not.** Not a forecast unit. Region verdicts, `VerdictSampleGate`, the honesty filter and every
+rating store stay keyed on region. A sub-region is a labelled set of locations used for **gating** and **naming**; it
+never carries a verdict. (Sub-region *verdicts* would need the unbuilt R1 measurement in `ask-window-context-plan.md`
+§3; nothing here depends on it.)
 
 ## §2 Decisions (planner recommendations; the owner may overrule any)
 
 | # | Decision |
 |---|---|
-| D1 | **A sub-region is a named area** (V189 `area` / `area_alias` / `area_location`) with `kind = 'SUB_REGION'`. Ask's named-area machinery (`AskAreas`, `look_up_place`, `rank_spots` area filter, `NameNamespaceGuard`) then understands every sub-region with no new Ask code (§6). The existing kind is `NAMED`. |
-| D2 | **Sub-regions partition their region.** Every location belongs to exactly one sub-region, and that sub-region belongs to the location's own region. Ordinary `NAMED` areas keep their current freedom (overlap, partial cover). |
-| D3 | **The partition is enforced in the database where Postgres can, and in the service where it cannot.** `area_location.partition` (nullable `VARCHAR(16)`, `'SUB_REGION'` on sub-region rows, NULL otherwise) with `UNIQUE (location_id, partition)`: Postgres treats NULLs as distinct, so named-area rows are unconstrained and a location can hold at most one sub-region row. `area.region_id` (nullable FK) is required when `kind = 'SUB_REGION'` (CHECK). "Same region as the location" and "every location has one" are service rules (§5.1), surfaced to the admin as a count of uncovered locations. |
-| D4 | **Picks live in their own table**, `app_user_sub_region (user_id, area_id, PK both)`, written only by a scoped service (the *Column-scoped writes* invariant), plus `app_user.sub_regions_changed_at TIMESTAMP NULL` (`updatable = false`, written by a scoped repository update). |
-| D5 | **The change rule** (owner, 2026-10-26): free changes for 7 days from `app_user.created_at`; after that, one change per 30 days counted from `sub_regions_changed_at`. A first choice made with no current picks is always allowed (registration, a Pro→Lite demotion). Three config keys, `photocast.sub-regions.lite-limit` (default 3), `grace-days` (7), `lock-days` (30), validated at startup. |
-| D6 | **The server enforces; the client renders.** Ratings outside a Lite reader's picks are **absent** from every payload (*no blurred metrics*), stripped at the controller edge beside today's `BriefingRoleShaper`. A client lock alone is never the gate. |
-| D7 | **The two-question rule holds.** Hot topics and Coming up answer "what is happening" and stay free in every region for every role. Only ratings ("where is worth going") are rationed. (Recommended earlier, never answered: §9 Q4.) |
-| D8 | **Enforcement ships behind `photocast.sub-regions.enforce` (default `false`).** Data, picks and the picker can land and be tested before any Lite reader loses anything; the flag flips once the outside-picks design (§9 Q3) is built. |
-| D9 | **Pre-selection is server-side.** `GET /api/user/settings/sub-regions` returns the options, the reader's picks, their status (§4.3) and, when the reader has a home and no picks, the *n* sub-regions nearest home (distance from home to each sub-region's member centroid). The client never computes distances. |
+| D1 | **A sub-region is a V189 named area with `area.kind = 'SUB_REGION'`** (`'NAMED'` for the existing kind; the column is new). Ask's area machinery then knows every sub-region's name and aliases. Membership does **not** use `area_location` (D3). |
+| D2 | **Sub-regions partition their region.** Every location with a region belongs to exactly one sub-region of that region. Ordinary `NAMED` areas keep their freedom (overlap, partial cover). |
+| D3 | **Sub-region membership lives in its own table**, `location_sub_region (location_id BIGINT PRIMARY KEY REFERENCES locations(id) ON DELETE CASCADE, area_id BIGINT NOT NULL REFERENCES area(id) ON DELETE RESTRICT)`. The primary key is the "one per location" rule, enforced by Postgres with nothing to drift. `area_location` cannot carry it: `AreaEntity.locationIds` is an `@ElementCollection` (`AreaEntity.java:55-59`) that Hibernate rewrites as bare `(area_id, location_id)` rows (`AreaService.setLocations`, `:144-145`). Writes go through one scoped service with native `INSERT … ON CONFLICT (location_id) DO UPDATE`; `AreaService.setLocations` refuses a `SUB_REGION` area (400, "use the location's sub-region field"). `RepositoryAskAreas.load()` (`:47-50`) and `AreaService.toDto` read a `SUB_REGION` area's members from this table. `area.region_id` (FK, `ON DELETE RESTRICT`) is required when `kind = 'SUB_REGION'` (CHECK). |
+| D4 | **Picks live in their own table**, `app_user_sub_region (user_id … REFERENCES app_user(id) ON DELETE CASCADE, area_id … REFERENCES area(id) ON DELETE CASCADE, PRIMARY KEY both)`, plus two `app_user` columns, `sub_regions_grace_until DATE NULL` and `sub_regions_changed_at TIMESTAMP NULL`, both `updatable = false` and written only by scoped repository updates (*Column-scoped writes*). |
+| D5 | **The change rule** (§4.3): a grace period of `grace-days` starting at the reader's **first** choice; after it, a change that swaps anything out is allowed once per `lock-days`. Every comparison is on UK civil dates. Config: `photocast.sub-regions.lite-limit` (default 3), `grace-days` (7), `lock-days` (30), validated at startup (`@PostConstruct`, as `RegistrationProperties.java:57-61`). |
+| D6 | **The server enforces; the client renders; gated is not missing.** For a shaped Lite response the server strips every rating field of an unpicked location (§4.2) **and marks it** (`gated: true` on the slot, row or entry, and a served `allowedLocationIds` on the briefing). The client never decides what is outside the picks (*backend-heavy*), and never counts a gated location as unrated (§5.4). |
+| D7 | **The two-question rule, applied precisely.** Hot topics and Coming up stay free in every region for every role as *what is happening*: labels, location names, facts, counts. Any **rating embedded inside** a hot topic (the bluebell topic's per-location `score`, `bluebellSummary` and "Best" badge, `BluebellHotTopicStrategy.java:254-268`) is a rating and is stripped outside the picks. |
+| D8 | **Fail closed.** `allowed = everything` only for a caller positively `PRO_USER` or `ADMIN`, or with enforcement off. Any other role, a failed picks read, an unregioned location, or a location with no sub-region yet is outside the picks. |
+| D9 | **Enforcement ships behind `photocast.sub-regions.enforce` (default `false`)**, and the picker UI is drawn only when the GET says `enforced: true` (§9 Q10), so no reader is asked to choose before choosing means anything. |
+| D10 | **Pre-selection is server-side.** The GET returns, for a reader with a home and no picks, the *n* sub-regions nearest home (distance to each sub-region's member centroid). It is a suggestion only; the server never saves picks the reader did not submit (§9 Q9). |
 
 ## §3 The sub-regions
 
@@ -48,7 +54,7 @@ separate, unbuilt measurement: `ask-window-context-plan.md` §3, R1. Nothing her
 | | Alnwick & the Coquet Coast | 7 |
 | | Druridge Bay to Tynemouth | 14 |
 | | Cheviots & Coquetdale | 12 |
-| | Hadrian's Wall *(name: §9 Q2)* | 16 |
+| | **Tynedale** *(§9 Q2; the Wall and the South and North Tyne)* | 16 |
 | | Newcastle & Durham | 12 |
 | | Sunderland & the Durham Coast | 15 |
 | The Lake District | Windermere & Coniston | 11 |
@@ -66,203 +72,274 @@ separate, unbuilt measurement: `ask-window-context-plan.md` §3, R1. Nothing her
 | | Nidderdale | 6 |
 | North York Moors & Coast | Redcar to Whitby | 13 |
 | | Robin Hood's Bay to Flamborough | 10 |
-| | The North York Moors | 13 |
+| | **Inland North York Moors** *(§9 Q3)* | 13 |
 
-Member lists by location id and name are in Appendix A. Owner calls recorded in the allocation: Teesdale's three
-waterfalls are Swaledale; Ingleton/Dentdale and Ribblesdale merge as The Three Peaks; Wharfedale is not split;
-Kielder & Otterburn folds into the Wall sub-region (it held only Hareshaw Linn); the Central Lakes split along
-Long Valley's line.
+Member lists are in Appendix A. Owner calls in the allocation: Teesdale's three waterfalls are Swaledale; Ingleton,
+Dentdale and Ribblesdale merge as The Three Peaks; Wharfedale is not split; Kielder & Otterburn folds into the Wall
+sub-region (it held only Hareshaw Linn); the Central Lakes split along Long Valley's line.
 
-**Names checked against `NameNamespaceGuard.areaNameClash`** (an area name may not equal another area name or
-alias, nor sit as a whole-word run inside any location name or alias):
-- **"Langdale" fails** (inside "Great Langdale Green Lane", "The Langdale Boulders", "Little Langdale Tarn"), so the
-  sub-region is **"The Langdales"**, Long Valley's own title.
-- **"Hadrian's Wall" is taken** by the V189 named area, seeded with the 12 Wall sites only (Walltown to Housesteads, Irthing Gorge, Crammel Linn). The sub-region
-  adds Allen Banks, Lambley Viaduct, Letah Wood and Hareshaw Linn. §9 Q2.
-- Every other name passes against the 2026-10-26 roster. The reverse rule, `locationNameClash`, means that **after
-  this lands no location may be named or renamed to contain a sub-region name** ("Swaledale Meadows" would be
-  refused). Accepted; the admin sees the guard's own message.
+### §3.1 Names
 
-**Aliases seeded with the sub-regions.** Checked on 2026-10-26 against the production roster with the guard's own rule
-(no alias may sit as a whole-word run inside a location name or alias); V191's pre-flight re-checks them in SQL.
+Each name must pass three rules: `NameNamespaceGuard.areaNameClash` (not equal to another area name or alias; not a
+whole-word run inside any location name or alias, `NameNamespaceGuard.java:108-138`); not a run inside any **region
+name**; and not a run inside, nor containing, another area's name or alias (`AskTools.matchArea` picks by run length,
+`AskTools.java:1214-1234`). Results on the 2026-10-26 roster:
+- **"Langdale"** is a run inside three location names, so the sub-region is **"The Langdales"** (Long Valley's title).
+- **"Hadrian's Wall"** is the V189 named area (seeded with the 12 Wall sites; production may have been edited since
+  through the A3 admin screen, so S1 re-reads it). Recommended: the sub-region is **"Tynedale"** and the Wall area
+  stays an ordinary overlapping area (§9 Q2). A question naming both resolves to the Wall by run length (two words
+  against one), deterministically.
+- **"The North York Moors"** is a run inside the region name "North York Moors & Coast", so Ask's `look_up_place`
+  would answer a question about the whole region with the 13 inland members, Whitby and the coast left out.
+  Recommended: **"Inland North York Moors"** (§9 Q3), whose words are not a run of the region name.
+- Every other name passes. **Consequence for the admin:** `locationNameClash` / `locationAliasClash` (via
+  `areaContainedIn`) will refuse any later location name or alias containing a sub-region name **or alias**
+  ("Swaledale Meadows", "Druridge Bay Country Park"). Accepted; the guard's own message explains it.
 
-| Sub-region | Aliases (pass) | Refused by the guard (a location carries the name) |
-|---|---|---|
-| The Langdales | Langdales, Langdale Valley | Great Langdale, Little Langdale |
-| Swaledale | Teesdale, Upper Teesdale | — |
-| Sunderland & the Durham Coast | Durham Heritage Coast, Durham coast, Sunderland coast | — |
-| The Three Peaks | Three Peaks, Yorkshire Three Peaks, Ribblesdale, Dentdale | Ingleton |
-| Ambleside, Grasmere & Rydal | Ambleside | Grasmere, Rydal |
-| Windermere & Coniston | Windermere, Hawkshead | Coniston |
-| Keswick & Borrowdale | Derwentwater, Borrowdale, Keswick | Derwent Water |
-| Ullswater & Haweswater | Haweswater | Ullswater |
-| Wasdale, Eskdale & Duddon | Eskdale, Duddon Valley | Wasdale |
-| Buttermere, Loweswater & Ennerdale | Ennerdale | Loweswater, Crummock |
-| Redcar to Whitby | Teesside | — |
-| Robin Hood's Bay to Flamborough | Flamborough, Flamborough Head | Scarborough, Filey |
-| Cheviots & Coquetdale | the Cheviots, Cheviot Hills, Coquetdale, Rothbury, Simonside Hills | Breamish Valley |
-| Druridge Bay to Tynemouth | Druridge Bay | — |
-| Berwick & Holy Island | — | Holy Island, Lindisfarne, Berwick |
-| Bamburgh to Howick | — | Craster |
-| Alnwick & the Coquet Coast | Coquet coast | Alnwick, Warkworth |
-| Malhamdale & Airedale | Malhamdale, Airedale | Malham |
-| Wharfedale | Upper Wharfedale, Lower Wharfedale | — |
-| The North York Moors | North York Moors | — |
-| Tynedale *(if Q2 (b))* | South Tyne, Kielder | — |
+### §3.2 Aliases
 
-Deliberately left out though the guard would pass them: "Durham" and "Tyneside" (a word of another sub-region's
-alias or of the region name "Northumberland & Tyneside", so one question would match two scopes), "the Moors",
-"North/South/Western Lakes" (fotoVUE's compass names do not line up one-to-one with these sub-regions).
+**Area aliases must be at least two words** (`AreaService.java:79,103`, `cleanAliases(…, 2, …)`; named-areas plan).
+So the one-word dale and town names ("Teesdale", "Keswick", "Ennerdale") cannot be seeded unless the owner lowers the
+minimum to one word for `SUB_REGION` areas only (§9 Q4, a small code change). The two-word aliases below pass every
+rule in §3.1 (checked by script against the roster, the region names and each other, 2026-10-26):
 
-The rule this exposes: **a well-known place name usually collides with a location named after it**, and the guard is
-right to refuse it: an exact place match beats an area (named-areas plan D10), so the alias would never be reached.
-"Holy Island" asked of Ask finds the Holy Island locations, which is the right answer anyway.
+| Sub-region | Aliases |
+|---|---|
+| The Langdales | Langdale Valley |
+| Swaledale | Upper Teesdale |
+| Sunderland & the Durham Coast | Durham Heritage Coast, Durham coast, Sunderland coast |
+| The Three Peaks | Three Peaks, Yorkshire Three Peaks |
+| Robin Hood's Bay to Flamborough | Flamborough Head |
+| Cheviots & Coquetdale | Cheviot Hills, Simonside Hills |
+| Druridge Bay to Tynemouth | Druridge Bay |
+| Alnwick & the Coquet Coast | Coquet coast |
+| Wharfedale | Upper Wharfedale, Lower Wharfedale |
+| Wensleydale | Upper Wensleydale |
+| Wasdale, Eskdale & Duddon | Duddon Valley |
+| Buttermere, Loweswater & Ennerdale | Buttermere valley |
+| Tynedale | South Tyne |
+
+If Q4 allows one-word aliases, add (each passes §3.1; several are words of their own sub-region's name, which is
+allowed): Teesdale, Ribblesdale, Dentdale, Langdales, Ambleside, Windermere, Hawkshead, Derwentwater, Borrowdale,
+Keswick, Haweswater, Eskdale, Ennerdale, Teesside, Flamborough, Coquetdale, Rothbury, Malhamdale, Airedale, Kielder.
+**Refused by the guard** because a location carries the name (a reader asking gets those locations, which is the right
+answer anyway): Holy Island, Lindisfarne, Berwick, Craster, Alnwick, Warkworth, Grasmere, Rydal, Coniston, Ullswater,
+Wasdale, Loweswater, Crummock, Scarborough, Filey, Malham, Ingleton, Great/Little Langdale, Derwent Water, Breamish
+Valley. **Left out by choice:** "Durham", "Tyneside" (would match two scopes), "the Cheviots" (matches only when "the"
+is typed; "Cheviot Hills" covers it), fotoVUE's compass names (they do not map one-to-one).
 
 ## §4 Behaviour
 
 ### §4.1 Who picks
 
-- **Lite**: must hold 1..*n* picks to see ratings when enforcement is on. Zero picks (a demoted Pro, or a reader who
-  never finished registration) sees no ratings and a prompt to choose (§9 Q6).
-- **Pro, Admin**: no picks, no picker; Settings says "Pro covers every sub-region" (Pro) or nothing (Admin).
-- **A Pro→Lite demotion** keeps no picks (Pro never had any), so the reader's first choice is free (D5).
-- **A Lite→Pro promotion** leaves the picks row in place, unused; a later demotion finds them again and the lock
-  clock is unchanged.
+- **Lite**: holds 0..*n* picks. With enforcement on and zero picks, no ratings are visible and the zero-picks prompt
+  offers the D10 suggestions (§9 Q9).
+- **Pro, Admin**: no picks, no picker (GET status `NOT_APPLICABLE`; PUT 403). Settings says "Pro covers every
+  sub-region" to Pro, nothing to Admin.
+- **Pro→Lite demotion**: no picks yet, so the next choice is a first choice and starts a grace period (§4.3).
+- **Lite→Pro promotion**: picks and dates are kept, unused; a later demotion finds them unchanged.
+- **Delete and re-register** gives a fresh account and a fresh grace period. Accepted: Lite is free and registration
+  is capped; tying picks to an email address costs more than the loophole.
 
-### §4.2 What changes for a Lite reader (enforcement on)
+### §4.2 What a shaped Lite response strips (enforcement on; per unpicked location unless stated)
 
-Ratings for locations outside the picks are absent from: `GET /api/briefing` (the location slots), `GET
-/api/briefing/digest` (window picks and names), `GET /api/briefing/evaluate/scores`, `GET /api/forecast` (list,
-`?date=`, sparse rows) and `GET /api/forecast/{id}`. The exact field list is fixed in S3's review against
-`docs/engineering/reference/api-endpoints.md` (it already lists what `BriefingRoleShaper` strips for Lite).
-Unchanged for everyone: `GET /api/locations` (admin-managed config, not ratings), hot topics and Coming up (D7),
-`GET /api/tides`, astro conditions, aurora status. Region-level verdict and prose: §9 Q3.
+| Endpoint | Stripped | Kept |
+|---|---|---|
+| `GET /api/briefing`, slots (`BriefingSlot`, already `forLite` for Pro fields) | `verdict`, `claudeRating`, `skyRating`, `displayVerdict`, `standdownReason`, `flags`, `neighbourOutlier`; set `gated: true` | location id, name, region, event, tide **state** facts |
+| `GET /api/briefing`, region (`BriefingRegion`) | `bestRating`, `meanRating`, `meanRatingDelta` (reconstructable per location by subtraction; `bestRating` *is* an unpicked star when the reader holds no pick in the region) | `scoredLocationCount`; `displayVerdict`, `verdictLabel` and prose per §9 Q5 |
+| `GET /api/briefing`, window and day peak (`BriefingWindow`, `BriefingDayPeak`) | `bestRating` | `verdict`, `confidence` per §9 Q5 |
+| `GET /api/briefing`, hot topics | bluebell `bluebellLocationMetrics` (`score`, `exposure`, `bluebellSummary`), the "Best" badge, `BluebellMetrics.bestScore`; shaped **after** `withLiveOverlays`, at the edge | labels, `locationNames`, counts, facts |
+| `GET /api/briefing`, unregioned slots (`BriefingEventSummary.unregioned`) | everything rated (no sub-region can cover them, D8) | as slots |
+| `GET /api/briefing/digest` | each window's `pick`, `headline`, `regionName`, `locationName`, `locationId` (already for Lite) **plus** `bestRating` | `verdict`, `confidence` per §9 Q5 |
+| `GET /api/briefing/evaluate/scores` | the row's rating fields; `gated: true` | id, date, event |
+| `GET /api/forecast` (list, `?date=`, sparse rows) | `rating`, `triageReason`, `triageMessage`, `bluebellSummary`; `gated: true` | location, date, event, weather inputs |
+| `GET /api/forecast/{id}` | the same; an id outside the picks gets the stripped DTO, never the full one (ids are enumerable) | as above |
+| `GET /api/astro/conditions` | per §9 Q7: `stars`, `summary`, the `*Explanation` prose | location id, name |
+
+**Checked and unchanged:** operator notifications (email, Pushover and toast go to the operator only,
+`EmailNotificationService.java:71`); account email; the run and status SSE streams (counts and health only); Ask,
+Ready, aurora and NLC (Pro only); Rewind and forecast history (Admin only); `/api/locations` and the almanac (no
+ratings). **Accepted residual:** `GET /api/outcome/ratings` (no role gate) returns the reader's own past ratings with
+the day's `forecastRating`; a demoted reader keeps seeing their own history.
 
 ### §4.3 The change rule, as the API states it
 
-`GET /api/user/settings/sub-regions` returns a `status` the client renders without computing anything:
+Let `today` = `ForecastHorizon.today(clock)` (UK civil date). Stored: `graceUntil` (a date, inclusive) and
+`changedOn` = `ForecastHorizon.civilDate(sub_regions_changed_at)`.
 
-| status | when | fields |
-|---|---|---|
-| `FREE_UNTIL` | `now < created_at + grace-days` | `freeUntil` (date) |
-| `OPEN` | past the grace period and `sub_regions_changed_at` is null or older than `lock-days` | — |
-| `LOCKED` | otherwise | `nextChangeAt` (date) |
-| `NOT_APPLICABLE` | Pro, Admin | — |
+- **First choice** (the reader holds no picks): always allowed; sets `graceUntil = today + grace-days − 1` if it is
+  null, and stamps `changed_at`.
+- **During grace** (`today ≤ graceUntil`): any change is allowed and stamps `changed_at`.
+- **After grace**: a change that only **adds** picks while under the limit is allowed and stamps nothing (nothing is
+  swapped out). Any change that removes a pick needs `today ≥ nextChangeOn`, where
+  `nextChangeOn = max(graceUntil + 1, changedOn + lock-days)`, and stamps `changed_at`.
+- A PUT equal to the current set is a 200 no-op and stamps nothing.
+- **If `lite-limit` is lowered** below what a reader holds, the GET flags `overLimit: true`, and a PUT that only
+  removes picks is allowed without a lock until the reader is within the limit. Until then, shaping uses the first *n*
+  picks by pick time.
+- **When an admin action removes a reader's pick** (a sub-region deleted, merged, or changed to `NAMED`), that reader's
+  `changed_at` is cleared, so the re-pick is free. Moving a location between sub-regions silently changes what a pick
+  covers; accepted.
 
-`PUT /api/user/settings/sub-regions` with `{ areaIds: [...] }`: 400 for an empty list, more than *n*, a duplicate,
-or an id that is not a `SUB_REGION` area; 403 for Pro/Admin (nothing to set); 409 `SUB_REGIONS_LOCKED` with
-`nextChangeAt` when locked; 200 with the new state otherwise. A PUT whose set equals the current set is a 200
-no-op that does **not** start a lock. Outside the grace period a successful change sets `sub_regions_changed_at`
-to now; inside it, the column is left untouched (so the first post-grace change is always available). Dates are
-UK civil dates through `ForecastHorizon` and the injected `Clock` (the *"Today"* invariant).
+GET `/api/user/settings/sub-regions` returns `{ enforced, limit, picks[], options[] (grouped by region, with counts and
+two example names), suggested[], status, freeUntil?, nextChangeOn?, overLimit? }`, `status` ∈ `FIRST_CHOICE`,
+`FREE_UNTIL`, `OPEN`, `LOCKED`, `NOT_APPLICABLE`. PUT `{ areaIds }`: 400 for an empty list, more than *n*, a duplicate
+or a non-`SUB_REGION` id; 403 for Pro/Admin; 409 `SUB_REGIONS_LOCKED` with `nextChangeOn`; 200 with the new state.
+**Concurrency:** the lock check and the stamp are one conditional `UPDATE … WHERE id = :id AND (changed_at IS NULL OR
+changed_at < :cutoff)` (0 rows → 409), in the same transaction as the picks delete and insert. New timestamps are
+written with `LocalDateTime.now(clock)`; only civil dates are compared.
+
+**Admin tools:** `GET`/`PUT /api/users/{id}/sub-regions` and `DELETE /api/users/{id}/sub-regions/lock` (clears
+`changed_at`), ADMIN only; a picks column in user management.
 
 ## §5 Engineering
 
-### §5.1 Data (S1)
+### §5.1 Data and admin (S1)
 
-Migration `V191__sub_regions.sql` (Postgres; the number is read from the tree at build time):
-- `area.kind VARCHAR(16) NOT NULL DEFAULT 'NAMED' CHECK (kind IN ('NAMED','SUB_REGION'))`,
-  `area.region_id BIGINT NULL REFERENCES regions(id)`, `CHECK (kind <> 'SUB_REGION' OR region_id IS NOT NULL)`.
-- `area_location.partition VARCHAR(16) NULL CHECK (partition IS NULL OR partition = 'SUB_REGION')`,
-  `UNIQUE (location_id, partition)`.
-- Insert the 24 sub-regions, their aliases (§3, guard-checked) and members **by location name**, matching both the
-  current and corrected spellings as V189 did (the owner is fixing six misspellings through the admin screen in
-  parallel: Edlinghham, Houseteads Fort, Innonimate Tarn, Ladore Falls, Lamley Viaduct, Peel Craggs, Pen-Y-Gent).
-  Region resolved by name with V137's renamed names. Pre-flight `DO $$` block: the four regions exist; no sub-region
-  name or alias equals an existing area name/alias or sits inside a location name/alias (the guard's rule in SQL,
-  on the same word folding as `PlaceNames.words`). Post-check: a `RAISE NOTICE` (not an exception) with the count of
-  enabled locations left without a sub-region, because a fresh CI database holds only the seeded locations.
-- `LocalH2EnumWidener`: not needed (`kind` is a VARCHAR with a CHECK, not an `@Enumerated` column) — confirm in review.
+Migration `V191__sub_regions.sql` (Postgres; read the number from the tree):
+- `area.kind VARCHAR(16) NOT NULL DEFAULT 'NAMED'` with a CHECK of the two values; `area.region_id` (FK, `ON DELETE
+  RESTRICT`), CHECK `kind <> 'SUB_REGION' OR region_id IS NOT NULL`; `location_sub_region` (D3).
+- Seed the 24 areas and §3.2's aliases. Members are matched **by location name and by region**
+  (`l.region_id = a.region_id`), each candidate list carrying the current and the corrected spellings, as V189 did
+  (the owner is fixing seven misspellings in production: Edlinghham, Houseteads Fort, Innonimate Tarn, Ladore Falls,
+  Lamley Viaduct, Peel Craggs, Pen-Y-Gent).
+- **Pre-flight** (`DO $$`, raising): the four regions exist; the 24 candidate lists are pairwise disjoint; no seeded
+  name or alias breaks a §3.1 rule, using the guard's exact folding (lower-case, strip `'` and `’`, every
+  non-alphanumeric run to one space: `regexp_replace(…, '[^[:alnum:]]+', ' ', 'g')`). A raise blocks production boot,
+  so the folding is proven in the migration test. **Post-check** (`RAISE NOTICE`): the count of enabled, regioned
+  locations without a sub-region (a fresh CI database holds only seeded locations).
+- **Local and unit-test schemas** come from Hibernate (`ddl-auto: update` locally, `create-drop` in tests; no Flyway),
+  so: `@ColumnDefault("'NAMED'")` on `kind`, with null read as `NAMED`; the CHECKs and keys are proven only in the
+  Testcontainers test; `AskLocalFixtureSeeder` seeds one sub-region so local Ask and the picker have data. If `kind` is
+  `@Enumerated(STRING)`, any future value needs a `LocalH2EnumWidener.TARGETS` line.
+- **Before writing the S1 brief, grep the migration tests that plant locations and then migrate to latest**
+  (`NorthernBluebellWoodsMigrationTest`, `BigSeasHighWaterMigrationTest`, …) for planted names that would trip the
+  pre-flight.
 
-Backend: `AreaEntity` gains `kind` and `region`; `AreaService` keeps sub-region membership consistent (adding a
-location to a sub-region removes it from its previous one; the location's region must match; deleting a sub-region
-with members is refused); `LocationService.create`/`update` takes an optional `subRegionId` and moves the
-membership; a region change on a location clears a now-mismatched sub-region and logs it. The admin Areas section
-shows the kind and region, and a line "N locations have no sub-region" with their names.
+Backend: `AreaEntity` gains `kind` and `region`; `AreaDto` and `frontend/src/api/areaApi.js` gain both; a
+`SubRegionMembershipService` is the only writer of `location_sub_region` (move = upsert; the location's region must
+equal the sub-region's); `LocationService.add` / `update` accept an optional `subRegionId`; a region change on a
+location deletes its now-mismatched membership and logs it; deleting a `SUB_REGION` area with members is refused
+(409), and deleting a region that has sub-regions is refused by the FK and reported in words. Disabled locations keep
+their membership; unregioned and disabled locations are not counted as "uncovered". The admin Areas section shows kind
+and region, and "N enabled locations have no sub-region: …".
 
-### §5.2 Picks (S2)
+### §5.2 Picks API (S2)
 
-`app_user_sub_region` table, `app_user.sub_regions_changed_at`; `UserSubRegionService` (the rule in §4.3, pure and
-`Clock`-injected); `GET`/`PUT /api/user/settings/sub-regions` in `UserSettingsController`. The path is under
-`/api/user/settings*`, which `HttpCachingConfig` never filters; add it to
-`HttpCachingConfigTest.personalDataPathsAreNeverFiltered` (the *personal data* invariant). Registration needs no new
-endpoint: the new step calls the same PUT after `SET_PASSWORD`, when the reader is signed in.
+The tables and columns of D4; `UserSubRegionService` (§4.3, pure, `Clock`-injected); the user and admin endpoints of
+§4.3; `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` gains `/api/user/settings/sub-regions` (the path is
+already outside the ETag filter). The registration step calls the same GET and PUT. It comes **after `HOME`**
+(`RegisterPage.jsx:12`; `/set-password` signs the reader in, `AuthController.java:458-489`), so D10 has a home to work
+from, and it skips itself when `status` is `NOT_APPLICABLE` (`default-role` is configurable,
+`RegistrationProperties.java:33`) or `enforced` is false.
 
 ### §5.3 Enforcement (S3)
 
-A `LitePickShaper` beside `BriefingRoleShaper`, applied at the same controller edges, given the reader's allowed
-location ids (`null` = everything, for Pro/Admin or with the flag off). Internal callers (Ask, digest service,
-pipeline) keep full data, as P2 did.
+`LitePickShaper` sits beside `BriefingRoleShaper`, at the same controller edges, and is given `allowedLocationIds`
+from one picks read per request (D8: everything only for positive PRO/ADMIN or enforcement off; empty on any
+failure). Internal callers (Ask, the digest service, the pipeline) keep full data, as P2 did.
 
-**The caching question (blocking: §9 Q5).** `/api/briefing`, `/api/briefing/digest`, `/api/briefing/evaluate/scores`
-and `/api/forecast` are ETag-revalidated (`HttpCachingConfig.REVALIDATABLE_READ_PATHS`), which means
-`Cache-Control: private, no-cache` and a body the browser may keep on disk after logout. Today that is accepted
-because the bodies carry no user-authored text and no home-derived data. A body filtered by picks reveals the picks,
-and picks are pre-filled from the home postcode, so a shaped body is arguably *home-derived personal data* at rest.
-Options: (a) a Lite response shaped by picks is sent `no-store` (skips the ETag filter for that response only; Lite
-loses 304s); (b) accept it, on the grounds that the picks are a coarse, user-confirmed preference, and record the
-exception in `HttpCachingConfig`'s Javadoc and the invariant. Recommendation: **(a)**.
+**Caching (§9 Q8).** The ETag filter runs at `HIGHEST_PRECEDENCE`, before Spring Security, and decides by path only
+(`HttpCachingConfig.java:150-161`); it sets `private, no-cache` before the chain runs. So the per-response switch is in
+the controller: a shaped Lite response returns `ResponseEntity.ok().cacheControl(CacheControl.noStore())`, which
+replaces the preset header, and `ShallowEtagHeaderFilter` then declines to add an ETag for `no-store` (Spring's
+`isEligibleForEtag`; confirm on the Spring 7 jar in the build). Why: a body shaped by picks reveals the picks, which
+are pre-filled from the home postcode, and a `private, no-cache` body may sit in the browser's disk cache after logout,
+where JavaScript cannot clear it (the localStorage SWR cache *is* cleared on logout, `AuthContext.jsx:98`). Cost: Lite
+loses 304s on `/api/briefing`, the largest polled payload. Pro, Admin and the flag-off path are unchanged.
 
 ### §5.4 Frontend (S4, S5)
 
-S4: the registration step and the Settings section, from the Claude Design output (brief: the owner holds it;
-mirror its copy). S5: what a Lite reader sees for locations outside the picks, from a second design (§9 Q3).
-Both follow the house Pro pattern (`ProUpsellDoor`: a pill, worded text, no link, no "upgrade"), phone-only rules
-(`useIsMobile`), and the dialog-stacking limits. The client derives nothing: status, dates and suggestions come
-from the GET.
+**S4, the picker** (from the Claude Design output): the registration step after "Where's home?" and the Settings
+section, drawn only when the GET says `enforced`. After a successful PUT the client clears the SWR entries for the
+briefing and forecast (`clearSwrCache`) and refetches. Nothing is derived on the client: status, dates, suggestions
+and counts come from the GET.
+
+**S5, outside the picks** (from a second design, §9 Q5): every surface that counts rated against total must route
+gated locations out of both numbers, never into "unrated" or "insufficient sample": the spread histogram
+(`hasSpreadSample`), thin-sample `· N rated`, `card.tideFit`, the Map's `scopeCount`, the region panel counts, and the
+heat field (`buildHeatSpots` drops spots without data). Also the Map Filters scope and the `My area | Whole catalogue`
+segment (`utils/planningArea.js`), the Plan matrix region cards and the location sheet for unpicked places, and Coming
+up. The house Pro pattern throughout (`ProUpsellDoor`: a pill, worded text, no link, no "upgrade"), phone-only rules,
+and the dialog-stacking limits.
 
 ## §6 Ask
 
-Sub-regions are areas (D1), so from S1 onward `look_up_place` answers "how's Swaledale looking?" with the area result
-and `rank_spots` ranks within it, for Pro and Admin (Ask is Pro-only; Lite never reaches it, so Ask never filters by
-picks). What S1 must check, not build:
-- **Result sizes.** `AskToolsNamedAreaTest` pins the worst named-area result under 4,500 characters; the Wall
-  sub-region (16 members) is larger than the V189 area (13). Re-measure.
-- **Two areas in one question.** With the Wall area and a Wall sub-region both present, a question naming both
-  must resolve predictably (named-areas plan D-rules). §9 Q2's choice decides whether this case exists at all.
-- **`placeNames`** gains 24 names and their aliases (defence in depth for Ready intents): confirm no Ready rule's
-  vocabulary now matches a sub-region name ("The North York Moors" is all ordinary words; check `ReadyIntentRules`).
-- **The typed cache** keys on scope, date, `generatedAt` and question; an admin's sub-region edit shows from the
-  next briefing build, as for named areas.
+Sub-regions are areas (D1), so `look_up_place` and `rank_spots` know their names and aliases for Pro and Admin. Ask is
+Pro-only, so it never filters by picks. **Small Ask changes, in S1:**
+- `RepositoryAskAreas.load()` reads `SUB_REGION` members from `location_sub_region` (D3).
+- **One area per call.** `look_up_place` returns the single longest area match (ties alphabetical) and `rank_spots`
+  takes one `areaName`, so "Swaledale or Wensleydale?" silently answers Swaledale. Add an "Also matched areas: …" note
+  to the `look_up_place` result and one prompt sentence: call once per named area.
+- `KNOWN_AREAS_CAP` (`AskTools.java:146`, 200 characters) cuts the "Known:" list to about 8 of 25 names; raise it so
+  every name fits.
+
+**Checked and unchanged:** result sizes (an area result is capped at `MAX_AREA_WINDOWS` 4 × `MAX_AREA_PLACES` 6 and
+carries a member count, not the members, so the `AskToolsNamedAreaTest` 4,500-character pin holds); areas are not in
+the prompt; the snapshot load is memoised; the typed cache key; Ready intents (every new name holds a word outside
+`ReadyIntentRules.EVERY_ACCEPTED_WORD`, so `couldMatchAny` already declines them, and `namesAPlace` can only decline
+more).
 
 ## §7 Reference docs to update (in the phase that changes the behaviour)
 
-`roles-and-gating.md` (Freemium split, the Lite picks rule), `api-endpoints.md` (the new endpoints and the S3 field
-list), `database-migrations.md` (V191), `configuration.md` (`photocast.sub-regions.*`), `ask-photocast.md` (named
-areas: the `SUB_REGION` kind), `map-tab.md` / `plan-tab.md` (S5). A CLAUDE.md invariant line only if S3 adds one
-("Lite ratings are filtered by picks at the controller edge; never on the client").
+S1: `ask-photocast.md` (the `SUB_REGION` kind, the one-area-per-call note), `database-migrations.md` (V191). S2:
+`api-endpoints.md` (user and admin sub-region endpoints), `configuration.md` (`photocast.sub-regions.*`),
+`platform.md` (the registration step). S3: `api-endpoints.md` (the §4.2 strip list), `architecture-decisions.md`
+(gated is not unrated). S5: `map-tab.md`, `plan-tab.md`. S6: `roles-and-gating.md` (*Freemium split* rewritten), and a
+CLAUDE.md invariant line ("Lite ratings outside the reader's picks are stripped and marked `gated` at the controller
+edge; never on the client").
 
 ## §8 Delivery
 
-| phase | what | size | blocked by |
+| phase | what | blocked by | tests (in addition to the gates) |
 |---|---|---|---|
-| **S0** | this plan; review | XS | — |
-| **S1** data + admin | V191, entity/service/admin changes, partition rules, Ask checks (§6) | M | Q2 |
-| **S2** picks API | table, column, service, endpoints, config keys | M | Q1 |
-| **S3** enforcement | `LitePickShaper` on five endpoints, flag `enforce` (off) | M | Q5, Q3 (region prose) |
-| **S4** picker UI | registration step + Settings section | M | Claude Design output |
-| **S5** outside-picks UI | Lite view of unpicked locations; then flip `enforce` | M | Q3, its design |
-| **—** public terms | photocast.online pricing, FAQ, Terms §4 | owner | before `enforce` flips |
+| **S0** | this plan | — | — |
+| **S1** data, admin, Ask | V191; `kind`, `region`, `location_sub_region`; membership service; `LocationService` and `AreaService` changes; admin Areas UI; the §6 Ask changes | Q2, Q3, Q4 | `SubRegionsMigrationTest` (Testcontainers, following `NamedAreasMigrationTest`: migrate to 190, plant, migrate to 191; the 24 names and aliases; both CHECKs; the PK refusing a second sub-region; the pre-flight raising on a clash and on its folding); membership service move/refuse/region-change tests; `AreaService.setLocations` refusing a sub-region; Ask "also matched areas" and the cap |
+| **S2** picks API | tables, columns, `UserSubRegionService`, user and admin endpoints, config validation | Q1, Q11 | `UserSubRegionServiceTest` on a fixed `Clock` at every boundary of §4.3 (grace end, lock end, a BST midnight, a no-op PUT, add-only, over-limit, admin removal); controller 400/403/409; the concurrent-PUT conditional update; the `HttpCachingConfigTest` entry; a mutation check on the lock comparison (back up with `cp`) |
+| **S3** enforcement | `LitePickShaper` on every §4.2 row, `gated` markers, `no-store`, fail-closed; the flag stays off | Q5, Q6, Q7, Q8 | `LitePickShaperTest` (flag on/off × LITE, PRO, ADMIN, no role; a completeness test over every rating field, as `forLite`'s); per-endpoint controller tests including `/api/forecast/{id}` outside the picks; `HttpCachingIntegrationTest`: shaped Lite → `no-store` and no ETag, Pro and flag-off → `private, no-cache` + ETag |
+| **S4** picker UI | registration step, Settings section | Q10, the Claude Design output | role-query tests (`frontend-test-standards.md`), the hidden-when-not-enforced branch, no `<a>`, no "upgrade", the phone branch, SWR cleared after PUT |
+| **S5** outside-picks UI | §5.4 S5, built and tested against flag-on bodies locally | Q5, Q9, its design | every rated/total surface with gated spots; the same role and phone tests |
+| **S6** flip | `enforce: true` in prod config; the §7 S6 docs; `swrCache.js` `PREFIX` bump (`v3` → `v4`) so no pre-flip body paints | public pricing, FAQ, Terms updated (owner) | a config test pinning the prod value |
 
-Each phase: Sonnet builds in its own worktree from a brief cut from this file, runs the local gates (backend build
-ladder; frontend lint, Vitest, audit, build), the planner reviews the diff, one PR, CI and Codex green before merge.
+Each phase: Sonnet builds in its own worktree from a brief cut from this file and runs the gates (backend build
+ladder; frontend lint, Vitest, audit, build); the planner reviews the diff; one PR; CI and Codex green before merge.
+The order deliberately differs from `pro-features-gate-plan.md` (client before server): here the flag keeps the
+server strip dark until S5's client is in, so S3 may land first.
 
 ## §9 Open questions for the owner
 
-1. **Q1 (blocking S2): how many picks for Lite?** The design brief assumes 3.
-2. **Q2 (blocking S1): the Wall.** (a) Promote the V189 "Hadrian's Wall" area to the sub-region and add Allen Banks,
-   Lambley Viaduct, Letah Wood and Hareshaw Linn to it, so Ask's "Hadrian's Wall" grows to include them; or
-   (b) name the sub-region **"Tynedale"** (the district that holds the Wall, the South Tyne and Bellingham) and keep
-   the Wall area as an ordinary overlapping area. Recommendation: **(b)**; Ask keeps its precise Wall answer and the
-   picker shows "Sycamore Gap, Housesteads, Allen Banks…" as examples.
-3. **Q3 (blocking S5): what does Lite see outside its picks?** The locations themselves (markers, names) with a Pro
-   door, or nothing? And are the **region verdict and region prose** free (they are summaries over every location in
-   the region, including unpicked ones)? Recommendation: locations visible without ratings; region verdict and prose
-   free.
-4. **Q4: hot topics and Coming up free in every region (D7)?** Recommendation: yes.
-5. **Q5 (blocking S3): shaped bodies and the browser cache** (§5.3). Recommendation: `no-store` for shaped Lite bodies.
-6. **Q6: a Lite reader with zero picks** sees no ratings until they choose. Acceptable, or a default (nearest *n*
-   to home, else none)?
+1. **Q1 (S2): how many picks for Lite?** The design brief assumes 3.
+2. **Q2 (S1): the Wall.** Recommended: the sub-region is **"Tynedale"** and the V189 "Hadrian's Wall" area stays as it
+   is. The alternative, promoting the Wall area to the sub-region, would make Ask's "Hadrian's Wall" include Allen
+   Banks, Lambley Viaduct, Letah Wood and Hareshaw Linn (Bellingham).
+3. **Q3 (S1): the inland Moors name.** Recommended: **"Inland North York Moors"**. It must not be a run of the region
+   name "North York Moors & Coast".
+4. **Q4 (S1): one-word aliases for sub-regions** (Teesdale, Keswick, Ennerdale …)? Recommended: **yes, for
+   `SUB_REGION` only**, since that is how people name these places, at the cost of a small guard change and its tests.
+5. **Q5 (S3, S5): what Lite sees outside its picks.** The locations themselves (markers, names) with a Pro door, or
+   nothing? And the region-level `displayVerdict`, `verdictLabel` and prose, and the window `verdict`/`confidence`:
+   free (they summarise every location, including unpicked ones; the prose counts spots such as "three rated Go" but
+   names none) or stripped? Recommended: locations visible without ratings; region and window verdicts and prose
+   free; every per-location star and every best or mean star stripped (§4.2).
+6. **Q6 (S3): hot topics** free in every region, with embedded per-location ratings stripped (D7)? Recommended: yes.
+7. **Q7 (S3): astro night-sky stars** (`/api/astro/conditions`, per location, open to Lite today) and **past
+   windows** (`/api/forecast?date=` in the past): inside the ration or outside it? Recommended: both inside (astro is a
+   per-location star; past windows inside is simplest and consistent).
+8. **Q8 (S3): shaped Lite bodies sent `no-store`** (§5.3)? Recommended: yes.
+9. **Q9 (S5): zero picks.** Recommended: no default picks saved; the zero-picks prompt shows the suggestions.
+10. **Q10 (S4): picker hidden until enforcement is on?** Recommended: yes.
+11. **Q11 (S2): the change rule as written in §4.3** (grace from the first choice; add-only changes free after grace;
+    every swap stamps the lock)?
+
+## §10 Review record (2026-10-26)
+
+| Lens | What it changed |
+|---|---|
+| Data model | `area_location.partition` dropped (Hibernate's `@ElementCollection` writes NULL, bypassing the rule) for `location_sub_region` with the location as PK; region-checked, disjoint, folding-exact seed; local-schema defaults; FK delete behaviour; uncovered-location counting; S1 test list. |
+| Enforcement | Astro conditions and the bluebell hot topic found carrying per-location ratings; region, window and digest best and mean stars stripped; the full per-endpoint strip list written now; `/api/forecast/{id}` and unregioned slots; `no-store` moved from the filter (path-only, before security) to the controller; fail-closed picks read. |
+| Ask | Area aliases must be two words (20 of v1's were one); "The North York Moors" would hijack the region; one area per call made explicit with a note; `KNOWN_AREAS_CAP`; the result-size worry withdrawn; Ready intents confirmed safe. |
+| Picks and rule | Grace started at pending registration, not at use: it now starts at the first choice; every swap stamps; civil dates; an atomic lock; cascades; the registration step after HOME; admin tools; config validation and a lowered limit. |
+| Consistency | Supersession of the 2026-10-25 freemium split recorded, with an S6 flip; gated must not read as unrated (honesty filter); picker hidden until enforced; missing surfaces (scope controls, Plan cards, astro, past windows, SWR); per-phase tests; new questions Q7–Q10. |
 
 ## Appendix A — allocation (production roster, 2026-10-26)
 
@@ -273,7 +350,7 @@ differ, which is why V191 matches by name).
 
 - **Redcar to Whitby** (13): Infinity Bridge (51), Redcar (53), Runswick Bay (60), Saltburn-by-the-Sea (55), Saltholme (206), Saltwick Bay (63), Sandsend (61), South Gare & Paddy's Hole (54), Staithes (59), The Tees Transporter Bridge (52), Whitby Abbey (76), Whitby Piers (75), Whitby Town (62)
 - **Robin Hood's Bay to Flamborough** (10): Bempton Cliffs (82), Boggle Hole (78), Breil Nook (84), Bridlington North Beach (86), Filey Brigg (81), Ravenscar View (79), Robin Hood's Bay (77), Scarborough (80), Selwicks Bay & High Stacks (85), Thornwick Bay (83)
-- **The North York Moors** (13): Bank Top (93), Cockshaw Hill (88), Doctors Wood, Grosmont (231), Egton Lone Tree (94), Falling Foss (96), Hasty Bank (89), Hawnby Hill (91), Hole of Horcum (97), Newton Wood, Roseberry Topping (261), Rievaulx Abbey (92), Roseberry Topping (87), Sutton Bank (90), Thomason Foss (95)
+- **Inland North York Moors** (13; name §9 Q3): Bank Top (93), Cockshaw Hill (88), Doctors Wood, Grosmont (231), Egton Lone Tree (94), Falling Foss (96), Hasty Bank (89), Hawnby Hill (91), Hole of Horcum (97), Newton Wood, Roseberry Topping (261), Rievaulx Abbey (92), Roseberry Topping (87), Sutton Bank (90), Thomason Foss (95)
 
 **Northumberland & Tyneside**
 
@@ -282,7 +359,7 @@ differ, which is why V191 matches by name).
 - **Alnwick & the Coquet Coast** (7): Alnmouth (20), Alnwick Castle (34), Amble (21), Edlinghham (36), Low Hauxley (22), St Cuthbert's Cross, Alnmouth (211), Warkworth Castle (35)
 - **Druridge Bay to Tynemouth** (14): Bluebell Wood, Morpeth (228), Blyth Beach (26), Bothal Weir (214), Bothal Woods (212), Cambois Beach (25), Collywell Bay (215), Cresswell Beach (23), Cullercoats (29), Newbiggin-by-the-Sea (24), Plessey Woods (227), Seaton Sluice (27), St. Mary's Lighthouse (28), The River Wansbeck, Bothal (213), Tynemouth (30)
 - **Cheviots & Coquetdale** (12): Blawearie (222), Cheviot (219), College Valley (218), Harbottle Hills (37), Hepburn Moor (221), Hethpool (217), Ingram and the Breamish Valley (223), Raven's Crag & Bowden Doors, Belford (220), Simonside (38), Thrunton Wood (224), Windy Gyle (216), Yeavering Bell (33)
-- **Hadrian's Wall** (16): Allen Banks (40), Caw Gap (43), Cawfields (42), Crammel Linn Waterfall (225), Cuddy's Crags (49), Hareshaw Linn (39), Highshield Crags (47), Hotbank Crags (48), Houseteads Fort (50), Irthing Gorge (259), Lamley Viaduct (226), Letah Wood (260), Peel Craggs (45), Steel Rigg & Winshield Crags (44), Sycamore Gap (46), Walltown Crags (41)
+- **Tynedale** (16; name §9 Q2): Allen Banks (40), Caw Gap (43), Cawfields (42), Crammel Linn Waterfall (225), Cuddy's Crags (49), Hareshaw Linn (39), Highshield Crags (47), Hotbank Crags (48), Houseteads Fort (50), Irthing Gorge (259), Lamley Viaduct (226), Letah Wood (260), Peel Craggs (45), Steel Rigg & Winshield Crags (44), Sycamore Gap (46), Walltown Crags (41)
 - **Newcastle & Durham** (12): Angel of the North (64), Denton Dene (257), Gosforth Nature Reserve (70), Hardwick Hall Country Park (230), Houghall Woods (229), Jesmond Dene Woods (258), Lands Wood, Winlaton Mill (255), Low Barns, Witton Le Wear (69), Newcastle and Gateshead Quayside (74), Ragpath Wood (256), Washingwell Wood (254), Wharton Park (58)
 - **Sunderland & the Durham Coast** (15): Blackhall Rocks (250), Copt Hill (66), Crimdon Beach (251), Hartlepool Headland (252), Hawthorn Hive (247), Horden Beach (249), Marsden Rock (68), Nose's Point & Blast Beach (246), Penshaw Monument (253), Roker Pier & Lighthouse (243), Seaham Chemical Beach (245), Seaham North Pier & Lighthouse (244), Shippersea Bay, Easington (248), Souter Lighthouse (67), Trow Rocks (65)
 
