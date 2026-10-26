@@ -79,12 +79,16 @@ public interface AuroraForecastResultRepository extends JpaRepository<AuroraFore
     void deleteByForecastDateAndSimulatedTrue(LocalDate forecastDate);
 
     /**
-     * Returns all distinct dates for which at least one real (non-simulated) result exists.
-     * Used by the frontend to determine whether the Aurora toggle should be shown.
+     * Returns the dates of real (non-simulated) nights worth offering as a map row: those whose best
+     * stored rating is at least {@code minStars}. A quiet run (every location 1-2 stars, or only
+     * triaged 1-star rows) therefore gives nobody a night row. Used by the frontend to decide whether
+     * the Aurora toggle and its night rows should be shown.
      *
-     * @return sorted list of dates with stored real aurora results
+     * @param minStars the lowest best-of-night rating that still counts as worth a row
+     * @return ascending list of qualifying dates
      */
-    @Query("SELECT DISTINCT r.forecastDate FROM AuroraForecastResultEntity r "
-            + "WHERE r.simulated = false ORDER BY r.forecastDate")
-    List<LocalDate> findDistinctForecastDatesExcludingSimulated();
+    @Query("SELECT r.forecastDate FROM AuroraForecastResultEntity r "
+            + "WHERE r.simulated = false GROUP BY r.forecastDate "
+            + "HAVING MAX(r.stars) >= :minStars ORDER BY r.forecastDate")
+    List<LocalDate> findForecastDatesWithMinStarsExcludingSimulated(@Param("minStars") int minStars);
 }

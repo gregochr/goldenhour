@@ -49,7 +49,8 @@ import java.util.stream.Collectors;
  * <p>Stored results persist across restarts and are independent of the live alert state machine.
  * They power the Aurora map mode for any date on the date strip — except a night run while
  * {@link AuroraStateCache#isSimulated()} was true, which is written with {@code simulated = true}
- * and never read back by {@link #getResultsForDate} or {@link #getAvailableDates}: the admin who
+ * and never read back by {@link #getResultsForDate} or {@link #getAvailableDates}
+ * (which also drops any real night whose best rating is below {@link #MIN_OFFERED_NIGHT_STARS}): the admin who
  * ran it already sees the outcome in this method's own synchronous response, and nobody else
  * should see fake-Kp scores presented as a real forecast.
  */
@@ -69,6 +70,13 @@ public class AuroraForecastRunService {
 
     /** Number of nights shown in the preview (tonight, T+1, T+2). */
     private static final int PREVIEW_NIGHTS = 3;
+
+    /**
+     * The lowest best-of-night star rating that earns a night a map row. On the owner's scale 3 stars
+     * is "only if close to home", the lowest rating still worth a trip; a night whose best location
+     * is 1 or 2 stars is a quiet run and gives nobody a row.
+     */
+    static final int MIN_OFFERED_NIGHT_STARS = 3;
 
     /** Approximate cost per Claude call used for the estimated-cost display. */
     private static final double HAIKU_COST_USD = 0.01;
@@ -481,12 +489,13 @@ public class AuroraForecastRunService {
     }
 
     /**
-     * Returns all distinct dates for which real (non-simulated) aurora forecast results exist.
+     * Returns the dates of real (non-simulated) nights worth a map row: those whose best stored
+     * rating is at least {@link #MIN_OFFERED_NIGHT_STARS}. A quiet run yields no date.
      *
      * @return sorted list of ISO date strings
      */
     public List<String> getAvailableDates() {
-        return resultRepository.findDistinctForecastDatesExcludingSimulated().stream()
+        return resultRepository.findForecastDatesWithMinStarsExcludingSimulated(MIN_OFFERED_NIGHT_STARS).stream()
                 .map(LocalDate::toString)
                 .collect(Collectors.toList());
     }
