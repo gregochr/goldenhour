@@ -61,11 +61,19 @@ There is no longer any reference to Plan's horizon in eligibility.
 5. `WindowFirstComingUp.jsx` empty state: `No dates coming up in the next ${ALMANAC_DAYS} days.`
    (drop "beyond the four-day forecast"). Keep the ⚠️ comment's point (scoped to the dated list), but
    rewrite its wording. Update `WindowFirstComingUp.test.jsx:125`.
-6. Comments that state the old rule as fact: `comingUpFeed.js` (`overlapsNext4Days` "DEFENSIVE"
+5a. `comingUpFeed.js` `FOOTER` (shown on every status) says "This list starts where the four-day
+   forecast stops…", which becomes false. New copy: `This list shows dates fixed in advance, from today
+   on. Weather-driven topics can't be known that far out, so they appear only in Next four days.`
+   Update its Javadoc and the two tests that pin it (`comingUpFeed.test.js` ~839,
+   `WindowFirstComingUp.test.jsx` ~383).
+6. Comments that state the old rule as fact: `api/almanacApi.js:20-21`, `comingUpFeed.js` (`overlapsNext4Days` "DEFENSIVE"
    note; `countdownFor`'s "plan D1's eligibility rule admits only…"), `fourDayTiles.js` class doc ("a
    run that ends inside the four days has no entry"), `comingUpHandoff.js` if it says the same.
    Comment-only edits, no logic change.
-7. Tests: add or extend one `fourDayTiles` test proving that a chip on a date covered by a rendered entry
+7. Stale test wording: rename `comingUpFeed.test.js` ~881 ("DEFENSIVE … server never serves one
+   ending inside the window"). The case is now normal. Reword the ⚠️ comment on `fourDayTiles.test.js` ~208
+   so the run is "not rendered" (e.g. filtered out), not "not served".
+   Tests: add or extend one `fourDayTiles` test proving that a chip on a date covered by a rendered entry
    lying wholly inside the four days gets `jump` (not `target`). Extend one `comingUpFeed` test proving
    that such an entry gets `inNext4Days: true` and a `now`/`tomorrow` countdown.
 
@@ -85,6 +93,13 @@ There is no longer any reference to Plan's horizon in eligibility.
   guard or test assumes Coming up entries start after today+3.
 - **Wider comparisons**: superlatives and "the other N runs in this window ranged…" are computed over
   eligible runs, so they now include the near-term run. The figures change; that is the correct reading.
+- **Tile route**: a near-term non-weather chip (tide, supermoon, meteor, eclipse) used to open the
+  Plan window card for that date (`onGoToPlanWindow`). Because a jump takes priority, it now scrolls to its
+  Coming up card instead, so that chip loses its door to the Plan window. Weather chips are unchanged.
+- **Doors on the first qualifying entry**: the Lite tide-light Pro door and the S5b-2 outside door
+  (`WindowFirstComingUp.jsx` ~121-147) will usually land on the near-term run now. That is better.
+- **Month grouping** is by start month, so on 1 Nov a 30 Oct – 2 Nov run heads the list under "Oct".
+  That already happened for runs crossing the boundary; it is now more common. Accepted.
 - **Duplicate display**: the same event now appears as a tile chip and a card. That is the owner's call.
 
 ## Gates
