@@ -130,7 +130,8 @@ const TIDE_BADGE_TYPES = new Set(['SPRING_TIDE', 'KING_TIDE']);
 
 /**
  * Removes, for a Lite reader, the structured fields that relate the tide to the light
- * (docs/engineering/tide-light-pro-plan.md F1): each window's {@code tide.nearestOffset}, the
+ * (docs/engineering/tide-light-pro-plan.md F1): each window's {@code tide.nearestOffset} (and the
+ * strip's {@code lightAlignment}, {@code nearestHeight} and {@code eventTime}), the
  * {@code detail} and {@code eventTime} of its spring/king window badges, and big seas'
  * {@code alignedEvent}/{@code gapMinutes}/{@code gapSide} and {@code structures[].aligned}. Only whole
  * fields go; no prose is edited. Defence in depth ahead of the server strip (B1), and it scrubs a
@@ -142,7 +143,7 @@ function stripTideLight(briefing) {
     if (!win) return win;
     return {
       ...win,
-      ...(win.tide && { tide: { ...win.tide, nearestOffset: null } }),
+      ...(win.tide && { tide: { ...win.tide, nearestOffset: null, lightAlignment: null, nearestHeight: null, eventTime: null } }),
       ...(Array.isArray(win.badges) && {
         badges: win.badges.map((b) => (TIDE_BADGE_TYPES.has(b?.type)
           ? { ...b, detail: null, eventTime: null }

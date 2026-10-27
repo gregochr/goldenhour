@@ -177,4 +177,30 @@ class TideWordingTest {
                 SOLAR_EVENT, "3.9 m", "4.3 m"))
                 .isEqualTo("an unknown tide, falling · 3.9 m");
     }
+
+    @Test
+    @DisplayName("lightAlignment: the tide run's threshold, inclusive: 60 is on the light, 61 is mid tide")
+    void lightAlignmentBoundary() {
+        long limit = TideRunBuilder.ALIGNED_WINDOW_MINUTES;
+        assertThat(limit).as("the owner's one threshold, 2026-10-27").isEqualTo(60);
+        assertThat(TideWording.lightAlignment(true, limit)).isEqualTo("HW");
+        assertThat(TideWording.lightAlignment(true, -limit)).isEqualTo("HW");
+        assertThat(TideWording.lightAlignment(false, limit)).isEqualTo("LW");
+        assertThat(TideWording.lightAlignment(false, -limit)).isEqualTo("LW");
+        assertThat(TideWording.lightAlignment(true, limit + 1)).isEqualTo("NONE");
+        assertThat(TideWording.lightAlignment(false, -(limit + 1))).isEqualTo("NONE");
+        assertThat(TideWording.lightAlignment(true, 0)).isEqualTo("HW");
+    }
+
+    @Test
+    @DisplayName("lightAlignment agrees with the tide run's aligned rule at every offset around the limit")
+    void lightAlignmentAgreesWithTheTideRunRule() {
+        long limit = TideRunBuilder.ALIGNED_WINDOW_MINUTES;
+        for (long offset = -(limit + 2); offset <= limit + 2; offset++) {
+            // TideRunBuilder: `Math.abs(gap) <= ALIGNED_WINDOW_MINUTES` (aligned).
+            boolean runAligned = Math.abs(offset) <= limit;
+            assertThat(!"NONE".equals(TideWording.lightAlignment(true, offset)))
+                    .as("offset %d", offset).isEqualTo(runAligned);
+        }
+    }
 }
