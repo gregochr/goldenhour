@@ -27,9 +27,6 @@ import {
  * attribute the shell sets, the structure it builds and the behaviour it has, never a pixel — the
  * stylesheet's half is pinned as text in {@code askDockCss.test.js}.
  */
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
 vi.mock('../api/almanacApi.js', () => ({
   getAlmanac: vi.fn(() => Promise.resolve({
     builtFor: '2026-10-05', bands: null, counts: null, conditions: [], entries: [],

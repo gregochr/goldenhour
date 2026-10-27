@@ -114,7 +114,6 @@ describe('PlanErrorBoundary', () => {
     localStorage.setItem('photocast_swr:v4:briefing', '{"stale":true}');
     localStorage.setItem('photocast.planReach', JSON.stringify({ reach: '45', reachDay: '2026-08-24' }));
     localStorage.setItem('photocast.planRating', JSON.stringify({ rating: 'any' }));
-    sessionStorage.setItem('photocast.planDoors', JSON.stringify(['regional']));
     localStorage.setItem('goldenhour_token', 'still-here');
 
     const reload = vi.fn();
@@ -129,7 +128,6 @@ describe('PlanErrorBoundary', () => {
     expect(localStorage.getItem('photocast_swr:v4:briefing')).toBeNull();
     expect(localStorage.getItem('photocast.planReach')).toBeNull();
     expect(localStorage.getItem('photocast.planRating')).toBeNull();
-    expect(sessionStorage.getItem('photocast.planDoors')).toBeNull();
     expect(localStorage.getItem('goldenhour_token')).toBe('still-here');
   });
 

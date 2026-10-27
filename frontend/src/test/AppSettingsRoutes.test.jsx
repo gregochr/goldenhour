@@ -95,11 +95,6 @@ vi.mock('../api/authApi.js', () => ({
   setPasswordForNewUser: vi.fn(),
   submitWaitlist: vi.fn(),
 }));
-// Stubbed for the reason every shell suite gives: mounting the doors fires an astro request per
-// visible date, and this file is about neither.
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
 // Plan-first, as `App.test.jsx` pins it: jsdom's `matchMedia` answers "no match", which the real
 // `resolveInitialTab()` reads as a desktop and opens on Map, and the banner's door is judged by the
 // tab in force when it is pressed.

@@ -510,7 +510,7 @@ describe('WindowSheetDialog — the verdict badge', () => {
 
 describe('WindowSheetDialog — what the header may claim', () => {
   it('⚠️ hides the star GLYPH and spells the unit, because NVDA does not speak U+2605', () => {
-    // This arm's standing pattern (`WindowRowFieldMap`, `LocationFourDaySheet`, `HeatmapGrid` all
+    // This arm's standing pattern (`WindowRowFieldMap` and `LocationFourDaySheet` both
     // carry it with the same note) and the popup header was the one place it had not been applied —
     // so the most decision-relevant number in the dialog announced as "best 5 within reach".
     //

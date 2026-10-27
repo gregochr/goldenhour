@@ -428,8 +428,7 @@ describe('MapCallout — header and verdict', () => {
     const sub = screen.getByTestId('map-callout').querySelector('.wf-callout-sub');
     expect(sub).toHaveTextContent('Seascape');
     expect(sub).toHaveTextContent('Wildlife');
-    // The icon glyphs (🌊/🐾) are the compact-row form this line is explicitly NOT — see
-    // `utils/locationTypes.js`'s own doc on `locationTypeIcons`.
+    // The icon glyphs (🌊/🐾) are a compact-row form this line is explicitly NOT.
     expect(sub.textContent).not.toMatch(/[\u{1F300}-\u{1FAFF}]/u);
   });
 

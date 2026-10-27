@@ -33,9 +33,6 @@ import MapPeekAsk from '../components/map/MapPeekAsk.jsx';
 import { AskProvider } from '../context/AskContext.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
 vi.mock('../api/almanacApi.js', () => ({
   getAlmanac: vi.fn(() => Promise.resolve({
     builtFor: '2026-10-05', bands: null, counts: null, conditions: [], entries: [],

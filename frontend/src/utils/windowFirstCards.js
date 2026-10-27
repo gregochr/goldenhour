@@ -209,7 +209,7 @@ export const SLOT_VERDICT_LABEL = {
  *
  * <p>Confidence qualifies a <em>recommendation</em>. Decaying a Poor or an Awaiting badge would say
  * "we are unsure it is bad", which is not what the channel means and not a claim the derivation
- * supports. The same gate ships on `VerdictPill` and `HeatmapGrid`, and the rail already sets its
+ * supports. The same gate ships on `VerdictPill`, and the rail already sets its
  * own tile confidence to null on an all-poor day. It also sidesteps a real defect: the neutral
  * badge's border is a token rather than an `rgba()` literal, so it cannot decay with its fill, and
  * a half-decayed badge would look like a rendering bug.

@@ -30,9 +30,6 @@ import {
  * <p>jsdom has no layout and no {@code inert}: what is asserted is the attribute the component sets
  * and the behaviour it has, never a pixel or a browser's refusal to focus an inert node.
  */
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
 vi.mock('../api/almanacApi.js', () => ({
   getAlmanac: vi.fn(() => Promise.resolve({
     builtFor: '2026-10-05', bands: null, counts: null, conditions: [], entries: [],

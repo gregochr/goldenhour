@@ -16,10 +16,6 @@ import { markComingUpSeen } from '../api/settingsApi.js';
  * test file mocks it; `withContext` simulates the re-render a real state update would cause after
  * the shell calls `setComingUpLastSeenAt`.
  */
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
-
 vi.mock('../api/almanacApi.js', () => ({
   getAlmanac: vi.fn(),
   ALMANAC_DAYS: 90,

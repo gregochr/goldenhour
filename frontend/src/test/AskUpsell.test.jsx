@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
@@ -23,9 +22,6 @@ import {
  * card's Escape listener is a bubble-phase `document` listener in `MapView`; here it is stood in for by a
  * `document` listener the test adds, which is exactly what `stopPropagation` has to keep the key from.
  */
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
 vi.mock('../api/almanacApi.js', () => ({
   getAlmanac: vi.fn(() => Promise.resolve({
     builtFor: '2026-10-05', bands: null, counts: null, conditions: [], entries: [],

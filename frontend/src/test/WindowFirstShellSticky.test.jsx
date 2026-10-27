@@ -36,10 +36,6 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
  * are stubbed by class. What that buys is the arithmetic and the wiring; what it cannot see is
  * where the bar actually lands, which is a browser claim and is verified in one.
  */
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
-
 /**
  * The stylesheet readers, shared by the two text-reading describes below.
  *
@@ -429,10 +425,10 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
 
   it('⚠️ keeps EVERY fallback site equal to the declaration, whatever the site count', () => {
     // Not a count. `toHaveLength(3)` was the first shape and fails both ways: a fourth legitimate
-    // consumer reds the build with a message naming no rule, and DELETING `.wf-door-panel`'s rule
-    // while documenting the removal in a comment that quotes the string keeps the count at three —
-    // which is precisely how every other removal in this change is recorded, and precisely the site
-    // whose drift the file already records once (missed at M3, corrected at M5). Read from
+    // consumer reds the build with a message naming no rule, and DELETING a rule
+    // while documenting the removal in a comment that quotes the string keeps the count unchanged —
+    // which is precisely how a removal gets recorded, and precisely the kind of site whose drift
+    // the file already records once (missed at M3, corrected at M5). Read from
     // declarations only, so a comment quoting the string can neither satisfy nor break it.
     const fallbacks = [...decls(readCss()).matchAll(/var\(--wf-lens-reserve,\s*([^)]+)\)/g)]
       .map((m) => m[1].trim());
@@ -445,9 +441,7 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     // `.wf-hc` is six focusable cards, any of which can sit above the fold; `.wf-tab`'s roving
     // arrow handler calls `scrollIntoView`. Neither was on the list when the reservation was a
     // literal.
-    // The pane's own list, which is the LAST `scroll-margin-top` rule in the file — the earlier one
-    // is `.wf-door-panel`'s descendant rule for the re-parented components it hosts, none of which
-    // carry a `.wf-` class of their own. Sliced back from the declaration to the previous rule's
+    // The pane's own list, which is the LAST `scroll-margin-top` rule in the file. Sliced back from the declaration to the previous rule's
     // closing brace, so what is searched is that rule's selector list (and the comments interleaved
     // in it) and nothing else.
     const css = readCss();

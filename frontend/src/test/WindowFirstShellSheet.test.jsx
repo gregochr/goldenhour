@@ -19,15 +19,7 @@ vi.mock('../utils/mapDoors.js', async (importOriginal) => {
  * the four rules below cannot be reached from any component's own test because each of them is a
  * decision about how the shell joins two things: which card the sheet reads, when a trigger is worth
  * offering, what the sheet is told about the reach lock, and what a modal does to the peek.
- *
- * <p>The two doors are stubbed for the reason {@code WindowFirstDoors.test.jsx} gives for stubbing
- * the regional panel: mounting them fires an astro request per visible date, and this file is about
- * neither.
  */
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
-
 // Thin-sample F2: the row map is stubbed to print the unrated set the shell hands the open card, so
 // "the OPEN window's own set" is observable without a canvas.
 vi.mock('../components/WindowRowFieldMap.jsx', async (importOriginal) => ({

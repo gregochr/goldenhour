@@ -19,10 +19,6 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
  * and that the withholding rule (no {@code onOpenMapTab} ⇒ no button at all) reaches this far.
  */
 
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
-
 vi.mock('../utils/heatField.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {

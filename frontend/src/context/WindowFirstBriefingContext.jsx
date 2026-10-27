@@ -436,7 +436,7 @@ export function WindowFirstBriefingProvider({
    *
    * <p>⚠️ <b>This used to be a mount-only {@code useEffect(..., [])}, and that froze the heat
    * field for the life of the tab.</b> The briefing polls every ten minutes and again on focus, so
-   * verdicts, {@code bestRating}, the planner grid and the hot topics all kept moving while the
+   * verdicts, {@code bestRating} and the hot topics all kept moving while the
    * rows the FIELD is drawn from stayed at whatever was true when the tab was opened. Leave the
    * Plan tab open overnight and the overnight batch writes T+2/T+3 ratings that this session never
    * sees: the cards say {@code best spot 5★} and the thumbnails stay blank, for hours, with a hard
@@ -724,8 +724,8 @@ export function WindowFirstBriefingProvider({
 
   // A boolean, never the role. Plan §5c: `role` enters this arm at the provider and stops there, and
   // what anything below receives is a decision already made — a threshold for the lens, a boolean
-  // for the door behind it (`WindowFirstRegionalPanel`). `isLiteUser` lived here too until the
-  // Coming up redesign's P6 deleted its only reader (`WindowFirstDoors`'s `HotTopicStrip` panel,
+  // for a gate. `isLiteUser` lived here too until the
+  // Coming up redesign's P6 deleted its only reader (the Plan doors' `HotTopicStrip` panel,
   // `docs/engineering/coming-up-plan.md` D7) — removed rather than left as a readerless field,
   // the same orphan-hunting discipline that phase applied to `auroraTonight`/`HotTopic.tideRun`.
   // The Map's tide curve and per-location tide match are Pro (docs/engineering/tide-pro-gate-plan.md §3).
@@ -837,7 +837,7 @@ export function WindowFirstBriefingProvider({
     [rawScoreRows, scoresLocked],
   );
 
-  // The name-keyed map (App's `briefingScores`, the heat-strip peek, the Regional planner's drill-down),
+  // The name-keyed map (App's `briefingScores`, the heat-strip peek),
   // built from the SERVED rows so the lift to App/MapView/MapCallout can never carry a stripped field.
   const evaluationScores = useMemo(() => {
     if (scoreRows.length === 0) return EMPTY_SCORES;

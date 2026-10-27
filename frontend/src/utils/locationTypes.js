@@ -4,8 +4,7 @@
  * <p>This lived in five copies: `MapView.LOCATION_TYPE_LABELS`,
  * `LocationTypeBadges.LOCATION_TYPE_META` (that component is since deleted as dead code, v1
  * retirement D4), `MarkerPopupContent.POPUP_LOC_TYPE_META`, `briefingDisplay.LOCATION_TYPE_ICONS`
- * (that re-export is likewise since deleted — `briefingDisplay` still re-exports `locationTypeIcons`,
- * its live consumer) and `LocationManagementView.LOCATION_TYPES`, plus three open-coded type
+ * (likewise since deleted) and `LocationManagementView.LOCATION_TYPES`, plus three open-coded type
  * predicates. Adding WOODLAND cost five hand-edits that nothing forced you to make, and the copies
  * had already drifted — `briefingDisplay` used 💧 for WATERFALL where the other four used 💦, and
  * the five did not agree on ordering.
@@ -57,40 +56,10 @@ export const DISPLAY_TYPES = ['LANDSCAPE', 'WILDLIFE', 'SEASCAPE', 'WOODLAND', '
  */
 export const SKY_SUBJECT_TYPES = ['LANDSCAPE', 'SEASCAPE', 'WATERFALL'];
 
-/** Emoji-only lookup, for the compact grid rows that have no room for a label. */
-export const LOCATION_TYPE_ICONS = Object.fromEntries(
-  Object.entries(LOCATION_TYPE_META).map(([type, { emoji }]) => [type, emoji]),
-);
-
-/**
- * The icons for a location's types, in display order, as one string.
- *
- * <p>`locationType` is an ARRAY, and the briefing rows used to index `LOCATION_TYPE_ICONS` with it
- * directly. A single-typed location got away with it — `['LANDSCAPE']` coerces to the string
- * `'LANDSCAPE'`, which is a real key — but a multi-typed one produced `'LANDSCAPE,BLUEBELL'`,
- * matched nothing, and rendered NO icon at all. So the locations carrying the most information
- * about themselves were the only ones showing none of it, which read as data missing from the
- * location rather than a lookup missing a join.
- *
- * <p>Drawn from {@link DISPLAY_TYPES}, so BLUEBELL is deliberately absent: it is a seasonal
- * subject, not a kind of place, and a year-round 🌸 would assert a bloom in August. An open fell
- * that happens to carry bluebells therefore reads 🏔️ — which is also the honest answer to "why is
- * this in an August briefing at all": because it is a landscape location every day of the year.
- *
- * @param {string[]|string|null|undefined} types the location's `locationType`
- * @returns {string} the icons, or '' when none apply
- */
-export function locationTypeIcons(types) {
-  const list = Array.isArray(types) ? types : (types == null ? [] : [types]);
-  return DISPLAY_TYPES.filter((t) => list.includes(t))
-    .map((t) => LOCATION_TYPE_ICONS[t])
-    .join('');
-}
-
 /**
  * Location name → its {@code locationType}, from the enabled-locations roster.
  *
- * <p>Written twice before this existed — once for the regional planner's grid icons and once for
+ * <p>Written twice before this existed — once for a retired grid's icons and once for
  * the drill-down's type control — from the same prop, with the same body.
  * Two copies of a join is how the five copies this module replaced started.
  *

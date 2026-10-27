@@ -45,8 +45,8 @@ export function calDow(dateStr) {
  * <p>Not invented here — §6 bans new vocabulary — but not imported either, and the difference is
  * worth stating because an earlier version of this comment claimed it was. {@code windowFirstAway.js}
  * exports no such constant; it uses the phrase in prose, and the retired away ROW built its own
- * literal ("n windows not forecast") and {@code HeatmapGrid} a third. This is the fourth site and
- * the only one that names it, so a fifth should import THIS rather than write a fourth string.
+ * literal ("n windows not forecast"). This is the only site that names it, so another should
+ * import THIS rather than write a new string.
  */
 export const AWAY_STATE_LABEL = 'Not forecast';
 

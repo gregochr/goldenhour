@@ -418,8 +418,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       const named = screen.getByRole('button', { name: /^Derwentwater\s*4 stars$/ });
       expect(named).toBe(chip);
       // The visible label leads the name. `★` is `aria-hidden` and spoken as "4 stars" instead —
-      // NVDA at its default symbol level does not speak U+2605, which is the sheet's own idiom and
-      // `HeatmapGrid`'s original measurement.
+      // NVDA at its default symbol level does not speak U+2605, which is the sheet's own idiom.
       expect(chip.querySelector('.wf-mchip-n')).toHaveTextContent('Derwentwater');
       // Region · drive · leave-by — deferred from M2 with the click, because a `title` on a
       // `pointer-events: none` span inside an `aria-hidden` subtree reaches nobody. The drive is

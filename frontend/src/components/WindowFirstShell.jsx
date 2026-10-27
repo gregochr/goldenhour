@@ -7,7 +7,6 @@ import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
 import MastheadTickLine from './MastheadTickLine.jsx';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
-import WindowFirstDoors from './WindowFirstDoors.jsx';
 import WindowFirstComingUp from './WindowFirstComingUp.jsx';
 import WindowPickDialog from './WindowPickDialog.jsx';
 import WindowSpotSheet from './WindowSpotSheet.jsx';
@@ -360,8 +359,8 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *
  * @param {function} props.onSignOut ends the session — the masthead's route to it while the Plan
  *        is healthy; {@code PlanErrorBoundary} offers its own separate Sign-out if it is not.
- * @param {Array} [props.locations] enabled locations. The regional-planner door needs its id→name
- *        and name→type joins; the drill-down needs the same name→type join for its type control.
+ * @param {Array} [props.locations] enabled locations. The shell needs the name→type join for the spot sheet's
+ *        type control and the id/name lookup for the sheet's spot.
  *        Not fetched by this arm's provider: {@code App} already holds them, and a second request
  *        for a list the page has would be waste.
  * @param {?Array<string>} [props.forecastDates] the dates (`YYYY-MM-DD`) the reader holds a colour
@@ -1032,8 +1031,7 @@ export default function WindowFirstShell({
   }), [openOverPopup, openWindow, onOpenMapTab, ratingLens, reachLens, effectiveTab]);
   /**
    * The Plan tab's "show this on the map" producers' ONE entry (overlay convergence C4,
-   * `docs/engineering/overlay-convergence-plan.md` section 3 C4): the Regional planner's drill-down
-   * pin and its location names, the spot sheet's rows, the pick dialog's two actions and the
+   * `docs/engineering/overlay-convergence-plan.md` section 3 C4): the spot sheet's rows, the pick dialog's two actions and the
    * Coming up cards and day chips. Each used to hand `App` a trigger that opened the frozen map
    * overlay; they now take the SAME structured door the location sheet footer takes -
    * {@link normalizeMapTrigger} turns whatever the producer sends into the one trigger shape and
@@ -1230,10 +1228,9 @@ export default function WindowFirstShell({
    * plus reach, and folding a third source in would rebuild every window's spot array whenever the
    * roster arrived. Only the sheet reads it, and only while a type control is on screen.
    *
-   * <p>{@code App} already holds {@code locations} — P9 drilled it here for the regional door — so
-   * this costs no request. The join itself lives in {@code locationTypes.js}
-   * because the regional planner builds the same one from the same prop, and two copies of a join
-   * is how the five copies that module replaced started.
+   * <p>{@code App} already holds {@code locations} — so this costs no request. The join
+   * itself lives in {@code locationTypes.js}, because two copies of a join is how the five copies
+   * that module replaced started.
    */
   const typesByName = useMemo(() => buildLocationTypeMap(locations), [locations]);
 
@@ -2669,9 +2666,9 @@ export default function WindowFirstShell({
       />
 
       {/* Hidden rather than unmounted: unmounting the pane on every tab change would discard the
-          drill-down and the doors' open/closed state on every change back to Plan — which is
-          exactly what `ManageView` does to its sub-views, and the behaviour not to copy. Keeping it
-          mounted keeps whatever the reader had open open.
+          open window and scroll position on every change back to Plan — which is exactly what
+          `ManageView` does to its sub-views, and the behaviour not to copy. Keeping it mounted
+          keeps whatever the reader had open open.
 
           BOTH the `hidden` attribute and a display class, and the reason is defence in depth rather
           than necessity — which is worth stating plainly, because two earlier versions of this
@@ -2682,7 +2679,7 @@ export default function WindowFirstShell({
           attribute alone does hide the pane, and `.flex` does not override it. Verified on the
           running app: a `<div class="flex" hidden>` computes to `display: none`. Equally, the
           class alone would be enough, since `display: none` is itself what removes an element from
-          the accessibility tree (`WindowFirstDoors.jsx` says so already).
+          the accessibility tree.
 
           So: the attribute is the semantic statement and the half jsdom can see; the class is
           carried so that a display utility added here later cannot quietly re-expose the panel. */}
@@ -2761,7 +2758,7 @@ export default function WindowFirstShell({
             /* The served topics, for the matrix's scope filter (plan-matrix A8). Read straight off
                the briefing rather than through a derivation, because the join key is the topic's
                OWN `eventType` + `date` and any client re-shaping is a chance to lose the NIGHT
-               bucketing. `WindowFirstDoors` reads the same field the same way. */
+               bucketing. */
             hotTopics={briefing?.hotTopics}
             openKeys={openWindowKeys}
             highlightKeys={askHighlight}
@@ -2782,15 +2779,14 @@ export default function WindowFirstShell({
             unreliably announced — the wrapper has to already be on screen before the pending→slow
             and pending→settled TRANSITIONS it exists to announce. Before this wrapper existed, the
             pane rendered NOTHING at all while `loading` was true and nothing had arrived yet — no
-            matrix, no doors, no count line, no sentence here — which is what made the 2026-09-30
+            matrix, no count line, no sentence here — which is what made the 2026-09-30
             slow-briefing incident (a `GET /api/briefing` request that never completed in
             production, fixed in #957) read as a blank pane rather than a pane still working.
 
             `wf-pane-status` cancels the `.wf-body` flex gap (index.css, beside the `.wf-body` rule)
             when this wrapper is empty — i.e. whenever there ARE cards, which is what every reader
-            sees almost all the time — so the strip→doors spacing stays the 10px it was before this
-            wrapper existed, rather than adding a second 10px gap for an always-mounted but usually
-            empty node. */}
+            sees almost all the time — so the matrix is not followed by a stray 10px gap from an
+            always-mounted but usually empty node. */}
         <div role="status" data-testid="window-first-pane-status" className="wf-pane-status">
           {loading && paneItems.length === 0 && (
             <p
@@ -2814,10 +2810,6 @@ export default function WindowFirstShell({
             </p>
           )}
         </div>
-
-        {/* The two doors, at the foot of the pane where the design puts them and inside the greyed
-            region: they open forecast content, which is exactly what that treatment marks. */}
-        <WindowFirstDoors locations={locations} onShowOnMap={showOnMap} />
       </div>
 
       {/* The slotted panes. Each renders its panel ELEMENT unconditionally — `aria-controls` must

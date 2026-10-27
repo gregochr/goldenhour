@@ -74,8 +74,7 @@ describe('WindowProseSlot — the prose, in one order', () => {
   });
 
   it('prefers Claude’s own gloss to the summary, and leads with the headline', () => {
-    // The pair `HeatmapGrid` already prefers in its hover tip, so both flag arms read one payload
-    // the same way round.
+    // Claude's own gloss is the first source the slot reads.
     renderSlot({
       row: row({ glossHeadline: 'Cirrus canvas', glossDetail: 'Thin high cloud at 40%.' }),
     });

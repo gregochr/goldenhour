@@ -36,7 +36,7 @@ import { lastPlanDateStr } from './comingUpHandoff.js';
  * <p>The design bundle spells every month as three letters (`SEP`, `OCT`, `NOV` — see
  * {@code Coming Up.html}'s {@code EV} fixture). This app already has an established house
  * convention for the same job — {@code en-GB} {@code Intl} short months, which render September as
- * {@code Sept} — used identically by {@code HeatmapGrid}, {@code conversions.js} and every other
+ * {@code Sept} — used identically by {@code conversions.js} and every other
  * date column in this codebase. Recreating the design's literal three-letter spelling here would
  * make this one pane the only place that disagrees with itself about how long "September" is
  * allowed to be. Kept as the house form; recorded as a disagreement with the design bundle
