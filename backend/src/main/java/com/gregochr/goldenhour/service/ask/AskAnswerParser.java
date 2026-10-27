@@ -10,6 +10,8 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Reads the input of the model's {@code submit_answer} call into the validator's
@@ -28,6 +30,16 @@ public final class AskAnswerParser {
 
     /** Most picks and events read from one reply; anything past it is never looked at. */
     static final int MAX_ITEMS = 10;
+
+    /** Radix of a hexadecimal numeric character reference such as {@code &#x26;}. */
+    private static final int HEX_RADIX = 16;
+
+    /** Radix of a decimal numeric character reference such as {@code &#38;}. */
+    private static final int DECIMAL_RADIX = 10;
+
+    /** One HTML character reference: a named basic entity or a decimal or hex numeric one. */
+    private static final Pattern ENTITY =
+            Pattern.compile("&(?:(amp|lt|gt|quot|apos)|#[xX]([0-9a-fA-F]{1,6})|#([0-9]{1,7}));");
 
     private AskAnswerParser() {
     }
@@ -69,8 +81,8 @@ public final class AskAnswerParser {
             throw new Malformed("the input is not a JSON object");
         }
         boolean answerable = requiredBoolean(input, "answerable");
-        String summary = requiredText(input, "summary");
-        String missing = optionalText(input, "missing");
+        String summary = decodeEntities(requiredText(input, "summary"));
+        String missing = decodeEntities(optionalText(input, "missing"));
         List<RawPick> picks = new ArrayList<>();
         for (JsonNode item : optionalArray(input, "picks")) {
             if (picks.size() >= MAX_ITEMS) {
@@ -96,7 +108,8 @@ public final class AskAnswerParser {
         if (id == null || !id.isIntegralNumber() || !id.canConvertToLong()) {
             throw new Malformed("a pick's locationId is not a whole number");
         }
-        return new RawPick(id.longValue(), requiredText(item, "windowId"), optionalText(item, "why"));
+        return new RawPick(id.longValue(), requiredText(item, "windowId"),
+                decodeEntities(optionalText(item, "why")));
     }
 
     private static RawEvent readEvent(JsonNode item) throws Malformed {
@@ -104,7 +117,47 @@ public final class AskAnswerParser {
             throw new Malformed("an event is not an object");
         }
         return new RawEvent(requiredText(item, "type"), optionalDate(item, "date"),
-                optionalText(item, "why"));
+                decodeEntities(optionalText(item, "why")));
+    }
+
+    /**
+     * Decodes HTML character references in the model's free text. The model sometimes writes
+     * {@code &amp;} for an ampersand ("Northumberland &amp; Tyneside"), and React prints text verbatim, so
+     * the entity would reach the reader. Decodes the basic named entities ({@code &amp; &lt; &gt; &quot;
+     * &apos;}) and numeric ones ({@code &#38;}, {@code &#x26;}) in a single pass, so {@code &amp;lt;} becomes
+     * {@code &lt;} and not {@code <}. An invalid code point is left as written. Applied to free text only,
+     * never to identifiers such as a window id, a type or a date.
+     *
+     * @param text the model's text; may be null
+     * @return the text with its character references decoded, or null when {@code text} is null
+     */
+    private static String decodeEntities(String text) {
+        if (text == null || text.indexOf('&') < 0) {
+            return text;
+        }
+        Matcher m = ENTITY.matcher(text);
+        StringBuilder out = new StringBuilder(text.length());
+        while (m.find()) {
+            String decoded = decodeOne(m);
+            m.appendReplacement(out, Matcher.quoteReplacement(decoded != null ? decoded : m.group()));
+        }
+        m.appendTail(out);
+        return out.toString();
+    }
+
+    private static String decodeOne(Matcher m) {
+        if (m.group(1) != null) {
+            return switch (m.group(1)) {
+                case "amp" -> "&";
+                case "lt" -> "<";
+                case "gt" -> ">";
+                case "quot" -> "\"";
+                default -> "'";
+            };
+        }
+        int radix = m.group(2) != null ? HEX_RADIX : DECIMAL_RADIX;
+        int cp = Integer.parseInt(m.group(2) != null ? m.group(2) : m.group(3), radix);
+        return Character.isValidCodePoint(cp) ? new String(Character.toChars(cp)) : null;
     }
 
     private static boolean requiredBoolean(JsonNode node, String field) throws Malformed {

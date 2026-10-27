@@ -522,6 +522,9 @@ against the first cut, which collapsed every unrated case to one "Nothing rated"
 no `windows` draws nothing. The visible text is `aria-hidden`; a spoken twin voices the long weekday and
 the counts in words ("Saturday sunset: 180 rated across every region, 2 at 4 stars or more"), the first
 one led by "Rated places, by window." because a live region reads inserted text, not a list's label.
+**Removed 2026-10-27:** the owner reversed Q4 and the line is gone from the answer card (it repeated the
+summary and pushed the picks down on a phone). `windows` is still served and still drives
+`AskReadyFreshness`; the client no longer keeps or draws it.
 
 **Freshness (W1, with the carried figures).** `AskReadyFreshness.recheck` gains `spreadMoved`: a stored answer is withheld whole
 when, for ANY carried window, the live `Spread` is not EQUAL to the stored one — record equality

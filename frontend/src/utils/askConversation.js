@@ -394,23 +394,7 @@ export function normaliseAnswer(body, meta) {
     charged: !ready && body.charged === true,
     allowanceLeft: !ready && Number.isInteger(body.allowanceLeft) ? body.allowanceLeft : null,
     allowanceLimit: !ready && Number.isInteger(body.allowanceLimit) ? body.allowanceLimit : null,
-    windows: carriedWindows(body.windows),
   };
-}
-
-/**
- * The windows an answer carries (`ask-window-context-plan.md` §2.4, W1: the whole served spread of every
- * window its prose may have quoted), kept exactly as served — the line that draws them reads the record,
- * nothing reshapes it. Absent on every answer stored before W1 and on every can't-answer, which reads as
- * an empty list: no line, no claim. An entry without a window id and a spread object is dropped.
- *
- * <p>⚠️ A card fact, never a thread fact: {@link exchangeOf} does not copy it and {@link threadForWire}
- * does not send it (a test pins both), so a stale figure can never ride a follow-up.
- */
-function carriedWindows(value) {
-  if (!Array.isArray(value)) return [];
-  return value.filter((w) => w !== null && typeof w === 'object'
-    && typeof w.windowId === 'string' && w.spread !== null && typeof w.spread === 'object');
 }
 
 /**

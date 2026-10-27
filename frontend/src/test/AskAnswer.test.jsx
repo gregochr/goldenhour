@@ -135,6 +135,24 @@ describe('AskConversation — a Ready answer', () => {
   });
 });
 
+describe('AskConversation — the served windows', () => {
+  it('draws no per-window spread line: an answer that carries windows shows no "rated across" or "4★+" text', async () => {
+    ask.mockResolvedValue(ownResponse({
+      windows: [{
+        windowId: '2026-10-17_sunset',
+        spread: { over: 'every region', rated: 154, bands: [20, 60, 98, 2, 0], gameOn: 88, regions: { counted: 6 } },
+      }],
+    }));
+    await renderAsk();
+    await askTyped('Where is good?', { view: 'plan' });
+
+    expect(await screen.findByTestId('ask-summary')).toBeInTheDocument();
+    expect(screen.queryByTestId('ask-spread')).toBeNull();
+    expect(screen.queryByText(/rated across/i)).toBeNull();
+    expect(screen.queryByText(/4★\+/)).toBeNull();
+  });
+});
+
 describe('AskConversation — the picks', () => {
   it('shows each pick as a card joined to the briefing, with the HOME drive', async () => {
     await renderAsk();

@@ -769,61 +769,11 @@ describe('exchangeOf', () => {
   });
 });
 
-describe('normaliseAnswer — the carried windows (ask-window-context plan §2.4, W2)', () => {
-  const WINDOWS = [{
-    windowId: '2026-10-17_sunset',
-    spread: {
-      over: 'every region', rated: 180, bands: [20, 60, 98, 2, 0], gameOn: 2, gameOnPct: 1, go: 0,
-      below4: 178, stars1to2: 80, regions: { counted: 6 }, pockets: [],
-    },
-  }];
+describe('normaliseAnswer — the served windows', () => {
+  it('does not carry them: the answer card no longer draws the per-window line, so nothing reads them', () => {
+    const body = answerBody({ windows: [{ windowId: '2026-10-17_sunset', spread: { rated: 180 } }] });
 
-  it('keeps a typed answer’s windows exactly as served — the line reads the record', () => {
-    const answer = normaliseAnswer(answerBody({ windows: WINDOWS }), { id: 1 });
-
-    expect(answer.windows).toEqual(WINDOWS);
-    expect(answer.windows[0].spread).toBe(WINDOWS[0].spread);
-  });
-
-  it('keeps a Ready answer’s windows too', () => {
-    const body = { ...answerBody(), windows: WINDOWS };
-    delete body.allowanceLeft;
-
-    expect(normaliseAnswer(body, { id: 2, ready: true, runLabel: '06:02' }).windows).toEqual(WINDOWS);
-  });
-
-  it('holds an empty list when the field is absent (every answer stored before W1) or not a list', () => {
-    expect(normaliseAnswer(answerBody(), { id: 1 }).windows).toEqual([]);
-    expect(normaliseAnswer(answerBody({ windows: null }), { id: 1 }).windows).toEqual([]);
-    expect(normaliseAnswer(answerBody({ windows: 'x' }), { id: 1 }).windows).toEqual([]);
-  });
-
-  it('drops an entry without a window id and a spread object, and keeps the rest', () => {
-    const answer = normaliseAnswer(answerBody({
-      windows: [null, 4, { windowId: 7, spread: {} }, { windowId: 'w', spread: null }, { windowId: 'w' }, WINDOWS[0]],
-    }), { id: 1 });
-
-    expect(answer.windows).toEqual(WINDOWS);
-  });
-
-  it('⚠️ never puts them on the thread: an exchange is ids and words, a window spread is a card fact', () => {
-    const answer = normaliseAnswer(answerBody({ windows: WINDOWS }), { id: 1 });
-    const exchange = exchangeOf('Q', answer);
-
-    expect(exchange).not.toHaveProperty('windows');
-    // And even an exchange that somehow carried one is not sent with it.
-    const [sent] = threadForWire([{ ...exchange, windows: WINDOWS }]);
-    expect(sent).not.toHaveProperty('windows');
-    expect(Object.keys(sent).sort()).toEqual(['events', 'generatedAt', 'picks', 'question', 'ready', 'summary']);
-  });
-
-  it('keeps them on the conversation’s answer when the thread is appended', () => {
-    const conv = reduce(send(INITIAL_CONVERSATION), {
-      type: ACTION.ANSWERED, answer: normaliseAnswer(answerBody({ windows: WINDOWS }), { id: 1 }),
-    });
-
-    expect(conv.answer.windows).toEqual(WINDOWS);
-    expect(conv.thread[0]).not.toHaveProperty('windows');
+    expect(normaliseAnswer(body, { id: 1 })).not.toHaveProperty('windows');
   });
 });
 

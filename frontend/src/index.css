@@ -14228,25 +14228,6 @@ button.wf-mchip:hover {
   font-size: 10px;
   color: var(--color-plex-text-secondary);
 }
-/* The server's figures beside the model's sentence (ask-window-context-plan.md §2.4, W2): one quiet
-   line per carried window, in the footer's mono and ink, a size up so the counts can be read. In no
-   media query and under no role: `askCss.test.js` pins it. */
-.wf-ask-spread {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.wf-ask-spread-l {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--color-plex-text-secondary);
-  overflow-wrap: anywhere;
-}
 .wf-ask-notice {
   margin: 0;
   font-size: 13px;
