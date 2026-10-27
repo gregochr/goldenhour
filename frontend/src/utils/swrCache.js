@@ -22,7 +22,7 @@ const ROOT = 'photocast_swr:';
  * that did not, and the old entry sits in a budget measured in single-digit megabytes until the
  * user happens to log out. Bumping retires every previous-generation entry at the next write.
  */
-const PREFIX = `${ROOT}v3:`;
+const PREFIX = `${ROOT}v4:`;
 
 /**
  * Incremented by {@link clearSwrCache}. A writer captures this before it starts fetching and hands
