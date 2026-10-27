@@ -4,6 +4,8 @@ import ProUpsellDoor, {
   subregionsCoastBody, subregionsDarkskyBody,
 } from '../shared/ProUpsell.jsx';
 import { SubRegionActionButton, SubRegionStatusLine } from './SubRegionActions.jsx';
+import { useSubRegionStatus } from '../../context/SubRegionStatusContext.jsx';
+import { subRegionAction } from '../../utils/subRegionAction.js';
 
 /**
  * Coming up's one sub-regions door for a Lite reader whose body the server shaped by their picks
@@ -19,6 +21,13 @@ import { SubRegionActionButton, SubRegionStatusLine } from './SubRegionActions.j
  */
 export default function ComingUpOutsideDoor({ subject, count, zeroPicks }) {
   const coastal = subject === 'coastal';
+  const { state, openSubRegions } = useSubRegionStatus();
+  const action = subRegionAction(state);
+  const hasButton = Boolean(action?.label) && typeof openSubRegions === 'function';
+  const hasPro = !zeroPicks && count > 0;
+  const hasLine = !zeroPicks && Boolean(action?.line);
+  // Nothing to put in the row (no Settings opener yet, no Pro door): draw no empty wrapper.
+  if (!hasButton && !hasPro && !hasLine) return null;
   return (
     <div className="wf-cu-subregion-door" data-testid="coming-up-subregion-door" data-subject={subject}>
       {!zeroPicks && (

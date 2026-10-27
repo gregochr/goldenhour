@@ -96,6 +96,16 @@ describe('the shared predicates (item 10)', () => {
     expect(comingUpOutsideFacts(LOCATIONS, []).zeroPicks).toBe(true);
   });
 
+  it('pins isDarkSkyLocation on odd Bortle values', () => {
+    expect(isDarkSkyLocation({})).toBe(false);
+    expect(isDarkSkyLocation({ bortleClass: undefined })).toBe(false);
+    expect(isDarkSkyLocation({ bortleClass: null })).toBe(false);
+    expect(isDarkSkyLocation({ bortleClass: 0 })).toBe(true);
+    expect(isDarkSkyLocation({ bortleClass: '4' })).toBe(true);
+    expect(isDarkSkyLocation({ bortleClass: 4 })).toBe(true);
+    expect(isDarkSkyLocation({ bortleClass: 5 })).toBe(false);
+  });
+
   it('says nothing about a roster that has not loaded', () => {
     expect(outsideLineText('coastal', comingUpOutsideFacts([], [1]))).toBeNull();
   });
@@ -281,11 +291,69 @@ describe('Coming up — the sub-regions door (item 12)', () => {
 
   it('gives a reader with no picks the Choose button only', async () => {
     renderPane([...COAST, ...DARK], { briefing: { allowedLocationIds: [] }, status: FIRST_CHOICE });
-    const door = screen.getByTestId('coming-up-subregion-door');
+    const door = await screen.findByTestId('coming-up-subregion-door');
     expect(await within(door).findByTestId('coming-up-subregion-action')).toHaveTextContent('Choose your sub-regions');
     expect(within(door).queryByTestId('coming-up-subregion-status-line')).toBeNull();
     expect(screen.queryByTestId('coming-up-subregions-coast-upsell-door')).toBeNull();
     expect(screen.getAllByTestId('coming-up-subregion-door')).toHaveLength(1);
+  });
+});
+
+describe('Coming up — residuals and filters', () => {
+  it('does not let an untyped allowed place suppress the coastal line', () => {
+    const untyped = { id: 9, name: 'Nowhere', locationType: [], bortleClass: 6 };
+    renderPane([COAST[0]], { briefing: { allowedLocationIds: [9] }, locations: [...LOCATIONS, untyped] });
+    expect(screen.getByTestId('coming-up-outside-line')).toHaveTextContent(/are on the coast/);
+  });
+
+  it('draws one door on a mixed tab, on the first entry, with that entry subject', () => {
+    renderPane([...COAST, ...DARK], { briefing: { allowedLocationIds: [4] } });
+    const doors = screen.getAllByTestId('coming-up-subregion-door');
+    expect(doors).toHaveLength(1);
+    expect(doors[0]).toHaveAttribute('data-subject', 'coastal');
+    expect(within(screen.getAllByTestId('coming-up-entry')[0]).getByTestId('coming-up-subregion-door')).toBe(doors[0]);
+  });
+
+  it('moves the door to the first visible entry when the filter changes', () => {
+    renderPane([...COAST, ...DARK], { briefing: { allowedLocationIds: [4] } });
+    fireEvent.click(screen.getByRole('button', { name: /Night sky/ }));
+    const doors = screen.getAllByTestId('coming-up-subregion-door');
+    expect(doors).toHaveLength(1);
+    expect(doors[0]).toHaveAttribute('data-subject', 'darkSky');
+    expect(screen.getAllByTestId('coming-up-entry')[0]).toContainElement(doors[0]);
+  });
+
+  it('draws no line on a withheld, chipless door', () => {
+    mockBriefing = { tideLocked: false, allowedLocationIds: [4] };
+    getSubRegions.mockResolvedValue(OPEN);
+    render(
+      <SubRegionStatusProvider enabled onOpen={vi.fn()}>
+        <WindowFirstComingUp
+          id="p" labelledBy="t" status="ready" todayStr={TODAY} locations={LOCATIONS}
+          events={{ entries: [entry('c1', 'coastal-spots', '2026-08-12', { endDate: '2026-09-30' })], counts: COUNTS }}
+          forecastDates={[]}
+          onRetry={vi.fn()} onGoToPlan={vi.fn()} onShowOnMap={vi.fn()} onMarkSeen={vi.fn()}
+        />
+      </SubRegionStatusProvider>,
+    );
+    expect(screen.getByTestId('coming-up-action')).toHaveAttribute('data-withheld', 'true');
+    expect(screen.queryByTestId('coming-up-outside-line')).toBeNull();
+  });
+
+  it('draws no empty door row when there is nothing to put in it', () => {
+    mockBriefing = { tideLocked: false, allowedLocationIds: [] };
+    getSubRegions.mockResolvedValue(FIRST_CHOICE);
+    render(
+      <SubRegionStatusProvider enabled>
+        <WindowFirstComingUp
+          id="p" labelledBy="t" status="ready" todayStr={TODAY} locations={LOCATIONS}
+          events={{ entries: [COAST[0]], counts: COUNTS }}
+          onRetry={vi.fn()} onGoToPlan={vi.fn()} onShowOnMap={vi.fn()} onMarkSeen={vi.fn()}
+        />
+      </SubRegionStatusProvider>,
+    );
+    expect(screen.getByTestId('coming-up-outside-line')).toBeInTheDocument();
+    expect(screen.queryByTestId('coming-up-subregion-door')).toBeNull();
   });
 });
 

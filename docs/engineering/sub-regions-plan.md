@@ -647,7 +647,8 @@ The surface notes are in `docs/engineering/reference/plan-tab.md` (*Outside your
 - **The roster reaches the pane as a prop** (`locations`, from `WindowFirstShell`), not through the briefing context; the shaped switch is the context's `allowedLocationIds`. An unshaped body or a missing roster draws nothing, and the pane's markup is unchanged.
 - **The line is silent until the roster loads**, and not drawn on an entry whose door is withheld (no row to put it under). A one-day entry reads "This day opens" / "This night opens".
 - **The door count is the roster's**, per the plan ("n by the coastal predicate"), not the reader's. At a roster of one the body drops "all" and the range ("Pro rates the coastal spot on every morning and evening of the run.").
-- **One door covers both subjects.** It goes on the first entry that shows either line, so a tab with coastal and dark-sky entries still has one.
+- **One door per tab; it takes the first line's subject.** It goes on the first entry that shows either line and carries that entry's subject (coastal or dark-sky), so a mixed tab still has exactly one. It draws no wrapper when there is neither a Settings opener nor a Pro door to show.
+- **Residual (accepted):** coastal stays the strict SEASCAPE test, since widening it would make the line false. An allowed place with no location type therefore does not suppress the line, while the Map's type filter lets an untyped place through, so the coastal map view can show it. A test pins it.
 - **Not done:** no browser pass (no backend or browser was started); the claims are tested, not seen.
 
 ## Appendix A — allocation (production roster, 2026-10-26)
