@@ -13,6 +13,7 @@ import { resolveMode } from '../utils/scoreRamp.js';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 import { apiErrorMessage } from '../utils/apiError.js';
 import { BUSY_BUTTON, BUSY_BUTTON_DANGER } from '../utils/busyButton.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 import useGeolocationPostcode from '../hooks/useGeolocationPostcode.js';
 import { colourAfterRead, createColourSaveQueue, saveColourInTurn } from '../utils/colourSaveQueue.js';
 
@@ -70,6 +71,7 @@ export default function UserSettingsModal({
   // True while a sub-region dialog (the phone picker sheet, or the save confirmation) is over this one:
   // `Modal`'s `stacked` then makes this layer inert so only one dialog is ever THE modal.
   const [subRegionsStacked, setSubRegionsStacked] = useState(false);
+  const isMobile = useIsMobile();
   // The read on opening starts through the newest callback without the read re-running when the
   // callback's identity changes — it is made once, from a mount effect.
   const startSettingsReadRef = useRef(startSettingsRead);
@@ -607,6 +609,7 @@ export default function UserSettingsModal({
       <Modal
         label="Drive times updated"
         onClose={dismissRefreshResult}
+        closeOnEscape
         restoreFocusFallback={restoreFocusFallback}
         data-testid="settings-modal"
       >
@@ -631,24 +634,10 @@ export default function UserSettingsModal({
     );
   }
 
-  return (
-    <Modal
-      label="Settings"
-      onClose={closeUnlessDeleting}
-      // The dialog is already four sections tall and the open danger zone adds a field, an error
-      // line and two buttons: on a short or keyboard-shortened phone the centred panel would clip
-      // at both ends with no way to scroll. `Modal`'s root is a definite-height flex box, so
-      // `max-h-full` caps the panel and `overflow-y-auto` scrolls the rest.
-      className="max-h-full overflow-y-auto"
-      stacked={subRegionsStacked}
-      restoreFocusFallback={restoreFocusFallback}
-      data-testid="settings-modal"
-    >
-      <div key="settings" ref={viewRef} className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-plex-text">Settings</h2>
-        <button onClick={closeUnlessDeleting} className="text-plex-text-muted hover:text-plex-text text-lg" aria-label="Close">&times;</button>
-      </div>
-
+  // The body, built once so the phone and the wider layouts render the same nodes. On a phone it is
+  // wrapped in its own scroller below; elsewhere it is a direct child of the panel, as it always was.
+  const body = (
+    <>
       {loading ? (
         <p className="text-sm text-plex-text-muted py-4">Loading…</p>
       ) : settings ? (
@@ -1068,6 +1057,39 @@ export default function UserSettingsModal({
       ) : (
         <p className="text-sm text-plex-error py-4">Failed to load settings.</p>
       )}
+    </>
+  );
+
+  return (
+    <Modal
+      label="Settings"
+      onClose={closeUnlessDeleting}
+      // Escape does what the × does (a delete in flight still refuses, via `closeUnlessDeleting`).
+      // It is withheld while the sub-region sheet or its save confirmation is over this dialog: that
+      // layer's own Escape closes it first, and `Modal` requires a stacked layer to stand down or one
+      // press would answer both. The desktop inline picker is not a dialog, so Escape closes Settings.
+      closeOnEscape={!subRegionsStacked}
+      // The dialog is already four sections tall and the open danger zone adds a field, an error
+      // line and two buttons: on a short or keyboard-shortened phone the centred panel would clip
+      // at both ends with no way to scroll. `Modal`'s root is a definite-height flex box, so
+      // `max-h-full` caps the panel and `overflow-y-auto` scrolls the rest. On a phone the panel does
+      // not scroll: the body below does, so the header (and its ×) can never be scrolled off screen
+      // by the sub-region picker's `scrollIntoView`.
+      className={isMobile ? 'max-h-full' : 'max-h-full overflow-y-auto'}
+      stacked={subRegionsStacked}
+      restoreFocusFallback={restoreFocusFallback}
+      data-testid="settings-modal"
+    >
+      <div key="settings" ref={viewRef} className={`flex items-center justify-between${isMobile ? ' shrink-0' : ''}`}>
+        <h2 className="text-lg font-semibold text-plex-text">Settings</h2>
+        <button onClick={closeUnlessDeleting} className="text-plex-text-muted hover:text-plex-text text-lg" aria-label="Close">&times;</button>
+      </div>
+
+      {isMobile ? (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="settings-body">
+          {body}
+        </div>
+      ) : body}
     </Modal>
   );
 }
