@@ -92,7 +92,7 @@ import { useOutsideDismiss } from '../hooks/useOutsideDismiss.js';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import MapWindowPanel from './map/MapWindowPanel.jsx';
 import {
-  buildPanelRegionRows, buildRegionLocationRows, windowPanelNote, shapedWindowPanelNote, REGION_PANEL_LOCATIONS,
+  buildPanelRegionRows, buildRegionLocationRows, windowPanelNote, shapedWindowPanelNote, shapedNoteLead, REGION_PANEL_LOCATIONS,
 } from '../utils/mapDrilldown.js';
 import MapRegionPanel from './map/MapRegionPanel.jsx';
 import { picksNoteText } from '../utils/pickGeography.js';
@@ -2941,7 +2941,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * declaration for why an override, not a second controller, is what keeps a region jump and an
    * ordinary scope press from racing each other's `fitBounds` call in the same commit.
    */
-  const picksSegment = shaped && (heat?.allowedCount ?? 0) > 0;
+  const picksSegment = shaped && heat?.allowedBounds != null;
   const picksBounds = !picksSegment || picksView == null ? null
     : (picksView === 'picks' ? heat?.allowedBounds : heat?.catalogueBounds) || null;
   const heatBounds = jumpFitOverride
@@ -6084,13 +6084,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     onSelectScope: (next) => {
       if (next) { resetToMyArea(); return; }
       setJumpFitOverride(null);
+      setPicksView(null);
       setHeatArea(false);
       setHeatFitNonce((n) => n + 1);
     },
     areaLabel: heat?.areaLabel,
     // Sub-regions S5a-2: the shaped body's own scope segment, with at least one pick; camera only.
     picksScope: picksSegment ? {
-      view: picksView ?? 'all',
+      view: picksView,
       onSelect: (next) => {
         setJumpFitOverride(null);
         setPicksView(next);
@@ -6841,6 +6842,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           "night" answer. */}
         {windowPanelOpen && activeMapEvent && panelRegionRow && (
           <MapRegionPanel
+            key={panelRegionRow.name}
             row={activeMapEvent}
             region={panelRegionRow}
             locations={panelLocations}
@@ -6888,6 +6890,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 scopeIsArea: heatArea && Boolean(heat?.hasHome),
               })}
             rows={panelRows}
+            noteStrong={regionPicks && activeMapEvent?.kind === EVENT_KIND.SOLAR
+              ? shapedNoteLead({ rows: panelRows, leadRegion: evVerdicts.get(activeMapEvent.id)?.regionName ?? null }) : null}
             scopeIsArea={heatArea && Boolean(heat?.hasHome)}
             onClose={closeDrilldown}
             // ⚠️ The row's NAME is stored, keyed to the window it was pressed on — never the

@@ -39,6 +39,18 @@ describe('regionPickSummaries', () => {
     expect(lakes.places).toBe(3);
   });
 
+  it('counts the outside places among the sky subjects separately, for a picked row\'s own group', () => {
+    const spots = [
+      { id: 1, name: 'a', regionName: 'R', skySubject: true },
+      { id: 2, name: 'b', regionName: 'R', skySubject: true },
+      { id: 3, name: 'hide', regionName: 'R', skySubject: false },
+    ];
+    const r = regionPickSummaries(spots, [1]).get('R');
+
+    expect(r.places - r.allowedPlaces).toBe(2);
+    expect(r.skyOutside).toBe(1);
+  });
+
   it('lists a region sub-regions by name with their place counts, and leaves a place with none out of the list', () => {
     const lakes = regionPickSummaries(SPOTS, []).get('The Lakes');
 

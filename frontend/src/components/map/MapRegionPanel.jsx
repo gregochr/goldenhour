@@ -104,7 +104,8 @@ export default function MapRegionPanel({
   const shapedSome = picks != null && picks.allowedPlaces > 0;
   const outside = picks?.outsidePlaces ?? [];
   const outsideSubCount = new Set(outside.filter((p) => p.subRegionName).map((p) => p.subRegionId ?? p.subRegionName)).size;
-  const collapsed = outside.length > OUTSIDE_COLLAPSE_OVER && !showAllOutside;
+  const collapsible = outside.length > OUTSIDE_COLLAPSE_OVER;
+  const collapsed = collapsible && !showAllOutside;
   const outsideShown = collapsed ? outside.slice(0, OUTSIDE_VISIBLE_WHEN_COLLAPSED) : outside;
   const stats = picks == null ? regionStatSegments(region) : [];
   // ⚠️ The FULL name, and the design says so twice: splitting on whitespace produced "Four days at
@@ -334,16 +335,17 @@ export default function MapRegionPanel({
                 )}
               </button>
             ))}
-            {collapsed && (
+            {collapsible && (
+              // A real toggle that stays mounted, so focus stays on it and Escape keeps working.
               <button
                 type="button"
                 data-testid="wf-reg-panel-show-all"
                 className="wf-reg-show-all"
-                aria-expanded="false"
-                onClick={() => setShowAllOutside(true)}
+                aria-expanded={showAllOutside}
+                onClick={() => setShowAllOutside((v) => !v)}
               >
-                {`Show all ${outside.length} `}
-                <span aria-hidden="true">▾</span>
+                {showAllOutside ? 'Show fewer ' : `Show all ${outside.length} `}
+                <span aria-hidden="true">{showAllOutside ? '▴' : '▾'}</span>
               </button>
             )}
           </div>

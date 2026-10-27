@@ -216,7 +216,11 @@ function shapedRowFields(region, summary) {
   return {
     shaped: true,
     hasPicks,
-    outsideCount: Math.max(0, (summary?.places ?? 0) - (summary?.allowedPlaces ?? 0)),
+    // A picked row's "· n more outside" counts the group its "k of m" does (the sky subjects); a row with no pick
+    // counts every place it holds, which is what the region panel lists.
+    outsideCount: Math.max(0, hasPicks
+      ? (summary.skyOutside ?? (summary.places - summary.allowedPlaces))
+      : ((summary?.places ?? 0) - (summary?.allowedPlaces ?? 0))),
     bestRating: hasPicks ? finite(region.picksBestRating) : null,
   };
 }
@@ -258,6 +262,21 @@ export function shapedWindowPanelNote({ rows, leadRegion }) {
   const word = best.verdictLabel;
   return `Best in ${inSentence(lead.name)}, outside your sub-regions. `
     + `In your sub-regions, ${inSentence(best.name)} is ${word}${best.tier === lead.tier ? ' too' : ''}.`;
+}
+
+/**
+ * The bare name of the lead region to set in bold in {@link shapedWindowPanelNote}'s first sentence (design 03),
+ * or null when the note has no such sentence.
+ *
+ * @param {object} args the same as {@link shapedWindowPanelNote}
+ * @returns {?string}
+ */
+export function shapedNoteLead({ rows, leadRegion }) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.some((row) => row.hasPicks)) return null;
+  const lead = list.find((row) => row.name === leadRegion);
+  if (!lead || lead.hasPicks) return null;
+  return inSentence(lead.name).replace(/^the /, '');
 }
 
 /**

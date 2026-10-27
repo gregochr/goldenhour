@@ -6548,7 +6548,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 }
 .wf-reg-sub {
   display: flex;
-  flex-direction: column;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 .wf-reg-sub-name {
@@ -6559,6 +6561,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   white-space: nowrap;
 }
 .wf-reg-sub-count {
+  flex: none;
+  text-align: right;
   font-family: var(--font-mono);
   font-size: 9.5px;
   color: var(--color-plex-text-secondary);
@@ -6580,6 +6584,14 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 .wf-reg-outside-title { font-weight: 600; }
 .wf-reg-outside-count { letter-spacing: 0.02em; text-align: right; }
 .wf-reg-outside-row { grid-template-columns: minmax(0, 1fr); }
+/* Phone only: "Outside your sub-regions · n places" wraps rather than losing its first words to an ellipsis. */
+@media (max-width: 639px) {
+  .wf-win-panel-stat[data-outside='true'] {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+}
 .wf-reg-show-all {
   width: 100%;
   padding: 8px 12px;

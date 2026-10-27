@@ -45,7 +45,7 @@ import { countWord } from '../../utils/pickGeography.js';
  * increment's most repeated defect after focus loss.
  */
 export default function MapWindowPanel({
-  row, verdict, note, rows, scopeIsArea = true, onClose, onSelectRegion, focusRegion = null,
+  row, verdict, note, noteStrong = null, rows, scopeIsArea = true, onClose, onSelectRegion, focusRegion = null,
 }) {
   const rootRef = useRef(null);
   const returnRef = useRef(null);
@@ -163,7 +163,17 @@ export default function MapWindowPanel({
       </div>
 
       {/* A shaped reader with no pick in any region on the panel has no note (S5a-2): an empty string draws none. */}
-      {note && <p className="wf-win-panel-note" data-testid="wf-win-panel-note">{note}</p>}
+      {note && (
+        <p className="wf-win-panel-note" data-testid="wf-win-panel-note">
+          {noteStrong && note.includes(noteStrong) ? (
+            <>
+              {note.slice(0, note.indexOf(noteStrong))}
+              <b>{noteStrong}</b>
+              {note.slice(note.indexOf(noteStrong) + noteStrong.length)}
+            </>
+          ) : note}
+        </p>
+      )}
 
       <div className="wf-win-panel-rows">
         {rows.map((region) => (
@@ -184,7 +194,11 @@ export default function MapWindowPanel({
           >
             <span className="wf-win-panel-name">{region.name}</span>
             {' '}
-            <span className="wf-win-panel-stat" data-testid="wf-win-panel-stat">
+            <span
+              className="wf-win-panel-stat"
+              data-testid="wf-win-panel-stat"
+              data-outside={region.shaped && !region.hasPicks ? 'true' : undefined}
+            >
               {region.shaped && !region.hasPicks ? (
                 // Sub-regions S5a-2: a region with none of the reader's places. The words are always
                 // "Outside your sub-regions", never "0 of 0" and never a dash.
@@ -291,6 +305,8 @@ MapWindowPanel.propTypes = {
   verdict: PropTypes.shape({ tier: PropTypes.string.isRequired }),
   /** From `mapDrilldown.windowPanelNote`; for a shaped body `shapedWindowPanelNote`, `''` drawing none. */
   note: PropTypes.string.isRequired,
+  /** The lead region's bare name, set in bold inside the note (shaped body only). */
+  noteStrong: PropTypes.string,
   /** From `mapDrilldown.buildPanelRegionRows`. */
   rows: PropTypes.arrayOf(PropTypes.shape({
     name: PropTypes.string.isRequired,

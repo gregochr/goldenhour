@@ -44,12 +44,16 @@ export function regionPickSummaries(spots, allowedIds) {
     let region = regions.get(regionName);
     if (!region) {
       region = {
-        places: 0, allowedPlaces: 0, outsidePlaces: [], bySub: new Map(),
+        places: 0, allowedPlaces: 0, skyPlaces: 0, skyAllowed: 0, outsidePlaces: [], bySub: new Map(),
       };
       regions.set(regionName, region);
     }
     const isAllowed = spot.id != null && allowed.has(spot.id);
     region.places += 1;
+    if (spot.skySubject !== false) {
+      region.skyPlaces += 1;
+      if (isAllowed) region.skyAllowed += 1;
+    }
     if (isAllowed) {
       region.allowedPlaces += 1;
     } else {
@@ -76,6 +80,8 @@ export function regionPickSummaries(spots, allowedIds) {
     out.set(name, {
       places: region.places,
       allowedPlaces: region.allowedPlaces,
+      // Outside places among the sky subjects only: the group a picked row's "k of m" counts over.
+      skyOutside: region.skyPlaces - region.skyAllowed,
       outsidePlaces: region.outsidePlaces.sort((a, b) => compareNames(a.name, b.name)),
       subRegions,
       pickedNames: subRegions.filter((s) => s.picked).map((s) => s.name),

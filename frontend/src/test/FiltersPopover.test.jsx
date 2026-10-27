@@ -488,16 +488,35 @@ describe('FiltersPopover — the panel fits the map frame', () => {
 describe('FiltersPopover — the scope segment of a body shaped by the reader\'s picks (sub-regions S5a-2)', () => {
   const picksScope = (view = 'all') => ({ view, onSelect: vi.fn() });
 
-  it('shows Your sub-regions | Everywhere in place of the home segment, with the current view pressed', () => {
+  it('shows Your sub-regions | Everywhere with the current view pressed, and neither pressed before a press', () => {
     const scope = picksScope('picks');
-    render(<FiltersPopover {...baseProps({ open: true, hasHome: true, picksScope: scope })} />);
+    const { unmount } = render(<FiltersPopover {...baseProps({ open: true, hasHome: false, picksScope: scope })} />);
 
     expect(screen.getByTestId('wf-filters-scope-picks')).toHaveTextContent('Your sub-regions');
     expect(screen.getByTestId('wf-filters-scope-picks')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('wf-filters-scope-everywhere')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.queryByTestId('wf-filters-scope-home')).toBeNull();
-    expect(screen.queryByTestId('wf-filters-scope-all')).toBeNull();
-    expect(screen.queryByText(/My area|Whole catalogue/)).toBeNull();
+    unmount();
+    render(<FiltersPopover {...baseProps({ open: true, hasHome: false, picksScope: picksScope(null) })} />);
+    expect(screen.getByTestId('wf-filters-scope-picks')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('wf-filters-scope-everywhere')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('keeps the My area / Everywhere row as well for a reader with a home or an away origin, as a second row', () => {
+    const scope = picksScope(null);
+    const onSelectScope = vi.fn();
+    render(<FiltersPopover {...baseProps({
+      open: true, hasHome: true, heatArea: true, onSelectScope, picksScope: scope,
+    })}
+    />);
+
+    expect(screen.getByTestId('wf-filters-picks-scope')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-filters-scope-home')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByTestId('wf-filters-scope-all'));
+    expect(onSelectScope).toHaveBeenCalledWith(false);
+    fireEvent.click(screen.getByTestId('wf-filters-scope-picks'));
+    expect(onSelectScope).toHaveBeenCalledTimes(1);
+    expect(scope.onSelect).toHaveBeenCalledWith('picks');
   });
 
   it('shows even when there is no home: a Lite reader has no reach, so the old segment never shows for them', () => {

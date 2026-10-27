@@ -309,10 +309,11 @@ describe('MapView, shaped chrome — the scope segment moves the camera and noth
     expect(screen.getByTestId('wf-filters-scope-home')).toBeInTheDocument();
   });
 
-  it('opens on the roster frame (Everywhere pressed) and fits the allowed places, then the roster, on press', async () => {
+  it('opens with neither pressed, so the camera is where it always was, and fits the allowed places, then the roster, on press', async () => {
     await renderMap({ heat: shapedHeat() });
     openFilters();
-    expect(screen.getByTestId('wf-filters-scope-everywhere')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('wf-filters-scope-everywhere')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('wf-filters-scope-picks')).toHaveAttribute('aria-pressed', 'false');
 
     fireEvent.click(screen.getByTestId('wf-filters-scope-picks'));
     expect(fitBounds).toHaveBeenLastCalledWith(ALLOWED_BOUNDS, expect.any(Object));
@@ -336,6 +337,31 @@ describe('MapView, shaped chrome — the scope segment moves the camera and noth
     expect(heatLayerProps.last.points.map((p) => p.id)).toEqual(pointsBefore);
     expect(heatLayerProps.last.outside.map((p) => p.id).sort()).toEqual(outsideBefore);
     expect(labelProps.last.spots.map((s) => s.name).sort()).toEqual(spotsBefore);
+  });
+});
+
+describe('MapView, shaped chrome — a reader with a home keeps their own scope row', () => {
+  it('renders both segments; My area / Everywhere still toggles heatArea and the picks one never does', async () => {
+    await renderMap({ heat: { ...shapedHeat(), hasHome: true, areaBounds: ALLOWED_BOUNDS } });
+    openFilters();
+    expect(screen.getByTestId('wf-filters-scope-home')).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByTestId('wf-filters-scope-picks'));
+    expect(screen.getByTestId('wf-filters-scope-home')).toHaveAttribute('aria-pressed', 'true');
+    expect(fitBounds).toHaveBeenLastCalledWith(ALLOWED_BOUNDS, expect.any(Object));
+
+    fireEvent.click(screen.getByTestId('wf-filters-scope-all'));
+    expect(screen.getByTestId('wf-filters-scope-all')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('wf-filters-scope-picks')).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByTestId('wf-filters-scope-picks'));
+    expect(screen.getByTestId('wf-filters-scope-all')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('shows the picks segment only when the served allowed places can be framed', async () => {
+    await renderMap({ heat: { ...shapedHeat(), allowedBounds: null } });
+    openFilters();
+
+    expect(screen.queryByTestId('wf-filters-picks-scope')).toBeNull();
   });
 });
 
@@ -466,10 +492,11 @@ describe('MapView, shaped chrome — the window dropdown and the pill', () => {
     await renderMap({ heat: shapedHeat() });
     fireEvent.click(screen.getByTestId('wf-win-pill'));
 
+    // The sunset has a verdict (and no served best star): no dash. The sunrise has no verdict at all: it keeps one.
     const rows = screen.getAllByTestId('wf-win-row');
-    expect(rows.length).toBeGreaterThan(0);
-    rows.forEach((row) => expect(row.textContent).not.toMatch(FORBIDDEN));
-    expect(screen.getByTestId('wf-win-menu').querySelector('.wf-win-row-unscored')).toBeNull();
+    const sunset = rows.find((r) => /sunset/i.test(r.textContent));
+    expect(sunset.textContent).not.toMatch(FORBIDDEN);
+    expect(sunset.querySelector('.wf-win-row-unscored')).toBeNull();
   });
 
   it('keeps the dash for a window with no served best star on a body that is not shaped', async () => {

@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  buildPanelRegionRows, shapedWindowPanelNote, windowPanelNote,
+  buildPanelRegionRows, shapedWindowPanelNote, shapedNoteLead, windowPanelNote,
 } from '../utils/mapDrilldown.js';
 
 const DATE = '2026-01-15';
@@ -22,9 +22,9 @@ const RECORDS = [
 const INDEX = new Map(RECORDS.map((r) => [`${DATE}|SUNSET|${r.regionName}`, r]));
 const NAMES = RECORDS.map((r) => r.regionName);
 
-const summary = (places, allowedPlaces) => ({ places, allowedPlaces });
+const summary = (places, allowedPlaces, skyOutside) => ({ places, allowedPlaces, skyOutside });
 const PICKS = new Map([
-  ['The Lake District', summary(10, 4)],
+  ['The Lake District', summary(10, 4, 5)],
   ['The Yorkshire Dales', summary(62, 0)],
   ['Northumberland & Tyneside', summary(21, 21)],
   ['North York Moors', summary(36, 0)],
@@ -53,8 +53,9 @@ describe('buildPanelRegionRows — a shaped body', () => {
   it('marks each row with its picks, its outside count and the served best, with none for a region with no pick', () => {
     const rows = new Map(build(PICKS).map((r) => [r.name, r]));
 
+    // 6 places lie outside, 5 of them sky subjects: a picked row counts over the same group as its "k of m".
     expect(rows.get('The Lake District')).toMatchObject({
-      shaped: true, hasPicks: true, outsideCount: 6, bestRating: 4,
+      shaped: true, hasPicks: true, outsideCount: 5, bestRating: 4,
     });
     expect(rows.get('Northumberland & Tyneside')).toMatchObject({ hasPicks: true, outsideCount: 0, bestRating: 5 });
     expect(rows.get('The Yorkshire Dales')).toMatchObject({
@@ -131,6 +132,11 @@ describe('shapedWindowPanelNote', () => {
     const note = shapedWindowPanelNote({ rows: rows(), leadRegion: 'The Yorkshire Dales' });
 
     expect(note).not.toMatch(/not rated|not scored|—|\b0\b/i);
+  });
+
+  it('names the lead region to set in bold, only in the lead-outside sentence', () => {
+    expect(shapedNoteLead({ rows: rows(), leadRegion: 'The Yorkshire Dales' })).toBe('Yorkshire Dales');
+    expect(shapedNoteLead({ rows: rows(), leadRegion: 'Northumberland & Tyneside' })).toBeNull();
   });
 
   it('leaves the unshaped note exactly as it was', () => {

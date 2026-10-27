@@ -258,9 +258,10 @@ export default function FiltersPopover({
           D-6, which is the unrelated maxZoom-16 decision): with no postcode "My area" and
           "Everywhere" frame the same box over the same spots, and a control whose every
           press does nothing is banned outright. ── */}
-      {/* Sub-regions S5a-2: for a body the server shaped by the reader's picks, with at least one pick, the
-          scope segment is its own state. Lite has no reach, so the home segment below never shows for them.
-          CAMERA ONLY: it fits the allowed places or the roster and does not touch `heatArea` or any count. */}
+      {/* Sub-regions S5a-2: for a body the server shaped by the reader's picks, with allowed places to frame, a
+          second scope row. A reader with a home (or an away origin) keeps the My area / Everywhere row below as
+          it always was. CAMERA ONLY: this one fits the allowed places or the roster, touches neither `heatArea`
+          nor any count, and is pressed only after the reader presses it (`view` null: neither). */}
       {picksScope && (
         <div className="wf-filters-row" data-testid="wf-filters-picks-scope">
           <span className="wf-filters-key">Scope</span>
@@ -286,7 +287,7 @@ export default function FiltersPopover({
           </div>
         </div>
       )}
-      {hasHome && !picksScope && (
+      {hasHome && (
         <div className="wf-filters-row">
           <span className="wf-filters-key">Scope</span>
           <div className="wf-filters-seg" role="group" aria-label="Map area">
@@ -408,7 +409,7 @@ FiltersPopover.propTypes = {
    * else. Absent, the home segment above is the only scope control, exactly as before.
    */
   picksScope: PropTypes.shape({
-    view: PropTypes.oneOf(['picks', 'all']).isRequired,
+    view: PropTypes.oneOf(['picks', 'all']),
     onSelect: PropTypes.func.isRequired,
   }),
   areaLabel: PropTypes.string,

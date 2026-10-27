@@ -656,6 +656,7 @@ export default function WindowControl({
                     onSelect={() => selectRow(row)}
                     ratedCount={ratedCounts?.get(row.id) ?? null}
                     shaped={shaped}
+                    verdict={verdicts?.get(row.id) ?? null}
                   />
                 ))}
               </div>
@@ -682,6 +683,7 @@ export default function WindowControl({
                     active={row.id === active?.id}
                     onSelect={() => selectRow(row)}
                     shaped={shaped}
+                    verdict={verdicts?.get(row.id) ?? null}
                   />
                 ))}
               </div>
@@ -1045,7 +1047,9 @@ const CHANNEL_ICON = {
 };
 
 /** One dropdown row — kind chip · label+time · `N★ best` with swatch · topic icons. */
-function WindowRow({ row, active, onSelect, ratedCount = null, shaped = false }) {
+function WindowRow({
+  row, active, onSelect, ratedCount = null, shaped = false, verdict = null,
+}) {
   const icons = useMemo(() => {
     const seen = new Set();
     const out = [];
@@ -1104,9 +1108,10 @@ function WindowRow({ row, active, onSelect, ratedCount = null, shaped = false })
             <i aria-hidden="true" style={{ background: rampHex(row.bestRating) }} />
             {row.bestRating}&#9733; best
           </>
-        ) : shaped ? null : (
+        ) : shaped && row.kind !== 'hw' && (row.kind !== 'solar' || verdict) ? null : (
           // A shaped body (S5a-2) carries no served best star for a window (the server strips it), so a dash
-          // here would claim "unscored" of windows whose places are merely outside the picks: nothing is drawn.
+          // here would claim "unscored" of a window that HAS a verdict, or of a night: nothing is drawn. The
+          // High-water row and a solar row with no verdict keep theirs (no verdict is true of them).
           <span className="wf-win-row-unscored">&mdash;</span>
         )}
       </span>
@@ -1185,6 +1190,7 @@ PastWindowRow.propTypes = {
 
 WindowRow.propTypes = {
   shaped: PropTypes.bool,
+  verdict: PropTypes.shape({ tier: PropTypes.string }),
   row: PropTypes.shape({
     id: PropTypes.string.isRequired,
     label: PropTypes.string.isRequired,

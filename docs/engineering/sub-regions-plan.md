@@ -549,8 +549,8 @@ phone key*). The choices that were the builder's to make:
   status fetch (the S4 GET, outside `swrCache`, refetched on `subRegionsVersion`) is still its own.
 - **Stand-down precedence (decision 6).** A stood-down region label keeps its two lines and takes no picks line; a stood region
   always holds a pick, so no information is lost, and the label's measured box does not grow.
-- **Scope segment (decision 7).** Lite has no reach, so `hasHome` is false and the old segment never showed; the new segment
-  replaces it whenever the body is shaped with a pick. `picksView` is its own state feeding `heatBounds` only (null until
+- **Scope segment (decision 7).** A Lite reader can have a `hasHome` (a postcode or an away origin), so the old segment stays
+  exactly as it was and the new one is a second row, shown whenever `heat.allowedBounds` can be framed. `picksView` is its own state feeding `heatBounds` only (null until
   pressed, so the camera opens where it always did, and the roster frame shows pressed). `resetToMyArea` clears it.
 - **Window-panel note (decision 15).** The handoff's "otherwise the note is unchanged" would print "Regions rank on that
   average" over a body with no means, so a shaped body whose lead region holds a pick gets one sentence on the order instead.

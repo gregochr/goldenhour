@@ -110,6 +110,20 @@ describe('MapWindowPanel — a shaped body', () => {
     expect(screen.queryByTestId('wf-win-panel-note')).toBeNull();
   });
 
+  it('sets the lead region name in bold inside the note', () => {
+    renderWindow([NONE, SOME], { note: 'Best in the Yorkshire Dales, outside your sub-regions.', noteStrong: 'Yorkshire Dales' });
+
+    expect(screen.getByTestId('wf-win-panel-note').querySelector('b')).toHaveTextContent('Yorkshire Dales');
+    expect(screen.getByTestId('wf-win-panel-note')).toHaveTextContent('Best in the Yorkshire Dales, outside your sub-regions.');
+  });
+
+  it('marks a no-pick stat so the phone can wrap it rather than cut it', () => {
+    renderWindow([NONE, SOME]);
+
+    expect(within(rowOf('The Yorkshire Dales')).getByTestId('wf-win-panel-stat')).toHaveAttribute('data-outside', 'true');
+    expect(within(rowOf('Northumberland & Tyneside')).getByTestId('wf-win-panel-stat')).not.toHaveAttribute('data-outside');
+  });
+
   it('draws the note it is given', () => {
     renderWindow([NONE, SOME], { note: 'Best in the Yorkshire Dales, outside your sub-regions.' });
 
@@ -250,15 +264,30 @@ describe('MapRegionPanel — a shaped body', () => {
     expect(screen.queryByTestId('wf-reg-panel-show-all')).toBeNull();
   });
 
-  it('collapses past four: three rows and "Show all n", which then opens the whole list', () => {
+  it('collapses past four: three rows and "Show all n", a toggle that opens the list and folds it back', () => {
     renderRegion({ region: MIXED, picks: PICKED_MIXED(5) });
 
     expect(screen.getAllByTestId('wf-reg-panel-outside-row')).toHaveLength(3);
     const more = screen.getByTestId('wf-reg-panel-show-all');
     expect(more).toHaveTextContent('Show all 5');
+    expect(more).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(more);
     expect(screen.getAllByTestId('wf-reg-panel-outside-row')).toHaveLength(5);
-    expect(screen.queryByTestId('wf-reg-panel-show-all')).toBeNull();
+    expect(screen.getByTestId('wf-reg-panel-show-all')).toHaveTextContent('Show fewer');
+    expect(screen.getByTestId('wf-reg-panel-show-all')).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(screen.getByTestId('wf-reg-panel-show-all'));
+    expect(screen.getAllByTestId('wf-reg-panel-outside-row')).toHaveLength(3);
+  });
+
+  it('keeps focus on the toggle after expanding, so Escape still goes back', () => {
+    const { onBack } = renderRegion({ region: MIXED, picks: PICKED_MIXED(5) });
+    const more = screen.getByTestId('wf-reg-panel-show-all');
+
+    more.focus();
+    fireEvent.click(more);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-reg-panel-show-all'));
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+    expect(onBack).toHaveBeenCalled();
   });
 
   it('opens the location sheet from an outside row with the place', () => {

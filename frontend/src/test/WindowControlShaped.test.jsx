@@ -51,12 +51,23 @@ describe('WindowControl, shaped', () => {
     expect(screen.getByTestId('wf-win-pill').getAttribute('aria-label')).toMatch(/best 3 stars/);
   });
 
-  it('draws no dash in an unscored row of the dropdown', () => {
-    control({ shaped: true });
+  it('draws no dash in a row that has a verdict or is a night', () => {
+    control({ shaped: true, verdicts: new Map([[SUNSET.id, { tier: 'WORTH_IT' }]]) });
     fireEvent.click(screen.getByTestId('wf-win-pill'));
 
     expect(screen.getByTestId('wf-win-menu').querySelector('.wf-win-row-unscored')).toBeNull();
     screen.getAllByTestId('wf-win-row').forEach((row) => expect(row.textContent).not.toContain('—'));
+  });
+
+  it('keeps the dash for a solar row with no verdict and for the High-water row', () => {
+    const hw = {
+      id: `hw:${DAY}:HIGH_WATER`, kind: 'hw', eventType: 'HIGH_WATER', date: DAY, label: 'Wed high water',
+      dayLabel: 'Wed', time: '12:40', bestRating: null, scored: false, served: false, badges: [],
+    };
+    control({ shaped: true, events: [SUNSET, hw], activeIndex: 0 });
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    expect(screen.getByTestId('wf-win-menu').querySelectorAll('.wf-win-row-unscored')).toHaveLength(2);
   });
 
   it('draws the dash in the same row unshaped', () => {
