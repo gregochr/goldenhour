@@ -2665,6 +2665,7 @@ export default function WindowFirstShell({
         comingUpLastSeenDate={comingUpLastSeenDate}
         forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
         onMarkSeen={markSeen}
+        locations={locations}
       />
 
       {/* Hidden rather than unmounted: unmounting the pane on every tab change would discard the

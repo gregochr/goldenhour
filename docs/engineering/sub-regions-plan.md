@@ -315,7 +315,7 @@ ladder; frontend lint, Vitest, audit, build); the planner reviews the diff; one 
 The order deliberately differs from `pro-features-gate-plan.md` (client before server): here the flag keeps the
 server strip dark until S5's client is in, so S3 may land first.
 
-**S6 done (2026-10-27).** `photocast.sub-regions.enforce: true` in `application-prod.yml` (pinned by `SubRegionsProdYamlTest`; local and example stay `false`); `swrCache.js` `PREFIX` `v3` to `v4` (and the `photocast_swr:v3:` strings in `PlanErrorBoundary` and its test); *Freemium split* rewritten; the landing pages (`index.html`, `faq.html`, `terms.html`) say Lite ratings cover up to 3 sub-regions you choose. The owner releases the landing site with `release-landing.sh` together with the backend flip, never before. **S5b-2 (Coming up) follows after the flip.**
+**S6 done (2026-10-27).** `photocast.sub-regions.enforce: true` in `application-prod.yml` (pinned by `SubRegionsProdYamlTest`; local and example stay `false`); `swrCache.js` `PREFIX` `v3` to `v4` (and the `photocast_swr:v3:` strings in `PlanErrorBoundary` and its test); *Freemium split* rewritten; the landing pages (`index.html`, `faq.html`, `terms.html`) say Lite ratings cover up to 3 sub-regions you choose. The owner releases the landing site with `release-landing.sh` together with the backend flip, never before. **S5b-2 (Coming up) followed after the flip and is built.**
 
 ## §9 Open questions for the owner
 
@@ -638,6 +638,18 @@ The surface notes are in `docs/engineering/reference/plan-tab.md` (*Outside your
 - **A reader with no place of their own** gets no Spread row, no Best row, no thin count and no pool phrase on a card; the popup says **Choose your sub-regions in Settings to see ratings.** where it has no list, and the popup header leaves out its best line.
 - **Repaint cost** (measured with a scratch script, not committed, on a 260-place roster with 40 allowed; planning the veil and the outline for 8 thumbnails, the work this phase adds to a repaint): 21 ms at 160px cards, 21 ms at 240px and 25 ms at 360px, 2.6 to 3.2 ms per thumbnail, against 60 to 210 ms for a whole-matrix repaint already. The canvas draws (the veil's blur and clip, one stroked path) cannot be timed outside a browser and were not measured. A repaint happens per layout change, not per render. A cheap further saving if it ever bites: the grounds are the same in every window (the list is the reader's, not the window's), so one plan per card width would serve all eight.
 - **Accepted residual:** an allowed spot's `neighbourOutlier` is computed against all its neighbours (the server's guard sees every place), so a reader's place can be skipped in the Best row by a neighbour they cannot see. The star stays; the row may say "no clear pick".
+
+### S5b-2 build notes (Coming up)
+
+**The series is complete: S1 to S6, S5a-1..3, S5b-1 and S5b-2 are all built.** The surface notes are in `docs/engineering/reference/plan-tab.md` (*Outside your sub-regions on Coming up*), the licensed selection in `architecture-decisions.md`, the door in `roles-and-gating.md`. The choices that were the builder's to make:
+
+- **One shared predicate file.** `utils/locationPredicates.js` holds `isCoastalLocation` and `isDarkSkyLocation`; `MapView`'s two dark-sky filters now call the latter. The Map's coastal filter is a generic type-chip filter (a place with no type passes), so it is not the same function; the Coming up predicate is the plan's "contains `SEASCAPE`".
+- **The roster reaches the pane as a prop** (`locations`, from `WindowFirstShell`), not through the briefing context; the shaped switch is the context's `allowedLocationIds`. An unshaped body or a missing roster draws nothing, and the pane's markup is unchanged.
+- **The line is silent until the roster loads**, and not drawn on an entry whose door is withheld (no row to put it under). A one-day entry reads "This day opens" / "This night opens".
+- **The door count is the roster's**, per the plan ("n by the coastal predicate"), not the reader's. At a roster of one the body drops "all" and the range ("Pro rates the coastal spot on every morning and evening of the run.").
+- **One door per tab; it takes the first line's subject.** It goes on the first entry that shows either line and carries that entry's subject (coastal or dark-sky), so a mixed tab still has exactly one. It draws no wrapper when there is neither a Settings opener nor a Pro door to show.
+- **Residual (accepted):** coastal stays the strict SEASCAPE test, since widening it would make the line false. An allowed place with no location type therefore does not suppress the line, while the Map's type filter lets an untyped place through, so the coastal map view can show it. A test pins it.
+- **Not done:** no browser pass (no backend or browser was started); the claims are tested, not seen.
 
 ## Appendix A — allocation (production roster, 2026-10-26)
 

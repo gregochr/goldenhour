@@ -7,6 +7,7 @@ import { buildChronology, chipCounts, FOOTER } from '../utils/comingUpFeed.js';
 import { CHIP_GLYPHS } from '../utils/comingUpGlyphs.js';
 import { deriveBadge, selectSinceEntry } from '../utils/comingUpArrivals.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
+import { comingUpOutsideFacts, entrySubject, outsideLineText } from '../utils/comingUpOutside.js';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 
 /** Served counts default to zero, matching a payload that has not arrived yet or a degraded
@@ -81,14 +82,17 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  *                                     windows a lane's tap can open (Plan renders only six)
  * @param {function} [props.onGoToPlanWindow] `(key, topicType)` — a lane's tap on a window Plan
  *                                     has a card for: switches to Plan and opens that popup
+ * @param {Array} [props.locations] the served enabled roster (`/api/locations`): a Lite reader on a shaped
+ *                                     body gets the outside-your-sub-regions line from its coastal and
+ *                                     dark-sky facts (S5b-2); unused on every other body
  */
 export default function WindowFirstComingUp({
   id, labelledBy, hidden, status, events, hotTopics, todayStr, onRetry, onGoToPlan, onShowOnMap,
   comingUpLastSeenDate, onMarkSeen, forecastDates = null, openableKeys = null,
-  onGoToPlanWindow = undefined,
+  onGoToPlanWindow = undefined, locations = undefined,
 }) {
   const [activeFilter, setActiveFilter] = useState('all');
-  const { tideLocked } = useWindowFirstBriefing();
+  const { tideLocked, allowedLocationIds } = useWindowFirstBriefing();
 
   const counts = events?.counts ?? EMPTY_COUNTS;
   const totalEntries = events?.entries?.length ?? 0;
@@ -120,6 +124,27 @@ export default function WindowFirstComingUp({
       : null),
     [tideLocked, status, monthGroups],
   );
+  // S5b-2: a Lite reader whose body the server shaped by their sub-region picks. `outsideFacts` is null on every
+  // other body (Pro, Admin, enforcement off), so nothing below draws and the pane is unchanged. The line sits on
+  // every entry whose door row finds no matching allowed place; the ONE door goes on the first such entry,
+  // skipping the one that already carries the tide-light door, else the line stands alone.
+  const outsideFacts = useMemo(
+    () => comingUpOutsideFacts(locations, allowedLocationIds),
+    [locations, allowedLocationIds],
+  );
+  const outsideByEntry = useMemo(() => {
+    const byId = new Map();
+    if (!outsideFacts || status !== 'ready') return { byId, doorId: null };
+    let doorId = null;
+    monthGroups.flatMap((group) => group.entries).forEach((entry) => {
+      const subject = entrySubject(entry);
+      const text = subject ? outsideLineText(subject, outsideFacts, entry.dayChips?.length === 1) : null;
+      if (!text) return;
+      byId.set(entry.id, { subject, text });
+      if (doorId === null && entry.id !== tideLightDoorId) doorId = entry.id;
+    });
+    return { byId, doorId };
+  }, [outsideFacts, status, monthGroups, tideLightDoorId]);
   // The since-line's own two derivations (plan D3/D12) — read straight off the UNFILTERED served
   // entries/bands, never the active chip's filtered subset: the badge and the since-line describe
   // "what is new anywhere in the feed", not "what is new in the currently selected family".
@@ -338,15 +363,24 @@ export default function WindowFirstComingUp({
               data-testid="coming-up-list"
               aria-label={`${group.monthLabel} ${group.year}`}
             >
-              {group.entries.map((entry) => (
-                <WindowComingUpEntry
-                  key={entry.id}
-                  entry={entry}
-                  onGoToPlan={onGoToPlan}
-                  onShowOnMap={onShowOnMap}
-                  showTideLightDoor={tideLightDoorId !== null && entry.id === tideLightDoorId}
-                />
-              ))}
+              {group.entries.map((entry) => {
+                const outside = outsideByEntry.byId.get(entry.id);
+                return (
+                  <WindowComingUpEntry
+                    key={entry.id}
+                    entry={entry}
+                    onGoToPlan={onGoToPlan}
+                    onShowOnMap={onShowOnMap}
+                    showTideLightDoor={tideLightDoorId !== null && entry.id === tideLightDoorId}
+                    outsideLine={outside?.text ?? null}
+                    outsideDoor={outside && entry.id === outsideByEntry.doorId ? {
+                      subject: outside.subject,
+                      count: outsideFacts[outside.subject].roster,
+                      zeroPicks: outsideFacts.zeroPicks,
+                    } : null}
+                  />
+                );
+              })}
             </div>
           </div>
         ))}
@@ -387,4 +421,5 @@ WindowFirstComingUp.propTypes = {
   onMarkSeen: PropTypes.func.isRequired,
   openableKeys: PropTypes.instanceOf(Set),
   onGoToPlanWindow: PropTypes.func,
+  locations: PropTypes.array,
 };

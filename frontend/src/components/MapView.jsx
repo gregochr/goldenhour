@@ -516,6 +516,7 @@ function mergePreviewRun(prev, results) {
 }
 
 import { DARK_SKY_THRESHOLD } from '../utils/darkSky.js';
+import { isDarkSkyLocation } from '../utils/locationPredicates.js';
 
 const SUNRISE_LINE_COLOUR = '#f97316';
 const SUNSET_LINE_COLOUR  = '#a855f7';
@@ -2645,9 +2646,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const heatSpotPool = useMemo(() => {
     if (!heatOffered || !darkSkyFilter) return null;
-    return (heat.spots || []).filter(
-      (s) => s.bortleClass != null && s.bortleClass <= DARK_SKY_THRESHOLD,
-    );
+    return (heat.spots || []).filter(isDarkSkyLocation);
   }, [heatOffered, heat, darkSkyFilter]);
 
   /**
@@ -3325,9 +3324,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
     // Dark sky filter: show only locations with Bortle class 4 or darker.
     const darkSkyFiltered = darkSkyFilter
-      ? driveFiltered.filter((loc) =>
-          loc.bortleClass != null && loc.bortleClass <= DARK_SKY_THRESHOLD,
-        )
+      ? driveFiltered.filter(isDarkSkyLocation)
       : driveFiltered;
 
     const pool = isAstroMode
