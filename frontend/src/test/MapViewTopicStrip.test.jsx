@@ -295,7 +295,7 @@ describe('MapView: the tide at the light (Pro and Admin)', () => {
     await act(async () => { fireEvent.click(toggle()); });
 
     expect(screen.queryByTestId('wf-topic-strip-grid')).not.toBeNull();
-    expect(document.querySelector('.wf-tl-m')).toBeNull();
+    expect(screen.queryAllByTestId(/^wf-topic-strip-mark-/)).toHaveLength(0);
     expect(screen.queryByTestId('wf-topic-strip-tide-detail')).toBeNull();
     expect(screen.queryByTestId('wf-topic-light')).toBeNull();
     expect(screen.queryByTestId('wf-topic-strip-sub-KING_TIDE')).toBeNull();

@@ -1063,6 +1063,25 @@ class WindowTideRollupBuilderTest {
         assertThat(tide.nearestOffset()).isEqualTo("55m after sunset");
     }
 
+    @Test
+    @DisplayName("a summer window's light time and alignment are the British Summer Time clock too")
+    void summerEventTimeAndAlignmentAreLocal() {
+        LocalDate july = LocalDate.of(2026, 7, 15);
+        stubState(TideState.MID);
+        stubCoastal(whitby());
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), eq(july)))
+                .thenReturn(july.atTime(20, 0));
+        stubExtremes(day(ID_WHITBY, july,
+                low("02:20", 0.6), high("08:35", 5.4), low("14:45", 0.9), high("20:55", 5.2)));
+
+        BriefingWindowTide tide = builder.build(List.of(dayOf(july))).get(key(july, TargetType.SUNSET));
+
+        // A 20:00 UTC sunset is 21:00 BST; the high water 55 minutes later is on the light.
+        assertThat(tide.eventTime()).isEqualTo("21:00");
+        assertThat(tide.lightAlignment()).isEqualTo("HW");
+        assertThat(tide.nearestHeight()).isEqualTo("5.2 m");
+    }
+
     // ── on the light (the Map strip's HW / LW marks) ──────────────────────────
 
     @Nested
@@ -1078,29 +1097,44 @@ class WindowTideRollupBuilderTest {
         }
 
         @Test
-        @DisplayName("a high water exactly 90 minutes after the light is on it (the boundary is inclusive)")
-        void exactlyNinetyMinutesIsAligned() {
+        @DisplayName("a high water exactly 60 minutes after the light is on it (the boundary is inclusive)")
+        void exactlySixtyMinutesIsAligned() {
             BriefingWindowTide tide = sunriseWith(
-                    low("03:30", 0.6), high("09:40", 5.4), low("15:50", 0.9));
+                    low("03:30", 0.6), high("09:10", 5.4), low("15:50", 0.9));
 
             assertThat(tide.lightAlignment()).isEqualTo("HW");
-            assertThat(tide.nearestOffset()).isEqualTo("1h30 after sunrise");
+            assertThat(tide.nearestOffset()).isEqualTo("1h00 after sunrise");
         }
 
         @Test
-        @DisplayName("91 minutes is not: mid tide")
-        void ninetyOneMinutesIsNotAligned() {
+        @DisplayName("61 minutes is not: mid tide")
+        void sixtyOneMinutesIsNotAligned() {
             BriefingWindowTide tide = sunriseWith(
-                    low("03:30", 0.6), high("09:41", 5.4), low("15:50", 0.9));
+                    low("03:30", 0.6), high("09:11", 5.4), low("15:50", 0.9));
 
             assertThat(tide.lightAlignment()).isEqualTo("NONE");
         }
 
         @Test
-        @DisplayName("a low water 90 minutes before the light is LW, the same rule on the other side")
+        @DisplayName("on the before side too: exactly 60 minutes is on the light")
+        void beforeSideBoundary() {
+            // Sunrise is 08:10: a high water at 07:10 is 60 minutes before, 07:09 is 61.
+            assertThat(sunriseWith(low("01:00", 0.6), high("07:10", 5.4), low("13:20", 0.9))
+                    .lightAlignment()).isEqualTo("HW");
+        }
+
+        @Test
+        @DisplayName("61 minutes before the light is mid tide")
+        void sixtyOneMinutesBeforeIsNotAligned() {
+            assertThat(sunriseWith(low("01:00", 0.6), high("07:09", 5.4), low("13:20", 0.9))
+                    .lightAlignment()).isEqualTo("NONE");
+        }
+
+        @Test
+        @DisplayName("a low water 60 minutes before the light is LW, the same rule on the other side")
         void lowWaterBeforeTheLightIsLw() {
             BriefingWindowTide tide = sunriseWith(
-                    low("06:40", 0.7), high("12:50", 5.4), low("19:10", 0.8));
+                    low("07:10", 0.7), high("13:20", 5.4), low("19:30", 0.8));
 
             assertThat(tide.nearestType()).isEqualTo("LW");
             assertThat(tide.lightAlignment()).isEqualTo("LW");

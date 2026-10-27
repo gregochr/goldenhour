@@ -52,7 +52,7 @@ const TIDE_RUN_TYPES = new Set(['SPRING_TIDE', 'KING_TIDE']);
  * The served tide-at-the-light fact for one window, or null when there is none to read: the row's
  * {@code tide} carries {@code lightAlignment} only for a Pro or Admin reader (the server strips it
  * for LITE), and only when the rollup could be built. {@code align} is {@code 'HW'}, {@code 'LW'} or
- * null for mid tide (the server's {@code "NONE"}). Nothing is computed here: the 90-minute rule is
+ * null for mid tide (the server's {@code "NONE"}). Nothing is computed here: the 60-minute rule (the tide run's own) is
  * the server's, and every string is served.
  *
  * @param {?object} tide the window's served {@code BriefingWindowTide} (an EV row's {@code tide})
@@ -167,12 +167,8 @@ export function bigSeasPlaces(day, locationsById) {
 function chipLight(tide) {
   const fact = tideLightFact(tide);
   if (!fact) return null;
-  if (!fact.align) return { align: null, text: 'mid tide', spoken: 'mid tide at the light' };
-  return {
-    align: fact.align,
-    text: `${fact.align} on the light`,
-    spoken: `${KIND_WORD[fact.align]} water on the light`,
-  };
+  if (!fact.align) return { align: null, text: 'mid tide' };
+  return { align: fact.align, text: `${fact.align} on the light` };
 }
 
 /** "66 coastal" / "12 places" / "1 place": the visible `where`, or null for none. */
@@ -275,7 +271,8 @@ export function topicsOnRow({
       glyph: style.glyph,
       colour: style.colour,
       where,
-      label: light ? `${style.name}, ${light.spoken}${detail ? `, ${detail}` : ''}` : baseLabel,
+      // The visible words lead the name (WCAG 2.5.3: the name contains the label).
+      label: light ? `${style.name}, ${light.text}${detail ? `, ${detail}` : ''}` : baseLabel,
       light,
       wholeSky,
       bigSeas: false,
@@ -420,7 +417,7 @@ function runsOf(on) {
  * @param {?string} [args.nightDate] the night in progress, for the pre-dawn night's column
  * @param {Date} [args.now] the app clock
  * @param {boolean} [args.tideMarks] draw the tide-at-the-light treatment on the tide and surge rows
- *        (marks, sub-line, open edge) and the grid's {@code tideDetail}: Pro and Admin only, so the
+ *        (marks and the sub-line) and the grid's {@code tideDetail}: Pro and Admin only, so the
  *        caller passes {@code !tideLocked}. Every figure is served ({@code tide.lightAlignment},
  *        {@code tideRun.peak}/{@code range}); this only filters, maps and selects
  * @returns {{days: Array<{date: string, dow: string, dayNum: string, today: boolean}>,
@@ -514,6 +511,9 @@ export function fourDayGrid({
   }
   const grid = {
     days, columns, currentColumn, currentSpan, rows, hwTicks: hwTicksOf(events, dates, activeRow),
+    // The ring on a tide mark and the detail line speak for a SOLAR window only: a night row's column
+    // (its dusk's sunset, or column 0 before dawn) is not a light the tide was measured against.
+    currentSolar: activeRow?.kind === 'solar',
   };
   if (tideMarks) grid.tideDetail = tideDetailOf(grid, activeRow);
   return grid;
@@ -521,30 +521,39 @@ export function fourDayGrid({
 
 /**
  * Adds the tide-at-the-light treatment to one strip row, in place: {@code marks} (a mark per "on"
- * column whose window is served HW or LW on the light), {@code sub} (the run's peak day and range,
- * tide runs only, from the served {@code tideRun.peak}; absent when no served day is the peak) and
- * {@code open} on a bar that reaches the strip's last window (the run is clipped by the forecast
- * edge, so its right end is drawn open). A row with no served alignment gets no marks and draws
- * as before.
+ * column whose window is served HW or LW on the light; each carries the words for the bar's
+ * accessible name, with the water's time and its gap) and {@code sub} (tide runs only: the biggest
+ * day ON THE STRIP and its range, from the served {@code tideRun.peak}/{@code range}).
+ *
+ * <p>⚠️ <b>{@code peak} is the biggest VISIBLE day, not the run's peak</b>: the tide-run fields are
+ * bounded by the topic window (hot-topics-by-day-plan §1.10, C1), so a run whose true peak lies past
+ * the four days still has a "peak" here. Nothing served says whether a run continues past the strip
+ * (that signal is the almanac, which does not reach {@code MapView}), so the sub-line states only the
+ * biggest day shown and the bar gets NO open edge: it would assert a continuation this code cannot
+ * know.
+ *
+ * <p>With no served {@code lightAlignment} on any covered window (no tide data, or a Lite reader) the
+ * row is left exactly as it was: no marks, no sub-line.
  */
 function addTideLight(row, columns, topics) {
   const marks = [];
+  let served = false;
   row.on.forEach((on, c) => {
     const fact = on ? tideLightFact(columns[c].row?.tide) : null;
-    if (!fact?.align) return;
-    const gap = fact.offset ? ` \u00B7 ${fact.offset}` : '';
+    if (!fact) return;
+    served = true;
+    if (!fact.align) return;
+    const detail = [fact.time, gapOf(fact.offset)].filter(Boolean).join(', ');
     marks.push({
       column: c,
       align: fact.align,
-      title: `${fact.align}${fact.time ? ` ${fact.time}` : ''}${gap}`,
-      spoken: `${KIND_WORD[fact.align]} water on the light ${columnWordOf(columns, c)}`,
+      spoken: `${KIND_WORD[fact.align]} water on the light ${columnWordOf(columns, c)}${detail ? `, ${detail}` : ''}`,
     });
   });
   row.marks = marks;
-  if (TIDE_RUN_TYPES.has(row.type)) {
+  if (served && TIDE_RUN_TYPES.has(row.type)) {
     const peak = topics.find((t) => t?.tideRun?.peak === true && t.date);
     if (peak) row.sub = { dow: weekdayOf(peak.date), range: peak.tideRun.range ?? null };
-    row.bars = row.bars.map((bar) => (bar.end === GRID_COLUMNS - 1 ? { ...bar, open: true } : bar));
   }
 }
 
@@ -556,8 +565,8 @@ function columnWordOf(columns, c) {
 
 /**
  * The one full-width line under the grid for the window on the map, or null. Only for a solar
- * window that a tide-at-the-light row covers (tide runs before the surge, so a window both cover
- * is drawn once), and only when the window's served fact carries an alignment.
+ * window that a tide-at-the-light row covers (the tide runs sort before the surge, so a window both
+ * cover is drawn once and the tide's fact is the one read; {@code type} names the row it came from), and only when the window's served fact carries an alignment.
  *
  * @param {object} grid the grid so far
  * @param {?object} activeRow the EV row on screen
@@ -688,7 +697,7 @@ export function markPhrase(topicRow, bar) {
   return (topicRow.marks ?? [])
     .filter((m) => m.column >= bar.start && m.column <= bar.end)
     .map((m) => m.spoken)
-    .join(', ');
+    .join('; ');
 }
 
 /** "Friday sunrise" / "Saturday sunset" for a column, from the strip's day names. */

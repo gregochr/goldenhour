@@ -79,7 +79,7 @@ const tideTopic = (date, extra = {}) => ({
   ...extra,
 });
 
-/** A run Tue to Fri, peaking on Tuesday at 4.9 m. */
+/** A run Tue to Fri whose biggest VISIBLE day is Tuesday at 4.9 m (the served `peak`, window-bounded). */
 function springRun(lastDate = FRI) {
   const dates = DATES.slice(0, DATES.indexOf(lastDate) + 1);
   return dates.map((d, i) => tideTopic(d, {
@@ -160,22 +160,24 @@ describe('tideLightFact and the grid model', () => {
     expect(grid.rows[0].sub.range).toBe('4.9 m');
   });
 
-  it('draws the right edge open only when the bar reaches the last window', () => {
-    expect(gridOf({ hotTopics: springRun() }).rows[0].bars[0].open).toBe(true);
-    expect(gridOf({ hotTopics: springRun(THU) }).rows[0].bars[0].open).toBeUndefined();
+  it('never draws an open edge: nothing served says a run continues past the strip', () => {
+    [springRun(), springRun(THU)].forEach((run) => {
+      gridOf({ hotTopics: run }).rows[0].bars.forEach((bar) => expect(bar.open).toBeUndefined());
+    });
   });
 
-  it('with no served alignment (or no tide at all) is today\'s row: no marks, sub-line, edge or detail', () => {
+  it('with no served alignment (no tide data, or a Lite reader) is today\'s row EVEN WITH tideRun present', () => {
+    // The topics still carry tideRun (peak true on Tuesday): only the window's served fact licenses the
+    // sub-line, so a row whose windows have no tide reads exactly as before.
+    expect(springRun()[0].tideRun.peak).toBe(true);
     const noTide = gridOf({ hotTopics: springRun(), evs: events({ noTide: true }) });
     const lite = gridOf({ hotTopics: springRun(), evs: events({ lite: true }) });
 
     [noTide, lite].forEach((grid) => {
       expect(grid.rows[0].marks).toEqual([]);
+      expect(grid.rows[0].sub).toBeUndefined();
       expect(grid.tideDetail).toBeNull();
     });
-    const bare = springRun().map((t) => ({ ...t, tideRun: undefined }));
-    const none = gridOf({ hotTopics: bare, evs: events({ noTide: true }) });
-    expect(none.rows[0].sub).toBeUndefined();
   });
 
   it('with tideMarks off (a LITE reader) adds nothing to the grid at all', () => {
@@ -183,7 +185,6 @@ describe('tideLightFact and the grid model', () => {
 
     expect(grid.rows[0].marks).toBeUndefined();
     expect(grid.rows[0].sub).toBeUndefined();
-    expect(grid.rows[0].bars[0].open).toBeUndefined();
     expect(grid.tideDetail).toBeUndefined();
   });
 
@@ -192,8 +193,10 @@ describe('tideLightFact and the grid model', () => {
     const row = grid.rows[0];
 
     expect(markPhrase(row, { start: 4, end: 7 })).toBe(
-      'high water on the light Thursday sunrise, low water on the light Thursday sunset, '
-      + 'high water on the light Friday sunrise, low water on the light Friday sunset',
+      'high water on the light Thursday sunrise, 07:20, 26m after; '
+      + 'low water on the light Thursday sunset, 15:32, 1h06 before; '
+      + 'high water on the light Friday sunrise, 08:05, 1h09 after; '
+      + 'low water on the light Friday sunset, 16:14, 22m before',
     );
     expect(markPhrase(row, { start: 1, end: 1 })).toBe('');
   });
@@ -207,7 +210,7 @@ describe('MapTopicStrip: the tide row', () => {
     const current = screen.getByTestId('wf-topic-strip-mark-SPRING_TIDE-6');
     expect(current.textContent).toBe('HW');
     expect(current.getAttribute('data-current')).toBe('true');
-    expect(current.getAttribute('title')).toBe('HW 08:05 · 1h09 after sunrise');
+    expect(current.hasAttribute('title')).toBe(false);
     expect(current.getAttribute('aria-hidden')).toBe('true');
     expect(screen.getByTestId('wf-topic-strip-mark-SPRING_TIDE-4').getAttribute('data-current')).toBeNull();
   });
@@ -226,8 +229,8 @@ describe('MapTopicStrip: the tide row', () => {
     renderStrip(gridOf({ hotTopics: springRun() }));
 
     const name = screen.getByTestId('wf-topic-bar-SPRING_TIDE-0').getAttribute('aria-label');
-    expect(name).toContain('high water on the light Tuesday sunrise');
-    expect(name).toContain('low water on the light Friday sunset');
+    expect(name).toContain('high water on the light Tuesday sunrise, 05:50, 1h00 before');
+    expect(name).toContain('low water on the light Friday sunset, 16:14, 22m before');
   });
 
   it('names the peak in the label\'s accessible name', () => {
@@ -235,15 +238,6 @@ describe('MapTopicStrip: the tide row', () => {
 
     expect(screen.getByTestId('wf-topic-strip-label-SPRING_TIDE').getAttribute('aria-label'))
       .toContain('Tide, peak Tue · 4.9 m');
-  });
-
-  it('draws the open edge on a run that reaches the last window, and not on one that ends sooner', () => {
-    const open = renderStrip(gridOf({ hotTopics: springRun() }));
-    expect(screen.getByTestId('wf-topic-bar-SPRING_TIDE-0').getAttribute('data-open')).toBe('true');
-    open.unmount();
-
-    renderStrip(gridOf({ hotTopics: springRun(THU) }));
-    expect(screen.getByTestId('wf-topic-bar-SPRING_TIDE-0').getAttribute('data-open')).toBeNull();
   });
 
   it('writes the detail line for an aligned window, in the design\'s words', () => {
@@ -257,12 +251,74 @@ describe('MapTopicStrip: the tide row', () => {
   it('writes the mid-tide detail line, naming the nearest water without a height', () => {
     renderStrip(gridOf({ hotTopics: springRun(), activeIndex: 3 }));
 
-    const detail = screen.getByTestId('wf-topic-strip-tide-detail');
-    expect(detail.textContent).toBe(
+    expect(screen.getByTestId('wf-topic-strip-tide-detail').textContent).toBe(
       'Wed sunset 16:40 · mid tide · high water 18:57, 2h17 after · North Shields',
     );
-    // Stepping from the aligned window to the mid one removes the ring.
+  });
+
+  it('stepping from the aligned window to a mid-tide one removes the ring and rewrites the line', () => {
+    const { rerender } = renderStrip(gridOf({ hotTopics: springRun(), activeIndex: 6 }));
+    expect(screen.getByTestId('wf-topic-strip-mark-SPRING_TIDE-6').getAttribute('data-current')).toBe('true');
+
+    rerender(
+      <MapTopicStrip
+        grid={gridOf({ hotTopics: springRun(), activeIndex: 3 })}
+        selectedType={null}
+        currentTypes={[]}
+        onToggleType={vi.fn()}
+        onPick={vi.fn()}
+      />,
+    );
+
     expect(screen.getByTestId('wf-topic-strip-mark-SPRING_TIDE-6').getAttribute('data-current')).toBeNull();
+    expect(screen.getByTestId('wf-topic-strip-tide-detail').textContent).toContain('mid tide');
+  });
+
+  it('rings no mark and writes no line while a night row is on the map', () => {
+    const night = {
+      id: 'astro:2026-10-30', kind: 'astro', date: FRI, eventType: 'NIGHT', badges: [], tide: null,
+    };
+    const grid = fourDayGrid({
+      events: events(),
+      topicIndex: buildTopicIndex(springRun()),
+      hotTopics: springRun(),
+      scopeNames: [],
+      todayStr: TUE,
+      activeRow: night,
+      now: NOW,
+      tideMarks: true,
+    });
+    // The night sits under Friday's sunset column: a solar-only ring must not light it.
+    expect(grid.currentColumn).toBe(7);
+    renderStrip(grid);
+
+    expect(screen.getByTestId('wf-topic-strip-mark-SPRING_TIDE-7').getAttribute('data-current')).toBeNull();
+    expect(screen.queryByTestId('wf-topic-strip-tide-detail')).toBeNull();
+  });
+
+  it('keeps the Big seas track at the normal height when only a sub-line asked for custom rows', () => {
+    const seas = [{
+      date: TUE, structures: [], daylightHighWater: false, hwTime: null,
+    }];
+    const grid = fourDayGrid({
+      events: events(),
+      topicIndex: buildTopicIndex(springRun()),
+      hotTopics: springRun(),
+      scopeNames: [],
+      bigSeas: seas,
+      todayStr: TUE,
+      activeRow: events()[6],
+      now: NOW,
+      tideMarks: true,
+    });
+    renderStrip(grid);
+
+    const tracks = screen.getByTestId('wf-topic-strip-grid').style.gridTemplateRows.split(' ');
+    // header, header, then one px per row, then the detail line: no 36px Big seas track without ticks.
+    expect(tracks.slice(0, 2)).toEqual(['auto', 'auto']);
+    expect(tracks).not.toContain('36px');
+    expect(tracks).toContain('32px');
+    expect(tracks[tracks.length - 1]).toBe('auto');
   });
 
   it('writes an LW detail line in the low-water words', () => {
@@ -294,16 +350,17 @@ describe('MapTopicStrip: the tide row', () => {
     renderStrip(gridOf({ hotTopics: springRun(), marks: false }), { lockedTopicTypes: ['SPRING_TIDE'] });
 
     expect(screen.queryByTestId('wf-topic-strip-sub-SPRING_TIDE')).toBeNull();
-    expect(document.querySelector('.wf-tl-m')).toBeNull();
+    expect(screen.queryAllByTestId(/^wf-topic-strip-mark-/)).toHaveLength(0);
     expect(screen.queryByTestId('wf-topic-strip-tide-detail')).toBeNull();
-    expect(screen.getByTestId('wf-topic-bar-SPRING_TIDE-0').getAttribute('data-open')).toBeNull();
   });
 
   it('on the phone sheet states the peak day only', () => {
     renderStrip(gridOf({ hotTopics: springRun() }), { variant: 'sheet', openByDefault: true });
 
     expect(screen.getByTestId('wf-topic-strip-sub-SPRING_TIDE').textContent).toBe('peak Tue');
-    expect(screen.getByTestId('wf-topic-strip-tide-detail')).toBeTruthy();
+    expect(screen.getByTestId('wf-topic-strip-tide-detail').textContent).toBe(
+      'Fri sunrise 06:56 · high water 08:05, 1h09 after · 4.6 m · North Shields',
+    );
   });
 });
 
@@ -312,13 +369,12 @@ describe('MapTopicStrip: the storm surge row', () => {
     surgeTopic(FRI, 'SUNRISE'), surgeTopic(FRI, 'SUNSET'),
   ];
 
-  it('gets the marks and the detail line, but no sub-line and no open edge', () => {
+  it('gets the marks and the detail line, but no sub-line', () => {
     renderStrip(gridOf({ hotTopics: surge }));
 
     expect(screen.getByTestId('wf-topic-strip-mark-STORM_SURGE-6').textContent).toBe('HW');
     expect(screen.getByTestId('wf-topic-strip-mark-STORM_SURGE-7').textContent).toBe('LW');
     expect(screen.queryByTestId('wf-topic-strip-sub-STORM_SURGE')).toBeNull();
-    expect(screen.getByTestId('wf-topic-bar-STORM_SURGE-6').getAttribute('data-open')).toBeNull();
     expect(screen.getByTestId('wf-topic-strip-tide-detail').textContent).toContain('high water 08:05');
   });
 
@@ -326,13 +382,14 @@ describe('MapTopicStrip: the storm surge row', () => {
     renderStrip(gridOf({ hotTopics: [...springRun(), ...surge] }));
 
     expect(screen.getAllByTestId('wf-topic-strip-tide-detail')).toHaveLength(1);
-    expect(screen.getByTestId('wf-topic-strip-tide-detail').getAttribute('data-align')).toBe('HW');
+    // Listed surge-first, the tide row still wins the line: the detail reads from the tide run's row.
+    expect(screen.getByTestId('wf-topic-strip-tide-detail').getAttribute('data-type')).toBe('SPRING_TIDE');
   });
 
   it('is a plain bar for a reader with no tide fact', () => {
     renderStrip(gridOf({ hotTopics: surge, marks: false }));
 
-    expect(document.querySelector('.wf-tl-m')).toBeNull();
+    expect(screen.queryAllByTestId(/^wf-topic-strip-mark-/)).toHaveLength(0);
     expect(screen.queryByTestId('wf-topic-strip-tide-detail')).toBeNull();
   });
 });
@@ -356,13 +413,14 @@ describe('the topic chip', () => {
 
     const chip = screen.getByTestId('wf-topic-chip-SPRING_TIDE');
     expect(within(chip).getByTestId('wf-topic-light').textContent).toBe('HW on the light');
-    expect(chip.getAttribute('aria-label')).toContain('high water on the light');
+    // WCAG 2.5.3: the visible words are in the accessible name.
+    expect(chip.getAttribute('aria-label')).toContain('HW on the light');
   });
 
   it('reads "LW on the light" and then "mid tide" as the window steps', () => {
     expect(chipsFor(7)[0].light.text).toBe('LW on the light');
     expect(chipsFor(3)[0].light.text).toBe('mid tide');
-    expect(chipsFor(3)[0].label).toContain('mid tide at the light');
+    expect(chipsFor(3)[0].label).toContain('mid tide');
   });
 
   it('carries the clause on the surge chip too', () => {
@@ -372,9 +430,11 @@ describe('the topic chip', () => {
   });
 
   it('has no clause for a LITE reader, or when the window carries no alignment', () => {
-    expect(chipsFor(6, { tideLight: false })[0].light).toBeNull();
+    const lockedChips = chipsFor(6, { tideLight: false });
+    expect(lockedChips).toHaveLength(1);
+    expect(lockedChips[0].light).toBeNull();
     const evs = events({ lite: true });
-    const [chip] = topicsOnRow({
+    const liteChips = topicsOnRow({
       row: evs[6],
       topicIndex: buildTopicIndex(springRun()),
       hotTopics: springRun(),
@@ -382,6 +442,8 @@ describe('the topic chip', () => {
       roster: [],
       tideLight: true,
     });
+    expect(liteChips).toHaveLength(1);
+    const [chip] = liteChips;
     expect(chip.light).toBeNull();
     expect(chip.label).toBe('Spring tide');
   });

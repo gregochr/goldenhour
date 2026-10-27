@@ -95,7 +95,7 @@ import java.util.List;
  *                       normalised position, for the chart's height label. Null under the same
  *                       legacy-constructor guard as {@link #extremes}
  * @param lightAlignment whether the nearest extreme lands on the light: {@code "HW"} or {@code "LW"}
- *                       when it falls within {@code TideWording.LIGHT_ALIGNED_MINUTES} (90) of the
+ *                       when it falls within {@code TideRunBuilder.ALIGNED_WINDOW_MINUTES} (60) of the
  *                       station's own solar event (boundary inclusive), {@code "NONE"} when it does
  *                       not (mid tide at the light). Null on the Lite wire and on a rollup built
  *                       without it. <b>Pro and Admin only</b>: where the water sits against the

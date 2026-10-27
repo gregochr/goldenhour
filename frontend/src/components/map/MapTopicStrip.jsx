@@ -291,7 +291,8 @@ export default function MapTopicStrip({
   const trackRows = [
     'auto', 'auto',
     ...grid.rows.map((r, i) => {
-      if (i === seasRowIndex) return `${seasPx}px`;
+      // The taller Big seas track is for its High-water ticks only.
+      if (i === seasRowIndex && hwTicks.length > 0) return `${seasPx}px`;
       return `${r.sub && !inSheet ? SUB_ROW_PX : rowPx}px`;
     }),
     ...(tideDetail ? ['auto'] : []),
@@ -423,12 +424,18 @@ export default function MapTopicStrip({
                   style={{ gridArea: `${gridRow} / 1`, '--wf-tc': topicRow.colour }}
                   onClick={() => pressLabel(topicRow)}
                 >
-                  <span className="wf-tl-g" aria-hidden="true">
-                    {topicRow.bigSeas ? <BoltIcon /> : topicRow.glyph}
-                  </span>
+                  {!sub && (
+                    <span className="wf-tl-g" aria-hidden="true">
+                      {topicRow.bigSeas ? <BoltIcon /> : topicRow.glyph}
+                    </span>
+                  )}
                   {sub ? (
                     <span className="wf-tl-nt" aria-hidden="true">
-                      <span>{topicRow.shortName}</span>
+                      <span className="wf-tl-n1">
+                        <span className="wf-tl-g">{topicRow.glyph}</span>
+                        {' '}
+                        {topicRow.shortName}
+                      </span>
                       <span className="wf-tl-sub" data-testid={`wf-topic-strip-sub-${topicRow.type}`}>{subText}</span>
                     </span>
                   ) : (
@@ -444,7 +451,6 @@ export default function MapTopicStrip({
                   const span = markWords ? `${spanWords(grid, bar)}, ${markWords}` : spanWords(grid, bar);
                   const barProps = {
                     className: `wf-tl-b${tall ? ' wf-tl-tall' : ''}`,
-                    'data-open': bar.open ? 'true' : undefined,
                     'data-testid': `wf-topic-bar-${topicRow.type}-${bar.start}`,
                     'data-current': covers ? 'true' : undefined,
                     'data-selected': isSelected && covers ? 'true' : undefined,
@@ -499,9 +505,8 @@ export default function MapTopicStrip({
                     key={`m-${topicRow.type}-${mark.column}`}
                     className="wf-tl-m"
                     data-align={mark.align}
-                    data-current={mark.column === cur ? 'true' : undefined}
+                    data-current={grid.currentSolar && mark.column === cur ? 'true' : undefined}
                     data-testid={`wf-topic-strip-mark-${topicRow.type}-${mark.column}`}
-                    title={mark.title}
                     aria-hidden="true"
                     style={{ gridArea: `${gridRow} / ${mark.column + 2}` }}
                   >
@@ -543,6 +548,7 @@ export default function MapTopicStrip({
               className="wf-tl-det"
               data-testid="wf-topic-strip-tide-detail"
               data-align={tideDetail.align ?? 'mid'}
+              data-type={tideDetail.type}
               style={{ gridArea: `${rowCount + 3} / 1 / ${rowCount + 4} / -1` }}
             >
               <b>{`${tideDetail.sunWord}${tideDetail.eventTime ? ` ${tideDetail.eventTime}` : ''}`}</b>
@@ -604,21 +610,21 @@ MapTopicStrip.propTypes = {
       colour: PropTypes.string,
       bigSeas: PropTypes.bool,
       on: PropTypes.arrayOf(PropTypes.bool),
-      bars: PropTypes.arrayOf(PropTypes.shape({
-        start: PropTypes.number, end: PropTypes.number, open: PropTypes.bool,
-      })),
+      bars: PropTypes.arrayOf(PropTypes.shape({ start: PropTypes.number, end: PropTypes.number })),
       /** Tide-at-the-light marks (Pro and Admin): a served HW or LW on the light, by column. */
       marks: PropTypes.arrayOf(PropTypes.shape({
         column: PropTypes.number,
         align: PropTypes.oneOf(['HW', 'LW']),
-        title: PropTypes.string,
         spoken: PropTypes.string,
       })),
-      /** The tide run's served peak day and range, for the label's second line. */
+      /** The biggest day ON THE STRIP (served `tideRun.peak`) and its range, for the label's second line. */
       sub: PropTypes.shape({ dow: PropTypes.string, range: PropTypes.string }),
     })).isRequired,
+    /** Whether the window on the map is a solar one (a night row rings no mark and draws no detail line). */
+    currentSolar: PropTypes.bool,
     /** The full-width line for the window on the map, when a tide-at-the-light row covers it. */
     tideDetail: PropTypes.shape({
+      type: PropTypes.string,
       sunWord: PropTypes.string,
       eventTime: PropTypes.string,
       align: PropTypes.string,

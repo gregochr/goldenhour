@@ -60,16 +60,6 @@ final class TideWording {
      */
     static final double MIN_ANOMALY_METRES = 0.05;
 
-    /**
-     * How close a high or low water must sit to a solar event, in minutes either side and inclusive,
-     * to count as "on the light": the window rollup's {@code lightAlignment}, which the Map's four-day
-     * strip marks (HW/LW) draw from. {@code SurgeRunDayBuilder}'s 90 is a different question (peak
-     * surge against high water) and stays its own. {@code TideRunBuilder} keeps its own, tighter 60-minute
-     * window for the Plan tab's tide-run verdict; the two answer different questions and are
-     * deliberately not merged here.
-     */
-    static final long LIGHT_ALIGNED_MINUTES = 90;
-
     /** {@code lightAlignment} when the nearest extreme is a high water within the window. */
     static final String ALIGN_HW = "HW";
 
@@ -253,13 +243,20 @@ final class TideWording {
     /**
      * Whether the nearest extreme lands on the light.
      *
+     * <p><b>One threshold, decided by the owner on 2026-10-27:</b>
+     * {@link TideRunBuilder#ALIGNED_WINDOW_MINUTES} (60), the same constant and the same inclusive
+     * comparison the tide run's {@code aligned} uses, so the Map strip's HW/LW marks and the Plan tab's
+     * tide-run wording can never disagree about whether water is "on the light". It is deliberately
+     * tighter than the design handoff's &plusmn;90.
+     *
      * @param nearestIsHigh whether the nearest extreme is a high water
      * @param signedMinutes minutes from the solar event to that extreme, either sign
-     * @return {@link #ALIGN_HW} or {@link #ALIGN_LW} at or inside {@link #LIGHT_ALIGNED_MINUTES},
-     *         {@link #ALIGN_NONE} beyond it
+     * @return {@link #ALIGN_HW} or {@link #ALIGN_LW} at or inside
+     *         {@link TideRunBuilder#ALIGNED_WINDOW_MINUTES} (inclusive, the exact comparison the tide
+     *         run's own {@code aligned} makes), {@link #ALIGN_NONE} beyond it
      */
     static String lightAlignment(boolean nearestIsHigh, long signedMinutes) {
-        if (Math.abs(signedMinutes) > LIGHT_ALIGNED_MINUTES) {
+        if (Math.abs(signedMinutes) > TideRunBuilder.ALIGNED_WINDOW_MINUTES) {
             return ALIGN_NONE;
         }
         return nearestIsHigh ? ALIGN_HW : ALIGN_LW;

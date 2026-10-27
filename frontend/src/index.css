@@ -4604,27 +4604,35 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 }
 /* Tide at the light (Pro and Admin): the Spring, King and Storm surge rows. A two-line label (the run's peak
    day and range under the name; the row is 32px), an HW or LW mark over each bar column whose window has that
-   water within 90 minutes of the light (the server's call: `tide.lightAlignment`), an open right edge on a bar
-   the forecast edge clips, and one full-width line under the grid for the window on the map. The marks are
+   water within 60 minutes of the light (the server's call: `tide.lightAlignment`), and one full-width line under the grid for the window on the map. The marks are
    decoration (pointer-events none); their words are in the bar's accessible name. */
+/* The label with a sub-line is two lines across the whole label column (the design's .tln): the name with
+   its glyph, and the sub-line under it, which may not paint into the next column. */
 .wf-tl-nt {
   display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   line-height: 1.2;
 }
+.wf-tl-n1 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .wf-tl-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 8.5px;
   font-weight: 500;
   letter-spacing: 0.02em;
   color: var(--color-plex-text-muted);
-}
-.wf-tl-b[data-open='true'] {
-  border-right-style: dashed;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
 }
 .wf-tl-m {
   display: flex;
@@ -4645,7 +4653,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   background: var(--color-tide-light);
 }
 .wf-tl-m[data-align='LW'] span {
-  background: none;
+  background: var(--color-plex-bg);
   color: var(--color-tide-light);
   box-shadow: inset 0 0 0 1px var(--color-tide-light);
 }
@@ -4683,7 +4691,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   .wf-tl-now { border-left: 1px dashed CanvasText; border-right: 1px dashed CanvasText; }
   .wf-tl-m span { background: none; color: CanvasText; box-shadow: inset 0 0 0 1px CanvasText; }
   .wf-tl-m[data-current='true'] span { box-shadow: inset 0 0 0 1px CanvasText, 0 0 0 2px Highlight; }
-  .wf-tl-b[data-open='true'] { border-right-style: dashed; }
 }
 
 /* The phone's strip (hot-topics-by-day M4): the same grid inside the peek sheet's Windows body. Full width of
@@ -4721,6 +4728,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* The ellipsis above is for the plain one-line name; a label with a sub-line is a column whose own lines
+     (.wf-tl-n1, .wf-tl-sub) carry the ellipsis. */
   .wf-topic-strip-sheet .wf-tl-b { margin: 4px 2px; }
   .wf-topic-strip-sheet .wf-tl-det { font-size: 10.5px; }
   .wf-topic-strip-sheet .wf-tl-n.wf-tl-tall { height: 32px; }
