@@ -293,7 +293,7 @@ more).
 S1: `ask-photocast.md` (the `SUB_REGION` kind, the one-area-per-call note), `database-migrations.md` (V191). S2:
 `api-endpoints.md` (user and admin sub-region endpoints), `configuration.md` (`photocast.sub-regions.*`),
 `platform.md` (the registration step). S3: `api-endpoints.md` (the §4.2 strip list), `architecture-decisions.md`
-(gated is not unrated). S5: `map-tab.md`, `plan-tab.md`. S6: `roles-and-gating.md` (*Freemium split* rewritten), and a
+(gated is not unrated). S5: `map-tab.md`, `plan-tab.md`. S6: `roles-and-gating.md` (*Freemium split* rewritten), `landing/` (`index.html`, `faq.html`, `terms.html`), and a
 CLAUDE.md invariant line ("Lite ratings outside the reader's picks are stripped and marked `gated` at the controller
 edge; never on the client").
 
@@ -307,7 +307,7 @@ edge; never on the client").
 | **S3** enforcement | `LitePickShaper` on every §4.2 row, `gated` markers, `no-store`, fail-closed; the flag stays off | Q5, Q6, Q7, Q8 | `LitePickShaperTest` (flag on/off × LITE, PRO, ADMIN, no role; a completeness test over every rating field, as `forLite`'s); per-endpoint controller tests including `/api/forecast/{id}` outside the picks; `HttpCachingIntegrationTest`: shaped Lite → `no-store` and no ETag, Pro and flag-off → `private, no-cache` + ETag |
 | **S4** picker UI | registration step, Settings section | Q10, the Claude Design output | role-query tests (`frontend-test-standards.md`), the hidden-when-not-enforced branch, no `<a>`, no "upgrade", the phone branch, SWR cleared after PUT |
 | **S5** outside-picks UI | §5.4 S5, built and tested against flag-on bodies locally | Q5, Q9, its design | every rated/total surface with gated spots; the same role and phone tests |
-| **S6** flip | `enforce: true` in prod config; the §7 S6 docs; `swrCache.js` `PREFIX` bump (`v3` → `v4`) so no pre-flip body paints | public pricing, FAQ, Terms updated (owner) | a config test pinning the prod value |
+| **S6** flip | `enforce: true` in prod config; the §7 S6 docs; `swrCache.js` `PREFIX` bump (`v3` → `v4`) so no pre-flip body paints | the landing site in `landing/` is updated in the same S6 PR: `landing/index.html` (Lite tier: ratings for up to {limit} sub-regions you choose; Pro: every sub-region), `landing/faq.html` (Lite answers, plus a new entry on choosing sub-regions, the free first week and the 30-day lock), `landing/terms.html` (§4 tier wording); the owner releases it with `release-landing.sh` together with the enforcement flip, never before | a config test pinning the prod value |
 
 Each phase: Sonnet builds in its own worktree from a brief cut from this file and runs the gates (backend build
 ladder; frontend lint, Vitest, audit, build); the planner reviews the diff; one PR; CI and Codex green before merge.
@@ -389,6 +389,36 @@ its confirmation swaps to the default short sheet. LOCKED with room under the li
 **Flag off is a no-op.** Every surface is gated on `enforced === true`: registration skips the step, sign-in shows
 nothing, Settings renders no section (and an Admin makes no request). Pinned by tests in the registration, sign-in,
 Settings and `App` suites.
+
+### S4b Users rebuild (2026-10-27)
+
+Part B of the same handoff: Manage → Data → Users rebuilt around the S2 admin endpoints (`UserManagementView` plus
+`components/users/*`; behaviour in `reference/platform.md`, the wire in `reference/api-endpoints.md`).
+
+**Backend, admin-only.** `GET /api/users` gains `subRegionStatus`, `freeUntil`, `nextChangeOn`, `overLimit`,
+`awaitingVerification` and `verificationSentAt`. They come from `UserSubRegionService.adminSummaries`, one pick query
+for the whole list; the status is the same private `standing(...)` the reader's own GET uses, so the two cannot drift.
+`GET /api/users/{id}/sub-regions` now carries `options` (a Lite reader's; a Pro reader's kept `picks` were already
+there), never `suggested`. `awaitingVerification` is `!enabled && password == ''`, the shape `adminResendVerification`
+acts on (`VerificationTokenIssuer.issue` refuses anything else). The link's send time is one grouped query on the
+unverified tokens (`findLatestUnverifiedCreatedAt`), read back in the JVM zone it was written in and sent as an instant.
+
+**Last active needed no tracking.** `app_user.last_active_at` already exists (`JwtAuthenticationFilter` touches it at
+most hourly, login stamps it) and `lastActiveAt` was already in the summary, so the column stays.
+
+**Departures from the handoff.**
+
+- *Resend verification email* acts at once (a toast confirms) with no dialog: the handoff's B6 lists no dialog for it
+  and it is not destructive. *Enable account* likewise has none.
+- *Save picks* is off with nothing chosen (Clear all picks is that action, and confirms) and over the limit; an
+  unchanged selection may be saved, which clears the lock.
+- *Terms* reads `Accepted {date} · {termsVersion}` with the stored string (for example "April 2026"), not "v3": the
+  column is free text.
+- *The role-change note* says "Admin sees every sub-region" for Admin (the handoff's wording is Pro's), uses the
+  singular for one pick, and for a move between Pro and Admin, which changes nothing about sub-regions, shows none.
+- *Escape* closes the whole panel from any mode (Change picks, Edit); an open dialog keeps the key.
+- *`formFieldFocusRules`* now reads the shared form classes from `components/users/userFormClasses.js` (the
+  `const inputClass` definitions moved out of `UserManagementView.jsx`).
 
 ## Appendix A — allocation (production roster, 2026-10-26)
 

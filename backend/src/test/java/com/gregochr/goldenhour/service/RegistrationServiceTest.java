@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.EmailVerificationTokenEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
+import com.gregochr.goldenhour.model.VerificationSentRow;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
 import com.gregochr.goldenhour.service.CredentialChangeWriter.Change;
@@ -19,8 +20,11 @@ import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -709,6 +713,20 @@ class RegistrationServiceTest {
 
         assertThat(registrationService.setPasswordAndActivate("raw-token", "MyP@ssw0rd!"))
                 .isEqualTo(new RegistrationService.Activation(42L, "encoded"));
+    }
+
+    @Test
+    @DisplayName("verificationSentAtByUser reads each zone-less link time back in the JVM zone it was written in "
+            + "and answers it as an instant")
+    void verificationSentAtByUser_returnsInstants() {
+        LocalDateTime sent = LocalDateTime.of(2026, 10, 27, 8, 2);
+        when(tokenRepository.findLatestUnverifiedCreatedAt()).thenReturn(
+                List.of(new VerificationSentRow(7L, sent)));
+
+        Map<Long, Instant> bySent = registrationService.verificationSentAtByUser();
+
+        assertThat(bySent).containsOnlyKeys(7L);
+        assertThat(bySent.get(7L)).isEqualTo(sent.atZone(ZoneId.systemDefault()).toInstant());
     }
 
     private EmailVerificationTokenEntity buildToken(Long userId, boolean verified, LocalDateTime expiresAt) {

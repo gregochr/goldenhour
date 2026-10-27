@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.exception.SubRegionsLockedException;
 import com.gregochr.goldenhour.model.SubRegionLocationRow;
 import com.gregochr.goldenhour.model.SubRegionState;
 import com.gregochr.goldenhour.model.UserPickNameRow;
+import com.gregochr.goldenhour.model.UserSubRegionSummary;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.AppUserSubRegionRepository;
 import com.gregochr.goldenhour.repository.AreaRepository;
@@ -29,6 +30,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -112,7 +114,7 @@ public class UserSubRegionService {
      */
     @Transactional(readOnly = true)
     public SubRegionState getState(String username) {
-        return buildState(requireUser(username), true);
+        return buildState(requireUser(username), true, true);
     }
 
     /**
@@ -138,7 +140,7 @@ public class UserSubRegionService {
         List<Long> current = pickRepository.findAreaIdsByUserId(user.getId());
         Set<Long> currentSet = new HashSet<>(current);
         if (currentSet.equals(new HashSet<>(desired))) {
-            return buildState(user, true);
+            return buildState(user, true, true);
         }
         Set<Long> removed = new HashSet<>(currentSet);
         removed.removeAll(desired);
@@ -148,11 +150,13 @@ public class UserSubRegionService {
         authorise(user, current, removed, added, limit, today, now);
         write(user.getId(), removed, added, now);
         LOG.info("Sub-region picks for user id={} are now {}", user.getId(), desired);
-        return buildState(reload(user.getId()), true);
+        return buildState(reload(user.getId()), true, true);
     }
 
     /**
-     * An admin's view of one reader's picks and standing (no options).
+     * An admin's view of one reader's picks and standing, with the sub-region options so the admin can change
+     * the picks (empty for a Pro or Admin reader, whose kept picks are still in {@code picks}). No suggestion:
+     * that is for the reader's own first choice.
      *
      * @param userId the reader
      * @return the state, with the reader's own role deciding {@code NOT_APPLICABLE}
@@ -160,7 +164,7 @@ public class UserSubRegionService {
      */
     @Transactional(readOnly = true)
     public SubRegionState getStateForAdmin(Long userId) {
-        return buildState(reload(userId), false);
+        return buildState(reload(userId), true, false);
     }
 
     /**
@@ -192,7 +196,7 @@ public class UserSubRegionService {
         write(userId, removed, added, now);
         userRepository.clearSubRegionsChangedAt(userId);
         LOG.info("Admin set sub-region picks for user id={} to {}", userId, desired);
-        return buildState(reload(user.getId()), false);
+        return buildState(reload(user.getId()), true, false);
     }
 
     /**
@@ -221,6 +225,30 @@ public class UserSubRegionService {
             byUser.computeIfAbsent(row.userId(), id -> new ArrayList<>()).add(row.areaName());
         }
         return byUser;
+    }
+
+    /**
+     * Every listed user's sub-region standing, for the admin user list, in one pass: one query for all the
+     * picks and each status worked out from that user's own dates, so the list costs no query per user.
+     *
+     * @param users the users on the list
+     * @return user id to that user's standing; a user with no picks has an empty name list
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, UserSubRegionSummary> adminSummaries(Collection<AppUserEntity> users) {
+        Map<Long, List<String>> names = pickNamesByUser();
+        int limit = policy.getLiteLimit();
+        LocalDate today = ForecastHorizon.today(clock);
+        Map<Long, UserSubRegionSummary> out = new LinkedHashMap<>();
+        for (AppUserEntity user : users) {
+            List<String> picked = names.getOrDefault(user.getId(), List.of());
+            boolean lite = user.getRole() == UserRole.LITE_USER;
+            Standing standing = standing(lite, picked.size(), user.getSubRegionsGraceUntil(),
+                    user.getSubRegionsChangedAt(), today);
+            out.put(user.getId(), new UserSubRegionSummary(picked, standing.status(), standing.freeUntil(),
+                    standing.lockedUntil(), lite && picked.size() > limit));
+        }
+        return out;
     }
 
     /**
@@ -359,30 +387,39 @@ public class UserSubRegionService {
 
     // ------------------------------------------------------------------ the state
 
-    private SubRegionState buildState(AppUserEntity user, boolean includeOptions) {
+    /** A reader's status and the one date it carries. */
+    private record Standing(String status, LocalDate freeUntil, LocalDate lockedUntil) {
+    }
+
+    /** The status a reader is in, from role, pick count and dates: the one definition every view shares. */
+    private Standing standing(boolean lite, int pickCount, LocalDate graceUntil, LocalDateTime changedAt,
+            LocalDate today) {
+        if (!lite) {
+            return new Standing(SubRegionState.NOT_APPLICABLE, null, null);
+        }
+        if (pickCount == 0) {
+            return new Standing(SubRegionState.FIRST_CHOICE, null, null);
+        }
+        if (graceUntil != null && !today.isAfter(graceUntil)) {
+            return new Standing(SubRegionState.FREE_UNTIL, graceUntil, null);
+        }
+        LocalDate next = nextChangeOn(graceUntil, changedAt, properties.getLockDays());
+        if (isLocked(next, today)) {
+            return new Standing(SubRegionState.LOCKED, null, next);
+        }
+        return new Standing(SubRegionState.OPEN, null, null);
+    }
+
+    private SubRegionState buildState(AppUserEntity user, boolean includeOptions, boolean includeSuggested) {
         int limit = policy.getLiteLimit();
         boolean lite = user.getRole() == UserRole.LITE_USER;
         List<Long> pickIds = pickRepository.findAreaIdsByUserId(user.getId());
         LocalDate today = ForecastHorizon.today(clock);
         LocalDate graceUntil = user.getSubRegionsGraceUntil();
-        LocalDate next = nextChangeOn(graceUntil, user.getSubRegionsChangedAt(), properties.getLockDays());
-
-        String status;
-        LocalDate freeUntil = null;
-        LocalDate lockedUntil = null;
-        if (!lite) {
-            status = SubRegionState.NOT_APPLICABLE;
-        } else if (pickIds.isEmpty()) {
-            status = SubRegionState.FIRST_CHOICE;
-        } else if (graceUntil != null && !today.isAfter(graceUntil)) {
-            status = SubRegionState.FREE_UNTIL;
-            freeUntil = graceUntil;
-        } else if (isLocked(next, today)) {
-            status = SubRegionState.LOCKED;
-            lockedUntil = next;
-        } else {
-            status = SubRegionState.OPEN;
-        }
+        Standing standing = standing(lite, pickIds.size(), graceUntil, user.getSubRegionsChangedAt(), today);
+        String status = standing.status();
+        LocalDate freeUntil = standing.freeUntil();
+        LocalDate lockedUntil = standing.lockedUntil();
         Boolean overLimit = lite && pickIds.size() > limit ? Boolean.TRUE : null;
         // What a save made today would set, so the client never does date arithmetic (backend-heavy).
         boolean graceEnded = graceUntil != null && today.isAfter(graceUntil);
@@ -412,7 +449,8 @@ public class UserSubRegionService {
             Map<Long, List<SubRegionLocationRow>> membersByArea = membership.findEnabledMemberRows().stream()
                     .collect(Collectors.groupingBy(SubRegionLocationRow::areaId));
             options = optionsOf(subRegions, membersByArea);
-            if (pickIds.isEmpty() && user.getHomeLatitude() != null && user.getHomeLongitude() != null) {
+            if (includeSuggested && pickIds.isEmpty() && user.getHomeLatitude() != null
+                    && user.getHomeLongitude() != null) {
                 suggested = nearestToHome(subRegions, membersByArea, user.getHomeLatitude(),
                         user.getHomeLongitude(), limit);
             }

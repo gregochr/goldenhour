@@ -33,7 +33,7 @@ import HealthIndicator from '../components/HealthIndicator.jsx';
 import UserManagementView from '../components/UserManagementView.jsx';
 import WaitlistManagementView from '../components/WaitlistManagementView.jsx';
 import { tsLabel } from '../components/SkyRatingEvalView.jsx';
-import { getUsers } from '../api/userApi.js';
+import { getUsers, getUserSubRegions } from '../api/userApi.js';
 import { getWaitlist } from '../api/waitlistApi.js';
 
 vi.mock('../api/userApi.js', () => ({
@@ -45,6 +45,9 @@ vi.mock('../api/userApi.js', () => ({
   updateUserEnabled: vi.fn(),
   deleteUser: vi.fn(),
   resendVerification: vi.fn(),
+  getUserSubRegions: vi.fn(),
+  saveUserSubRegions: vi.fn(),
+  clearUserSubRegionLock: vi.fn(),
 }));
 
 vi.mock('../api/waitlistApi.js', () => ({ getWaitlist: vi.fn() }));
@@ -135,7 +138,13 @@ describe('formatInstantUk abroad', () => {
 describe('the terms-acceptance date abroad', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The Users screen keeps its open reader in the hash; one test's selection must not open the next's.
+    window.location.hash = '';
   });
+
+  const PRO_STATE = {
+    enforced: true, limit: 3, picks: [], options: [], suggested: [], status: 'NOT_APPLICABLE',
+  };
 
   const userWithTerms = (termsAcceptedAt) => ([{
     id: 1,
@@ -159,10 +168,11 @@ describe('the terms-acceptance date abroad', () => {
     // on every poll, so a failing assertion collapses and re-expands the row ~20 times a second
     // instead of failing — which is a hang dressed as a slow test, not a signal.
     getUsers.mockResolvedValue(userWithTerms(APRIL_FIRST_UTC_MIDNIGHT));
+    getUserSubRegions.mockResolvedValue(PRO_STATE);
     render(<UserManagementView />);
 
-    fireEvent.click(await screen.findByTestId('expand-user-1'));
-    expect(screen.getByTestId('terms-accepted-1')).toHaveTextContent('1 Apr 2026');
+    fireEvent.click(await screen.findByRole('button', { name: /admin@example\.com/ }));
+    expect(await screen.findByTestId('terms-accepted-1')).toHaveTextContent('Accepted 1 Apr 2026');
   });
 
   it('still says "Not accepted" when there is no acceptance to date', async () => {
@@ -170,10 +180,23 @@ describe('the terms-acceptance date abroad', () => {
     // nullable return, so a null instant has to be proved to still reach the placeholder rather
     // than rendering an empty cell or the word "null".
     getUsers.mockResolvedValue(userWithTerms(null));
+    getUserSubRegions.mockResolvedValue(PRO_STATE);
     render(<UserManagementView />);
 
-    fireEvent.click(await screen.findByTestId('expand-user-1'));
-    expect(screen.getByTestId('terms-accepted-1')).toHaveTextContent('Not accepted');
+    fireEvent.click(await screen.findByRole('button', { name: /admin@example\.com/ }));
+    expect(await screen.findByTestId('terms-accepted-1')).toHaveTextContent('Not accepted');
+  });
+
+  it('dates the Joined column on the UK calendar: a bare LocalDateTime is UTC, not the device zone', async () => {
+    // 00:30 UTC on 1 April is 20:30 on 31 March in New York, and 01:30 on 1 April in the UK.
+    const users = userWithTerms(null);
+    users[0].createdAt = '2026-04-01T00:30:00';
+    getUsers.mockResolvedValue(users);
+    render(<UserManagementView />);
+
+    const row = await screen.findByRole('button', { name: /admin@example\.com/ });
+    expect(row).toHaveTextContent('1 Apr 2026');
+    expect(row).not.toHaveTextContent('31 Mar');
   });
 });
 

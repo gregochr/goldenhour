@@ -404,7 +404,7 @@ describe('form-field focus outlines — their call sites', () => {
       'components/AuroraSimulateModal.jsx',
       'components/LocationManagementView.jsx',
       'components/RegionManagementView.jsx',
-      'components/UserManagementView.jsx',
+      'components/users/userFormClasses.js',
       'components/shared/SortableHeader.jsx',
     ];
     const filesWithOutlineHidden = new Set(

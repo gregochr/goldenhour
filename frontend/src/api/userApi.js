@@ -95,3 +95,39 @@ export async function resendVerification(userId) {
   const response = await apiClient.post(`/api/users/${userId}/resend-verification`);
   return response.data;
 }
+
+/**
+ * Reads one reader's sub-region picks and standing for the admin: the picks (a Pro reader's are the ones kept
+ * from Lite), the status and dates, the limit, whether enforcement is on, and the options the picker needs.
+ * Requires ADMIN role.
+ *
+ * @param {number} userId - The user's primary key.
+ * @returns {Promise<import('./subRegionApi.js').SubRegionState>} The reader's state.
+ */
+export async function getUserSubRegions(userId) {
+  const response = await apiClient.get(`/api/users/${userId}/sub-regions`);
+  return response.data;
+}
+
+/**
+ * Sets a reader's sub-region picks, skipping the change rule and clearing their lock. An empty list clears the
+ * picks. Requires ADMIN role.
+ *
+ * @param {number} userId - The user's primary key.
+ * @param {number[]} areaIds - The sub-region ids to hold.
+ * @returns {Promise<import('./subRegionApi.js').SubRegionState>} The new state.
+ */
+export async function saveUserSubRegions(userId, areaIds) {
+  const response = await apiClient.put(`/api/users/${userId}/sub-regions`, { areaIds });
+  return response.data;
+}
+
+/**
+ * Lifts a reader's sub-region lock so their next change is allowed. Requires ADMIN role.
+ *
+ * @param {number} userId - The user's primary key.
+ * @returns {Promise<void>}
+ */
+export async function clearUserSubRegionLock(userId) {
+  await apiClient.delete(`/api/users/${userId}/sub-regions/lock`);
+}

@@ -190,7 +190,9 @@ class UserSubRegionControllerTest extends AbstractControllerTest {
 
         mockMvc.perform(get("/api/users/7/sub-regions"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.picks[0].name").value("Wensleydale"));
+                .andExpect(jsonPath("$.picks[0].name").value("Wensleydale"))
+                .andExpect(jsonPath("$.options[0].regionName").value("The Yorkshire Dales"))
+                .andExpect(jsonPath("$.options[0].subRegions[0].exampleLocations[1]").value("Bolton Castle"));
     }
 
     @Test
