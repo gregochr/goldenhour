@@ -1,9 +1,0 @@
-### Added — the Map's change-your-sub-regions buttons, Pro doors and the location sheet for a place outside a Lite reader's sub-regions (S5a-3), dark until enforcement is on
-
-For a Lite reader the Map now offers the way to change their sub-regions where the need appears. A region panel with none of their picks, and the sheet of a place outside them, show their status in S4's own words and a button that opens Settings on the picker: **Choose your sub-regions** at first, **Change your sub-regions** while a change is allowed, **Add a sub-region** while locked with room to spare, and, when locked at the limit, no button but "You can next change your sub-regions on 25 November." The picker opens by itself once Settings has loaded, and saving there refreshes the map. The Map's legend shows the same **Choose your sub-regions** button for a reader with no pick yet, on desktop and in the phone peek sheet.
-
-Three Pro doors sit where the reader meets the edge of their picks: **Ratings across the {region}** in the panel of a region with no pick, **Every sub-region** under the actions of a region with picks, and **Ratings at {place}** in a place's sheet. Each is the house door: a Pro label inside the button, a short explanation with real counts and example places, "Not now", Escape closes only the door, no link. A surface carries one.
-
-A place outside their sub-regions now has its own sheet: a grey **Outside your sub-regions** badge, a line saying the place has no ratings for them while its light times and the region's forecast still show, and no "Not scored yet", no "best here" and no lead line over the rows. The Map's callout for such a place says **Outside your sub-regions**, no longer "Not rated".
-
-All of it draws only when `photocast.sub-regions.enforce` is on and the reader is shaped by the server; with enforcement off, and for Pro and Admin, nothing changes and no extra request is made.
