@@ -1,4 +1,9 @@
-import { formatCivilDay, pickerApplies, settingsStatusLine } from './subRegionCopy.js';
+import {
+  formatCivilDay, isLockedAdd, lockedAddLine, pickerApplies, settingsStatusLine,
+} from './subRegionCopy.js';
+
+/** What the Map's lines say is changed (Settings says "these"). */
+const MAP_SUBJECT = 'your sub-regions';
 
 /**
  * The Map's S4 action for a reader whose body the server shaped by their picks (sub-regions-plan §11 S5a-3,
@@ -13,7 +18,7 @@ import { formatCivilDay, pickerApplies, settingsStatusLine } from './subRegionCo
  */
 export function subRegionAction(state) {
   if (!pickerApplies(state)) return null;
-  const line = settingsStatusLine(state);
+  const line = settingsStatusLine(state, MAP_SUBJECT);
   if (state.overLimit) return { label: 'Change your sub-regions', line };
   switch (state.status) {
     case 'FIRST_CHOICE':
@@ -22,11 +27,11 @@ export function subRegionAction(state) {
     case 'OPEN':
       return { label: 'Change your sub-regions', line };
     case 'LOCKED': {
-      if ((state.picks?.length ?? 0) >= state.limit) {
+      if (!isLockedAdd(state)) {
         const day = formatCivilDay(state.nextChangeOn);
-        return { label: null, line: day ? `You can next change your sub-regions on ${day}.` : null };
+        return { label: null, line: day ? `You can next change ${MAP_SUBJECT} on ${day}.` : null };
       }
-      return { label: 'Add a sub-region', line };
+      return { label: 'Add a sub-region', line: lockedAddLine(state) };
     }
     default:
       return null;

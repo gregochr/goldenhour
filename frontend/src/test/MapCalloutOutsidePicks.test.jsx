@@ -96,6 +96,22 @@ describe('MapCallout: a place outside the reader\'s sub-regions', () => {
     expect(screen.getByTestId('map-callout-score').textContent).not.toMatch(/not rated|not scored|poor/i);
   });
 
+  it('keeps the route into the four-day sheet when there is no prose, and presses through', async () => {
+    const onOpenSheet = vi.fn();
+    await mount({ outsidePicks: true, onOpenSheet });
+
+    const route = screen.getByTestId('map-callout-four-days');
+    expect(route).toHaveTextContent('Four days here');
+    route.click();
+    expect(onOpenSheet).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws no such extra route for anyone else', async () => {
+    await mount({ outsidePicks: false });
+
+    expect(screen.queryByTestId('map-callout-four-days')).toBeNull();
+  });
+
   it('is unchanged for everyone else: an unrated place keeps its served word', async () => {
     await mount({ outsidePicks: false });
 

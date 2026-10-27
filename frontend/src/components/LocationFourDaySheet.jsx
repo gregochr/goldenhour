@@ -308,8 +308,11 @@ export default function LocationFourDaySheet({
 
   const drive = formatDriveDuration(sheet.driveMinutes);
   const handoff = sheet.rows.find((row) => row.key === sheet.handoffKey) ?? null;
+  // The sub-region beside the region for a place outside the picks (design screen 06); absent when none is served.
+  const placeSubRegion = location?.subRegionName ?? spot?.subRegionName ?? null;
   const meta = [
     sheet.regionName,
+    outsidePicks ? placeSubRegion : null,
     // Named, never bare. The lens bar above the page names the base every other drive figure is
     // measured from, so a number here with no origin on it is one the reader cannot place against
     // it. `planOrigin` records the same rule for `distanceMiles`.
@@ -459,15 +462,19 @@ export default function LocationFourDaySheet({
             </div>
           )}
 
-          {outsidePicks && !hourlyBody && (
+          {outsidePicks && (
             <div className="wf-loc-outside" data-testid="location-sheet-outside-block">
-              <p className="wf-loc-outside-text" data-testid="location-sheet-outside-text">
-                {outsideText({
-                  subRegionName: location?.subRegionName ?? spot?.subRegionName ?? null,
-                  place: sheet.name,
-                  regionName: sheet.regionName,
-                })}
-              </p>
+              {/* A wildlife hide is never rated, so "has no ratings for you" would be a claim about nothing: it keeps
+                  the status line, the button and the door, and drops only the sentence. */}
+              {!hourlyBody && (
+                <p className="wf-loc-outside-text" data-testid="location-sheet-outside-text">
+                  {outsideText({
+                    subRegionName: placeSubRegion,
+                    place: sheet.name,
+                    regionName: sheet.regionName,
+                  })}
+                </p>
+              )}
               <SubRegionStatusLine className="wf-loc-outside-line" testId="location-sheet-outside-status" />
               <div className="wf-loc-outside-actions">
                 <SubRegionActionButton

@@ -130,6 +130,34 @@ describe('the status button and the line, one case per status', () => {
   });
 });
 
+describe('a stale status never outlives a save', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('clears the button the moment the version moves, until the new read lands', async () => {
+    let release;
+    getSubRegions.mockResolvedValueOnce(OPEN).mockReturnValueOnce(new Promise((r) => { release = r; }));
+    const { rerender } = render(<Surface version={0} />);
+    expect(await screen.findByTestId('wf-subregion-action')).toBeInTheDocument();
+
+    rerender(<Surface version={1} />);
+
+    expect(screen.queryByTestId('wf-subregion-action')).toBeNull();
+    expect(screen.queryByTestId('wf-subregion-status-line')).toBeNull();
+    await act(async () => { release(LOCKED_ROOM); });
+    expect(await screen.findByTestId('wf-subregion-action')).toHaveTextContent('Add a sub-region');
+  });
+
+  it('clears when the body stops being shaped', async () => {
+    getSubRegions.mockResolvedValue(OPEN);
+    const { rerender } = render(<Surface />);
+    await screen.findByTestId('wf-subregion-action');
+
+    rerender(<Surface enabled={false} />);
+
+    expect(screen.queryByTestId('wf-subregion-action')).toBeNull();
+  });
+});
+
 describe('the door copy: served counts, singulars, the applied pick count', () => {
   it('"Every sub-region" names the roster, the places the picks cover and the picks applied, not the limit', () => {
     expect(subregionsAllBody({
@@ -152,16 +180,31 @@ describe('the door copy: served counts, singulars, the applied pick count', () =
   it('the region door names the places, the sub-regions and two example places', () => {
     expect(subregionsRegionBody({
       regionName: 'The Lake District', places: 62, subRegionCount: 5, examples: ['Castlerigg', 'Blea Tarn'],
-    })).toBe('Pro rates all 62 places across the five sub-regions of the Lake District, Castlerigg and Blea Tarn among them, for every sunrise and sunset.');
+    })).toBe('Pro rates all 62 places in the Lake District\'s five sub-regions, Castlerigg and Blea Tarn among them, for every sunrise and sunset.');
   });
 
   it('the region door is singular, takes one example when there is one, and none when there are none', () => {
     expect(subregionsRegionBody({
       regionName: 'Solo', places: 1, subRegionCount: 1, examples: ['A Place'],
-    })).toBe('Pro rates all 1 place across the one sub-region of Solo, A Place among them, for every sunrise and sunset.');
+    })).toBe('Pro rates all 1 place in Solo\'s one sub-region, A Place among them, for every sunrise and sunset.');
     expect(subregionsRegionBody({
       regionName: 'Solo', places: 4, subRegionCount: 2, examples: [],
-    })).toBe('Pro rates all 4 places across the two sub-regions of Solo, for every sunrise and sunset.');
+    })).toBe('Pro rates all 4 places in Solo\'s two sub-regions, for every sunrise and sunset.');
+  });
+
+  it('a region name ending in s takes a bare apostrophe, any other \'s', () => {
+    expect(subregionsRegionBody({
+      regionName: 'The Yorkshire Dales', places: 80, subRegionCount: 6, examples: [],
+    })).toBe('Pro rates all 80 places in the Yorkshire Dales\' six sub-regions, for every sunrise and sunset.');
+    expect(subregionsRegionBody({
+      regionName: 'Northumberland', places: 40, subRegionCount: 3, examples: ['Bamburgh'],
+    })).toBe('Pro rates all 40 places in Northumberland\'s three sub-regions, Bamburgh among them, for every sunrise and sunset.');
+  });
+
+  it('"all {total} places" is singular at one', () => {
+    expect(subregionsAllBody({
+      total: 1, subRegionCount: 1, allowed: 1, picked: 1,
+    })).toMatch(/^Pro rates all 1 place across/);
   });
 
   it('a region name takes "the" only when it has one', () => {
@@ -255,6 +298,6 @@ describe('the region door reads its example places from the S4 options', () => {
     expect(screen.getByTestId('wf-subregions-region-upsell-body'))
       .toHaveTextContent('Berwick Pier and Bamburgh Castle among them');
     expect(screen.getByTestId('wf-subregions-region-upsell-body'))
-      .toHaveTextContent('Pro rates all 44 places across the four sub-regions of Northumberland & Tyneside');
+      .toHaveTextContent('Pro rates all 44 places in Northumberland & Tyneside\'s four sub-regions');
   });
 });

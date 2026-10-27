@@ -136,6 +136,7 @@ function shapedHeat({ allowed = [1, 2], rated = [1] } = {}) {
     hasHome: false,
     shaped: true,
     allowedCount: allowed.length,
+    allowedIds: allowed,
     regionPicks: regionPickSummaries(SPOTS, allowed),
     allowedBounds: allowed.length ? ALLOWED_BOUNDS : null,
     spots: SPOTS,
@@ -167,6 +168,7 @@ function unshapedHeat() {
     ...shapedHeat({ allowed: ALL_IDS }),
     shaped: false,
     allowedCount: null,
+    allowedIds: null,
     regionPicks: null,
     allowedBounds: null,
     windows: shapedHeat().windows.map((w) => (w.key === KEY ? { ...w, bestRating: 4 } : w)),
@@ -315,7 +317,7 @@ describe('MapView, S5a-3: the region panel with no pick in the region', () => {
     fireEvent.click(screen.getByTestId('wf-subregions-region-upsell-trigger'));
 
     expect(screen.getByTestId('wf-subregions-region-upsell-body')).toHaveTextContent(
-      'Pro rates all 1 place across the one sub-region of the Lakes, Wastwater and Blea Tarn among them, for every sunrise and sunset.',
+      'Pro rates all 1 place in the Lakes\' one sub-region, Wastwater and Blea Tarn among them, for every sunrise and sunset.',
     );
   });
 

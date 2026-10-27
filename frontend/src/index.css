@@ -6567,6 +6567,20 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   font-size: 9.5px;
   color: var(--color-plex-text-secondary);
 }
+/* Phone only: a long sub-region name is never cut. The count stacks under the name and the name wraps. */
+@media (max-width: 639px) {
+  .wf-reg-sub {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+  .wf-reg-sub-name {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+  .wf-reg-sub-count { text-align: left; }
+}
 .wf-reg-outside-head {
   display: flex;
   justify-content: space-between;

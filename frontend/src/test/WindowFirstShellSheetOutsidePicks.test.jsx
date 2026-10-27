@@ -148,6 +148,17 @@ describe('WindowFirstShell — the Four-days sheet for a place outside the reade
     expect(openSettings).toHaveBeenCalledTimes(1);
   });
 
+  it('hands Settings a focus fallback, so closing it never drops focus to <body> when the sheet is gone', async () => {
+    await openSheet({ allowedLocationIds: [1] });
+
+    await act(async () => { SheetStub.lastProps.onOpenSubRegions(); });
+
+    const fallback = openSettings.mock.calls[0][0];
+    expect(typeof fallback).toBe('function');
+    expect(fallback()).toBeInstanceOf(HTMLElement);
+    expect(fallback().isConnected).toBe(true);
+  });
+
   it('hands no opener when the app gave the status provider none', async () => {
     SheetStub.lastProps = null;
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx({ allowedLocationIds: [1] }));

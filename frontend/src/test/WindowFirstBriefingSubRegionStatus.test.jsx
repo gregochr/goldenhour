@@ -143,7 +143,7 @@ describe('WindowFirstBriefingProvider — the shared S4 status read', () => {
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
 
-    expect(getSubRegions.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(getSubRegions).toHaveBeenCalledTimes(2);
   });
 
   it('hands on the opener the app gave it', async () => {

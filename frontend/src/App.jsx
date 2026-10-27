@@ -313,8 +313,6 @@ function AppInner() {
   // a postcode" nudge and the map control's "you have no postcode" branch, which both exist to point
   // at exactly that input.
   const [settingsFocus, setSettingsFocus] = useState(null);
-  // The Map's "Choose / Change / Add" sub-region buttons: Settings, scrolled to the picker and with it open.
-  const openSubRegionsSettings = useCallback(() => setSettingsFocus('subRegions'), []);
   /**
    * The one record of the reader's own settings: the home — for the tick line (through the Plan
    * provider), the map's HOME marker, reach rings and ⌂ control, and the Plan tab's home dot — the
@@ -397,6 +395,12 @@ function AppInner() {
    * route can never inherit it. A function in state, hence the updater form wherever it is set.
    */
   const [settingsReturnFocus, setSettingsReturnFocus] = useState(null);
+  // The Map's "Choose / Change / Add" sub-region buttons: Settings, scrolled to the picker and with it open.
+  // `returnFocus` (optional) finds where focus goes on close when the opener has been taken down (the location sheet).
+  const openSubRegionsSettings = useCallback((returnFocus) => {
+    setSettingsReturnFocus(() => (typeof returnFocus === 'function' ? returnFocus : null));
+    setSettingsFocus('subRegions');
+  }, []);
   /**
    * The page's one line of map-colour saves, handed to every opening of the settings dialog. Here
    * rather than in the dialog because the dialog unmounts on close and its saves do not stop: with a

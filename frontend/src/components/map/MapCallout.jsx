@@ -1076,6 +1076,21 @@ export default function MapCallout({
             <span className="sr-only">{`${location.name} — hourly comfort forecast`}</span>
           </button>
         )}
+        {/* A place outside the reader's sub-regions with no prose of any kind keeps the route an unrated allowed place
+            has: the same four-day sheet, so it does not send the reader to Glance (S5a-3). */}
+        {!isHide && !reason && outsidePicks && !event?.past && (
+          <button
+            type="button"
+            className="wf-callout-reason"
+            data-testid="map-callout-four-days"
+            aria-haspopup="dialog"
+            onClick={(pressEvent) => { pressEvent.currentTarget.focus(); onOpenSheet?.(); }}
+          >
+            <span className="wf-callout-reason-more" aria-hidden="true">Four days here ›</span>
+            {' '}
+            <span className="sr-only">{`${location.name} — four days here`}</span>
+          </button>
+        )}
         {!isHide && reason && (
           <button
             type="button"

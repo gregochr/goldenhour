@@ -42,8 +42,8 @@ export function subregionsAllBody({
   total, subRegionCount, allowed, picked,
 }) {
   const across = subRegionCount > 0
-    ? `Pro rates all ${total} places across the ${countWord(subRegionCount, 'sub-region', 'sub-regions')}. `
-    : `Pro rates all ${total} places. `;
+    ? `Pro rates all ${countWord(total, 'place', 'places')} across the ${countWord(subRegionCount, 'sub-region', 'sub-regions')}. `
+    : `Pro rates all ${countWord(total, 'place', 'places')}. `;
   const yours = picked > 0
     ? `You see ratings for ${countWord(allowed, 'place', 'places')} in your ${limitAsWord(picked)} ${picked === 1 ? 'sub-region' : 'sub-regions'}.`
     : '';
@@ -54,6 +54,11 @@ export function subregionsAllBody({
 export function regionInSentence(name) {
   const text = String(name ?? '');
   return /^the\s/i.test(text) ? `the ${text.slice(4)}` : text;
+}
+
+/** A name's possessive: a name ending in "s" takes a bare apostrophe ("the Dales'"), any other "'s". */
+export function possessive(name) {
+  return /s$/i.test(name) ? `${name}'` : `${name}'s`;
 }
 
 /** The region door's trigger label, and its heading. */
@@ -74,9 +79,10 @@ export function subregionsRegionBody({
   let among = '';
   if (named.length === 2) among = `, ${named[0]} and ${named[1]} among them`;
   else if (named.length === 1) among = `, ${named[0]} among them`;
+  const region = regionInSentence(regionName);
   const subs = subRegionCount > 0
-    ? ` across the ${limitAsWord(subRegionCount)} ${subRegionCount === 1 ? 'sub-region' : 'sub-regions'} of ${regionInSentence(regionName)}`
-    : ` in ${regionInSentence(regionName)}`;
+    ? ` in ${possessive(region)} ${limitAsWord(subRegionCount)} ${subRegionCount === 1 ? 'sub-region' : 'sub-regions'}`
+    : ` in ${region}`;
   return `Pro rates all ${countWord(places, 'place', 'places')}${subs}${among}, for every sunrise and sunset.`;
 }
 

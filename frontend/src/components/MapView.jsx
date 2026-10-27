@@ -71,7 +71,7 @@ import { dowDayLabel, pastDayLabel } from '../utils/windowFirstCards.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
 import { heatSpotKey } from '../utils/heatSpots.js';
 import {
-  GATED_STATE, hasRatedState, isGatedIn, splitGround,
+  GATED_STATE, hasRatedState, isGatedIn, isOutsidePicks, splitGround,
 } from '../utils/pickScope.js';
 import { buildThinCounts } from '../utils/mapThinSample.js';
 import {
@@ -6740,7 +6740,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               ratingKnown={ratingKnown}
               ratingRetrying={ratingRetrying}
               // Outside the reader's sub-regions (S5a-3): the verdict slot names that, never "Not rated".
-              outsidePicks={shaped && isGatedIn(activeStates, selectedLoc)}
+              outsidePicks={shaped && isOutsidePicks(heat?.allowedIds, selectedLoc.id)}
               regionGlossIndex={regionGlossIndex}
               evRows={mapEvents}
               astroConditionsByDate={astroConditionsByDate}

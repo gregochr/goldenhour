@@ -14,7 +14,8 @@ import { apiErrorMessage } from '../../utils/apiError.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { BUSY_BUTTON } from '../../utils/busyButton.js';
 import {
-  formatCivilDay, groupPicksByRegion, pickerApplies, SAVE_FAILED, savedToast, settingsStatusLine,
+  formatCivilDay, groupPicksByRegion, isLockedAdd, lockedAddLine, pickerApplies, SAVE_FAILED, savedToast,
+  settingsStatusLine,
 } from '../../utils/subRegionCopy.js';
 
 const LOCKED_CODE = 'SUB_REGIONS_LOCKED';
@@ -142,7 +143,7 @@ export default function SubRegionSettingsSection({
   const pickIds = picks.map((p) => p.areaId);
   const overLimit = state.overLimit === true;
   const locked = state.status === 'LOCKED';
-  const lockedAdd = locked && !overLimit && picks.length < limit;
+  const lockedAdd = isLockedAdd(state);
   const readOnly = locked && !lockedAdd && !overLimit;
   const nextDay = formatCivilDay(state.nextChangeOn);
   const names = new Map(options.flatMap((r) => r.subRegions.map((s) => [s.areaId, s.name])));
@@ -157,10 +158,7 @@ export default function SubRegionSettingsSection({
   const needsConfirm = state.status === 'OPEN' && !overLimit && removed.length > 0;
 
   let statusLine = settingsStatusLine(state);
-  if (expanded && lockedAdd && nextDay) {
-    const more = limit - picks.length;
-    statusLine = `You can add up to ${more} more now. Removing one waits until ${nextDay}.`;
-  }
+  if (expanded && lockedAdd && nextDay) statusLine = lockedAddLine(state);
 
   const pickerOpen = firstChoice || expanded;
   // A locked reader's button is View even when adding is still allowed inside (the handoff's table).

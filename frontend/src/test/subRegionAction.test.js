@@ -16,11 +16,19 @@ describe('subRegionAction: the status to the button and the line', () => {
     const action = subRegionAction(FIRST_CHOICE);
 
     expect(action.label).toBe('Choose your sub-regions');
-    expect(action.line).toBe('You can change these freely until 2 November. After that, once every 30 days.');
+    expect(action.line).toBe('You can change your sub-regions freely until 2 November. After that, once every 30 days.');
+  });
+
+  it('FIRST_CHOICE with no grace date says "your sub-regions" in the lock rule too, never "these"', () => {
+    const action = subRegionAction({
+      ...FIRST_CHOICE, freeUntilIfChosenToday: undefined, freeUntil: undefined, nextChangeOnIfSavedToday: '2026-11-25',
+    });
+
+    expect(action.line).toBe('Saving starts a 30-day lock. You can next change your sub-regions on 25 November.');
   });
 
   it.each([
-    ['FREE_UNTIL', FREE_WEEK, 'You can change these freely until 2 November. After that, once every 30 days.'],
+    ['FREE_UNTIL', FREE_WEEK, 'You can change your sub-regions freely until 2 November. After that, once every 30 days.'],
     ['OPEN', OPEN, 'You can change your sub-regions now. Removing one starts a 30-day lock.'],
   ])('%s offers Change your sub-regions, with S4\'s own line', (_status, state, line) => {
     expect(subRegionAction(state)).toEqual({ label: 'Change your sub-regions', line });
@@ -29,7 +37,7 @@ describe('subRegionAction: the status to the button and the line', () => {
   it('LOCKED under the limit offers Add a sub-region, with S4\'s own line', () => {
     expect(subRegionAction(LOCKED_ROOM)).toEqual({
       label: 'Add a sub-region',
-      line: 'You can next change these on 25 November.',
+      line: 'You can add up to 1 more now. Removing one waits until 25 November.',
     });
   });
 
@@ -62,11 +70,10 @@ describe('subRegionAction: the status to the button and the line', () => {
     expect(subRegionAction(null)).toBeNull();
   });
 
-  it('never reads the limit as a count to print', () => {
-    const action = subRegionAction(makeState({ picks: [12], status: 'LOCKED', nextChangeOn: '2026-11-25' }));
-
-    expect(action.label).toBe('Add a sub-region');
-    expect(`${action.label} ${action.line}`).not.toMatch(/\b3\b/);
+  it('no Map line says "these", whatever the status', () => {
+    [FIRST_CHOICE, FREE_WEEK, OPEN, LOCKED_ROOM, LOCKED_FULL, OVER_LIMIT].forEach((state) => {
+      expect(subRegionAction(state).line).not.toMatch(/\bthese\b/);
+    });
   });
 });
 

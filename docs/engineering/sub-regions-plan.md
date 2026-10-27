@@ -594,6 +594,7 @@ doors and the location sheet*). The choices that were the builder's to make:
 - **Callout.** The S5a-1 check that saw "Not rated" was `MapCallout`'s verdict slot (`unratedSlotWord` of the slot's served
   verdict); it now takes `outsidePicks` and says "Outside your sub-regions". The phone peek's per-window "Not rated" is about
   past windows, not places, and is unchanged.
+- **Review fixes (second commit).** Map status lines say "your sub-regions", never "these" (`settingsStatusLine(state, subject)`; Settings' wording is unchanged), and the locked-with-room sentence and its predicate (`lockedAddLine`, `isLockedAdd`) are shared with Settings. A hide outside the picks keeps the line, button and door and drops only "has no ratings". The region door reads "in {region's} {k word} sub-regions, {a} and {b} among them". The sheet header names the sub-region. A gated place with no prose keeps a "Four days here" route in the callout. The status provider shows no state across a save, and the sheet's route hands Settings a focus fallback. On a phone the non-modal region panel stays mounted under Settings and the picker sheet: only two modals ever stack, within the rule.
 - **Settings deep-open** adjusts state during render once the section's state has loaded (no setState in an effect), then
   scrolls; focus is not moved into the picker (the dialog's own focus stays), which a later accessibility pass may revisit.
 

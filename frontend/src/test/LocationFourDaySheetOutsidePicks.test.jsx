@@ -107,6 +107,27 @@ describe('LocationFourDaySheet: a place outside the reader\'s sub-regions', () =
     );
   });
 
+  it('names the sub-region beside the region in the header, and leaves it out when none is served', () => {
+    const { unmount } = setup(GATED_ROWS, { outsidePicks: true });
+    expect(screen.getByTestId('location-sheet-meta')).toHaveTextContent('The Yorkshire Dales · Malhamdale & Airedale');
+    unmount();
+
+    setup(GATED_ROWS, { outsidePicks: true, location: { ...LOCATION, subRegionName: null } });
+    expect(screen.getByTestId('location-sheet-meta').textContent).toBe('The Yorkshire Dales');
+  });
+
+  it('a wildlife hide outside the picks keeps the status line, the button and the door, and drops only the sentence', async () => {
+    setup(GATED_ROWS, {
+      outsidePicks: true, onOpenSubRegions: vi.fn(), location: { ...LOCATION, locationType: ['WILDLIFE'] },
+    });
+
+    expect(await screen.findByTestId('location-sheet-subregion-action')).toBeInTheDocument();
+    expect(screen.getByTestId('location-sheet-outside-status')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-subregions-place-upsell-trigger')).toBeInTheDocument();
+    expect(screen.queryByTestId('location-sheet-outside-text')).toBeNull();
+    expect(screen.getByTestId('location-sheet-outside')).toHaveTextContent('Outside your sub-regions');
+  });
+
   it('falls back to a sentence without the sub-region when none is served', () => {
     setup(GATED_ROWS, { outsidePicks: true, location: { ...LOCATION, subRegionName: null } });
 

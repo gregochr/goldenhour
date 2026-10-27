@@ -3159,7 +3159,7 @@ export default function WindowFirstShell({
             // sheet; the block's button closes this sheet AND any popup under it before Settings opens.
             outsidePicks={isOutsidePicks(allowedLocationIds, sheetSpot.id ?? sheetLocation?.id ?? null)}
             onOpenSubRegions={openSubRegions
-              ? () => { openOverPopup(null); openWindow(null); openSubRegions(); }
+              ? () => { openOverPopup(null); openWindow(null); openSubRegions(selectedTabNode); }
               : null}
             // Where the close lands when the sheet was opened from Ask's sheet (F5); null for every
             // other opening, which keeps its restore exactly as it was.

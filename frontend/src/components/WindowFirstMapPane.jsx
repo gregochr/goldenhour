@@ -677,6 +677,9 @@ export default function WindowFirstMapPane({
       shaped: isShaped(allowedLocationIds),
       // How many places the picks cover, as the server counted them (the legend's {n}); null unshaped.
       allowedCount: isShaped(allowedLocationIds) ? allowedLocationIds.length : null,
+      // The served list itself, for the callout's one question "is this place outside the picks" (the sheet asks it
+      // of the same list through `isOutsidePicks`); null unshaped.
+      allowedIds: isShaped(allowedLocationIds) ? allowedLocationIds : null,
       // The picks across each region (S5a-2): sub-regions held, places outside, and the sub-regions a region
       // has, counted over the served ids and each place's served sub-region. Null for an unshaped body.
       regionPicks: regionPickSummaries(heatSpots, allowedLocationIds),

@@ -23,15 +23,19 @@ const SubRegionStatusContext = createContext({ state: null, openSubRegions: null
 export function SubRegionStatusProvider({
   enabled, version = 0, onOpen = null, children,
 }) {
-  const [state, setState] = useState(null);
+  // The answer is kept with the read it belongs to, so a body that has stopped being shaped, or a save that moved
+  // `version`, shows no state (and so no stale button) until the new read lands; no setState in the effect's body.
+  const readKey = `${enabled}:${version}`;
+  const [loaded, setLoaded] = useState({ key: null, state: null });
+  const state = loaded.key === readKey ? loaded.state : null;
   useEffect(() => {
     if (!enabled) return undefined;
     let cancelled = false;
     getSubRegions()
-      .then((answer) => { if (!cancelled) setState(answer); })
+      .then((answer) => { if (!cancelled) setLoaded({ key: readKey, state: answer }); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [enabled, version]);
+  }, [enabled, readKey]);
   // Read only while the body is shaped: when it stops being, the last answer is not offered.
   const value = useMemo(() => ({ state: enabled ? state : null, openSubRegions: onOpen }), [enabled, state, onOpen]);
   return <SubRegionStatusContext.Provider value={value}>{children}</SubRegionStatusContext.Provider>;
