@@ -9,7 +9,7 @@ faq.html                privacy.html   terms.html   acknowledgements.html
 photocast.css           the shared skin for all five pages
 viewer.js               the screenshot viewer (index.html only; plain JS, no dependencies)
 home.js                 phone-only enhancements for index.html (plain JS, no dependencies)
-favicon.png             logo.png       screenshot*.png
+favicon.svg  favicon.png  apple-touch-icon.png   screenshot*.png
 Dockerfile              docker-compose.yml   nginx.conf
 ```
 

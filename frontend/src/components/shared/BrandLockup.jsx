@@ -43,11 +43,12 @@ const KICKER = {
  * film-perforation spine. Replaces the former `/logo.png` + extrabold-sans wordmark, which
  * belonged to no part of the Kodachrome Field Guide system the rest of the app uses.
  *
- * <p>Brand presence comes from texture rather than a badge, so there is no image here at all. That
- * leaves `public/logo.png` referenced by nothing in the app — note it is not load-bearing for the
- * icons: `favicon.png` is a byte-identical copy under its own name and the `pwa-*`/`apple-touch`
- * icons are separate derived files, so the bitmap survives in those roles whatever happens to this
- * one. The spine is the whole visual device, which is why the lockup is always flush left: centred,
+ * <p>Brand presence comes from texture rather than a badge, so there is no image here at all. The
+ * browser-tab, home-screen and installed-app icons (`public/favicon.svg` and the PNGs beside it) are
+ * derived from this lockup instead: a "P" in the same Newsreader 600, drawn as an outline, beside the
+ * same coral perforation spine, so the bitmap and the masthead stay one mark. `logo.png` is gone.
+ *
+ * <p>The spine is the whole visual device, which is why the lockup is always flush left: centred,
  * the perforation reads as a stray rule rather than a film edge.
  *
  * <p>The wordmark is the page {@code <h1>} and carries the entire accessible name; the kicker and
