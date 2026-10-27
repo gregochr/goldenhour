@@ -620,18 +620,15 @@ class AlmanacServiceTest {
         AlmanacEvent over = event(ELIGIBILITY_TODAY.minusDays(3), ELIGIBILITY_TODAY.minusDays(1), "over");
         AlmanacEvent far = event(LAST_PLAN_DATE.plusDays(9), LAST_PLAN_DATE.plusDays(9), "far");
         ComingUpAssembler mocked = mock(ComingUpAssembler.class);
-        org.mockito.Mockito.when(mocked.assemble(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.anyList())).thenReturn(
+        org.mockito.Mockito.when(mocked.assemble(org.mockito.ArgumentMatchers.eq(ELIGIBILITY_TODAY),
+                org.mockito.ArgumentMatchers.eq(List.of(near, far)))).thenReturn(
                         assembler().assemble(ELIGIBILITY_TODAY, List.of()));
         AlmanacSource source = (f, t) -> List.of(over, near, far);
 
         new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, mocked).getFeed(90);
 
-        @SuppressWarnings("unchecked")
-        org.mockito.ArgumentCaptor<List<AlmanacEvent>> eligible = org.mockito.ArgumentCaptor.forClass(List.class);
         org.mockito.Mockito.verify(mocked).assemble(org.mockito.ArgumentMatchers.eq(ELIGIBILITY_TODAY),
-                eligible.capture());
-        assertThat(eligible.getValue()).containsExactly(near, far);
+                org.mockito.ArgumentMatchers.eq(List.of(near, far)));
         org.mockito.Mockito.verify(mocked, org.mockito.Mockito.never()).assemble(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyList(),
                 org.mockito.ArgumentMatchers.anyList());
