@@ -9,13 +9,29 @@ import PasswordInput from './auth/PasswordInput.jsx';
 import PasswordChecklist from './auth/PasswordChecklist.jsx';
 import PostcodeCapture from './auth/PostcodeCapture.jsx';
 import { markPostcodePromptDismissed } from '../api/settingsApi.js';
-const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIFY', SET_PASSWORD: 'SET_PASSWORD', HOME: 'HOME', SUCCESS: 'SUCCESS', WAITLIST: 'WAITLIST' };
+import { getSubRegions } from '../api/subRegionApi.js';
+import SubRegionStepCard from './subregions/SubRegionStepCard.jsx';
+import { persistSubRegions } from '../utils/subRegionSave.js';
+import { pickerApplies, SAVE_FAILED } from '../utils/subRegionCopy.js';
+import { apiErrorMessage } from '../utils/apiError.js';
+const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIFY', SET_PASSWORD: 'SET_PASSWORD', HOME: 'HOME', SUB_REGIONS: 'SUB_REGIONS', SUCCESS: 'SUCCESS', WAITLIST: 'WAITLIST' };
+
+/**
+ * The steps a reader counts through when the sub-region step is shown, in order: the registration form,
+ * the emailed link, the password, home, sub-regions, the welcome. The step skips itself (flag off, or a
+ * Pro or Admin default role), and when it is shown it is always the fifth of these six, so the kicker is
+ * read off this list rather than typed.
+ */
+const SUB_REGION_FLOW = ['REGISTER', 'VERIFY_EMAIL', 'SET_PASSWORD', 'HOME', 'SUB_REGIONS', 'WELCOME'];
+const SUB_REGIONS_KICKER = `Step ${SUB_REGION_FLOW.indexOf('SUB_REGIONS') + 1} of ${SUB_REGION_FLOW.length}`;
 
 /**
  * Multi-step self-registration component with internal state machine.
  *
  * <p>The password step signs the new account in ({@code completeRegistration}) and the flow carries
  * on with a token in place: {@code HOME} (the postcode, through {@code PostcodeCapture}), then the
+ * {@code SUB_REGIONS} when enforcement is on and the account is Lite (sub-regions-plan §5.2: it skips
+ * itself otherwise, so with the flag off the flow is exactly what it was), then the
  * Welcome step, whose two seconds end in {@code finishRegistration()} — no page reload. The page
  * stays mounted through those steps only because {@code AuthGate} reads {@code registrationPending}
  * (login-registration plan §2 #2); {@code RegisterPage} rendered alone cannot show that, which is why
@@ -54,6 +70,13 @@ export default function RegisterPage({ verifyToken = null, inviteToken = null, o
   const [waitlistTurnstileToken, setWaitlistTurnstileToken] = useState('');
   const [waitlistTurnstileResetKey, setWaitlistTurnstileResetKey] = useState(0);
   const [waitlistTurnstileLoadFailed, setWaitlistTurnstileLoadFailed] = useState(false);
+  // The SUB_REGIONS step: the GET's answer, the ids chosen so far (client state; nothing is saved until
+  // Continue), and whether the reader has edited them, which stops a returning Back from re-suggesting.
+  const [subState, setSubState] = useState(null);
+  const [subSelected, setSubSelected] = useState([]);
+  const subEditedRef = useRef(false);
+  const [subError, setSubError] = useState('');
+  const [subBusy, setSubBusy] = useState(false);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -185,6 +208,42 @@ export default function RegisterPage({ verifyToken = null, inviteToken = null, o
     }
   }
 
+  // After HOME (saved or skipped): ask the server whether there is anything to choose. Skipped silently
+  // when enforcement is off, the account is Pro or Admin, or the read fails: a reader is never held at
+  // registration for a step that cannot be shown. The pre-selection is the server's suggestion (nearest
+  // to home) and is recalculated on a return from Back unless the reader has already edited it.
+  async function continueAfterHome() {
+    let state = null;
+    try {
+      state = await getSubRegions();
+    } catch {
+      // Nothing to choose, as far as we can tell.
+    }
+    if (!pickerApplies(state)) {
+      setStep(STEPS.SUCCESS);
+      return;
+    }
+    setSubState(state);
+    if (!subEditedRef.current) {
+      setSubSelected(state.picks.length > 0 ? state.picks.map((p) => p.areaId) : state.suggested);
+    }
+    setSubError('');
+    setStep(STEPS.SUB_REGIONS);
+  }
+
+  async function handleSubRegionsContinue() {
+    setSubError('');
+    setSubBusy(true);
+    try {
+      await persistSubRegions(subSelected);
+      setStep(STEPS.SUCCESS);
+    } catch (err) {
+      setSubError(apiErrorMessage(err, SAVE_FAILED));
+    } finally {
+      setSubBusy(false);
+    }
+  }
+
   // "Skip for now" IS the reader's dismissal of the postcode prompt. Suppressed first, in memory, so
   // a PUT that fails cannot bring the prompt overlay back over the Welcome or the app this session
   // (the server flag stays due and the next page load asks again — the safe direction); then the
@@ -196,7 +255,7 @@ export default function RegisterPage({ verifyToken = null, inviteToken = null, o
     } catch {
       // The reader is signed in and skipping; nothing here is worth stopping them for.
     }
-    setStep(STEPS.SUCCESS);
+    await continueAfterHome();
   }
 
   // Clear the verification token from the URL, and end the pending registration two seconds after the
@@ -210,7 +269,7 @@ export default function RegisterPage({ verifyToken = null, inviteToken = null, o
   }, [step, finishRegistration]);
 
   return (
-    <AuthShell>
+    <AuthShell wide={step === STEPS.SUB_REGIONS}>
         {/* REGISTER step */}
         {step === STEPS.REGISTER && (
           <form onSubmit={handleRegister} className="card flex flex-col gap-4" data-testid="register-form">
@@ -467,7 +526,7 @@ export default function RegisterPage({ verifyToken = null, inviteToken = null, o
               sub="Your postcode sets the sunrise and sunset times shown at the top of the app."
               primaryLabel="Save and continue"
               secondaryLabel="Skip for now"
-              onSaved={() => setStep(STEPS.SUCCESS)}
+              onSaved={continueAfterHome}
               onSkip={handleSkipHome}
               // A component prop, not the DOM attribute: PostcodeCapture honours it only under a fine pointer
               // (plan §5 #10), which is the very hazard the rule exists for.
@@ -476,6 +535,22 @@ export default function RegisterPage({ verifyToken = null, inviteToken = null, o
               testIdPrefix="home"
             />
           </div>
+        )}
+
+        {/* SUB_REGIONS step — only when enforcement is on and the account picks (skipped otherwise) */}
+        {step === STEPS.SUB_REGIONS && subState && (
+          <SubRegionStepCard
+            state={subState}
+            selected={subSelected}
+            onChange={(ids) => { subEditedRef.current = true; setSubSelected(ids); }}
+            kicker={SUB_REGIONS_KICKER}
+            sub={`Pick up to ${subState.limit} areas. You'll see forecast ratings for every location inside them.`}
+            onContinue={handleSubRegionsContinue}
+            onBack={() => setStep(STEPS.HOME)}
+            error={subError}
+            busy={subBusy}
+            testIdPrefix="sub-regions-step"
+          />
         )}
 
         {/* WAITLIST step */}

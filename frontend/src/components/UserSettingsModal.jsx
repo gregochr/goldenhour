@@ -3,6 +3,7 @@ import {
 } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal';
+import SubRegionSettingsSection from './subregions/SubRegionSettingsSection.jsx';
 import PasswordInput from './auth/PasswordInput.jsx';
 import { deleteAccount } from '../api/accountApi.js';
 import {
@@ -63,9 +64,12 @@ const LANDING_TARGET = '-mx-1 px-1 rounded-sm focus-visible:outline-2 focus-visi
 export default function UserSettingsModal({
   onClose, onDriveTimesRefreshed, startSettingsRead, onHomeSaved, onDriveTimesRecalculated,
   onColourSaved, colourSaveQueue = null, focusField = null, restoreFocusFallback = null,
-  onSignOut = undefined,
+  onSignOut = undefined, onSubRegionsSaved = undefined,
 }) {
   const [settings, setSettings] = useState(null);
+  // True while a sub-region dialog (the phone picker sheet, or the save confirmation) is over this one:
+  // `Modal`'s `stacked` then makes this layer inert so only one dialog is ever THE modal.
+  const [subRegionsStacked, setSubRegionsStacked] = useState(false);
   // The read on opening starts through the newest callback without the read re-running when the
   // callback's identity changes — it is made once, from a mount effect.
   const startSettingsReadRef = useRef(startSettingsRead);
@@ -636,6 +640,7 @@ export default function UserSettingsModal({
       // at both ends with no way to scroll. `Modal`'s root is a definite-height flex box, so
       // `max-h-full` caps the panel and `overflow-y-auto` scrolls the rest.
       className="max-h-full overflow-y-auto"
+      stacked={subRegionsStacked}
       restoreFocusFallback={restoreFocusFallback}
       data-testid="settings-modal"
     >
@@ -869,6 +874,14 @@ export default function UserSettingsModal({
               </div>
             </div>
           </section>
+
+          {/* Your sub-regions — drawn only when the server says enforcement is on (it renders nothing
+              otherwise, for every role), so with the flag off Settings is exactly what it was. */}
+          <SubRegionSettingsSection
+            userRole={settings.role}
+            onStackedChange={setSubRegionsStacked}
+            onSaved={onSubRegionsSaved}
+          />
 
           {/* Drive Times */}
           <section>
@@ -1106,4 +1119,6 @@ UserSettingsModal.propTypes = {
    * waits on its result: the page drops this dialog when the session goes.
    */
   onSignOut: PropTypes.func,
+  /** Called after a sub-region save lands, so the app refetches the briefing and forecasts (S4). */
+  onSubRegionsSaved: PropTypes.func,
 };

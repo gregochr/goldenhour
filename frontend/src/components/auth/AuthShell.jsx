@@ -10,10 +10,10 @@ import BrandLockup from '../shared/BrandLockup.jsx';
  * <p>The lockup carries the page's one {@code <h1>}; the card headings under it are
  * {@link AuthHeading} {@code <h2>}s.
  */
-export default function AuthShell({ children }) {
+export default function AuthShell({ children, wide = false }) {
   return (
     <div className="auth-shell" data-testid="auth-shell">
-      <div className="w-full max-w-sm">
+      <div className={wide ? 'w-full max-w-[520px]' : 'w-full max-w-sm'}>
         <div className="mb-8">
           <BrandLockup variant="auth" />
         </div>
@@ -25,4 +25,6 @@ export default function AuthShell({ children }) {
 
 AuthShell.propTypes = {
   children: PropTypes.node.isRequired,
+  /** The sub-region step only: a 520px column so example places fit on one line. Every other screen is 384. */
+  wide: PropTypes.bool,
 };

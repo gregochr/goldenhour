@@ -13,6 +13,7 @@ import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
 import PostcodePromptOverlay from './components/auth/PostcodePromptOverlay.jsx';
+import SubRegionSignInPrompt from './components/subregions/SubRegionSignInPrompt.jsx';
 import { markPostcodePromptDismissed } from './api/settingsApi.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
@@ -271,6 +272,16 @@ function AppInner() {
     locations, loading: forecastsLoading, error: forecastsError, refresh,
     loadOlderDay, olderDayLoading, loadedPastDays, emptyPastDays,
   } = useForecasts();
+  /**
+   * Moved after a successful sub-region save (the sign-in prompt, or Settings): the briefing provider
+   * refetches the briefing and ratings on the change, and `refresh` reloads the forecasts, so nothing
+   * shaped by the old picks outlives the save. The SWR cache was already cleared by the save itself.
+   */
+  const [subRegionsVersion, setSubRegionsVersion] = useState(0);
+  const handleSubRegionsSaved = useCallback(() => {
+    setSubRegionsVersion((v) => v + 1);
+    refresh();
+  }, [refresh]);
   // Defer the two long-lived SSE streams until after first paint so they don't compete with the
   // critical forecast/briefing fetches during boot.
   const streamsReady = useAfterFirstPaint();
@@ -822,6 +833,7 @@ function AppInner() {
         <WindowFirstBriefingProvider
           homeSettingsVersion={homeSettingsVersion}
           driveTimesVersion={driveTimesVersion}
+          subRegionsVersion={subRegionsVersion}
           homePlace={homePlace}
           comingUpLastSeenDate={comingUpLastSeenDate}
           setComingUpLastSeenAt={setComingUpLastSeenDate}
@@ -1086,8 +1098,13 @@ function AppInner() {
           onDriveTimesRefreshed={refresh}
           // Account deletion (the dialog's danger zone) ends the session through the same sign-out.
           onSignOut={logout}
+          onSubRegionsSaved={handleSubRegionsSaved}
         />
       )}
+
+      {/* The zero-picks prompt (sub-regions-plan §4.1): a Lite reader with enforcement on and no picks.
+          Renders nothing, and asks nothing for Pro and Admin, while the flag is off. */}
+      <SubRegionSignInPrompt userRole={role} suppressed={!!rewind} onSaved={handleSubRegionsSaved} />
 
       {showPostcodePrompt && (
         <PostcodePromptOverlay onSaved={handlePromptSaved} onNotNow={handlePromptNotNow} />

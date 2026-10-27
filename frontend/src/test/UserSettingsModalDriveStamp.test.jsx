@@ -12,6 +12,7 @@ vi.mock('../api/settingsApi', () => ({
   reverseLookupPostcode: vi.fn(),
 }));
 vi.mock('../api/accountApi', () => ({ deleteAccount: vi.fn() }));
+vi.mock('../api/subRegionApi.js', () => ({ getSubRegions: vi.fn().mockResolvedValue({ enforced: false, limit: 3, picks: [], options: [], suggested: [], status: 'FIRST_CHOICE' }), saveSubRegions: vi.fn() }));
 
 import { getSettings } from '../api/settingsApi';
 

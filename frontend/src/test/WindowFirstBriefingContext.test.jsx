@@ -513,6 +513,31 @@ describe('WindowFirstBriefingProvider', () => {
     expect(getDailyBriefing).toHaveBeenCalledTimes(3);
   });
 
+  it('re-fetches the briefing and the ratings when subRegionsVersion moves, and not on mount or a re-render', async () => {
+    // S4: a successful sub-region save leaves the bodies on screen shaped by the OLD picks, so the app
+    // moves this counter and both are fetched at once rather than waiting for the next poll.
+    getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+    const view = render(
+      <WindowFirstBriefingProvider subRegionsVersion={0}><Consumer /></WindowFirstBriefingProvider>,
+    );
+    await act(async () => {});
+    expect(getDailyBriefing).toHaveBeenCalledTimes(1);
+    expect(getAllEvaluationScores).toHaveBeenCalledTimes(1);
+
+    view.rerender(
+      <WindowFirstBriefingProvider subRegionsVersion={0}><Consumer /></WindowFirstBriefingProvider>,
+    );
+    await act(async () => {});
+    expect(getDailyBriefing).toHaveBeenCalledTimes(1);
+
+    view.rerender(
+      <WindowFirstBriefingProvider subRegionsVersion={1}><Consumer /></WindowFirstBriefingProvider>,
+    );
+    await act(async () => {});
+    expect(getDailyBriefing).toHaveBeenCalledTimes(2);
+    expect(getAllEvaluationScores).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps the rows it has when a refresh comes back empty or fails', async () => {
     // A dropped request is not evidence that the ratings went away. Blanking the field on one
     // would be a worse lie than a slightly stale one — the same rule `fetchBriefing`'s catch

@@ -210,6 +210,81 @@ class UserSubRegionServiceJpaTest {
     }
 
     @Test
+    @DisplayName("FIRST_CHOICE states the grace end a save today would set: today + 7 - 1, and no lock date")
+    void firstChoice_statesTheFreeUntilASaveWouldSet() {
+        SubRegionState state = service.getState("anna");
+
+        assertThat(state.freeUntilIfChosenToday()).isEqualTo(LocalDate.of(2026, 11, 1));
+        assertThat(state.nextChangeOnIfSavedToday()).isNull();
+        assertThat(state.freeUntil()).as("the stored field stays absent until a save").isNull();
+    }
+
+    @Test
+    @DisplayName("FIRST_CHOICE with a grace end still running states that end, not a new one")
+    void firstChoice_withRunningGrace_statesTheExistingEnd() {
+        standing(userId, "2026-10-30", "2026-10-20T10:00:00Z");
+
+        SubRegionState state = service.getState("anna");
+
+        assertThat(state.freeUntilIfChosenToday()).isEqualTo(LocalDate.of(2026, 10, 30));
+        assertThat(state.nextChangeOnIfSavedToday()).isNull();
+    }
+
+    @Test
+    @DisplayName("FIRST_CHOICE after an ended grace states the lock a save would start, not a free week")
+    void firstChoice_afterEndedGrace_statesTheLock() {
+        standing(userId, "2026-09-01", "2026-09-02T10:00:00Z");
+
+        SubRegionState state = service.getState("anna");
+
+        assertThat(state.freeUntilIfChosenToday()).isNull();
+        assertThat(state.nextChangeOnIfSavedToday()).isEqualTo(LocalDate.of(2026, 11, 25));
+    }
+
+    @Test
+    @DisplayName("OPEN states the lock a save today would start: a save on 26 Oct with lock 30 is 25 Nov")
+    void open_statesTheNextChangeASaveWouldSet() {
+        standing(userId, "2026-09-01", "2026-09-02T10:00:00Z", berwick);
+
+        SubRegionState state = service.getState("anna");
+
+        assertThat(state.status()).isEqualTo(SubRegionState.OPEN);
+        assertThat(state.nextChangeOnIfSavedToday()).isEqualTo(LocalDate.of(2026, 11, 25));
+        assertThat(state.freeUntilIfChosenToday()).isNull();
+    }
+
+    @Test
+    @DisplayName("the stated lock date reads the UK day: at 23:30 UTC in summer a save falls on the next UK day")
+    void open_statedLockDateReadsTheBstDay() {
+        standing(userId, "2026-05-01", "2026-05-02T10:00:00Z", berwick);
+        clock.set("2026-06-01T23:30:00Z");
+
+        SubRegionState state = service.getState("anna");
+
+        assertThat(state.status()).isEqualTo(SubRegionState.OPEN);
+        assertThat(state.nextChangeOnIfSavedToday()).isEqualTo(LocalDate.of(2026, 7, 2));
+    }
+
+    @Test
+    @DisplayName("FREE_UNTIL, LOCKED and NOT_APPLICABLE state neither prospective date")
+    void otherStatuses_stateNoProspectiveDate() {
+        standing(userId, "2026-11-01", "2026-10-26T12:00:00Z", berwick);
+        SubRegionState free = service.getState("anna");
+        standing(userId, "2026-09-01", "2026-10-20T10:00:00Z");
+        SubRegionState locked = service.getState("anna");
+        user("pat", UserRole.PRO_USER);
+        SubRegionState notApplicable = service.getState("pat");
+
+        assertThat(free.status()).isEqualTo(SubRegionState.FREE_UNTIL);
+        assertThat(locked.status()).isEqualTo(SubRegionState.LOCKED);
+        assertThat(notApplicable.status()).isEqualTo(SubRegionState.NOT_APPLICABLE);
+        for (SubRegionState state : List.of(free, locked, notApplicable)) {
+            assertThat(state.freeUntilIfChosenToday()).isNull();
+            assertThat(state.nextChangeOnIfSavedToday()).isNull();
+        }
+    }
+
+    @Test
     @DisplayName("a demoted Pro's first choice starts a grace period, like any first choice")
     void demotedPro_firstChoiceStartsGrace() {
         Long pro = user("promoted-then-demoted", UserRole.PRO_USER);

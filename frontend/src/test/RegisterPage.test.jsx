@@ -9,6 +9,7 @@ import * as SettingsApi from '../api/settingsApi.js';
 
 vi.mock('../api/authApi.js');
 vi.mock('../api/settingsApi.js');
+vi.mock('../api/subRegionApi.js', () => ({ getSubRegions: vi.fn().mockResolvedValue({ enforced: false, limit: 3, picks: [], options: [], suggested: [], status: 'FIRST_CHOICE' }), saveSubRegions: vi.fn() }));
 
 function installTurnstileMock() {
   window.turnstile = {
