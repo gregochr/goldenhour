@@ -1,5 +1,6 @@
 import React, { useId } from 'react';
 import PropTypes from 'prop-types';
+import { countWord } from '../utils/pickGeography.js';
 
 /**
  * The open row's region rail — this window by region, ranked, and the filter that follows from it.
@@ -44,26 +45,43 @@ import PropTypes from 'prop-types';
  * the same render, so it cannot drift from the visible words, and WCAG 2.5.3 holds because it
  * contains every one of them verbatim.
  *
+ * <h2>For a body shaped by the reader's sub-regions (S5b-1)</h2>
+ *
+ * <p>The window's best star is stripped, so the All cell carries no star: it counts the places the reader holds and
+ * the places outside, a gated place in neither half of the first ({@code 31 in your sub-regions · 232 outside}; a
+ * reader with no pick sees {@code 232 outside your sub-regions}, never "0 in"). A region keeps its verdict. A
+ * region the reader holds no pick in says {@code outside your sub-regions} in grey; one they do hold says
+ * {@code best 4★ · 21 places}, the star being the region's served {@code picksBestRating} and left out when none of
+ * their places there is rated, and {@code · 3 outside} after it when any lie outside. The label says the order.
+ *
+ * @param {boolean}  [props.shaped]     true only for a body shaped by the reader's sub-regions
+ * @param {number}   [props.outsideCount] the window's places outside the picks, for the All cell (shaped only)
  * @param {?string}  props.selected    the selected region, or null for All
  * @param {Function} [props.onSelect]  called with a region name, or null for All
  * @param {object}   [props.allCellRef] attached to the All cell, so a control that clears the
  *        selection and unmounts itself has somewhere to put focus — see {@code WindowSheetDialog}
  */
 export default function WindowRegionRail({
-  rows, windowBest, drawnCount, countNoun, selected, onSelect, allCellRef,
+  rows, windowBest, drawnCount, countNoun, selected, onSelect, allCellRef, shaped = false, outsideCount = 0,
 }) {
   // Unique per rail, so the several open rows a reader can have at once cannot collide on an id —
   // `aria-labelledby` resolves document-wide and a duplicate would name one cell for two buttons.
   const nameId = useId();
+  // The All cell's second line. Shaped: the places in and out of the reader's sub-regions, with no star.
+  // A reader with no pick has no order to speak of: every region is outside.
+  const hasPicks = rows.some((row) => row.hasPicks);
+  const allMeta = shaped
+    ? shapedAllMeta(drawnCount, outsideCount)
+    : metaLine(windowBest, drawnCount, countNoun, null);
   // Nothing to choose between — see WindowRowFieldMap's own note. Normally a P7 origin case.
   if (rows.length < 2) return null;
 
   return (
     <>
       <p data-testid="wf-region-rail-label" className="wf-rlab">
-        By region · best first
+        {shaped ? (hasPicks ? 'By region · your sub-regions first' : 'By region') : 'By region · best first'}
       </p>
-      <div data-testid="wf-region-rail" className="wf-rrail">
+      <div data-testid="wf-region-rail" className="wf-rrail" data-shaped={shaped ? 'true' : undefined}>
         <button
           type="button"
           ref={allCellRef}
@@ -80,18 +98,20 @@ export default function WindowRegionRail({
         >
           <span id={`${nameId}-all`} className="sr-only">
             {[`All ${rows.length} regions`, selected ? 'Show everything' : 'Showing everything',
-              metaLine(windowBest, drawnCount, countNoun, null)].filter(Boolean).join(', ')}
+              allMeta].filter(Boolean).join(', ')}
           </span>
           <span className="wf-rr-n" aria-hidden="true">{`All ${rows.length} regions`}</span>
           <span className="wf-rr-v" aria-hidden="true">
             {selected ? 'Show everything' : 'Showing everything'}
           </span>
           <span className="wf-rr-m" aria-hidden="true">
-            {metaLine(windowBest, drawnCount, countNoun, null)}
+            {allMeta}
           </span>
         </button>
         {rows.map((row, index) => {
-          const meta = metaLine(row.bestRating, row.drawnCount, row.countNoun, row.awayLabel);
+          const meta = row.shaped
+            ? shapedRowMeta(row)
+            : metaLine(row.bestRating, row.drawnCount, row.countNoun, row.awayLabel);
           const cellId = `${nameId}-${index}`;
           return (
             <button
@@ -100,6 +120,7 @@ export default function WindowRegionRail({
               data-testid="wf-region-cell"
               data-region={row.name}
               data-verdict={row.verdict}
+              data-outside={row.shaped && !row.hasPicks ? 'true' : undefined}
               data-selected={row.name === selected ? 'true' : undefined}
               aria-pressed={row.name === selected}
               className={`wf-rr${row.name === selected ? ' on' : ''}`}
@@ -144,6 +165,36 @@ function metaLine(best, count, noun, awayLabel) {
   return clauses.join(' · ');
 }
 
+/**
+ * The All cell's line for a shaped body: {@code 31 in your sub-regions · 232 outside}, or for a reader with no place
+ * of their own {@code 232 outside your sub-regions}. Empty when the window has neither.
+ *
+ * @param {number} inside the places the reader holds that the window draws
+ * @param {number} outside the places outside their picks
+ * @returns {string}
+ */
+export function shapedAllMeta(inside, outside) {
+  if (inside <= 0) return outside > 0 ? `${outside} outside your sub-regions` : '';
+  return outside > 0 ? `${inside} in your sub-regions · ${outside} outside` : `${inside} in your sub-regions`;
+}
+
+/**
+ * A region cell's line for a shaped body: {@code outside your sub-regions} where the reader holds no pick, else
+ * {@code best 4★ · 21 places · 3 outside} (each clause only when it is true; the star is the served
+ * {@code picksBestRating}).
+ *
+ * @param {{hasPicks: boolean, picksBestRating: ?number, drawnCount: number, outsideCount: number}} row
+ * @returns {string}
+ */
+export function shapedRowMeta(row) {
+  if (!row.hasPicks) return 'outside your sub-regions';
+  const clauses = [];
+  if (row.picksBestRating != null) clauses.push(`best ${row.picksBestRating}★`);
+  if (row.drawnCount > 0) clauses.push(countWord(row.drawnCount, 'place', 'places'));
+  if (row.outsideCount > 0) clauses.push(`${row.outsideCount} outside`);
+  return clauses.join(' · ');
+}
+
 WindowRegionRail.propTypes = {
   rows: PropTypes.arrayOf(PropTypes.shape({
     name: PropTypes.string.isRequired,
@@ -153,7 +204,14 @@ WindowRegionRail.propTypes = {
     drawnCount: PropTypes.number.isRequired,
     countNoun: PropTypes.string.isRequired,
     awayLabel: PropTypes.string,
+    /** Shaped body only (S5b-1): see {@code buildRegionRows}. */
+    shaped: PropTypes.bool,
+    hasPicks: PropTypes.bool,
+    outsideCount: PropTypes.number,
+    picksBestRating: PropTypes.number,
   })).isRequired,
+  shaped: PropTypes.bool,
+  outsideCount: PropTypes.number,
   windowBest: PropTypes.number,
   drawnCount: PropTypes.number.isRequired,
   countNoun: PropTypes.string.isRequired,

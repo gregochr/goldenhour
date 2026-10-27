@@ -3,6 +3,9 @@ import { resolveRegionDisplay } from './tierUtils.js';
 import { VERDICT_LABEL, eligibleRegions, verdictEligible } from './windowFirstCards.js';
 import { gateSpotsByRating } from './ratingLens.js';
 import { gateSpotsByReach } from './reachLens.js';
+import { compareNames } from './pickGeography.js';
+import { shapedTierRank } from './mapVerdict.js';
+import { placesOf } from './windowFirstSpots.js';
 
 /**
  * The region row order the heatmap is drawn in — best verdict first, then A–Z.
@@ -132,9 +135,16 @@ function nearestDrive(spots) {
  * @param {Array}   allSpots the window's spots before either gate
  * @param {object}  [lens]   {@code limitMinutes} and {@code minRating}, each null when that control
  *                           gates nothing
+ * @param {?Map<string, {allowedPlaces: number}>} [regionPicks] from {@code pickGeography.regionPickSummaries};
+ *        present ONLY for a body the server shaped by the reader's sub-region picks (S5b-1). Each row then carries
+ *        {@code shaped}, {@code hasPicks} (the reader holds a pick in that region, a served fact), the served
+ *        {@code picksBestRating}, and counts of this window's drawn places inside ({@code drawnCount}, the
+ *        places the reader holds) and outside ({@code outsideCount}) their picks; a gated place is in neither
+ *        half of the first. The order becomes picks first, then verdict tier, then name (decision 15), with the
+ *        window's served {@code shapedLeadRegion} first when it holds a pick. Absent, nothing changes.
  * @returns {Array<object>} rail rows, ranked
  */
-export function buildRegionRows(es, spots, allSpots, lens) {
+export function buildRegionRows(es, spots, allSpots, lens, regionPicks = null) {
   const limitMinutes = lens?.limitMinutes ?? null;
   const minRating = lens?.minRating ?? null;
   const drawnBy = groupByRegion(spots);
@@ -151,6 +161,8 @@ export function buildRegionRows(es, spots, allSpots, lens) {
     // Only when REACH is what emptied it — see the method comment.
     const away = drawn.length === 0 && survivedReach === 0 ? nearestDrive(all) : null;
     const reachHolds = reachWordHolds(drawn, limitMinutes, minRating);
+    // Outside the reader's sub-regions (S5b-1): a gated place is in neither the count nor the reach claim.
+    const mine = regionPicks ? placesOf(drawn) : drawn;
     return {
       name,
       // ⚠️ Through `resolveRegionDisplay`, not off the raw field — map-landing plan §3 L5 step 6b.
@@ -185,7 +197,7 @@ export function buildRegionRows(es, spots, allSpots, lens) {
       // path and degrade is silence.
       glossHeadline: region.glossHeadline || null,
       glossDetail: region.glossDetail || null,
-      drawnCount: drawn.length,
+      drawnCount: mine.length,
       // The word the cell may use for its count, decided here so the component renders a string
       // rather than re-answering an honesty question three files from the rule.
       countNoun: reachHolds ? 'in reach' : 'spots',
@@ -208,10 +220,33 @@ export function buildRegionRows(es, spots, allSpots, lens) {
       // what is drawn. Prototype `regionPanel`'s `nTot`/`nRate`/`nReach`, in this arm's gate order.
       totalCount: all.length,
       atFloorCount: gateSpotsByRating(all, minRating).length,
+      ...(regionPicks ? {
+        shaped: true,
+        hasPicks: (regionPicks.get(name)?.allowedPlaces ?? 0) > 0,
+        outsideCount: drawn.length - mine.length,
+        // The region's own served star over the reader's places (never a client max: the shaper strips the region's
+        // `bestRating`). Null when none of them is rated, which is silence in the cell.
+        picksBestRating: finite(region.picksBestRating),
+      } : {}),
     };
   });
 
-  return rows.sort(byMeanThenName);
+  return regionPicks ? sortShaped(rows, es?.shapedLeadRegion) : rows.sort(byMeanThenName);
+}
+
+/**
+ * A shaped body's rail order: regions with a pick first, then verdict tier, then name (decision 15; a shaped region
+ * carries no mean to rank by), with the window's served lead region first when it holds a pick.
+ */
+function sortShaped(rows, leadName) {
+  const ordered = rows.sort((a, b) => (
+    (Number(b.hasPicks) - Number(a.hasPicks))
+    || (shapedTierRank(a.verdict) - shapedTierRank(b.verdict))
+    || compareNames(a.name, b.name)
+  ));
+  const at = ordered.findIndex((row) => row.name === leadName && row.hasPicks);
+  if (at > 0) ordered.unshift(ordered.splice(at, 1)[0]);
+  return ordered;
 }
 
 /**

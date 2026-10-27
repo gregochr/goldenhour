@@ -159,6 +159,10 @@ export function buildHeatStripCards(
       // Empty on an away day: there is no card, so there is no pool, and the away cell draws
       // neither element rather than an empty histogram claiming nothing is in reach.
       pool: card?.pool ?? [],
+      // A shaped (Lite) body's two facts about the places outside the picks, folded from the card and present only
+      // there (S5b-1): the Best row asks `picksScoped` to tell a pool emptied by the picks from one emptied by the
+      // reach tier, and the thumbnail names how many lie outside. Never on a Pro, Admin or flag-off card.
+      ...(card?.picksScoped === true ? { picksScoped: true, outsideCount: card.outsideCount ?? 0 } : {}),
       // Whether a drive time exists for the reach tier to have gated on — one boolean, folded like
       // everything else here rather than re-derived from a second copy of `allSpots`. It decides
       // whether this card's own empty-pool words may say "in reach" at all; see

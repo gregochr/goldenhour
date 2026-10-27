@@ -2898,6 +2898,31 @@ button.wf-hc.also.on:hover {
 .wf-hstrip-sw-hatch {
   background-image: repeating-linear-gradient(-45deg, rgba(242, 231, 211, 0.32) 0 0.8px, transparent 0.8px 5px);
 }
+/* The sub-regions key (S5b-1), the Map legend's own two swatches at the strip's size: the veil's plate with the
+   grey rim for the ground outside the picks, and the plate with a dashed bone line for the outline. */
+.wf-hstrip-sw-outside {
+  background-color: var(--color-outside-plate);
+  box-shadow: inset 0 0 0 1px var(--color-outside-rim);
+}
+.wf-hstrip-sw-picks {
+  box-shadow: none;
+  border: 1px dashed var(--color-picks-outline);
+}
+/* The two swatches and the note travel together; on a phone the group takes its own line and wraps inside it. */
+.wf-hstrip-picks {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.wf-hstrip-picks-note {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 639px) {
+  .wf-hstrip-picks { flex: 0 0 100%; }
+}
 /* Forced colours drop background colours and box-shadows, so the plain swatch would vanish and the
    hatch could not be told from it. Both get a real CanvasText border; the hatch swatch keeps its
    gradient (`forced-color-adjust: none`) in CanvasText ink so the two stay distinguishable. */
@@ -2910,6 +2935,9 @@ button.wf-hc.also.on:hover {
     forced-color-adjust: none;
     background-color: Canvas;
     background-image: repeating-linear-gradient(-45deg, CanvasText 0 1px, transparent 1px 5px);
+  }
+  .wf-hstrip-sw-picks {
+    border-style: dashed;
   }
 }
 /* ── Movement (heat-field plan §4.7, narrowed by plan-matrix M1) ──────────────────────────────
@@ -3268,6 +3296,18 @@ button.wf-hc.also.on:hover {
   font-size: 9px;
   color: var(--color-plex-text-secondary);
   margin-top: auto;
+}
+/* A meta line can be a sentence ("31 in your sub-regions · 232 outside"): on a shaped rail it wraps rather than
+   widening its cell. Scoped by the rail's attribute so every other rail's layout is untouched. */
+.wf-rrail[data-shaped="true"] .wf-rr-m {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* A region outside the reader's sub-regions (S5b-1): its verdict stays, its meta says where it is, in the grey of a
+   thing that is not the reader's. The stripe and verdict word are untouched. */
+.wf-rr[data-outside="true"] .wf-rr-m {
+  color: var(--color-plex-text-secondary);
+  font-style: italic;
 }
 
 @media (max-width: 639px) {
@@ -12998,6 +13038,14 @@ button.wf-mchip:hover {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.022);
   padding: 9px 12px 10px;
+}
+/* A region the reader holds no pick in (S5b-1): the S4 line, its one action and the region's door under the prose. */
+.wf-prose-outside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
 }
 .wf-prose[data-verdict="WORTH_IT"] { border-left-color: var(--color-verdict-go); }
 .wf-prose[data-verdict="MAYBE"] { border-left-color: var(--color-verdict-marginal); }

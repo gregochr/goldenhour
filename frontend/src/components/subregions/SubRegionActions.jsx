@@ -34,11 +34,13 @@ SubRegionStatusLine.propTypes = {
  * @param {?Function} [props.onOpen] overrides the provider's opener (the location sheet closes itself first)
  */
 export function SubRegionActionButton({
-  className = 'wf-subregion-btn', testId = 'wf-subregion-action', onOpen = null,
+  className = 'wf-subregion-btn', testId = 'wf-subregion-action', onOpen = null, noFallback = false,
 }) {
   const { state, openSubRegions } = useSubRegionStatus();
   const action = subRegionAction(state);
-  const open = onOpen ?? openSubRegions;
+  // `noFallback`: a surface that must close itself first (the popup) never falls back to the provider's opener,
+  // which would stack Settings over it.
+  const open = noFallback ? onOpen : (onOpen ?? openSubRegions);
   if (!action?.label || typeof open !== 'function') return null;
   return (
     <button type="button" className={className} data-testid={testId} onClick={() => open()}>
@@ -51,4 +53,5 @@ SubRegionActionButton.propTypes = {
   className: PropTypes.string,
   testId: PropTypes.string,
   onOpen: PropTypes.func,
+  noFallback: PropTypes.bool,
 };

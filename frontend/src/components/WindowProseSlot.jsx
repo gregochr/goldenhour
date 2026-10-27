@@ -67,9 +67,11 @@ import { glossLead } from '../utils/regionGloss.js';
  * @param {boolean}  props.picked   whether the reader chose this region, or it is simply the top
  * @param {?object}  [props.bestWindow] that region's own best window, for the null line
  * @param {boolean}  [props.isCurrentWindow] whether that best window is the one already open
+ * @param {?React.ReactNode} [props.outsideSlot] under the prose, for a region the reader holds no pick in (S5b-1): the
+ *        S4 status line and action and the region's door. The prose above it is the region's own and is free.
  */
 export default function WindowProseSlot({
-  row, picked, bestWindow = null, isCurrentWindow = false,
+  row, picked, bestWindow = null, isCurrentWindow = false, outsideSlot = null,
 }) {
   const chip = picked ? movementChip(row.meanRatingDelta) : null;
   const headline = row.glossHeadline || null;
@@ -80,7 +82,13 @@ export default function WindowProseSlot({
   const lead = detail && headline ? glossLead(headline) : null;
 
   return (
-    <div data-testid="wf-prose" data-verdict={row.verdict} data-picked={picked ? 'true' : undefined} className="wf-prose">
+    <div
+      data-testid="wf-prose"
+      data-verdict={row.verdict}
+      data-picked={picked ? 'true' : undefined}
+      data-outside={outsideSlot ? 'true' : undefined}
+      className="wf-prose"
+    >
       <div className="wf-prose-h">
         <span data-testid="wf-prose-name" className="wf-prose-n">{row.name}</span>
         {picked ? (
@@ -115,6 +123,10 @@ export default function WindowProseSlot({
           )}
         </p>
       )}
+
+      {outsideSlot && (
+        <div data-testid="wf-prose-outside" className="wf-prose-outside">{outsideSlot}</div>
+      )}
     </div>
   );
 }
@@ -131,4 +143,5 @@ WindowProseSlot.propTypes = {
   picked: PropTypes.bool.isRequired,
   bestWindow: PropTypes.shape({ label: PropTypes.string, time: PropTypes.string }),
   isCurrentWindow: PropTypes.bool,
+  outsideSlot: PropTypes.node,
 };

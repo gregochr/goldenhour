@@ -373,7 +373,7 @@ function fits(box, placed, frameWidth, frameHeight) {
  *   label rather than a duration claim nothing measured.
  */
 export default function WindowRowFieldMap({
-  windowKey, date, confidence, spots, points, unrated = EMPTY_UNRATED, stood: stoodAll = EMPTY_STOOD, bestRating = null, regionNames, selectedRegion,
+  windowKey, date, confidence, spots, points, unrated = EMPTY_UNRATED, stood: stoodAll = EMPTY_STOOD, bestRating = null, unscored = null, shaped = false, regionNames, selectedRegion,
   origin = null, chips = EMPTY_CHIPS,
   reachById, todayStr, onSelectRegion, onOpenLocation = null, onOpenInMap = null, homePoint = null,
   reachMeasured = false, colourMode = null,
@@ -469,10 +469,13 @@ export default function WindowRowFieldMap({
    *
    * <p>Simpler than the strip's Set because this component is handed ONE window rather than six.
    */
-  const notScored = bestRating == null;
+  // A shaped (Lite) body's windows ALL carry a null served best (the server strips it), so the caller states the
+  // answer itself there (S5b-1, B1); everyone else keeps the served best deciding.
+  const notScored = unscored ?? bestRating == null;
   // The whole-plate "not rated yet" hatch is withdrawn where places stood down (big-seas F4): the
   // plate would lie over ground that was looked at. The per-place layers say it instead.
-  const plateHatched = notScored && stood.length === 0;
+  // Never over a shaped body's plate: it would also cover ground outside the picks (S5b-1).
+  const plateHatched = notScored && stood.length === 0 && !shaped;
 
   // Fewer than two regions and there is nothing to choose between: the rail withdraws (§4.4) and so
   // does the click. Normally a P7 origin case; mechanically reachable now on a one-region payload.
@@ -1111,6 +1114,14 @@ WindowRowFieldMap.propTypes = {
   unrated: PropTypes.array,
   stood: PropTypes.array,
   bestRating: PropTypes.number,
+  /**
+   * Whether to mark the window as not scored, when the caller knows better than the served best does (S5b-1): a
+   * body shaped by the reader's sub-regions carries no served best at all. Null (the default) leaves
+   * {@code bestRating == null} deciding, exactly as it always did.
+   */
+  unscored: PropTypes.bool,
+  /** True for a body shaped by the reader's sub-regions: the plate is never hatched whole. */
+  shaped: PropTypes.bool,
   /**
    * The locations the field may name, in the order they deserve the space — focused region first,
    * then rating, then drive. The caller owns that ordering (and the pool it comes from) so the map
