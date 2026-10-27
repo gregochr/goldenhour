@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  applyUserFilters, chipCounts, formatCivilDayShort, formatLastActive, formatSentWhen, matchesSearch, NO_FILTERS,
+  applyUserFilters, chipCounts, formatCivilDayShort, formatJoinedPhrase, formatLastActive, formatSentWhen, matchesSearch, NO_FILTERS,
   roleChangeNote, roleLabel, statusOf, subRegionsCell,
 } from '../utils/userAdmin.js';
 
@@ -132,5 +132,13 @@ describe('roleChangeNote', () => {
       .toBe("Lite readers choose up to 3 sub-regions. tom_h's 2 kept picks come back into use; the lock carries on from their last change.");
     expect(roleChangeNote({ ...base, from: 'ADMIN', to: 'LITE_USER', pickCount: 0 }))
       .toBe("They'll be asked to choose at their next sign-in.");
+  });
+});
+
+describe('formatJoinedPhrase', () => {
+  it('says today for a UK-today join and the date otherwise', () => {
+    expect(formatJoinedPhrase('2026-10-27T00:05:00', NOW)).toBe('today');
+    expect(formatJoinedPhrase('2026-10-19T09:00:00', NOW)).toBe('19 Oct 2026');
+    expect(formatJoinedPhrase(null, NOW)).toBe('—');
   });
 });

@@ -206,6 +206,19 @@ export function formatJoined(value) {
 }
 
 /**
+ * The joined date as the panel header words it: "today" for a UK-today join, else the date.
+ *
+ * @param {string|null|undefined} value a backend instant
+ * @param {Date} [now]
+ * @returns {string}
+ */
+export function formatJoinedPhrase(value, now = appNow()) {
+  const instant = parseUtcInstant(value);
+  if (instant && ukDayKey(instant) === ukDayKey(now)) return 'today';
+  return formatJoined(value);
+}
+
+/**
  * When a verification link was sent, as a phrase for the awaiting-verification box: "today at 08:02" or
  * "27 Oct at 08:02".
  *

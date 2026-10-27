@@ -13,7 +13,7 @@ import { apiErrorMessage } from '../../utils/apiError.js';
 import { formatInstantUk } from '../../utils/conversions.js';
 import { formatCivilDay, groupPicksByRegion } from '../../utils/subRegionCopy.js';
 import {
-  STATUS, STATUS_LABELS, formatJoined, formatLastActive, formatSentWhen, roleLabel, statusOf,
+  STATUS, STATUS_LABELS, formatJoinedPhrase, formatLastActive, formatSentWhen, roleLabel, statusOf,
 } from '../../utils/userAdmin.js';
 import { sectionLabelClass, textButtonClass } from './userFormClasses.js';
 
@@ -147,6 +147,8 @@ function standingLine(state, awaiting) {
  *
  * @param {object} props
  * @param {object} props.user the user summary
+ * @param {'view'|'picks'|'edit'} props.mode which body the panel shows (held by the parent, so Esc can step back)
+ * @param {(mode: string) => void} props.onModeChange
  * @param {() => void} props.onClose closes the panel
  * @param {() => Promise<void>} props.onUsersChanged refetches the list
  * @param {(info: {username: string, password: string}) => void} props.onTempPassword shows the temporary
@@ -154,9 +156,11 @@ function standingLine(state, awaiting) {
  * @param {(message: string) => void} props.onToast shows a one-line confirmation
  * @param {() => void} props.onDeleted told after the account is gone
  */
-export default function UserReaderPanel({ user, onClose, onUsersChanged, onTempPassword, onToast, onDeleted }) {
+export default function UserReaderPanel({
+  user, mode, onModeChange, onClose, onUsersChanged, onTempPassword, onToast, onDeleted,
+}) {
   const [sub, setSub] = useState({ loading: true, state: null, error: false });
-  const [mode, setMode] = useState('view'); // view | picks | edit
+  const setMode = onModeChange;
   const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(null);
   const { openDialog, closeDialog, dialogElement } = useConfirmDialog();
@@ -280,6 +284,7 @@ export default function UserReaderPanel({ user, onClose, onUsersChanged, onTempP
     setActionError('');
     try {
       await resendVerification(user.id);
+      await onUsersChanged();
       onToast(`Verification email sent to ${user.email}.`);
     } catch (err) {
       setActionError(apiErrorMessage(err, `Failed to resend verification for ${user.username}.`));
@@ -313,6 +318,7 @@ export default function UserReaderPanel({ user, onClose, onUsersChanged, onTempP
         limit={sub.state?.limit ?? 0}
         onClose={onClose}
         onCancel={() => setMode('view')}
+        onPartial={onUsersChanged}
         onSaved={async (message) => {
           setMode('view');
           await onUsersChanged();
@@ -332,7 +338,7 @@ export default function UserReaderPanel({ user, onClose, onUsersChanged, onTempP
     <>
       <PanelShell
         title={user.username}
-        subtitle={`${roleLabel(user.role)} · ${STATUS_LABELS[status]} · joined ${formatJoined(user.createdAt)}`}
+        subtitle={`${roleLabel(user.role)} · ${STATUS_LABELS[status]} · joined ${formatJoinedPhrase(user.createdAt)}`}
         onClose={onClose}
         testId="user-reader-panel"
       >
@@ -404,16 +410,18 @@ export default function UserReaderPanel({ user, onClose, onUsersChanged, onTempP
                 {standing.note && <p className="text-xs text-plex-text-secondary">{standing.note}</p>}
               </div>
               <div className="flex flex-wrap gap-2">
-                <button type="button" className="btn-secondary text-xs" onClick={() => setMode('picks')} data-testid="change-picks">
-                  Change picks
-                </button>
+                {!awaiting && (
+                  <button type="button" className="btn-secondary text-xs" onClick={() => setMode('picks')} data-testid="change-picks">
+                    Change picks
+                  </button>
+                )}
                 {state.status === 'LOCKED' && (
                   <button type="button" className="btn-secondary text-xs" onClick={handleClearLock} data-testid="clear-lock">
                     Clear lock
                   </button>
                 )}
               </div>
-              {!state.enforced && (
+              {!state.enforced && !awaiting && (
                 <p
                   className="rounded border border-dashed border-plex-border-light px-3 py-2 text-xs text-plex-text-secondary"
                   data-testid="filtering-off-note"
@@ -486,6 +494,8 @@ export default function UserReaderPanel({ user, onClose, onUsersChanged, onTempP
 
 UserReaderPanel.propTypes = {
   user: PropTypes.object.isRequired,
+  mode: PropTypes.oneOf(['view', 'picks', 'edit']).isRequired,
+  onModeChange: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
   onUsersChanged: PropTypes.func.isRequired,
   onTempPassword: PropTypes.func.isRequired,

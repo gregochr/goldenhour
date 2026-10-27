@@ -293,7 +293,7 @@ more).
 S1: `ask-photocast.md` (the `SUB_REGION` kind, the one-area-per-call note), `database-migrations.md` (V191). S2:
 `api-endpoints.md` (user and admin sub-region endpoints), `configuration.md` (`photocast.sub-regions.*`),
 `platform.md` (the registration step). S3: `api-endpoints.md` (the §4.2 strip list), `architecture-decisions.md`
-(gated is not unrated). S5: `map-tab.md`, `plan-tab.md`. S6: `roles-and-gating.md` (*Freemium split* rewritten), and a
+(gated is not unrated). S5: `map-tab.md`, `plan-tab.md`. S6: `roles-and-gating.md` (*Freemium split* rewritten), `landing/` (`index.html`, `faq.html`, `terms.html`), and a
 CLAUDE.md invariant line ("Lite ratings outside the reader's picks are stripped and marked `gated` at the controller
 edge; never on the client").
 
@@ -307,7 +307,7 @@ edge; never on the client").
 | **S3** enforcement | `LitePickShaper` on every §4.2 row, `gated` markers, `no-store`, fail-closed; the flag stays off | Q5, Q6, Q7, Q8 | `LitePickShaperTest` (flag on/off × LITE, PRO, ADMIN, no role; a completeness test over every rating field, as `forLite`'s); per-endpoint controller tests including `/api/forecast/{id}` outside the picks; `HttpCachingIntegrationTest`: shaped Lite → `no-store` and no ETag, Pro and flag-off → `private, no-cache` + ETag |
 | **S4** picker UI | registration step, Settings section | Q10, the Claude Design output | role-query tests (`frontend-test-standards.md`), the hidden-when-not-enforced branch, no `<a>`, no "upgrade", the phone branch, SWR cleared after PUT |
 | **S5** outside-picks UI | §5.4 S5, built and tested against flag-on bodies locally | Q5, Q9, its design | every rated/total surface with gated spots; the same role and phone tests |
-| **S6** flip | `enforce: true` in prod config; the §7 S6 docs; `swrCache.js` `PREFIX` bump (`v3` → `v4`) so no pre-flip body paints | public pricing, FAQ, Terms updated (owner) | a config test pinning the prod value |
+| **S6** flip | `enforce: true` in prod config; the §7 S6 docs; `swrCache.js` `PREFIX` bump (`v3` → `v4`) so no pre-flip body paints | the landing site in `landing/` is updated in the same S6 PR: `landing/index.html` (Lite tier: ratings for up to {limit} sub-regions you choose; Pro: every sub-region), `landing/faq.html` (Lite answers, plus a new entry on choosing sub-regions, the free first week and the 30-day lock), `landing/terms.html` (§4 tier wording); the owner releases it with `release-landing.sh` together with the enforcement flip, never before | a config test pinning the prod value |
 
 Each phase: Sonnet builds in its own worktree from a brief cut from this file and runs the gates (backend build
 ladder; frontend lint, Vitest, audit, build); the planner reviews the diff; one PR; CI and Codex green before merge.

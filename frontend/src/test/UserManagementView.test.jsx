@@ -909,6 +909,141 @@ describe('UserManagementView', () => {
     });
   });
 
+  describe('review and browser-check fixes', () => {
+    it('refetches the list after a resend, so the "link was sent" time is fresh', async () => {
+      resendVerification.mockResolvedValue({ message: 'Verification email sent' });
+      await renderList();
+      await openReader('hollie.w', makeState({ status: 'FIRST_CHOICE', picks: [] }));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Resend verification email' }));
+
+      await screen.findByText('Verification email sent to hollie@example.com.');
+      expect(getUsers).toHaveBeenCalledTimes(2);
+    });
+
+    it('when the email saves but the role does not, shows the email message and the error and refetches', async () => {
+      const pendingMessage = 'Updated. The old verification link no longer works: resend verification to the new address.';
+      updateUserEmail.mockResolvedValue({ message: pendingMessage });
+      updateUserRole.mockRejectedValue({ response: { data: { error: 'Role change refused' } } });
+      await renderList();
+      await openReader('anna_r', makeState());
+      fireEvent.click(await screen.findByTestId('edit-user-1'));
+      const panel = await screen.findByTestId('user-edit-account');
+
+      fireEvent.change(within(panel).getByLabelText('Email'), { target: { value: 'new@example.com' } });
+      fireEvent.change(within(panel).getByLabelText('Role'), { target: { value: 'PRO_USER' } });
+      fireEvent.click(within(panel).getByRole('button', { name: 'Save changes' }));
+
+      expect(await screen.findByText('Role change refused')).toBeInTheDocument();
+      expect(screen.getByTestId('edit-notice')).toHaveTextContent(pendingMessage);
+      await waitFor(() => expect(getUsers).toHaveBeenCalledTimes(2));
+    });
+
+    it('Esc in Edit account steps back to the reader; a second Esc closes the panel', async () => {
+      await renderList();
+      await openReader('anna_r', makeState());
+      fireEvent.click(await screen.findByTestId('edit-user-1'));
+      await screen.findByTestId('user-edit-account');
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(await screen.findByTestId('user-reader-panel')).toBeInTheDocument();
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByTestId('user-panel')).not.toBeInTheDocument();
+    });
+
+    it('Esc in Change picks steps back to the reader', async () => {
+      await renderList();
+      await openReader('anna_r', makeState());
+      fireEvent.click(await screen.findByRole('button', { name: 'Change picks' }));
+      await screen.findByTestId('user-change-picks');
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+
+      expect(await screen.findByTestId('user-reader-panel')).toBeInTheDocument();
+    });
+
+    it('Esc closes the Add user panel, but not when it starts in a text field', async () => {
+      await renderList();
+      fireEvent.click(screen.getByRole('button', { name: 'Add user' }));
+      const username = await screen.findByLabelText('Username');
+
+      fireEvent.keyDown(username, { key: 'Escape' });
+      expect(screen.getByTestId('user-add-panel')).toBeInTheDocument();
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByTestId('user-panel')).not.toBeInTheDocument();
+    });
+
+    it('ignores an Esc that starts in the search box', async () => {
+      await renderList();
+      await openReader('anna_r', makeState());
+
+      fireEvent.keyDown(screen.getByRole('searchbox', { name: 'Search username or email' }), { key: 'Escape' });
+
+      expect(screen.getByTestId('user-panel')).toBeInTheDocument();
+    });
+
+    it('a hash naming a reader (Back or Forward) leaves the Add user panel', async () => {
+      await renderList();
+      fireEvent.click(screen.getByRole('button', { name: 'Add user' }));
+      await screen.findByTestId('user-add-panel');
+      getUserSubRegions.mockResolvedValue(makeState());
+
+      window.location.hash = '#manage/users/2';
+      fireEvent(window, new HashChangeEvent('hashchange'));
+
+      expect(await screen.findByRole('heading', { name: 'bea.holy' })).toBeInTheDocument();
+      expect(screen.queryByTestId('user-add-panel')).not.toBeInTheDocument();
+    });
+
+    it('hides the chip row while the panel is open and brings it back on close', async () => {
+      await renderList();
+      expect(screen.getByTestId('chip-role-ALL')).toBeInTheDocument();
+
+      await openReader('anna_r');
+      expect(screen.queryByTestId('chip-role-ALL')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('chip-locked')).not.toBeInTheDocument();
+      expect(screen.getByRole('searchbox', { name: 'Search username or email' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
+      expect(screen.getByTestId('chip-role-ALL')).toBeInTheDocument();
+    });
+
+    it('draws the search box a themed clear button only while there is text', async () => {
+      await renderList();
+      expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument();
+
+      const search = screen.getByRole('searchbox', { name: 'Search username or email' });
+      fireEvent.change(search, { target: { value: 'anna' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+
+      expect(search).toHaveValue('');
+      expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument();
+    });
+
+    it('colours Pro and the selection with the gold accent, not bone', async () => {
+      await renderList();
+      expect(within(rowFor('mkphoto')).getByText('Pro')).toHaveClass('text-close-to-home');
+      expect(within(rowFor('mkphoto')).getByText('Pro')).not.toHaveClass('text-plex-gold');
+      await openReader('anna_r');
+      expect(rowFor('anna_r').className).toContain('--color-close-to-home');
+    });
+
+    it('an awaiting-verification reader has no Change picks and no filtering-off note, and joined today reads so', async () => {
+      const today = new Date().toISOString().replace('Z', '');
+      const users = fixtureUsers();
+      users[3] = { ...users[3], createdAt: today };
+      await renderList(users);
+      await openReader('hollie.w', makeState({ status: 'FIRST_CHOICE', picks: [], enforced: false }));
+
+      await screen.findByText('They choose during sign-up, after verifying.');
+      expect(screen.queryByRole('button', { name: 'Change picks' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('filtering-off-note')).not.toBeInTheDocument();
+      expect(screen.getByTestId('user-panel-subtitle')).toHaveTextContent('Lite · Awaiting verification · joined today');
+    });
+  });
+
   describe('loading', () => {
     it('shows a message when the list cannot be loaded', async () => {
       getUsers.mockRejectedValue(new Error('boom'));

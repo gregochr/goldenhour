@@ -24,12 +24,15 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * @param {() => void} props.onCancel back to the reader view
  * @param {(message: string|null) => void} props.onSaved told after a save, with the server's email message
  *   when it said something beyond "Updated"
+ * @param {(message: string|null) => Promise<void>|void} props.onPartial told when the email saved but the role
+ *   did not: the list must refetch, and the email message stays visible beside the error
  */
-export default function UserEditAccount({ user, pickCount, limit, onClose, onCancel, onSaved }) {
+export default function UserEditAccount({ user, pickCount, limit, onClose, onCancel, onSaved, onPartial }) {
   const [email, setEmail] = useState(user.email || '');
   const [role, setRole] = useState(user.role);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState(null);
 
   const note = pickCount == null
     ? null
@@ -49,12 +52,22 @@ export default function UserEditAccount({ user, pickCount, limit, onClose, onCan
     setSaving(true);
     try {
       let message = null;
+      let emailSaved = false;
       if (trimmed !== (user.email || '')) {
         const result = await updateUserEmail(user.id, trimmed);
+        emailSaved = true;
         if (result?.message && result.message !== 'Updated') message = result.message;
       }
       if (role !== user.role) {
-        await updateUserRole(user.id, role);
+        try {
+          await updateUserRole(user.id, role);
+        } catch (err) {
+          if (emailSaved) {
+            setNotice(message);
+            await onPartial();
+          }
+          throw err;
+        }
       }
       onSaved(message);
     } catch (err) {
@@ -106,6 +119,7 @@ export default function UserEditAccount({ user, pickCount, limit, onClose, onCan
           )}
         </div>
 
+        {notice && <p className="text-xs text-plex-text-secondary" data-testid="edit-notice">{notice}</p>}
         {error && <p className="text-xs text-plex-error" role="alert">{error}</p>}
 
         <div className="flex items-center justify-end gap-3">
@@ -147,4 +161,5 @@ UserEditAccount.propTypes = {
   onClose: PropTypes.func.isRequired,
   onCancel: PropTypes.func.isRequired,
   onSaved: PropTypes.func.isRequired,
+  onPartial: PropTypes.func.isRequired,
 };

@@ -11,7 +11,7 @@ import {
 import { inputClass, textButtonClass } from './userFormClasses.js';
 
 const CHIP_BASE = 'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-plex-gold';
-const CHIP_ON = 'border-plex-gold bg-plex-gold/10 text-plex-text';
+const CHIP_ON = 'border-close-to-home bg-close-to-home/10 text-plex-text';
 const CHIP_OFF = 'border-plex-border text-plex-text-secondary hover:border-plex-border-light hover:text-plex-text';
 
 const ROLE_CHIPS = [
@@ -33,7 +33,7 @@ const SUB_REGION_CHIPS = [
 ];
 
 /** Role text: Lite plain, Pro in gold, Admin in the tide colour. */
-const ROLE_TEXT = { LITE_USER: 'text-plex-text', PRO_USER: 'text-plex-gold', ADMIN: 'text-tide' };
+const ROLE_TEXT = { LITE_USER: 'text-plex-text', PRO_USER: 'text-close-to-home', ADMIN: 'text-tide' };
 
 /** A filter chip carrying its count. A toggle (aria-pressed), or one of the single-select role group. */
 function Chip({ label, count, on, onClick, testId }) {
@@ -137,15 +137,30 @@ export default function UserListPane({ users, selectedId, compact, onSelect, onA
       </div>
 
       <div className="flex flex-wrap items-center gap-2" data-testid="user-tools">
-        <input
-          type="search"
-          aria-label="Search username or email"
-          placeholder="Search username or email"
-          className={`${inputClass} !w-[300px] max-w-full`}
-          value={filters.search}
-          onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-          data-testid="user-search"
-        />
+        <div className="relative w-[300px] max-w-full">
+          <input
+            type="search"
+            aria-label="Search username or email"
+            placeholder="Search username or email"
+            className={`${inputClass} pr-8 [&::-webkit-search-cancel-button]:appearance-none`}
+            value={filters.search}
+            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+            data-testid="user-search"
+          />
+          {filters.search !== '' && (
+            <button
+              type="button"
+              className="absolute inset-y-0 right-0 flex w-8 items-center justify-center rounded text-base leading-none text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
+              aria-label="Clear search"
+              onClick={() => setFilters((f) => ({ ...f, search: '' }))}
+              data-testid="user-search-clear"
+            >
+              <span aria-hidden="true">&times;</span>
+            </button>
+          )}
+        </div>
+        {!compact && (
+          <>
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Role">
           {ROLE_CHIPS.map((chip) => (
             <Chip
@@ -184,6 +199,8 @@ export default function UserListPane({ users, selectedId, compact, onSelect, onA
             />
           ))}
         </div>
+          </>
+        )}
       </div>
 
       {sorted.length === 0 ? (
@@ -234,7 +251,7 @@ export default function UserListPane({ users, selectedId, compact, onSelect, onA
                     onClick={() => onSelect(user)}
                     onKeyDown={(e) => onRowKeyDown(e, user)}
                     className={`cursor-pointer border-b border-plex-border/60 transition-colors last:border-0 hover:bg-plex-surface-light focus-visible:outline-2 focus-visible:outline-plex-gold ${
-                      selected ? 'bg-plex-surface-light shadow-[inset_2px_0_0_var(--color-plex-gold)]' : ''
+                      selected ? 'bg-plex-surface-light shadow-[inset_2px_0_0_var(--color-close-to-home)]' : ''
                     }`}
                     data-testid={`user-row-${user.id}`}
                   >

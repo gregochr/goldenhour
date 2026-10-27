@@ -38,6 +38,7 @@ export default function UserManagementView() {
   const [loadError, setLoadError] = useState('');
   const [selectedId, setSelectedId] = useState(selectedIdFromHash);
   const [adding, setAdding] = useState(false);
+  const [mode, setMode] = useState('view'); // the reader panel's body: view | picks | edit
   const [tempPassword, setTempPassword] = useState(null);
   const [toast, setToast] = useState(null);
   const clearToast = useCallback(() => setToast(null), []);
@@ -61,7 +62,12 @@ export default function UserManagementView() {
 
   // Back and Forward (and a pasted link) move the selection.
   useEffect(() => {
-    const onHashChange = () => setSelectedId(selectedIdFromHash());
+    const onHashChange = () => {
+      const id = selectedIdFromHash();
+      if (id != null) setAdding(false);
+      setMode('view');
+      setSelectedId(id);
+    };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
@@ -71,6 +77,7 @@ export default function UserManagementView() {
 
   const closePanel = useCallback(() => {
     setAdding(false);
+    setMode('view');
     setSelectedId(null);
     writeSelectionToHash(null);
   }, []);
@@ -81,14 +88,23 @@ export default function UserManagementView() {
     const onKeyDown = (event) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
+      // Esc in a text field belongs to the field (the search box clears itself in some browsers).
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.tagName === 'TEXTAREA' || target.isContentEditable
+          || (target.tagName === 'INPUT' && !['checkbox', 'radio', 'button'].includes(target.type)))) return;
+      if (!adding && mode !== 'view') {
+        setMode('view');
+        return;
+      }
       closePanel();
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [panelOpen, closePanel]);
+  }, [panelOpen, adding, mode, closePanel]);
 
   function selectUser(user) {
     setAdding(false);
+    setMode('view');
     setSelectedId(user.id);
     writeSelectionToHash(user.id);
   }
@@ -138,6 +154,8 @@ export default function UserManagementView() {
                 <UserReaderPanel
                   key={selectedUser.id}
                   user={selectedUser}
+                  mode={mode}
+                  onModeChange={setMode}
                   onClose={closePanel}
                   onUsersChanged={refreshUsers}
                   onTempPassword={setTempPassword}
