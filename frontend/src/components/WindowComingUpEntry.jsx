@@ -661,14 +661,15 @@ export default function WindowComingUpEntry({
         </div>
       )}
       {/* The Lite Pro door (tide-light-pro-plan.md F2). A SIBLING of the card, never inside it: an
-          interactive card with no day chips is itself a <button>, which has presentational children. */}
+          interactive card with no day chips is itself a <button>, which has presentational children.
+          Like the outside door below, it sits in the card's grid column (`.wf-cu-tide-door`), not the date rail. */}
       {showTideLightDoor && (
         <ProUpsellDoor
           label={TIDE_LIGHT_UPSELL_LABEL}
           heading={TIDE_LIGHT_UPSELL_HEADING}
           body={TIDE_LIGHT_UPSELL_BODY}
           testIdPrefix="coming-up-tide-light-upsell"
-          className="wf-pro-upsell-door--inline"
+          className="wf-pro-upsell-door--inline wf-cu-tide-door"
         />
       )}
       {/* The sub-regions door (S5b-2): also a sibling of the card, on one entry per tab. */}

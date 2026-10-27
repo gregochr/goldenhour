@@ -49,6 +49,10 @@ describe('Coming up — the Lite tide-light door', () => {
     const rows = screen.getAllByTestId('coming-up-entry');
     const door = within(rows[0]).getByTestId('coming-up-tide-light-upsell-door');
     expect(door.previousElementSibling).toBe(within(rows[0]).getByTestId('coming-up-card'));
+    // A direct child of the entry grid that names the card's column (jsdom cannot lay it out; the
+    // class is what `.wf-cu-tide-door { grid-column: 2 }` hangs on).
+    expect(door.parentElement).toBe(rows[0]);
+    expect(door).toHaveClass('wf-cu-tide-door');
     expect(within(rows[1]).queryByTestId('coming-up-tide-light-upsell-door')).toBeNull();
     expect(within(rows[0]).getByTestId('coming-up-tide-light-upsell-trigger'))
       .toHaveTextContent('When high water meets the light');
