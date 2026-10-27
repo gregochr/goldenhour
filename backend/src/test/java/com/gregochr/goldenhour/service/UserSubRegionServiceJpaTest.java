@@ -266,8 +266,8 @@ class UserSubRegionServiceJpaTest {
     }
 
     @Test
-    @DisplayName("FREE_UNTIL, LOCKED and NOT_APPLICABLE state neither prospective date")
-    void otherStatuses_stateNoProspectiveDate() {
+    @DisplayName("FREE_UNTIL states the lock a grace-week save leaves; LOCKED and NOT_APPLICABLE state neither date")
+    void otherStatuses_stateTheRightProspectiveDates() {
         standing(userId, "2026-11-01", "2026-10-26T12:00:00Z", berwick);
         SubRegionState free = service.getState("anna");
         standing(userId, "2026-09-01", "2026-10-20T10:00:00Z");
@@ -278,10 +278,13 @@ class UserSubRegionServiceJpaTest {
         assertThat(free.status()).isEqualTo(SubRegionState.FREE_UNTIL);
         assertThat(locked.status()).isEqualTo(SubRegionState.LOCKED);
         assertThat(notApplicable.status()).isEqualTo(SubRegionState.NOT_APPLICABLE);
+        assertThat(free.nextChangeOnIfSavedToday()).as("max(1 Nov + 1, 26 Oct + 30)")
+                .isEqualTo(LocalDate.of(2026, 11, 25));
         for (SubRegionState state : List.of(free, locked, notApplicable)) {
             assertThat(state.freeUntilIfChosenToday()).isNull();
-            assertThat(state.nextChangeOnIfSavedToday()).isNull();
         }
+        assertThat(locked.nextChangeOnIfSavedToday()).isNull();
+        assertThat(notApplicable.nextChangeOnIfSavedToday()).isNull();
     }
 
     @Test

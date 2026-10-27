@@ -27,8 +27,10 @@ import java.util.List;
  *                     if the reader's first save happens today ({@code today + grace-days - 1}, or the grace end
  *                     they already hold); absent when that grace has already ended or the status is another
  * @param nextChangeOnIfSavedToday the first day a swap would be allowed if a lock-stamping save happened today,
- *                     {@code max(graceUntil + 1, today + lock-days)}; present for {@code OPEN}, and for
- *                     {@code FIRST_CHOICE} when the reader's grace has already ended; absent otherwise
+ *                     {@code max(graceUntil + 1, today + lock-days)}; present for {@code OPEN}, for
+ *                     {@code FREE_UNTIL} (a grace-week save stamps too, so it states the lock that follows the
+ *                     free week), and for {@code FIRST_CHOICE} when the reader's grace has already ended;
+ *                     absent otherwise
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record SubRegionState(boolean enforced, int limit, List<Pick> picks, List<RegionOptions> options,

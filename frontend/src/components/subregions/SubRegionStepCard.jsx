@@ -59,7 +59,9 @@ export default function SubRegionStepCard({
         <p className="text-xs text-plex-text-secondary leading-normal mt-1">{sub}</p>
       </div>
 
-      {state.suggested.length > 0 && (
+      {/* Shown while the selection still holds a suggestion; once the reader has moved off all of them the
+          line would be false. */}
+      {state.suggested.some((id) => selected.includes(id)) && (
         <p
           className="flex items-start gap-2 rounded-lg border border-plex-border bg-plex-surface-light px-3 py-2 text-xs text-plex-text"
           data-testid={`${testIdPrefix}-suggested`}
@@ -86,7 +88,9 @@ export default function SubRegionStepCard({
         <span>Pro covers every sub-region.</span>
       </p>
 
-      <ErrorBanner message={error} data-testid={`${testIdPrefix}-error`} />
+      <div role="alert">
+        <ErrorBanner message={error} data-testid={`${testIdPrefix}-error`} />
+      </div>
 
       <div className="flex flex-col gap-2.5">
         <button

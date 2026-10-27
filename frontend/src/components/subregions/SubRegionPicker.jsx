@@ -16,6 +16,31 @@ function rowMeta(option) {
 }
 
 /**
+ * The count line ("2 of 3 chosen", or "2 chosen" read-only) in a polite live region. The picker draws it
+ * itself; a bottom sheet that pins it in its header draws it there and passes {@code showCount={false}}.
+ *
+ * @param {object} props
+ * @param {number} props.count
+ * @param {number} props.limit
+ * @param {boolean} [props.read]
+ * @param {string} [props.testId]
+ */
+export function SubRegionCount({ count, limit, read = false, testId = 'sub-region-picker-count' }) {
+  return (
+    <p className="font-mono text-xs text-plex-text" aria-live="polite" data-testid={testId}>
+      {read ? `${count} chosen` : `${count} of ${limit} chosen`}
+    </p>
+  );
+}
+
+SubRegionCount.propTypes = {
+  count: PropTypes.number.isRequired,
+  limit: PropTypes.number.isRequired,
+  read: PropTypes.bool,
+  testId: PropTypes.string,
+};
+
+/**
  * The shared sub-region picker (sub-regions-plan §5.4 S4; design handoff A1): registration, the sign-in
  * prompt and Settings all render this one component. It holds no rule of its own: what the reader may do
  * comes in as props, decided by the server's state.
@@ -43,13 +68,15 @@ function rowMeta(option) {
  * @param {string} [props.lockedReason] shown under a locked row when the reader tries to remove it
  * @param {boolean} [props.removalsOnly] only removals are allowed
  * @param {string} [props.testIdPrefix]
+ * @param {boolean} [props.showCount] draw the count line (default); a sheet pinning it elsewhere says false
  */
 export default function SubRegionPicker({
   options, value, limit, onChange = () => {}, mode = 'edit', lockedIds = [], lockedReason = '',
-  removalsOnly = false, testIdPrefix = 'sub-region-picker',
+  removalsOnly = false, testIdPrefix = 'sub-region-picker', showCount = true,
 }) {
   const baseId = useId();
   const limitId = `${baseId}-limit`;
+  const lockedId = `${baseId}-locked`;
   const read = mode === 'read';
   const chosen = new Set(value);
   const locked = new Set(lockedIds);
@@ -120,13 +147,9 @@ export default function SubRegionPicker({
   return (
     <div className="flex flex-col gap-3" data-testid={testIdPrefix}>
       <div>
-        <p
-          className="font-mono text-xs text-plex-text"
-          aria-live="polite"
-          data-testid={`${testIdPrefix}-count`}
-        >
-          {read ? `${count} chosen` : `${count} of ${limit} chosen`}
-        </p>
+        {showCount && (
+          <SubRegionCount count={count} limit={limit} read={read} testId={`${testIdPrefix}-count`} />
+        )}
         <ul className="flex flex-wrap gap-2 mt-2" aria-label="Chosen sub-regions" data-testid={`${testIdPrefix}-chips`}>
           {chips.length === 0 && (
             <li className="text-xs text-plex-text-muted py-1">None chosen yet</li>
@@ -164,6 +187,10 @@ export default function SubRegionPicker({
         )}
       </div>
 
+      {lockedReason && lockedIds.length > 0 && (
+        <span id={lockedId} className="sr-only">{lockedReason}</span>
+      )}
+
       {options.map((region) => {
         const regionOpen = open.has(region.regionId);
         const k = region.subRegions.filter((s) => chosen.has(s.areaId)).length;
@@ -181,10 +208,10 @@ export default function SubRegionPicker({
               aria-controls={panelId}
               onClick={() => toggleRegion(region.regionId)}
             >
-              <span>{region.regionName}</span>
-              <span className="flex items-center gap-2 font-mono text-xs">
+              <span className="min-w-0">{region.regionName}</span>
+              <span className="flex shrink-0 items-center gap-2 whitespace-nowrap font-mono text-xs">
                 {k > 0 ? (
-                  <span className="text-plex-gold">{k} chosen</span>
+                  <span className="text-verdict-marginal">{k} chosen</span>
                 ) : (
                   <span className="text-plex-text-muted">{region.subRegions.length} sub-regions</span>
                 )}
@@ -203,7 +230,9 @@ export default function SubRegionPicker({
                   const isChosen = chosen.has(option.areaId);
                   const isLocked = isChosen && locked.has(option.areaId);
                   const blocked = read || isLocked || (!isChosen && addsBlocked);
-                  const describedBy = !read && !isChosen && addsBlocked ? limitId : undefined;
+                  let describedBy;
+                  if (!read && !isChosen && addsBlocked) describedBy = limitId;
+                  else if (isLocked && lockedReason) describedBy = lockedId;
                   return (
                     <li key={option.areaId} className="border-t border-plex-border">
                       <label
@@ -254,7 +283,7 @@ export default function SubRegionPicker({
                       {nudge?.areaId === option.areaId && (
                         <p
                           role="status"
-                          className="px-3 pb-2 pl-[42px] text-xs text-plex-gold"
+                          className="px-3 pb-2 pl-[42px] text-xs text-verdict-marginal"
                           data-testid={`${testIdPrefix}-nudge`}
                         >
                           {nudge.text}
@@ -291,4 +320,5 @@ SubRegionPicker.propTypes = {
   lockedReason: PropTypes.string,
   removalsOnly: PropTypes.bool,
   testIdPrefix: PropTypes.string,
+  showCount: PropTypes.bool,
 };

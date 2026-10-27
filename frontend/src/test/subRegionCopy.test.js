@@ -57,7 +57,7 @@ describe('subRegionCopy', () => {
     });
 
     it('OPEN', () => {
-      expect(settingsStatusLine(OPEN)).toBe('You can change your sub-regions now. Saving starts a 30-day lock.');
+      expect(settingsStatusLine(OPEN)).toBe('You can change your sub-regions now. Removing one starts a 30-day lock.');
     });
 
     it('LOCKED', () => {
@@ -100,6 +100,13 @@ describe('subRegionCopy', () => {
   describe('saved toast', () => {
     it('is the plain line in the free week', () => {
       expect(savedToast(FREE_WEEK)).toBe('Sub-regions saved.');
+    });
+
+    it('states the lock after the free week for a grace-week save, when the server gives its date', () => {
+      const state = makeState({
+        picks: [12], status: 'FREE_UNTIL', freeUntil: '2026-11-02', nextChangeOnIfSavedToday: '2026-11-25',
+      });
+      expect(savedToast(state)).toBe('Sub-regions saved. After 2 November you can next change them on 25 November.');
     });
 
     it('carries the next-change date once a lock has started', () => {

@@ -391,7 +391,7 @@ public class UserSubRegionService {
         if (SubRegionState.FIRST_CHOICE.equals(status) && !graceEnded) {
             freeUntilIfChosenToday = graceUntil != null ? graceUntil
                     : today.plusDays(properties.getGraceDays() - 1L);
-        } else if (SubRegionState.OPEN.equals(status)
+        } else if (SubRegionState.OPEN.equals(status) || SubRegionState.FREE_UNTIL.equals(status)
                 || (SubRegionState.FIRST_CHOICE.equals(status) && graceEnded)) {
             nextChangeOnIfSavedToday = nextChangeOn(graceUntil, LocalDateTime.now(clock),
                     properties.getLockDays());

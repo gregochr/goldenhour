@@ -2502,4 +2502,83 @@ describe('App — the sub-region sign-in prompt', () => {
     expect(getSubRegions).not.toHaveBeenCalled();
     expect(screen.queryByTestId('sub-region-prompt')).not.toBeInTheDocument();
   });
+  describe('never stacks over another modal', () => {
+    const DUE = { ...SETTINGS_NO_HOME, postcodePromptDue: true };
+    const deferred = () => {
+      let resolve;
+      const promise = new Promise((res) => { resolve = res; });
+      return { promise, resolve };
+    };
+    const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    beforeEach(() => {
+      markPostcodePromptDismissed.mockReset().mockResolvedValue({ ...SETTINGS_NO_HOME, postcodePromptDue: false });
+    });
+
+    afterEach(() => {
+      cleanup();
+      document.querySelectorAll('[data-testid="foreign-dialog"]').forEach((n) => n.remove());
+    });
+
+    it('postcode prompt first: the sub-region card waits, and appears when the postcode prompt closes', async () => {
+      const user = userEvent.setup();
+      const read = deferred();
+      getSettings.mockResolvedValue(DUE);
+      getSubRegions.mockReturnValue(read.promise);
+      renderApp({ role: 'LITE_USER' });
+      await screen.findByTestId('postcode-prompt');
+
+      read.resolve(FIRST_CHOICE);
+      await settle();
+
+      expect(screen.getByTestId('postcode-prompt')).toBeInTheDocument();
+      expect(screen.queryByTestId('sub-region-prompt')).not.toBeInTheDocument();
+      expect(screen.getAllByRole('dialog').filter((d) => d.getAttribute('aria-modal') === 'true')).toHaveLength(1);
+
+      await user.click(screen.getByTestId('prompt-secondary'));
+
+      expect(await screen.findByTestId('sub-region-prompt')).toBeInTheDocument();
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+    });
+
+    it('sub-region card first: the postcode prompt waits for it', async () => {
+      const user = userEvent.setup();
+      const settingsRead = deferred();
+      getSettings.mockReturnValue(settingsRead.promise);
+      getSubRegions.mockResolvedValue(FIRST_CHOICE);
+      saveSubRegions.mockResolvedValue(FREE_WEEK);
+      renderApp({ role: 'LITE_USER' });
+      await screen.findByTestId('sub-region-prompt');
+
+      settingsRead.resolve(DUE);
+      await settle();
+
+      expect(screen.getByTestId('sub-region-prompt')).toBeInTheDocument();
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Continue' }));
+
+      expect(await screen.findByTestId('postcode-prompt')).toBeInTheDocument();
+      expect(screen.queryByTestId('sub-region-prompt')).not.toBeInTheDocument();
+    });
+
+    it('waits while a Plan dialog is already open, then appears when it closes', async () => {
+      getSubRegions.mockResolvedValue(FIRST_CHOICE);
+      const foreign = document.createElement('div');
+      foreign.setAttribute('role', 'dialog');
+      foreign.setAttribute('aria-modal', 'true');
+      foreign.setAttribute('data-testid', 'foreign-dialog');
+      document.body.appendChild(foreign);
+      renderApp({ role: 'LITE_USER' });
+      await screen.findByTestId('window-first-shell');
+      await settle();
+
+      expect(getSubRegions).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('sub-region-prompt')).not.toBeInTheDocument();
+
+      await act(async () => { foreign.remove(); });
+
+      expect(await screen.findByTestId('sub-region-prompt')).toBeInTheDocument();
+    });
+  });
 });

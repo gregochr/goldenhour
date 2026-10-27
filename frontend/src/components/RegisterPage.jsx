@@ -23,6 +23,20 @@ const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIF
  * read off this list rather than typed.
  */
 const SUB_REGION_FLOW = ['REGISTER', 'VERIFY_EMAIL', 'SET_PASSWORD', 'HOME', 'SUB_REGIONS', 'WELCOME'];
+/** How long registration waits for the sub-region read before carrying on to the Welcome without the step. */
+const SUB_REGION_READ_MS = 4000;
+
+/** The sub-region state, or null when the read fails or is slower than {@code ms}. Never rejects. */
+function readSubRegionsWithin(ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    getSubRegions().then(
+      (answer) => { clearTimeout(timer); resolve(answer); },
+      () => { clearTimeout(timer); resolve(null); },
+    );
+  });
+}
+
 const SUB_REGIONS_KICKER = `Step ${SUB_REGION_FLOW.indexOf('SUB_REGIONS') + 1} of ${SUB_REGION_FLOW.length}`;
 
 /**
@@ -213,12 +227,9 @@ export default function RegisterPage({ verifyToken = null, inviteToken = null, o
   // registration for a step that cannot be shown. The pre-selection is the server's suggestion (nearest
   // to home) and is recalculated on a return from Back unless the reader has already edited it.
   async function continueAfterHome() {
-    let state = null;
-    try {
-      state = await getSubRegions();
-    } catch {
-      // Nothing to choose, as far as we can tell.
-    }
+    // The caller (PostcodeCapture) awaits this, so HOME's buttons stay held for the read; a read that
+    // fails or takes longer than the timeout is "nothing to choose", never a reader stuck on HOME.
+    const state = await readSubRegionsWithin(SUB_REGION_READ_MS);
     if (!pickerApplies(state)) {
       setStep(STEPS.SUCCESS);
       return;

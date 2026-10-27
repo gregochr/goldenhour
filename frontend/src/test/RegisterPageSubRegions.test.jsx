@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import RegisterPage from '../components/RegisterPage.jsx';
@@ -225,6 +225,82 @@ describe('RegisterPage SUB_REGIONS step (S4 A2)', () => {
     expect(screen.queryByRole('button', { name: 'Remove Keswick & Borrowdale' })).toBeNull();
   });
 
+  describe('between HOME and the step', () => {
+    const MORPETH = { postcode: 'NE61 1AA', placeName: 'Morpeth', latitude: 55.17, longitude: -1.69 };
+
+    async function toHomeWithPostcode(user) {
+      vi.spyOn(AuthApi, 'verifyEmail').mockResolvedValue({ userId: 7, verified: true, setupToken: 'setup-tok' });
+      vi.spyOn(AuthApi, 'setPasswordForNewUser').mockResolvedValue(SESSION);
+      SettingsApi.lookupPostcode.mockResolvedValue(MORPETH);
+      SettingsApi.saveHome.mockResolvedValue({ homePostcode: 'NE61 1AA' });
+      render(
+        <AuthProvider>
+          <RegisterPage verifyToken="tok" onBackToLogin={vi.fn()} />
+        </AuthProvider>,
+      );
+      await screen.findByTestId('set-password-form');
+      await user.type(screen.getByTestId('sp-password'), 'Abcdef1!');
+      await user.type(screen.getByTestId('sp-confirm'), 'Abcdef1!');
+      await user.click(screen.getByTestId('sp-submit'));
+      await screen.findByTestId('home-step');
+      await user.type(screen.getByTestId('home-input'), 'NE61 1AA');
+      await user.click(screen.getByTestId('home-lookup'));
+      await screen.findByTestId('home-found');
+    }
+
+    it('holds HOME busy while the read is pending, so a second Save sends no second save', async () => {
+      const user = userEvent.setup();
+      let answer;
+      getSubRegions.mockReturnValue(new Promise((resolve) => { answer = resolve; }));
+      await toHomeWithPostcode(user);
+
+      await user.click(screen.getByTestId('home-primary'));
+      await user.click(screen.getByTestId('home-primary'));
+
+      expect(SettingsApi.saveHome).toHaveBeenCalledTimes(1);
+      expect(getSubRegions).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('home-secondary')).toBeDisabled();
+
+      await act(async () => { answer(FIRST_CHOICE); });
+
+      expect(await screen.findByTestId('sub-regions-step')).toBeInTheDocument();
+    });
+
+    it('carries on to the Welcome when the read never answers, after four seconds', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+        getSubRegions.mockReturnValue(new Promise(() => {}));
+        await throughHomeBySkipping(user);
+        expect(screen.queryByTestId('success-step')).toBeNull();
+
+        await act(async () => { vi.advanceTimersByTime(3900); });
+        expect(screen.queryByTestId('success-step')).toBeNull();
+        await act(async () => { vi.advanceTimersByTime(200); });
+
+        expect(await screen.findByTestId('success-step')).toBeInTheDocument();
+        expect(screen.queryByTestId('sub-regions-step')).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it('hides the "we picked" line once the reader has moved off every suggestion, and keeps it while one remains', async () => {
+    const user = userEvent.setup();
+    getSubRegions.mockResolvedValue(FIRST_CHOICE);
+    await throughHomeBySkipping(user);
+    await step();
+
+    await user.click(screen.getByRole('button', { name: 'Remove Keswick & Borrowdale' }));
+    expect(screen.getByTestId('sub-regions-step-suggested')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Remove Alnwick & the Coquet Coast' }));
+    await user.click(screen.getByRole('button', { name: 'Remove Newcastle & Durham' }));
+    await user.click(box('Berwick'));
+
+    expect(screen.queryByTestId('sub-regions-step-suggested')).toBeNull();
+  });
+
   describe('Continue', () => {
     it('PUTs the chosen ids, clears the SWR cache, then shows the Welcome', async () => {
       const user = userEvent.setup();
@@ -254,6 +330,7 @@ describe('RegisterPage SUB_REGIONS step (S4 A2)', () => {
       expect(screen.getByTestId('sub-regions-step')).toBeInTheDocument();
       expect(screen.queryByTestId('success-step')).toBeNull();
       expect(screen.getByTestId('sub-regions-step-continue')).not.toHaveAttribute('aria-disabled');
+      expect(screen.getByRole('alert')).toContainElement(screen.getByTestId('sub-regions-step-error'));
     });
   });
 });

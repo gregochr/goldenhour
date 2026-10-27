@@ -376,6 +376,16 @@ is later. Tested on a fixed `Clock`, including a BST midnight (`UserSubRegionSer
 - *Refetch after a save*: the briefing provider gains a `subRegionsVersion` prop (refetches briefing and ratings
   when it moves) and `App` also calls the forecasts' `refresh`; `clearSwrCache()` runs first, only on success.
 
+**Review and browser-check follow-ups (same day).** Registration waits for the sub-region read with HOME's buttons held
+(`PostcodeCapture` now awaits `onSaved`) and gives up after 4 s, carrying on to the Welcome. The sign-in prompt waits
+while any other modal is up (`useModalPresent('data-sub-region-prompt')`), latches once shown, and the postcode prompt
+counts it as foreign too: the two never stack, and the order is whichever the app learns of first (not fixed).
+`useForecasts` drops a response older than one already applied. `nextChangeOnIfSavedToday` is also sent for
+`FREE_UNTIL` (a grace-week save stamps), and the toast then says when the lock after the free week ends. The OPEN line
+reads "Removing one starts a 30-day lock." (an add-only change stamps nothing). The phone picker sheet is the house
+`tall` sheet (viewport less 24px, not the handoff's 64px) with a pinned header (title, status line, count) and footer;
+its confirmation swaps to the default short sheet. LOCKED with room under the limit still labels the button View.
+
 **Flag off is a no-op.** Every surface is gated on `enforced === true`: registration skips the step, sign-in shows
 nothing, Settings renders no section (and an Admin makes no request). Pinned by tests in the registration, sign-in,
 Settings and `App` suites.

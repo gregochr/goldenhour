@@ -177,7 +177,15 @@ export function useForecasts() {
   const loadedDaysRef = useRef(new Set());
   const loadingDayRef = useRef(null);
 
+  // Request numbering: a response older than one already applied is dropped whole. Without it a slow
+  // pre-save request landing after the post-save refresh puts back forecasts shaped by the old
+  // sub-region picks (and re-writes them to the cache).
+  const requestedRef = useRef(0);
+  const appliedRef = useRef(0);
+
   const load = useCallback(async ({ userInitiated = false } = {}) => {
+    requestedRef.current += 1;
+    const request = requestedRef.current;
     setError(null);
     // Only show the skeleton when there's nothing to show yet. A revalidation over hydrated or
     // previously-loaded data stays silent, so refreshing the map never blanks it (no jar).
@@ -194,6 +202,8 @@ export function useForecasts() {
         fetchLocations(),
       ]);
 
+      if (request < appliedRef.current) return; // a newer answer is already on screen
+      appliedRef.current = request;
       setLocations(buildLocations(forecasts, locationMeta));
       hasDataRef.current = true;
       // Best-effort: writeSwrCache silently no-ops if the payload exceeds the storage quota,

@@ -140,7 +140,9 @@ export default function PostcodeCapture({
     try {
       const updated = await saveHome(result.postcode, result.latitude, result.longitude, null);
       // `PUT /home` does not geocode, so its own place name is null; the lookup it saved names it.
-      onSaved({ ...updated, homePlaceName: updated?.homePlaceName ?? result.placeName ?? null });
+      // Awaited: a consumer whose next step is asynchronous (registration reads the sub-region state) keeps
+      // both buttons held until it is done, so a second press cannot send a second save.
+      await onSaved({ ...updated, homePlaceName: updated?.homePlaceName ?? result.placeName ?? null });
     } catch {
       setSaveError(true);
     } finally {

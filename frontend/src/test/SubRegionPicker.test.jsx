@@ -229,6 +229,17 @@ describe('SubRegionPicker (S4 A1)', () => {
     });
   });
 
+  it('keeps a region header count on one line and shows chosen counts and the nudge in amber', async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={[12, 13, 10]} />);
+
+    const header = screen.getByRole('button', { name: /Northumberland & Tyneside/ });
+    expect(within(header).getByText('3 chosen')).toHaveClass('text-verdict-marginal');
+    expect(within(header).getByText('3 chosen').parentElement).toHaveClass('whitespace-nowrap', 'shrink-0');
+    await user.click(row('Bamburgh'));
+    expect(screen.getByRole('status')).toHaveClass('text-verdict-marginal');
+  });
+
   it('puts neither a link nor the word upgrade anywhere', () => {
     const { container } = render(<Harness initial={[12, 13, 10]} />);
 

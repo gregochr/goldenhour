@@ -12,7 +12,7 @@ import BrandLockup from '../shared/BrandLockup.jsx';
  */
 export default function AuthShell({ children, wide = false }) {
   return (
-    <div className="auth-shell" data-testid="auth-shell">
+    <div className="auth-shell" data-wide={wide ? '' : undefined} data-testid="auth-shell">
       <div className={wide ? 'w-full max-w-[520px]' : 'w-full max-w-sm'}>
         <div className="mb-8">
           <BrandLockup variant="auth" />

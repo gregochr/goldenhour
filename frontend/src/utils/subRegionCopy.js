@@ -73,7 +73,7 @@ export function settingsStatusLine(state) {
     case 'FREE_UNTIL':
       return freeUntilLine(state.freeUntil);
     case 'OPEN':
-      return 'You can change your sub-regions now. Saving starts a 30-day lock.';
+      return 'You can change your sub-regions now. Removing one starts a 30-day lock.';
     case 'LOCKED': {
       const day = formatCivilDay(state.nextChangeOn);
       return day ? `You can next change these on ${day}.` : null;
@@ -125,6 +125,12 @@ export function savedToast(state) {
   if (state.status === 'LOCKED') {
     const day = formatCivilDay(state.nextChangeOn);
     if (day) return `Sub-regions saved. You can next change them on ${day}.`;
+  }
+  if (state.status === 'FREE_UNTIL') {
+    // A grace-week save stamps too: say when the lock after the free week ends.
+    const free = formatCivilDay(state.freeUntil);
+    const next = formatCivilDay(state.nextChangeOnIfSavedToday);
+    if (free && next) return `Sub-regions saved. After ${free} you can next change them on ${next}.`;
   }
   return SAVED_TOAST;
 }

@@ -168,7 +168,7 @@ describe('SubRegionSettingsSection (S4 A4-A6)', () => {
     it('says saving starts a lock, and a swap asks for confirmation naming the date, adding and removing', async () => {
       const user = userEvent.setup();
       await renderSection(OPEN);
-      expect(statusLine()).toHaveTextContent('You can change your sub-regions now. Saving starts a 30-day lock.');
+      expect(statusLine()).toHaveTextContent('You can change your sub-regions now. Removing one starts a 30-day lock.');
 
       await user.click(open());
       await user.click(box('Newcastle'));
@@ -270,7 +270,7 @@ describe('SubRegionSettingsSection (S4 A4-A6)', () => {
       const user = userEvent.setup();
       await renderSection(LOCKED_ROOM);
       saveSubRegions.mockResolvedValue(makeState({ picks: [12, 13, 20], status: 'LOCKED', nextChangeOn: '2026-11-25' }));
-      expect(open()).toHaveTextContent('Change');
+      expect(open()).toHaveTextContent('View');
 
       await user.click(open());
 
@@ -281,7 +281,8 @@ describe('SubRegionSettingsSection (S4 A4-A6)', () => {
       expect(screen.queryByRole('button', { name: 'Remove Alnwick & the Coquet Coast' })).toBeNull();
 
       await user.click(box('Alnwick'));
-      expect(screen.getByRole('status')).toHaveTextContent('Removing one waits until 25 November.');
+      expect(within(screen.getByTestId('sub-regions-picker')).getByRole('status'))
+        .toHaveTextContent('Removing one waits until 25 November.');
       expect(box('Alnwick')).toBeChecked();
 
       await user.click(box('Keswick'));
@@ -310,6 +311,81 @@ describe('SubRegionSettingsSection (S4 A4-A6)', () => {
 
       expect(screen.queryByTestId('sub-region-confirm')).toBeNull();
       expect(saveSubRegions).toHaveBeenCalledWith([12, 13]);
+    });
+  });
+
+  describe('over the limit with more than one to remove', () => {
+    it('keeps Save disabled until the draft is within the limit, then enables it', async () => {
+      const user = userEvent.setup();
+      await renderSection(makeState({
+        picks: [12, 13, 20, 21, 10], limit: 3, status: 'OPEN', overLimit: true,
+        nextChangeOnIfSavedToday: '2026-11-25',
+      }));
+      await user.click(open());
+
+      await user.click(screen.getByRole('button', { name: 'Remove The Langdales' }));
+      expect(screen.getByTestId('sub-regions-save')).toBeDisabled();
+
+      await user.click(screen.getByRole('button', { name: 'Remove Keswick & Borrowdale' }));
+      expect(screen.getByTestId('sub-regions-save')).toBeEnabled();
+    });
+
+    it('shows the sentence the server sent when a save is refused', async () => {
+      const user = userEvent.setup();
+      await renderSection(OVER_LIMIT);
+      saveSubRegions.mockRejectedValue({ response: { status: 400, data: { error: 'Choose at most 2 sub-regions' } } });
+      await user.click(open());
+      await user.click(screen.getByRole('button', { name: 'Remove Keswick & Borrowdale' }));
+
+      await user.click(screen.getByTestId('sub-regions-save'));
+
+      expect(await screen.findByTestId('sub-regions-error')).toHaveTextContent('Choose at most 2 sub-regions');
+    });
+  });
+
+  describe('toast and live regions', () => {
+    it('keeps an empty status region mounted and writes the text into it', async () => {
+      const user = userEvent.setup();
+      await renderSection(FREE_WEEK);
+      const region = screen.getByTestId('sub-region-toast-region');
+      expect(region).toHaveAttribute('role', 'status');
+      expect(region).toHaveTextContent('');
+      saveSubRegions.mockResolvedValue(saved({ picks: [12, 13, 10] }));
+      await user.click(open());
+      await user.click(box('Berwick'));
+
+      await user.click(screen.getByTestId('sub-regions-save'));
+
+      const toast = await screen.findByTestId('sub-region-toast');
+      expect(toast).toBe(region);
+      expect(toast).toHaveTextContent('Sub-regions saved.');
+    });
+
+    it('states the lock after the free week when the server says when it ends, and sits clear of the foot of Settings', async () => {
+      const user = userEvent.setup();
+      await renderSection(FREE_WEEK);
+      saveSubRegions.mockResolvedValue(saved({ picks: [12, 13, 10], nextChangeOnIfSavedToday: '2026-11-25' }));
+      await user.click(open());
+      await user.click(box('Berwick'));
+
+      await user.click(screen.getByTestId('sub-regions-save'));
+
+      const toast = await screen.findByTestId('sub-region-toast');
+      expect(toast).toHaveTextContent('Sub-regions saved. After 2 November you can next change them on 25 November.');
+      expect(toast).toHaveClass('top-4');
+      expect(toast).not.toHaveClass('bottom-6');
+    });
+  });
+
+  describe('locked rows explain themselves', () => {
+    it('points each locked row at the reason with aria-describedby', async () => {
+      const user = userEvent.setup();
+      await renderSection(LOCKED_ROOM);
+      await user.click(open());
+
+      const describedBy = box('Alnwick').getAttribute('aria-describedby');
+      expect(document.getElementById(describedBy)).toHaveTextContent('Removing one waits until 25 November.');
+      expect(box('Newcastle')).toHaveAttribute('aria-describedby', describedBy);
     });
   });
 
@@ -399,7 +475,7 @@ describe('SubRegionSettingsSection (S4 A4-A6)', () => {
       const sheet = screen.getByRole('dialog', { name: 'Your sub-regions' });
       expect(sheet).toBe(screen.getByTestId('bottom-sheet'));
       expect(screen.queryByTestId('sub-regions-inline')).toBeNull();
-      expect(within(sheet).getByText('You can change your sub-regions now. Saving starts a 30-day lock.')).toBeInTheDocument();
+      expect(within(sheet).getByText('You can change your sub-regions now. Removing one starts a 30-day lock.')).toBeInTheDocument();
       const footer = screen.getByTestId('sub-regions-sheet-footer');
       expect(within(footer).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
       expect(within(footer).getByRole('button', { name: 'Save' })).toBeDisabled();
@@ -423,6 +499,37 @@ describe('SubRegionSettingsSection (S4 A4-A6)', () => {
 
       await user.click(screen.getByTestId('sub-region-confirm-keep'));
       expect(box('Keswick')).toBeChecked();
+    });
+
+    it('pins the title, status line and count above the scroller, and the footer below it', async () => {
+      const user = userEvent.setup();
+      await renderSection(OPEN);
+
+      await user.click(open());
+
+      const sheet = screen.getByTestId('bottom-sheet');
+      const header = within(sheet).getByTestId('bottom-sheet-header');
+      const scroller = within(sheet).getByTestId('bottom-sheet-scroller');
+      expect(scroller.contains(header)).toBe(false);
+      expect(within(header).getByRole('heading', { name: 'Your sub-regions' })).toBeInTheDocument();
+      expect(header).toHaveTextContent('Removing one starts a 30-day lock.');
+      expect(within(header).getByTestId('sub-regions-sheet-count')).toHaveTextContent('2 of 3 chosen');
+      expect(scroller.contains(screen.getByTestId('sub-regions-sheet-footer'))).toBe(false);
+      expect(sheet).toHaveAttribute('data-size', 'tall');
+    });
+
+    it('shows the confirmation as a short sheet sized to its content, not the tall one', async () => {
+      const user = userEvent.setup();
+      await renderSection(OPEN);
+      await user.click(open());
+      await user.click(box('Newcastle'));
+      await user.click(screen.getByRole('button', { name: /The Lake District/ }));
+      await user.click(box('Keswick'));
+
+      await user.click(within(screen.getByTestId('sub-regions-sheet-footer')).getByRole('button', { name: 'Save' }));
+
+      expect(screen.getByTestId('bottom-sheet')).not.toHaveAttribute('data-size');
+      expect(screen.queryByTestId('bottom-sheet-header')).toBeNull();
     });
 
     it('closes the sheet and toasts after a save', async () => {

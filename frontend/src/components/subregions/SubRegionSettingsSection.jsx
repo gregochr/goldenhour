@@ -5,11 +5,12 @@ import Modal from '../shared/Modal.jsx';
 import BottomSheet from '../BottomSheet.jsx';
 import ErrorBanner from '../shared/ErrorBanner.jsx';
 import ProTag from '../auth/ProTag.jsx';
-import SubRegionPicker from './SubRegionPicker.jsx';
+import SubRegionPicker, { SubRegionCount } from './SubRegionPicker.jsx';
 import SubRegionSaveConfirm from './SubRegionSaveConfirm.jsx';
 import SubRegionToast from './SubRegionToast.jsx';
 import { getSubRegions } from '../../api/subRegionApi.js';
 import { persistSubRegions } from '../../utils/subRegionSave.js';
+import { apiErrorMessage } from '../../utils/apiError.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { BUSY_BUTTON } from '../../utils/busyButton.js';
 import {
@@ -126,7 +127,10 @@ export default function SubRegionSettingsSection({ userRole, onStackedChange = N
 
   const removed = pickIds.filter((id) => !draft.includes(id));
   const added = draft.filter((id) => !pickIds.includes(id));
-  const canSave = draft.length > 0 && !sameSet(draft, pickIds);
+  // Over a lowered limit a save is a removal down to the limit or below; the server refuses more than the
+  // limit, so Save waits until the draft is within it.
+  const withinLimit = !overLimit || draft.length <= limit;
+  const canSave = draft.length > 0 && withinLimit && !sameSet(draft, pickIds);
   // A save stamps a lock only from OPEN, and only when it swaps something out (plan §4.3).
   const needsConfirm = state.status === 'OPEN' && !overLimit && removed.length > 0;
 
@@ -137,7 +141,8 @@ export default function SubRegionSettingsSection({ userRole, onStackedChange = N
   }
 
   const pickerOpen = firstChoice || expanded;
-  const buttonLabel = locked && readOnly ? 'View' : 'Change';
+  // A locked reader's button is View even when adding is still allowed inside (the handoff's table).
+  const buttonLabel = locked && !overLimit ? 'View' : 'Change';
 
   function openPicker() {
     setDraft(pickIds);
@@ -189,10 +194,10 @@ export default function SubRegionSettingsSection({ userRole, onStackedChange = N
         const day = formatCivilDay(err.response.data?.nextChangeOn);
         const lockedNow = err.response.data?.code === LOCKED_CODE && day;
         const rereadOk = await reread();
-        if (!lockedNow) setError(SAVE_FAILED);
+        if (!lockedNow) setError(apiErrorMessage(err, SAVE_FAILED));
         else if (!rereadOk) setError(`You can next change these on ${day}.`);
       } else {
-        setError(SAVE_FAILED);
+        setError(apiErrorMessage(err, SAVE_FAILED));
       }
     } finally {
       setBusy(false);
@@ -210,6 +215,7 @@ export default function SubRegionSettingsSection({ userRole, onStackedChange = N
 
   const picker = (
     <SubRegionPicker
+      showCount={!sheetOpen}
       options={options}
       value={draft}
       limit={limit}
@@ -324,8 +330,17 @@ export default function SubRegionSettingsSection({ userRole, onStackedChange = N
           open
           onClose={closePicker}
           label="Your sub-regions"
-          size="tall"
+          // The picker sheet is the house tall sheet (the viewport less 24px); the confirmation is a short
+          // sheet sized to its content, at the bottom.
+          size={confirming ? 'default' : 'tall'}
           closeOnEscape
+          header={confirming ? null : (
+            <div className="flex flex-col gap-1" data-testid="sub-regions-sheet-header">
+              <h2 className="text-base font-semibold text-plex-text">Your sub-regions</h2>
+              {statusLine && <p className="text-xs text-plex-text-secondary">{statusLine}</p>}
+              <SubRegionCount count={draft.length} limit={limit} read={readOnly} testId="sub-regions-sheet-count" />
+            </div>
+          )}
           footer={confirming ? null : (
             <div className="flex gap-2 px-4 py-3 border-t border-plex-border" data-testid="sub-regions-sheet-footer">
               {readOnly ? (
@@ -356,10 +371,6 @@ export default function SubRegionSettingsSection({ userRole, onStackedChange = N
             <div className="pt-2" data-testid="sub-regions-sheet-confirm">{confirmContent(true)}</div>
           ) : (
             <div className="flex flex-col gap-3 pt-2" data-testid="sub-regions-sheet">
-              <div>
-                <h2 className="text-base font-semibold text-plex-text">Your sub-regions</h2>
-                {statusLine && <p className="text-xs text-plex-text-secondary mt-1">{statusLine}</p>}
-              </div>
               {error && (
                 <div role="alert">
                   <ErrorBanner message={error} data-testid="sub-regions-sheet-error" />

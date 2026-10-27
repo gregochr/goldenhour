@@ -4,6 +4,7 @@ import PropTypes from 'prop-types';
 import AuthShell from '../auth/AuthShell.jsx';
 import SubRegionStepCard from './SubRegionStepCard.jsx';
 import SubRegionToast from './SubRegionToast.jsx';
+import useModalPresent from '../../hooks/useModalPresent.js';
 import { getSubRegions } from '../../api/subRegionApi.js';
 import { persistSubRegions } from '../../utils/subRegionSave.js';
 import { apiErrorMessage } from '../../utils/apiError.js';
@@ -25,6 +26,10 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([t
  * deliberately <b>no Back and no Not now</b>: Continue is the only way out. Escape does nothing. It is a
  * dialog the postcode prompt's {@code useModalPresent} counts as foreign, so the postcode prompt waits for
  * it.
+ *
+ * <p><b>The two prompts never stack.</b> The card itself waits (see {@link SubRegionSignInPrompt}) while any
+ * other modal is up, the postcode prompt included, and each counts the other as foreign. So the order is
+ * arrival order: whichever the app learns of first holds the screen, and the other appears when it closes.
  *
  * <p>The card is the registration step's {@code SubRegionStepCard} without the step kicker; the
  * suggestion row appears only if the server has suggestions (the reader has a home).
@@ -53,7 +58,8 @@ function PromptDialog({ state, onSaved }) {
     dialogRef.current?.focus();
     return () => {
       if (owned) container.removeAttribute('inert');
-      if (usable && container.isConnected) {
+      // Never into a container something ELSE holds inert: focus() there is a silent no-op.
+      if (usable && container.isConnected && !container.hasAttribute('inert')) {
         const target = opener && opener !== document.body && opener.isConnected
           && container.contains(opener) ? opener : container.querySelector(FOCUSABLE);
         target?.focus({ preventScroll: true });
@@ -82,6 +88,7 @@ function PromptDialog({ state, onSaved }) {
           aria-modal="true"
           aria-label="Choose your sub-regions"
           tabIndex={-1}
+          data-sub-region-prompt
           data-testid="sub-region-prompt"
           className="fixed inset-0 z-[1400] overflow-y-auto bg-plex-bg focus:outline-hidden"
         >
@@ -118,6 +125,10 @@ PromptDialog.propTypes = {
  * is {@code NOT_APPLICABLE} by definition), so with enforcement off, or for any other role, the app is
  * exactly what it was. A failed read shows nothing: the app opens, and the next sign-in asks again.
  *
+ * <p>Like the postcode prompt it waits while any other modal dialog is in the document (a Plan dialog, Ask,
+ * Settings, the postcode prompt) and latches once shown, so a modal opening under it cannot unmount it
+ * mid-choice.
+ *
  * <p>After the save it clears no cache itself ({@code persistSubRegions} did) and calls
  * {@code onSaved}, so the app refetches the briefing and forecasts, then shows the confirmation toast.
  *
@@ -143,6 +154,12 @@ export default function SubRegionSignInPrompt({ userRole, suppressed = false, on
     return () => { cancelled = true; };
   }, [userRole, suppressed]);
 
+  const modalPresent = useModalPresent('data-sub-region-prompt');
+  const [shown, setShown] = useState(false);
+  const eligible = Boolean(state) && !done && !modalPresent;
+  if (eligible && !shown) setShown(true);
+  const showDialog = Boolean(state) && !done && (shown || eligible);
+
   const handleSaved = useCallback((next) => {
     setDone(true);
     setToast(savedToast(next));
@@ -151,7 +168,7 @@ export default function SubRegionSignInPrompt({ userRole, suppressed = false, on
 
   return (
     <>
-      {state && !done && <PromptDialog state={state} onSaved={handleSaved} />}
+      {showDialog && <PromptDialog state={state} onSaved={handleSaved} />}
       <SubRegionToast message={toast} onDone={clearToast} />
     </>
   );
