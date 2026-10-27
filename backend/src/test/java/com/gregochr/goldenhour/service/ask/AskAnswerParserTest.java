@@ -155,4 +155,54 @@ class AskAnswerParserTest {
         assertThat(atLimit.raw().picks().getFirst().locationId()).isEqualTo(Long.MAX_VALUE);
         assertThat(over.ok()).isFalse();
     }
+
+    @Test
+    @DisplayName("an HTML-escaped ampersand in the summary decodes to a plain one")
+    void summaryEntityDecoded() throws Exception {
+        Parsed p = parse("{\"answerable\": true, \"summary\": \"Best in Northumberland &amp; Tyneside.\"}");
+
+        assertThat(p.raw().summary()).isEqualTo("Best in Northumberland & Tyneside.");
+    }
+
+    @Test
+    @DisplayName("a pick's why, an event's why and missing decode their entities")
+    void otherFreeTextDecoded() throws Exception {
+        Parsed p = parse("""
+                {"answerable": true, "summary": "s",
+                 "picks": [{"locationId": 1, "windowId": "2026-10-05_sunset", "why": "Sea &amp; sky &lt;clear&gt;"}],
+                 "events": [{"type": "AURORA", "why": "&quot;Kp 6&quot; &#39;tonight&#39; &apos;x&apos; &#x26; &#38;"}],
+                 "missing": "tides &amp; swell"}""");
+
+        assertThat(p.raw().picks().get(0).why()).isEqualTo("Sea & sky <clear>");
+        assertThat(p.raw().events().get(0).why()).isEqualTo("\"Kp 6\" 'tonight' 'x' & &");
+        assertThat(p.raw().missing()).isEqualTo("tides & swell");
+    }
+
+    @Test
+    @DisplayName("identifier fields are never decoded")
+    void identifiersUntouched() throws Exception {
+        Parsed p = parse("""
+                {"answerable": true, "summary": "s",
+                 "picks": [{"locationId": 1, "windowId": "a&amp;b", "why": "w"}],
+                 "events": [{"type": "AU&amp;RORA"}]}""");
+
+        assertThat(p.raw().picks().get(0).windowId()).isEqualTo("a&amp;b");
+        assertThat(p.raw().events().get(0).type()).isEqualTo("AU&amp;RORA");
+    }
+
+    @Test
+    @DisplayName("decoding is a single pass: &amp;lt; becomes &lt;, not <")
+    void singlePass() throws Exception {
+        Parsed p = parse("{\"answerable\": true, \"summary\": \"&amp;lt; and &amp;amp;\"}");
+
+        assertThat(p.raw().summary()).isEqualTo("&lt; and &amp;");
+    }
+
+    @Test
+    @DisplayName("plain text, a bare ampersand and an invalid reference are unchanged")
+    void plainTextUnchanged() throws Exception {
+        Parsed p = parse("{\"answerable\": true, \"summary\": \"Bamburgh & Seahouses &bogus; &#99999999; AT&T\"}");
+
+        assertThat(p.raw().summary()).isEqualTo("Bamburgh & Seahouses &bogus; &#99999999; AT&T");
+    }
 }

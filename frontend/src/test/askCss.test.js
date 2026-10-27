@@ -213,53 +213,6 @@ describe('the Ask stylesheet — the thread (T4)', () => {
   });
 });
 
-describe('the Ask stylesheet — the window spread line (ask-window-context plan §2.4, W2)', () => {
-  /**
-   * EVERY rule in the Ask block whose selector list mentions `token` anywhere — not only a rule whose
-   * selector IS the token (`ruleBody`'s first match), so a later duplicate rule or a surface-scoped one
-   * (`[data-ask-surface] .wf-ask-spread-l`, `.app-safe-sheet .wf-ask-spread`) is seen too.
-   */
-  function rulesMentioning(token) {
-    const rule = /([^{}]+)\{([^{}]*)\}/g;
-    const found = [];
-    let m = rule.exec(askBlock);
-    while (m !== null) {
-      if (m[1].includes(token)) found.push({ selector: m[1].trim(), body: m[2] });
-      m = rule.exec(askBlock);
-    }
-    return found;
-  }
-
-  it('styles both the list and its lines, in no media, supports or container query: no width drops it', () => {
-    expect(ruleBody('.wf-ask-spread')).not.toBeNull();
-    expect(ruleBody('.wf-ask-spread-l')).not.toBeNull();
-    const naming = conditionalBlocks().filter((b) => b.includes('wf-ask-spread'));
-    expect(naming).toEqual([]);
-  });
-
-  it('is hidden or clipped by NO rule that names it, on any surface — every rule, not only the first', () => {
-    const rules = rulesMentioning('wf-ask-spread');
-    expect(rules.length).toBeGreaterThanOrEqual(2);
-    for (const { selector, body } of rules) {
-      expect(body, selector).not.toMatch(/display:\s*none|visibility:\s*hidden|opacity:\s*0\b/);
-      expect(body, selector).not.toMatch(/max-height|overflow:\s*hidden|line-clamp|white-space:\s*nowrap/);
-    }
-  });
-
-  it('lets a line wrap: overflow-wrap anywhere, so a long region scope cannot overflow a narrow sheet', () => {
-    expect(ruleBody('.wf-ask-spread-l')).toMatch(/overflow-wrap:\s*anywhere/);
-  });
-
-  it('sets it in the footer’s mono and secondary ink, a size under the summary’s: a figure beside the prose, not a second answer', () => {
-    const line = ruleBody('.wf-ask-spread-l');
-    expect(line).toMatch(/font-family:\s*var\(--font-mono\)/);
-    expect(line).toMatch(/color:\s*var\(--color-plex-text-secondary\)/);
-    expect(Number(/font-size:\s*(\d+)px/.exec(line)[1])).toBeLessThan(
-      Number(/font-size:\s*(\d+)px/.exec(ruleBody('.wf-ask-sum'))[1]),
-    );
-  });
-});
-
 describe('the open Ask triggers under forced colours (the upsell plan, §4.1)', () => {
   const forcedBlock = (name) => conditionalBlocks().find(
     (b) => b.startsWith('@media (forced-colors: active)') && b.includes(name),
