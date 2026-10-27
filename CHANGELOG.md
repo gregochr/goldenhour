@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.34.0] - 2026-10-27
+
+### Changed — Lite readers see ratings only in the sub-regions they choose
+
+Sub-region enforcement is switched on in production: a Lite reader now sees location ratings only in the sub-regions they have chosen (up to 3 by default); Pro and Admin see every sub-region. The cached-forecast key generation moves to `v4` so no pre-enforcement body paints, and the landing pages (home, FAQ, Terms) now describe the Lite and Pro split and how to choose sub-regions.
+
+### Added — Coming up tells a Lite reader when none of their sub-regions are coastal or dark-sky (S5b-2), dark until enforcement is on
+
+On Coming up, a coastal or dark-sky entry now says so when none of a Lite reader's own sub-regions has such a place: "None of your sub-regions are on the coast. These days open the map with coastal spots shown outside your sub-regions." (and the same for dark-sky sites and nights). A reader with no sub-regions chosen yet is told to choose them in Settings to see ratings at coastal or dark-sky spots. The day buttons and the map door still work as before. One entry on the tab also carries "Coastal spots everywhere" or "Dark-sky spots everywhere" with a Pro label, the sub-regions status line and the button that opens Settings; a reader with no sub-regions gets the "Choose your sub-regions" button only. The entry that already carries the tide door is skipped.
+
+All of it draws only when `photocast.sub-regions.enforce` is on and the reader is shaped by the server; for Pro and Admin, and with enforcement off, Coming up is exactly what it was. This completes the sub-regions series.
+
+### Added — the Plan's strip and window popup count only a Lite reader's own sub-regions (S5b-1), dark until enforcement is on
+
+For a Lite reader the Plan now knows which places are theirs. Each thumbnail draws the same grey veil and dashed outline the Map does, over the places outside their sub-regions; a reader with no pick yet sees the veil over all the land and no outline. The Spread row is labelled "Spread (your sub-regions)" and counts only their places, as do the thin "· 1 rated" line and the Best row, which names the best of their own places with that place's own star, or says "None of your sub-regions are rated for this sunset yet." when none is rated. A reader with no pick has no Spread or Best row. The key under the strip gains "outside your sub-regions" (with a Pro label) and "your sub-regions", and a note on what the colour covers; a reader with no pick gets one "Choose your sub-regions" button there. In the window popup the region rail reads "By region · your sub-regions first" and puts regions with a pick first. The All cell says "31 in your sub-regions · 232 outside"; a region with a pick says "best 4★ · 21 places"; a region with none keeps its verdict and says "outside your sub-regions". Choosing such a region shows its own prose with the sub-regions status, its button and a Pro door, and the list reads "None of your sub-regions are in the Yorkshire Dales." The button closes the popup before it opens Settings. In the spot list a place outside their sub-regions follows the ones they hold, labelled and with no star or count of its own.
+
+It also fixes a bug that would have shipped with enforcement: the server withholds a Lite reader's window best star, and the Plan read that as "nothing is rated", so every card was hatched, marked "not scored" and lost its thin-sample count. The strip and the popup's map now ask whether any of the reader's own places is rated.
+
+All of it draws only when `photocast.sub-regions.enforce` is on and the reader is shaped by the server (the briefing carries `allowedLocationIds`); with enforcement off, and for Pro and Admin, the Plan is exactly what it was. Coming up follows in S5b-2.
+
 ## [v2.33.5] - 2026-10-27
 
 ### Changed — the admin Users screen, rebuilt around the reader panel
