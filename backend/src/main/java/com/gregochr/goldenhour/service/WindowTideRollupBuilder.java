@@ -298,15 +298,16 @@ public class WindowTideRollupBuilder {
         long stateWindowMinutes = tideFactDeriver.tightAlignmentWindowMinutes(
                 location.getLat(), location.getLon(), eventUtc, targetType);
 
+        boolean nearestIsHigh = nearest.getType() == TideExtremeType.HIGH;
+        long nearestOffsetMinutes = ChronoUnit.MINUTES.between(eventUtc, nearest.getEventTime());
+
         return new BriefingWindowTide(
                 location.getName(),
                 tideService.classifyTideState(extremes, eventUtc, stateWindowMinutes),
                 TideCurveCalculator.directionAt(series, eventMinutes),
-                nearest.getType() == TideExtremeType.HIGH ? "HW" : "LW",
+                nearestIsHigh ? "HW" : "LW",
                 TideWording.clock(TideCurveCalculator.clockMinutesFrom(nearest.getEventTime(), date)),
-                TideWording.offsetPhrase(
-                        ChronoUnit.MINUTES.between(eventUtc, nearest.getEventTime()),
-                        sunrise ? "sunrise" : "sunset"),
+                TideWording.offsetPhrase(nearestOffsetMinutes, sunrise ? "sunrise" : "sunset"),
                 TideWording.metres(range.getAsDouble()),
                 rangeAnomaly(meanRangeOn(extremes, date), avgRange),
                 seas(location.getId(), date, targetType),
@@ -316,7 +317,10 @@ public class WindowTideRollupBuilder {
                 positionOf(sunriseUtc, date),
                 positionOf(sunsetUtc, date),
                 extremesOn(extremes, date),
-                TideWording.metres(heightAtEvent));
+                TideWording.metres(heightAtEvent),
+                TideWording.lightAlignment(nearestIsHigh, nearestOffsetMinutes),
+                TideWording.metres(nearest.getHeightMetres().doubleValue()),
+                TideWording.clock(eventMinutes));
     }
 
     /**

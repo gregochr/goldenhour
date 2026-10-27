@@ -376,7 +376,8 @@ class BriefingControllerTest extends AbstractControllerTest {
                 BriefingWindowTide.Direction.FALLING, "HW", "19:28", "1h43 before sunset",
                 "4.9 m", "1.2 m above an average tide", "0.3 m · smooth",
                 List.of(0.0, 0.5, 1.0), 0.88, 0.42, 0.25, 0.75,
-                List.of(new BriefingWindowTide.Extreme("HW", 0.8, "19:28")), "3.1 m");
+                List.of(new BriefingWindowTide.Extreme("HW", 0.8, "19:28")), "3.1 m",
+                "HW", "4.6 m", "20:49");
         LocationTideFact fact = new LocationTideFact(7L, "Bamburgh", "HIGH", true, 0.61, true,
                 "HW 06:12 · 25m after sunrise", 0.83, "RISING", "4.9 m", "wants higher",
                 "Tide suits this spot");
@@ -426,6 +427,10 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideDirection").value("RISING"))
                 // The tide against the light is Pro (tide-light-pro-plan.md B1).
                 .andExpect(jsonPath(WINDOW + ".tide.nearestOffset").value(org.hamcrest.Matchers.nullValue()))
+                // The map strip's light-alignment fields are omitted, not sent null.
+                .andExpect(jsonPath(WINDOW + ".tide.lightAlignment").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tide.nearestHeight").doesNotExist())
+                .andExpect(jsonPath(WINDOW + ".tide.eventTime").doesNotExist())
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideOnTheLight").doesNotExist())
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].nearestSolarOffsetPhrase").doesNotExist())
                 .andExpect(jsonPath(SLOT + ".flags.length()").value(1))
@@ -445,6 +450,9 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath(WINDOW + ".tide.windowLevel").value(0.42))
                 .andExpect(jsonPath(WINDOW + ".tide.heightAtWindow").value("3.1 m"))
                 .andExpect(jsonPath(WINDOW + ".tide.nearestOffset").value("1h43 before sunset"))
+                .andExpect(jsonPath(WINDOW + ".tide.lightAlignment").value("HW"))
+                .andExpect(jsonPath(WINDOW + ".tide.nearestHeight").value("4.6 m"))
+                .andExpect(jsonPath(WINDOW + ".tide.eventTime").value("20:49"))
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideOnTheLight").value(true))
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].nearestSolarOffsetPhrase")
                         .value("HW 06:12 · 25m after sunrise"))
@@ -465,6 +473,9 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(WINDOW + ".tide.curve.length()").value(3))
                 .andExpect(jsonPath(WINDOW + ".tide.nearestOffset").value("1h43 before sunset"))
+                .andExpect(jsonPath(WINDOW + ".tide.lightAlignment").value("HW"))
+                .andExpect(jsonPath(WINDOW + ".tide.nearestHeight").value("4.6 m"))
+                .andExpect(jsonPath(WINDOW + ".tide.eventTime").value("20:49"))
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideOnTheLight").value(true))
                 .andExpect(jsonPath(WINDOW + ".tideFacts[0].tideAligned").value(true))
                 .andExpect(jsonPath(SLOT + ".flags[0]").value("Tide aligned"));

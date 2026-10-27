@@ -55,6 +55,30 @@ class TideWireGoldenTest {
                 + "\"heightAtWindow\":\"3.1 m\"}");
     }
 
+    private static BriefingWindowTide lightTide() {
+        return new BriefingWindowTide("Whitby", TideState.HIGH,
+                BriefingWindowTide.Direction.FALLING, "HW", "08:05", "1h09 after sunrise",
+                "4.9 m", null, null, List.of(0.0, 1.0), 0.29, 0.97, null, null, null, "4.5 m",
+                "HW", "4.6 m", "06:56");
+    }
+
+    @Test
+    @DisplayName("PRO/ADMIN: the light-alignment fields are served after the height, in this order")
+    void lightAlignmentWire() {
+        assertThat(mapper.writeValueAsString(lightTide())).endsWith(
+                "\"heightAtWindow\":\"4.5 m\",\"lightAlignment\":\"HW\","
+                        + "\"nearestHeight\":\"4.6 m\",\"eventTime\":\"06:56\"}");
+    }
+
+    @Test
+    @DisplayName("LITE: none of the light-alignment fields is on the wire; a rollup without them omits the keys")
+    void lightAlignmentNeverOnTheLiteWire() {
+        assertThat(mapper.writeValueAsString(lightTide().forLite()))
+                .doesNotContain("lightAlignment", "nearestHeight", "eventTime");
+        assertThat(mapper.writeValueAsString(fullTide()))
+                .doesNotContain("lightAlignment", "nearestHeight", "eventTime");
+    }
+
     @Test
     @DisplayName("PRO/ADMIN: the full tide fact serialises exactly as it did before the type change")
     void fullFactWireIsUnchanged() {

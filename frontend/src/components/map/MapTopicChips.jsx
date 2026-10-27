@@ -138,6 +138,16 @@ export default function MapTopicChips({
               {chip.bigSeas ? <BoltIcon /> : chip.glyph}
             </span>
             <span className="wf-tch-n" aria-hidden="true">{chip.name}</span>
+            {chip.light && (
+              <span
+                className="wf-tch-l"
+                aria-hidden="true"
+                data-align={chip.light.align ?? 'none'}
+                data-testid="wf-topic-light"
+              >
+                {chip.light.text}
+              </span>
+            )}
             {chip.where && (
               <span className="wf-tch-w" aria-hidden="true" data-testid="wf-topic-where">
                 {chip.where}
@@ -167,6 +177,8 @@ MapTopicChips.propTypes = {
     where: PropTypes.string,
     wholeSky: PropTypes.bool,
     bigSeas: PropTypes.bool,
+    /** The tide-at-the-light clause (Pro and Admin): "HW on the light" / "LW on the light" / "mid tide". */
+    light: PropTypes.shape({ align: PropTypes.string, text: PropTypes.string, spoken: PropTypes.string }),
   })).isRequired,
   selectedType: PropTypes.string,
   onToggle: PropTypes.func.isRequired,

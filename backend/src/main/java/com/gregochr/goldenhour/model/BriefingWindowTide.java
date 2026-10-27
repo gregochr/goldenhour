@@ -94,6 +94,18 @@ import java.util.List;
  *                       {@link #windowLevel} restated as a real measurement rather than a
  *                       normalised position, for the chart's height label. Null under the same
  *                       legacy-constructor guard as {@link #extremes}
+ * @param lightAlignment whether the nearest extreme lands on the light: {@code "HW"} or {@code "LW"}
+ *                       when it falls within {@code TideRunBuilder.ALIGNED_WINDOW_MINUTES} (60) of the
+ *                       station's own solar event (boundary inclusive), {@code "NONE"} when it does
+ *                       not (mid tide at the light). Null on the Lite wire and on a rollup built
+ *                       without it. <b>Pro and Admin only</b>: where the water sits against the
+ *                       light is the tide-light-pro-plan.md line. Never a client decision
+ * @param nearestHeight  the nearest extreme's own height, {@code "4.6 m"}; Pro-only with the rest of
+ *                       the tide-at-the-light block, null on the Lite wire
+ * @param eventTime      the station's own sunrise or sunset for this window, Europe/London
+ *                       {@code "06:56"} — the anchor {@link #nearestOffset} measures from (the
+ *                       window's own {@code eventTime} is the earliest across all regions and a
+ *                       different anchor); Pro-only, null on the Lite wire
  */
 public record BriefingWindowTide(
         String locationName,
@@ -111,7 +123,10 @@ public record BriefingWindowTide(
         @JsonInclude(JsonInclude.Include.NON_NULL) Double sunrisePosition,
         @JsonInclude(JsonInclude.Include.NON_NULL) Double sunsetPosition,
         @JsonInclude(JsonInclude.Include.NON_NULL) List<Extreme> extremes,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String heightAtWindow) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String heightAtWindow,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String lightAlignment,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String nearestHeight,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String eventTime) {
 
     /**
      * Canonical constructor: takes immutable copies of {@code curve} (a null curve reads as empty)
@@ -156,14 +171,61 @@ public record BriefingWindowTide(
             double windowPosition,
             double windowLevel) {
         this(locationName, state, direction, nearestType, nearestTime, nearestOffset, range,
-                rangeAnomaly, seas, curve, windowPosition, windowLevel, null, null, null, null);
+                rangeAnomaly, seas, curve, windowPosition, windowLevel, null, null, null, null,
+                null, null, null);
+    }
+
+    /**
+     * Sixteen-field constructor, retained so the many call sites that predate the light-alignment
+     * fields keep compiling. Defaults {@code lightAlignment}, {@code nearestHeight} and
+     * {@code eventTime} to null, the "unknown, not synthesised" convention.
+     *
+     * @param locationName   the coastal location every figure is measured at
+     * @param state          the tide state at the window
+     * @param direction      whether the water is rising or falling
+     * @param nearestType    {@code "HW"} or {@code "LW"}
+     * @param nearestTime    that extreme's London clock time
+     * @param nearestOffset  its offset from this window's own solar event
+     * @param range          the day's tidal range
+     * @param rangeAnomaly   how that range compares with the location's own mean, or null
+     * @param seas           significant wave height with its sea-state band, or null
+     * @param curve          the day's tide shape, normalised 0-1
+     * @param windowPosition where the solar event falls through the local day
+     * @param windowLevel    the normalised water level at that instant
+     * @param sunrisePosition where the station's sunrise falls through the local day, or null
+     * @param sunsetPosition where the station's sunset falls through the local day, or null
+     * @param extremes       every extreme in the local day, or null
+     * @param heightAtWindow the interpolated height at the window's instant, or null
+     */
+    public BriefingWindowTide(
+            String locationName,
+            TideState state,
+            Direction direction,
+            String nearestType,
+            String nearestTime,
+            String nearestOffset,
+            String range,
+            String rangeAnomaly,
+            String seas,
+            List<Double> curve,
+            Double windowPosition,
+            Double windowLevel,
+            Double sunrisePosition,
+            Double sunsetPosition,
+            List<Extreme> extremes,
+            String heightAtWindow) {
+        this(locationName, state, direction, nearestType, nearestTime, nearestOffset, range,
+                rangeAnomaly, seas, curve, windowPosition, windowLevel, sunrisePosition,
+                sunsetPosition, extremes, heightAtWindow, null, null, null);
     }
 
     /**
      * Returns this tide as the LITE role is served it: the curve, the positions, the extremes and
      * the height at the light removed, and so is {@code nearestOffset} (how far that extreme sits
      * from the light is a Pro fact, tide-light-pro-plan.md); the state, direction, nearest extreme
-     * type and time, range, range anomaly and sea state kept.
+     * type and time, range, range anomaly and sea state kept. The light-alignment fields
+     * ({@code lightAlignment}, {@code nearestHeight}, {@code eventTime}) go with the offset: they
+     * relate the water to the light.
      *
      * <p>Rebuilt through the canonical constructor, never the legacy twelve-field one (which would
      * default the four trailing components away without a trace). {@code curve} becomes the empty
@@ -174,7 +236,7 @@ public record BriefingWindowTide(
     public BriefingWindowTide forLite() {
         return new BriefingWindowTide(locationName, state, direction, nearestType, nearestTime,
                 null, range, rangeAnomaly, seas, List.of(), null, null, null, null, null,
-                null);
+                null, null, null, null);
     }
 
     /**

@@ -44,6 +44,7 @@ function briefing() {
           tide: {
             state: 'MID', direction: 'FALLING', nearestType: 'HW', nearestTime: '19:28',
             nearestOffset: '43m before sunset', range: '4.9 m',
+            lightAlignment: 'HW', nearestHeight: '4.6 m', eventTime: '20:11',
           },
           badges: [
             { type: 'KING_TIDE', label: 'King tide', detail: 'aligned with sunset', eventTime: `${TODAY}T20:11:00` },
@@ -116,6 +117,10 @@ describe('WindowFirstBriefingProvider — the tide-at-the-light strip', () => {
 
     const win = latest.current.briefing.days[0].eventSummaries[0].window;
     expect(win.tide.nearestOffset).toBeNull();
+    // The map strip's light-alignment fields go with the offset: they relate the water to the light.
+    expect(win.tide.lightAlignment).toBeNull();
+    expect(win.tide.nearestHeight).toBeNull();
+    expect(win.tide.eventTime).toBeNull();
     // The free tide-table facts stay.
     expect(win.tide).toMatchObject({
       state: 'MID', direction: 'FALLING', nearestType: 'HW', nearestTime: '19:28', range: '4.9 m',
@@ -149,6 +154,7 @@ describe('WindowFirstBriefingProvider — the tide-at-the-light strip', () => {
     expect(latest.current.briefing).toBe(payload);
     const win = payload.days[0].eventSummaries[0].window;
     expect(win.tide.nearestOffset).toBe('43m before sunset');
+    expect(win.tide).toMatchObject({ lightAlignment: 'HW', nearestHeight: '4.6 m', eventTime: '20:11' });
     expect(win.badges[0].detail).toBe('aligned with sunset');
     expect(payload.bigSeas[0].alignedEvent).toBe('SUNSET');
   });

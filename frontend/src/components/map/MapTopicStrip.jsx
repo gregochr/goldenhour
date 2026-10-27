@@ -3,7 +3,9 @@ import React, {
 } from 'react';
 import PropTypes from 'prop-types';
 import BoltIcon from './BoltIcon.jsx';
-import { barTarget, columnWord, labelTarget } from '../../utils/mapTopics.js';
+import {
+  barTarget, columnWord, labelTarget, markPhrase,
+} from '../../utils/mapTopics.js';
 
 /** No locked types: every row is an ordinary topic door (PRO, Admin, and every bare render). */
 const NO_LOCKED_TYPES = [];
@@ -42,6 +44,9 @@ function writeOpenPreference(key, open) {
 /** The sheet variant's row heights (px): a 32px row, and 44px for the Big seas row while a tick is drawn. */
 const SHEET_ROW_PX = 32;
 const SHEET_SEAS_ROW_PX = 44;
+
+/** A tide row that carries a sub-line ("peak Tue · 4.9 m") is 32px on the panel; the sheet's rows already are. */
+const SUB_ROW_PX = 32;
 
 /** "Friday sunrise" or "Friday sunrise to Saturday sunset" for a bar's columns. */
 function spanWords(grid, bar) {
@@ -281,7 +286,18 @@ export default function MapTopicStrip({
   // above it), every other topic row 24px. Only while a tick is drawn.
   const seasPx = inSheet ? SHEET_SEAS_ROW_PX : 36;
   const rowPx = inSheet ? SHEET_ROW_PX : 24;
-  const seasTrackRows = ['auto', 'auto', ...grid.rows.map((_, i) => (i === seasRowIndex ? `${seasPx}px` : `${rowPx}px`))].join(' ');
+  const tideDetail = grid.tideDetail ?? null;
+  const hasSub = grid.rows.some((r) => r.sub);
+  const trackRows = [
+    'auto', 'auto',
+    ...grid.rows.map((r, i) => {
+      // The taller Big seas track is for its High-water ticks only.
+      if (i === seasRowIndex && hwTicks.length > 0) return `${seasPx}px`;
+      return `${r.sub && !inSheet ? SUB_ROW_PX : rowPx}px`;
+    }),
+    ...(tideDetail ? ['auto'] : []),
+  ].join(' ');
+  const customRows = hwTicks.length > 0 || hasSub || tideDetail != null;
 
   function pressTick(tick) {
     if (tick.current) return;
@@ -323,7 +339,7 @@ export default function MapTopicStrip({
           className="wf-tl-grid"
           id={gridId}
           data-testid="wf-topic-strip-grid"
-          style={hwTicks.length > 0 ? { gridTemplateRows: seasTrackRows } : undefined}
+          style={customRows ? { gridTemplateRows: trackRows } : undefined}
         >
           {shade != null && (
             <div
@@ -384,6 +400,14 @@ export default function MapTopicStrip({
               : `${topicRow.shortName}: ${jump}`;
             // A locked row opens the upsell: "show on the map" / "jump to ..." would be false.
             if (rowLocked) labelName = `${topicRow.name}, a Pro map view${doorDisabled ? DOOR_DISABLED_SUFFIX : ''}`;
+            // The tide runs' peak (served: tideRun.peak) rides under the name; the sheet keeps the day only.
+            const sub = !rowLocked && topicRow.sub ? topicRow.sub : null;
+            let subText = null;
+            if (sub) subText = inSheet || !sub.range ? `peak ${sub.dow.slice(0, 3)}` : `peak ${sub.dow.slice(0, 3)} \u00B7 ${sub.range}`;
+            if (sub) {
+              labelName = labelName.replace(`${topicRow.shortName}:`,
+                `${topicRow.shortName}, ${subText}:`);
+            }
             return (
               <React.Fragment key={topicRow.type}>
                 <button
@@ -400,17 +424,31 @@ export default function MapTopicStrip({
                   style={{ gridArea: `${gridRow} / 1`, '--wf-tc': topicRow.colour }}
                   onClick={() => pressLabel(topicRow)}
                 >
-                  <span className="wf-tl-g" aria-hidden="true">
-                    {topicRow.bigSeas ? <BoltIcon /> : topicRow.glyph}
-                  </span>
-                  <span aria-hidden="true">{topicRow.shortName}</span>
+                  {!sub && (
+                    <span className="wf-tl-g" aria-hidden="true">
+                      {topicRow.bigSeas ? <BoltIcon /> : topicRow.glyph}
+                    </span>
+                  )}
+                  {sub ? (
+                    <span className="wf-tl-nt" aria-hidden="true">
+                      <span className="wf-tl-n1">
+                        <span className="wf-tl-g">{topicRow.glyph}</span>
+                        {' '}
+                        {topicRow.shortName}
+                      </span>
+                      <span className="wf-tl-sub" data-testid={`wf-topic-strip-sub-${topicRow.type}`}>{subText}</span>
+                    </span>
+                  ) : (
+                    <span aria-hidden="true">{topicRow.shortName}</span>
+                  )}
                 </button>
                 {topicRow.bars.map((bar) => {
                   // "Current" means the window on screen has this topic: a bar can cover the active column
                   // yet not be on the row (a sunset-only dust bar under tonight's astro night row).
                   const covers = shade != null && shade.start <= bar.end && shade.end >= bar.start && onHere;
                   const target = barTarget(grid, bar, onHere);
-                  const span = spanWords(grid, bar);
+                  const markWords = markPhrase(topicRow, bar);
+                  const span = markWords ? `${spanWords(grid, bar)}, ${markWords}` : spanWords(grid, bar);
                   const barProps = {
                     className: `wf-tl-b${tall ? ' wf-tl-tall' : ''}`,
                     'data-testid': `wf-topic-bar-${topicRow.type}-${bar.start}`,
@@ -460,6 +498,21 @@ export default function MapTopicStrip({
                     />
                   );
                 })}
+                {/* The tide-at-the-light marks: one per column whose window is served HW or LW on the light, over
+                    the bar, decoration only (pointer-events none; the information is in the bar's name). */}
+                {(topicRow.marks ?? []).map((mark) => (
+                  <div
+                    key={`m-${topicRow.type}-${mark.column}`}
+                    className="wf-tl-m"
+                    data-align={mark.align}
+                    data-current={grid.currentSolar && mark.column === cur ? 'true' : undefined}
+                    data-testid={`wf-topic-strip-mark-${topicRow.type}-${mark.column}`}
+                    aria-hidden="true"
+                    style={{ gridArea: `${gridRow} / ${mark.column + 2}` }}
+                  >
+                    <span>{mark.align}</span>
+                  </div>
+                ))}
                 {/* The daylight High-water ticks (M3), in the Big seas row's own fragment so the tab order
                     runs label, bars, ticks. A SIBLING of the bars, never inside one (a button in a button
                     is invalid and the tick's press is not the bar's), over the row's two columns for that
@@ -490,6 +543,34 @@ export default function MapTopicStrip({
               </React.Fragment>
             );
           })}
+          {tideDetail && (
+            <p
+              className="wf-tl-det"
+              data-testid="wf-topic-strip-tide-detail"
+              data-align={tideDetail.align ?? 'mid'}
+              data-type={tideDetail.type}
+              style={{ gridArea: `${rowCount + 3} / 1 / ${rowCount + 4} / -1` }}
+            >
+              <b>{`${tideDetail.sunWord}${tideDetail.eventTime ? ` ${tideDetail.eventTime}` : ''}`}</b>
+              {tideDetail.align ? (
+                <>
+                  {' \u00B7 '}
+                  <span className="wf-tl-k">
+                    {`${tideDetail.kindWord} water${tideDetail.time ? ` ${tideDetail.time}` : ''}`}
+                  </span>
+                  {tideDetail.gap ? `, ${tideDetail.gap}` : ''}
+                  {tideDetail.height ? ` \u00B7 ${tideDetail.height}` : ''}
+                </>
+              ) : (
+                <>
+                  {' \u00B7 mid tide'}
+                  {tideDetail.time ? ` \u00B7 ${tideDetail.kindWord} water ${tideDetail.time}` : ''}
+                  {tideDetail.gap ? `, ${tideDetail.gap}` : ''}
+                </>
+              )}
+              {tideDetail.station && <span className="wf-tl-dim">{` \u00B7 ${tideDetail.station}`}</span>}
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -530,7 +611,29 @@ MapTopicStrip.propTypes = {
       bigSeas: PropTypes.bool,
       on: PropTypes.arrayOf(PropTypes.bool),
       bars: PropTypes.arrayOf(PropTypes.shape({ start: PropTypes.number, end: PropTypes.number })),
+      /** Tide-at-the-light marks (Pro and Admin): a served HW or LW on the light, by column. */
+      marks: PropTypes.arrayOf(PropTypes.shape({
+        column: PropTypes.number,
+        align: PropTypes.oneOf(['HW', 'LW']),
+        spoken: PropTypes.string,
+      })),
+      /** The biggest day ON THE STRIP (served `tideRun.peak`) and its range, for the label's second line. */
+      sub: PropTypes.shape({ dow: PropTypes.string, range: PropTypes.string }),
     })).isRequired,
+    /** Whether the window on the map is a solar one (a night row rings no mark and draws no detail line). */
+    currentSolar: PropTypes.bool,
+    /** The full-width line for the window on the map, when a tide-at-the-light row covers it. */
+    tideDetail: PropTypes.shape({
+      type: PropTypes.string,
+      sunWord: PropTypes.string,
+      eventTime: PropTypes.string,
+      align: PropTypes.string,
+      kindWord: PropTypes.string,
+      time: PropTypes.string,
+      gap: PropTypes.string,
+      height: PropTypes.string,
+      station: PropTypes.string,
+    }),
   }).isRequired,
   selectedType: PropTypes.string,
   currentTypes: PropTypes.arrayOf(PropTypes.string).isRequired,

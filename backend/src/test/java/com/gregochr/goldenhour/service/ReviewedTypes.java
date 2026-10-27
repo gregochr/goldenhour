@@ -69,10 +69,15 @@ final class ReviewedTypes {
                 "type")),
         entry("HotTopicFact", Set.of(
                 "dir", "emphasis", "key", "optional", "value")),
+        // lightAlignment, nearestHeight and eventTime (Map strip, 2026-10-27) were read: the window's one
+        // representative station's HW/LW/NONE call, the nearest extreme's height and the station's own light
+        // clock. Tide-table facts for the window, not a per-location rating or prose; forLite() strips them
+        // as the tide at the light (Pro).
         entry("BriefingWindowTide", Set.of(
-                "curve", "direction", "extremes", "heightAtWindow", "locationName", "nearestOffset",
-                "nearestTime", "nearestType", "range", "rangeAnomaly", "seas", "state", "sunrisePosition",
-                "sunsetPosition", "windowLevel", "windowPosition")),
+                "curve", "direction", "eventTime", "extremes", "heightAtWindow", "lightAlignment",
+                "locationName", "nearestHeight", "nearestOffset", "nearestTime", "nearestType", "range",
+                "rangeAnomaly", "seas", "state", "sunrisePosition", "sunsetPosition", "windowLevel",
+                "windowPosition")),
         entry("BriefingWindowTide$Extreme", Set.of(
                 "kind", "position", "time")),
         entry("LocationTideFact", Set.of(
