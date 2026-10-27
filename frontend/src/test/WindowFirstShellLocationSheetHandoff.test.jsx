@@ -17,14 +17,7 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
  * were — on the Map tab, with the map still behind the sheet — so dismissing it returns them to the
  * selection they opened it from. A handoff that moved the tab on BOTH routes is the defect this
  * flag exists to prevent, and it shipped once.
- *
- * `WindowFirstDoors` is stubbed for the reason `WindowFirstShellTabs.test.jsx` gives: mounting it
- * fires an astro request per visible date, which this file is not about.
  */
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
-
 const TODAY = '2026-08-08';
 
 const card = () => ({

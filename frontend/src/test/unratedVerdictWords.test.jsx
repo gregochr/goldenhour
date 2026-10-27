@@ -6,8 +6,7 @@ import {
 } from '../utils/windowFirstCards.js';
 import { VERDICT_TINT } from '../components/WindowFirstHeatStrip.jsx';
 import { VERDICT_TREATMENT } from '../components/WindowSheetDialog.jsx';
-import { DISPLAY_ORDER } from '../utils/briefingDisplay.js';
-import { computeCellTier, resolveRegionDisplay } from '../utils/tierUtils.js';
+import { resolveRegionDisplay } from '../utils/tierUtils.js';
 import VerdictPill from '../components/shared/VerdictPill.jsx';
 import { unratedRules, setsVerdictHue } from './unratedStylesheet.js';
 
@@ -27,18 +26,15 @@ describe('every verdict word has an explicit arm in every map that keys on one',
     expect(WORDS.sort()).toEqual(['AWAITING', 'MAYBE', 'STAND_DOWN', 'UNRATED', 'WORTH_IT']);
   });
 
-  it.each(WORDS)('%s has an entry in VERDICT_LABEL_SHORT, SLOT_VERDICT_LABEL, VERDICT_TINT, DISPLAY_ORDER and VERDICT_TREATMENT', (word) => {
+  it.each(WORDS)('%s has an entry in VERDICT_LABEL_SHORT, SLOT_VERDICT_LABEL, VERDICT_TINT and VERDICT_TREATMENT', (word) => {
     expect(VERDICT_LABEL_SHORT, 'VERDICT_LABEL_SHORT').toHaveProperty(word);
     expect(SLOT_VERDICT_LABEL, 'SLOT_VERDICT_LABEL').toHaveProperty(word);
     expect(VERDICT_TINT, 'VERDICT_TINT').toHaveProperty(word);
-    expect(DISPLAY_ORDER, 'DISPLAY_ORDER').toHaveProperty(word);
     expect(VERDICT_TREATMENT, 'VERDICT_TREATMENT').toHaveProperty(word);
   });
 
-  it.each(WORDS)('%s resolves to itself and to a defined grid tier', (word) => {
+  it.each(WORDS)('%s resolves to itself', (word) => {
     expect(resolveRegionDisplay({ displayVerdict: word })).toBe(word);
-    const tier = computeCellTier({ displayVerdict: word, tideHighlights: [], slots: [] }, () => false);
-    expect(Number.isInteger(tier)).toBe(true);
   });
 
   it.each(WORDS)('%s is spelled by VerdictPill exactly as the shared label table spells it', (word) => {

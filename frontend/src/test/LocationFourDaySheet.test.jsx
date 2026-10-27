@@ -157,7 +157,7 @@ describe('LocationFourDaySheet', () => {
 
   it('spells the rating out for a screen reader rather than leaving a bare glyph', () => {
     // NVDA at its default symbol level does not speak U+2605, so the row's most decision-relevant
-    // datum would be announced as a bare integer beside a clock time. `HeatmapGrid` does the same.
+    // datum would be announced as a bare integer beside a clock time.
     setup();
     expect(within(row('2026-08-14:SUNSET')).getByRole('button'))
       .toHaveAccessibleName(/3 stars/);

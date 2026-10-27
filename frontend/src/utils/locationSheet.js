@@ -85,9 +85,8 @@ import { SLOT_VERDICT_LABEL } from './windowFirstCards.js';
  * about <em>blending and comparing across locations</em>. This sheet does neither: its rows are one
  * place, so every star on it is on one polarity and the comparison it invites is between Thursday
  * and Friday at the same wood. Reading the field's array here would leave a searched wood with six
- * blank rows and no explanation. The precedent is already in the arm — {@code
- * WindowFirstRegionalPanel} and {@code HeatmapGrid} both record that per-location detail is
- * canopy-inclusive where the aggregate above it is not.
+ * blank rows and no explanation. Per-location detail is canopy-inclusive where
+ * the aggregate above it is not.
  *
  * <h2>The drive is measured from the page's origin, and marked when the place is out of scope</h2>
  *

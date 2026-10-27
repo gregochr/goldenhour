@@ -64,9 +64,6 @@ vi.mock('../api/authApi.js', () => ({
   setPasswordForNewUser: vi.fn(),
   submitWaitlist: vi.fn(),
 }));
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
 vi.mock('../components/MapView.jsx', () => ({
   default: () => <div data-testid="overlay-map-stub" />,
 }));

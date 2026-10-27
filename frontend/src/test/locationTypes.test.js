@@ -9,12 +9,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   LOCATION_TYPE_META,
-  LOCATION_TYPES,
-  LOCATION_TYPE_ICONS,
   DISPLAY_TYPES,
   SKY_SUBJECT_TYPES,
   locationTypeLabel,
-  locationTypeIcons,
   isSkyPromptCandidate,
   isWildlifeOnly,
 } from '../utils/locationTypes.js';
@@ -36,14 +33,6 @@ describe('LOCATION_TYPE_META', () => {
       expect(meta.label, `${type} label`).toBeTruthy();
       expect(meta.emoji, `${type} emoji`).toBeTruthy();
     }
-  });
-
-  it('uses one emoji per type across every surface', () => {
-    // The copies had already drifted: briefingDisplay used 💧 for WATERFALL where the map, the
-    // popup and the admin list all used 💦. Deriving the icon map from the metadata makes that
-    // divergence unrepresentable.
-    expect(LOCATION_TYPE_ICONS.WATERFALL).toBe(LOCATION_TYPE_META.WATERFALL.emoji);
-    expect(Object.keys(LOCATION_TYPE_ICONS)).toEqual(LOCATION_TYPES);
   });
 });
 
@@ -106,37 +95,6 @@ describe('isSkyPromptCandidate', () => {
 
   it('does not admit a bluebell wood on the strength of BLUEBELL alone', () => {
     expect(isSkyPromptCandidate(['BLUEBELL', 'WOODLAND'])).toBe(false);
-  });
-});
-
-describe('locationTypeIcons', () => {
-  it('renders every display type a location carries, in display order', () => {
-    // Order comes from LOCATION_TYPE_META rather than the array's own, so the same location
-    // cannot read 🏔️🌊 in one row and 🌊🏔️ in the next.
-    expect(locationTypeIcons(['SEASCAPE', 'LANDSCAPE'])).toBe('🏔️🌊');
-  });
-
-  it('renders a multi-typed location AT ALL — the bug this exists to fix', () => {
-    // The briefing rows indexed the icon map with the array itself. `['LANDSCAPE']` coerced to
-    // the string 'LANDSCAPE' and happened to hit, so single-typed rows looked fine; anything with
-    // two types produced 'LANDSCAPE,BLUEBELL', missed, and rendered nothing. Rannerdale Knotts —
-    // an open fell that also carries bluebells — was one of the locations showing no icon.
-    expect(locationTypeIcons(['LANDSCAPE', 'BLUEBELL'])).toBe('🏔️');
-  });
-
-  it('never asserts a bloom: BLUEBELL is a seasonal subject, not a badge', () => {
-    // DISPLAY_TYPES excludes it deliberately, and this is one of the surfaces that rule protects —
-    // the drill-down list is read in August as often as in May.
-    expect(locationTypeIcons(['BLUEBELL'])).toBe('');
-    expect(locationTypeIcons(['BLUEBELL', 'WOODLAND'])).toBe('🌳');
-  });
-
-  it('tolerates the shapes the callers can actually hand it', () => {
-    expect(locationTypeIcons(null)).toBe('');
-    expect(locationTypeIcons(undefined)).toBe('');
-    expect(locationTypeIcons([])).toBe('');
-    expect(locationTypeIcons('LANDSCAPE')).toBe('🏔️');
-    expect(locationTypeIcons(['NOT_A_TYPE'])).toBe('');
   });
 });
 

@@ -1,12 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  VERDICT_ORDER,
-  DISPLAY_ORDER,
-  isPoorSlot,
-  slotSortKey,
-  sortedSlotsByTidePriority,
-  weatherCodeToIcon,
-  msToMph,
   formatDriveDuration,
   formatDriveDurationCompact,
   getEventTime,
@@ -19,103 +12,6 @@ import { setRewind } from '../utils/rewind.js';
 describe('briefingDisplay', () => {
   afterEach(() => {
     vi.useRealTimers();
-  });
-
-  describe('isPoorSlot', () => {
-    it('uses displayVerdict when present — STAND_DOWN and AWAITING are poor', () => {
-      expect(isPoorSlot({ displayVerdict: 'STAND_DOWN' })).toBe(true);
-      expect(isPoorSlot({ displayVerdict: 'AWAITING' })).toBe(true);
-      expect(isPoorSlot({ displayVerdict: 'WORTH_IT' })).toBe(false);
-      expect(isPoorSlot({ displayVerdict: 'MAYBE' })).toBe(false);
-    });
-
-    it('UNRATED is NOT poor — the weather passed it; it stays in the main list, not under "poor · not evaluated" (U2)', () => {
-      expect(isPoorSlot({ displayVerdict: 'UNRATED' })).toBe(false);
-      // Even when the legacy triage field disagrees: the served displayVerdict decides.
-      expect(isPoorSlot({ displayVerdict: 'UNRATED', verdict: 'STANDDOWN' })).toBe(false);
-    });
-
-    it('displayVerdict wins over the legacy verdict — a Claude-elevated STANDDOWN slot is not poor', () => {
-      expect(isPoorSlot({ displayVerdict: 'WORTH_IT', verdict: 'STANDDOWN' })).toBe(false);
-    });
-
-    it('falls back to the legacy verdict for slots that pre-date displayVerdict', () => {
-      expect(isPoorSlot({ verdict: 'STANDDOWN' })).toBe(true);
-      expect(isPoorSlot({ verdict: 'GO' })).toBe(false);
-      expect(isPoorSlot({ verdict: 'MARGINAL' })).toBe(false);
-    });
-  });
-
-  describe('sortedSlotsByTidePriority', () => {
-    const slots = [
-      { locationName: 'Alnmouth', verdict: 'MARGINAL' },
-      { locationName: 'Bamburgh', verdict: 'GO' },
-      { locationName: 'Craster', verdict: 'GO', tideAligned: true },
-      { locationName: 'Dunstanburgh', verdict: 'GO', flags: ['King tide 5.2m'] },
-      { locationName: 'Embleton', verdict: 'MARGINAL', tideAligned: true },
-    ];
-
-    // The tide lookup is the caller's (window.tideFacts); these fixtures keep their marker on the slot.
-    const alignedOf = (slot) => slot.tideAligned === true;
-
-    it('puts king tide first, then tide-aligned, within each verdict', () => {
-      expect(sortedSlotsByTidePriority(slots, alignedOf).map((s) => s.locationName)).toEqual([
-        'Dunstanburgh', // GO + king
-        'Craster', // GO + tide-aligned
-        'Bamburgh', // GO plain
-        'Embleton', // MARGINAL + tide-aligned
-        'Alnmouth', // MARGINAL plain
-      ]);
-    });
-
-    it('does not mutate its input', () => {
-      const copy = [...slots];
-      sortedSlotsByTidePriority(slots, alignedOf);
-      expect(slots).toEqual(copy);
-    });
-
-    it('slotSortKey and the sort take alignment from the argument, never the slot', () => {
-      expect(slotSortKey({ verdict: 'GO', tideAligned: true }, false)).toBe(2);
-      expect(slotSortKey({ verdict: 'MARGINAL', tideAligned: true }, false)).toBe(4);
-      const bare = [{ locationName: 'Alnmouth', verdict: 'GO' }, { locationName: 'Craster', verdict: 'GO' }];
-      expect(sortedSlotsByTidePriority(bare, (s) => s.locationName === 'Craster').map((s) => s.locationName))
-        .toEqual(['Craster', 'Alnmouth']);
-    });
-
-    it('slotSortKey ranks king detection case-insensitively from flags', () => {
-      expect(slotSortKey({ verdict: 'GO', flags: ['KING TIDE'] }, false)).toBe(0);
-      expect(slotSortKey({ verdict: 'GO' }, true)).toBe(1);
-      expect(slotSortKey({ verdict: 'GO' }, false)).toBe(2);
-      expect(slotSortKey({ verdict: 'MARGINAL' }, true)).toBe(3);
-      expect(slotSortKey({ verdict: 'MARGINAL' }, false)).toBe(4);
-      expect(slotSortKey({ verdict: 'STANDDOWN' }, false)).toBe(5);
-    });
-  });
-
-  describe('weatherCodeToIcon boundaries', () => {
-    it.each([
-      [null, ''],
-      [0, '☀️'],
-      [2, '🌤️'],
-      [3, '☁️'],
-      [48, '🌫️'],
-      [67, '🌦️'],
-      [80, '🌦️'],
-      [82, '🌦️'],
-      [77, '❄️'],
-      [85, '❄️'],
-      [86, '❄️'],
-      [95, '⛈️'],
-    ])('code %s → %s', (code, icon) => {
-      expect(weatherCodeToIcon(code)).toBe(icon);
-    });
-  });
-
-  describe('msToMph', () => {
-    it('rounds to whole mph (briefing rows show integers)', () => {
-      expect(msToMph(5.5)).toBe(12); // 12.3035 → 12
-      expect(msToMph(null)).toBeNull();
-    });
   });
 
   describe('formatDriveDuration', () => {
@@ -301,26 +197,6 @@ describe('briefingDisplay', () => {
         vi.setSystemTime(new Date('2026-07-16T09:00:00Z')); // 10:00 BST
         expect(isEventPast(timeless('SUNRISE'), '2026-07-16')).toBe(false);
       });
-    });
-  });
-
-  describe('ordering constants', () => {
-    it('rank GO/WORTH_IT best and STANDDOWN/AWAITING worst', () => {
-      expect(VERDICT_ORDER.GO).toBeLessThan(VERDICT_ORDER.MARGINAL);
-      expect(VERDICT_ORDER.MARGINAL).toBeLessThan(VERDICT_ORDER.STANDDOWN);
-      expect(DISPLAY_ORDER.WORTH_IT).toBeLessThan(DISPLAY_ORDER.MAYBE);
-      expect(DISPLAY_ORDER.MAYBE).toBeLessThan(DISPLAY_ORDER.STAND_DOWN);
-      expect(DISPLAY_ORDER.STAND_DOWN).toBeLessThan(DISPLAY_ORDER.AWAITING);
-    });
-
-    it('ranks UNRATED above STAND_DOWN and below MAYBE — the weather did not rule it out (U2)', () => {
-      // It sorted in the Worth-it/Maybe band when the triage pass wore those words; demoting it
-      // below Poor would silently reorder the regional panel's rows.
-      expect(DISPLAY_ORDER.MAYBE).toBeLessThan(DISPLAY_ORDER.UNRATED);
-      expect(DISPLAY_ORDER.UNRATED).toBeLessThan(DISPLAY_ORDER.STAND_DOWN);
-      expect(Object.keys(DISPLAY_ORDER).sort()).toEqual(
-        ['AWAITING', 'MAYBE', 'STAND_DOWN', 'UNRATED', 'WORTH_IT'],
-      );
     });
   });
 });

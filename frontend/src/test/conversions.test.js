@@ -12,7 +12,6 @@ import {
   groupForecastsByDate,
   colourForecastDates,
   bortleLabel,
-  formatTideHighlight,
   moonIlluminationStyle,
   MOON_EMOJI,
   MOON_PHASE_NAME,
@@ -427,34 +426,6 @@ describe('colourForecastDates', () => {
       ]),
     };
     expect(colourForecastDates([hide, sky])).toEqual(['2026-10-03', '2026-10-04']);
-  });
-});
-
-describe('formatTideHighlight', () => {
-  it('reformats plural king tide', () => {
-    expect(formatTideHighlight('King Tide at 3 coastal spots')).toBe('3 king tides');
-  });
-
-  it('reformats singular spring tide', () => {
-    expect(formatTideHighlight('Spring Tide at 1 coastal spot')).toBe('1 spring tide');
-  });
-
-  it('reformats composite label without adding s', () => {
-    expect(formatTideHighlight('King Tide, Extra Extra High at 2 coastal spots'))
-      .toBe('2 king tide, extra extra high');
-  });
-
-  it('returns original string when pattern does not match', () => {
-    expect(formatTideHighlight('King tide at Bamburgh')).toBe('King tide at Bamburgh');
-  });
-
-  it('handles singular "spot" correctly', () => {
-    expect(formatTideHighlight('Spring Tide at 1 coastal spot')).toBe('1 spring tide');
-  });
-
-  it('preserves extra-high composite without trailing s', () => {
-    expect(formatTideHighlight('Spring Tide, Extra High at 1 coastal spot'))
-      .toBe('1 spring tide, extra high');
   });
 });
 

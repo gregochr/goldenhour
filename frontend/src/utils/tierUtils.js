@@ -1,15 +1,4 @@
 /**
- * Quality tier hierarchy (lower number = higher quality):
- *   0  go-king    WORTH_IT + king tide signal
- *   1  go-tide    WORTH_IT + any tide-aligned location (no king)
- *   2  go-plain   WORTH_IT, no tide alignment
- *   3  ma-tide    MAYBE + any tide-aligned location
- *   4  ma-plain   MAYBE, no tide alignment
- *   5  standdown  STAND_DOWN / UNRATED / AWAITING (UNRATED: not ruled out, but not called either —
- *                 unrated-verdict-plan.md U2; it takes the quiet tier, never a recommending one)
- */
-
-/**
  * Resolves the display signal for a region. Prefers the backend-provided
  * {@code displayVerdict} (which already incorporates Claude ratings when
  * scored) and falls back to mapping the triage {@code verdict} otherwise.
@@ -28,50 +17,3 @@ export function resolveRegionDisplay(region) {
   }
 }
 
-/**
- * Returns the quality tier (0–5) for a briefing region object.
- *
- * <p>Whether a slot's tide suits its spot is not a slot field any more: it is served per window as
- * {@code window.tideFacts} (docs/engineering/window-tide-facts-plan.md), so the caller hands in the
- * lookup for the window this region belongs to. There is no default — a caller that has no facts
- * says so with a predicate that answers false.
- *
- * @param {{ displayVerdict?: string, verdict?: string, tideHighlights?: string[], slots?: Array<object> }} region
- * @param {function(object): boolean} alignedOf true when the given slot's tide suits it in this window
- * @returns {number} 0–5
- */
-export function computeCellTier(region, alignedOf) {
-  if (!region) return 5;
-
-  const dv = resolveRegionDisplay(region);
-
-  // UNRATED is named, not left to the fall-through below: a weather pass that no trustworthy rating
-  // has called must never enter a recommending tier (0-4), and an explicit arm survives anyone who
-  // later changes what the final `return 5` means (unrated-verdict-plan.md U2).
-  //
-  // ⚠️ This clause is a PINNED EQUIVALENT, not a behaviour: with it deleted the value still comes
-  // out 5 via the final `return 5`, so no mutation of this line alone can fail a test. What the test
-  // pins instead is the INTENT — `tierUtils.test.js` asserts UNRATED's tier equals AWAITING's for
-  // every region shape, so either one moving without the other (a new tier for "not ruled out", or
-  // the fall-through changing) fails there.
-  if (dv === 'STAND_DOWN' || dv === 'UNRATED' || dv === 'AWAITING') return 5;
-
-  const hasKingTide = (region.tideHighlights || [])
-    .some((h) => h.toLowerCase().includes('king'));
-
-  const hasTideAligned = (region.slots || [])
-    .some((s) => alignedOf(s) === true);
-
-  if (dv === 'WORTH_IT') {
-    if (hasKingTide) return 0;
-    if (hasTideAligned) return 1;
-    return 2;
-  }
-
-  if (dv === 'MAYBE') {
-    if (hasTideAligned) return 3;
-    return 4;
-  }
-
-  return 5;
-}

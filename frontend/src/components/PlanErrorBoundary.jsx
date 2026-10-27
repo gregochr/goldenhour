@@ -4,7 +4,6 @@ import BrandLockup from './shared/BrandLockup.jsx';
 import { clearSwrCache } from '../utils/swrCache.js';
 import { PLAN_REACH_KEY } from '../utils/reachLens.js';
 import { PLAN_RATING_KEY } from '../utils/ratingLens.js';
-import { PLAN_DOORS_KEY } from '../utils/planDoors.js';
 import { purgeServiceWorkerState } from '../utils/serviceWorkerReset.js';
 
 /**
@@ -14,7 +13,7 @@ import { purgeServiceWorkerState } from '../utils/serviceWorkerReset.js';
  *
  * <p>The Plan shell hydrates persisted state on every mount — a ~1.3 MB briefing payload from
  * {@code photocast_swr:v4:} ({@code WindowFirstBriefingContext.jsx}), the forecast cache
- * {@code useForecasts} keeps, the reach lens, the rating floor and the doors' open/closed state —
+ * {@code useForecasts} keeps, the reach lens, the rating floor —
  * and the cog and Sign out live INSIDE the subtree this boundary guards, with no header outside it.
  * A crash reproduced from any of that survives a plain reload: blank page, reload, blank page, with
  * no route back that does not involve devtools.
@@ -104,7 +103,6 @@ class PlanErrorBoundary extends React.Component {
     try {
       localStorage.removeItem(PLAN_REACH_KEY);
       localStorage.removeItem(PLAN_RATING_KEY);
-      sessionStorage.removeItem(PLAN_DOORS_KEY);
     } catch {
       // Storage unavailable — nothing to clear. Reload proceeds regardless: this is the one
       // control the reader has left, and it must not go silently dead under a storage-denied

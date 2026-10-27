@@ -214,7 +214,7 @@ export default function MapWindowPanel({
                   {region.driveLabel ? `${region.driveLabel} · ` : ''}
                   {`${region.atFourPlus} of ${region.placeCount} at ${PANEL_STAR_FLOOR}`}
                   {/* ⚠️ The glyph is hidden and the word is spoken — this app's standing pattern
-                      (`WindowSheetDialog`, `LocationFourDaySheet`, `HeatmapGrid` each carry the same
+                      (`WindowSheetDialog` and `LocationFourDaySheet` each carry the same
                       note): NVDA at its default symbol level does not speak U+2605, so this sentence
                       announced as "4 of 9 at 4 plus", with the unit stripped and a dangling plus. */}
                   <span aria-hidden="true">★+</span>

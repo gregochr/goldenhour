@@ -21,8 +21,8 @@
  *
  * <h2>Why a probe, not a real consumer</h2>
  *
- * <p>The provider has no single natural consumer: the shell, the map pane, the regional panel and
- * the doors each read a different slice of it, and the shell is a whole tab behind lazy chunks. The
+ * <p>The provider has no single natural consumer: the shell, the map pane and
+ * the matrix each read a different slice of it, and the shell is a whole tab behind lazy chunks. The
  * probe prints the slices the ordering guards protect — the briefing (its build time, and the
  * verdict words the heat strip derives from it) and both shapes of the ratings (the name-keyed map
  * the map handoff and the grid read, and the raw rows the heat field is joined from) — so which answer

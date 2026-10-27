@@ -17,10 +17,6 @@ vi.mock('../components/LocationFourDaySheet.jsx', () => ({
     return <div data-testid="location-sheet-stub" />;
   },
 }));
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
-
 const TODAY = '2026-08-08';
 
 const card = () => ({

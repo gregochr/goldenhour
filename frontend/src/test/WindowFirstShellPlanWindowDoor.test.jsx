@@ -20,10 +20,6 @@ import { getAlmanac } from '../api/almanacApi.js';
  * the popup has the row" rule exists for.
  */
 
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
-
 vi.mock('../api/almanacApi.js', () => ({
   getAlmanac: vi.fn(),
   ALMANAC_DAYS: 90,

@@ -215,8 +215,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     // fixture that only supplied cards would exercise a path the provider never hands it. Callers
     // that care about away rows pass their own.
     paneItems: paneItems || windowCards.map((card) => ({ kind: 'card', key: card.key, card })),
-    // The doors read these. `upcomingEvents` empty keeps the regional door out of the tests that
-    // are about the strip and the pane; the two files that are about the doors supply their own.
+    // The shell reads these (the Ask entry prompt); empty keeps that out of the strip and pane tests.
     upcomingEvents: [],
     travelDayDates: new Set(),
     reachById: new Map(),
@@ -336,37 +335,34 @@ describe('WindowFirstShell — the strip it hosts', () => {
     expect(screen.queryByTestId('wf-heat-bestbets-upsell-door')).toBeNull();
   });
 
-  it('⚠️ draws NOTHING VISIBLE between the matrix and the doors', async () => {
+  it('⚠️ draws NOTHING VISIBLE after the matrix', async () => {
     // The promoted strip stood here until M5 (plan D-1), and the test it replaces was named "draws
     // the strip above the promoted strip, which is a different thing that also stays". Both are now
     // false, so the assertion is about the gap rather than about the thing that filled it: every
-    // topic is named on its own card and the doors follow the matrix directly. Written as a DOM
+    // topic is named on its own card and nothing follows the matrix but the status wrapper. Written as a DOM
     // adjacency rather than a `queryByTestId(...).toBeNull()`, because a testid check passes just as
     // well against a strip that was renamed as against one that was deleted.
     //
     // ⚠️ Since 2026-10-01 the gap is no longer LITERALLY empty: `window-first-pane-status` (the
     // pending/empty wrapper, mirroring the Coming up pane's own always-mounted status region) now
-    // sits between the strip and the doors permanently, because a live region inserted only once
+    // sits directly after the strip permanently, because a live region inserted only once
     // there is something to announce is not reliably announced at all. So the rule this test
     // protects is now "nothing VISIBLE", not "nothing in the DOM" — the wrapper itself must render
     // empty whenever there are cards to show, and its own `wf-pane-status:empty` CSS rule
     // (index.css, beside `.wf-body`'s `gap: 10px`) cancels the flex gap it would otherwise add on
-    // top of `.wf-body`'s own, so the strip→doors spacing stays the same 10px it measured before
-    // this wrapper existed — see `windowFirstPaneStatusGap.test.js` for the CSS-level pin.
+    // top of `.wf-body`'s own, so no stray 10px gap follows the matrix — see `windowFirstPaneStatusGap.test.js` for the CSS-level pin.
     renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
 
     const heat = await screen.findByTestId('wf-heat-strip');
     const status = screen.getByTestId('window-first-pane-status');
-    const doors = screen.getByTestId('window-first-doors');
     const pane = screen.getByTestId('window-first-pane');
     const children = [...pane.children];
-    // All three must be the pane's OWN children for the adjacency to mean anything — an index of
+    // Both must be the pane's OWN children for the adjacency to mean anything — an index of
     // -1 would make the assertion vacuously satisfiable from either end.
     expect(children).toContain(heat);
     expect(children).toContain(status);
-    expect(children).toContain(doors);
     expect(children[children.indexOf(heat) + 1]).toBe(status);
-    expect(children[children.indexOf(status) + 1]).toBe(doors);
+    expect(children.indexOf(status)).toBe(children.length - 1);
     expect(status).toBeEmptyDOMElement();
     // ⚠️ Scoped to a pane WITH CARDS, which is the state the strip occupied. The empty-pane and
     // pending lines render in exactly this wrapper and are conditional on `loading`/pane-item
@@ -711,26 +707,15 @@ describe('WindowFirstShell — the strip it hosts', () => {
     });
   });
 
-  describe('the two doors', () => {
-    it('sits at the foot of the pane, below the matrix', async () => {
-      // Where the design puts them, and inside the pane rather than beside it: they open forecast
-      // content, so they take the DOWN treatment the pane carries.
+  describe('the Regional planner door is gone (removed 2026-10-27)', () => {
+    it('draws no door, tile or panel at the foot of the pane', async () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
       await screen.findByTestId('wf-heat-strip');
 
-      const pane = screen.getByTestId('window-first-pane');
-      const doors = screen.getByTestId('window-first-doors');
-      expect(pane).toContainElement(doors);
-      expect(screen.getByTestId('wf-heat-strip').compareDocumentPosition(doors)
-        & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    });
-
-    it('is absent when neither door has anything behind it', () => {
-      // No windows to plan over and no hot topics — an entirely-away horizon, or a briefing whose
-      // events have all elapsed. The regional door gates on `windowCards`, which is the set the
-      // travel filter has already run over.
-      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), []));
       expect(screen.queryByTestId('window-first-doors')).toBeNull();
+      expect(screen.queryByTestId('window-first-door-regional')).toBeNull();
+      expect(screen.queryByTestId('window-first-panel-regional')).toBeNull();
+      expect(within(screen.getByTestId('window-first-pane')).queryByText(/Regional planner/i)).toBeNull();
     });
   });
 

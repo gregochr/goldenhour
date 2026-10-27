@@ -648,7 +648,7 @@ export default function LocationFourDaySheet({
                         >
                           {/* NVDA at its default symbol level does not speak U+2605, so the row's
                               most decision-relevant datum would be announced as a bare integer
-                              beside a clock time. `HeatmapGrid` spells it out for the same reason. */}
+                              beside a clock time. The same reason applies to every star on this surface. */}
                           <span aria-hidden="true">{`${row.rating}★`}</span>
                           <span className="sr-only">{`${row.rating} stars`}</span>
                         </span>

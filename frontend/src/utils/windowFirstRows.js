@@ -32,7 +32,7 @@
  * fact chips for LITE — a blanket paywall tease over a promotional strip, not a judgement about
  * tides — so this row and that strip disagreed on one screen: sharply here, blurred a door away.
  * The Coming up redesign's P6 (`docs/engineering/coming-up-plan.md` D7) deleted
- * {@code WindowFirstDoors}'s Hot topics door and {@code HotTopicStrip} along with it, so there is no
+ * the Plan pane's Hot topics door and {@code HotTopicStrip} along with it, so there is no
  * second surface left to disagree with this one — the debt is closed because the other party to the
  * disagreement no longer exists, not because {@code freemium_ui_strategy.md} was ever amended.
  */

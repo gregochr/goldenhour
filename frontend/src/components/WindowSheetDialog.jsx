@@ -597,7 +597,7 @@ export default function WindowSheetDialog({
                 {bestReach ? (
                   <>
                     {/* ⚠️ The glyph is hidden and the word is spoken, which is this arm's standing
-                        pattern (`WindowRowFieldMap`, `LocationFourDaySheet`, `HeatmapGrid` all do
+                        pattern (`WindowRowFieldMap` and `LocationFourDaySheet` both do
                         it, each with the same note): NVDA at its default symbol level does not
                         speak U+2605, so `best 4★ within reach` announces as "best 4 within reach" —
                         the most decision-relevant number in this header, stripped of its unit. This

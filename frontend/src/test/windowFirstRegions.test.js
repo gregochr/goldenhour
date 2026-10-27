@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  activeFilterClauses, buildRegionRows, buildRegionSeries, gateSpotsByRegion, sortRegionsByBestVerdict,
+  activeFilterClauses, buildRegionRows, buildRegionSeries, gateSpotsByRegion,
 } from '../utils/windowFirstRegions.js';
 import { pickTopEligibleRegion } from '../utils/windowFirstCards.js';
 
@@ -43,8 +43,7 @@ function spot(overrides = {}) {
 describe('buildRegionRows — Claude\'s own gloss rides through untouched', () => {
   // ⚠️ The pass-through the popup's prose slot reads FIRST. It has no other test: the slot's own
   // file hand-writes a row carrying both fields, so deleting these two lines from `buildRegionRows`
-  // leaves that suite green while the popup silently renders `summary` for ever. `HeatmapGrid`
-  // prefers the same pair in its hover tip, so both flag arms read one payload the same way round.
+  // leaves that suite green while the popup silently renders `summary` for ever.
   const summary = 'A clean eastern horizon.';
   const es = (region = {}) => ({
     targetType: 'SUNSET',
@@ -539,27 +538,5 @@ describe('buildRegionSeries', () => {
 
   it('is empty for a payload with no days', () => {
     expect(buildRegionSeries(EVENTS, null).size).toBe(0);
-  });
-});
-
-describe('sortRegionsByBestVerdict — UNRATED has a rank of its own (unrated-verdict-plan.md U2)', () => {
-  const days = [{
-    date: '2026-08-04',
-    eventSummaries: [{
-      targetType: 'SUNSET',
-      regions: [
-        { regionName: 'Poor', displayVerdict: 'STAND_DOWN' },
-        { regionName: 'Unscored', displayVerdict: 'AWAITING' },
-        { regionName: 'Thin', displayVerdict: 'UNRATED' },
-        { regionName: 'Maybe', displayVerdict: 'MAYBE' },
-        { regionName: 'Good', displayVerdict: 'WORTH_IT' },
-      ],
-    }],
-  }];
-
-  it('orders Worth it, Maybe, Too few rated, Poor, Not scored — an UNRATED region is a better bet than a stood-down one', () => {
-    const events = [{ date: '2026-08-04', targetType: 'SUNSET' }];
-    expect(sortRegionsByBestVerdict(events, days))
-      .toEqual(['Good', 'Maybe', 'Thin', 'Poor', 'Unscored']);
   });
 });

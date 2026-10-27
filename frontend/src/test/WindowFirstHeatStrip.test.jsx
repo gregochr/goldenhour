@@ -2566,7 +2566,7 @@ describe('WindowFirstHeatStrip — the header, footer and beyond line', () => {
   it('states the horizon with NO count of any kind', async () => {
     // §2.6 and §4.3 both say "kicker + rule, no count", and §6 clause 4 bans counts of our own data
     // outright — the mock's "204 rated locations · 51 named" is a fact about the database, and
-    // `WindowAttributeRow`, `WindowFirstDoors` and the retired rail were each stripped of exactly
+    // `WindowAttributeRow` and the retired rail were each stripped of exactly
     // this copy. An earlier cut printed "The next 2 days", reasoning that a count of the days DRAWN
     // is not a database count; the plan says no count, twice, unqualified, so the number went. (The
     // design's static "Next four days" is not portable either: six windows span three dates or four

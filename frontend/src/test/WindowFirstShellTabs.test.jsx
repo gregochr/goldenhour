@@ -13,13 +13,7 @@ import { getAlmanac } from '../api/almanacApi.js';
  * things — which pane a tab controls, what a tab change does to the lens bar, and when the feed is
  * allowed to be fetched. None of them is reachable from a component's own test.
  *
- * <p>The doors are stubbed for the reason that file gives: mounting them fires an astro request per
- * visible date, and this file is about neither.
  */
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
-
 vi.mock('../api/almanacApi.js', () => ({
   getAlmanac: vi.fn(),
   ALMANAC_DAYS: 90,
@@ -373,15 +367,15 @@ describe('WindowFirstShell — moving between tabs', () => {
     expect(screen.getByTestId('window-first-coming-up').className).not.toContain('hidden');
   });
 
-  it('keeps the Plan pane mounted, so returning to it costs no requests', async () => {
-    // `WindowFirstDoors` fires an astro request per visible date on mount. Unmounting the pane on
-    // every tab change would re-fire all of them on every change back — which is what `ManageView`
-    // does to its sub-views and the behaviour not to copy here.
+  it('keeps the Plan pane mounted, so returning to it costs no remount', async () => {
+    // Unmounting the pane on every tab change would re-mount its matrix and lose the reader's open
+    // window on every change back — which is what `ManageView` does to its sub-views and the
+    // behaviour not to copy here.
     renderShell();
     await openComingUp();
 
     expect(screen.getByTestId('window-first-pane')).toBeInTheDocument();
-    expect(screen.getByTestId('stub-doors')).toBeInTheDocument();
+    expect(screen.getByTestId('window-first-pane-status')).toBeInTheDocument();
   });
 
   it('takes the Plan pane out of the accessibility tree while it is not selected', async () => {

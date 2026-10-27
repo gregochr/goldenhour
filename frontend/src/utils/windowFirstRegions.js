@@ -1,4 +1,4 @@
-import { DISPLAY_ORDER, formatDriveDuration } from './briefingDisplay.js';
+import { formatDriveDuration } from './briefingDisplay.js';
 import { resolveRegionDisplay } from './tierUtils.js';
 import { VERDICT_LABEL, eligibleRegions, verdictEligible } from './windowFirstCards.js';
 import { gateSpotsByRating } from './ratingLens.js';
@@ -8,49 +8,7 @@ import { shapedTierRank } from './mapVerdict.js';
 import { placesOf } from './windowFirstSpots.js';
 
 /**
- * The region row order the heatmap is drawn in — best verdict first, then A–Z.
- *
- * <p>A pure fold over the payload with no state and no rendering. The shared parts that carry the
- * judgement ({@code DISPLAY_ORDER}, {@code resolveRegionDisplay}) are imported rather than
- * reimplemented, so this ordering cannot disagree with the rest of the app about what "best" means.
- *
- * @param {Array} upcomingEvents [{date, targetType}]
- * @param {Array} briefingDays   briefing.days
- * @returns {string[]} region names, best verdict first
- */
-export function sortRegionsByBestVerdict(upcomingEvents, briefingDays) {
-  const regionBest = new Map();
-  const regionSeen = [];
-
-  for (const { date, targetType } of upcomingEvents || []) {
-    const day = (briefingDays || []).find((d) => d.date === date);
-    if (!day) continue;
-    const es = (day.eventSummaries || []).find((e) => e.targetType === targetType);
-    if (!es) continue;
-    for (const region of es.regions || []) {
-      const name = region.regionName;
-      const v = DISPLAY_ORDER[resolveRegionDisplay(region)] ?? 4;
-      if (!regionBest.has(name)) {
-        regionBest.set(name, v);
-        regionSeen.push(name);
-      } else if (v < regionBest.get(name)) {
-        regionBest.set(name, v);
-      }
-    }
-  }
-
-  return regionSeen.sort((a, b) => {
-    const diff = (regionBest.get(a) ?? 4) - (regionBest.get(b) ?? 4);
-    return diff !== 0 ? diff : a.localeCompare(b);
-  });
-}
-
-/**
  * The open row's region data — the rail's cells, the band's figures, and the six-dot series.
- *
- * <p>Sharing a module with {@link sortRegionsByBestVerdict} above, which orders the regional
- * panel's heatmap rows: both are "how this arm turns served regions into a list", and the panel's
- * ordering is the one place a second answer to that would be visible on the same screen.
  *
  * <h2>Every star on these surfaces is SERVED, never a client-side maximum</h2>
  *
@@ -191,9 +149,7 @@ export function buildRegionRows(es, spots, allSpots, lens, regionPicks = null) {
       summary: region.summary || null,
       // Claude's own headline and explanation for this region on this night, served on
       // {@code BriefingRegion} (GO/MARGINAL only, so both are routinely null) and carried through
-      // untouched. The popup's prose slot prefers them to {@code summary} — plan-matrix §5 — and
-      // {@code HeatmapGrid} already prefers the same pair in its hover tip, so the two arms read one
-      // payload the same way round. Null passes straight through: the slot has an explicit null
+      // untouched. The popup's prose slot prefers them to {@code summary} — plan-matrix §5. Null passes straight through: the slot has an explicit null
       // path and degrade is silence.
       glossHeadline: region.glossHeadline || null,
       glossDetail: region.glossDetail || null,

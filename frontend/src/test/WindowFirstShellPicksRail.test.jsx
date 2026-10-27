@@ -25,9 +25,6 @@ import { getSubRegions } from '../api/subRegionApi.js';
  * be wrong about is the joins, and they are asserted here against the real strip and the real popup.
  */
 
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
 vi.mock('../utils/heatField.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {

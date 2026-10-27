@@ -31,9 +31,6 @@ import {
  * has been opened (the lazy-absence lesson), and the stylesheet's half (the dims) is read from `index.css`
  * and composed.
  */
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
 vi.mock('../api/almanacApi.js', () => ({
   getAlmanac: vi.fn(() => Promise.resolve({
     builtFor: '2026-10-05', bands: null, counts: null, conditions: [], entries: [],

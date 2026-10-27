@@ -17,10 +17,6 @@ import { getAlmanac } from '../api/almanacApi.js';
  * shell, each owns one join. This one owns initialTab/activeTab/effectiveTab/openedTabs; the other
  * owns which pane a tab controls and what a tab change does elsewhere.
  */
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
-
 vi.mock('../api/almanacApi.js', () => ({
   getAlmanac: vi.fn(),
   ALMANAC_DAYS: 90,

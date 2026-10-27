@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
@@ -30,9 +29,6 @@ import {
  * same press, once the refusal is lifted, DOES open it. Without that, an absence is what a key that was
  * never wired also produces — the lazy-absence lesson this app has paid for before.
  */
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
 vi.mock('../api/almanacApi.js', () => ({
   getAlmanac: vi.fn(() => Promise.resolve({
     builtFor: '2026-10-05', bands: null, counts: null, conditions: [], entries: [],

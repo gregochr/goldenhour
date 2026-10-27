@@ -13,14 +13,7 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
  * than a component, where it sits among the two buttons, and that a dead backend cannot take it with
  * the pane. None of those is reachable from {@code HealthIndicator}'s own test, which knows nothing
  * about a masthead.
- *
- * <p>The doors are stubbed for the reason both sibling files give: mounting them fires an astro
- * request per visible date, and this file is about neither.
  */
-vi.mock('../components/WindowFirstDoors.jsx', () => ({
-  default: () => <div data-testid="stub-doors" />,
-}));
-
 const TODAY = '2026-08-08';
 
 /** Stands in for the real pill — this file's subject is the slot, not what fills it. */
