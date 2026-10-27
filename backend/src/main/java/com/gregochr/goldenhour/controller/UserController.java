@@ -342,7 +342,8 @@ public class UserController {
         // A self-registration still waiting on its verification link: disabled with the empty password marker,
         // the same shape RegistrationService.adminResendVerification acts on. An admin-disabled account holds a
         // password hash, so it is never mistaken for one.
-        boolean awaiting = !user.isEnabled() && "".equals(user.getPassword());
+        String password = user.getPassword();
+        boolean awaiting = !user.isEnabled() && password != null && password.isEmpty();
         summary.put("awaitingVerification", awaiting);
         summary.put("verificationSentAt",
                 awaiting && verificationSent != null ? verificationSent.toString() : null);

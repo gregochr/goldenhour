@@ -107,6 +107,20 @@ class UserControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/users: a disabled account with a null password is not awaiting verification")
+    void getUsers_disabledWithNullPasswordIsNotAwaiting() throws Exception {
+        AppUserEntity nullPassword = buildUser(1L, "nopass", UserRole.LITE_USER);
+        nullPassword.setEnabled(false);
+        nullPassword.setPassword(null);
+        when(userService.listAllUsers()).thenReturn(List.of(nullPassword));
+
+        mockMvc.perform(get("/api/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].awaitingVerification").value(false));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("GET /api/users carries the last active time already tracked, and an empty string for a "
             + "reader never seen")
     void getUsers_carriesLastActive() throws Exception {
