@@ -96,6 +96,8 @@ import {
 } from '../utils/mapDrilldown.js';
 import MapRegionPanel from './map/MapRegionPanel.jsx';
 import { picksNoteText } from '../utils/pickGeography.js';
+import { SubRegionActionButton, SubRegionStatusLine } from './subregions/SubRegionActions.jsx';
+import { AllDoor, RegionDoor } from './subregions/SubRegionDoors.jsx';
 import { regionGlossEntry } from '../utils/regionGloss.js';
 import AskCameraController from './map/AskCameraController.jsx';
 import MapPeekAsk from './map/MapPeekAsk.jsx';
@@ -3636,6 +3638,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const legendPicks = heatOffered && shaped && zoom < LAND_CLIP_MAX_ZOOM
     ? { allowed: heat.allowedCount ?? 0, total: (heat.spots || []).length } : null;
+  /**
+   * The doors' served counts (S5a-3), shaped bodies only: every place and sub-region the roster holds, the places the
+   * picks cover, and the sub-regions the server applies (the picked ones, never the limit).
+   */
+  const doorFacts = useMemo(() => {
+    if (!regionPicks) return null;
+    let subRegionCount = 0;
+    let picked = 0;
+    for (const summary of regionPicks.values()) {
+      subRegionCount += summary.subRegions.length;
+      picked += summary.pickedNames.length;
+    }
+    return {
+      total: (heat?.spots || []).length, subRegionCount, allowed: heat?.allowedCount ?? 0, picked,
+    };
+  }, [regionPicks, heat?.spots, heat?.allowedCount]);
   /** Each region's count of picked sub-regions, for the labels' third line; null unshaped. */
   const regionPickCounts = useMemo(() => (regionPicks
     ? new Map([...regionPicks].map(([name, summary]) => [name, summary.pickedNames.length])) : null),
@@ -5124,6 +5142,34 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // and stating it here is what keeps the constant from being an export only its test reads.
     limit: REGION_PANEL_LOCATIONS,
   }) : EMPTY_ROWS;
+  /**
+   * The region panel's S5a-3 slots, for a shaped body: with no pick in the region, the S4 status line and the region
+   * door above the sub-region list and the S4 button in the actions; with picks, the every-sub-region door under the
+   * actions. One door either way. Empty for everyone else, so the panel is what it was.
+   */
+  let regionPanelSlots = {};
+  if (panelRegionRow && regionPicks && doorFacts) {
+    const summary = regionPicks.get(panelRegionRow.name) ?? EMPTY_REGION_PICKS;
+    if (summary.allowedPlaces === 0 && summary.places > 0) {
+      regionPanelSlots = {
+        outsideSlot: (
+          <>
+            <SubRegionStatusLine className="wf-reg-outside-line wf-subregion-line" testId="wf-reg-panel-status-line" />
+            <div className="wf-reg-door" data-testid="wf-reg-panel-door-row">
+              <RegionDoor
+                regionName={panelRegionRow.name}
+                places={summary.places}
+                subRegionCount={summary.subRegions.length}
+              />
+            </div>
+          </>
+        ),
+        actionsSlot: <SubRegionActionButton className="wf-reg-action" testId="wf-reg-panel-subregion-action" />,
+      };
+    } else if (summary.allowedPlaces > 0) {
+      regionPanelSlots = { footerSlot: <AllDoor {...doorFacts} /> };
+    }
+  }
   const panelGloss = panelRegionRow && activeMapEvent
     ? regionGlossEntry(
       regionGlossIndex, activeMapEvent.date, activeMapEvent.eventType, panelRegionRow.name,
@@ -6693,6 +6739,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               scoresKnown={scoresKnown}
               ratingKnown={ratingKnown}
               ratingRetrying={ratingRetrying}
+              // Outside the reader's sub-regions (S5a-3): the verdict slot names that, never "Not rated".
+              outsidePicks={shaped && isGatedIn(activeStates, selectedLoc)}
               regionGlossIndex={regionGlossIndex}
               evRows={mapEvents}
               astroConditionsByDate={astroConditionsByDate}
@@ -6849,6 +6897,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             gloss={panelGloss}
             // A shaped body (S5a-2): this region's picks facts; null for everyone else.
             picks={regionPicks ? (regionPicks.get(panelRegionRow.name) ?? EMPTY_REGION_PICKS) : null}
+            // The S4 status line and the region door in the no-picks block, the change button in the actions, and the
+            // every-sub-region door under them for a region with picks (S5a-3): one door per panel.
+            {...regionPanelSlots}
             onBack={() => { setPanelReturnTo(panelRegionRow.name); setPanelRegion(null); }}
             // ⚠️ Neither of these clears the LEVEL, and mutation testing is why. Both close the
             // drilldown, `panelRows` is `EMPTY_ROWS` the moment it is closed, and `openDrilldown`
@@ -7160,6 +7211,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     <p data-testid="wf-map-peek-picks-note" className="wf-map-peek-tide-hint">
                       {picksNoteText(legendPicks)}
                     </p>
+                  )}
+                  {legendPicks && !isAuroraMode && legendPicks.allowed === 0 && (
+                    <SubRegionActionButton className="wf-subregion-btn" testId="wf-map-peek-picks-action" />
                   )}
                   {/* The ground key (thin-sample plan F4), solar and rated windows only: the hatch is
                       not drawn on a night or an unscored window, so neither is its key. */}

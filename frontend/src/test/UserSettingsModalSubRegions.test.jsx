@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import UserSettingsModal from '../components/UserSettingsModal.jsx';
 import {
-  FLAG_OFF, OPEN, PRO, makeState,
+  FIRST_CHOICE, FLAG_OFF, LOCKED_FULL, OPEN, PRO, makeState,
 } from './subRegionFixtures.js';
 
 vi.mock('../api/settingsApi', () => ({
@@ -134,6 +134,92 @@ describe('UserSettingsModal: Your sub-regions (S4 A4)', () => {
 
     expect(saveSubRegions).toHaveBeenCalledWith([12, 13]);
     expect(await screen.findByTestId('sub-region-toast')).toHaveTextContent('Sub-regions saved.');
+    expect(onSubRegionsSaved).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('UserSettingsModal: opened on the sub-region picker (S5a-3, decision 10)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('opens the picker, inline, once the section has loaded, and brings the section into view', async () => {
+    getSettings.mockResolvedValue(LITE);
+    getSubRegions.mockResolvedValue(OPEN);
+
+    renderModal({ focusField: 'subRegions' });
+
+    expect(await screen.findByTestId('sub-regions-inline')).toBeInTheDocument();
+    expect(screen.getByTestId('sub-regions-picker')).toBeInTheDocument();
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it('opens only once: closing the picker is not undone', async () => {
+    const user = userEvent.setup();
+    getSettings.mockResolvedValue(LITE);
+    getSubRegions.mockResolvedValue(OPEN);
+    renderModal({ focusField: 'subRegions' });
+    await screen.findByTestId('sub-regions-inline');
+
+    await user.click(screen.getByTestId('sub-regions-cancel'));
+
+    expect(screen.queryByTestId('sub-regions-inline')).toBeNull();
+    expect(screen.getByTestId('sub-regions-open')).toBeInTheDocument();
+  });
+
+  it('opens a first choice by leaving its picker open (it already is)', async () => {
+    getSettings.mockResolvedValue(LITE);
+    getSubRegions.mockResolvedValue(FIRST_CHOICE);
+
+    renderModal({ focusField: 'subRegions' });
+
+    expect(await screen.findByTestId('sub-regions-inline')).toBeInTheDocument();
+  });
+
+  it('opens a locked reader\'s picker read-only', async () => {
+    getSettings.mockResolvedValue(LITE);
+    getSubRegions.mockResolvedValue(LOCKED_FULL);
+
+    renderModal({ focusField: 'subRegions' });
+
+    expect(await screen.findByTestId('sub-regions-inline')).toBeInTheDocument();
+    expect(screen.queryByTestId('sub-regions-save')).toBeNull();
+  });
+
+  it('does not open the picker for a Pro reader, who has none', async () => {
+    getSettings.mockResolvedValue(PRO_SETTINGS);
+    getSubRegions.mockResolvedValue(PRO);
+
+    renderModal({ focusField: 'subRegions' });
+
+    expect(await screen.findByTestId('sub-regions-pro-line')).toBeInTheDocument();
+    expect(screen.queryByTestId('sub-regions-inline')).toBeNull();
+  });
+
+  it('does not open the picker when Settings was opened another way', async () => {
+    getSettings.mockResolvedValue(LITE);
+    getSubRegions.mockResolvedValue(OPEN);
+
+    renderModal();
+
+    await screen.findByTestId('sub-regions-open');
+    expect(screen.queryByTestId('sub-regions-inline')).toBeNull();
+  });
+
+  it('saving from there tells the app, which refetches the map', async () => {
+    const user = userEvent.setup();
+    const onSubRegionsSaved = vi.fn();
+    getSettings.mockResolvedValue(LITE);
+    getSubRegions.mockResolvedValue(makeState({ picks: [12], status: 'FREE_UNTIL', freeUntil: '2026-11-02' }));
+    saveSubRegions.mockResolvedValue(makeState({ picks: [12, 13], status: 'FREE_UNTIL', freeUntil: '2026-11-02' }));
+    renderModal({ focusField: 'subRegions', onSubRegionsSaved });
+    await screen.findByTestId('sub-regions-inline');
+    await user.click(screen.getByRole('checkbox', { name: /Newcastle/ }));
+
+    await user.click(screen.getByTestId('sub-regions-save'));
+
+    expect(saveSubRegions).toHaveBeenCalledWith([12, 13]);
     expect(onSubRegionsSaved).toHaveBeenCalledTimes(1);
   });
 });

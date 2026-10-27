@@ -9,6 +9,7 @@ import { RING_TIERS } from '../../utils/reachRings.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import BoltIcon from './BoltIcon.jsx';
 import { picksNoteText } from '../../utils/pickGeography.js';
+import { SubRegionActionButton } from '../subregions/SubRegionActions.jsx';
 
 /** Below this handover fraction the field is still whole — README §8's first zoom state. */
 const HANDOVER_FIELD_MAX = 0.05;
@@ -270,6 +271,10 @@ export default function MapLegendPanel({
             <div data-testid="wf-legend-picks-note" className="wf-legend-note">
               {picksNoteText(picks)}
             </div>
+          )}
+          {/* A reader with no pick yet gets the way in, under the sentence that asks for it (S5a-3). */}
+          {!aurora && picks && picks.allowed === 0 && (
+            <SubRegionActionButton className="wf-subregion-btn" testId="wf-legend-picks-action" />
           )}
 
           {aurora ? (

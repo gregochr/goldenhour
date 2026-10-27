@@ -569,6 +569,34 @@ phone key*). The choices that were the builder's to make:
 - **Architecture note.** `regionPickSummaries` is a new named member of the Backend-heavy class (a count and a sort over
   served lists), recorded in `architecture-decisions.md`.
 
+### S5a-3 build notes
+
+Decisions 9 to 12, the task 7 doors (all but the coast door, S5b), the task 5 sheet and the S4 buttons the S5a-2 seams were
+left for. Surface notes are in `docs/engineering/reference/map-tab.md` (*Outside your sub-regions: the status buttons, the
+doors and the location sheet*). The choices that were the builder's to make:
+
+- **One status read, in a context.** `SubRegionStatusProvider` sits inside `WindowFirstBriefingProvider` (which already holds
+  `allowedLocationIds` and `subRegionsVersion`), reads only while the body is shaped, and also carries the app's Settings
+  opener. A surface mounted without it (every earlier test) draws no button. The sheet takes its own opener from the shell, so
+  it can close itself and the popup under it first.
+- **Door counts are served facts, not the S4 GET.** "Total", the roster's sub-region count, the places the picks cover and the
+  applied pick count all come from `regionPickSummaries` and `heat.spots`, so a door never waits on the status read. Only the
+  example places need the S4 options, and a door whose options have not loaded simply omits "X and Y among them".
+- **Door copy.** The handoff's "{short name}" region form is not a thing the roster carries; the door names the region as
+  `regionInSentence` does ("the Yorkshire Dales", bare "Northumberland & Tyneside"), and the body reads "across the {k word}
+  sub-regions of {region}" in place of the possessive. The all-door body prints "your {n word} sub-regions" from the applied
+  pick count and "{n} place(s)" for the places they cover.
+- **Region panel with picks has no S4 button**, only the Every-sub-region door under the actions (the handoff names no button
+  there); a new `footerSlot` holds it. The region door uses the inline popover variant (the panel is a capped scroller).
+- **The location sheet's `outsidePicks` is `isOutsidePicks(allowedLocationIds, id)`**, a shaped list that does not name the
+  place; a place with no id is never claimed to be outside. An away row keeps its "away" state label even for a gated place
+  (it is not a rating word). A wildlife hide's hourly body keeps the badge but not the "no ratings" block.
+- **Callout.** The S5a-1 check that saw "Not rated" was `MapCallout`'s verdict slot (`unratedSlotWord` of the slot's served
+  verdict); it now takes `outsidePicks` and says "Outside your sub-regions". The phone peek's per-window "Not rated" is about
+  past windows, not places, and is unchanged.
+- **Settings deep-open** adjusts state during render once the section's state has loaded (no setState in an effect), then
+  scrolls; focus is not moved into the picker (the dialog's own focus stays), which a later accessibility pass may revisit.
+
 ## Appendix A — allocation (production roster, 2026-10-26)
 
 Location names as stored on 2026-10-26, misspellings included; ids are production ids (a fresh database's ids

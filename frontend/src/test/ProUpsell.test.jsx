@@ -231,3 +231,23 @@ describe('auroraUpsellLabel (aurora-pro-door-plan.md §2.2)', () => {
     expect(auroraUpsellLabel(nightLabel)).toBe(expected);
   });
 });
+
+describe('ProUpsellDoor — the optional note (sub-regions S5a-3)', () => {
+  it('draws no note and describes itself by its body alone when none is given', () => {
+    render(<Door />);
+    open();
+
+    expect(screen.queryByTestId('d-note')).toBeNull();
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription(SCORES_UPSELL_BODY);
+  });
+
+  it('draws the note under the body and describes the dialog by both', () => {
+    render(<Door note="Or change your sub-regions in Settings." />);
+    open();
+
+    expect(screen.getByTestId('d-note')).toHaveTextContent('Or change your sub-regions in Settings.');
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription(
+      `${SCORES_UPSELL_BODY} Or change your sub-regions in Settings.`,
+    );
+  });
+});

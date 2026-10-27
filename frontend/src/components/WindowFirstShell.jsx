@@ -18,6 +18,8 @@ import AskUpsellPopover from './ask/AskUpsell.jsx';
 import AskSheet, { ASK_SHEET_LABEL } from './ask/AskSheet.jsx';
 import { useAsk } from '../context/AskContext.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
+import { useSubRegionStatus } from '../context/SubRegionStatusContext.jsx';
+import { isOutsidePicks } from '../utils/pickScope.js';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 import { buildLocationTypeMap } from '../utils/locationTypes.js';
 import { ANY_TIER_ID } from '../utils/reachLens.js';
@@ -397,7 +399,9 @@ export default function WindowFirstShell({
     scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
     origin, setOrigin, regions, effectiveReachById,
     comingUpLastSeenDate, setComingUpLastSeenAt, isPro, scoresLocked, picksLocked, upcomingEvents, travelDayDates,
+    allowedLocationIds,
   } = useWindowFirstBriefing();
+  const { openSubRegions } = useSubRegionStatus();
   /**
    * Whether the first fetch has been running long enough that the pending line should admit it is
    * taking a while, rather than quietly repeating "Loading the forecast…" with nothing to show
@@ -3151,6 +3155,12 @@ export default function WindowFirstShell({
             isPro={isPro}
             // Scores and the written why are Pro: the sheet drops its "nothing written" line and draws the door.
             scoresLocked={scoresLocked}
+            // Outside the reader's sub-regions (S5a-3): the served list leaves this place out. Its own state on the
+            // sheet; the block's button closes this sheet AND any popup under it before Settings opens.
+            outsidePicks={isOutsidePicks(allowedLocationIds, sheetSpot.id ?? sheetLocation?.id ?? null)}
+            onOpenSubRegions={openSubRegions
+              ? () => { openOverPopup(null); openWindow(null); openSubRegions(); }
+              : null}
             // Where the close lands when the sheet was opened from Ask's sheet (F5); null for every
             // other opening, which keeps its restore exactly as it was.
             restoreFocusFallback={askSheetFallback}

@@ -25,6 +25,7 @@ import { buildRegionSeries } from '../utils/windowFirstRegions.js';
 import { AWAY_TIER_ID, originReachMap, toOrigin } from '../utils/planOrigin.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 import { isShaped } from '../utils/pickScope.js';
+import { SubRegionStatusProvider } from './SubRegionStatusContext.jsx';
 
 /** The payload regenerates every ~8–10h; polling faster only adds revalidations. */
 const POLL_INTERVAL_MS = 10 * 60 * 1000;
@@ -313,6 +314,8 @@ function selectUpcomingEvents(briefing) {
  * @param {number} [props.subRegionsVersion] moved by {@code App} after a successful sub-region save
  *        (sub-regions-plan §5.4 S4): the briefing and the ratings are then fetched again, because the
  *        bodies on screen were shaped by the old picks. Starts at 0 and does nothing until it moves.
+ * @param {Function} [props.onOpenSubRegions] opens Settings on the sub-region picker (sub-regions-plan §11 S5a-3):
+ *        the Map's "Choose / Change / Add" buttons call it, and draw nothing without it.
  * @param {(?string|undefined)} [props.homePlace] the home's place name, or its postcode, for the
  *        tick line; null when none is saved, undefined while that is not known. From
  *        `useReaderSettings`, the one record of the reader's settings — the map reads the same.
@@ -323,7 +326,7 @@ function selectUpcomingEvents(briefing) {
  */
 export function WindowFirstBriefingProvider({
   children, homeSettingsVersion, driveTimesVersion, subRegionsVersion = 0, homePlace, comingUpLastSeenDate,
-  setComingUpLastSeenAt = NOOP, locations = EMPTY_ARRAY,
+  setComingUpLastSeenAt = NOOP, locations = EMPTY_ARRAY, onOpenSubRegions = null,
 }) {
   const { role } = useAuth();
   const briefingCacheKey = `briefing:${role || 'anon'}`;
@@ -963,7 +966,15 @@ export function WindowFirstBriefingProvider({
 
   return (
     <WindowFirstBriefingContext.Provider value={value}>
-      {children}
+      {/* The S4 status read the Map's change buttons and doors share (S5a-3). It reads only while the body is
+          shaped, so a Pro, Admin or flag-off reader makes no request. */}
+      <SubRegionStatusProvider
+        enabled={allowedLocationIds != null}
+        version={subRegionsVersion}
+        onOpen={onOpenSubRegions}
+      >
+        {children}
+      </SubRegionStatusProvider>
     </WindowFirstBriefingContext.Provider>
   );
 }
@@ -973,6 +984,8 @@ WindowFirstBriefingProvider.propTypes = {
   homeSettingsVersion: PropTypes.number,
   driveTimesVersion: PropTypes.number,
   subRegionsVersion: PropTypes.number,
+  /** Opens Settings on the sub-region picker (S5a-3); absent, the Map's change buttons draw nothing. */
+  onOpenSubRegions: PropTypes.func,
   /** Three states: a name, null for no postcode, undefined for not known — see the note above. */
   homePlace: PropTypes.string,
   comingUpLastSeenDate: PropTypes.string,

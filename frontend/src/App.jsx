@@ -313,6 +313,8 @@ function AppInner() {
   // a postcode" nudge and the map control's "you have no postcode" branch, which both exist to point
   // at exactly that input.
   const [settingsFocus, setSettingsFocus] = useState(null);
+  // The Map's "Choose / Change / Add" sub-region buttons: Settings, scrolled to the picker and with it open.
+  const openSubRegionsSettings = useCallback(() => setSettingsFocus('subRegions'), []);
   /**
    * The one record of the reader's own settings: the home — for the tick line (through the Plan
    * provider), the map's HOME marker, reach rings and ⌂ control, and the Plan tab's home dot — the
@@ -834,6 +836,7 @@ function AppInner() {
           homeSettingsVersion={homeSettingsVersion}
           driveTimesVersion={driveTimesVersion}
           subRegionsVersion={subRegionsVersion}
+          onOpenSubRegions={openSubRegionsSettings}
           homePlace={homePlace}
           comingUpLastSeenDate={comingUpLastSeenDate}
           setComingUpLastSeenAt={setComingUpLastSeenDate}

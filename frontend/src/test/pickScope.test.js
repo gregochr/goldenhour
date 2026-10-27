@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  GATED_STATE, hasRatedState, isGatedIn, isShaped, splitGround,
+  GATED_STATE, hasRatedState, isGatedIn, isOutsidePicks, isShaped, splitGround,
 } from '../utils/pickScope.js';
 import {
   buildHeatSpots, buildHeatWindowStates, forecastScoreRows, heatPointsFor, heatSpotKey, unratedPointsFor,
@@ -138,6 +138,27 @@ describe('thinRatedCount — a gated place is in neither half', () => {
     });
 
     expect(counts.get('e1')).toBe(1);
+  });
+});
+
+describe('isOutsidePicks', () => {
+  it('is true when a shaped list does not name the place', () => {
+    expect(isOutsidePicks([1, 2], 3)).toBe(true);
+    expect(isOutsidePicks([], 3)).toBe(true);
+  });
+
+  it('is false when the list names the place', () => {
+    expect(isOutsidePicks([1, 2, 3], 3)).toBe(false);
+  });
+
+  it('is false for a body that is not shaped: no list, no claim', () => {
+    expect(isOutsidePicks(null, 3)).toBe(false);
+    expect(isOutsidePicks(undefined, 3)).toBe(false);
+  });
+
+  it('is false for a place with no id, which cannot be matched', () => {
+    expect(isOutsidePicks([1], null)).toBe(false);
+    expect(isOutsidePicks([1], undefined)).toBe(false);
   });
 });
 
