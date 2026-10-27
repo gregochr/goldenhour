@@ -60,7 +60,9 @@ export default function WindowSpotCard({
   spot, typeLabels, onOpen, openLabel = '◍ Open on map →',
   onMouseEnter, onMouseLeave, onFocus, onBlur,
 }) {
-  const badge = spotBadgeStyle(spot.rating);
+  // Outside the reader's sub-regions (S5b-1): no star, no badge, no unrated word — only where the place lies.
+  const outside = spot.gated === true;
+  const badge = outside ? null : spotBadgeStyle(spot.rating);
   const reach = reachLine(spot.driveMinutes, spot.distanceMiles);
   const leave = leaveBy(spot.solarEventTime, spot.driveMinutes);
   // The region and the types share one line and one separator, so a spot with no region still
@@ -71,7 +73,8 @@ export default function WindowSpotCard({
     <button
       type="button"
       data-testid="window-spot"
-      data-rating={spot.rating ?? undefined}
+      data-rating={outside ? undefined : (spot.rating ?? undefined)}
+      data-outside={outside ? 'true' : undefined}
       data-far={spot.far ? 'true' : undefined}
       onClick={onOpen}
       // All four are the strip's peek handlers and all four are absent in the sheet, which has no
@@ -94,6 +97,15 @@ export default function WindowSpotCard({
         {/* Omitted, never shown as a dash: an unrated spot is one nothing has looked at,
             which is a different statement from a poor one. The window header omits its
             own star for the same reason. */}
+        {outside && (
+          <span
+            data-testid="window-spot-outside"
+            className="font-mono text-plex-text-secondary"
+            style={{ fontSize: '10px', textAlign: 'right', minWidth: 0 }}
+          >
+            outside your sub-regions
+          </span>
+        )}
         {badge && (
           <span
             data-testid="window-spot-rating"
@@ -126,6 +138,8 @@ export default function WindowSpotCard({
         </span>
       )}
 
+      {/* A place the reader's picks leave out (S5b-1) carries its grey label in the badge's place, above, so the card
+          keeps the height every card has. */}
       {/* Absent, not zeroed. No drive time means "unknown", never "out of reach" —
           plan §2.5 — and this is the normal state for a user with no home postcode. */}
       {reach && (
@@ -205,6 +219,8 @@ export const SPOT_SHAPE = {
   driveMinutes: PropTypes.number,
   distanceMiles: PropTypes.number,
   far: PropTypes.bool,
+  /** Outside the reader's sub-regions (S5b-1); present only on a shaped body's spot. */
+  gated: PropTypes.bool,
 };
 
 WindowSpotCard.propTypes = {

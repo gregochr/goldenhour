@@ -1,5 +1,0 @@
-### Added — the sub-region picker (S4), dark until enforcement is on
-
-A Lite reader can now choose their sub-regions: a "Choose your sub-regions" step after "Where's home?" when registering, the same card as a prompt at sign-in for a Lite reader who has none (a Pro account demoted before it ever chose), and a "Your sub-regions" section in Settings (desktop inline, phone bottom sheet) that shows the picks, the lock or free-week line for the reader's status, add-while-locked, removals-only over a lowered limit, and a save confirmation only when the save starts a lock. Pro sees "Pro covers every sub-region"; Admin sees nothing. After a save the cached briefing and forecasts are dropped and fetched again.
-
-Everything is drawn only when `GET /api/user/settings/sub-regions` says `enforced`, so with `photocast.sub-regions.enforce` off (the shipped state) registration, sign-in and Settings are unchanged for every role. The GET gains two server-computed dates, `freeUntilIfChosenToday` and `nextChangeOnIfSavedToday`, so the client does no date arithmetic.

@@ -5,7 +5,7 @@ import WindowSpotCard, { SPOT_SHAPE } from './WindowSpotCard.jsx';
 import useSpotPeek from '../hooks/useSpotPeek.js';
 import { useIsCoarsePointer } from '../hooks/useIsCoarsePointer.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
-import { spotOrderStatement } from '../utils/windowFirstSpots.js';
+import { placesOf, spotOrderStatement } from '../utils/windowFirstSpots.js';
 import { resolveSpotPeek } from '../utils/windowSpotPeek.js';
 
 /**
@@ -183,6 +183,8 @@ export default function WindowSpotStrip({
   const { peek, open, hold, closeFromTrigger, closeFromPanel, dismiss } = useSpotPeek();
 
   const openPeek = useCallback((event, spot) => {
+    // A place outside the reader's sub-regions has no scores to peek at (S5b-1): the card itself says where it lies.
+    if (spot.gated === true) return;
     const detail = resolveSpotPeek(spot, date, targetType, scoreIndex);
     if (!detail) return;
     open(event.currentTarget, wrapperRef.current, { ...detail, spot });
@@ -262,10 +264,14 @@ export default function WindowSpotStrip({
   }, []);
 
   // `N of M` only where M is a real, reachable set the lens withheld — otherwise the plain count.
-  const hidden = (total ?? spots.length) > spots.length;
+  // On a body shaped by the reader's sub-regions (S5b-1) the places outside their picks are in neither half: N and M
+  // count the places they hold, and the outside ones are named separately after them.
+  const mine = placesOf(spots);
+  const outside = spots.length - mine.length;
+  const hidden = (total ?? mine.length) > mine.length;
   const count = hidden
-    ? `${spots.length} of ${total}`
-    : `${spots.length} spot${spots.length === 1 ? '' : 's'}`;
+    ? `${mine.length} of ${total}`
+    : `${mine.length} spot${mine.length === 1 ? '' : 's'}`;
 
   return (
     <>
@@ -292,7 +298,7 @@ export default function WindowSpotStrip({
       </div>
 
       <div data-testid="window-spot-foot" className="wf-wfoot font-mono text-plex-text-secondary">
-        <span data-testid="window-spot-order">{spotOrderStatement(spots)}</span>
+        <span data-testid="window-spot-order">{spotOrderStatement(mine)}</span>
         {/* The filters in force, named where the count is. Optional and absent by default, so every
             caller that does not gate — and every one written before the open row existed — renders
             the footer it always did. It states ALL of them rather than only the newest, because the
@@ -328,6 +334,9 @@ export default function WindowSpotStrip({
             </>
           )}
           <span data-testid="window-spot-count">{count}</span>
+          {outside > 0 && (
+            <span data-testid="window-spot-outside-count">{`· ${outside} outside`}</span>
+          )}
           {/* The design's third footer element, and the one thing charge c2 explicitly says to KEEP
               ("Keep swipe plus 'See all'; the arrows exist because a mouse cannot swipe, which is a
               reason to keep them only on desktop" — and the arrows are already pointer-only by

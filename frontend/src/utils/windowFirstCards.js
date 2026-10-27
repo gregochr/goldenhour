@@ -1,7 +1,7 @@
 import { formatTime, getEventTime } from './briefingDisplay.js';
 import { gateSpotsByReach } from './reachLens.js';
 import { gateSpotsByRating } from './ratingLens.js';
-import { buildWindowSpots } from './windowFirstSpots.js';
+import { buildWindowSpots, placesOf } from './windowFirstSpots.js';
 import { buildWindowRows } from './windowFirstRows.js';
 import { gateSpotsByOrigin } from './planOrigin.js';
 import { resolveRegionDisplay } from './tierUtils.js';
@@ -720,7 +720,11 @@ function originRegion(es, origin) {
  *                                because the page is then about that region rather than about the
  *                                roster. It rides on the lens object rather than as a seventh
  *                                positional argument for the reason the two thresholds already
- *                                do — this signature is at its limit.
+ *                                do — this signature is at its limit. {@code allowedIds} (S5b-1) is
+ *                                the briefing's served {@code allowedLocationIds} as a Set, on a body
+ *                                the server SHAPED by the reader's sub-region picks and null on every
+ *                                other; it marks the places outside the picks {@code gated} and takes
+ *                                them out of the pool.
  * @param {boolean} [picksLocked] true when the reader does not have best bets (LITE): every card's
  *                                {@code pick} is null. Defaults to false so every PRO caller is unchanged.
  * @returns {Array} card descriptors for the matrix and the window popup
@@ -733,6 +737,9 @@ export function buildWindowCards(
   const limitMinutes = lens?.limitMinutes ?? null;
   const minRating = lens?.minRating ?? null;
   const origin = lens?.origin ?? null;
+  // The served `allowedLocationIds` as a Set, on a body the server SHAPED by the reader's sub-region picks only
+  // (S5b-1); null for every Pro, Admin and flag-off reader, which leaves every spot exactly as it was.
+  const allowedIds = lens?.allowedIds instanceof Set ? lens.allowedIds : null;
   const live = (upcomingEvents || []).filter((e) => !travelDayDates?.has(e.date));
 
   const cards = live.map(({ date, targetType }, index) => {
@@ -786,13 +793,20 @@ export function buildWindowCards(
     // are counts of the scope the reader asked for. Applied here rather than inside
     // `buildWindowSpots` so that everything downstream, `allSpots` included, sees one population.
     const allSpots = gateSpotsByOrigin(
-      buildWindowSpots(es, reachById, lens?.defaultLimitMinutes ?? null), origin,
+      buildWindowSpots(es, reachById, lens?.defaultLimitMinutes ?? null, allowedIds), origin,
     );
     // Reach first, then rating — the order the two counts describe. `reached` is what the floor
     // chose from, so the bar can say "42 of 138" without either number naming a different thing.
     const reached = gateSpotsByReach(allSpots, limitMinutes);
     const spots = gateSpotsByRating(reached, minRating);
-    const reachPick = bestReachOf(reached);
+    // ⚠️ The pool a Lite reader's counts, spread, thin-sample line, best place and tide fit read is the places
+    // INSIDE their sub-regions (S5b-1, B2): a gated place is in neither half of any count. `allSpots`, `reached`
+    // and `spots` keep the gated places (the popup lists them after the reader's own; the Map and the eclipse
+    // race read them), so only the pool is filtered. With nothing gated `placesOf` hands `reached` back untouched,
+    // so a Pro, Admin or flag-off card's `pool` is the very array it always was.
+    const pool = placesOf(reached);
+    const outsideCount = allSpots.length - placesOf(allSpots).length;
+    const reachPick = bestReachOf(pool);
 
     return {
       key: `${date}:${targetType}`,
@@ -810,6 +824,9 @@ export function buildWindowCards(
       verdictLabel: VERDICT_LABEL[verdict] || VERDICT_LABEL.AWAITING,
       // Null is "nothing in this window is rated", which is a different statement from a low one:
       // the header omits the star rather than printing a placeholder.
+      // ⚠️ Null for EVERY window of a shaped (Lite) body: the server strips `BriefingWindow.bestRating`
+      // (`LitePickShaper.shapeWindow`), so null here does NOT say nothing is rated. The strip reads "is anything
+      // rated" off the place states for such a body (`hasRatedState`, S5b-1 B1), never off this field.
       bestRating: scopedRegion ? (scopedRegion.bestRating ?? null) : (win?.bestRating ?? null),
       // The best of the window's REGION means, for the Order control's `Best` ranking (plan §2.12
       // and §4.3). Deliberately a different quantity from `bestRating` above, which is one
@@ -914,11 +931,16 @@ export function buildWindowCards(
       //
       // The same array `reachedTotal` counts, so a count and a picture of the same set cannot
       // describe two different populations.
-      pool: reached,
+      pool,
+      // How many of this window's places lie outside the reader's sub-regions, and whether the body was shaped by
+      // them at all (S5b-1). Present ONLY on a shaped body's card, so every Pro, Admin and flag-off card is the
+      // object it always was. The popup's "· {m} outside" and the strip's Best row read them; the places
+      // themselves stay on `allSpots`/`spots`, flagged `gated`.
+      ...(allowedIds ? { outsideCount, picksScoped: true } : {}),
       // Is the coast live on this window, and how well served — over the SAME `pool` above, never a
       // second index (§1 #3, §2). Named `tideFit`, never `tide`: that name is taken by the served
       // `BriefingWindowTide` below, which the Map tab's strip forwards untouched (T6, §1 #3).
-      tideFit: tideFit(reached),
+      tideFit: tideFit(pool),
       // The best location this reader could actually drive to for this window, NAMED.
       //
       // ⚠️ It is `bestReachOf(reached)`: the pool's first rated spot that is not a served
@@ -942,15 +964,15 @@ export function buildWindowCards(
       bestReachWithheld: reachPick.withheld,
       // How many the lens chose from. Equal to `spots.length` whenever nothing was gated, which is
       // exactly when the strip footer keeps P6's plain count rather than the design's "N of M".
-      reachTotal: allSpots.length,
+      reachTotal: allSpots.length - outsideCount,
       // How many survived reach alone — the rating floor's own denominator, summed across the page
       // into the bar's "42 of 138". A scalar beside `pool`, which is the same set as an array: this
       // is the number the bar states and `pool` is what the matrix draws, so they count one list by
       // construction. (Until M1 this comment read "nothing renders this set, only counts it", which
       // was true while the array did not exist.)
-      reachedTotal: reached.length,
+      reachedTotal: pool.length,
       // The header's claim, or null when the word "reach" would over-claim — see the module comment.
-      withinReachCount: withinReachCount(spots, limitMinutes, minRating),
+      withinReachCount: withinReachCount(placesOf(spots), limitMinutes, minRating),
       // What the card draws in place of its strip, or null when it draws a strip — or when the
       // window had no spots at all, which is a card the lens never touched and must not carry a
       // line about it.

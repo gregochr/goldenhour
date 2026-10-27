@@ -4,7 +4,7 @@ import Modal from './shared/Modal.jsx';
 import WindowSpotCard, { SPOT_SHAPE } from './WindowSpotCard.jsx';
 import { locationTypeLabel } from '../utils/locationTypes.js';
 import { REACH_TIERS, tierById } from '../utils/reachLens.js';
-import { spotOrderStatement } from '../utils/windowFirstSpots.js';
+import { placesOf, spotOrderStatement } from '../utils/windowFirstSpots.js';
 import {
   ANY_TYPE_ID,
   RATING_FLOORS,
@@ -176,6 +176,7 @@ export default function WindowSpotSheet({
   const limitMinutes = tierById(tierId)?.limitMinutes ?? null;
   const browseArgs = { spots, limitMinutes, ratingFloorId, typeId, typesByName };
   const visible = browseSpots(browseArgs);
+  const visibleMine = placesOf(visible);
 
   const chooseRating = (id) => {
     if (!ratingFloorById(id)) return;
@@ -350,8 +351,10 @@ export default function WindowSpotSheet({
               announced, so the one element that survives every filter press is the one that can
               carry it. Pressing a chip otherwise rewrites the list in silence. */}
           <span data-testid="window-spot-sheet-count" role="status">
-            {[browseCountLine(visible.length, spots.length),
-              visible.length > 0 ? spotOrderStatement(visible) : null].filter(Boolean).join(' · ')}
+            {[browseCountLine(visibleMine.length, placesOf(spots).length)
+              // The places outside the reader's sub-regions (S5b-1) are in neither half of the count: named after it.
+              + (visible.length > visibleMine.length ? ` · ${visible.length - visibleMine.length} outside` : ''),
+            visibleMine.length > 0 ? spotOrderStatement(visibleMine) : null].filter(Boolean).join(' · ')}
           </span>
           {note && <span data-testid="window-spot-sheet-note">{note}</span>}
         </div>

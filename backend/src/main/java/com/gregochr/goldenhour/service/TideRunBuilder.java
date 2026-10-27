@@ -124,7 +124,7 @@ public class TideRunBuilder {
      * dark. The wording that second threshold existed for ("at sunrise" rather than "0m after
      * sunrise") belongs to {@link TideWording#offsetPhrase}, which applies it to every form here.
      */
-    private static final long ALIGNED_WINDOW_MINUTES = 60;
+    static final long ALIGNED_WINDOW_MINUTES = 60;
 
     /**
      * Stored extremes (highs and lows together) a location needs before its highest recorded water

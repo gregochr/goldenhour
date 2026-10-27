@@ -60,6 +60,15 @@ final class TideWording {
      */
     static final double MIN_ANOMALY_METRES = 0.05;
 
+    /** {@code lightAlignment} when the nearest extreme is a high water within the window. */
+    static final String ALIGN_HW = "HW";
+
+    /** {@code lightAlignment} when the nearest extreme is a low water within the window. */
+    static final String ALIGN_LW = "LW";
+
+    /** {@code lightAlignment} when the nearest extreme sits outside the window: mid tide. */
+    static final String ALIGN_NONE = "NONE";
+
     private TideWording() {
     }
 
@@ -229,5 +238,27 @@ final class TideWording {
         }
         return String.join(", ", words.subList(0, words.size() - 1))
                 + " or " + words.get(words.size() - 1);
+    }
+
+    /**
+     * Whether the nearest extreme lands on the light.
+     *
+     * <p><b>One threshold, decided by the owner on 2026-10-27:</b>
+     * {@link TideRunBuilder#ALIGNED_WINDOW_MINUTES} (60), the same constant and the same inclusive
+     * comparison the tide run's {@code aligned} uses, so the Map strip's HW/LW marks and the Plan tab's
+     * tide-run wording can never disagree about whether water is "on the light". It is deliberately
+     * tighter than the design handoff's &plusmn;90.
+     *
+     * @param nearestIsHigh whether the nearest extreme is a high water
+     * @param signedMinutes minutes from the solar event to that extreme, either sign
+     * @return {@link #ALIGN_HW} or {@link #ALIGN_LW} at or inside
+     *         {@link TideRunBuilder#ALIGNED_WINDOW_MINUTES} (inclusive, the exact comparison the tide
+     *         run's own {@code aligned} makes), {@link #ALIGN_NONE} beyond it
+     */
+    static String lightAlignment(boolean nearestIsHigh, long signedMinutes) {
+        if (Math.abs(signedMinutes) > TideRunBuilder.ALIGNED_WINDOW_MINUTES) {
+            return ALIGN_NONE;
+        }
+        return nearestIsHigh ? ALIGN_HW : ALIGN_LW;
     }
 }

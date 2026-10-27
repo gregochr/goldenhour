@@ -50,7 +50,8 @@ class BriefingRoleShaperTest {
                 BriefingWindowTide.Direction.FALLING, "HW", "19:28", "1h43 before sunset",
                 "4.9 m", "1.2 m above an average tide", "0.3 m · smooth",
                 List.of(0.0, 0.5, 1.0), 0.88, 0.42, 0.25, 0.75,
-                List.of(new BriefingWindowTide.Extreme("HW", 0.8, "19:28")), "3.1 m");
+                List.of(new BriefingWindowTide.Extreme("HW", 0.8, "19:28")), "3.1 m",
+                "HW", "4.6 m", "20:49");
     }
 
     private static LocationTideFact fullFact() {
@@ -104,6 +105,9 @@ class BriefingRoleShaperTest {
         assertThat(lite.nearestType()).isEqualTo("HW");
         assertThat(lite.nearestTime()).isEqualTo("19:28");
         assertThat(lite.nearestOffset()).as("how far HW sits from the light is Pro").isNull();
+        assertThat(lite.lightAlignment()).as("whether HW lands on the light is Pro").isNull();
+        assertThat(lite.nearestHeight()).isNull();
+        assertThat(lite.eventTime()).isNull();
         assertThat(lite.range()).isEqualTo("4.9 m");
         assertThat(lite.rangeAnomaly()).isEqualTo("1.2 m above an average tide");
         assertThat(lite.seas()).isEqualTo("0.3 m · smooth");
@@ -303,7 +307,8 @@ class BriefingRoleShaperTest {
     @DisplayName("Every BriefingWindowTide component is classified kept or stripped")
     void everyBriefingWindowTideComponentIsClassified() {
         Set<String> stripped = Set.of("curve", "windowPosition", "windowLevel", "sunrisePosition",
-                "sunsetPosition", "extremes", "heightAtWindow", "nearestOffset");
+                "sunsetPosition", "extremes", "heightAtWindow", "nearestOffset", "lightAlignment",
+                "nearestHeight", "eventTime");
         Set<String> kept = Set.of("locationName", "state", "direction", "nearestType", "nearestTime",
                 "range", "rangeAnomaly", "seas");
 
@@ -328,7 +333,8 @@ class BriefingRoleShaperTest {
     @DisplayName("forLite nulls exactly the stripped components, no more and no fewer")
     void forLiteNullsExactlyTheStrippedComponents() throws Exception {
         Set<String> strippedTide = Set.of("windowPosition", "windowLevel", "sunrisePosition",
-                "sunsetPosition", "extremes", "heightAtWindow", "nearestOffset");
+                "sunsetPosition", "extremes", "heightAtWindow", "nearestOffset", "lightAlignment",
+                "nearestHeight", "eventTime");
         for (RecordComponent c : BriefingWindowTide.class.getRecordComponents()) {
             Object value = c.getAccessor().invoke(fullTide().forLite());
             if (c.getName().equals("curve")) {

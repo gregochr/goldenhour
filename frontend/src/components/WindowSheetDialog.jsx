@@ -10,6 +10,10 @@ import WindowTopicRows from './WindowTopicRows.jsx';
 import WindowAttributeRow from './WindowAttributeRow.jsx';
 import WindowSpotStrip from './WindowSpotStrip.jsx';
 import DawnRace from './DawnRace.jsx';
+import { SubRegionActionButton, SubRegionStatusLine } from './subregions/SubRegionActions.jsx';
+import { RegionDoor } from './subregions/SubRegionDoors.jsx';
+import { placesOf } from '../utils/windowFirstSpots.js';
+import { picksNoteText } from '../utils/pickGeography.js';
 import {
   activeFilterClauses, buildRegionRows, gateSpotsByRegion,
 } from '../utils/windowFirstRegions.js';
@@ -153,6 +157,9 @@ function chipTitle(spot) {
  * @param {Function} [props.onOpenSpot]     a ranked spot card was chosen
  * @param {Function} [props.onOpenLocation] a field chip was chosen. Absent leaves the chips as
  *                   inert, `aria-hidden` annotations — see {@code WindowRowFieldMap}
+ * @param {?Function} [props.onOpenSubRegions] the region rail's S4 action (S5b-1) for a reader whose body is shaped by
+ *                   their picks: the shell closes this popup first and opens Settings on the picker, so Settings and
+ *                   its confirm are the second dialog, never a third. Null draws no button.
  * @param {Function} [props.onOpenInMap] Door 1 (`plan-to-map-doors-plan.md` §3 D4) — passed
  *                   straight through to {@code WindowRowFieldMap}'s own prop of the same name.
  *                   Absent renders no button, the same withholding rule {@code onOpenLocation} has.
@@ -162,7 +169,7 @@ export default function WindowSheetDialog({
   todayStr,
   escapeEnabled = true, peeksSuppressed = false,
   onClose, onStep, onOpenSpot, onOpenLocation, onOpenInMap, onSeeAllSpots, onOpenPick, scoreIndex,
-  colourMode = null,
+  colourMode = null, onOpenSubRegions = null,
 }) {
   const windowLabel = [card.kicker, card.when].filter(Boolean).join(' ');
   const treatment = VERDICT_TREATMENT[card.verdict] || VERDICT_TREATMENT.AWAITING;
@@ -180,9 +187,25 @@ export default function WindowSheetDialog({
   const chip = movementChip(card.movement?.delta ?? null);
 
   const regionRows = useMemo(
-    () => buildRegionRows(field.eventSummary, card.spots, card.allSpots, field.lens),
-    [field.eventSummary, field.lens, card.spots, card.allSpots],
+    () => buildRegionRows(field.eventSummary, card.spots, card.allSpots, field.lens, field.regionPicks ?? null),
+    [field.eventSummary, field.lens, card.spots, card.allSpots, field.regionPicks],
   );
+  // A body shaped by the reader's sub-region picks (S5b-1): the served per-region facts are handed in only then.
+  const shaped = field.regionPicks != null;
+  // The places the reader holds that this window draws, a gated place in neither half. With nothing gated it is the
+  // very array `card.spots` always was, so every other reader's counts are unchanged.
+  const myPlaces = useMemo(() => placesOf(card.spots), [card.spots]);
+  /**
+   * The places the field hatches as "not rated yet". A shaped window with places of the reader's own and none
+   * rated has no evidence for the general list, so it hatches around exactly those places (never ground outside
+   * the picks); every other window takes the list it always did.
+   */
+  const shapedUnscored = shaped && field.ground?.rated === false && field.ground.allowed.length > 0;
+  const fieldUnrated = shapedUnscored && (field.stood?.length ?? 0) === 0
+    ? field.ground.unrated
+    : field.unrated;
+  /** A reader who holds no pick at all: every region is outside, and the one way in is the Choose button. */
+  const zeroPicks = shaped && ![...field.regionPicks.values()].some((region) => region.allowedPlaces > 0);
   const regionNames = useMemo(() => regionRows.map((row) => row.name), [regionRows]);
   /** One region under an away origin — the map's labellable set, and the rail is withheld. */
   const scopedRegionNames = useMemo(
@@ -259,7 +282,10 @@ export default function WindowSheetDialog({
    */
   const hasLunarEclipseRow = topicRows.some((row) => row.badge?.type === 'LUNAR_ECLIPSE');
   const raceSpot = hasLunarEclipseRow
-    ? (card.bestReach || (card.spots && card.spots.find((spot) => !spot.neighbourOutlier)) || null)
+    // Zero picks: no place is theirs, but an eclipse is "what is happening" and is never silenced (two-question
+    // rule), so the race falls back to the window's first place of any kind.
+    ? (card.bestReach || myPlaces.find((spot) => !spot.neighbourOutlier)
+      || card.spots.find((spot) => !spot.neighbourOutlier) || null)
     : null;
   const raceSight = raceSpot && eclipseIndex
     ? lookupForWindow(eclipseIndex, raceSpot.locationId, raceSpot.locationName, card.date, card.targetType)
@@ -312,9 +338,10 @@ export default function WindowSheetDialog({
    */
   const chips = useMemo(() => {
     const focus = field.selectedRegion || null;
+    // The field names the reader's own places only: a place outside their sub-regions has no star to name.
     const ordered = focus
-      ? [...card.spots].sort((a, b) => (b.regionName === focus) - (a.regionName === focus))
-      : card.spots;
+      ? [...myPlaces].sort((a, b) => (b.regionName === focus) - (a.regionName === focus))
+      : myPlaces;
     return ordered.slice(0, CHIP_CANDIDATES).map((spot) => ({
       key: spot.key,
       locationId: spot.locationId,
@@ -331,7 +358,7 @@ export default function WindowSheetDialog({
       // out of reach, and no leave-by follows without both the drive and this slot's own time.
       title: chipTitle(spot),
     }));
-  }, [card.spots, field.selectedRegion]);
+  }, [myPlaces, field.selectedRegion]);
 
   /**
    * The field's own reach rings and home marker anchor (field-geography plan §3.1) — converted to
@@ -370,13 +397,27 @@ export default function WindowSheetDialog({
       : null;
     const highlight = emphasised ? `, highlighting ${emphasised.badge.label}` : '';
     if (!field.selectedRegion) return `${where}${verdict}${highlight}`;
-    const shown = shownSpots.length;
+    const shown = placesOf(shownSpots).length;
     return `${where}${verdict}, showing ${field.selectedRegion}, ${shown} location${shown === 1 ? '' : 's'}${highlight}`;
   }, [windowLabel, index, total, card.verdictLabel, card.verdictBlanked, field.selectedRegion,
-    shownSpots.length, emphasisTopic, topicRows]);
+    shownSpots, emphasisTopic, topicRows]);
 
+  // The reader's own places in the strip (S5b-1). Where there are none, the strip is not drawn: a list of places
+  // that are all outside the picks is not a ranking, and says nothing the sentence below does not.
+  const shownPlaces = shaped ? placesOf(shownSpots).length : shownSpots.length;
   const emptyLine = useMemo(() => {
-    if (shownSpots.length > 0) return null;
+    if (shownPlaces > 0) return null;
+    if (shaped) {
+      // The picks, not a lens, emptied it (S5b-1): a lens never gates a Lite reader's list. The sentence is the
+      // region's when one is chosen and holds none of theirs.
+      if (field.selectedRegion) {
+        return selectedRow?.hasPicks
+          ? `Nothing in your sub-regions in ${field.selectedRegion} for this ${eventWord(card.targetType)}.`
+          : `None of your sub-regions are in ${field.selectedRegion}.`;
+      }
+      if (zeroPicks) return picksNoteText({ allowed: 0, total: field.spots?.length ?? 0 });
+      return `Nothing in your sub-regions for this ${eventWord(card.targetType)}.`;
+    }
     const ratingLabel = field.lens?.minRating != null ? field.lens?.ratingLabel : null;
     // ⚠️ `reachMeasured` here too — the same clause, eleven lines from the same fix. An adversarial
     // review found this one still reading `Nothing at 4★+ within 45 min in Dales for this window.`
@@ -388,7 +429,7 @@ export default function WindowSheetDialog({
     // "Nothing at 4★+ in Dales for this window" on a window the LENS had already emptied
     // everywhere, blaming a control that clearing would not refill. Plan §6 M2.6 asks for the
     // clause "exactly when a region focus did the emptying".
-    const regionEmptied = card.spots.length > 0;
+    const regionEmptied = myPlaces.length > 0;
     const where = field.selectedRegion && regionEmptied ? ` in ${field.selectedRegion}` : '';
     const clauses = [
       ratingLabel ? `at ${ratingLabel}` : null,
@@ -403,8 +444,8 @@ export default function WindowSheetDialog({
     return clauses
       ? `Nothing ${clauses}${where} for this ${event}.`
       : `Nothing${where} for this ${event}.`;
-  }, [shownSpots.length, card.spots.length, card.targetType, field.lens, field.selectedRegion,
-    reachMeasured]);
+  }, [shownPlaces, shaped, zeroPicks, selectedRow, myPlaces.length, card.targetType, field.lens, field.selectedRegion,
+    field.spots, reachMeasured]);
 
   const bestReach = card.bestReach ?? null;
   /** Whether there is a catalogue to draw a field from — see the grid's own note. */
@@ -412,6 +453,31 @@ export default function WindowSheetDialog({
   // Read once. Only the null-prose line uses it, and calling the walk three times in one JSX
   // expression is how a cheap helper becomes a hot one.
   const regionBestWindow = selectedRow ? bestWindowFor(selectedRow.name, field) : null;
+  /**
+   * What a region the reader holds no pick in adds under its prose when chosen (S5b-1): the S4 status line and its one
+   * action (which closes this popup first, then opens Settings on the picker) and, unless they have no pick anywhere,
+   * the region's door. A reader with no pick has the Choose button here and no door: the way in is one button.
+   */
+  const outsideRegion = shaped && selectedRow && !selectedRow.hasPicks ? selectedRow : null;
+  const outsideSummary = outsideRegion ? field.regionPicks.get(outsideRegion.name) : null;
+  const outsideSlot = outsideRegion ? (
+    <>
+      <SubRegionStatusLine className="wf-subregion-line" testId="wf-region-picks-line" />
+      <SubRegionActionButton
+        className="wf-subregion-btn"
+        testId="wf-region-picks-action"
+        onOpen={onOpenSubRegions}
+        noFallback
+      />
+      {!zeroPicks && outsideSummary && (
+        <RegionDoor
+          regionName={outsideRegion.name}
+          places={outsideSummary.places}
+          subRegionCount={outsideSummary.subRegions.length}
+        />
+      )}
+    </>
+  ) : null;
 
   return (
     <Modal
@@ -514,6 +580,9 @@ export default function WindowSheetDialog({
               ))}
             </div>
             <div data-testid="window-sheet-meta" className="wf-wsh-l2 font-mono">
+              {/* A reader with no place of their own in this window has no best to name, and "nothing in reach" would
+                  blame a reach tier a Lite reader does not have: the line is left out (S5b-1). */}
+              {!(card.picksScoped === true && (card.pool || []).length === 0) && (
               <span data-testid="window-sheet-best">
                 {/* ⚠️ THE SAME `reachMeasured` GUARD THE FOOTER TAKES, added at M5's review after
                     three lenses charged this line independently. `gateSpotsByReach` returns its
@@ -556,6 +625,7 @@ export default function WindowSheetDialog({
                     : 'nothing rated yet'
                 )}
               </span>
+              )}
               {qualifies && (
                 <span data-testid="window-sheet-confidence" className="wf-wsh-conf">
                   {provisional && <ProvisionalMark className="wf-wsh-prov" />}
@@ -639,9 +709,14 @@ export default function WindowSheetDialog({
               confidence={card.confidence}
               spots={field.spots}
               points={field.points}
-              unrated={field.unrated}
+              unrated={fieldUnrated}
               stood={field.stood}
               bestRating={card.bestRating}
+              // ⚠️ A shaped (Lite) window's served best is null whatever is rated (S5b-1, B1), and a whole-plate
+              // "Not scored" hatch would also cover ground outside the picks. So the map is never marked unscored
+              // there; a window with none of the reader's places rated hatches around those places instead.
+              unscored={shaped ? shapedUnscored : null}
+              shaped={shaped}
               regionNames={scopedRegionNames}
               chips={chips}
               selectedRegion={field.selectedRegion || null}
@@ -671,7 +746,9 @@ export default function WindowSheetDialog({
                 <WindowRegionRail
                   rows={regionRows}
                   windowBest={card.bestRating}
-                  drawnCount={card.spots.length}
+                  drawnCount={myPlaces.length}
+                  shaped={shaped}
+                  outsideCount={card.outsideCount ?? 0}
                   countNoun={card.withinReachCount != null ? 'in reach' : 'spots'}
                   selected={field.selectedRegion || null}
                   onSelect={field.onSelectRegion}
@@ -685,6 +762,7 @@ export default function WindowSheetDialog({
                   picked={Boolean(selectedRow)}
                   bestWindow={regionBestWindow}
                   isCurrentWindow={regionBestWindow?.key === card.key}
+                  outsideSlot={outsideSlot}
                 />
               )}
             </div>
@@ -700,7 +778,7 @@ export default function WindowSheetDialog({
             </div>
           )}
 
-          {shownSpots.length > 0 ? (
+          {shownPlaces > 0 ? (
             <WindowSpotStrip
               spots={shownSpots}
               windowLabel={windowLabel}
@@ -736,7 +814,7 @@ export default function WindowSheetDialog({
                   empty state carried the same control. The sheet widens for browsing and forgets
                   it on close, where the bar's own chips would change the whole page to answer a
                   question about one window. */}
-              {onSeeAllSpots && (
+              {onSeeAllSpots && !zeroPicks && (
                 <button
                   type="button"
                   data-testid="window-sheet-see-all"
@@ -809,6 +887,9 @@ WindowSheetDialog.propTypes = {
       meanQuality: PropTypes.number,
     }),
     pool: PropTypes.array,
+    /** Shaped body only (S5b-1): the places outside the picks, and the marker that the pool holds only theirs. */
+    outsideCount: PropTypes.number,
+    picksScoped: PropTypes.bool,
     bestReach: PropTypes.object,
     bestReachWithheld: PropTypes.bool,
     reachTotal: PropTypes.number,
@@ -841,4 +922,5 @@ WindowSheetDialog.propTypes = {
   scoreIndex: PropTypes.instanceOf(Map),
   /** The active scoreRamp mode, threaded to `WindowRowFieldMap` as its own repaint key. */
   colourMode: PropTypes.oneOf(['temp', 'verdict']),
+  onOpenSubRegions: PropTypes.func,
 };

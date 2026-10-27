@@ -154,6 +154,9 @@ export function spotBadgeStyle(rating) {
  * @returns {number} sort order
  */
 export function compareSpots(a, b) {
+  // Outside the reader's sub-regions (S5b-1): a gated place has no star to rank by, and sorts after every place
+  // the reader holds, whatever its name. Absent on every Pro, Admin and flag-off spot, so their order is as it was.
+  if (Boolean(a.gated) !== Boolean(b.gated)) return a.gated ? 1 : -1;
   const ratingA = a.rating ?? -Infinity;
   const ratingB = b.rating ?? -Infinity;
   if (ratingA !== ratingB) return ratingB - ratingA;
@@ -182,6 +185,18 @@ export function spotOrderStatement(spots) {
   return keys.length === 0 ? 'Listed alphabetically.' : `Ranked by ${keys.join(', then ')}.`;
 }
 
+/**
+ * The spots that are in the reader's sub-regions: every spot but a gated one. On a body that was not shaped
+ * nothing is gated, so this returns its input untouched (same array).
+ *
+ * @param {?Array<object>} spots spot descriptors from {@link buildWindowSpots}
+ * @returns {Array<object>} the places the reader's picks cover, in the order they arrived
+ */
+export function placesOf(spots) {
+  const list = Array.isArray(spots) ? spots : [];
+  return list.some((spot) => spot?.gated) ? list.filter((spot) => !spot.gated) : list;
+}
+
 /** Mirrors the projector: a rating outside 1–5 is discarded rather than displayed. */
 function usableRating(rating) {
   return rating != null && rating >= MIN_RATING && rating <= MAX_RATING;
@@ -205,9 +220,13 @@ function tideFactOf(slot, factsById, factsByName) {
  *        {@code far}; null marks nothing. Deliberately the DEFAULT tier rather than the selected
  *        one — {@link isFarSpot} carries the reasoning, and the caller passes today's default so
  *        that gating and marking are the same judgement made once.
+ * @param {?Set<*>} [allowedIds] the briefing's served {@code allowedLocationIds} as a Set, on a SHAPED body only
+ *        (S5b-1). A slot the server marked {@code gated}, or one whose id that list does not name, becomes a spot
+ *        with {@code gated: true} and no star: it stays in the list (the Map and the popup name it) but is in
+ *        neither half of any count. Null leaves every spot exactly as it was.
  * @returns {Array} spot descriptors, ordered by {@link compareSpots}
  */
-export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null) {
+export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null, allowedIds = null) {
   const regioned = (eventSummary?.regions || []).flatMap(
     (region) => (region.slots || []).map((slot) => ({ slot, regionName: region.regionName })),
   );
@@ -234,6 +253,10 @@ export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null)
       const reach = slot.locationId == null ? null : reachById?.get(slot.locationId);
       const driveMinutes = reach?.driveMinutes ?? null;
       const fact = tideFactOf(slot, factsById, factsByName);
+      // Outside the picks: the server's own marker, or a shaped list that does not name the place. A slot with no
+      // id cannot be matched, so only the marker claims it (`isOutsidePicks` makes the same call).
+      const gated = slot.gated === true
+        || (allowedIds instanceof Set && slot.locationId != null && !allowedIds.has(slot.locationId));
       return {
         key: String(slot.locationId ?? slot.locationName),
         locationId: slot.locationId ?? null,
@@ -253,11 +276,14 @@ export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null)
         // Null renders no leave-by line at all; see `leaveBy` for why that is defensive rather
         // than a shape the payload has ever had.
         solarEventTime: slot.solarEventTime ?? null,
-        rating: usableRating(slot.claudeRating) ? slot.claudeRating : null,
+        // A gated place carries no star (the server strips it; this holds the line for a place the list names out).
+        rating: !gated && usableRating(slot.claudeRating) ? slot.claudeRating : null,
         // The server's neighbour guard (neighbour-guard-plan.md): a served `true` or absent, copied
         // verbatim so a spot never carries `false`. The star stays on the spot; only the "best
         // reachable" naming reads this.
-        ...(slot.neighbourOutlier === true ? { neighbourOutlier: true } : {}),
+        ...(!gated && slot.neighbourOutlier === true ? { neighbourOutlier: true } : {}),
+        // Only when true, so a Pro, Admin or flag-off spot is shaped exactly as it was (S5b-1).
+        ...(gated ? { gated: true } : {}),
         driveMinutes,
         distanceMiles: reach?.distanceMiles ?? null,
         far: isFarSpot(driveMinutes, farOverMinutes),
