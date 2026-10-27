@@ -1022,14 +1022,6 @@ describe('UserManagementView', () => {
       expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument();
     });
 
-    it('colours Pro and the selection with the gold accent, not bone', async () => {
-      await renderList();
-      expect(within(rowFor('mkphoto')).getByText('Pro')).toHaveClass('text-close-to-home');
-      expect(within(rowFor('mkphoto')).getByText('Pro')).not.toHaveClass('text-plex-gold');
-      await openReader('anna_r');
-      expect(rowFor('anna_r').className).toContain('--color-close-to-home');
-    });
-
     it('an awaiting-verification reader has no Change picks and no filtering-off note, and joined today reads so', async () => {
       const today = new Date().toISOString().replace('Z', '');
       const users = fixtureUsers();

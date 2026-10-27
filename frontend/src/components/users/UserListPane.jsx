@@ -11,7 +11,7 @@ import {
 import { inputClass, textButtonClass } from './userFormClasses.js';
 
 const CHIP_BASE = 'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-plex-gold';
-const CHIP_ON = 'border-close-to-home bg-close-to-home/10 text-plex-text';
+const CHIP_ON = 'border-plex-gold bg-plex-gold/10 text-plex-text';
 const CHIP_OFF = 'border-plex-border text-plex-text-secondary hover:border-plex-border-light hover:text-plex-text';
 
 const ROLE_CHIPS = [
@@ -33,7 +33,7 @@ const SUB_REGION_CHIPS = [
 ];
 
 /** Role text: Lite plain, Pro in gold, Admin in the tide colour. */
-const ROLE_TEXT = { LITE_USER: 'text-plex-text', PRO_USER: 'text-close-to-home', ADMIN: 'text-tide' };
+const ROLE_TEXT = { LITE_USER: 'text-plex-text', PRO_USER: 'text-plex-gold', ADMIN: 'text-tide' };
 
 /** A filter chip carrying its count. A toggle (aria-pressed), or one of the single-select role group. */
 function Chip({ label, count, on, onClick, testId }) {
@@ -251,7 +251,7 @@ export default function UserListPane({ users, selectedId, compact, onSelect, onA
                     onClick={() => onSelect(user)}
                     onKeyDown={(e) => onRowKeyDown(e, user)}
                     className={`cursor-pointer border-b border-plex-border/60 transition-colors last:border-0 hover:bg-plex-surface-light focus-visible:outline-2 focus-visible:outline-plex-gold ${
-                      selected ? 'bg-plex-surface-light shadow-[inset_2px_0_0_var(--color-close-to-home)]' : ''
+                      selected ? 'bg-plex-surface-light shadow-[inset_2px_0_0_var(--color-plex-gold)]' : ''
                     }`}
                     data-testid={`user-row-${user.id}`}
                   >
