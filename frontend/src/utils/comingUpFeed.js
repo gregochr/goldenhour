@@ -65,9 +65,10 @@ function weekday(dateStr) {
 
 /**
  * Whether an entry's own span (the union span of a merged card) overlaps the four-day plan window
- * (coming-up-glance-plan §2.3). The `endDate >= todayStr` half is DEFENSIVE: the server never serves
- * an entry that ends inside the window. Reachable guard: when BOTH dates are missing (`buildDateRail`
- * tolerates that), or before a usable `todayStr` exists, the answer is false.
+ * (coming-up-glance-plan §2.3). The server serves every entry that has not ended, so an entry wholly
+ * inside the window is normal and the `endDate >= todayStr` half is a real test, not a guard. When
+ * BOTH dates are missing (`buildDateRail` tolerates that), or before a usable `todayStr` exists, the
+ * answer is false.
  */
 function overlapsNext4Days(entry, todayStr) {
   if (!entry.startDate || !entry.endDate || !todayStr) return false;
@@ -85,10 +86,10 @@ function daysBetween(todayStr, dateStr) {
 
 /**
  * The rail's countdown line — exactly the three forms the design specifies (README §4): `now`,
- * `tomorrow`, `in N days`. There is no fourth "already passed" form to build: plan D1's eligibility
- * rule admits only entries whose `endDate` is beyond Plan's four-day boundary, and Plan's boundary
- * is never before today — so nothing reaching this feed can have a `startDate` in the past that
- * this file has to explain away as history. A span already under way (a straddling run) reads
+ * `tomorrow`, `in N days`. There is no fourth "already passed" form to build: the server's
+ * eligibility rule (coming-up-near-term-plan.md) admits only entries whose `endDate` is today or
+ * later — so nothing reaching this feed has ended, and a `startDate` in the past means a span under
+ * way, not history this file has to explain away. A span already under way (a straddling run) reads
  * `now`, the same word a span starting today reads; the two are not distinguished, matching the
  * design's own vocabulary of exactly three words.
  *
@@ -538,11 +539,10 @@ export function buildChronology(entries, todayStr, filterId, lastSeenDate, forec
 }
 
 /**
- * The footer's one sentence (coming-up-glance plan P2), shown in every status. It states a rule, not
+ * The footer's note (coming-up-glance plan P2), shown in every status. It states a rule, not
  * a count, so it is true before the feed has answered and after. "Fixed in advance", not "fixed by
  * orbital mechanics": two of the six sources compute nothing orbital — the NLC season boundary is a
  * hard-coded calendar window and the equinox/solstice dates are fixed `MonthDay` anchors.
  */
-export const FOOTER = 'This list starts where the four-day forecast stops and shows dates fixed in '
-  + "advance. Weather-driven topics can't be known that far out, so they appear only in Next four "
-  + 'days.';
+export const FOOTER = 'This list shows dates fixed in advance, from today on. Weather-driven topics '
+  + "can't be known that far out, so they appear only in Next four days.";

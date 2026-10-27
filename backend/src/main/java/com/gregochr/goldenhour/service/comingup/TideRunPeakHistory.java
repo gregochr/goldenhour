@@ -96,7 +96,7 @@ public class TideRunPeakHistory {
      * never today or later, and never any date the run under evaluation itself covers.
      *
      * <p><b>The run being scored can itself start before "today".</b> Eligibility only requires an
-     * entry to <em>end</em> beyond Plan's window (plan D1), so a run detected today can have been
+     * entry not to have <em>ended</em> (coming-up-near-term-plan.md), so a run detected today can have been
      * walked backward to a start date a day or two in the past ({@code TideAlmanacSource}'s
      * {@code completeRun}). Bounding the lookback at "yesterday" alone is not enough in that case:
      * the run's own already-elapsed days would still qualify as roster-wide spring/king days and

@@ -211,6 +211,9 @@ Both are recorded as deliberate divergences in coming-up-plan §11 (S1). **Super
    supermoon + eligible run → one merged card with the `full moon` mark; Plan-window run + eligible
    supermoon → one merged card, run hosts (longer span); an unpaired Plan-window event is absent;
    superlatives unchanged by a Plan-window run; `AlmanacServiceTest` covers the service wiring.
+   > **Superseded 2026-10-27 (`coming-up-near-term-plan.md`):** every event that has not ended is now
+   > eligible, so production no longer passes `partnersOnly`; a near-term supermoon and run merge through the
+   > ordinary eligible-pair path. The partner path is kept in the assembler, unused, pending removal.
 8. Unchanged and still correct: `markScoreNotes` (skips an entry with a `joinNote`),
    `markTideSuperlativesAndThresholds` (runs before the merge; a hosting run keeps its own; a
    supermoon host does not carry the run's), the `assemble` sort (union start).

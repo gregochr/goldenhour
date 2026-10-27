@@ -47,12 +47,11 @@ import java.util.concurrent.atomic.AtomicReference;
  * swaps it in at the tail of every pipeline cycle (so the chronology the Glance tab and Ask read
  * is never left at the day's first build) and once at startup (a restart drops the in-memory cache).
  *
- * <p><strong>Eligibility (plan §2 D1).</strong> An almanac event becomes a {@link ComingUpEntry}
- * only once it ends beyond Plan's four-day window ({@link PlanHorizon#lastPlanDate}) — an entry
- * wholly inside that window is strip material, not chronology material, and a straddling run stays
- * eligible because its dates say so. One exception: an event wholly inside the window is still
- * handed to the assembler as a merge PARTNER, so a Plan-window supermoon (or run) is merged into
- * the eligible run (or supermoon) it overlaps — it never becomes an entry of its own.
+ * <p><strong>Eligibility (plan §2 D1, amended by coming-up-near-term-plan.md).</strong> An almanac
+ * event becomes a {@link ComingUpEntry} for as long as it has not ended ({@code endDate} is today or
+ * later) — including a short event wholly inside the next four days, whose card carries the prose the
+ * four-day tiles cannot. The tiles stay as a pointer to the card. Coincident events (a supermoon
+ * inside a run) are merged through the ordinary eligible-pair path.
  * {@code build} itself stays raw and unfiltered: it is the per-source merge every existing test
  * asserts on directly.
  */
@@ -284,9 +283,8 @@ public class AlmanacService {
 
     /**
      * Builds the response for an explicit range: the raw merge, filtered to eligible entries and
-     * grown to the full chronology shape by {@link ComingUpAssembler}. The events inside Plan's window
-     * also go to the assembler as merge partners only (a Plan-window run or supermoon can be merged
-     * into an overlapping eligible one).
+     * grown to the full chronology shape by {@link ComingUpAssembler}. An event is eligible while it
+     * has not ended ({@code endDate} is not before {@code builtFor}), however near.
      *
      * @param builtFor the date the feed starts at — also the response's {@code builtFor}
      * @param to       last day, inclusive
@@ -295,17 +293,10 @@ public class AlmanacService {
     private Assembled assemble(LocalDate builtFor, LocalDate to) {
         Built built = buildCounting(builtFor, to);
         List<AlmanacEvent> all = built.events();
-        LocalDate cutoff = PlanHorizon.lastPlanDate(builtFor);
         List<AlmanacEvent> eligible = all.stream()
-                .filter(event -> event.endDate().isAfter(cutoff))
+                .filter(event -> !event.endDate().isBefore(builtFor))
                 .toList();
-        // The events Plan owns still take part in the coincidence merge as partners only
-        // (supermoon-tide-run-plan.md §4.7): a supermoon inside Plan's four days must still be
-        // marked on the run that overlaps it, or the card and Ask would disagree with the sky.
-        List<AlmanacEvent> planOwned = all.stream()
-                .filter(event -> !event.endDate().isAfter(cutoff))
-                .toList();
-        ComingUpResponse core = assembler.assemble(builtFor, eligible, planOwned);
+        ComingUpResponse core = assembler.assemble(builtFor, eligible);
         return new Assembled(core, built.failedSources());
     }
 

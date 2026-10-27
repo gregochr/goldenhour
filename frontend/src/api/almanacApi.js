@@ -17,9 +17,9 @@ export const ALMANAC_DAYS = 90;
  * {@link ALMANAC_DAYS} days.
  *
  * <p>{@code entries} are <em>spans</em> ({@code startDate}/{@code endDate}, both inclusive),
- * ascending by start date then by span length, and eligible under Plan's boundary — an entry
- * wholly inside Plan's four days is not in this list. They may start before today or end past the
- * horizon: a tide run or a supermoon window that straddles an edge is reported with its true
+ * ascending by start date then by span length. An entry is in the list for as long as it has not
+ * ended, including one wholly inside Plan's four days (coming-up-near-term-plan.md). They may start
+ * before today or end past the horizon: a tide run or a supermoon window that straddles an edge is reported with its true
  * extent rather than clipped, so "this began yesterday" does not render as "starts today".
  *
  * <p><b>Do not unwrap this to {@code entries}.</b> The response also carries {@code builtFor},

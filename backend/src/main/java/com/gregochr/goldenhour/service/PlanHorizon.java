@@ -11,9 +11,9 @@ import java.time.LocalDate;
  * <p>{@code BriefingService} already hardcoded {@code today .. today+3} as the hot-topic window at
  * two call sites (the serve-time overlay and the build path), both deriving {@code today} as
  * {@code LocalDate.now(clock.withZone(Europe/London))} — identical to {@link ForecastHorizon#today}.
- * This class gives that boundary one name so the Coming up feed's eligibility rule (an entry
- * qualifies only once it ends beyond Plan's last day) can point at the same constant rather than a
- * second hardcoded {@code plusDays(3)}.
+ * This class gives that boundary one name rather than a hardcoded {@code plusDays(3)}. It no longer
+ * drives Coming up eligibility (every event that has not ended is eligible,
+ * coming-up-near-term-plan.md); the hot-topic window is its remaining use.
  *
  * <p>Deliberately not the last-rendered-events horizon ({@code PlanWindowProjector.renderHorizon}):
  * that figure is computable only at briefing serve time, varies with how many events have already

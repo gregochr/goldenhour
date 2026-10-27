@@ -834,9 +834,9 @@ describe('formatArrivalDate', () => {
 });
 
 describe('FOOTER', () => {
-  it('is the one fixed sentence, naming where the list starts and where weather topics live', () => {
+  it('is the one fixed note, naming what the list shows and where weather topics live', () => {
     expect(FOOTER).toBe(
-      'This list starts where the four-day forecast stops and shows dates fixed in advance. '
+      'This list shows dates fixed in advance, from today on. '
       + "Weather-driven topics can't be known that far out, so they appear only in Next four days.",
     );
   });
@@ -877,8 +877,17 @@ describe('buildEntryView — inNext4Days (coming-up-glance-plan §2.3)', () => {
     expect(tagged({ startDate: null, endDate: null })).toBe(false);
   });
 
-  it('DEFENSIVE: tags an entry ending today (the server never serves one ending inside the window)', () => {
+  it('tags an entry ending today (the server serves every entry that has not ended)', () => {
     expect(tagged({ startDate: '2026-08-05', endDate: TODAY })).toBe(true);
+  });
+
+  it('tags an entry wholly inside the four days, and counts it down as now / tomorrow', () => {
+    const tomorrow = buildEntryView(entry({ startDate: '2026-08-10', endDate: '2026-08-11' }), TODAY, null, null);
+    expect(tomorrow.inNext4Days).toBe(true);
+    expect(tomorrow.rail.countdown).toBe('tomorrow');
+    const underWay = buildEntryView(entry({ startDate: TODAY, endDate: '2026-08-10' }), TODAY, null, null);
+    expect(underWay.inNext4Days).toBe(true);
+    expect(underWay.rail.countdown).toBe('now');
   });
 
   it('does not tag an entry that ended yesterday', () => {

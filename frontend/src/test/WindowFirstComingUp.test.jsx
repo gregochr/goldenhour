@@ -122,7 +122,7 @@ describe('WindowFirstComingUp — the four states', () => {
   it('says nothing is coming up only once the feed has actually answered with nothing', () => {
     renderPane({ status: 'ready', events: { entries: [], counts: { fixed: 0, forecast: 0, byFamily: {} } } });
     expect(screen.getByTestId('coming-up-empty'))
-      .toHaveTextContent('No dates coming up in the next 90 days beyond the four-day forecast.');
+      .toHaveTextContent('No dates coming up in the next 90 days.');
   });
 
   it('⚠️ scopes the empty note to the DATED list, so it never denies the four-day strip '
@@ -380,7 +380,7 @@ describe('WindowFirstComingUp — the footer is one fixed sentence in every stat
     ]) {
       const { unmount } = renderPane({ status, events });
       expect(screen.getByTestId('coming-up-footer')).toHaveTextContent(
-        'This list starts where the four-day forecast stops and shows dates fixed in advance. '
+        'This list shows dates fixed in advance, from today on. '
         + "Weather-driven topics can't be known that far out, so they appear only in Next four "
         + 'days.',
       );

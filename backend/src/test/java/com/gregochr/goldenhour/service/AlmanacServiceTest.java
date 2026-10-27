@@ -47,15 +47,14 @@ class AlmanacServiceTest {
     }
 
     /**
-     * An assembler whose build fails only for exactly this call: the build date, the eligible events
-     * and the Plan-owned events the service must hand it. A wrong date or partition falls through to
-     * the mock's default (null), which then fails the test's own assertions.
+     * An assembler whose build fails only for exactly this call: the build date and the eligible
+     * events the service must hand it (the two-argument form: no partners). A wrong date or set
+     * falls through to the mock's default (null), which then fails the test's own assertions.
      */
-    private static ComingUpAssembler failingAssembler(LocalDate builtFor, List<AlmanacEvent> eligible,
-            List<AlmanacEvent> planOwned) {
+    private static ComingUpAssembler failingAssembler(LocalDate builtFor, List<AlmanacEvent> eligible) {
         ComingUpAssembler failing = mock(ComingUpAssembler.class);
         org.mockito.Mockito.when(failing.assemble(org.mockito.ArgumentMatchers.eq(builtFor),
-                org.mockito.ArgumentMatchers.eq(eligible), org.mockito.ArgumentMatchers.eq(planOwned)))
+                org.mockito.ArgumentMatchers.eq(eligible)))
                 .thenThrow(new IllegalStateException("assembly broke"));
         return failing;
     }
@@ -393,12 +392,11 @@ class AlmanacServiceTest {
         ComingUpAssembler assembler = org.mockito.Mockito.spy(assembler());
         AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler);
         ComingUpResponse before = service.getFeed();
-        // DAY (2026-09-01) ends before Plan's window opens on the clock's date, so the lone event is
-        // Plan-owned (a merge partner) and nothing is eligible.
+        // DAY (2026-09-01) ended before the clock's date (2027-03-05), so nothing is eligible and the
+        // two-argument assemble receives an empty list.
         org.mockito.Mockito.doThrow(new IllegalStateException("assembly broke")).when(assembler)
                 .assemble(org.mockito.ArgumentMatchers.eq(LocalDate.of(2027, 3, 5)),
-                        org.mockito.ArgumentMatchers.eq(List.<AlmanacEvent>of()),
-                        org.mockito.ArgumentMatchers.eq(List.of(event(DAY, DAY, "x"))));
+                        org.mockito.ArgumentMatchers.eq(List.<AlmanacEvent>of()));
 
         assertThatThrownBy(service::refresh).isInstanceOf(IllegalStateException.class);
 
@@ -444,7 +442,7 @@ class AlmanacServiceTest {
     @DisplayName("a startup warm that fails, or an executor that refuses it, is logged and ignored")
     void startupWarmNeverThrows() {
         AlmanacService failing = new AlmanacService(List.of(), CLOCK,
-                failingAssembler(LocalDate.of(2027, 3, 5), List.of(), List.of()), Runnable::run);
+                failingAssembler(LocalDate.of(2027, 3, 5), List.of()), Runnable::run);
         AlmanacService refused = new AlmanacService(List.of(), CLOCK, assembler(),
                 task -> {
                     throw new java.util.concurrent.RejectedExecutionException("shut down");
@@ -546,7 +544,7 @@ class AlmanacServiceTest {
                 .hasMessageContaining("before startDate");
     }
 
-    // ── Eligibility (plan D1) — endDate > PlanHorizon.lastPlanDate(today) ──────
+    // ── Eligibility (plan D1, amended by coming-up-near-term-plan.md) — endDate >= today ──
 
     /** GMT in March, so {@code ForecastHorizon.today(ELIGIBILITY_CLOCK)} is this date exactly. */
     private static final LocalDate ELIGIBILITY_TODAY = LocalDate.of(2027, 3, 5);
@@ -557,10 +555,33 @@ class AlmanacServiceTest {
     private static final LocalDate LAST_PLAN_DATE = ELIGIBILITY_TODAY.plusDays(3);
 
     @Test
-    @DisplayName("an entry ending on Plan's last day is excluded — it is strip material, not "
-            + "chronology material")
-    void entryEndingOnLastPlanDate_isExcluded() {
+    @DisplayName("an entry wholly inside today..today+3 is served — the card the four-day tiles cannot carry")
+    void entryWhollyInsideTheFourDays_isServed() {
         AlmanacSource source = (f, t) -> List.of(event(LAST_PLAN_DATE, LAST_PLAN_DATE, "inside"));
+
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
+                assembler()).getFeed(90).entries();
+
+        assertThat(entries).extracting(ComingUpEntry::type).containsExactly("inside");
+    }
+
+    @Test
+    @DisplayName("a single-day entry today is served")
+    void singleDayEntryToday_isServed() {
+        AlmanacSource source = (f, t) -> List.of(event(ELIGIBILITY_TODAY, ELIGIBILITY_TODAY, "tonight"));
+
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
+                assembler()).getFeed(90).entries();
+
+        assertThat(entries).extracting(ComingUpEntry::type).containsExactly("tonight");
+    }
+
+    @Test
+    @DisplayName("an entry that ended yesterday is not served")
+    void entryThatEndedYesterday_isNotServed() {
+        // A real source never returns an event ending before `from`; this stub does, to pin the filter.
+        LocalDate yesterday = ELIGIBILITY_TODAY.minusDays(1);
+        AlmanacSource source = (f, t) -> List.of(event(yesterday.minusDays(1), yesterday, "over"));
 
         var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
                 assembler()).getFeed(90).entries();
@@ -569,7 +590,7 @@ class AlmanacServiceTest {
     }
 
     @Test
-    @DisplayName("an entry ending the day after Plan's last day is included")
+    @DisplayName("an entry ending the day after Plan's last day is served")
     void entryEndingJustBeyondLastPlanDate_isIncluded() {
         LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
         AlmanacSource source = (f, t) -> List.of(event(beyond, beyond, "beyond"));
@@ -593,8 +614,29 @@ class AlmanacServiceTest {
     }
 
     @Test
-    @DisplayName("a supermoon inside Plan's window is still a merge partner for the eligible run that "
-            + "overlaps it: one merged card, the moon marked on its day (supermoon-tide-run-plan.md §4.7)")
+    @DisplayName("the assembler is handed every un-ended event through the two-argument form, no partners")
+    void assemblerReceivesNoPartners() {
+        AlmanacEvent near = event(ELIGIBILITY_TODAY.plusDays(1), ELIGIBILITY_TODAY.plusDays(1), "near");
+        AlmanacEvent over = event(ELIGIBILITY_TODAY.minusDays(3), ELIGIBILITY_TODAY.minusDays(1), "over");
+        AlmanacEvent far = event(LAST_PLAN_DATE.plusDays(9), LAST_PLAN_DATE.plusDays(9), "far");
+        ComingUpAssembler mocked = mock(ComingUpAssembler.class);
+        org.mockito.Mockito.when(mocked.assemble(org.mockito.ArgumentMatchers.eq(ELIGIBILITY_TODAY),
+                org.mockito.ArgumentMatchers.eq(List.of(near, far)))).thenReturn(
+                        assembler().assemble(ELIGIBILITY_TODAY, List.of()));
+        AlmanacSource source = (f, t) -> List.of(over, near, far);
+
+        new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, mocked).getFeed(90);
+
+        org.mockito.Mockito.verify(mocked).assemble(org.mockito.ArgumentMatchers.eq(ELIGIBILITY_TODAY),
+                org.mockito.ArgumentMatchers.eq(List.of(near, far)));
+        org.mockito.Mockito.verify(mocked, org.mockito.Mockito.never()).assemble(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    @DisplayName("a supermoon inside Plan's window and the run it overlaps are both eligible and merge "
+            + "into one card, the moon marked on its day (supermoon-tide-run-plan.md §4.7)")
     void planWindowSupermoon_isMarkedOnTheOverlappingEligibleRun() {
         LocalDate moonNight = LAST_PLAN_DATE.minusDays(1);
         AlmanacSource source = (f, t) -> List.of(
@@ -612,8 +654,8 @@ class AlmanacServiceTest {
     }
 
     @Test
-    @DisplayName("a Plan-window event that pairs with nothing is still not a chronology entry")
-    void unpairedPlanWindowEvent_isNotAnEntry() {
+    @DisplayName("a near-term event that pairs with nothing is now an entry of its own")
+    void unpairedNearTermEvent_isAnEntry() {
         AlmanacSource source = (f, t) -> List.of(
                 event(LAST_PLAN_DATE.minusDays(1), LAST_PLAN_DATE.minusDays(1), "supermoon"),
                 event(LAST_PLAN_DATE.plusDays(5), LAST_PLAN_DATE.plusDays(6), "spring-tide"));
@@ -621,7 +663,7 @@ class AlmanacServiceTest {
         var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
                 assembler()).getFeed(90).entries();
 
-        assertThat(entries).extracting(ComingUpEntry::type).containsExactly("spring-tide");
+        assertThat(entries).extracting(ComingUpEntry::type).containsExactly("supermoon", "spring-tide");
     }
 
     // ── enteredWindow (plan D3) — startDate − (DEFAULT_DAYS − 1), fixed at 90 ──
