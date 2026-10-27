@@ -1,6 +1,10 @@
 import PropTypes from 'prop-types';
 import { BUSY_BUTTON } from '../../utils/busyButton.js';
 
+/** Keep editing, as a full-width secondary button (phone) or a text button beside Save and lock (desktop). */
+const STACKED_KEEP = 'btn-secondary order-2 w-full';
+const INLINE_KEEP = 'text-sm text-plex-text-secondary hover:text-plex-text rounded-sm py-1.5 focus-visible:outline-2 focus-visible:outline-plex-gold order-1';
+
 /**
  * The save confirmation's content (handoff A5): the title naming the date the lock would end, the
  * body, the change list and the two buttons. Rendered inside a {@code Modal} on desktop and inside the
@@ -47,7 +51,7 @@ export default function SubRegionSaveConfirm({
       <div className={stacked ? 'flex flex-col gap-2' : 'flex justify-end items-center gap-3'}>
         <button
           type="button"
-          className={`btn-primary ${BUSY_BUTTON} ${stacked ? 'order-1' : 'order-2'}`}
+          className={`btn-primary ${BUSY_BUTTON} ${stacked ? 'order-1 w-full' : 'order-2'}`}
           aria-disabled={busy || undefined}
           onClick={() => { if (!busy) onConfirm(); }}
           data-testid="sub-region-confirm-save"
@@ -56,7 +60,7 @@ export default function SubRegionSaveConfirm({
         </button>
         <button
           type="button"
-          className={`text-sm text-plex-text-secondary hover:text-plex-text rounded-sm py-1.5 focus-visible:outline-2 focus-visible:outline-plex-gold ${stacked ? 'order-2' : 'order-1'}`}
+          className={stacked ? STACKED_KEEP : INLINE_KEEP}
           onClick={onKeepEditing}
           data-testid="sub-region-confirm-keep"
         >

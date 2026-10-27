@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
+import { useIsMobile } from '../../hooks/useIsMobile.js';
 
 /** How long the toast stays up. */
 const TOAST_MS = 5000;
@@ -17,6 +18,8 @@ const TOAST_MS = 5000;
  * @param {() => void} props.onDone called when it times out
  */
 export default function SubRegionToast({ message, onDone }) {
+  // On a phone the top of the screen is the dialog's title; the toast goes to the foot, above the safe area.
+  const isMobile = useIsMobile();
   useEffect(() => {
     if (!message) return undefined;
     const timer = setTimeout(onDone, TOAST_MS);
@@ -26,7 +29,7 @@ export default function SubRegionToast({ message, onDone }) {
   return createPortal(
     <div
       role="status"
-      className={`fixed top-4 left-1/2 -translate-x-1/2 z-[10001] max-w-[calc(100vw-2rem)] rounded-lg border border-plex-border-light bg-plex-surface-light px-4 py-2 text-sm text-plex-text shadow-lg ${
+      className={`fixed ${isMobile ? 'bottom-[max(1.5rem,var(--safe-b))]' : 'top-4'} left-1/2 -translate-x-1/2 z-[10001] max-w-[calc(100vw-2rem)] rounded-lg border border-plex-border-light bg-plex-surface-light px-4 py-2 text-sm text-plex-text shadow-lg ${
         message ? '' : 'opacity-0 pointer-events-none'
       }`}
       data-testid={message ? 'sub-region-toast' : 'sub-region-toast-region'}

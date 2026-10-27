@@ -532,6 +532,36 @@ describe('SubRegionSettingsSection (S4 A4-A6)', () => {
       expect(screen.queryByTestId('bottom-sheet-header')).toBeNull();
     });
 
+    it('stacks Keep editing as a full-width secondary button under Save and lock', async () => {
+      const user = userEvent.setup();
+      await renderSection(OPEN);
+      await user.click(open());
+      await user.click(box('Newcastle'));
+      await user.click(screen.getByRole('button', { name: /The Lake District/ }));
+      await user.click(box('Keswick'));
+
+      await user.click(within(screen.getByTestId('sub-regions-sheet-footer')).getByRole('button', { name: 'Save' }));
+
+      const save = screen.getByRole('button', { name: 'Save and lock' });
+      const keep = screen.getByRole('button', { name: 'Keep editing' });
+      expect(keep).toHaveClass('btn-secondary', 'w-full');
+      expect(save).toHaveClass('w-full');
+      expect(save.compareDocumentPosition(keep) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('puts the toast at the foot of the screen, clear of the dialog title', async () => {
+      const user = userEvent.setup();
+      await renderSection(FREE_WEEK);
+      saveSubRegions.mockResolvedValue(saved({ picks: [12, 13, 10] }));
+      await user.click(open());
+      await user.click(box('Berwick'));
+      await user.click(within(screen.getByTestId('sub-regions-sheet-footer')).getByRole('button', { name: 'Save' }));
+
+      const toast = await screen.findByRole('status', { name: '' });
+      expect(toast.className).toContain('bottom-[max(1.5rem,var(--safe-b))]');
+      expect(toast).not.toHaveClass('top-4');
+    });
+
     it('closes the sheet and toasts after a save', async () => {
       const user = userEvent.setup();
       await renderSection(FREE_WEEK);
