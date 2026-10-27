@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import ProUpsellDoor, {
-  SCORES_UPSELL_BODY, SCORES_UPSELL_HEADING, SCORES_UPSELL_LABEL,
+  regionInSentence, SCORES_UPSELL_BODY, SCORES_UPSELL_HEADING, SCORES_UPSELL_LABEL,
 } from './shared/ProUpsell.jsx';
+import { SubRegionActionButton, SubRegionStatusLine } from './subregions/SubRegionActions.jsx';
+import { PlaceDoor } from './subregions/SubRegionDoors.jsx';
 import Modal from './shared/Modal.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import ScoreBar from './ScoreBar.jsx';
@@ -18,6 +20,23 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { isWildlifeOnly } from '../utils/locationTypes.js';
 import { hourlyDaysOf } from '../utils/hourlyComfort.js';
 import HourlyComfortTable from './HourlyComfortTable.jsx';
+
+/**
+ * The sentence in the block above the rows of a place outside the reader's sub-regions (handoff task 5). With no
+ * sub-region served the first clause names the place instead, and with no region the second says only the light.
+ *
+ * @param {{subRegionName: ?string, place: string, regionName: ?string}} facts
+ * @returns {string}
+ */
+function outsideText({ subRegionName, place, regionName }) {
+  const why = subRegionName
+    ? `${subRegionName} isn't one of your sub-regions, so ${place} has no ratings for you.`
+    : `${place} isn't in one of your sub-regions, so it has no ratings for you.`;
+  const still = regionName
+    ? `Light times and the forecast for ${regionInSentence(regionName)} still show.`
+    : 'Light times still show.';
+  return `${why} ${still}`;
+}
 
 /**
  * The star rating at or below which a row is de-emphasised — the design's "2★ or below".
@@ -139,13 +158,22 @@ const DIM_AT_OR_BELOW = 2;
  *        scores and the written why (a boolean, never the role; pro-features-gate-plan.md §5). The score
  *        data is already absent from the rows; this drops the "Nothing written about this one yet." line
  *        (it would tell a locked reader the forecast has no prose) and draws one upsell door on a sky sheet
+ * @param {boolean} [props.outsidePicks] true when the server's served list leaves this place outside the reader's
+ *        sub-regions (sub-regions-plan §11 S5a-3, decision 12; never the role). Its own state: the header badge says
+ *        "Outside your sub-regions" (it wins over the scope badge), a block says why there are no ratings with the S4
+ *        button and the place door, and every row's rating slot is EMPTY: no "Not scored yet", no `unratedWord`,
+ *        no "best here", no lead line, no scores door, no "Nothing written". Light times, the region's gloss, the
+ *        comfort rows and the tide stay. False draws exactly what the sheet always drew
+ * @param {?Function} [props.onOpenSubRegions] opens Settings on the picker from the block's button; the shell
+ *        closes this sheet (and any popup under it) first, so no third dialog stacks up
  */
 export default function LocationFourDaySheet({
   spot, windows, scoreIndex = null, slotIndex = null, scoresKnown = false, reachById = null,
   scopeRegionNames = null, origin = null, originLabel = null, todayStr = '', onClose, onShowOnMap,
   planFrom = null, onPlanFrom = null, escapeEnabled = true, location = null,
   focusWindowKey = null, regionGlossIndex = null, tideAlignmentIndex = null, eclipseIndex = null,
-  restoreFocusFallback = null, isPro = false, scoresLocked = false,
+  restoreFocusFallback = null, isPro = false, scoresLocked = false, outsidePicks = false,
+  onOpenSubRegions = null,
 }) {
   const sheet = useMemo(
     () => buildLocationSheet(spot, windows, {
@@ -178,10 +206,18 @@ export default function LocationFourDaySheet({
   // clamped prose, the promise is "the rest of THIS narrative" — so the row carrying it must be the
   // one that opens, not this location's own best. Null from every other entry point, which leaves
   // the original best-then-first-rated seeding exactly as it was.
-  const seed = sheet.focusKey
-    ?? sheet.bestKey
-    ?? sheet.rows.find((row) => row.rating != null)?.key
-    ?? null;
+  // A place outside the reader's sub-regions has nothing rated, ever: the window they arrived on opens, else the
+  // first row, and the first row only once the scores have loaded, so a slow load cannot seed a row the arrival
+  // would have chosen otherwise (S5a-3).
+  let seed;
+  if (outsidePicks) {
+    seed = sheet.focusKey ?? (scoresKnown ? (sheet.rows[0]?.key ?? null) : null);
+  } else {
+    seed = sheet.focusKey
+      ?? sheet.bestKey
+      ?? sheet.rows.find((row) => row.rating != null)?.key
+      ?? null;
+  }
   // Adjusted DURING the render — React's own "adjusting state when a prop changes" pattern, the
   // same one `PlanSearch` uses for its cursor. In an effect there would be one commit showing the
   // unseeded sheet.
@@ -272,8 +308,11 @@ export default function LocationFourDaySheet({
 
   const drive = formatDriveDuration(sheet.driveMinutes);
   const handoff = sheet.rows.find((row) => row.key === sheet.handoffKey) ?? null;
+  // The sub-region beside the region for a place outside the picks (design screen 06); absent when none is served.
+  const placeSubRegion = location?.subRegionName ?? spot?.subRegionName ?? null;
   const meta = [
     sheet.regionName,
+    outsidePicks ? placeSubRegion : null,
     // Named, never bare. The lens bar above the page names the base every other drive figure is
     // measured from, so a number here with no origin on it is one the reader cannot place against
     // it. `planOrigin` records the same rule for `distanceMiles`.
@@ -352,7 +391,12 @@ export default function LocationFourDaySheet({
               things — outside the home planning area, or not in the origin's region — and only one
               of them is about distance, so a Dales spot 45 minutes from a Keswick base wore the
               badge directly above "45 min from Keswick" and read as a broken filter. */}
-          {sheet.outsideScope && (
+          {outsidePicks ? (
+            // Outside the reader's sub-regions wins over the scope badge: one badge, the grey family (S5a-3).
+            <span data-testid="location-sheet-outside" data-scope="picks" className="wf-loc-out font-mono">
+              Outside your sub-regions
+            </span>
+          ) : sheet.outsideScope && (
             <span data-testid="location-sheet-outside" className="wf-loc-out font-mono">
               {sheet.outsideLabel}
             </span>
@@ -418,7 +462,32 @@ export default function LocationFourDaySheet({
             </div>
           )}
 
-          {scoresLocked && !hourlyBody && sheet.rows.length > 0 && (
+          {outsidePicks && (
+            <div className="wf-loc-outside" data-testid="location-sheet-outside-block">
+              {/* A wildlife hide is never rated, so "has no ratings for you" would be a claim about nothing: it keeps
+                  the status line, the button and the door, and drops only the sentence. */}
+              {!hourlyBody && (
+                <p className="wf-loc-outside-text" data-testid="location-sheet-outside-text">
+                  {outsideText({
+                    subRegionName: placeSubRegion,
+                    place: sheet.name,
+                    regionName: sheet.regionName,
+                  })}
+                </p>
+              )}
+              <SubRegionStatusLine className="wf-loc-outside-line" testId="location-sheet-outside-status" />
+              <div className="wf-loc-outside-actions">
+                <SubRegionActionButton
+                  className="wf-subregion-btn"
+                  testId="location-sheet-subregion-action"
+                  onOpen={onOpenSubRegions}
+                />
+                <PlaceDoor place={sheet.name} />
+              </div>
+            </div>
+          )}
+
+          {scoresLocked && !outsidePicks && !hourlyBody && sheet.rows.length > 0 && (
             <div data-testid="location-sheet-scores-door" className="wf-loc-note">
               <ProUpsellDoor
                 label={SCORES_UPSELL_LABEL}
@@ -429,7 +498,7 @@ export default function LocationFourDaySheet({
             </div>
           )}
 
-          {sheet.lead && !hourlyBody && (
+          {sheet.lead && !hourlyBody && !outsidePicks && (
             <p data-testid="location-sheet-lead" className="wf-loc-lead font-mono">{sheet.lead}</p>
           )}
 
@@ -565,7 +634,7 @@ export default function LocationFourDaySheet({
                           windows, and only exists when more than one of them was rated. The glyph
                           is hidden: this arm wraps every decorative `◎`, and VoiceOver says
                           "bullseye" in the middle of the row's name otherwise. */}
-                      {row.key === sheet.bestKey && (
+                      {row.key === sheet.bestKey && !outsidePicks && (
                         <span data-testid="location-sheet-best" className="wf-loc-tag font-mono">
                           <span aria-hidden="true">◎ </span>
                           best here
@@ -583,7 +652,7 @@ export default function LocationFourDaySheet({
                           <span aria-hidden="true">{`${row.rating}★`}</span>
                           <span className="sr-only">{`${row.rating} stars`}</span>
                         </span>
-                      ) : (
+                      ) : (outsidePicks && !row.away) ? null : (
                         // Three states, three sentences. An away day says nobody forecast it; a
                         // forecast window with no rating says what the SLOT's own served verdict
                         // says (`row.unratedWord`: "Not rated" when the weather passed it and no
@@ -724,7 +793,7 @@ export default function LocationFourDaySheet({
                       )}
                       {row.summary}
                     </p>
-                  ) : !(scoresLocked && row.scoresKnown && !row.away) && (
+                  ) : !(scoresLocked && row.scoresKnown && !row.away) && !(outsidePicks && !row.away) && (
                     <p data-testid="location-sheet-nowhy" className="wf-loc-why muted font-mono">
                       {/* ⚠️ No "you". A travel day is the OPERATOR'S, not the reader's — the arm is
                           scrupulously impersonal about it everywhere else (the away cell says
@@ -841,6 +910,8 @@ LocationFourDaySheet.propTypes = {
     /** Set by `buildHeatSpots`: false for a place that is not a sky subject (a hide, a wood) —
      * read only to avoid painting window rows for one before its roster record has joined. */
     skySubject: PropTypes.bool,
+    /** The place's served sub-region, named in the outside-your-sub-regions block (S5a-3). */
+    subRegionName: PropTypes.string,
   }).isRequired,
   windows: PropTypes.arrayOf(PropTypes.object),
   scoreIndex: PropTypes.object,
@@ -872,6 +943,8 @@ LocationFourDaySheet.propTypes = {
     locationType: PropTypes.oneOfType([PropTypes.string, PropTypes.arrayOf(PropTypes.string)]),
     bortleClass: PropTypes.number,
     tideType: PropTypes.arrayOf(PropTypes.string),
+    /** The place's served sub-region (S5a-3). */
+    subRegionName: PropTypes.string,
     /** The record's per-date forecasts — read only for a wildlife hide's hourly comfort rows. */
     forecastsByDate: PropTypes.instanceOf(Map),
   }),
@@ -903,4 +976,8 @@ LocationFourDaySheet.propTypes = {
    * "Nothing written about this one yet." branch only and draws one upsell door on a sky sheet.
    */
   scoresLocked: PropTypes.bool,
+  /** The place lies outside the reader's sub-regions (S5a-3): its own state, with no rating slot at all. */
+  outsidePicks: PropTypes.bool,
+  /** Opens Settings on the sub-region picker; the shell closes this sheet first. */
+  onOpenSubRegions: PropTypes.func,
 };

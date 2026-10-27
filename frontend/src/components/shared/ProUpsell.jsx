@@ -1,5 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
+import { limitAsWord } from '../../utils/subRegionCopy.js';
+import { countWord } from '../../utils/pickGeography.js';
 
 /**
  * The scores upsell's words (docs/engineering/pro-features-gate-plan.md §4). Placeholder copy until the
@@ -20,6 +22,79 @@ export const TIDE_LIGHT_UPSELL_BODY = 'Pro shows which morning or evening in a t
 
 export const AURORA_UPSELL_HEADING = 'Aurora forecasts';
 export const AURORA_UPSELL_BODY = 'See where the aurora should show, rated at each dark-sky location, with how far south it should reach.';
+
+/**
+ * The sub-regions doors' words (sub-regions-plan §11 S5a-3, handoff task 7). Every number is served data, never a
+ * literal: the places and sub-regions come from the roster, "your n sub-regions" from the picks the server applies
+ * (never the limit), and the example places from the sub-region options. Singular at one, always.
+ */
+export const SUBREGIONS_ALL_LABEL = 'Every sub-region';
+export const SUBREGIONS_ALL_HEADING = 'Ratings in every sub-region';
+
+/**
+ * The "Every sub-region" body.
+ *
+ * @param {{total: number, subRegionCount: number, allowed: number, picked: number}} facts the roster's places and
+ *        sub-regions, the places the picks cover, and the sub-regions the server applies
+ * @returns {string}
+ */
+export function subregionsAllBody({
+  total, subRegionCount, allowed, picked,
+}) {
+  const across = subRegionCount > 0
+    ? `Pro rates all ${countWord(total, 'place', 'places')} across the ${countWord(subRegionCount, 'sub-region', 'sub-regions')}. `
+    : `Pro rates all ${countWord(total, 'place', 'places')}. `;
+  const yours = picked > 0
+    ? `You see ratings for ${countWord(allowed, 'place', 'places')} in your ${limitAsWord(picked)} ${picked === 1 ? 'sub-region' : 'sub-regions'}.`
+    : '';
+  return `${across}${yours}`.trim();
+}
+
+/** A region's name inside a sentence: a leading "The" goes lower case, a bare name stands bare. */
+export function regionInSentence(name) {
+  const text = String(name ?? '');
+  return /^the\s/i.test(text) ? `the ${text.slice(4)}` : text;
+}
+
+/** A name's possessive: a name ending in "s" takes a bare apostrophe ("the Dales'"), any other "'s". */
+export function possessive(name) {
+  return /s$/i.test(name) ? `${name}'` : `${name}'s`;
+}
+
+/** The region door's trigger label, and its heading. */
+export function subregionsRegionLabel(regionName) {
+  return `Ratings across ${regionInSentence(regionName)}`;
+}
+
+/**
+ * The region door's body: the places in the region and its sub-regions, with up to two example places.
+ *
+ * @param {{regionName: string, places: number, subRegionCount: number, examples: string[]}} facts
+ * @returns {string}
+ */
+export function subregionsRegionBody({
+  regionName, places, subRegionCount, examples = [],
+}) {
+  const named = examples.filter(Boolean).slice(0, 2);
+  let among = '';
+  if (named.length === 2) among = `, ${named[0]} and ${named[1]} among them`;
+  else if (named.length === 1) among = `, ${named[0]} among them`;
+  const region = regionInSentence(regionName);
+  const subs = subRegionCount > 0
+    ? ` in ${possessive(region)} ${limitAsWord(subRegionCount)} ${subRegionCount === 1 ? 'sub-region' : 'sub-regions'}`
+    : ` in ${region}`;
+  return `Pro rates all ${countWord(places, 'place', 'places')}${subs}${among}, for every sunrise and sunset.`;
+}
+
+/** The place door's trigger label, and its heading. */
+export function subregionsPlaceLabel(place) {
+  return `Ratings at ${place}`;
+}
+
+/** The place door's body. */
+export function subregionsPlaceBody(place) {
+  return `Pro gives every place in every sub-region its star rating and verdict for each window, ${place} included.`;
+}
 
 /**
  * The aurora door's trigger label for a night row's label (docs/engineering/aurora-pro-door-plan.md §2.2):
@@ -93,12 +168,14 @@ const FOCUSABLE_ANCESTOR = '[tabindex], a[href], button, input, select, textarea
  */
 export default function ProUpsellDoor({
   label, heading, body, testIdPrefix, className = '', unmountFocusRef = null, skipUnmountHandoff = false,
+  note = null,
 }) {
   const [open, setOpen] = useState(false);
   const uid = useId();
   const popId = `${uid}-pop`;
   const headingId = `${uid}-heading`;
   const bodyId = `${uid}-body`;
+  const noteId = `${uid}-note`;
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
   const headingRef = useRef(null);
@@ -183,7 +260,7 @@ export default function ProUpsellDoor({
           tabIndex={-1}
           role="dialog"
           aria-labelledby={headingId}
-          aria-describedby={bodyId}
+          aria-describedby={note ? `${bodyId} ${noteId}` : bodyId}
           className="wf-pro-upsell"
           data-testid={`${testIdPrefix}-popover`}
         >
@@ -195,6 +272,9 @@ export default function ProUpsellDoor({
             bodyId={bodyId}
             testIdPrefix={testIdPrefix}
           />
+          {note && (
+            <p id={noteId} className="wf-pro-upsell-body" data-testid={`${testIdPrefix}-note`}>{note}</p>
+          )}
           <button
             type="button"
             className="wf-pro-upsell-dismiss"
@@ -219,4 +299,6 @@ ProUpsellDoor.propTypes = {
   unmountFocusRef: PropTypes.shape({ current: PropTypes.any }),
   /** Leave focus to fall to {@code <body>} on such an unmount, for a host whose own rescue acts on that. */
   skipUnmountHandoff: PropTypes.bool,
+  /** One extra line under the body, described with it (`aria-describedby` names both). */
+  note: PropTypes.string,
 };

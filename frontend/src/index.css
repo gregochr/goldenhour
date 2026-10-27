@@ -6567,6 +6567,20 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   font-size: 9.5px;
   color: var(--color-plex-text-secondary);
 }
+/* Phone only: a long sub-region name is never cut. The count stacks under the name and the name wraps. */
+@media (max-width: 639px) {
+  .wf-reg-sub {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+  .wf-reg-sub-name {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+  .wf-reg-sub-count { text-align: left; }
+}
 .wf-reg-outside-head {
   display: flex;
   justify-content: space-between;
@@ -11910,6 +11924,63 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   color: var(--color-tide);
   background: rgba(111, 168, 176, 0.15);
 }
+/* Sub-regions S5a-3: a place outside the reader's picks wears the grey family, not the tide's teal. The ink is the
+   handoff's #C3CAD1 on the same 15% wash family as the veil, over `.wf-sheet-card`'s panel. */
+.wf-loc-out[data-scope="picks"] {
+  color: #c3cad1;
+  background: rgba(190, 198, 206, 0.14);
+}
+/* The block above a gated place's rows: a faint grey wash (the region panel's `.wf-reg-outside-block` family), the
+   sentence, the S4 line, then the button and the place door side by side. */
+.wf-loc-outside {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 10px;
+  background: var(--color-outside-wash);
+}
+.wf-loc-outside-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-plex-text);
+}
+.wf-loc-outside-line,
+.wf-subregion-line {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--color-plex-text-secondary);
+}
+.wf-loc-outside-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* The S4 change button wherever the Map offers it outside a panel's own action row (sheet block, legend note). */
+.wf-subregion-btn {
+  min-height: 30px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 999px;
+  background: var(--color-plex-surface);
+  color: var(--color-plex-text);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.wf-subregion-btn:hover { border-color: var(--color-plex-text-secondary); }
+.wf-subregion-btn:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+/* The region panel's two door homes: under the no-picks line, and under the actions row. */
+.wf-reg-door { margin-top: 8px; }
+.wf-reg-foot { padding: 0 12px 10px; }
 /* ⚠️ A CHILD of `.wf-loc-rows`, not a band of its own, and that is a reflow fix rather than a
    layout preference. `.wf-sheet-card` is `overflow: hidden` with `max-height: calc(100dvh - 32px)`
    and `Modal`'s overlay does not scroll, so only a shrinkable child can absorb a short viewport —

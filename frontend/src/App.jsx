@@ -395,6 +395,12 @@ function AppInner() {
    * route can never inherit it. A function in state, hence the updater form wherever it is set.
    */
   const [settingsReturnFocus, setSettingsReturnFocus] = useState(null);
+  // The Map's "Choose / Change / Add" sub-region buttons: Settings, scrolled to the picker and with it open.
+  // `returnFocus` (optional) finds where focus goes on close when the opener has been taken down (the location sheet).
+  const openSubRegionsSettings = useCallback((returnFocus) => {
+    setSettingsReturnFocus(() => (typeof returnFocus === 'function' ? returnFocus : null));
+    setSettingsFocus('subRegions');
+  }, []);
   /**
    * The page's one line of map-colour saves, handed to every opening of the settings dialog. Here
    * rather than in the dialog because the dialog unmounts on close and its saves do not stop: with a
@@ -834,6 +840,7 @@ function AppInner() {
           homeSettingsVersion={homeSettingsVersion}
           driveTimesVersion={driveTimesVersion}
           subRegionsVersion={subRegionsVersion}
+          onOpenSubRegions={openSubRegionsSettings}
           homePlace={homePlace}
           comingUpLastSeenDate={comingUpLastSeenDate}
           setComingUpLastSeenAt={setComingUpLastSeenDate}

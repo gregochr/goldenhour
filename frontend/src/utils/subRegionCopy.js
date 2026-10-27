@@ -36,11 +36,12 @@ export function formatCivilDay(civilDate) {
  * The line that says when picks can be changed freely, before and during the first week.
  *
  * @param {string|null|undefined} freeUntil the civil date the grace ends
+ * @param {string} [subject] what is changed: "these" in Settings, "your sub-regions" on the Map
  * @returns {string|null}
  */
-export function freeUntilLine(freeUntil) {
+export function freeUntilLine(freeUntil, subject = 'these') {
   const day = formatCivilDay(freeUntil);
-  return day ? `You can change these freely until ${day}. After that, once every 30 days.` : null;
+  return day ? `You can change ${subject} freely until ${day}. After that, once every 30 days.` : null;
 }
 
 /**
@@ -49,38 +50,62 @@ export function freeUntilLine(freeUntil) {
  * @param {import('../api/subRegionApi.js').SubRegionState} state
  * @returns {string|null}
  */
-export function firstChoiceRuleLine(state) {
-  const free = freeUntilLine(state.freeUntilIfChosenToday ?? state.freeUntil);
+export function firstChoiceRuleLine(state, subject = 'these') {
+  const free = freeUntilLine(state.freeUntilIfChosenToday ?? state.freeUntil, subject);
   if (free) return free;
   const next = formatCivilDay(state.nextChangeOnIfSavedToday);
-  return next ? `Saving starts a 30-day lock. You can next change these on ${next}.` : null;
+  return next ? `Saving starts a 30-day lock. You can next change ${subject} on ${next}.` : null;
 }
 
 /**
  * The line under the picks in Settings, one per status (handoff A4).
  *
  * @param {import('../api/subRegionApi.js').SubRegionState} state
+ * @param {string} [subject] what is changed: "these" in Settings (unchanged), "your sub-regions" on the Map
  * @returns {string|null}
  */
-export function settingsStatusLine(state) {
+export function settingsStatusLine(state, subject = 'these') {
   if (state.overLimit) {
     const n = state.picks.length;
     return `You have ${n} chosen, and the limit is now ${state.limit}. Remove ${n - state.limit} to carry on; this doesn't start a lock.`;
   }
   switch (state.status) {
     case 'FIRST_CHOICE':
-      return firstChoiceRuleLine(state);
+      return firstChoiceRuleLine(state, subject);
     case 'FREE_UNTIL':
-      return freeUntilLine(state.freeUntil);
+      return freeUntilLine(state.freeUntil, subject);
     case 'OPEN':
       return 'You can change your sub-regions now. Removing one starts a 30-day lock.';
     case 'LOCKED': {
       const day = formatCivilDay(state.nextChangeOn);
-      return day ? `You can next change these on ${day}.` : null;
+      return day ? `You can next change ${subject} on ${day}.` : null;
     }
     default:
       return null;
   }
+}
+
+/**
+ * Whether a locked reader can still add: locked, not over the limit, and under it (plan §4.3: nothing is
+ * swapped out). The one predicate Settings and the Map both ask.
+ *
+ * @param {import('../api/subRegionApi.js').SubRegionState} state
+ * @returns {boolean}
+ */
+export function isLockedAdd(state) {
+  return state.status === 'LOCKED' && state.overLimit !== true && state.picks.length < state.limit;
+}
+
+/**
+ * The line for a locked reader with room: how many more can be added, and when removing is allowed again.
+ *
+ * @param {import('../api/subRegionApi.js').SubRegionState} state
+ * @returns {string|null} null when the server gave no date
+ */
+export function lockedAddLine(state) {
+  const day = formatCivilDay(state.nextChangeOn);
+  if (!day) return null;
+  return `You can add up to ${state.limit - state.picks.length} more now. Removing one waits until ${day}.`;
 }
 
 /**

@@ -64,7 +64,7 @@ its entries are the masthead's ⌕ and origin buttons and nothing else (`/` was 
 draws the origin as a statement and no ⌕ — withheld, not refused (plan-matrix §3 rule 14). Until
 2026-09-16 both buttons opened search on Coming up and Operations, and a pick opened the popup or the
 four-day sheet over that pane with the tab unmoved. A place's own six windows are a **location
-sheet** (for a wildlife-only place it is its hourly comfort tables instead, on BOTH hosts — the Map tab's callout and Plan search reach the same sheet) (`LocationFourDaySheet`) stacked over the popup. Below the matrix sits **one**
+sheet** (for a wildlife-only place it is its hourly comfort tables instead, on BOTH hosts — the Map tab's callout and Plan search reach the same sheet) (`LocationFourDaySheet`) stacked over the popup.  For a Lite reader whose body the server shaped by their picks, a place outside them gets the sheet's own variant (a grey "Outside your sub-regions" badge, a block saying why, no rating slot, no "best here", no lead line; `outsidePicks`, see `map-tab.md`). Below the matrix sits **one**
 door (Regional planner), which has no other v2 home — the Hot topics door and its panel
 (`HotTopicStrip`) were removed in the Coming up redesign's P6
 (`docs/engineering/coming-up-plan.md` D7): the "Coming up"

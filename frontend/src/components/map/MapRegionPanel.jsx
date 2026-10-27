@@ -53,6 +53,7 @@ const OUTSIDE_VISIBLE_WHEN_COLLAPSED = 3;
 export default function MapRegionPanel({
   row, region, locations, gloss = null, onBack, onClose,
   onZoomToRegion, onOpenLocationSheet, picks = null, outsideSlot = null, actionsSlot = null,
+  footerSlot = null,
 }) {
   const rootRef = useRef(null);
   const [showAllOutside, setShowAllOutside] = useState(false);
@@ -213,7 +214,7 @@ export default function MapRegionPanel({
       {shapedNone && (
         <div className="wf-reg-outside-block" data-testid="wf-reg-panel-outside-block">
           <p className="wf-reg-outside-line">Ratings here are outside your sub-regions.</p>
-          {/* The S5a-3 seam: the S4 status line and the region's Pro door render here, through `outsideSlot`. */}
+          {/* The S4 status line and the region's Pro door render here, through `outsideSlot` (S5a-3). */}
           {outsideSlot}
         </div>
       )}
@@ -372,7 +373,7 @@ export default function MapRegionPanel({
           <span aria-hidden="true">◍</span>
           {' Zoom to region'}
         </button>
-        {/* The S5a-3 seam: the S4 change button renders here, through `actionsSlot`. */}
+        {/* The S4 change button renders here, through `actionsSlot` (S5a-3). */}
         {actionsSlot}
         {top && (
           <button
@@ -393,6 +394,11 @@ export default function MapRegionPanel({
           </button>
         )}
       </div>
+
+      {/* Under the actions, through `footerSlot` (S5a-3): the "Every sub-region" door for a region with picks. */}
+      {footerSlot && (
+        <div className="wf-reg-foot" data-testid="wf-reg-panel-foot">{footerSlot}</div>
+      )}
     </div>
   );
 }
@@ -463,8 +469,10 @@ MapRegionPanel.propTypes = {
     })).isRequired,
     pickedNames: PropTypes.arrayOf(PropTypes.string).isRequired,
   }),
-  /** S5a-3's seam, inside the no-picks block: the S4 status line and the region door. Nothing draws until then. */
+  /** Inside the no-picks block: the S4 status line and the region door (S5a-3). */
   outsideSlot: PropTypes.node,
-  /** S5a-3's seam, in the actions row: the S4 change button. Nothing draws until then. */
+  /** In the actions row: the S4 change button (S5a-3). */
   actionsSlot: PropTypes.node,
+  /** Under the actions row: the "Every sub-region" door, for a region where the reader holds a pick (S5a-3). */
+  footerSlot: PropTypes.node,
 };

@@ -348,6 +348,7 @@ export default function MapCallout({
   dayMode = false,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
   userRole = null, ratings = null, auroraAlertLevel = null, travelDay = false, highWaterLead = null,
+  outsidePicks = false,
 }) {
   const map = useMap();
   const isMobile = useIsMobile();
@@ -972,7 +973,10 @@ export default function MapCallout({
             // rating's own source has, or this slot could say "Not rated" over a rating still
             // arriving.
             <span className="wf-callout-verdict-score unscored" data-testid="map-callout-score">
-              {ratingKnown
+              {/* A place outside the reader's sub-regions is its own state (S5a-3): never "Not rated". */}
+              {outsidePicks
+                ? 'Outside your sub-regions'
+                : ratingKnown
                 ? pastUnratedWord(unratedSlotWord(slotVerdictOf(scoreEntry, slotEntry)), event?.past)
                 : ratingRetrying ? NIGHT_RETRY_LINE : 'Loading…'}
             </span>
@@ -1070,6 +1074,21 @@ export default function MapCallout({
             <span className="wf-callout-reason-more" aria-hidden="true">Hour by hour ›</span>
             {' '}
             <span className="sr-only">{`${location.name} — hourly comfort forecast`}</span>
+          </button>
+        )}
+        {/* A place outside the reader's sub-regions with no prose of any kind keeps the route an unrated allowed place
+            has: the same four-day sheet, so it does not send the reader to Glance (S5a-3). */}
+        {!isHide && !reason && outsidePicks && !event?.past && (
+          <button
+            type="button"
+            className="wf-callout-reason"
+            data-testid="map-callout-four-days"
+            aria-haspopup="dialog"
+            onClick={(pressEvent) => { pressEvent.currentTarget.focus(); onOpenSheet?.(); }}
+          >
+            <span className="wf-callout-reason-more" aria-hidden="true">Four days here ›</span>
+            {' '}
+            <span className="sr-only">{`${location.name} — four days here`}</span>
           </button>
         )}
         {!isHide && reason && (
@@ -1360,6 +1379,11 @@ MapCallout.propTypes = {
   scoresKnown: PropTypes.bool,
   ratingKnown: PropTypes.bool,
   ratingRetrying: PropTypes.bool,
+  /**
+   * The place lies outside the reader's sub-regions (the server's served list; sub-regions-plan S5a-3): the
+   * unrated verdict slot says so instead of "Not rated" or "Not scored yet". False for everyone else.
+   */
+  outsidePicks: PropTypes.bool,
   regionGlossIndex: PropTypes.object,
   evRows: PropTypes.array,
   astroConditionsByDate: PropTypes.instanceOf(Map),

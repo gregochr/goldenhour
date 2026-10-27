@@ -879,6 +879,7 @@ export default function UserSettingsModal({
               otherwise, for every role), so with the flag off Settings is exactly what it was. */}
           <SubRegionSettingsSection
             userRole={settings.role}
+            autoOpen={focusField === 'subRegions'}
             onStackedChange={setSubRegionsStacked}
             onSaved={onSubRegionsSaved}
           />
@@ -1105,8 +1106,11 @@ UserSettingsModal.propTypes = {
     pending: PropTypes.string, newest: PropTypes.object, landed: PropTypes.number, saved: PropTypes.string,
     ended: PropTypes.bool,
   }),
-  /** Field to focus once settings load — `'postcode'`, or null to open normally. */
-  focusField: PropTypes.oneOf(['postcode']),
+  /**
+   * Field to focus once settings load: `'postcode'`, or `'subRegions'` (scrolls to the sub-region section and opens
+   * its picker once that has loaded), or null to open normally.
+   */
+  focusField: PropTypes.oneOf(['postcode', 'subRegions']),
   /**
    * Returns the element to hand focus to on close when the control that opened this dialog has
    * gone — `Modal`'s opt-in of the same name. `App` passes one only for the masthead nudge, whose

@@ -25,6 +25,19 @@ export function isShaped(allowedLocationIds) {
 }
 
 /**
+ * Whether the server's served {@code allowedLocationIds} leaves a place outside the reader's sub-regions: a shaped
+ * body whose list does not name it. A selection by a list the server decided, never a rule of the client's own. A
+ * place with no id cannot be matched, so it is never claimed to be outside.
+ *
+ * @param {*} allowedLocationIds the briefing's served {@code allowedLocationIds}
+ * @param {*} id the place's id
+ * @returns {boolean}
+ */
+export function isOutsidePicks(allowedLocationIds, id) {
+  return isShaped(allowedLocationIds) && id != null && !allowedLocationIds.includes(id);
+}
+
+/**
  * Whether a place's state in a window is {@code gated}.
  *
  * @param {?Map<string, string>} states a window's place states by {@code heatSpotKey}

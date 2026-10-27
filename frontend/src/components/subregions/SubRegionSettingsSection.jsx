@@ -14,7 +14,8 @@ import { apiErrorMessage } from '../../utils/apiError.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { BUSY_BUTTON } from '../../utils/busyButton.js';
 import {
-  formatCivilDay, groupPicksByRegion, pickerApplies, SAVE_FAILED, savedToast, settingsStatusLine,
+  formatCivilDay, groupPicksByRegion, isLockedAdd, lockedAddLine, pickerApplies, SAVE_FAILED, savedToast,
+  settingsStatusLine,
 } from '../../utils/subRegionCopy.js';
 
 const LOCKED_CODE = 'SUB_REGIONS_LOCKED';
@@ -53,8 +54,12 @@ function sameSet(a, b) {
  * @param {(stacked: boolean) => void} [props.onStackedChange] told when a dialog opens over Settings, so
  *   Settings can mark itself stacked
  * @param {() => void} [props.onSaved] told after a successful save, so the app refetches
+ * @param {boolean} [props.autoOpen] the dialog was opened for this section (the Map's "Choose / Change / Add a
+ *   sub-region" buttons): once the state has loaded, scroll to the section and open the picker, once
  */
-export default function SubRegionSettingsSection({ userRole, onStackedChange = NOOP, onSaved = NOOP }) {
+export default function SubRegionSettingsSection({
+  userRole, onStackedChange = NOOP, onSaved = NOOP, autoOpen = false,
+}) {
   const isMobile = useIsMobile();
   const [state, setState] = useState(null);
   const [expanded, setExpanded] = useState(false);
@@ -64,6 +69,7 @@ export default function SubRegionSettingsSection({ userRole, onStackedChange = N
   const [error, setError] = useState('');
   const [toast, setToast] = useState(null);
   const openerRef = useRef(null);
+  const sectionRef = useRef(null);
   const returnFocus = useRef(false);
   const clearToast = useCallback(() => setToast(null), []);
 
@@ -82,6 +88,23 @@ export default function SubRegionSettingsSection({ userRole, onStackedChange = N
   }, [userRole]);
 
   const applies = pickerApplies(state);
+
+  // Opened for this section: once the state has loaded, bring the section into view and open the picker (adjusted
+  // during render, once, so closing the picker is never undone). A first choice has its picker open already, and a
+  // reader who does not pick has none to open.
+  const [autoOpened, setAutoOpened] = useState(false);
+  if (autoOpen && !autoOpened && state) {
+    setAutoOpened(true);
+    if (applies && state.status !== 'FIRST_CHOICE') {
+      setDraft(state.picks.map((p) => p.areaId));
+      setError('');
+      setExpanded(true);
+    }
+  }
+  useEffect(() => {
+    if (autoOpened) sectionRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [autoOpened]);
+
   const firstChoice = applies && state.status === 'FIRST_CHOICE';
   const sheetOpen = applies && isMobile && expanded && !firstChoice;
   const overlayOpen = confirming || sheetOpen;
@@ -120,7 +143,7 @@ export default function SubRegionSettingsSection({ userRole, onStackedChange = N
   const pickIds = picks.map((p) => p.areaId);
   const overLimit = state.overLimit === true;
   const locked = state.status === 'LOCKED';
-  const lockedAdd = locked && !overLimit && picks.length < limit;
+  const lockedAdd = isLockedAdd(state);
   const readOnly = locked && !lockedAdd && !overLimit;
   const nextDay = formatCivilDay(state.nextChangeOn);
   const names = new Map(options.flatMap((r) => r.subRegions.map((s) => [s.areaId, s.name])));
@@ -135,10 +158,7 @@ export default function SubRegionSettingsSection({ userRole, onStackedChange = N
   const needsConfirm = state.status === 'OPEN' && !overLimit && removed.length > 0;
 
   let statusLine = settingsStatusLine(state);
-  if (expanded && lockedAdd && nextDay) {
-    const more = limit - picks.length;
-    statusLine = `You can add up to ${more} more now. Removing one waits until ${nextDay}.`;
-  }
+  if (expanded && lockedAdd && nextDay) statusLine = lockedAddLine(state);
 
   const pickerOpen = firstChoice || expanded;
   // A locked reader's button is View even when adding is still allowed inside (the handoff's table).
@@ -266,7 +286,7 @@ export default function SubRegionSettingsSection({ userRole, onStackedChange = N
   );
 
   return (
-    <section data-testid="sub-regions-section">
+    <section ref={sectionRef} data-testid="sub-regions-section">
       <div className="flex items-center justify-between gap-3 mb-2">
         <h3 id="sub-regions-heading" className="text-xs font-medium text-plex-text-muted uppercase tracking-wide">
           Your sub-regions
@@ -406,4 +426,5 @@ SubRegionSettingsSection.propTypes = {
   userRole: PropTypes.string,
   onStackedChange: PropTypes.func,
   onSaved: PropTypes.func,
+  autoOpen: PropTypes.bool,
 };
