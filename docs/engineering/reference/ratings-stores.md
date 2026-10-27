@@ -225,7 +225,7 @@ Two consequences worth stating plainly:
   pipeline does the scoring, and its two sinks (`cached_evaluation`, `forecast_score`) last wrote
   within 0.3 seconds of each other — the dual write is healthy.
 - **This starves the calibration gate's old, natural-key source.** That source (a join of `forecast_evaluation` to the
-  legacy `actual_outcome`, which never held a row) was deleted in audit-followups O1; the gate is now ratings-only. Worth knowing
+  legacy `actual_outcome`, which held one real row, the owner's 13 Oct 2026 Angel sunset, copied into `outcome_rating` on 2026-10-27 before the table was dropped in V195) was deleted in audit-followups O1; the gate is now ratings-only. Worth knowing
   before anyone cites the gate as evidence of forecast accuracy. ⚠️ The gate reads readers' `outcome_rating` rows (below), which need no
   natural-key match — but it still reads `forecast_evaluation`: a rating pairs only with the one row it resolved to, and a rating whose row
   carries no star is not a pair, so the scarcity of rated rows limits it too.

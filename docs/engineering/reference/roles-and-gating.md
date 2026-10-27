@@ -11,7 +11,7 @@
 | `PRO_USER` | Forecast, past-window ratings, locations, re-runs |
 | `LITE_USER` | Read-only forecast; sees the Map's rating block locked (`PUT /api/outcome/ratings` is PRO/ADMIN) |
 
-> The legacy `/api/outcome` stack (`GET /api/outcome`, `GET /api/outcome/all`, `POST /api/outcome`) was deleted in code (audit-followups O1): it had no UI since 2026-02-27 and `actual_outcome` had no user link. Readers contribute observations through `PUT /api/outcome/ratings`.
+> The legacy `/api/outcome` stack (`GET /api/outcome`, `GET /api/outcome/all`, `POST /api/outcome`) was deleted in code (audit-followups O1): it had no UI since 2026-02-27 and `actual_outcome` (dropped in V195) had no user link. Readers contribute observations through `PUT /api/outcome/ratings`.
 >
 > ⚠️ **The Map tab's per-reader rating is the other way round, on purpose.** `PUT /api/outcome/ratings` (V177 `outcome_rating`, the
 > "How was it?" block) is `@PreAuthorize` **PRO_USER and ADMIN**: a LITE write is a 403 whatever the client does, and the client shows

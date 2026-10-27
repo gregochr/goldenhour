@@ -64,7 +64,7 @@ bite), **DOC** (copy and code disagree).
 
 ### 1.4 Legacy outcome API readable and writable by every account — CONFIRMED
 
-**Status: done (O1, #1443)** — the controller and API are removed; the `actual_outcome` table drop is pending (O2, a later release).
+**Status: done (O1, #1443)** — the controller and API are removed; the `actual_outcome` table was dropped in V195 (O2).
 
 - `controller/OutcomeController.java`: `GET /api/outcome`, `GET /api/outcome/all` and
   `POST /api/outcome` carry no `@PreAuthorize`. The only gate is `/api/**` authenticated, so a
