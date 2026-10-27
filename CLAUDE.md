@@ -96,6 +96,7 @@ Search them with `grep -rn '<ClassName or term>' docs/engineering/reference/` ra
 - **Adding an enum value to an `@Enumerated(STRING)` column** needs a line in `LocalH2EnumWidener`'s `TARGETS` so existing local H2 files accept it. Ask's night windows use Ask-local `AskWindowKind`, never a new `TargetType`.
 - **No marker clustering, anywhere, at any scale.** If density ever bites, the answer is canvas rendering.
 - **Simulations never reach user surfaces** (aurora and hot-topic simulation are gated by `isSimulated()` / `simulated` columns).
+- Lite ratings outside the reader's sub-region picks are stripped and marked `gated` at the controller edge (`LitePickShaper`); never on the client. See `sub-regions-plan.md`.
 - **Dialogs**: at most two stacked; every route out of the Plan tab closes its dialogs via `selectTab`; all Map Escape/outside-press rules read `utils/mapForeignModal.js`; `.wf-map-tab` is a selector (`MAP_PANE_SELECTOR`), not just CSS.
 - **Phone-only work stays phone-only** (`hooks/useIsMobile.js`, `(max-width: 639px)`); desktop and tablet must be provably unchanged.
 - **Which model runs a run type is the database `model_selection` row**, not the code. Production's Batch Near-Term and Far-Term run on Sonnet 5.5.

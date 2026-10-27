@@ -16,7 +16,8 @@ forecast ratings only for locations inside them. Pro and Admin see everything an
 split* (2026-10-25, "matching photocast.online's pricing list, FAQ and Terms §4"), gives Lite "the star rating, the
 verdict, stand-downs, region prose, hot topics and Coming up" with no geographic limit. This plan narrows that to the
 reader's picks (owner, 2026-10-26). The narrowing takes effect only in S6 (§8), whose PR rewrites that section and
-`api-endpoints.md`, and which is gated on the public pricing, FAQ and Terms being updated first.
+`api-endpoints.md`, and which is gated on the public pricing, FAQ and Terms being updated first. **S6 is built:** the
+freemium split is rewritten and `enforce: true` is set in `application-prod.yml` (§11, *S6 notes*).
 
 **Why sub-regions rather than regions.** The four enabled regions are too few and too uneven to ration: Northumberland
 & Tyneside holds 101 locations from Berwick to Hartlepool, North York Moors & Coast 36.
@@ -313,6 +314,8 @@ Each phase: Sonnet builds in its own worktree from a brief cut from this file an
 ladder; frontend lint, Vitest, audit, build); the planner reviews the diff; one PR; CI and Codex green before merge.
 The order deliberately differs from `pro-features-gate-plan.md` (client before server): here the flag keeps the
 server strip dark until S5's client is in, so S3 may land first.
+
+**S6 done (2026-10-27).** `photocast.sub-regions.enforce: true` in `application-prod.yml` (pinned by `SubRegionsProdYamlTest`; local and example stay `false`); `swrCache.js` `PREFIX` `v3` to `v4` (and the `photocast_swr:v3:` strings in `PlanErrorBoundary` and its test); *Freemium split* rewritten; the landing pages (`index.html`, `faq.html`, `terms.html`) say Lite ratings cover up to 3 sub-regions you choose. The owner releases the landing site with `release-landing.sh` together with the backend flip, never before. **S5b-2 (Coming up) follows after the flip.**
 
 ## §9 Open questions for the owner
 

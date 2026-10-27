@@ -445,6 +445,8 @@ springdoc:
     enabled: false
 
 photocast:
+  sub-regions:
+    enforce: true            # switched on in production (sub-regions plan S6): a Lite reader sees ratings only in their picks
   tide-run:
     preferred-anchor: "St. Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
                             # chart is drawn for. Blank restores pure biggest-range selection.

@@ -13,7 +13,7 @@ import { purgeServiceWorkerState } from '../utils/serviceWorkerReset.js';
  * <h2>Why this exists at all, and why it is not general error handling</h2>
  *
  * <p>The Plan shell hydrates persisted state on every mount — a ~1.3 MB briefing payload from
- * {@code photocast_swr:v3:} ({@code WindowFirstBriefingContext.jsx}), the forecast cache
+ * {@code photocast_swr:v4:} ({@code WindowFirstBriefingContext.jsx}), the forecast cache
  * {@code useForecasts} keeps, the reach lens, the rating floor and the doors' open/closed state —
  * and the cog and Sign out live INSIDE the subtree this boundary guards, with no header outside it.
  * A crash reproduced from any of that survives a plain reload: blank page, reload, blank page, with
