@@ -24,6 +24,7 @@ import { stoodPointSetsOf } from '../utils/mapStandDown.js';
 import { buildRegionSeries } from '../utils/windowFirstRegions.js';
 import { AWAY_TIER_ID, originReachMap, toOrigin } from '../utils/planOrigin.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import { isShaped } from '../utils/pickScope.js';
 
 /** The payload regenerates every ~8–10h; polling faster only adds revalidations. */
 const POLL_INTERVAL_MS = 10 * 60 * 1000;
@@ -173,6 +174,7 @@ function stripTideLight(briefing) {
 
 const WindowFirstBriefingContext = createContext({
   briefing: null,
+  allowedLocationIds: null,
   loading: false,
   heatStripCards: [],
   windowCards: [],
@@ -915,6 +917,19 @@ export function WindowFirstBriefingProvider({
     [upcomingEvents, briefing?.days],
   );
 
+  /**
+   * The briefing's served {@code allowedLocationIds}: an array (possibly empty) on a response the server
+   * SHAPED by this reader's sub-region picks, {@code null} on every other (Pro, Admin, enforcement off,
+   * or no briefing yet). <b>"Shaped" is {@code Array.isArray} of this and nothing else</b> — never the
+   * role, never a membership test against the list: an empty array is a shaped body with zero picks.
+   * Memoised on the list itself so a re-render that changes nothing keeps the identity.
+   */
+  const rawAllowedIds = briefing?.allowedLocationIds;
+  const allowedLocationIds = useMemo(
+    () => (isShaped(rawAllowedIds) ? rawAllowedIds : null),
+    [rawAllowedIds],
+  );
+
   const value = useMemo(
     () => ({
       briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
@@ -929,7 +944,7 @@ export function WindowFirstBriefingProvider({
       // wants the home one: the planning area and the beyond line are statements about HOME, and
       // framing them from an away base would make "beyond 3h from home" a claim about Keswick.
       origin, setOrigin, regions, effectiveReachById,
-      comingUpLastSeenDate, setComingUpLastSeenAt,
+      comingUpLastSeenDate, setComingUpLastSeenAt, allowedLocationIds,
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
@@ -938,7 +953,7 @@ export function WindowFirstBriefingProvider({
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
       origin, setOrigin, regions, effectiveReachById,
-      comingUpLastSeenDate, setComingUpLastSeenAt],
+      comingUpLastSeenDate, setComingUpLastSeenAt, allowedLocationIds],
   );
 
   return (
@@ -983,6 +998,7 @@ WindowFirstBriefingProvider.propTypes = {
  * contents and the three lens axes.
  *
  * @returns {{briefing: ?object, loading: boolean, heatStripCards: Array, windowCards: Array,
+ *           allowedLocationIds: ?Array<number>,
  *           paneItems: Array, upcomingEvents: Array,
  *           travelDayDates: Set, heatSpots: Array, heatPointSets: Map, regionSeries: Map,
  *           reachById: Map,

@@ -89,6 +89,27 @@ const FIELD_BLOOM = 1;
 const LAND_CLIP_MAX_ZOOM = 11.5;
 
 /**
+ * The outline of a Lite reader's sub-regions is 1.4px stroked zoomed out and 1.6px zoomed in (the S5
+ * handoff, task 1), moving between the two across the zooms the field is read at.
+ */
+const OUTLINE_WIDTH_FAR = 1.4;
+const OUTLINE_WIDTH_NEAR = 1.6;
+const OUTLINE_ZOOM_FAR = 8;
+const OUTLINE_ZOOM_NEAR = 11;
+
+/**
+ * The outline's stroke width at a zoom: {@link OUTLINE_WIDTH_FAR} at/below zoom 8, rising linearly to
+ * {@link OUTLINE_WIDTH_NEAR} at/above zoom 11.
+ *
+ * @param {number} zoom the map's current zoom
+ * @returns {number} the width in CSS px
+ */
+export function outlineWidthAt(zoom) {
+  const t = clamp((zoom - OUTLINE_ZOOM_FAR) / (OUTLINE_ZOOM_NEAR - OUTLINE_ZOOM_FAR), 0, 1);
+  return OUTLINE_WIDTH_FAR + (OUTLINE_WIDTH_NEAR - OUTLINE_WIDTH_FAR) * t;
+}
+
+/**
  * The clip's own blur, in px — a hard {@code ctx.clip()} would put a crisp edge through a blurred
  * field, which reads as an artefact wherever the eye knows the line should not be sharp.
  */
@@ -240,6 +261,13 @@ function drawReachRings(ctx, map, homeCoords, width, height) {
  *        shape), already narrowed as {@code points} is; the ground around them is hatched UNDER the
  *        field (thin-sample plan F4). Null or empty draws nothing, so a night, an unscored window
  *        and every existing caller paint exactly what they did.
+ * @param {?Array}  [props.outside] the places OUTSIDE a Lite reader's sub-regions ({@code gated}), same
+ *        point shape as {@code unrated}; present (even empty) only when the briefing body is shaped.
+ *        With {@code allowed} it draws the veil under the field and the dashed outline after it, both
+ *        clipped to land and so only below {@link LAND_CLIP_MAX_ZOOM}. Null (every Pro, Admin and
+ *        flag-off reader) spreads no key, so the kernel sees today's exact options.
+ * @param {?Array}  [props.allowed] every other place, rated or not (the veil yields to them, the
+ *        outline traces them). Ignored without {@code outside}.
  * @param {?number}  props.conf   the window's confidence as a 0–1 scalar; the kernel desaturates
  *        and thins with it, so a day-4 guess cannot look as authoritative as tonight
  * @param {?{lat: number, lon: number}} [props.homeCoords] the saved home postcode's coordinates,
@@ -261,7 +289,7 @@ function drawReachRings(ctx, map, homeCoords, width, height) {
  *        colour-scale preference is (plan D3); null leaves the temperature-only rule.
  */
 export default function MapHeatLayer({
-  points, unrated = null, stood = null, conf = null, colourMode = null,
+  points, unrated = null, stood = null, outside = null, allowed = null, conf = null, colourMode = null,
   homeCoords = null, rings = false, dim = 1, ramp = null, bloom = null,
 }) {
   const map = useMap();
@@ -385,6 +413,11 @@ export default function MapHeatLayer({
       // The stand-down hatch (big-seas plan F3), the same absence rule; it fades and dims with the
       // field through the same `opacity`.
       ...(stood?.length ? { stood, standRadius: standRadius() } : null),
+      // Outside the picks (sub-regions-plan S5a): only for a shaped body, and only where the land clip
+      // is live (below LAND_CLIP_MAX_ZOOM, with the land path in hand) — the veil and the outline are
+      // statements about LAND, and unclipped they would wash the sea. Absence, not an empty array.
+      ...(Array.isArray(outside) && clipActive && landPath
+        ? { outside, allowed: allowed || [], outlineWidth: outlineWidthAt(zoom) } : null),
       // Same rule as the bloom above: below LAND_CLIP_MAX_ZOOM this spreads all five clip keys
       // (clipPath may still be null); at/above it, none at all — absence, not a falsy value.
       ...(clipOpts || null),
@@ -432,7 +465,7 @@ export default function MapHeatLayer({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [map, points, unrated, stood, conf, colourMode, landMask, rings, homeCoords,
+  }, [map, points, unrated, stood, outside, allowed, conf, colourMode, landMask, rings, homeCoords,
     dim, ramp, bloom]);
 
   const {
@@ -580,6 +613,16 @@ MapHeatLayer.propTypes = {
     rid: PropTypes.string,
   })),
   stood: PropTypes.arrayOf(PropTypes.shape({
+    lat: PropTypes.number,
+    lng: PropTypes.number,
+    rid: PropTypes.string,
+  })),
+  outside: PropTypes.arrayOf(PropTypes.shape({
+    lat: PropTypes.number,
+    lng: PropTypes.number,
+    rid: PropTypes.string,
+  })),
+  allowed: PropTypes.arrayOf(PropTypes.shape({
     lat: PropTypes.number,
     lng: PropTypes.number,
     rid: PropTypes.string,

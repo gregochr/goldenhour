@@ -57,7 +57,10 @@ class LocationControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].name").value("Ambleside"))
-                .andExpect(jsonPath("$[1].name").value("Durham UK"));
+                .andExpect(jsonPath("$[1].name").value("Durham UK"))
+                // No membership rows in the test database: the sub-region fields are served, and are null.
+                .andExpect(jsonPath("$[0].subRegionId").doesNotExist())
+                .andExpect(jsonPath("$[0].subRegionName").doesNotExist());
     }
 
     @Test

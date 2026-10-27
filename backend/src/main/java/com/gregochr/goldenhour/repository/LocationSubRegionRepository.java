@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.LocationSubRegionEntity;
+import com.gregochr.goldenhour.model.LocationSubRegionRow;
 import com.gregochr.goldenhour.model.SubRegionLocationRow;
 import com.gregochr.goldenhour.model.SubRegionMemberRow;
 import com.gregochr.goldenhour.model.UncoveredLocationDto;
@@ -46,6 +47,17 @@ public interface LocationSubRegionRepository extends Repository<LocationSubRegio
     @Query("select new com.gregochr.goldenhour.model.SubRegionLocationRow(m.areaId, l.id, l.name, l.lat, l.lon) "
             + "from LocationSubRegionEntity m, LocationEntity l where l.id = m.locationId and l.enabled = true")
     List<SubRegionLocationRow> findEnabledMemberRows();
+
+    /**
+     * Every membership with its sub-region's name, in one query: what labels each place on
+     * {@code GET /api/locations} (no per-location lookups). Disabled locations are included; the caller
+     * only looks up the ones it serves.
+     *
+     * @return one row per member location
+     */
+    @Query("select new com.gregochr.goldenhour.model.LocationSubRegionRow(m.locationId, a.id, a.name) "
+            + "from LocationSubRegionEntity m, AreaEntity a where a.id = m.areaId")
+    List<LocationSubRegionRow> findAllLabelledRows();
 
     /**
      * The sub-region a location belongs to, if any.

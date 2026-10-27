@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.model.ForecastListDto;
@@ -67,6 +68,22 @@ public class LitePickShaper {
 
     /** The hot-topic type whose summary line, facts and glance are derived from the best-rated location. */
     static final String BLUEBELL = "BLUEBELL";
+
+    /** Best first: the verdict tiers in the order the Plan tab ranks them. */
+    private static final List<DisplayVerdict> TIER_ORDER = List.of(DisplayVerdict.WORTH_IT, DisplayVerdict.MAYBE,
+            DisplayVerdict.UNRATED, DisplayVerdict.STAND_DOWN, DisplayVerdict.AWAITING);
+
+    /**
+     * Verdict-eligible first, then a region that HAS a mean before one that has none (its presence only,
+     * never its value: the client skips a mean-less region, so the unshaped pick never lands on one), then
+     * the tier, a region with slots before a blanked one, and the name.
+     */
+    private static final Comparator<BriefingRegion> LEAD_ORDER =
+            Comparator.comparing((BriefingRegion r) -> !r.verdictEligible())
+                    .thenComparing(r -> r.meanRating() == null)
+                    .thenComparingInt(r -> tierRank(r.displayVerdict()))
+                    .thenComparing(r -> r.slots().isEmpty())
+                    .thenComparing(BriefingRegion::regionName, Comparator.nullsLast(Comparator.naturalOrder()));
 
     private final UserSubRegionService picks;
     private final SubRegionProperties properties;
@@ -174,10 +191,13 @@ public class LitePickShaper {
     }
 
     private static BriefingEventSummary shapeEvent(BriefingEventSummary es, PickScope scope) {
+        // The lead is chosen from the UNSHAPED regions (their verdict tiers are free, Q5) and by tier alone.
+        String lead = shapedLeadRegion(es.regions());
         List<BriefingRegion> regions = es.regions().stream().map(region -> shapeRegion(region, scope)).toList();
         // An unregioned location can never be in a sub-region (D8), so none of these is ever allowed.
         List<BriefingSlot> unregioned = es.unregioned().stream().map(BriefingSlot::forGated).toList();
-        BriefingEventSummary shaped = es.withRegions(regions).withUnregioned(unregioned);
+        BriefingEventSummary shaped = es.withRegions(regions).withUnregioned(unregioned)
+                .withShapedLeadRegion(lead);
         // The window's verdict and confidence stay free (Q5); its best star is taken from every place.
         return shaped.window() == null ? shaped : shaped.withWindow(shapeWindow(shaped.window()));
     }
@@ -199,7 +219,47 @@ public class LitePickShaper {
                 .map(slot -> scope.allowsId(slot.locationId()) ? slot : slot.forGated()).toList();
         // The best, the mean and the delta are rebuildable from (or are) an unpicked place's star, so they go
         // from the whole region whatever the picks (§4.2); the verdict, label and prose stay (Q5).
-        return region.withSlots(slots).withBestRating(null).withMeanRating(null).withMeanRatingDelta(null);
+        // picksBestRating is last: the one star the reader may see, over the region's own voting slots (the
+        // canopy rule is applied to the FULL slot list, before any place is gated) restricted to allowed ids.
+        return region.withSlots(slots).withBestRating(null).withMeanRating(null).withMeanRatingDelta(null)
+                .withPicksBestRating(picksBestRating(region, scope));
+    }
+
+    private static Integer picksBestRating(BriefingRegion region, PickScope scope) {
+        List<BriefingRatingStats.Entry> entries = BriefingSlot.votingSlots(region.slots()).stream()
+                .filter(slot -> scope.allowsId(slot.locationId()))
+                .map(slot -> new BriefingRatingStats.Entry(slot.locationName(), slot.claudeRating()))
+                .toList();
+        BriefingRatingStats.Stats stats = BriefingRatingStats.compute(entries, region.regionName(), null, null);
+        return stats.isEmpty() ? null : stats.maxRating();
+    }
+
+    /**
+     * The region a shaped window leads with, by verdict tier alone. It mirrors the eligibility of the client's
+     * {@code pickTopEligibleRegion} (the canopy rule of {@code eligibleRegions}: a region with no sky slot is
+     * dropped unless the whole window is canopy) and its order (verdict-eligible regions first), but never
+     * orders by a mean or a star: it asks only whether a mean EXISTS (the client skips a mean-less region),
+     * then ranks by tier, a region with slots before a blanked one, and the name.
+     *
+     * @param regions the event's unshaped regions
+     * @return the lead region's name, or null when the event has no eligible region
+     */
+    static String shapedLeadRegion(List<BriefingRegion> regions) {
+        List<BriefingSlot> all = regions.stream().flatMap(r -> r.slots().stream()).toList();
+        boolean allCanopy = !all.isEmpty() && all.stream().allMatch(BriefingSlot::canopy);
+        return regions.stream()
+                .filter(r -> allCanopy || r.slots().isEmpty() || r.slots().stream().anyMatch(s -> !s.canopy()))
+                .min(LEAD_ORDER)
+                .map(BriefingRegion::regionName)
+                .orElse(null);
+    }
+
+    private static int tierRank(DisplayVerdict verdict) {
+        if (verdict == null) {
+            return TIER_ORDER.size();
+        }
+        int index = TIER_ORDER.indexOf(verdict);
+        return index < 0 ? TIER_ORDER.size() : index;
     }
 
     // ------------------------------------------------------------------ hot topics

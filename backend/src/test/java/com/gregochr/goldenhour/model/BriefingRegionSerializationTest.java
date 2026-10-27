@@ -137,6 +137,29 @@ class BriefingRegionSerializationTest {
         assertThat(rated.withGloss("Head", "Detail").bestRating()).isEqualTo(5);
     }
 
+    @Test
+    void picksBestRatingIsServedWhenSetAndOmittedWhenNull() throws Exception {
+        assertThat(mapper.readTree(mapper.writeValueAsString(region(Confidence.HIGH).withPicksBestRating(2)))
+                .get("picksBestRating").asInt()).isEqualTo(2);
+        assertThat(mapper.readTree(mapper.writeValueAsString(region(Confidence.HIGH))).has("picksBestRating"))
+                .isFalse();
+    }
+
+    @Test
+    void everyWitherCarriesThePicksBestRating() {
+        BriefingRegion r = region(Confidence.HIGH).withPicksBestRating(3);
+
+        assertThat(r.withMeanRating(3.0).picksBestRating()).isEqualTo(3);
+        assertThat(r.withBestRating(4).picksBestRating()).isEqualTo(3);
+        assertThat(r.withMeanRatingDelta(0.5).picksBestRating()).isEqualTo(3);
+        assertThat(r.withSampleSufficient(true).picksBestRating()).isEqualTo(3);
+        assertThat(r.withForcedSample(true).picksBestRating()).isEqualTo(3);
+        assertThat(r.withLightlyEvaluated().picksBestRating()).isEqualTo(3);
+        assertThat(r.withConfidence(Confidence.LOW).picksBestRating()).isEqualTo(3);
+        assertThat(r.withGloss("h", "d").picksBestRating()).isEqualTo(3);
+        assertThat(r.withSlots(List.of()).picksBestRating()).isEqualTo(3);
+    }
+
     // ── UNRATED: the display verdict a weather pre-screen can no longer fake (U1) ──────────
 
     @Test

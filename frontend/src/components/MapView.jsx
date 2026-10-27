@@ -70,6 +70,9 @@ import { myRatingOf } from '../utils/outcomeRatingJoin.js';
 import { dowDayLabel, pastDayLabel } from '../utils/windowFirstCards.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
 import { heatSpotKey } from '../utils/heatSpots.js';
+import {
+  GATED_STATE, hasRatedState, isGatedIn, splitGround,
+} from '../utils/pickScope.js';
 import { buildThinCounts } from '../utils/mapThinSample.js';
 import {
   standDownFooterCount, standDownRegions, weatherStoodOf, windowHasEvidence,
@@ -1166,7 +1169,7 @@ CentreOnHomeControl.propTypes = {
  *       draws as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, shapedLeadIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -2634,6 +2637,46 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [heatOffered, heat, darkSkyFilter]);
 
   /**
+   * The briefing body was shaped by the reader's sub-region picks (S5a) — the pane's `heat.shaped`,
+   * `Array.isArray` of the served `allowedLocationIds`. Never the role, never a client membership test.
+   */
+  const shaped = heat?.shaped === true;
+
+  /**
+   * Every place's state in the window on screen, by `heatSpotKey` — present ONLY for a shaped body, and
+   * the one place `gated` is read from. Solar: the window's `heat.windowStates` entry (each state from
+   * the score row's own `gated: true`). ASTRO: the same marker on the night's conditions rows (an
+   * unmarked row is `rated` for this purpose; a place with no row is absent, so it makes no claim). An
+   * aurora night is Pro-only data and is never gated.
+   */
+  const activeStates = useMemo(() => {
+    if (!shaped || !heatOffered) return null;
+    if (isAstroMode) {
+      const states = new Map();
+      for (const spot of heat.spots || []) {
+        const row = astroScores[spot.name];
+        if (row) states.set(heatSpotKey(spot), row.gated === true ? GATED_STATE : 'rated');
+      }
+      return states;
+    }
+    if (isAuroraMode || !heatWindow) return null;
+    return heat.windowStates?.get(heatWindow.key)?.states ?? null;
+  }, [shaped, heatOffered, isAstroMode, isAuroraMode, heat, astroScores, heatWindow]);
+
+  /**
+   * The field's two grounds for a shaped body (S5a): the places outside the picks (the veil) and every
+   * other place (what the veil yields to, and what the dashed outline traces). Narrowed exactly as the
+   * colour is — by the dark-sky pool and a door's spot-set lens, never by the rating floor, chips, drive
+   * or scope. Null when not shaped or when the window holds no place states (nothing is claimed).
+   */
+  const outsideGround = useMemo(() => {
+    if (!activeStates) return null;
+    let pool = heatSpotPool || heat.spots || EMPTY_POINTS;
+    if (focusLensNames) pool = pool.filter((s) => focusLensNames.has(s.name));
+    return splitGround({ shaped, spots: pool, states: activeStates });
+  }, [activeStates, shaped, heat, heatSpotPool, focusLensNames]);
+
+  /**
    * The astro field's own points — map-tab-v2-plan.md §3 P6. Astro carries no served window key
    * (it is not one of the briefing's rendered solar windows), so there is no pre-built entry in
    * `heat.pointsByKey` to read; this builds the equivalent shape directly off `astroScores`
@@ -2759,9 +2802,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * claimed as "not rated yet", which is a claim about the forecast the filter has no standing to make.
    */
   const unratedPoints = useMemo(() => {
-    if (isAstroMode || isAuroraMode || !heatOffered || !heatWindow || heatWindow.bestRating == null) {
-      return EMPTY_POINTS;
-    }
+    if (isAstroMode || isAuroraMode || !heatOffered || !heatWindow) return EMPTY_POINTS;
+    // The window's served best star is stripped from a shaped (Lite) body, so "is anything here rated"
+    // is asked of the place states there (S5a); everyone else keeps the served figure.
+    const windowRated = shaped
+      ? hasRatedState(heat.windowStates?.get(heatWindow.key)?.states)
+      : heatWindow.bestRating != null;
+    if (!windowRated) return EMPTY_POINTS;
     let points = heat.windowStates?.get(heatWindow.key)?.unrated || EMPTY_POINTS;
     if (heatSpotPool) {
       const allowed = new Set(heatSpotPool.map(heatSpotKey));
@@ -2769,7 +2816,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     }
     if (focusLensNames) points = points.filter((p) => focusLensNames.has(p.name));
     return points;
-  }, [isAstroMode, isAuroraMode, heatOffered, heatWindow, heat, heatSpotPool, focusLensNames]);
+  }, [isAstroMode, isAuroraMode, heatOffered, heatWindow, heat, heatSpotPool, focusLensNames, shaped]);
 
   /**
    * The stand-down ground (big-seas plan F3): the places this window stood down FOR THE WEATHER,
@@ -2870,7 +2917,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       ? astroHeatPoints.length === 0
       : isAuroraMode
         ? auroraHeatPoints.length === 0
-        : heatWindow?.bestRating == null),
+        // A shaped body carries no served best star (the server strips it for Lite), so the question
+        // goes to the place states: is any of the reader's own places rated in this window.
+        : shaped ? !hasRatedState(activeStates) : heatWindow?.bestRating == null),
   );
 
   /**
@@ -3203,6 +3252,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // card beyond the rated horizon does not open on an empty map - but never from the reader's own
       // filters (floor, reach, subject, dark sky), which still apply below (C4 review).
       const named = focusLensNames?.has(loc.name) === true;
+      // A place OUTSIDE the reader's sub-regions (the server's `gated`, S5a) is drawn as a small grey
+      // dot with its name, whatever the star floor says: it has no star to compare, and dropping it
+      // would leave the dashed outline and the veil explaining nothing. Type, drive, dark-sky, scope
+      // and the lens still narrow it like anything else, further down.
+      if (isGatedIn(activeStates, loc)) return true;
       if (isStandDownLocation(loc)) return showStandDown || named;
       // Tide-window increment (T4, tide-window-plan.md §3 T4 item 1): a coastal slot with a
       // served tide fact — aligned or not, or RATED (the weather-stood-down-then-rated
@@ -3267,7 +3321,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [
     typeFiltered, isStandDownLocation, getRatingForLocation, getTideOnLightForLocation,
     showStandDown, showUnrated, minStars, effectiveDriveTimeFilter, driveMinutesFor,
-    darkSkyFilter, isAstroMode, focusLensNames,
+    darkSkyFilter, isAstroMode, focusLensNames, activeStates,
   ]);
 
   /**
@@ -3329,6 +3383,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const scopedRatedCount = useMemo(
     () => scopedVisibleLocations.filter((loc) => getRatingForLocation(loc) != null).length,
     [scopedVisibleLocations, getRatingForLocation],
+  );
+  /**
+   * The drawn locations the counts are ABOUT: those not outside the reader's sub-regions (S5a). A gated
+   * place is drawn (a grey dot and its name) but is in neither half of "x of y shown" or "n rated" — it
+   * is not unrated, it is not this reader's, and counting it would print "2 of 260". Equal to
+   * `scopedVisibleLocations.length` for everyone who is not shaped.
+   */
+  const scopedOwnCount = useMemo(
+    () => scopedVisibleLocations.filter((loc) => !isGatedIn(activeStates, loc)).length,
+    [scopedVisibleLocations, activeStates],
   );
   /**
    * Whether ANY place holds a rating for the solar window on screen when that window has no served
@@ -3538,7 +3602,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * (map-landing-plan.md §3 L2).
    */
   const evVerdicts = buildEvVerdicts({
-    events: mapEvents, index: regionVerdictIndex, regionsInScope,
+    events: mapEvents,
+    index: regionVerdictIndex,
+    regionsInScope,
+    // A shaped body carries no region mean to rank by (the server strips it), so the lead region comes
+    // served; `null` for everyone else keeps the pick exactly as it was.
+    shapedLeads: shaped ? shapedLeadIndex : null,
   });
 
   /**
@@ -4114,6 +4183,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       lng: loc.lon,
       rid: loc.regionName || '',
       rating,
+      // Outside the reader's sub-regions (the server's `gated`): the chip wears a grey dot, no star, and
+      // is named so; absent (false) for everyone who is not shaped.
+      gated: isGatedIn(activeStates, loc),
       bortleClass: loc.bortleClass ?? null,
       driveMinutes: driveMinutesFor(loc.id),
       // Bundle rev 2's tide-chip tweak — the glyph, the label-budget tiebreaker
@@ -4160,7 +4232,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     };
   }, [
     getRatingForLocation, getTideOnLightForLocation, driveMinutesFor, tideCuesOn,
-    activeWindowPast, outcomeRatings, date, eventType,
+    activeWindowPast, outcomeRatings, date, eventType, activeStates,
   ]);
   const labelSpots = useMemo(() => {
     const spots = scopedVisibleLocations.map(spotOf);
@@ -4885,6 +4957,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const scopeBasePool = heatOffered
     ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
     : EMPTY_POINTS;
+  /** The scope pool's places that are the reader's own (not gated): the "of K" and the Map's `scopeCount`. */
+  const scopeOwnCount = scopeBasePool.filter((spot) => !isGatedIn(activeStates, spot)).length;
 
   /**
    * The footer's ` · N stood down` (big-seas plan F3): the scope pool's places this window stood down
@@ -4981,7 +5055,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     regionsInScope,
     points: panelPoints,
     driveMap: activeDriveMap,
-    spots: verdictScopePool,
+    // The panel's "k of m at 4★+" counts the reader's OWN places: one outside their sub-regions (the
+    // server's `gated`) is in neither half. The regions in scope above still name every region.
+    spots: verdictScopePool.filter((spot) => !isGatedIn(activeStates, spot)),
   }) : EMPTY_ROWS;
 
   /**
@@ -5045,7 +5121,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   // The daylight High-water row paints no field and states no score, so "not scored yet" would be a false
   // claim about a window that is not scored by design (`windowUnscored` stays true: no colour key either).
-  const unscoredLineShown = windowUnscored && !fillerHasRatings && eventType !== HIGH_WATER
+  // A reader with NO picks (a shaped body, zero allowed places) has nothing the forecast "failed to
+  // score": every place is theirs to choose, and the legend says so — "not scored yet" would be false.
+  const noPicks = shaped && heat?.allowedCount === 0;
+  const unscoredLineShown = windowUnscored && !fillerHasRatings && eventType !== HIGH_WATER && !noPicks
     && (isAstroMode || activeMapEvent != null);
 
   /**
@@ -5986,8 +6065,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     onToggleUnrated: toggleShowUnrated,
     hasUnrated,
     activeCount: filterActiveCount,
-    filteredCount: scopedVisibleLocations.length,
-    scopeCount: scopeBasePool.length,
+    filteredCount: scopedOwnCount,
+    scopeCount: scopeOwnCount,
     onClearAll: clearAllMapFilters,
   };
 
@@ -6327,6 +6406,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 unrated={unratedPoints}
                 // The stand-down hatch (big-seas plan F3); its mask's rated places are `points` itself.
                 stood={stoodPoints}
+                // Outside the reader's sub-regions (S5a): the veil and the dashed outline, only for a
+                // shaped body. Null (not an empty array) for everyone else, so nothing is passed down.
+                outside={outsideGround ? outsideGround.outside : null}
+                allowed={outsideGround ? outsideGround.allowed : null}
                 // ASTRO has no `heat.windows` entry to read a scalar off (adversarial review,
                 // real #3) — `astroConfidenceScalar` is this mode's own capped-inference figure.
                 // AURORA likewise (aurora-heat-plan.md D2): its own capped-inference scalar.
@@ -7097,6 +7180,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 groundKey={!isAstroMode && !isAuroraMode && !windowUnscored}
                 stoodKey={stoodPoints.length > 0}
                 seasKey={bigSeasShown}
+                // Sub-regions S5a: the picks rows and note, for a shaped body only.
+                picks={shaped ? { allowed: heat.allowedCount ?? 0, total: (heat.spots || []).length } : null}
               />
             )}
             {/* The four-day hot-topics strip (hot-topics-by-day-plan §3 M2): a flex child BEFORE the tide
@@ -7230,7 +7315,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               </span>
             ) : (
             <span>
-              <b>{scopedVisibleLocations.length}</b> of {scopeBasePool.length} shown
+              <b>{scopedOwnCount}</b> of {scopeOwnCount} shown
               {/* ⚠️ Only when it DIFFERS, which is this codebase's own rule for a second
                   number: `reachLens.formatLensCount` states it as "with nothing trimmed,
                   `138 of 138` is a count dressed as a comparison". In the default map every
@@ -7239,7 +7324,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   almost every view. It earns its place exactly where something drawn has no
                   rating: pure wildlife (no sky rating by design) and, for an admin, the
                   unrated and stand-down locations the two debug toggles reveal. */}
-              {scopedRatedCount < scopedVisibleLocations.length && (
+              {scopedRatedCount < scopedOwnCount && (
                 <span data-testid="wf-map-counts-rated">
                   {` · ${scopedRatedCount} rated`}
                 </span>
@@ -7344,6 +7429,10 @@ MapView.propTypes = {
   heat: PropTypes.shape({
     enabled: PropTypes.bool,
     hasHome: PropTypes.bool,
+    /** The briefing body was shaped by the reader's sub-region picks (`Array.isArray(allowedLocationIds)`). */
+    shaped: PropTypes.bool,
+    /** The count of places the picks cover (the served `allowedLocationIds` length); null unshaped. */
+    allowedCount: PropTypes.number,
     spots: PropTypes.array,
     areaSpots: PropTypes.array,
     pointsByKey: PropTypes.instanceOf(Map),
@@ -7474,6 +7563,11 @@ MapView.propTypes = {
    * regionName` to that region's served record, from `utils/mapVerdict.buildRegionVerdictIndex`.
    */
   regionVerdictIndex: PropTypes.instanceOf(Map),
+  /**
+   * `date|targetType` to the window's served `shapedLeadRegion`, from
+   * `utils/mapVerdict.buildShapedLeadIndex` — read only for a shaped body (sub-regions S5a).
+   */
+  shapedLeadIndex: PropTypes.instanceOf(Map),
   /**
    * From `utils/locationSheet.buildTideAlignmentIndex` (bundle rev 2's tide-chip tweak) — whether
    * this window's water lands on the light per location, read through `lookupForWindow` exactly

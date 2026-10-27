@@ -38,6 +38,13 @@ import TideWave from './TideWave.jsx';
 const LABEL_PANE = 'wf-labels';
 const LABEL_PANE_Z = 650;
 
+/**
+ * What a place the server marked {@code gated} is called on its chip and in its tooltip (sub-regions S5a).
+ * Always these words and never "not rated" or "unrated": it is not a gap in the forecast, it is not this
+ * reader's.
+ */
+export const OUTSIDE_PICKS_WORDS = 'outside your sub-regions';
+
 /** No stood-down region labels: one stable identity, so the default never repaints the pass. */
 const NO_STAND_REGIONS = [];
 
@@ -898,6 +905,9 @@ export default function MapLabels({
           );
         }
         const hasRating = Number.isFinite(spot.rating);
+        // Outside the reader's sub-regions (the server's `gated`, S5a): a grey dot and the name, no star,
+        // and an accessible name that says so - never the unrated or "not rated" wording.
+        const outside = spot.gated === true;
         // The served PREFERENCE-axis tier (tide-window-plan.md §3 T4 item 2) — supersedes bundle
         // rev 2's `onTheLight`-only glyph. `tideTier` is null for "not a coastal slot with a
         // served tide state" (inland, or no stored extremes), so this chip carries no tide clause
@@ -907,10 +917,12 @@ export default function MapLabels({
         // Extends the rating announcement rather than replacing it — an aria-label REPLACES the
         // rendered text entirely, so the glyph's own meaning has to be spelled out here or a
         // screen-reader user never hears it at all.
-        const ariaLabel = [
-          hasRating ? `${spot.name}, ${spot.rating} star` : spot.name,
-          tideAccessibleClause(tideTier, spot.tideShortfall, spot.tideState),
-        ].filter(Boolean).join(', ') + (hasRatedBadge(spot) ? badgeAccessibleClause(spot.myRating) : '');
+        const ariaLabel = outside
+          ? `${spot.name}, ${OUTSIDE_PICKS_WORDS}`
+          : [
+            hasRating ? `${spot.name}, ${spot.rating} star` : spot.name,
+            tideAccessibleClause(tideTier, spot.tideShortfall, spot.tideState),
+          ].filter(Boolean).join(', ') + (hasRatedBadge(spot) ? badgeAccessibleClause(spot.myRating) : '');
         return (
           <button
             key={spot.name}
@@ -922,6 +934,7 @@ export default function MapLabels({
             className="wf-maplab-chip"
             data-testid="map-label-chip"
             data-selected={selectedName === spot.name ? 'true' : undefined}
+            data-gated={outside ? 'true' : undefined}
             data-tide={tideTier ?? undefined}
             // A place the selected hot topic rings keeps full strength while the rest step back
             // (index.css's topic dim rule excludes it).
@@ -940,10 +953,14 @@ export default function MapLabels({
             onPointerMove={moveTip}
             onPointerLeave={hideTip}
           >
-            <i
-              className="wf-maplab-chip-m"
-              style={{ background: hasRating ? rampHex(spot.rating) : 'var(--color-plex-border-light)' }}
-            />
+            {outside ? (
+              <i className="wf-maplab-chip-m" data-gated="true" data-testid="map-label-chip-outside" />
+            ) : (
+              <i
+                className="wf-maplab-chip-m"
+                style={{ background: hasRating ? rampHex(spot.rating) : 'var(--color-plex-border-light)' }}
+              />
+            )}
             <b className="wf-maplab-chip-n">{spot.name}</b>
             {tideTier && (
               // A glyph, not a second number (bundle rev 2's tide-chip tweak, moved onto the
@@ -959,7 +976,7 @@ export default function MapLabels({
               />
             )}
             {hasRating && <em className="wf-maplab-chip-r">{spot.rating}★</em>}
-            {hasRatedBadge(spot) && <RatedBadge value={spot.myRating} />}
+            {!outside && hasRatedBadge(spot) && <RatedBadge value={spot.myRating} />}
           </button>
         );
       })}
@@ -989,9 +1006,11 @@ export default function MapLabels({
     >
       <div className="wf-maplab-tip-n">{hover.name}</div>
       <div className="wf-maplab-tip-s">
-        {[eventLabel, Number.isFinite(hover.rating)
-          ? `${hover.rating}★ ${verdictWord(hover.rating) ?? ''}`.trim() : null]
-          .filter(Boolean).join(' · ')}
+        {hover.gated === true
+          ? [eventLabel, 'Outside your sub-regions'].filter(Boolean).join(' · ')
+          : [eventLabel, Number.isFinite(hover.rating)
+            ? `${hover.rating}★ ${verdictWord(hover.rating) ?? ''}`.trim() : null]
+            .filter(Boolean).join(' · ')}
       </div>
       <div className="wf-maplab-tip-s">
         {[
@@ -1080,6 +1099,8 @@ MapLabels.propTypes = {
     lng: PropTypes.number.isRequired,
     rid: PropTypes.string.isRequired,
     rating: PropTypes.number,
+    /** Outside the reader's sub-regions (the server's `gated`, S5a): a grey dot, no star. */
+    gated: PropTypes.bool,
     bortleClass: PropTypes.number,
     driveMinutes: PropTypes.number,
     /** Bundle rev 2's tide-chip tweak — true when THIS window's water lands on the light here.

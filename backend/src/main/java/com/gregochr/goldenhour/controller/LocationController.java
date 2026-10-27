@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.LocationEnrichmentResult;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.service.LocationEnrichmentService;
 import com.gregochr.goldenhour.service.LocationService;
+import com.gregochr.goldenhour.service.SubRegionMembershipService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,6 +34,7 @@ public class LocationController {
     private final LocationService locationService;
     private final LocationEnrichmentService locationEnrichmentService;
     private final LocationDtoMapper locationDtoMapper;
+    private final SubRegionMembershipService subRegionMembership;
 
     /**
      * Constructs a {@code LocationController}.
@@ -40,23 +42,29 @@ public class LocationController {
      * @param locationService           the service managing persisted locations
      * @param locationEnrichmentService the service for enriching location metadata
      * @param locationDtoMapper         maps persisted locations to their API projection
+     * @param subRegionMembership       reads each location's sub-region for the roster, in one query
      */
     public LocationController(LocationService locationService,
             LocationEnrichmentService locationEnrichmentService,
-            LocationDtoMapper locationDtoMapper) {
+            LocationDtoMapper locationDtoMapper,
+            SubRegionMembershipService subRegionMembership) {
         this.locationService = locationService;
         this.locationEnrichmentService = locationEnrichmentService;
         this.locationDtoMapper = locationDtoMapper;
+        this.subRegionMembership = subRegionMembership;
     }
 
     /**
-     * Returns all persisted locations ordered alphabetically by name.
+     * Returns all persisted locations ordered alphabetically by name, each labelled with its sub-region
+     * ({@code subRegionId} / {@code subRegionName}, null when it has none). Role-free facts, so the body
+     * stays ETag-safe.
      *
      * @return list of location DTOs
      */
     @GetMapping
     public List<LocationDto> getLocations() {
-        return locationDtoMapper.toDtoList(locationService.findAll());
+        return locationDtoMapper.toDtoList(locationService.findAll(),
+                subRegionMembership.subRegionsByLocation());
     }
 
     /**

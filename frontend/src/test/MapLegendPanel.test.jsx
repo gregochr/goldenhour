@@ -382,3 +382,76 @@ describe('MapLegendPanel — the big-seas key (big-seas plan F2)', () => {
     expect(screen.queryByTestId('wf-legend-bigseas')).toBeNull();
   });
 });
+
+describe('MapLegendPanel — the sub-regions key (sub-regions-plan S5a-1)', () => {
+  const picks = (allowed, total = 260) => ({ allowed, total });
+
+  it('adds the two ground rows after "not rated yet / no places", with a plain Pro label on the outside row', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} picks={picks(40)} />);
+
+    const ground = screen.getByTestId('wf-legend-ground');
+    const rows = screen.getByTestId('wf-legend-picks');
+    // After, not before: DOM order is the reading order.
+    expect(ground.compareDocumentPosition(rows) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const outside = screen.getByTestId('wf-legend-outside');
+    expect(outside).toHaveTextContent('outside your sub-regions');
+    expect(outside.querySelector('.wf-legend-swatch-outside')).not.toBeNull();
+    // A label, not a door: a pill inside plain text, no button, no link.
+    const pill = outside.querySelector('.wf-lens-pro');
+    expect(pill).toHaveTextContent('Pro');
+    expect(outside.querySelector('button, a')).toBeNull();
+    expect(screen.getByTestId('wf-legend-yours')).toHaveTextContent('your sub-regions');
+    expect(screen.getByTestId('wf-legend-yours').querySelector('.wf-legend-swatch-picks')).not.toBeNull();
+  });
+
+  it('words the note with the allowed count and the roster, plural', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} picks={picks(40, 260)} />);
+
+    expect(screen.getByTestId('wf-legend-picks-note'))
+      .toHaveTextContent('Colour shows the 40 places in your sub-regions. Pro rates all 260.');
+  });
+
+  it('uses the singular for one place', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} picks={picks(1, 260)} />);
+
+    expect(screen.getByTestId('wf-legend-picks-note'))
+      .toHaveTextContent('Colour shows the 1 place in your sub-regions. Pro rates all 260.');
+  });
+
+  it('for a reader with no picks: the settings note, and no dashed row for an outline that is not drawn', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} picks={picks(0)} />);
+
+    expect(screen.getByTestId('wf-legend-picks-note'))
+      .toHaveTextContent('Choose your sub-regions in Settings to see ratings.');
+    expect(screen.getByTestId('wf-legend-picks-note')).not.toHaveTextContent('Colour shows');
+    expect(screen.getByTestId('wf-legend-outside')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-legend-yours')).toBeNull();
+  });
+
+  it('is absent for everyone who is not shaped: no rows, no note, the legend as it was', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} />);
+
+    expect(screen.queryByTestId('wf-legend-picks')).toBeNull();
+    expect(screen.queryByTestId('wf-legend-picks-note')).toBeNull();
+    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('Colour appears only near rated locations');
+  });
+
+  it('shows on an astro night (no ground key there) but never on an aurora night, which is Pro-only', () => {
+    const { rerender } = render(
+      <MapLegendPanel {...baseProps({ open: true })} groundKey={false} picks={picks(5)} />,
+    );
+    expect(screen.queryByTestId('wf-legend-ground')).toBeNull();
+    expect(screen.getByTestId('wf-legend-picks')).toBeInTheDocument();
+
+    rerender(<MapLegendPanel {...baseProps({ open: true })} variant="aurora" picks={picks(5)} />);
+    expect(screen.queryByTestId('wf-legend-picks')).toBeNull();
+    expect(screen.queryByTestId('wf-legend-picks-note')).toBeNull();
+  });
+
+  it('draws with classes and tokens only: no inline style on any of its rows', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} picks={picks(40)} />);
+
+    const rows = screen.getByTestId('wf-legend-picks');
+    expect(rows.querySelectorAll('[style]')).toHaveLength(0);
+  });
+});

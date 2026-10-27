@@ -420,6 +420,122 @@ most hourly, login stamps it) and `lastActiveAt` was already in the summary, so 
 - *`formFieldFocusRules`* now reads the shared form classes from `components/users/userFormClasses.js` (the
   `const inputClass` definitions moved out of `UserManagementView.jsx`).
 
+## §11 S5 build notes (2026-10-27)
+
+S5 is the Map, Plan and Coming-up treatment of the places outside a Lite reader's sub-regions (the owner's Claude Design
+export "design_handoff_s5_outside_picks", tasks 1 to 9). The handoff lives with the owner, not in the repo; where it and the
+codebase disagree the codebase wins. S5a (the Map) ships as **three PRs**, S5b (the Plan strip and rail, task 6, and
+Coming up, task 8) follows. The plan below was revised after a three-lens review.
+
+### Owner decisions (27 Oct 2026)
+
+- Check 1 (best stars for a Lite reader's own places): the **served `picksBestRating`**.
+- Check 2 (window-panel order): a Lite row is ordered by verdict tier, then name (Lite has no drive).
+- Check 3 (pill star): **no star on the Lite pill**.
+- Check 4 (coastal and dark-sky membership for Coming up): S5b.
+- Check 5 (veil colour against `--color-topic-air`): the builder checks the veil.
+
+### Planner decisions from the review (deviations from the handoff are marked with a diamond)
+
+1. **Gating keys.** The field keys on each served row's `gated: true` (scores rows, briefing slots); chrome keys on the
+   briefing's served `allowedLocationIds` being an **array** (`Array.isArray`, an empty array means shaped with zero picks).
+   Never the role, never a client membership test. The briefing context must publish `allowedLocationIds`.
+2. **`gated` is its own heat state.** `heatSpots.windowState` gains `'gated'` from `row.gated`; gated spots are in neither the
+   colour pool, the hatch, nor `thinRatedCount`'s rated or total, nor `scopeCount`, nor "k of m". `architecture-decisions.md`
+   Backend-heavy records the gated filter on each licensed member it touches (`atFourPlus`/`placeCount`, `thinRatedCount`,
+   spread, `scopeCount`); no new member.
+3. **Served: each place's sub-region.** `LocationDto` gains `subRegionId` and `subRegionName` (role-free facts, ETag-safe, from
+   `location_sub_region`). This feeds outside-row names, "{n} places in {k} sub-regions", the sheet block and the mixed-panel names.
+4. **Served: `BriefingRegion.picksBestRating`** (NON_NULL, set only by `LitePickShaper.shapeRegion`, last):
+   `BriefingSlot.votingSlots(region.slots())` (the region's own canopy rule) filtered to allowed ids, max taken through
+   `BriefingRatingStats.compute`; neighbour outliers included exactly as region `bestRating` is. Null when none. Every wither
+   carries it; a 22-arg convenience constructor keeps old callers; `ReviewedTypes` lists it; the sentinel gives unpicked slots a
+   distinct star (5 vs picked 2) and asserts `"picksBestRating":2`, no 5 under the region, no key for `PickScope.nothing()` or unshaped.
+5. **Served: the window's lead region for a shaped body.** Today `mapVerdict.windowVerdict` -> `pickTopEligibleRegion` skips
+   regions with no `meanRating`, which the shaper strips, so a shaped Lite pill loses its verdict. The shaper sets
+   `BriefingEventSummary.shapedLeadRegion` (NON_NULL, shaped only): the region the unshaped ranking would pick **restricted to
+   verdict tier**, ties by name (never by a gated mean or star). The client reads it when shaped. Sentinel-covered.
+6. ◆ **Region-label door dropped.** Region labels live in an `aria-hidden`, `pointer-events:none`, collision-culled pane
+   (`MapLabels.jsx`). The zoomed-out third line is plain text: **{n} sub-regions picked** or **outside your sub-regions** (grey),
+   no button. The region door lives in the region panel (and the window panel row opens it). This also keeps one door per surface.
+7. ◆ **Scope segment for shaped Lite** is its own state: shown whenever shaped (Lite has no reach, so today's segment never
+   shows), labels **Your sub-regions | Everywhere**, **camera only** (fits allowed bounds / roster); it does not touch `heatArea`
+   or `scopeBasePool`. Hidden when zero picks.
+8. **Zero picks** (`allowedLocationIds: []`, status `FIRST_CHOICE`): the veil covers the land, no outline, the legend note is
+   replaced by **Choose your sub-regions in Settings to see ratings.** with a **Choose your sub-regions** button; the window-panel
+   note line is omitted; no scope segment.
+9. **S4 status -> action** (reuse S4's `subRegionCopy.js`/`settingsStatusLine`; never restate S4 rules): `FIRST_CHOICE` ->
+   **Choose your sub-regions**; `FREE_UNTIL`/`OPEN` -> **Change your sub-regions**; `LOCKED` under the limit -> **Add a
+   sub-region**; `LOCKED` at the limit -> no button, line **You can next change your sub-regions on {date}.**; `overLimit` ->
+   **Change your sub-regions** (S4 copy explains); `NOT_APPLICABLE` -> never shaped, never reached. The status fetch stays out of
+   `swrCache` and refetches on `subRegionsVersion`.
+10. **Opening Settings on the picker.** `UserSettingsModal` `focusField` gains `'subRegions'`: scrolls to and opens
+    `SubRegionSettingsSection` once its state loads. From the location sheet, close the sheet first (two dialogs max).
+11. **Doors** reuse `ProUpsellDoor` unchanged except a new optional `note` prop (in `aria-describedby`). Constants
+    `SUBREGIONS_ALL_`, `_REGION_`, `_PLACE_`. Copy rules: "your {n} sub-regions" uses the applied pick count, not the limit;
+    singulars everywhere (place/places, sub-region/sub-regions); example places take the region's first two sub-regions' first
+    `exampleLocations` (one if only one); collapse outside lists only when n > 4 (show 3 + "Show all {n}").
+12. **Location sheet (gated).** `data-scope="picks"` grey variant of `wf-loc-out`; gated wins over `outsideScope`. Rating slot
+    empty, no `unratedWord`/"Not scored". The first row opens for a gated place only once scores have loaded.
+13. **Heat layers** in the shared kernel (`utils/heatField.js`) so S5b's `drawGeo` reuses them: veil (radius x 1.15, suppressed by
+    all allowed places' coverage) and dashed outline at the 0.42 contour via a hand-written marching squares (no new dependency).
+    Both take `opacity` and `focus`, clip to land, and are not drawn above `LAND_CLIP_MAX_ZOOM`. The veil also applies on
+    astro/aurora nights (those are shaped too). Measure repaint cost.
+14. **Dropping the star:** the pill dropdown rows and `nightPillName` must not print `—` or "not scored yet" for a gated subject;
+    no-picks rows take the Pro-pill branch explicitly; allowed-but-unrated keeps "not scored".
+15. **Lite window-panel rows:** regions with picks first, then verdict tier, then name; stat "{k} of {m} at 4★+" (no drive),
+    "· {n} more outside" when any. The note line's "best region" is `shapedLeadRegion`.
+16. **Grey dots:** the name chip is the tap target; its accessible name says "outside your sub-regions" and never falls through to
+    "not rated".
+
+### The phase split
+
+- **S5a-1, data and field:** decisions 1 to 5, 13, 16, and the legend rows (handoff task 2). Backend and frontend.
+- **S5a-2, chrome and panels:** 6, 7, 8, 14, 15, the window and region panels (tasks 2 to 4) without doors.
+- **S5a-3, doors, sheet, Settings:** 9 to 12, the task 7 doors, the task 5 sheet.
+
+Each: Sonnet builds in its own worktree, gates, planner review plus a browser check against mocked `/api` with flag-on shaped
+bodies, one PR, CI and Codex thumbs-up, merge.
+
+### S5a-1 build notes
+
+**Backend.** `LocationDto` gains `subRegionId`/`subRegionName` from one query (`SubRegionMembershipService.subRegionsByLocation`,
+a join of `location_sub_region` and `area`), handed to `LocationDtoMapper.toDtoList(entities, map)`; the one-argument forms
+still map to null. `BriefingRegion` gains the 23rd component `picksBestRating` (a 22-argument convenience constructor keeps the
+old callers; every wither carries it; `withPicksBestRating`); `BriefingEventSummary` gains `shapedLeadRegion` (a five-argument
+convenience constructor, `withShapedLeadRegion`). Both are set only by `LitePickShaper`. The lead region is chosen by
+(verdict-eligible, has a mean, `displayVerdict` tier, has slots, name) over the canopy-eligible regions: the mean's *presence* is
+asked because the client skips a mean-less region, so the unshaped pick never lands on one; its *value* never orders anything.
+`LitePickSentinelTest` gives unpicked slots a 5 and the picked one a 2 and walks the region's JSON for any 5.
+
+**Frontend.** New `utils/pickScope.js` (the shaped marker, `isGatedIn`, `splitGround`, `hasRatedState`). The veil and outline live
+in `heatField.js` (`coverageGrid`, `contourLines`, `planOutsidePicks`, `paintVeil`, `paintOutline`), taken by `drawTiles` and
+`drawGeo` through `opts.outside`/`opts.allowed`, and drawn by `MapHeatLayer` only below the land-clip zoom with the land path in
+hand. `paintMasked` was split so the veil reuses the hatches' blur, clip and opacity.
+
+**Deviations from the handoff, all deliberate.**
+
+- *Veil ink* `rgba(156,158,160,.18)` (neutral grey) instead of `rgba(150,160,170,.20)`: the handoff's tint was within a few units
+  of `--color-topic-air` (#8FA3B8), whose rings can be on the map together with the veil. A neutral grey at a lower alpha composes
+  to about #393737 on the plate and reads as a wash beside a 2px #8FA3B8 stroke.
+- *One allowed-coverage grid at radius x 0.9* serves both the outline and the veil's suppressor (the handoff suppresses at x 1.0).
+- *A reader with no picks sees no dashed "your sub-regions" legend row*: no outline is drawn for them, and a key to a missing line
+  would be false. They also get no "this event is not scored yet" line.
+- *The window's served `bestRating` is null for a shaped Lite response*, which the unscored line, the colour key and the
+  "not rated yet" hatch were gated on. For a shaped body they ask the place states whether any of the reader's own places is rated
+  (`hasRatedState`); no star is shown anywhere.
+- *A wood or hide with no score row* cannot be marked gated by the field (it reads score rows, not the briefing's canopy slots) and
+  counts as allowed for the veil and the outline.
+- *The pill takes the lead region from the served field and falls back to the same order over the in-scope records* when the lead
+  lies outside the scope segment, so a scope-limited Lite reader still gets a verdict word.
+
+**Repaint cost.** Measured with a scratch script (not committed) on a 260-place roster, 40 of them allowed, over a 1280 x 800
+frame at the Map's grid of 6: planning the two layers (both coverage grids and the contour) took 12, 19 and 42 ms at kernel radii of
+30, 45 and 90 px with the field's own pitch, which is too much to spend on every frame of a pan. The plan therefore samples at
+`max(grid, min(radius / 4, 12))`, which brings it to about 9, 7 and 13 ms at those radii (11 to 22 ms at the 150 px extreme). The
+canvas draws (a temp-canvas blur and one `destination-in` for the veil, one stroked path for the outline) cannot be timed outside a
+browser and were not measured. A paint is throttled to one per animation frame.
+
 ## Appendix A — allocation (production roster, 2026-10-26)
 
 Location names as stored on 2026-10-26, misspellings included; ids are production ids (a fresh database's ids

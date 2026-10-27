@@ -19,7 +19,7 @@ import {
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 import { buildRegionBestIndex } from '../utils/regionsJump.js';
-import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
+import { buildRegionVerdictIndex, buildShapedLeadIndex } from '../utils/mapVerdict.js';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import { buildWindowTideIndex } from '../utils/mapTideFit.js';
 import { buildPastSolarWindows, pastWindowBest } from '../utils/mapEvents.js';
@@ -33,6 +33,7 @@ import { useRewind } from '../hooks/useRewind.js';
 import { useOutcomeRatings } from '../hooks/useOutcomeRatings.js';
 import { ratedCountByWindow } from '../utils/outcomeRatingJoin.js';
 import { emptyOlderDay, olderDayState } from '../utils/mapOlderDay.js';
+import { isShaped } from '../utils/pickScope.js';
 
 /**
  * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
@@ -295,6 +296,7 @@ export default function WindowFirstMapPane({
   const {
     heatSpots, heatPointSets, heatStripCards, upcomingEvents, reachById, homePlace, todayStr,
     origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions, tideLocked, driveLocked,
+    allowedLocationIds,
   } = useWindowFirstBriefing();
 
   // ── Ask PhotoCast (F3, docs/engineering/ask-photocast-plan.md §2.7) ─────────────────────────────
@@ -440,6 +442,14 @@ export default function WindowFirstMapPane({
    */
   const regionVerdictIndex = useMemo(
     () => buildRegionVerdictIndex(briefing?.days), [briefing?.days],
+  );
+  /**
+   * The served lead region of each window, for a body the server shaped by the reader's picks (S5a):
+   * a shaped region carries no mean for the pill's pick to rank by, so the server names the lead by
+   * verdict tier. Empty for everyone else. Built from the SAME `briefing.days` as the index above.
+   */
+  const shapedLeadIndex = useMemo(
+    () => buildShapedLeadIndex(briefing?.days), [briefing?.days],
   );
   /**
    * The map tab's tide-alignment glyph/tiebreaker/tooltip/callout-row source (bundle rev 2) —
@@ -643,6 +653,11 @@ export default function WindowFirstMapPane({
     return {
       enabled: heatSpots.length > 0,
       hasHome,
+      // The briefing body was shaped by the reader's sub-region picks (S5a): `Array.isArray` of the
+      // served `allowedLocationIds`, an empty array included. Never the role.
+      shaped: isShaped(allowedLocationIds),
+      // How many places the picks cover, as the server counted them (the legend's {n}); null unshaped.
+      allowedCount: isShaped(allowedLocationIds) ? allowedLocationIds.length : null,
       spots: heatSpots,
       areaSpots: framed,
       // The briefing's own point sets, plus the PAST windows' (`pastHeat`, built above and never in
@@ -768,7 +783,7 @@ export default function WindowFirstMapPane({
       beyondRegionNames: origin ? [] : beyondRegions(heatSpots, reachById),
     };
   }, [heatSpots, heatPointSets, servedWindowStates, heatStripCards, pastHeat, tideByWindow, reachById, homePlace,
-    todayStr, origin, effectiveReachById]);
+    todayStr, origin, effectiveReachById, allowedLocationIds]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -852,6 +867,7 @@ export default function WindowFirstMapPane({
         regionGlossIndex={regionGlossIndex}
         regionBestIndex={regionBestIndex}
         regionVerdictIndex={regionVerdictIndex}
+        shapedLeadIndex={shapedLeadIndex}
         tideAlignmentIndex={tideAlignmentIndex}
         // The served big-seas days (big-seas plan F1) — `undefined` when none qualifies, so
         // `MapView`'s stable empty default applies.

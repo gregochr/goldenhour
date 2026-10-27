@@ -91,7 +91,7 @@ function triageReasonOf(row) {
 }
 
 /**
- * What a window knows about one place — the layer's four states, beside its score.
+ * What a window knows about one place — the layer's five states, beside its score.
  *
  * <ul>
  *   <li>{@code rated} — the score row carries a valid rating;</li>
@@ -100,14 +100,23 @@ function triageReasonOf(row) {
  *   <li>{@code unrated} — a sky place with neither a rating nor a triage reason, a row with
  *   neither included and no row at all included: nobody has looked;</li>
  *   <li>{@code na} — not a sky subject (a wood, a wildlife hide): never rated by design, so never
- *   "not rated yet".</li>
+ *   "not rated yet";</li>
+ *   <li>{@code gated} — the server marked the place's row {@code gated: true}: it is outside the
+ *   reader's sub-regions (sub-regions-plan D6). It is <b>its own state, never "unrated"</b>: it is in
+ *   neither the colour pool, the hatch, the thin-sample count nor any "k of m". The state comes from
+ *   the row's own marker and nothing else — never from the role, never from a membership test here
+ *   (a place whose row carries no marker is simply not gated).</li>
  * </ul>
  *
  * @param {boolean} skySubject whether a sky verdict applies to the place at all
- * @param {?{rating: ?number, stood: boolean}} entry the window's score row, or null for none
- * @returns {'rated'|'stood'|'unrated'|'na'} the state
+ * @param {?{rating: ?number, stood: boolean, gated: boolean}} entry the window's score row, or null
+ *        for none
+ * @returns {'rated'|'stood'|'unrated'|'na'|'gated'} the state
  */
 function windowState(skySubject, entry) {
+  // Before the sky-subject test: a gated wood is still outside the picks, and the marker drawn for it
+  // must not depend on whether a sky verdict would have applied.
+  if (entry && entry.gated) return 'gated';
   if (!skySubject) return 'na';
   if (entry && entry.rating != null) return 'rated';
   if (entry && entry.stood) return 'stood';
@@ -156,7 +165,7 @@ function putFirst(index, key, value) {
  * @param {Array<{date: string, targetType: string}>} renderedEvents the windows, in render order
  * @returns {Array<{id: *, name: string, lat: number, lng: number, regionName: string, rid: string,
  *   skySubject: boolean, bortleClass: ?number, scores: Array<?number>,
- *   states: Array<'rated'|'stood'|'unrated'|'na'>}>} one spot per joinable location, with each
+ *   states: Array<'rated'|'stood'|'unrated'|'na'|'gated'>}>} one spot per joinable location, with each
  *   window's state beside its score
  */
 export function buildHeatSpots(locations, scoreRows, renderedEvents) {
@@ -177,7 +186,11 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
     // The rating plus whether the row is a weather stand-down (a triage reason) — one entry, so
     // the score and its state are read off the SAME row and cannot come from different indexes.
     const entry = {
-      rating: validRating(row.rating), stood: hasTriageReason(row), reason: triageReasonOf(row),
+      rating: validRating(row.rating),
+      stood: hasTriageReason(row),
+      reason: triageReasonOf(row),
+      // The server's own marker (`gated: true` on a shaped Lite response); absent everywhere else.
+      gated: row.gated === true,
     };
     if (row.locationId != null) putFirst(byId, `${row.locationId}|${tail}`, entry);
     if (row.locationName) putFirst(byName, `${row.locationName}|${tail}`, entry);
@@ -192,8 +205,7 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
     const lng = coord(location.lon);
     if (lat === null || lng === null) continue;
     const skySubject = isSkyPromptCandidate(location.locationType);
-    const found = events.map(({ date, targetType }) => {
-      if (!skySubject) return null;
+    const lookup = ({ date, targetType }) => {
       const tail = windowKey(date, targetType);
       // `has`, not a truthiness check on the value: a row that exists and carries no usable
       // rating is an ANSWER — "we looked, it is not scored" — and falling through to the
@@ -204,8 +216,11 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
       const nameKey = location.name ? `${location.name}|${tail}` : null;
       if (nameKey !== null && byName.has(nameKey)) return byName.get(nameKey);
       return null;
-    });
-    const scores = found.map((entry) => (entry ? entry.rating : null));
+    };
+    // A non-sky place is looked up too, but only for its gated marker: its scores stay withheld.
+    const rows = events.map(lookup);
+    const found = rows.map((entry) => (skySubject ? entry : (entry && entry.gated ? entry : null)));
+    const scores = found.map((entry) => (entry && !entry.gated ? entry.rating : null));
     const states = found.map((entry) => windowState(skySubject, entry));
     // The stand-down reason beside each window's state (big-seas plan F3): null unless the window
     // state is `stood`, so a rated place can never carry one however its rows collided.
@@ -457,6 +472,9 @@ export function forecastScoreRows(locations, windows) {
         rating: row.rating ?? null,
         // Only when there is one, so a row that never carried a reason is shaped as it always was.
         ...(row.triageReason ? { triageReason: row.triageReason } : {}),
+        // The server's gated marker rides through unchanged (a shaped Lite forecast row), so a past
+        // window's gated place is its own state here too; absent on every other row.
+        ...(row.gated === true ? { gated: true } : {}),
       });
     }
   }

@@ -32,10 +32,10 @@ final class ReviewedTypes {
         entry("BriefingDay", Set.of(
                 "date", "eventSummaries", "peak")),
         entry("BriefingEventSummary", Set.of(
-                "regions", "solarEventTime", "targetType", "unregioned", "window")),
+                "regions", "shapedLeadRegion", "solarEventTime", "targetType", "unregioned", "window")),
         entry("BriefingRegion", Set.of(
                 "bestRating", "confidence", "coverageReason", "displayVerdict", "forcedSample", "glossDetail",
-                "glossHeadline", "lightlyEvaluated", "meanRating", "meanRatingDelta",
+                "glossHeadline", "lightlyEvaluated", "meanRating", "meanRatingDelta", "picksBestRating",
                 "regionApparentTemperatureCelsius", "regionName", "regionTemperatureCelsius",
                 "regionWeatherCode", "regionWindSpeedMs", "sampleSufficient", "scoredLocationCount", "slots",
                 "summary", "tideHighlights", "verdict", "verdictLabel")),
