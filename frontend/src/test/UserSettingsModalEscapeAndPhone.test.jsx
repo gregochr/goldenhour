@@ -42,14 +42,18 @@ const PRO = { ...LITE, role: 'PRO_USER', username: 'alice' };
 
 const realMatchMedia = window.matchMedia;
 
+/** The `change` listeners `useIsMobile` registered, so a test can rotate the device. */
+let mediaListeners = [];
+
 /** `useIsMobile` asks `(max-width: 639px)`; answer it for the whole test. */
 function setPhone(isPhone) {
+  mediaListeners = [];
   window.matchMedia = (query) => ({
     matches: isPhone,
     media: query,
     onchange: null,
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener(_type, listener) { mediaListeners.push(listener); },
+    removeEventListener(_type, listener) { mediaListeners = mediaListeners.filter((l) => l !== listener); },
     addListener() {},
     removeListener() {},
     dispatchEvent() { return false; },
@@ -87,19 +91,38 @@ describe('Settings layout: the header is outside the scroller on a phone only', 
     expect(within(body).getByText('Profile')).toBeInTheDocument();
   });
 
-  it('desktop: no body wrapper, the panel scrolls, and the header is its direct child — unchanged', async () => {
+  it('desktop: the body wrapper is display: contents, the panel scrolls, and the header is its direct child', async () => {
     setPhone(false);
     render(<UserSettingsModal onClose={vi.fn()} />);
     await screen.findByText('bob');
     const header = screen.getByRole('button', { name: 'Close' }).parentElement;
     const panel = header.parentElement;
 
-    expect(screen.queryByTestId('settings-body')).toBeNull();
+    const body = screen.getByTestId('settings-body');
+    expect(body).toHaveClass('contents');
+    expect(body).not.toHaveClass('overflow-y-auto', 'flex-1', 'min-h-0');
+    expect(body.parentElement).toBe(panel);
     expect(panel).toHaveClass('max-h-full', 'overflow-y-auto');
     expect(header).not.toHaveClass('shrink-0');
     expect(panel.parentElement).toBe(screen.getByTestId('settings-modal'));
-    // The content sections are direct children of the panel again.
-    expect(screen.getByText('Profile').closest('section').parentElement.parentElement).toBe(panel);
+  });
+
+  it('rotating across 639px keeps the body mounted: no refetch, same DOM nodes', async () => {
+    setPhone(true);
+    render(<UserSettingsModal onClose={vi.fn()} />);
+    const section = await screen.findByTestId('sub-regions-section');
+    const body = screen.getByTestId('settings-body');
+    expect(body).toHaveClass('overflow-y-auto');
+    const reads = getSubRegions.mock.calls.length;
+    const settingsReads = getSettings.mock.calls.length;
+
+    act(() => { mediaListeners.forEach((l) => l({ matches: false })); });
+
+    expect(screen.getByTestId('settings-body')).toBe(body);
+    expect(body).toHaveClass('contents');
+    expect(screen.getByTestId('sub-regions-section')).toBe(section);
+    expect(getSubRegions.mock.calls.length).toBe(reads);
+    expect(getSettings.mock.calls.length).toBe(settingsReads);
   });
 });
 

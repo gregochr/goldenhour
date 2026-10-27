@@ -634,8 +634,10 @@ export default function UserSettingsModal({
     );
   }
 
-  // The body, built once so the phone and the wider layouts render the same nodes. On a phone it is
-  // wrapped in its own scroller below; elsewhere it is a direct child of the panel, as it always was.
+  // The body is ALWAYS wrapped in the same div: a phone rotated to landscape crosses 639px, and
+  // swapping a Fragment for a div at that moment would remount everything inside (the sub-region
+  // section would refetch, lose its draft and reopen its picker). On a phone the div is the scroller;
+  // elsewhere `contents` removes its box, so the layout is the one it always was.
   const body = (
     <>
       {loading ? (
@@ -1085,11 +1087,12 @@ export default function UserSettingsModal({
         <button onClick={closeUnlessDeleting} className="text-plex-text-muted hover:text-plex-text text-lg" aria-label="Close">&times;</button>
       </div>
 
-      {isMobile ? (
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="settings-body">
-          {body}
-        </div>
-      ) : body}
+      <div
+        className={isMobile ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain' : 'contents'}
+        data-testid="settings-body"
+      >
+        {body}
+      </div>
     </Modal>
   );
 }

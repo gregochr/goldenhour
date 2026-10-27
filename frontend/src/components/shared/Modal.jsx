@@ -248,7 +248,7 @@ export default function Modal({
     if (!closeOnEscape || !onClose) return undefined;
     // Document-level: the dialog root is focusable but its descendants are where a reader actually
     // is, and keydown from a portalled child would not bubble through this subtree at all.
-    const onKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKeyDown = (e) => { if (e.key === 'Escape' && !e.isComposing) onClose(); };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [closeOnEscape, onClose]);

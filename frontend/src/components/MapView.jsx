@@ -6256,9 +6256,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * for the frame between the press and `Modal` claiming it.
    *
    * <p>⚠️ <b>It stands down for EVERY foreign modal, including ones that do not dismiss on Escape</b>
-   * — `UserSettingsModal` is exactly that (three `Modal` sites, none passing `closeOnEscape`, one of
-   * them a deliberately unclosable spinner). So with settings open over the map, a press that used
-   * to deselect the callout now does nothing at all. That is the intended reading rather than an
+   * — `UserSettingsModal` was the case that made the rule absolute (its spinner is deliberately
+   * unclosable, and its sub-region layers dismiss on their own Escape). Settings itself now closes on
+   * Escape; this stand-down is why that same press does not also deselect the callout behind it. That is the intended reading rather than an
    * overreach: a key pressed while a modal is up must not operate the page behind it, and silently
    * dropping a selection the reader cannot currently see was the worse of the two answers.
    *
@@ -6280,8 +6280,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // panel was open — and L3 is what makes "panel open behind a foreign modal" an ordinary state,
     // because a press on the map no longer closes the panel on the way to opening the sheet. One
     // Escape then closed the four-day sheet AND the panel behind it (`map-tab-v2-plan.md` O-20's
-    // named defect), and with `UserSettingsModal` up — which does not close on Escape at all — it
-    // silently closed a panel the reader could not even see. The rule this handler's own doc states
+    // named defect), and with `UserSettingsModal` up it
+    // silently closed a panel the reader could not even see (Settings now closes on Escape itself;
+    // the `mapForeignModal` stand-down keeps the press from also acting on the map). The rule this handler's own doc states
     // is absolute: a key pressed while a modal is up must not operate the page behind it.
     //
     // Escape CLOSES an open panel rather than standing down for it (map-landing-plan.md §3 L3).
