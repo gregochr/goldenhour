@@ -5,6 +5,60 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.33.5] - 2026-10-27
+
+### Changed — the admin Users screen, rebuilt around the reader panel
+
+Manage → Data → Users is now one searchable list and, beside it, a panel for the reader you open. The list has a single search box over username or email, role chips (Lite, Pro, Admin) and toggle chips (Awaiting verification, Disabled, No sub-regions, Locked, Over limit) that each show a count, plain role names instead of `LITE_USER`, a status dot, UK dates, and a Sub-regions column that says how many, and whether they are locked or free to change. Rows hold no buttons: click one, or press Enter, and the panel opens, with the reader in the address (`#manage/users/{id}`). The panel gathers what the old ▶ row and the Edit screen held: account, sub-regions (with Change picks and Clear lock), preferences and legal, and the account actions, each of which asks first in plain words. An account still waiting for its verification email is its own status, with a Resend verification email button, instead of reading as "Disabled". Add user opens in the panel too. A note says while sub-region filtering is off that picks are saved but do not limit anyone's ratings yet.
+
+`GET /api/users` gains `subRegionStatus`, `freeUntil`, `nextChangeOn`, `overLimit`, `awaitingVerification` and `verificationSentAt`, computed for the whole list in one pass, and `GET /api/users/{id}/sub-regions` now carries the sub-region options. Admin only; nothing a Lite, Pro or anonymous reader sees has changed.
+
+### Added — the tide rows on the Map's four-day strip now show where the water meets the light
+
+On the Map tab's "Hot topics · next four days" strip, the Spring tide, King tide and Storm surge rows carry an `HW` (filled) or `LW` (outlined) mark over every sunrise or sunset that has that water within 60 minutes of the light, and nothing over a mid-tide window. The window on the map has a ring on its mark and a line under the grid that says what it is: `Fri sunrise 06:56 · high water 08:05, 1h09 after · 4.6 m · North Shields`, or, for a window the water misses, `mid tide · high water 18:57, 2h17 after`. The topic chip above the map gains the same verdict between its name and its count (`HW on the light`, `LW on the light`, `mid tide`). A tide run's label gains a second line with the biggest day on the strip and its range (`peak Tue · 4.9 m`; just `peak Tue` on the phone sheet). A bar's accessible name now lists which windows have high or low water on the light.
+
+All of it is Pro and Admin only: a Lite reader's rows, chip and locked tide doors are unchanged. The call is the server's, on the one threshold the tide run already uses (60 minutes, inclusive, decided by the owner on 2026-10-27 and deliberately tighter than the design's ±90), so the strip and the Plan tab's tide wording cannot disagree. `BriefingWindowTide` (on `GET /api/briefing`) gains `lightAlignment` (`HW`, `LW`, or `NONE`), the nearest extreme's `nearestHeight` and the station's own `eventTime`, all stripped for Lite in `forLite()` with `nearestOffset`. Big seas, whose HW ticks are a different event, is untouched.
+
+### Added — the Map's change-your-sub-regions buttons, Pro doors and the location sheet for a place outside a Lite reader's sub-regions (S5a-3), dark until enforcement is on
+
+For a Lite reader the Map now offers the way to change their sub-regions where the need appears. A region panel with none of their picks, and the sheet of a place outside them, show their status in S4's own words and a button that opens Settings on the picker: **Choose your sub-regions** at first, **Change your sub-regions** while a change is allowed, **Add a sub-region** while locked with room to spare, and, when locked at the limit, no button but "You can next change your sub-regions on 25 November." The picker opens by itself once Settings has loaded, and saving there refreshes the map. The Map's legend shows the same **Choose your sub-regions** button for a reader with no pick yet, on desktop and in the phone peek sheet.
+
+Three Pro doors sit where the reader meets the edge of their picks: **Ratings across the {region}** in the panel of a region with no pick, **Every sub-region** under the actions of a region with picks, and **Ratings at {place}** in a place's sheet. Each is the house door: a Pro label inside the button, a short explanation with real counts and example places, "Not now", Escape closes only the door, no link. A surface carries one.
+
+A place outside their sub-regions now has its own sheet: a grey **Outside your sub-regions** badge, a line saying the place has no ratings for them while its light times and the region's forecast still show, and no "Not scored yet", no "best here" and no lead line over the rows. The Map's callout for such a place says **Outside your sub-regions**, no longer "Not rated".
+
+All of it draws only when `photocast.sub-regions.enforce` is on and the reader is shaped by the server; with enforcement off, and for Pro and Admin, nothing changes and no extra request is made.
+
+### Added — the Map's labels, scope control, window panel and region panel speak for a Lite reader's sub-regions (S5a-2), dark until enforcement is on
+
+For a Lite reader the Map's chrome now knows which places are theirs. Zoomed out, each region's name carries a third line: "2 sub-regions picked" (or "1 sub-region picked"), or "outside your sub-regions" in grey where they hold none. The filters panel gains a scope control, **Your sub-regions | Everywhere**, that only moves the camera (to the places they can see, or to everything) and changes no count. In the window panel, regions with a pick of theirs come first, then by verdict; a region with none reads "Outside your sub-regions · 62 places", keeps its verdict word and shows a Pro label where the best star would be, and a region with picks reads "6 of 21 at 4★+ · 3 more outside". When the window's best region is outside their sub-regions, a note says so and names the best region that is inside them. The region panel for a region with no picks lists its sub-regions with their place counts under "Ratings here are outside your sub-regions."; one with picks lists the outside places under an "OUTSIDE YOUR SUB-REGIONS" heading, three at a time past four, each opening the place's sheet. The window dropdown no longer prints a dash against a window whose best star the server withholds. On a phone, where the Map legend is not drawn, the same key and note sit in the peek sheet's Layers section.
+
+All of it draws only when `photocast.sub-regions.enforce` is on and the reader is shaped by the server (the briefing carries `allowedLocationIds`); with enforcement off, and for Pro and Admin, the Map is exactly what it was. Doors, the change-your-sub-regions buttons and the location sheet's outside variant follow in S5a-3.
+
+### Added — the Map draws the places outside a Lite reader's sub-regions as their own ground (S5a-1), dark until enforcement is on
+
+For a Lite reader the Map now says which places are theirs. A place outside their sub-regions is no longer left to look "not rated yet": it is washed with a flat, neutral grey on the map under the colour, the reader's own sub-regions are traced by a dashed pale line, and each outside place shows as a small grey dot with its name (its screen-reader name says "outside your sub-regions"). Outside places are left out of every count on the Map ("x of y shown", the pill's "n rated"), the hatch and the colour. The legend gains "outside your sub-regions" (with a plain Pro label) and "your sub-regions" rows and a note, "Colour shows the 40 places in your sub-regions. Pro rates all 260." A reader with no picks sees the whole map greyed and is told to choose them in Settings. The window pill keeps its verdict word and shows no star.
+
+All of it draws only when `photocast.sub-regions.enforce` is on and the reader is shaped by the server (the briefing carries `allowedLocationIds`); with enforcement off, and for Pro and Admin, the Map is byte-for-byte what it was. Behind it: `GET /api/locations` now carries each place's `subRegionId` and `subRegionName`; each briefing region of a shaped response carries `picksBestRating` (the best star among the reader's own places, never an unpicked one) and each window carries `shapedLeadRegion` (the region it leads with, chosen by verdict tier alone, so the pill keeps its word after the means are stripped).
+
+### Added — the sub-region picker (S4), dark until enforcement is on
+
+A Lite reader can now choose their sub-regions: a "Choose your sub-regions" step after "Where's home?" when registering, the same card as a prompt at sign-in for a Lite reader who has none (a Pro account demoted before it ever chose), and a "Your sub-regions" section in Settings (desktop inline, phone bottom sheet) that shows the picks, the lock or free-week line for the reader's status, add-while-locked, removals-only over a lowered limit, and a save confirmation only when the save starts a lock. Pro sees "Pro covers every sub-region"; Admin sees nothing. After a save the cached briefing and forecasts are dropped and fetched again.
+
+Everything is drawn only when `GET /api/user/settings/sub-regions` says `enforced`, so with `photocast.sub-regions.enforce` off (the shipped state) registration, sign-in and Settings are unchanged for every role. The GET gains two server-computed dates, `freeUntilIfChosenToday` and `nextChangeOnIfSavedToday`, so the client does no date arithmetic.
+
+### Docs — homepage tides feature names Pro's tide alignment
+
+The tides feature's Pro sentence now says what Pro does: it finds when each coastal location's preferred tide lines up with sunrise or sunset.
+
+### Docs — homepage editorial touches
+
+The founder story gains a closing paragraph, the tides feature leads with what every reader gets and ends on what Pro adds (its Pro pill goes, since tide information is not Pro-only), two FAQ questions read more naturally ("Which areas…", "How far ahead can I see forecasts?"), the homepage accuracy answer is shorter, and "promising" is used less often.
+
+### Removed — the legacy actual_outcome table is dropped
+
+Migration V195 drops the `actual_outcome` table that the old free-text outcome API wrote to; its code was removed earlier. Its one real row was moved into `outcome_rating` on production first.
+
 ## [v2.33.4] - 2026-10-27
 
 ### Added — invite someone from the waitlist, and a harder public waitlist form
