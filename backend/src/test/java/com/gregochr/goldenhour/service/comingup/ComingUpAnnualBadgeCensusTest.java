@@ -11,7 +11,6 @@ import com.gregochr.goldenhour.service.LunarPhaseService;
 import com.gregochr.goldenhour.service.MeteorAlmanacSource;
 import com.gregochr.goldenhour.service.NlcClarityService;
 import com.gregochr.goldenhour.service.NlcSeasonAlmanacSource;
-import com.gregochr.goldenhour.service.PlanHorizon;
 import com.gregochr.goldenhour.service.SolarAlignmentAlmanacSource;
 import com.gregochr.goldenhour.service.SupermoonAlmanacSource;
 import com.gregochr.goldenhour.service.TideRunBuilder;
@@ -150,10 +149,10 @@ class ComingUpAnnualBadgeCensusTest {
             // kind assertions below, but worth matching exactly rather than leaving as a fidelity
             // gap against "the real ComingUpAssembler, assembled the way production assembles it".
             all = all.stream().sorted().toList();
-            // The same eligibility filter AlmanacService.assemble applies (plan D1).
-            LocalDate cutoff = PlanHorizon.lastPlanDate(build);
+            // The same eligibility filter AlmanacService.assemble applies (not yet ended).
+            LocalDate builtFor = build;
             List<AlmanacEvent> eligible = all.stream()
-                    .filter(event -> event.endDate().isAfter(cutoff))
+                    .filter(event -> !event.endDate().isBefore(builtFor))
                     .toList();
             ComingUpResponse response = assembler.assemble(build, eligible);
 

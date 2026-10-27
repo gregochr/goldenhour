@@ -255,13 +255,13 @@ export default function WindowFirstComingUp({
 
           {/* ⚠️ SCOPED TO THE DATED LIST — "No dates", never a bare "Nothing coming up".
               `totalEntries` counts `events.entries` alone, and the "Next four days" strip below (not
-              gated on `ready`, since it reads `hotTopics`) can still show content when the
-              chronology has none. A broader sentence here therefore prints a denial directly above
-              live content — which is what the pre-copy-pass wording avoided with the word "dated",
-              and what a Codex review of #748 caught when the copy pass dropped it. */}
+              gated on `ready`, since it reads `hotTopics`) can still show weather-driven content
+              when the dated list has none. A broader sentence here therefore prints a denial
+              directly above live content — which is what the pre-copy-pass wording avoided with the
+              word "dated", and what a Codex review of #748 caught when the copy pass dropped it. */}
           {status === 'ready' && totalEntries === 0 && (
             <p className="wf-cu-note" data-testid="coming-up-empty">
-              {`No dates coming up in the next ${ALMANAC_DAYS} days beyond the four-day forecast.`}
+              {`No dates coming up in the next ${ALMANAC_DAYS} days.`}
             </p>
           )}
 

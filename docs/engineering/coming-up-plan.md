@@ -139,6 +139,10 @@ restates the design's "the chronology never contains a date inside Plan's window
 contains an entry that *ends* inside Plan's window" — recorded as §11.10. Status interaction: see
 D11's precedence rule.
 
+> **Superseded 2026-10-27 (`coming-up-near-term-plan.md`):** eligibility is now "has not ended"
+> (`endDate >= today`). Events wholly inside Plan's four days keep their full card; the tiles stay as a
+> pointer. `PlanHorizon` remains for the hot-topic window only.
+
 **D2 — The payload stays on `GET /api/almanac`, wrapped, and stays user-independent.** The response
 changes from a raw `List<AlmanacEvent>` to a wrapper DTO — the complete schema is **§13, the single
 source of truth**. The frontend is the endpoint's only consumer, so the shape change is coordinated
@@ -871,6 +875,8 @@ purpose, so a later reader stops hunting for the "missing" piece.)
 10. **The eligibility hard rule is restated**: "never contains an entry that *ends* inside Plan's
     window" — a straddling run is in the chronology (and is `promoted` in the strip, D11), where
     the design's absolute wording would exclude it.
+    > **Superseded 2026-10-27 (`coming-up-near-term-plan.md`):** the rule is now simply "has not ended";
+    > entries wholly inside Plan's window are served too.
 11. **`enteredWindow` is a lower bound, not an exact arrival, for tide runs** (weekly-fetch far
     edge) and for anything appearing for a non-sliding-edge reason — such entries silently never
     badge. Accepted: silence is the chosen failure direction throughout (D3).

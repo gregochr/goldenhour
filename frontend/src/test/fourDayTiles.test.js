@@ -205,7 +205,7 @@ describe('buildFourDayTiles — the jump (§2.3: the entry\'s own span must cove
     id: 'spring-tide:2026-11-08:2026-11-10', startDate: '2026-11-08', endDate: '2026-11-10',
   });
 
-  it('⚠️ gives a Sunday tide chip NO jump when its run ends Monday and only a November run is rendered', () => {
+  it('⚠️ gives a Sunday tide chip NO jump when its own run has no rendered entry (filtered out) and only a November run is rendered', () => {
     const result = tiles({
       // A run of two days: Sunday is day 1 of 2, Monday day 2 of 2.
       hotTopics: [
@@ -217,6 +217,27 @@ describe('buildFourDayTiles — the jump (§2.3: the entry\'s own span must cove
     });
     expect(chipsOf(result, SUN)[0].jump).toBeNull();
     expect(chipsOf(result, MON)[0].jump).toBeNull();
+  });
+
+  it('a chip on a date covered by a rendered entry wholly inside the four days gets a jump, which the chip prefers over its Glance target', () => {
+    const near = entry({
+      id: 'spring-tide:2026-10-25:2026-10-26', startDate: SUN, endDate: MON,
+    });
+    const result = tiles({
+      hotTopics: [
+        tide(SUN, { tideRun: { dayNumber: 1, dayCount: 2, peak: false } }),
+        tide(MON, { tideRun: { dayNumber: 2, dayCount: 2, peak: true } }),
+      ],
+      entries: [near],
+      renderedEntryIds: new Set([near.id]),
+      openableKeys: new Set([`${SUN}:SUNSET`, `${MON}:SUNSET`]),
+    });
+    for (const date of [SUN, MON]) {
+      const chip = chipsOf(result, date)[0];
+      // The Glance target is still computed, but the component prefers `jump` (WindowComingUpFourDays).
+      expect(chip.target, date).toBe(`${date}:SUNSET`);
+      expect(chip.jump, date).toEqual({ entryId: near.id });
+    }
   });
 
   it('jumps on every in-window day a straddling run covers', () => {

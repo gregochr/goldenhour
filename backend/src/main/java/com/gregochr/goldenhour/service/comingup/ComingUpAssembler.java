@@ -144,7 +144,8 @@ public class ComingUpAssembler {
      * Plan-owned merge partners.
      *
      * @param builtFor       the UK civil date the feed is built for
-     * @param eligibleEvents events past Plan's boundary (plan D1), any order
+     * @param eligibleEvents events that have not yet ended (plan D1 as amended by
+     *                       coming-up-near-term-plan.md), any order
      * @return the wrapped response, entries sorted by start date then span length then type
      */
     public ComingUpResponse assemble(LocalDate builtFor, List<AlmanacEvent> eligibleEvents) {
@@ -155,6 +156,9 @@ public class ComingUpAssembler {
      * Builds the full response from the events that already cleared eligibility, pairing them
      * against the events Plan owns too (supermoon-tide-run-plan.md §4.7).
      *
+     * <p>Production no longer passes partners (coming-up-near-term-plan.md: every event that has not
+     * ended is eligible), so this path is exercised only by its own tests and is a candidate for removal.
+     *
      * <p>{@code partnersOnly} events (those ending inside Plan's window) are staged but used ONLY as
      * D10 merge partners: one that pairs with an eligible event is merged into it, one that pairs
      * with nothing is dropped, and two of them never pair with each other (their union would end
@@ -162,8 +166,8 @@ public class ComingUpAssembler {
      * alone.
      *
      * @param builtFor       the UK civil date the feed is built for
-     * @param eligibleEvents events past Plan's boundary (plan D1), any order
-     * @param partnersOnly   events inside Plan's window, considered only as merge partners
+     * @param eligibleEvents events that have not yet ended, any order
+     * @param partnersOnly   events wholly inside Plan's window, considered only as merge partners
      * @return the wrapped response, entries sorted by start date then span length then type
      */
     public ComingUpResponse assemble(LocalDate builtFor, List<AlmanacEvent> eligibleEvents,
@@ -293,8 +297,8 @@ public class ComingUpAssembler {
         /** The location a tide run's range, bars and a merged supermoon's moonrise are measured at;
          * null for any other type, or when no peak range could be derived. */
         LocationEntity representative;
-        /** True for a Plan-owned event staged only as a merge partner (supermoon-tide-run-plan.md
-         * §4.7); dropped unless a merge consumes it. */
+        /** True for an event staged only as a merge partner (supermoon-tide-run-plan.md §4.7; no longer
+         * passed by production, see coming-up-near-term-plan.md); dropped unless a merge consumes it. */
         boolean partnerOnly;
         /** The later, bigger run a "biggest until" superlative names — resolved to a date only after
          * the merge, from that run's final card (see {@link #resolveSuperlativeDates}). */

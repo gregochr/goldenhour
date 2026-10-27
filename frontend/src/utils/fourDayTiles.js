@@ -22,9 +22,9 @@ import { topicStyle } from './topicPalette.js';
  * the chip's date. For a tide that span is the tide's own days (see {@link tideSpan}): an unmerged
  * entry's {@code startDate..endDate}, or a merged entry's {@code dayRanges}, because a merged entry's
  * own dates are the UNION of every topic it carries. For every other type it is
- * {@code startDate <= date <= endDate}. There is no "next run in the list" fallback: the server keeps
- * a tide run in {@code /api/almanac} only when it runs past the last Plan day, so a run that ends
- * inside the four days has no entry, and aiming its chip at next month's run would be a lie.
+ * {@code startDate <= date <= endDate}. There is no "next run in the list" fallback: a run
+ * whose entry is not rendered (filtered out, or not yet loaded) gets no jump, and aiming its chip
+ * at next month's run would be a lie.
  *
  * <p><b>The Map door</b> belongs to weather chips only, and only for a date the reader holds a colour
  * forecast for. {@code forecastDates} is three-valued: null is "not known yet" and withholds nothing;
