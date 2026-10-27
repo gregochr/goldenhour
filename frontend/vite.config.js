@@ -29,8 +29,9 @@ export default defineConfig(({ mode }) => {
       registerType: 'autoUpdate',
       // Web-app manifest so the app can be installed / added to a Home Screen. Icons are the film-spine
       // "P" mark from the header lockup (see public/favicon.svg): the 192 and 512 squares are rounded,
-      // purpose "any", and pwa-maskable-512x512.png is the same art scaled into the central 80% safe
-      // zone on a full-bleed background so Android's adaptive-icon mask never crops the spine or the P.
+      // purpose "any", and pwa-maskable-512x512.png is a separate full-bleed variant whose shorter
+      // spine and P are scaled to sit wholly inside the 80% safe-zone circle, so Android's adaptive-icon
+      // mask never crops either.
       // Theme/background match the dark UI (--color-plex-bg) so the splash and status bar don't flash
       // white on launch.
       // No `includeAssets`: favicon/apple-touch-icon are served on demand rather than precached.
