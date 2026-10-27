@@ -62,6 +62,10 @@ const TALL_TOP_MARGIN = 24;
  * @param {React.ReactNode} [props.footer] - A node held BELOW the scroller and outside it, for a
  *        control that must stay put while the content scrolls (Ask's input row). Rendered only when
  *        given: without it nothing is added to the sheet.
+ * @param {React.ReactNode} [props.header] - A node held ABOVE the scroller and outside it, so a title and
+ *        status stay put while the body scrolls, and clear of the close button (padded on the right).
+ *        Rendered only when given: without it nothing is added. Meant for the `'tall'` sheet, whose flex
+ *        column gives the scroller whatever height the header and footer leave.
  * @param {React.ReactNode} props.children - Content rendered inside the sheet.
  * @param {?Function} [props.restoreFallback] - forwarded to `useDialogFocus`'s own option of the
  *        same name (map-mobile-sheet-plan.md §3 M2 task 6): where to send focus on close when the
@@ -72,7 +76,7 @@ const TALL_TOP_MARGIN = 24;
  */
 export default function BottomSheet({
   open, onClose, label = 'Details', modal = true, reserveCloseStrip = false, restoreFallback = null,
-  size = 'default', closeOnEscape = false, footer = null, children,
+  size = 'default', closeOnEscape = false, footer = null, header = null, children,
 }) {
   const tall = size === 'tall';
   // Prevent body scroll while open
@@ -187,6 +191,10 @@ export default function BottomSheet({
             answer would squeeze this strip and slide the scroller up under the button. */}
         {reserveCloseStrip && <div aria-hidden="true" data-testid="bottom-sheet-strip" className="h-6 shrink-0" />}
 
+        {header && (
+          <div data-testid="bottom-sheet-header" className="shrink-0 px-4 pb-2 pr-12">{header}</div>
+        )}
+
         {/* Scrollable content */}
         {/* `- var(--safe-b)`: the outer sheet is `60vh` INCLUDING its new safe padding, so this
             budget has to give the same ground back or the scroll viewport overruns the padding box
@@ -215,5 +223,6 @@ BottomSheet.propTypes = {
   size: PropTypes.oneOf(['default', 'tall']),
   closeOnEscape: PropTypes.bool,
   footer: PropTypes.node,
+  header: PropTypes.node,
   children: PropTypes.node,
 };

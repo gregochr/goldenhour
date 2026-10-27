@@ -515,6 +515,13 @@
       align-items: center;
       padding-top: var(--safe-t);
     }
+
+    /* The sub-region step (520px, taller than most viewports) keeps air above the lockup when it
+       overflows: centred content that overflows is clipped at the TOP with no way to scroll to it, so
+       the page needs its own top padding here. Only that step sets the attribute. */
+    .auth-shell[data-wide] {
+      padding-top: max(2rem, var(--safe-t));
+    }
   }
 }
 

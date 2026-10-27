@@ -41,7 +41,7 @@ class UserSubRegionControllerTest extends AbstractControllerTest {
                 List.of(new SubRegionState.Pick(10L, "Wensleydale", "The Yorkshire Dales")),
                 List.of(new SubRegionState.RegionOptions(1L, "The Yorkshire Dales", List.of(
                         new SubRegionState.Option(10L, "Wensleydale", 7, List.of("Aysgarth Falls", "Bolton Castle"))))),
-                List.of(10L), status, LocalDate.of(2026, 11, 1), null, null);
+                List.of(10L), status, LocalDate.of(2026, 11, 1), null, null, null, null);
     }
 
     // --- GET /api/user/settings/sub-regions ---
@@ -65,7 +65,23 @@ class UserSubRegionControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.options[0].subRegions[0].exampleLocations[1]").value("Bolton Castle"))
                 .andExpect(jsonPath("$.suggested[0]").value(10))
                 .andExpect(jsonPath("$.nextChangeOn").doesNotExist())
+                .andExpect(jsonPath("$.freeUntilIfChosenToday").doesNotExist())
+                .andExpect(jsonPath("$.nextChangeOnIfSavedToday").doesNotExist())
                 .andExpect(jsonPath("$.overLimit").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser(username = "anna", roles = "LITE_USER")
+    @DisplayName("GET serialises the two prospective dates as ISO dates when the service states them")
+    void get_serialisesTheProspectiveDates() throws Exception {
+        when(userSubRegionService.getState("anna")).thenReturn(new SubRegionState(true, 3, List.of(), List.of(),
+                List.of(), SubRegionState.FIRST_CHOICE, null, null, null, LocalDate.of(2026, 11, 1),
+                LocalDate.of(2026, 11, 25)));
+
+        mockMvc.perform(get("/api/user/settings/sub-regions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.freeUntilIfChosenToday").value("2026-11-01"))
+                .andExpect(jsonPath("$.nextChangeOnIfSavedToday").value("2026-11-25"));
     }
 
     @Test
@@ -73,7 +89,7 @@ class UserSubRegionControllerTest extends AbstractControllerTest {
     @DisplayName("GET is open to Pro: the service answers NOT_APPLICABLE")
     void get_asPro_isNotApplicable() throws Exception {
         when(userSubRegionService.getState("pat")).thenReturn(new SubRegionState(true, 3, List.of(), List.of(),
-                List.of(), SubRegionState.NOT_APPLICABLE, null, null, null));
+                List.of(), SubRegionState.NOT_APPLICABLE, null, null, null, null, null));
 
         mockMvc.perform(get("/api/user/settings/sub-regions"))
                 .andExpect(status().isOk())

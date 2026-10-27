@@ -384,6 +384,18 @@ public class UserSubRegionService {
             status = SubRegionState.OPEN;
         }
         Boolean overLimit = lite && pickIds.size() > limit ? Boolean.TRUE : null;
+        // What a save made today would set, so the client never does date arithmetic (backend-heavy).
+        boolean graceEnded = graceUntil != null && today.isAfter(graceUntil);
+        LocalDate freeUntilIfChosenToday = null;
+        LocalDate nextChangeOnIfSavedToday = null;
+        if (SubRegionState.FIRST_CHOICE.equals(status) && !graceEnded) {
+            freeUntilIfChosenToday = graceUntil != null ? graceUntil
+                    : today.plusDays(properties.getGraceDays() - 1L);
+        } else if (SubRegionState.OPEN.equals(status) || SubRegionState.FREE_UNTIL.equals(status)
+                || (SubRegionState.FIRST_CHOICE.equals(status) && graceEnded)) {
+            nextChangeOnIfSavedToday = nextChangeOn(graceUntil, LocalDateTime.now(clock),
+                    properties.getLockDays());
+        }
 
         List<AreaEntity> subRegions = areaRepository.findByKind(AreaKind.SUB_REGION);
         Map<Long, AreaEntity> byId = subRegions.stream().collect(Collectors.toMap(AreaEntity::getId, a -> a));
@@ -406,7 +418,7 @@ public class UserSubRegionService {
             }
         }
         return new SubRegionState(properties.isEnforce(), limit, picks, options, suggested, status, freeUntil,
-                lockedUntil, overLimit);
+                lockedUntil, overLimit, freeUntilIfChosenToday, nextChangeOnIfSavedToday);
     }
 
     private static List<SubRegionState.RegionOptions> optionsOf(List<AreaEntity> subRegions,

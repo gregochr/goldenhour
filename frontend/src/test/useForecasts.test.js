@@ -679,4 +679,18 @@ describe('useForecasts — older days', () => {
     await act(async () => { await result.current.loadOlderDay(null); });
     expect(fetchForecastsForDate).not.toHaveBeenCalled();
   });
+  it('drops a slow earlier response that lands after a newer refresh, so old-pick forecasts never come back', async () => {
+    let releaseSlow;
+    fetchForecasts.mockReturnValueOnce(new Promise((resolve) => { releaseSlow = resolve; }));
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
+    const { result } = renderHook(() => useForecasts());
+    // The newer refresh (a sub-region save) answers first.
+    fetchForecasts.mockResolvedValueOnce([row('2026-03-03', 'SUNSET', { rating: 5 })]);
+    await act(async () => { await result.current.refresh(); });
+    expect(bamburgh(result).forecastsByDate.get('2026-03-03').sunset.rating).toBe(5);
+
+    await act(async () => { releaseSlow([row('2026-03-03', 'SUNSET', { rating: 1 })]); });
+
+    expect(bamburgh(result).forecastsByDate.get('2026-03-03').sunset.rating).toBe(5);
+  });
 });

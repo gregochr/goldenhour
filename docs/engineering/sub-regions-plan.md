@@ -336,6 +336,60 @@ server strip dark until S5's client is in, so S3 may land first.
 | Picks and rule | Grace started at pending registration, not at use: it now starts at the first choice; every swap stamps; civil dates; an atomic lock; cascades; the registration step after HOME; admin tools; config validation and a lowered limit. |
 | Consistency | Supersession of the 2026-10-25 freemium split recorded, with an S6 flip; gated must not read as unrated (honesty filter); picker hidden until enforced; missing surfaces (scope controls, Plan cards, astro, past windows, SWR); per-phase tests; new questions Q7–Q10. |
 
+## §11 S4 build notes (2026-10-27)
+
+**The UI spec** for S4 is the owner's Claude Design export, "design_handoff_sub_regions" (Part A: the picker, A1 to A7;
+Part B, the Users tab rebuild, is a later phase and was not built). The handoff lives with the owner, not in the repo;
+where it and `frontend/src/index.css` disagree the codebase won (existing `card`, `btn-primary`, `btn-secondary`,
+`Modal`, `BottomSheet`, `ErrorBanner`, `ProTag`).
+
+**Two server-computed fields on `GET /api/user/settings/sub-regions`** (`SubRegionState`, NON_NULL), so the client does
+no date arithmetic (*Backend-heavy*):
+
+- `freeUntilIfChosenToday`: `FIRST_CHOICE` only. The grace end a first save today would set: `today + grace-days - 1`,
+  or the grace end the reader already holds if it has not ended (an admin cleared every pick). Absent when that grace
+  has ended. Used for the registration and sign-in rule line.
+- `nextChangeOnIfSavedToday`: `OPEN`, and `FIRST_CHOICE` once grace has ended. The first day a swap would be allowed
+  after a save today that stamps a lock, `max(graceUntil + 1, today + lock-days)` (§4.3), read on the UK calendar
+  (`nextChangeOn(graceUntil, now, lockDays)`). Used for the save confirmation title.
+
+**The handoff's date rule was wrong.** It titled the confirmation "today + lock-days - 1" (and asked whether the server
+uses +30 or +29). The server's rule (§4.3) is `max(graceUntil + 1, changedOn + lock-days)`: a save on 26 October with
+lock 30 is 25 November (`today + 30`, not `+ 29`), and a save late in the first week is held to `graceUntil + 1` if that
+is later. Tested on a fixed `Clock`, including a BST midnight (`UserSubRegionServiceJpaTest`).
+
+**Departures from the handoff, all deliberate.**
+
+- *Phone save confirmation* replaces the content of the picker's own bottom sheet rather than opening a third dialog
+  (Settings, sheet, confirmation would break the two-stacked limit). Desktop uses a `Modal` portalled to `<body>` so
+  Settings' `inert` (`stacked`) does not reach it.
+- *The sign-in prompt* is a modal dialog over the already-mounted app (the `PostcodePromptOverlay` shape), not a gate
+  before it: the answer arrives one request after mount, and a gate would delay every sign-in with the flag off.
+- *"Step 5 of 6"* is read off the registration flow list, and is correct whenever the step is shown (it skips itself
+  otherwise).
+- *Limit words* (one to ten) apply to the suggestion line only; the intro keeps digits.
+- *Toasts* are a small portalled status line (`SubRegionToast`); the app has no toast system. A failed save is an
+  inline alert, and the picker stays open for a retry. On 409 `SUB_REGIONS_LOCKED` the dialog closes, the state is
+  read again, and the status line states the date.
+- *"30 days"* in the copy is the config default (`lock-days`); the server sends no lock length, so a changed config
+  would need the copy revisited.
+- *Refetch after a save*: the briefing provider gains a `subRegionsVersion` prop (refetches briefing and ratings
+  when it moves) and `App` also calls the forecasts' `refresh`; `clearSwrCache()` runs first, only on success.
+
+**Review and browser-check follow-ups (same day).** Registration waits for the sub-region read with HOME's buttons held
+(`PostcodeCapture` now awaits `onSaved`) and gives up after 4 s, carrying on to the Welcome. The sign-in prompt waits
+while any other modal is up (`useModalPresent('data-sub-region-prompt')`), latches once shown, and the postcode prompt
+counts it as foreign too: the two never stack, and the order is whichever the app learns of first (not fixed).
+`useForecasts` drops a response older than one already applied. `nextChangeOnIfSavedToday` is also sent for
+`FREE_UNTIL` (a grace-week save stamps), and the toast then says when the lock after the free week ends. The OPEN line
+reads "Removing one starts a 30-day lock." (an add-only change stamps nothing). The phone picker sheet is the house
+`tall` sheet (viewport less 24px, not the handoff's 64px) with a pinned header (title, status line, count) and footer;
+its confirmation swaps to the default short sheet. LOCKED with room under the limit still labels the button View.
+
+**Flag off is a no-op.** Every surface is gated on `enforced === true`: registration skips the step, sign-in shows
+nothing, Settings renders no section (and an Admin makes no request). Pinned by tests in the registration, sign-in,
+Settings and `App` suites.
+
 ## Appendix A — allocation (production roster, 2026-10-26)
 
 Location names as stored on 2026-10-26, misspellings included; ids are production ids (a fresh database's ids

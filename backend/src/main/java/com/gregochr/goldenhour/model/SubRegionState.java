@@ -23,10 +23,19 @@ import java.util.List;
  * @param freeUntil    the last free-change day, while {@code status} is {@code FREE_UNTIL}
  * @param nextChangeOn the first day a swap is allowed, while {@code status} is {@code LOCKED}
  * @param overLimit    {@code true} when the reader holds more picks than the limit; absent otherwise
+ * @param freeUntilIfChosenToday   for {@code FIRST_CHOICE} only: the last free-change day the server will set
+ *                     if the reader's first save happens today ({@code today + grace-days - 1}, or the grace end
+ *                     they already hold); absent when that grace has already ended or the status is another
+ * @param nextChangeOnIfSavedToday the first day a swap would be allowed if a lock-stamping save happened today,
+ *                     {@code max(graceUntil + 1, today + lock-days)}; present for {@code OPEN}, for
+ *                     {@code FREE_UNTIL} (a grace-week save stamps too, so it states the lock that follows the
+ *                     free week), and for {@code FIRST_CHOICE} when the reader's grace has already ended;
+ *                     absent otherwise
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record SubRegionState(boolean enforced, int limit, List<Pick> picks, List<RegionOptions> options,
-        List<Long> suggested, String status, LocalDate freeUntil, LocalDate nextChangeOn, Boolean overLimit) {
+        List<Long> suggested, String status, LocalDate freeUntil, LocalDate nextChangeOn, Boolean overLimit,
+        LocalDate freeUntilIfChosenToday, LocalDate nextChangeOnIfSavedToday) {
 
     /** Status: the reader holds no picks yet. */
     public static final String FIRST_CHOICE = "FIRST_CHOICE";

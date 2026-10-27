@@ -308,6 +308,9 @@ function selectUpcomingEvents(briefing) {
  *        invalidation signal; see that effect below.
  * @param {number} [props.driveTimesVersion] moved by the same hook when the drive-time stamp on
  *        record changes — a recalculation, or a change the dialog's read finds.
+ * @param {number} [props.subRegionsVersion] moved by {@code App} after a successful sub-region save
+ *        (sub-regions-plan §5.4 S4): the briefing and the ratings are then fetched again, because the
+ *        bodies on screen were shaped by the old picks. Starts at 0 and does nothing until it moves.
  * @param {(?string|undefined)} [props.homePlace] the home's place name, or its postcode, for the
  *        tick line; null when none is saved, undefined while that is not known. From
  *        `useReaderSettings`, the one record of the reader's settings — the map reads the same.
@@ -317,7 +320,7 @@ function selectUpcomingEvents(briefing) {
  *        `Mark seen`'s route back to the record.
  */
 export function WindowFirstBriefingProvider({
-  children, homeSettingsVersion, driveTimesVersion, homePlace, comingUpLastSeenDate,
+  children, homeSettingsVersion, driveTimesVersion, subRegionsVersion = 0, homePlace, comingUpLastSeenDate,
   setComingUpLastSeenAt = NOOP, locations = EMPTY_ARRAY,
 }) {
   const { role } = useAuth();
@@ -496,6 +499,16 @@ export function WindowFirstBriefingProvider({
       window.removeEventListener('focus', refresh);
     };
   }, [fetchBriefing, fetchScores]);
+
+  // A save of the reader's sub-regions refetches the briefing and ratings at once rather than waiting for
+  // the next poll. Not on mount: the effect above already made those requests.
+  const subRegionsVersionRef = useRef(subRegionsVersion);
+  useEffect(() => {
+    if (subRegionsVersionRef.current === subRegionsVersion) return;
+    subRegionsVersionRef.current = subRegionsVersion;
+    fetchBriefing();
+    fetchScores();
+  }, [subRegionsVersion, fetchBriefing, fetchScores]);
 
   useEffect(() => {
     fetchTravelDayRanges().then(setTravelRanges).catch(() => {});
@@ -939,6 +952,7 @@ WindowFirstBriefingProvider.propTypes = {
   children: PropTypes.node,
   homeSettingsVersion: PropTypes.number,
   driveTimesVersion: PropTypes.number,
+  subRegionsVersion: PropTypes.number,
   /** Three states: a name, null for no postcode, undefined for not known — see the note above. */
   homePlace: PropTypes.string,
   comingUpLastSeenDate: PropTypes.string,

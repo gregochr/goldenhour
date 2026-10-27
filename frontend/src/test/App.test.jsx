@@ -50,6 +50,9 @@ vi.mock('../api/settingsApi.js', () => ({
   markPostcodePromptDismissed: vi.fn(),
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
+// The sub-region picker (S4). Enforcement is off by default here, which is the shipped state: the app
+// is then exactly what it was. The sign-in prompt's own block at the foot of this file turns it on.
+vi.mock('../api/subRegionApi.js', () => ({ getSubRegions: vi.fn(), saveSubRegions: vi.fn() }));
 // The Map pane, stubbed so the date `App` resolves for it can be read. Every other test in this
 // file asserts only that the Map TAB exists, which is `WindowFirstShell`'s doing off a non-null
 // `mapPane` — so a stub pane leaves them all untouched.
@@ -110,6 +113,8 @@ import {
   refreshDriveTimes, markComingUpSeen, markPostcodePromptDismissed,
 } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
+import { getSubRegions, saveSubRegions } from '../api/subRegionApi.js';
+import { FIRST_CHOICE, FLAG_OFF, FREE_WEEK } from './subRegionFixtures.js';
 import { getAuroraForecastResults, getAuroraLocations, getAuroraStatus } from '../api/auroraApi.js';
 import { getNlcSighting } from '../api/nlcApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
@@ -186,6 +191,8 @@ beforeEach(() => {
   getReach.mockReset().mockResolvedValue([]);
   getDriveTimes.mockReset().mockResolvedValue({});
   fetchTravelDayRanges.mockReset().mockResolvedValue([]);
+  getSubRegions.mockReset().mockResolvedValue(FLAG_OFF);
+  saveSubRegions.mockReset();
   mapPaneProps.last = null;
   getAuroraStatus.mockReset().mockResolvedValue(null);
   getAuroraLocations.mockReset().mockResolvedValue([]);
@@ -2437,6 +2444,141 @@ describe('App — the one-time postcode prompt', () => {
 
       await waitFor(() => expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument());
       expect(saveHome).toHaveBeenCalledTimes(2);
+    });
+  });
+});
+
+// ── The sub-region sign-in prompt (S4 A3) ────────────────────────────────────────────────────────
+
+describe('App — the sub-region sign-in prompt', () => {
+  /** The child of <body> holding the app: what the prompt makes inert. */
+  const appContainer = () => {
+    let node = screen.getByTestId('window-first-shell');
+    while (node.parentElement && node.parentElement !== document.body) node = node.parentElement;
+    return node;
+  };
+
+  it('asks a Lite reader with enforcement on and no picks before the app is usable, and refetches after the save', async () => {
+    const user = userEvent.setup();
+    getSubRegions.mockResolvedValue(FIRST_CHOICE);
+    saveSubRegions.mockResolvedValue(FREE_WEEK);
+    renderApp({ role: 'LITE_USER' });
+
+    expect(await screen.findByTestId('sub-region-prompt')).toBeInTheDocument();
+    expect(appContainer()).toHaveAttribute('inert');
+    await screen.findByTestId('window-first-pane-empty');
+    const briefingCalls = getDailyBriefing.mock.calls.length;
+    const forecastCalls = fetchForecasts.mock.calls.length;
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+
+    await waitFor(() => expect(screen.queryByTestId('sub-region-prompt')).not.toBeInTheDocument());
+    expect(saveSubRegions).toHaveBeenCalledWith([12, 13, 20]);
+    expect(appContainer()).not.toHaveAttribute('inert');
+    await waitFor(() => expect(getDailyBriefing.mock.calls.length).toBeGreaterThan(briefingCalls));
+    await waitFor(() => expect(fetchForecasts.mock.calls.length).toBeGreaterThan(forecastCalls));
+    expect(await screen.findByTestId('sub-region-toast')).toHaveTextContent('Sub-regions saved.');
+  });
+
+  it('shows nothing to a Lite reader while enforcement is off, which is how the app ships', async () => {
+    renderApp({ role: 'LITE_USER' });
+
+    await screen.findByTestId('window-first-shell');
+    await screen.findByTestId('window-first-pane-empty');
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    expect(getSubRegions).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('sub-region-prompt')).not.toBeInTheDocument();
+    expect(appContainer()).not.toHaveAttribute('inert');
+  });
+
+  it.each(['PRO_USER', 'ADMIN'])('never asks, and never prompts, a %s', async (role) => {
+    getSubRegions.mockResolvedValue(FIRST_CHOICE);
+    renderApp({ role });
+
+    await screen.findByTestId('window-first-shell');
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    expect(getSubRegions).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('sub-region-prompt')).not.toBeInTheDocument();
+  });
+  describe('never stacks over another modal', () => {
+    const DUE = { ...SETTINGS_NO_HOME, postcodePromptDue: true };
+    const deferred = () => {
+      let resolve;
+      const promise = new Promise((res) => { resolve = res; });
+      return { promise, resolve };
+    };
+    const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    beforeEach(() => {
+      markPostcodePromptDismissed.mockReset().mockResolvedValue({ ...SETTINGS_NO_HOME, postcodePromptDue: false });
+    });
+
+    afterEach(() => {
+      cleanup();
+      document.querySelectorAll('[data-testid="foreign-dialog"]').forEach((n) => n.remove());
+    });
+
+    it('postcode prompt first: the sub-region card waits, and appears when the postcode prompt closes', async () => {
+      const user = userEvent.setup();
+      const read = deferred();
+      getSettings.mockResolvedValue(DUE);
+      getSubRegions.mockReturnValue(read.promise);
+      renderApp({ role: 'LITE_USER' });
+      await screen.findByTestId('postcode-prompt');
+
+      read.resolve(FIRST_CHOICE);
+      await settle();
+
+      expect(screen.getByTestId('postcode-prompt')).toBeInTheDocument();
+      expect(screen.queryByTestId('sub-region-prompt')).not.toBeInTheDocument();
+      expect(screen.getAllByRole('dialog').filter((d) => d.getAttribute('aria-modal') === 'true')).toHaveLength(1);
+
+      await user.click(screen.getByTestId('prompt-secondary'));
+
+      expect(await screen.findByTestId('sub-region-prompt')).toBeInTheDocument();
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+    });
+
+    it('sub-region card first: the postcode prompt waits for it', async () => {
+      const user = userEvent.setup();
+      const settingsRead = deferred();
+      getSettings.mockReturnValue(settingsRead.promise);
+      getSubRegions.mockResolvedValue(FIRST_CHOICE);
+      saveSubRegions.mockResolvedValue(FREE_WEEK);
+      renderApp({ role: 'LITE_USER' });
+      await screen.findByTestId('sub-region-prompt');
+
+      settingsRead.resolve(DUE);
+      await settle();
+
+      expect(screen.getByTestId('sub-region-prompt')).toBeInTheDocument();
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Continue' }));
+
+      expect(await screen.findByTestId('postcode-prompt')).toBeInTheDocument();
+      expect(screen.queryByTestId('sub-region-prompt')).not.toBeInTheDocument();
+    });
+
+    it('waits while a Plan dialog is already open, then appears when it closes', async () => {
+      getSubRegions.mockResolvedValue(FIRST_CHOICE);
+      const foreign = document.createElement('div');
+      foreign.setAttribute('role', 'dialog');
+      foreign.setAttribute('aria-modal', 'true');
+      foreign.setAttribute('data-testid', 'foreign-dialog');
+      document.body.appendChild(foreign);
+      renderApp({ role: 'LITE_USER' });
+      await screen.findByTestId('window-first-shell');
+      await settle();
+
+      expect(getSubRegions).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('sub-region-prompt')).not.toBeInTheDocument();
+
+      await act(async () => { foreign.remove(); });
+
+      expect(await screen.findByTestId('sub-region-prompt')).toBeInTheDocument();
     });
   });
 });
