@@ -662,6 +662,18 @@ describe('Modal', () => {
       expect(onClose).toHaveBeenCalledOnce();
     });
 
+    it('ignores an Escape that is cancelling an IME composition', () => {
+      // jsdom's `fireEvent.keyDown` init does not carry `isComposing`, so the event is built by hand.
+      const onClose = vi.fn();
+      render(<Modal label="Test" onClose={onClose} closeOnEscape><p>Content</p></Modal>);
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true }));
+      expect(onClose).not.toHaveBeenCalled();
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
     it('does nothing by default, because most dialogs here hold something to lose', () => {
       // Most render sites would lose state: some carry unsaved forms, one holds a generated
       // password that has to be copied before it is gone. Turning dismissal on everywhere would

@@ -468,6 +468,22 @@ describe('App — every route into settings takes down the dialog it would open 
       expect(card).toHaveFocus();
     });
 
+    it('Escape closes Settings opened from the cog and hands focus back to the cog, as the × does', async () => {
+      renderApp();
+      await screen.findByTestId('wf-heat-strip');
+      const cog = screen.getByRole('button', { name: 'Settings' });
+      await press(cog);
+      await settingsSettled();
+
+      await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
+      await act(async () => {
+        await new Promise((resolve) => { requestAnimationFrame(() => requestAnimationFrame(resolve)); });
+      });
+
+      expect(screen.queryByTestId('settings-modal')).toBeNull();
+      expect(cog).toHaveFocus();
+    });
+
     it('the cog over a window popup lands on the same card — the landing it has had since M5', async () => {
       renderApp();
       await openPopup();
