@@ -33,7 +33,10 @@ There is no longer any reference to Plan's horizon in eligibility.
 - **Badge / since-line**: `enteredWindow` is `startDate − 89 days`, so a near-term entry entered the
   window long ago and never badges as new. No change.
 - **Coincidence merge (D10)**: a near-term supermoon and run are now both eligible and merge through the
-  ordinary eligible-pair path, with the same result the partner path gave.
+  ordinary eligible-pair path (`mergeCoincidences` / `findSupermoonPartner`). Two deliberate
+  differences from the partner path: a near-term tide run now gets its superlative and threshold line,
+  because it joins `markTideSuperlativesAndThresholds`; and two near-term events with no eligible
+  partner now produce a merged card where before they produced nothing.
 
 ## Changes
 
@@ -45,14 +48,23 @@ There is no longer any reference to Plan's horizon in eligibility.
    (its own tests still cover it). Add one Javadoc sentence on the three-argument `assemble` saying
    production no longer passes partners (this plan) and the path is a candidate for removal. Removing
    it is a separate cleanup.
+2a. Stale comments elsewhere: `TideRunPeakHistory.java` ~98–100 ("Eligibility only requires an entry to
+   end beyond Plan's window"); `ComingUpAssembler` two-arg `@param` (~147), three-arg `@param` (~165)
+   and the `partnerOnly` field doc (~296); `AlmanacService` method Javadoc and comments ~286–304.
 3. `PlanHorizon` stays because `BriefingService` uses it for the hot-topic window. Update its Javadoc
    if it claims to drive Coming up eligibility.
 4. Tests:
-   - `AlmanacServiceTest`, the "Eligibility (plan D1)" section: rewrite to the new rule. Pin these cases:
+   - `AlmanacServiceTest`: the stubs at ~391–401 (`aFailedRefreshKeepsThePreviousFeed`, a spy stubbing
+     the THREE-arg `assemble` with a partner list) and ~447 (`failingAssembler` on a plain mock) must
+     be re-pointed at the TWO-arg signature, or they silently stop matching. The partner-case tests at
+     ~596 and ~615 need rewriting to the new rule, not deleting their intent. The "eligible set" now
+     includes them. Sources never return an event ending before `from`, so the "ended yesterday" case
+     needs a stub source.
+   - `AlmanacServiceTest`, the "Eligibility (plan D1)" section (~549): rewrite to the new rule. Pin these cases:
      an event wholly inside today..today+3 is served; a single-day event today is served; a straddling
      run is served; an event that ended yesterday (if a source returns one) is not; and the
      assembler receives no partners. Update the mock helper that matches `(eligible, planOwned)`.
-   - `ComingUpAnnualBadgeCensusTest`: mirror the new filter (it copies production's). Its band
+   - `ComingUpAnnualBadgeCensusTest` (~154): mirror the new filter. It already calls the two-arg assemble. Its band
      assertions must still pass unchanged. If they don't, stop and report: that would mean the
      calibration depended on the old rule.
    - `PlanHorizonTest`: only if it asserts the Coming up rule.
@@ -79,14 +91,21 @@ There is no longer any reference to Plan's horizon in eligibility.
 
 ### Docs
 8. `coming-up-plan.md`: under D1, add a dated "Superseded 2026-10-27" note pointing here; amend §11.10
-   the same way.
+   the same way. `supermoon-tide-run-plan.md` §4.7 (Plan-owned partners) gets the same note.
 9. `docs/engineering/reference/plan-tab.md` (the "In next 4 days" tag paragraph): drop "the `endDate`
    half is defensive…". Add a line that near-term entries are served (this plan).
-10. `docs/engineering/reference/ask-photocast.md`: if it describes the Coming up snapshot as
-    "beyond four days", correct it.
 11. `changelog.d/20261027-coming-up-keep-near-term.md`, `### Changed — …`.
 
 ## Side effects accepted
+
+- **Enrichment failure scope**: near-term events now go through the unguarded eligible staging loop.
+  Partners were staged inside a try/catch and dropped on failure. A failing near-term event now fails
+  the build exactly as a far-term one always has: `refresh` keeps the previous feed, and a cold build
+  throws. This is consistent with the far-term behaviour, so it is accepted without a new guard.
+- **Ask `get_coming_up`**: `AskSnapshot.listedBy` now suppresses near-term SPRING_TIDE / SUPERMOON /
+  LUNAR_ECLIPSE hot topics in that tool, because the almanac entry lists them. `get_hot_topics` still
+  returns them. That is benign. No Ask guard or test assumes entries start after today+3 (`AskSnapshot.timeline`,
+  `AskReadyFreshness.liveEvent` already filter on "not ended").
 
 - **Ask** (`AskSnapshotBuilder.comingUp`) now also sees near-term almanac entries, alongside the hot
   topics it already had. That is more context, not a contradiction. Reviewers should check that no Ask
