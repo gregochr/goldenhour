@@ -11353,6 +11353,12 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   min-width: 0;
 }
 .wf-cu-subregion-door:empty { display: none; }
+/* The tide-light Pro door (tide-light-pro-plan.md F2): like the sub-regions door, a sibling after the card in
+   `.wf-cu-ent`'s grid, so it must name the card's column or it auto-places into the date rail. */
+.wf-cu-tide-door {
+  grid-column: 2;
+  min-width: 0;
+}
 /* A `<span>`, for the same button-content-model reason `.wf-cu-prose` gives. */
 .wf-cu-threshold {
   display: block;
