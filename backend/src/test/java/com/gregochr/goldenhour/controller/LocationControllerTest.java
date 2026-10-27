@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.NoSuchElementException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -58,9 +59,9 @@ class LocationControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].name").value("Ambleside"))
                 .andExpect(jsonPath("$[1].name").value("Durham UK"))
-                // No membership rows in the test database: the sub-region fields are served, and are null.
-                .andExpect(jsonPath("$[0].subRegionId").doesNotExist())
-                .andExpect(jsonPath("$[0].subRegionName").doesNotExist());
+                // No memberships (the mocked service answers an empty map): both fields are served, as null.
+                .andExpect(jsonPath("$[0].subRegionId").value(nullValue()))
+                .andExpect(jsonPath("$[0].subRegionName").value(nullValue()));
     }
 
     @Test

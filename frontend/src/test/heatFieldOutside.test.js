@@ -210,6 +210,8 @@ describe('planOutsidePicks', () => {
 
     expect(plan.veil).not.toBeNull();
     expect(plan.lines).toEqual([]);
+    // All the land, not only the ground near the two places: a corner far from both is washed too.
+    expect(Math.min(...plan.veil.alpha)).toBe(1);
   });
 
   it('traces the outline at the 0.42 contour of allowed coverage, in CSS px', () => {

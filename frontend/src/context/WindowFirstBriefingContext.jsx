@@ -856,9 +856,14 @@ export function WindowFirstBriefingProvider({
    * every poll and every focus event, and this walks the whole roster against the whole score
    * response; the prototype's unmemoised equivalent cost seconds per repaint.
    */
+  const servedAllowedIds = briefing?.allowedLocationIds;
+  const allowedIdSet = useMemo(
+    () => (isShaped(servedAllowedIds) ? new Set(servedAllowedIds) : null),
+    [servedAllowedIds],
+  );
   const heatSpotList = useMemo(
-    () => buildHeatSpots(locations, scoreRows, upcomingEvents),
-    [locations, scoreRows, upcomingEvents],
+    () => buildHeatSpots(locations, scoreRows, upcomingEvents, allowedIdSet),
+    [locations, scoreRows, upcomingEvents, allowedIdSet],
   );
 
   /**

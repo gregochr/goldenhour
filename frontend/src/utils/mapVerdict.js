@@ -151,6 +151,18 @@ export function buildShapedLeadIndex(days) {
 const TIER_ORDER = ['WORTH_IT', 'MAYBE', 'UNRATED', 'STAND_DOWN', 'AWAITING'];
 
 /**
+ * Case-insensitive code-unit order, the same order the server's lead pick uses
+ * ({@code String.CASE_INSENSITIVE_ORDER}); deliberately not {@code localeCompare}, which folds accents and
+ * orders by locale, so the two ends cannot disagree on a pair like "abc" and "Äbc".
+ */
+function compareNames(a, b) {
+  const x = String(a ?? '').toLowerCase();
+  const y = String(b ?? '').toLowerCase();
+  if (x < y) return -1;
+  return x > y ? 1 : 0;
+}
+
+/**
  * The region a SHAPED window's verdict is true of, over the in-scope records. The served
  * {@code shapedLeadRegion} when it is among them; otherwise (the lead lies outside the scope) the best
  * by the same order the server used — verdict-eligible first, then tier, then name — never a mean,
@@ -172,7 +184,7 @@ function pickShapedTop(records, leadName) {
   return [...scored].sort((a, b) => (
     Number(verdictEligible(b)) - Number(verdictEligible(a))
     || rank(a) - rank(b)
-    || String(a.regionName ?? '').localeCompare(String(b.regionName ?? ''))
+    || compareNames(a.regionName, b.regionName)
   ))[0] ?? null;
 }
 

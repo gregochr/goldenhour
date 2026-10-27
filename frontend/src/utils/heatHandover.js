@@ -45,6 +45,11 @@ function clamp(v, a, b) {
 export const FADE_FROM = 10.4;
 export const FADE_TO = 12.0;
 export const HEAT_FLOOR = 0.35;
+/**
+ * The zoom at/above which the heat field drops its land clip (and with it the outside-your-sub-regions
+ * veil and outline, which are statements about land). Shared so the Legend can say what is drawn.
+ */
+export const LAND_CLIP_MAX_ZOOM = 11.5;
 
 /**
  * Where the map is in the handover, from its zoom.

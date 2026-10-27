@@ -6,6 +6,7 @@ import {
   buildHeatSpots, buildHeatWindowStates, forecastScoreRows, heatPointsFor, heatSpotKey, unratedPointsFor,
 } from '../utils/heatSpots.js';
 import { buildThinCounts, thinRatedCount } from '../utils/mapThinSample.js';
+import { planOutsidePicks } from '../utils/heatField.js';
 
 /**
  * The reader's sub-region picks on the Map (sub-regions-plan S5a-1): the shaped marker, the `gated` heat
@@ -194,5 +195,75 @@ describe('splitGround', () => {
 
     expect(ground.outside).toHaveLength(3);
     expect(ground.allowed).toEqual([]);
+  });
+});
+
+describe('a shaped body decides the split from the served allowedLocationIds, not from the rows', () => {
+  // Bamburgh (id 1) is the reader's pick and has a row. The hide (id 2, a wildlife hide: no sky verdict) and the
+  // sky place Craster (id 3) have NO score row at all: the shaper marks only rows that exist.
+  const roster = [
+    place(1),
+    place(2, { locationType: ['WILDLIFE'], lat: 54.2, lon: -3.0 }),
+    place(3, { lat: 54.4, lon: -3.1 }),
+  ];
+  const rows = [row(1)];
+  const px = (s) => ({ x: (s.lng + 4) * 100, y: (56 - s.lat) * 100, rid: s.rid });
+  const statesOf = (spots) => buildHeatWindowStates(spots, EVENTS).get('2026-10-27:SUNSET').states;
+
+  it('reads a rowless hide and a rowless sky place as gated when they are not in the allowed set', () => {
+    const spots = buildHeatSpots(roster, rows, EVENTS, new Set([1]));
+
+    expect(spots.map((s) => s.states[0])).toEqual(['rated', GATED_STATE, GATED_STATE]);
+    expect(heatPointsFor(spots, 0).map((p) => p.id)).toEqual([1]);
+    expect(unratedPointsFor(spots, 0)).toEqual([]);
+  });
+
+  it('with zero picks every place is gated, rows or not', () => {
+    const spots = buildHeatSpots(roster, rows, EVENTS, new Set());
+
+    expect(spots.map((s) => s.states[0])).toEqual([GATED_STATE, GATED_STATE, GATED_STATE]);
+    expect(spots.every((s) => s.scores[0] === null)).toBe(true);
+  });
+
+  it('without a set (not shaped) a rowless place stays unrated or na, exactly as before', () => {
+    const spots = buildHeatSpots(roster, rows, EVENTS, null);
+
+    expect(spots.map((s) => s.states[0])).toEqual(['rated', 'na', 'unrated']);
+  });
+
+  it('puts them under the veil with no outline round them, and out of every count', () => {
+    const spots = buildHeatSpots(roster, rows, EVENTS, new Set([1]));
+    const ground = splitGround({ shaped: true, spots, states: statesOf(spots) });
+
+    expect(ground.allowed.map((p) => p.id)).toEqual([1]);
+    expect(ground.outside.map((p) => p.id)).toEqual([2, 3]);
+    const plan = planOutsidePicks(ground.outside.map(px), ground.allowed.map(px), 500, 300, { radius: 30, grid: 6 });
+    expect(plan.veil).not.toBeNull();
+    // Every outline vertex hugs the one allowed place; none lies near the hide or Craster.
+    const near = (pt, s) => Math.hypot(pt[0] - px(s).x, pt[1] - px(s).y) < 60;
+    expect(plan.lines.length).toBeGreaterThan(0);
+    plan.lines.flat().forEach((pt) => {
+      expect(near(pt, spots[0])).toBe(true);
+      expect(near(pt, spots[1])).toBe(false);
+      expect(near(pt, spots[2])).toBe(false);
+    });
+    const counts = buildThinCounts({
+      events: [{ id: 'e', kind: 'solar', date: '2026-10-27', eventType: 'SUNSET' }],
+      verdicts: new Map([['e', { tier: 'WORTH_IT' }]]),
+      windowStates: buildHeatWindowStates(spots, EVENTS),
+      scopePool: spots,
+    });
+    expect(counts.get('e')).toBe(1);
+  });
+
+  it('with zero picks there is no outline at all and the veil covers everything', () => {
+    const spots = buildHeatSpots(roster, rows, EVENTS, new Set());
+    const ground = splitGround({ shaped: true, spots, states: statesOf(spots) });
+
+    const plan = planOutsidePicks(ground.outside.map(px), [], 500, 300, { radius: 30, grid: 6 });
+
+    expect(ground.allowed).toEqual([]);
+    expect(plan.lines).toEqual([]);
+    expect(Math.min(...plan.veil.alpha)).toBe(1);
   });
 });

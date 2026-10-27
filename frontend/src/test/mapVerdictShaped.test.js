@@ -91,6 +91,26 @@ describe('windowVerdict — a shaped window keeps its verdict word', () => {
     expect(verdict.tier).toBe('WORTH_IT');
   });
 
+  it('breaks a tier tie on a case-insensitive code-unit order, as the server does, not on the locale', () => {
+    const tied = shapedDays([
+      shapedRegion('\u00C4bc', 'WORTH_IT'),
+      shapedRegion('abd', 'WORTH_IT'),
+      shapedRegion('Borders', 'WORTH_IT'),
+      shapedRegion('alnwick', 'WORTH_IT'),
+    ], null);
+    const verdict = (names) => windowVerdict({
+      index: buildRegionVerdictIndex(tied),
+      date: DATE,
+      targetType: 'SUNSET',
+      regionsInScope: names,
+      shapedLeads: buildShapedLeadIndex(tied),
+    });
+
+    // localeCompare would put the umlaut A with the A's and name "\u00C4bc" first.
+    expect(verdict(['\u00C4bc', 'abd']).regionName).toBe('abd');
+    expect(verdict(['Borders', 'alnwick']).regionName).toBe('alnwick');
+  });
+
   it('puts a verdict-eligible region ahead of a better tier that is not', () => {
     const mixed = shapedDays([
       shapedRegion('Thin', 'WORTH_IT'),

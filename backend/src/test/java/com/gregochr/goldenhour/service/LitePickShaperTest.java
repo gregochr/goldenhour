@@ -427,6 +427,28 @@ class LitePickShaperTest {
     }
 
     @Test
+    @DisplayName("shapedLeadRegion: ties break on the name case-insensitively, so a lower-case name is not last")
+    void shapedLeadRegion_nameOrderIgnoresCase() {
+        List<BriefingSlot> sky = List.of(ratedSlot(PICKED_ID, PICKED, 4, false));
+        DailyBriefingResponse response = briefing(List.of(
+                tiered("Borders", DisplayVerdict.WORTH_IT, 3.6, true, sky),
+                tiered("alnwick", DisplayVerdict.WORTH_IT, 3.6, true, sky)), List.of(), null, List.of());
+
+        assertThat(eventOf(shaper.shapeBriefing(response, scopeOfPicked())).shapedLeadRegion())
+                .isEqualTo("alnwick");
+    }
+
+    @Test
+    @DisplayName("shapedLeadRegion: none when the top region has no mean (a mixed region rated only on woods)")
+    void shapedLeadRegion_nullWhenTheTopRegionHasNoMean() {
+        List<BriefingSlot> sky = List.of(ratedSlot(PICKED_ID, PICKED, 4, false));
+        DailyBriefingResponse response = briefing(List.of(
+                tiered("Meanless", DisplayVerdict.UNRATED, null, false, sky)), List.of(), null, List.of());
+
+        assertThat(eventOf(shaper.shapeBriefing(response, scopeOfPicked())).shapedLeadRegion()).isNull();
+    }
+
+    @Test
     @DisplayName("shapedLeadRegion: a woodland-only region is not eligible in a mixed window; null with no region")
     void shapedLeadRegion_dropsCanopyOnlyRegionsAndIsNullWithNoRegion() {
         DailyBriefingResponse mixed = briefing(List.of(

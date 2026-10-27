@@ -1073,8 +1073,12 @@ export function planOutsidePicks(outside, allowed, w, h, opts) {
   let veil = null;
   if (!gated.empty) {
     const alpha = new Float32Array(gated.values.length);
+    // A reader with nothing allowed has no ground of their own to leave clear: the veil covers all the
+    // land (the clip does the cutting), not only the ground near the places.
+    const wholeLand = permitted.empty;
     for (let k = 0; k < alpha.length; k += 1) {
-      alpha[k] = clamp(gated.values[k] / VEIL_GATE, 0, 1) * clamp(1 - permitted.values[k] / VEIL_YIELD, 0, 1);
+      alpha[k] = wholeLand ? 1
+        : clamp(gated.values[k] / VEIL_GATE, 0, 1) * clamp(1 - permitted.values[k] / VEIL_YIELD, 0, 1);
     }
     veil = { cols: gated.cols, rows: gated.rows, gp, alpha };
   }

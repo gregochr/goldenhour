@@ -13,7 +13,7 @@ import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { getMode } from '../utils/scoreRamp.js';
 import { pxPerKmAtHome, RING_MIN_PX, RING_TIERS } from '../utils/reachRings.js';
-import { fadeAt } from '../utils/heatHandover.js';
+import { fadeAt, LAND_CLIP_MAX_ZOOM } from '../utils/heatHandover.js';
 
 /**
  * The pane the field is painted into, and its stacking order.
@@ -86,7 +86,6 @@ const FIELD_BLOOM = 1;
  * and rejected — at zoom 12 around Bamburgh the 1:50m coast cut straight diagonals through the
  * water and across the headland, a visibly false coast, worse than a graded wash. Left at 11.5.
  */
-const LAND_CLIP_MAX_ZOOM = 11.5;
 
 /**
  * The outline of a Lite reader's sub-regions is 1.4px stroked zoomed out and 1.6px zoomed in (the S5

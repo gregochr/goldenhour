@@ -417,6 +417,42 @@ describe('MapView, shaped — the legend', () => {
   });
 });
 
+describe('MapView, shaped — zero picks and the land clip', () => {
+  const boundsStub = () => ({
+    getSouth: () => 0, getWest: () => 0, getNorth: () => 0, getEast: () => 0, pad: () => ({ contains: () => false }),
+  });
+
+  it('hides the "x of y shown" count for a reader with no picks: it would read 0 of 0', async () => {
+    const all = SPOTS.map((s) => s.id);
+    await renderMap({
+      heat: shapedHeat({ rated: [], gated: all, allowedCount: 0 }),
+      locations: makeLocations({ gated: all }),
+    });
+
+    expect(screen.queryByText(/shown/)).toBeNull();
+  });
+
+  it('keeps the count for a reader who has picks', async () => {
+    await renderMap({ heat: shapedHeat() });
+
+    expect(screen.getByTestId('wf-map-counts-footer')).toHaveTextContent('shown');
+  });
+
+  it('shows the legend rows and note only while the veil and outline are drawn: below the land-clip zoom', async () => {
+    await renderMap({ heat: shapedHeat() });
+    openLegend();
+    expect(screen.getByTestId('wf-legend-picks')).toBeInTheDocument();
+
+    act(() => {
+      const target = { getZoom: () => 12, getBounds: boundsStub };
+      mapEventHandlers.forEach((handlers) => handlers.zoomend?.({ target }));
+    });
+
+    expect(screen.queryByTestId('wf-legend-picks')).toBeNull();
+    expect(screen.queryByTestId('wf-legend-picks-note')).toBeNull();
+  });
+});
+
 describe('MapView, shaped — the window panel k of m at 4 stars', () => {
   const openPanel = () => {
     fireEvent.click(screen.getByTestId('wf-win-pill'));

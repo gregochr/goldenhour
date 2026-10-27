@@ -83,7 +83,9 @@ public class LitePickShaper {
                     .thenComparing(r -> r.meanRating() == null)
                     .thenComparingInt(r -> tierRank(r.displayVerdict()))
                     .thenComparing(r -> r.slots().isEmpty())
-                    .thenComparing(BriefingRegion::regionName, Comparator.nullsLast(Comparator.naturalOrder()));
+                    // Case-insensitive code-unit order; the client's shaped pick compares names the same way.
+                    .thenComparing(BriefingRegion::regionName,
+                            Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
 
     private final UserSubRegionService picks;
     private final SubRegionProperties properties;
@@ -250,6 +252,9 @@ public class LitePickShaper {
         return regions.stream()
                 .filter(r -> allCanopy || r.slots().isEmpty() || r.slots().stream().anyMatch(s -> !s.canopy()))
                 .min(LEAD_ORDER)
+                // Presence only: a lead with no mean is one the unshaped Map would name no verdict for (a mixed
+                // region whose only rated slots are woods), so the shaped Map names none either.
+                .filter(top -> top.meanRating() != null)
                 .map(BriefingRegion::regionName)
                 .orElse(null);
     }

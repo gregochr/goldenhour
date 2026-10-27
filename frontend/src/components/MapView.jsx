@@ -60,7 +60,7 @@ import MapPeekSheet, { OtherWindowValue, MapPeekWindowsSection } from './map/Map
 import MapPeekTideSection from './map/MapPeekTideSection.jsx';
 import { otherWindow, tideSummary, tideVisible } from '../utils/mapPeek.js';
 import TideWave from './map/TideWave.jsx';
-import { fadeAt } from '../utils/heatHandover.js';
+import { fadeAt, LAND_CLIP_MAX_ZOOM } from '../utils/heatHandover.js';
 import {
   buildMapEvents, findEvIndex, isForwardableRow, isPastSolarWindow, nightPreviewDates, solarHorizonDates,
   solarRowPredicate, isNightKind, isHighWaterRow, nightLabel,
@@ -7180,8 +7180,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 groundKey={!isAstroMode && !isAuroraMode && !windowUnscored}
                 stoodKey={stoodPoints.length > 0}
                 seasKey={bigSeasShown}
-                // Sub-regions S5a: the picks rows and note, for a shaped body only.
-                picks={shaped ? { allowed: heat.allowedCount ?? 0, total: (heat.spots || []).length } : null}
+                // Sub-regions S5a: the picks rows and note, for a shaped body only, and only while the veil and
+                // outline are actually drawn (the land clip is live below LAND_CLIP_MAX_ZOOM).
+                picks={shaped && zoom < LAND_CLIP_MAX_ZOOM ? { allowed: heat.allowedCount ?? 0, total: (heat.spots || []).length } : null}
               />
             )}
             {/* The four-day hot-topics strip (hot-topics-by-day-plan §3 M2): a flex child BEFORE the tide
@@ -7313,7 +7314,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   <span data-testid="wf-map-counts-filtered" className="wf-map-counts-flag"> filtered</span>
                 )}
               </span>
-            ) : (
+            ) : noPicks ? null : (
             <span>
               <b>{scopedOwnCount}</b> of {scopeOwnCount} shown
               {/* ⚠️ Only when it DIFFERS, which is this codebase's own rule for a second

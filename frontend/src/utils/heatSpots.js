@@ -163,12 +163,14 @@ function putFirst(index, key, value) {
  *   rating: ?number, triageReason: ?*}>} scoreRows raw {@code LocationEvaluationView} rows, id
  *   included; {@code triageReason} is what tells a stood-down place from an unrated one
  * @param {Array<{date: string, targetType: string}>} renderedEvents the windows, in render order
+ * @param {?Set<*>} [allowedIds] the served {@code allowedLocationIds} as a Set, on a shaped body only: a
+ *        location not in it is {@code gated} in every window, whatever its rows say (or whether it has any)
  * @returns {Array<{id: *, name: string, lat: number, lng: number, regionName: string, rid: string,
  *   skySubject: boolean, bortleClass: ?number, scores: Array<?number>,
  *   states: Array<'rated'|'stood'|'unrated'|'na'|'gated'>}>} one spot per joinable location, with each
  *   window's state beside its score
  */
-export function buildHeatSpots(locations, scoreRows, renderedEvents) {
+export function buildHeatSpots(locations, scoreRows, renderedEvents, allowedIds = null) {
   const events = Array.isArray(renderedEvents) ? renderedEvents : [];
   // Only the rendered windows can ever match, so only their rows are worth indexing. The
   // response spans today-2..today+5 (both events, every location) while at most six pairs are on
@@ -220,8 +222,12 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents) {
     // A non-sky place is looked up too, but only for its gated marker: its scores stay withheld.
     const rows = events.map(lookup);
     const found = rows.map((entry) => (skySubject ? entry : (entry && entry.gated ? entry : null)));
-    const scores = found.map((entry) => (entry && !entry.gated ? entry.rating : null));
-    const states = found.map((entry) => windowState(skySubject, entry));
+    // On a SHAPED body the server's served `allowedLocationIds` decides who is outside the picks, not the
+    // rows: the shaper marks only rows that exist, and a wood, a hide or a place with no row in this window
+    // would otherwise read allowed. A selection by a list the server decided, never a client rule.
+    const outsidePicks = allowedIds instanceof Set && (location.id == null || !allowedIds.has(location.id));
+    const scores = found.map((entry) => (!outsidePicks && entry && !entry.gated ? entry.rating : null));
+    const states = found.map((entry) => (outsidePicks ? 'gated' : windowState(skySubject, entry)));
     // The stand-down reason beside each window's state (big-seas plan F3): null unless the window
     // state is `stood`, so a rated place can never carry one however its rows collided.
     const reasons = found.map((entry, i) => (states[i] === 'stood' ? entry.reason : null));

@@ -439,7 +439,7 @@ Coming up, task 8) follows. The plan below was revised after a three-lens review
 
 1. **Gating keys.** The field keys on each served row's `gated: true` (scores rows, briefing slots); chrome keys on the
    briefing's served `allowedLocationIds` being an **array** (`Array.isArray`, an empty array means shaped with zero picks).
-   Never the role, never a client membership test. The briefing context must publish `allowedLocationIds`.
+   Never the role, never a client membership test. The briefing context must publish `allowedLocationIds`. Amended in S5a-1 review: a place is `gated` when the served `allowedLocationIds` (shaped body) does not list it, whatever its row says or whether it has one, because the shaper marks only rows that exist; a selection by a list the server decided, not a client rule.
 2. **`gated` is its own heat state.** `heatSpots.windowState` gains `'gated'` from `row.gated`; gated spots are in neither the
    colour pool, the hatch, nor `thinRatedCount`'s rated or total, nor `scopeCount`, nor "k of m". `architecture-decisions.md`
    Backend-heavy records the gated filter on each licensed member it touches (`atFourPlus`/`placeCount`, `thinRatedCount`,
@@ -492,6 +492,7 @@ Coming up, task 8) follows. The plan below was revised after a three-lens review
 
 - **S5a-1, data and field:** decisions 1 to 5, 13, 16, and the legend rows (handoff task 2). Backend and frontend.
 - **S5a-2, chrome and panels:** 6, 7, 8, 14, 15, the window and region panels (tasks 2 to 4) without doors.
+  Phone: the Map legend is desktop-only (`MapView.jsx` ~7169 `!isMobile`), so S5a-2 adds the outside-picks key and note to a phone surface, such as the peek sheet or the legend affordance.
 - **S5a-3, doors, sheet, Settings:** 9 to 12, the task 7 doors, the task 5 sheet.
 
 Each: Sonnet builds in its own worktree, gates, planner review plus a browser check against mocked `/api` with flag-on shaped
@@ -524,8 +525,7 @@ hand. `paintMasked` was split so the veil reuses the hatches' blur, clip and opa
 - *The window's served `bestRating` is null for a shaped Lite response*, which the unscored line, the colour key and the
   "not rated yet" hatch were gated on. For a shaped body they ask the place states whether any of the reader's own places is rated
   (`hasRatedState`); no star is shown anywhere.
-- *A wood or hide with no score row* cannot be marked gated by the field (it reads score rows, not the briefing's canopy slots) and
-  counts as allowed for the veil and the outline.
+- *A place with no score row* (a wood, a hide, a sky place unrated for the window) is gated from the served `allowedLocationIds` (`buildHeatSpots` takes it as a Set), not from its rows, so it is under the veil and out of every count; zero picks gates every place and the veil covers all the land.
 - *The pill takes the lead region from the served field and falls back to the same order over the in-scope records* when the lead
   lies outside the scope segment, so a scope-limited Lite reader still gets a verdict word.
 

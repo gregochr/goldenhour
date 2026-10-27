@@ -522,7 +522,10 @@ export default function WindowFirstMapPane({
       .filter((w) => !served.has(windowKey(w.date, w.targetType)))
       .map(({ date, targetType }) => ({ date, targetType }));
     if (events.length === 0) return NO_PAST_HEAT;
-    const spots = buildHeatSpots(locations, forecastScoreRows(locations, events), events);
+    const spots = buildHeatSpots(
+      locations, forecastScoreRows(locations, events), events,
+      isShaped(allowedLocationIds) ? new Set(allowedLocationIds) : null,
+    );
     return {
       windows: events.map(({ date, targetType }, index) => {
         const confidenceTier = resolveConfidence({ confidence: null }, daysOut(date, todayStr));
@@ -539,7 +542,7 @@ export default function WindowFirstMapPane({
       pointSets: buildHeatPointSets(spots, events),
       windowStates: buildHeatWindowStates(spots, events),
     };
-  }, [heatStripCards, pastSolarWindows, locations, todayStr]);
+  }, [heatStripCards, pastSolarWindows, locations, todayStr, allowedLocationIds]);
 
   /**
    * The reader's own outcome ratings for the past windows (outcome-rating-plan.md §2 #5) — read for
