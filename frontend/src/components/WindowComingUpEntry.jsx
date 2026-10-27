@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import ProUpsellDoor, {
   TIDE_LIGHT_UPSELL_LABEL, TIDE_LIGHT_UPSELL_HEADING, TIDE_LIGHT_UPSELL_BODY,
 } from './shared/ProUpsell.jsx';
+import ComingUpOutsideDoor from './subregions/ComingUpOutsideDoor.jsx';
 import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
 import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
 import { rangeBarHeight, BIG_RANGE_PERCENTILE } from '../utils/comingUpFeed.js';
@@ -401,7 +402,7 @@ DayChips.propTypes = {
  *                                     (D8) — the `coastal-spots`/`dark-sky-spots` destinations
  */
 export default function WindowComingUpEntry({
-  entry, onGoToPlan, onShowOnMap, showTideLightDoor = false,
+  entry, onGoToPlan, onShowOnMap, showTideLightDoor = false, outsideLine = null, outsideDoor = null,
 }) {
   const { rail } = entry;
   const glyph = entryGlyph(entry);
@@ -608,6 +609,17 @@ export default function WindowComingUpEntry({
       ) : (
         <span className="wf-cu-action" data-testid="coming-up-action">{entry.action.label}</span>
       )}
+      {/* A Lite reader outside their picks: the line under the door row (S5b-2). A span, for the
+          button content model; the chips and the card's own action stay live above it. */}
+      {outsideLine && (
+        <>
+          {' '}
+          <span className="wf-cu-outside" data-testid="coming-up-outside-line">
+            <span className="wf-cu-outside-dot" aria-hidden="true" />
+            {outsideLine}
+          </span>
+        </>
+      )}
     </>
   );
 
@@ -657,6 +669,14 @@ export default function WindowComingUpEntry({
           body={TIDE_LIGHT_UPSELL_BODY}
           testIdPrefix="coming-up-tide-light-upsell"
           className="wf-pro-upsell-door--inline"
+        />
+      )}
+      {/* The sub-regions door (S5b-2): also a sibling of the card, on one entry per tab. */}
+      {outsideDoor && (
+        <ComingUpOutsideDoor
+          subject={outsideDoor.subject}
+          count={outsideDoor.count}
+          zeroPicks={outsideDoor.zeroPicks}
         />
       )}
     </div>
@@ -732,4 +752,12 @@ WindowComingUpEntry.propTypes = {
   onGoToPlan: PropTypes.func.isRequired,
   onShowOnMap: PropTypes.func.isRequired,
   showTideLightDoor: PropTypes.bool,
+  /** The S5b-2 line under the door row, or null (always null for Pro, Admin and an unshaped body). */
+  outsideLine: PropTypes.string,
+  /** The S5b-2 sub-regions door this entry carries, or null. */
+  outsideDoor: PropTypes.shape({
+    subject: PropTypes.oneOf(['coastal', 'darkSky']).isRequired,
+    count: PropTypes.number.isRequired,
+    zeroPicks: PropTypes.bool.isRequired,
+  }),
 };

@@ -50,6 +50,36 @@ export function subregionsAllBody({
   return `${across}${yours}`.trim();
 }
 
+/**
+ * Coming up's two sub-regions doors (sub-regions-plan §11 S5b-2, item 12). The count is the roster's coastal or
+ * dark-sky places by the Map's own predicates; singular at one, always.
+ */
+export const SUBREGIONS_COAST_LABEL = 'Coastal spots everywhere';
+export const SUBREGIONS_COAST_HEADING = 'Coastal spots everywhere';
+
+/**
+ * @param {number} n the roster's coastal places
+ * @returns {string}
+ */
+export function subregionsCoastBody(n) {
+  return n === 1
+    ? 'Pro rates the coastal spot on every morning and evening of the run.'
+    : `Pro rates all ${n} coastal spots, Berwick to Bridlington, on every morning and evening of the run.`;
+}
+
+export const SUBREGIONS_DARKSKY_LABEL = 'Dark-sky spots everywhere';
+export const SUBREGIONS_DARKSKY_HEADING = 'Dark-sky spots everywhere';
+
+/**
+ * @param {number} n the roster's dark-sky places
+ * @returns {string}
+ */
+export function subregionsDarkskyBody(n) {
+  return n === 1
+    ? 'Pro rates the dark-sky spot on every night of the run.'
+    : `Pro rates all ${n} dark-sky spots, in every sub-region, on every night of the run.`;
+}
+
 /** A region's name inside a sentence: a leading "The" goes lower case, a bare name stands bare. */
 export function regionInSentence(name) {
   const text = String(name ?? '');

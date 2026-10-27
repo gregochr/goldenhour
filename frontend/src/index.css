@@ -11321,6 +11321,38 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   border-top: 1px dashed var(--color-plex-border);
   max-width: 76ch;
 }
+/* The S5b-2 line under a door row for a Lite reader outside their sub-regions: a `<span>` for the same
+   button-content-model reason, dashed top rule, a grey dot, mono 10px. Grey on purpose: it states a fact
+   about the reader's picks, not a rating. */
+.wf-cu-outside {
+  display: block;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--color-plex-border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-outside-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 999px;
+  vertical-align: middle;
+  background: var(--color-plex-text-muted);
+}
+/* The sub-regions door row: a sibling after the card, in the card's grid column. */
+.wf-cu-subregion-door {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.wf-cu-subregion-door:empty { display: none; }
 /* A `<span>`, for the same button-content-model reason `.wf-cu-prose` gives. */
 .wf-cu-threshold {
   display: block;
