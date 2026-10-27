@@ -166,10 +166,15 @@ describe('B1: a shaped card is not "not scored" because the server stripped the 
   });
 
   it('is not scored only when the reader holds places in the window and none is rated', async () => {
-    await renderStrip(shapedProps({ rated: false }));
+    await renderStrip(shapedProps({
+      rated: false, summaryOverrides: { mine: [slot(1, 'Bamburgh', null), slot(7, 'Craster', null)] },
+    }));
 
     expect(cardButton()).toHaveAttribute('data-unscored', 'true');
-    expect(document.getElementById(cardButton().getAttribute('aria-labelledby'))).toHaveTextContent(/not scored/i);
+    const name = document.getElementById(cardButton().getAttribute('aria-labelledby'));
+    // The Best row's own words say it; "not scored" is not said as well, and the Best clause is not dropped.
+    expect(name).toHaveTextContent('None of your sub-regions are rated for this sunset yet.');
+    expect(name).not.toHaveTextContent(/not scored/i);
     expect(screen.queryByTestId('wf-heat-thin')).toBeNull();
   });
 

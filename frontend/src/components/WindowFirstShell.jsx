@@ -2636,7 +2636,8 @@ export default function WindowFirstShell({
           // Asked of `allSpots` — the origin scope BEFORE the reach gate — for the reason
           // `WindowSheetDialog` records: the drawn set would make the wording flicker per window.
           reachMeasured={windowCards.some((card) => card.reachMeasured)}
-          windowCount={windowCards.length}
+          // A reader with no pick has no spots to count: "0 spots across 4 windows" would be false of the picks (S5b-1).
+          windowCount={picksFacts?.allowed === 0 ? 0 : windowCards.length}
           originBase={origin?.baseName ?? null}
         />
       )}

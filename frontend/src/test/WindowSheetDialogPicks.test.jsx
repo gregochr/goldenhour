@@ -213,11 +213,11 @@ describe('the popup field map', () => {
     expect(screen.queryByTestId('wf-row-map-unscored')).toBeNull();
   });
 
-  it('is not marked "Not scored" either when none of the reader\'s places is rated (it hatches around them)', async () => {
+  it('keeps the "Not scored" chip when none of the reader\'s places is rated, and hatches around them, not the plate', async () => {
     const { drawGeo } = await import('../utils/heatField.js');
     renderDialog({ fixture: shapedFixture({ rated: false }) });
 
-    expect(screen.queryByTestId('wf-row-map-unscored')).toBeNull();
+    expect(screen.getByTestId('wf-row-map-unscored')).toHaveTextContent('Not scored');
     const opts = drawGeo.mock.calls.at(-1)?.[5];
     if (opts) expect(opts.hatch).toBe(false);
   });
@@ -358,6 +358,16 @@ describe('a region the reader holds no pick in', () => {
     expect(screen.getByTestId('wf-subregions-region-upsell-popover').textContent).not.toMatch(/upgrade/i);
   });
 
+  it('does not say none of their sub-regions are in a region they hold a pick in', () => {
+    const fixture = shapedFixture({ allowed: [1] });
+    // Their place there is not in this window's list (no slot), yet the region holds a pick.
+    const card = { ...fixture.card, spots: [], allSpots: [] };
+    renderDialog({ fixture: { card, field: fixture.field }, fieldOverrides: { selectedRegion: 'Coast' } });
+
+    expect(screen.getByTestId('window-sheet-empty')).toHaveTextContent('Nothing in your sub-regions in Coast for this sunset.');
+    expect(screen.getByTestId('window-sheet-empty')).not.toHaveTextContent(/None of your/);
+  });
+
   it('adds nothing under the prose of a region the reader does hold', () => {
     renderDialog({ fieldOverrides: { selectedRegion: 'Coast' } });
 
@@ -370,6 +380,43 @@ describe('a region the reader holds no pick in', () => {
 
 describe('a reader with no pick at all', () => {
   const none = () => shapedFixture({ allowed: [] });
+
+  it('says "By region" alone: there is no order to speak of', () => {
+    renderDialog({ fixture: none() });
+
+    expect(screen.getByTestId('wf-region-rail-label').textContent).toBe('By region');
+  });
+
+  it('offers no "See all" that leads only to places outside the picks', () => {
+    renderDialog({ fixture: none(), props: { onSeeAllSpots: vi.fn() } });
+
+    expect(screen.queryByTestId('window-sheet-see-all')).toBeNull();
+  });
+
+  it('still draws the dawn race: an eclipse is what is happening, never silenced by the picks', () => {
+    const fixture = none();
+    const sight = {
+      type: 'LUNAR_ECLIPSE', race: 'DAWN', moonAltAtMax: 7, moonAzAtMax: 244, moonAzCardinal: 'WSW',
+      maximum: `${TODAY}T05:13:00`, umbraStart: `${TODAY}T03:34:00`, umbraEnd: `${TODAY}T06:52:00`,
+      moonset: `${TODAY}T06:16:00`, moonrise: null, setsInShadow: true, risesInShadow: false,
+      stops: [
+        { key: 'NAUTICAL_DAWN', time: `${TODAY}T03:09:00` },
+        { key: 'CIVIL_DAWN', time: `${TODAY}T05:24:00` },
+        { key: 'SUNRISE', time: `${TODAY}T06:11:00` },
+        { key: 'GOLDEN_MORNING_END', time: `${TODAY}T06:41:00` },
+      ],
+    };
+    const byId = new Map(fixture.card.spots.map((s) => [`${s.locationId}|${TODAY}|SUNSET`, sight]));
+    renderDialog({
+      fixture: {
+        card: { ...fixture.card, allBadges: [{ type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', detail: '93% at 05:13', rarityRank: 2 }] },
+        field: fixture.field,
+      },
+      props: { eclipseIndex: { byId, byName: new Map() } },
+    });
+
+    expect(screen.getByTestId('dawn-race')).toBeInTheDocument();
+  });
 
   it('says "{m} outside your sub-regions" on the All cell, never "0 in", and lists no ranked strip', () => {
     renderDialog({ fixture: none() });

@@ -1386,7 +1386,9 @@ export default function WindowFirstHeatStrip({
       // The verdict line's `· N rated` is not voiced separately: below the gate the pool clause
       // below already says "N of M rated" in words, the same fact with its denominator.
       .filter(Boolean)
-      .concat(notScored ? [notScoredWords] : [])
+      // Shaped, with places and none rated: the Best row's own words ("None of your sub-regions are rated for this
+      // sunset yet.") say it, so "not scored" is not said as well. A stood-down window keeps its own wording.
+      .concat(notScored ? [shaped && facts.best && stoodHere.length === 0 ? facts.best.spoken : notScoredWords] : [])
       .concat(card.away || !spokenPool ? [] : [spokenPool])
       // Big-seas plan F4: the hatch is a picture, so its count is said too (same list the canvas gets).
       .concat(card.away ? [] : stoodPhrase(stoodHere.length))
@@ -1403,7 +1405,7 @@ export default function WindowFirstHeatStrip({
       // beyond the tier — so its clause is NEW information, not a repeat, and replaces the
       // suppressed one.
       .concat(
-        card.away || !facts.best
+        card.away || !facts.best || (shaped && notScored)
           || ((notScored || facts.spread.rated === 0) && poolTotal > 0 && !facts.best.beyond)
           ? []
           : [facts.best.spoken],

@@ -97,6 +97,15 @@ export default function WindowSpotCard({
         {/* Omitted, never shown as a dash: an unrated spot is one nothing has looked at,
             which is a different statement from a poor one. The window header omits its
             own star for the same reason. */}
+        {outside && (
+          <span
+            data-testid="window-spot-outside"
+            className="font-mono text-plex-text-secondary"
+            style={{ fontSize: '10px', textAlign: 'right', minWidth: 0 }}
+          >
+            outside your sub-regions
+          </span>
+        )}
         {badge && (
           <span
             data-testid="window-spot-rating"
@@ -129,17 +138,8 @@ export default function WindowSpotCard({
         </span>
       )}
 
-      {/* The label of a place the reader's picks leave out (S5b-1), grey: where it lies, not a rating word. */}
-      {outside && (
-        <span
-          data-testid="window-spot-outside"
-          className="font-mono text-plex-text-secondary"
-          style={{ fontSize: '10px' }}
-        >
-          outside your sub-regions
-        </span>
-      )}
-
+      {/* A place the reader's picks leave out (S5b-1) carries its grey label in the badge's place, above, so the card
+          keeps the height every card has. */}
       {/* Absent, not zeroed. No drive time means "unknown", never "out of reach" —
           plan §2.5 — and this is the normal state for a user with no home postcode. */}
       {reach && (

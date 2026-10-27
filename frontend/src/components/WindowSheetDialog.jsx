@@ -200,8 +200,8 @@ export default function WindowSheetDialog({
    * rated has no evidence for the general list, so it hatches around exactly those places (never ground outside
    * the picks); every other window takes the list it always did.
    */
-  const fieldUnrated = shaped && field.ground?.rated === false && field.ground.allowed.length > 0
-    && (field.stood?.length ?? 0) === 0
+  const shapedUnscored = shaped && field.ground?.rated === false && field.ground.allowed.length > 0;
+  const fieldUnrated = shapedUnscored && (field.stood?.length ?? 0) === 0
     ? field.ground.unrated
     : field.unrated;
   /** A reader who holds no pick at all: every region is outside, and the one way in is the Choose button. */
@@ -282,7 +282,10 @@ export default function WindowSheetDialog({
    */
   const hasLunarEclipseRow = topicRows.some((row) => row.badge?.type === 'LUNAR_ECLIPSE');
   const raceSpot = hasLunarEclipseRow
-    ? (card.bestReach || (myPlaces.find((spot) => !spot.neighbourOutlier)) || null)
+    // Zero picks: no place is theirs, but an eclipse is "what is happening" and is never silenced (two-question
+    // rule), so the race falls back to the window's first place of any kind.
+    ? (card.bestReach || myPlaces.find((spot) => !spot.neighbourOutlier)
+      || card.spots.find((spot) => !spot.neighbourOutlier) || null)
     : null;
   const raceSight = raceSpot && eclipseIndex
     ? lookupForWindow(eclipseIndex, raceSpot.locationId, raceSpot.locationName, card.date, card.targetType)
@@ -407,7 +410,11 @@ export default function WindowSheetDialog({
     if (shaped) {
       // The picks, not a lens, emptied it (S5b-1): a lens never gates a Lite reader's list. The sentence is the
       // region's when one is chosen and holds none of theirs.
-      if (field.selectedRegion) return `None of your sub-regions are in ${field.selectedRegion}.`;
+      if (field.selectedRegion) {
+        return selectedRow?.hasPicks
+          ? `Nothing in your sub-regions in ${field.selectedRegion} for this ${eventWord(card.targetType)}.`
+          : `None of your sub-regions are in ${field.selectedRegion}.`;
+      }
       if (zeroPicks) return picksNoteText({ allowed: 0, total: field.spots?.length ?? 0 });
       return `Nothing in your sub-regions for this ${eventWord(card.targetType)}.`;
     }
@@ -437,7 +444,7 @@ export default function WindowSheetDialog({
     return clauses
       ? `Nothing ${clauses}${where} for this ${event}.`
       : `Nothing${where} for this ${event}.`;
-  }, [shownPlaces, shaped, zeroPicks, myPlaces.length, card.targetType, field.lens, field.selectedRegion,
+  }, [shownPlaces, shaped, zeroPicks, selectedRow, myPlaces.length, card.targetType, field.lens, field.selectedRegion,
     field.spots, reachMeasured]);
 
   const bestReach = card.bestReach ?? null;
@@ -460,6 +467,7 @@ export default function WindowSheetDialog({
         className="wf-subregion-btn"
         testId="wf-region-picks-action"
         onOpen={onOpenSubRegions}
+        noFallback
       />
       {!zeroPicks && outsideSummary && (
         <RegionDoor
@@ -707,7 +715,8 @@ export default function WindowSheetDialog({
               // ⚠️ A shaped (Lite) window's served best is null whatever is rated (S5b-1, B1), and a whole-plate
               // "Not scored" hatch would also cover ground outside the picks. So the map is never marked unscored
               // there; a window with none of the reader's places rated hatches around those places instead.
-              unscored={shaped ? false : null}
+              unscored={shaped ? shapedUnscored : null}
+              shaped={shaped}
               regionNames={scopedRegionNames}
               chips={chips}
               selectedRegion={field.selectedRegion || null}
@@ -805,7 +814,7 @@ export default function WindowSheetDialog({
                   empty state carried the same control. The sheet widens for browsing and forgets
                   it on close, where the bar's own chips would change the whole page to answer a
                   question about one window. */}
-              {onSeeAllSpots && (
+              {onSeeAllSpots && !zeroPicks && (
                 <button
                   type="button"
                   data-testid="window-sheet-see-all"

@@ -137,7 +137,9 @@ describe('WindowRegionRail for a shaped body', () => {
 
   it('wraps a long meta line instead of widening its cell, on a phone and everywhere (360px)', () => {
     const css = readFileSync(resolve(__dirname, '../index.css'), 'utf8');
-    const metaRule = css.match(/\.wf-rr-m \{[^}]*\}/)[0];
+    const metaRule = css.match(/\.wf-rrail\[data-shaped="true"\] \.wf-rr-m \{[^}]*\}/)[0];
+    // Scoped to the shaped rail, so every other rail's layout is untouched.
+    expect(css.match(/\.wf-rr-m \{[^}]*\}/)[0]).not.toMatch(/overflow-wrap/);
 
     expect(metaRule).toMatch(/min-width: 0/);
     expect(metaRule).toMatch(/overflow-wrap: anywhere/);

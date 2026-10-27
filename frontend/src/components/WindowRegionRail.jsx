@@ -68,6 +68,8 @@ export default function WindowRegionRail({
   // `aria-labelledby` resolves document-wide and a duplicate would name one cell for two buttons.
   const nameId = useId();
   // The All cell's second line. Shaped: the places in and out of the reader's sub-regions, with no star.
+  // A reader with no pick has no order to speak of: every region is outside.
+  const hasPicks = rows.some((row) => row.hasPicks);
   const allMeta = shaped
     ? shapedAllMeta(drawnCount, outsideCount)
     : metaLine(windowBest, drawnCount, countNoun, null);
@@ -77,9 +79,9 @@ export default function WindowRegionRail({
   return (
     <>
       <p data-testid="wf-region-rail-label" className="wf-rlab">
-        {shaped ? 'By region · your sub-regions first' : 'By region · best first'}
+        {shaped ? (hasPicks ? 'By region · your sub-regions first' : 'By region') : 'By region · best first'}
       </p>
-      <div data-testid="wf-region-rail" className="wf-rrail">
+      <div data-testid="wf-region-rail" className="wf-rrail" data-shaped={shaped ? 'true' : undefined}>
         <button
           type="button"
           ref={allCellRef}

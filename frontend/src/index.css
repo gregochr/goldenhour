@@ -3296,7 +3296,10 @@ button.wf-hc.also.on:hover {
   font-size: 9px;
   color: var(--color-plex-text-secondary);
   margin-top: auto;
-  /* A meta line can be a sentence ("31 in your sub-regions · 232 outside"): it wraps rather than widening its cell. */
+}
+/* A meta line can be a sentence ("31 in your sub-regions · 232 outside"): on a shaped rail it wraps rather than
+   widening its cell. Scoped by the rail's attribute so every other rail's layout is untouched. */
+.wf-rrail[data-shaped="true"] .wf-rr-m {
   min-width: 0;
   overflow-wrap: anywhere;
 }
