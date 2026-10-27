@@ -5,6 +5,141 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.33.4] - 2026-10-27
+
+### Added — invite someone from the waitlist, and a harder public waitlist form
+
+The Waitlist tab in Operations gains an Invite button (and Remove) on each row. Inviting mails the address
+a registration link, good for seven days, that lets that one address register once even while the early-access
+places are full; inviting again replaces the earlier link, and the row shows "Invited <date> · expires <date>".
+The invitation skips only the place count: the security check still applies, and closing registration closes it
+for invited readers too. A link for another address, an expired or a used one behaves as no invitation at all,
+with the same "full" answer. The waitlist entry is removed when the invited reader sets their password.
+
+The public waitlist form now carries the same security check as registration, and is rate-limited (a sixty-an-hour
+ceiling and five per address per quarter hour, answering "too many attempts" rather than a silent success).
+It no longer logs the address. The form now says "we'll email you an invitation when a place opens". Migration
+V194 adds the four invitation columns to `waitlist_email`.
+
+Ship together: a cached old page's waitlist form has no security token and is refused until it reloads.
+
+### Changed — the emailed verification link is single-use, and signing out ends every session's access token
+
+Opening the verification link now swaps it for a fresh setup token (valid for at most 30 minutes, held
+only in the page's memory) that the password step alone accepts, so a link left in a mailbox, a log or a
+browser history is dead the moment it has been used. A second visit to the same link says it has already
+been used and to sign in or ask for a new one, and a duplicated verify request (a double click) no longer
+turns the password step into an error.
+
+Signing out now revokes the presented refresh token and raises the account's credential version, so every
+access token issued before it stops working at its next request; another device quietly refreshes once and
+carries on. An open live-status stream is cut only when it next reconnects. The browser clears its stored
+session before it calls the server, so a request refused in that moment cannot trigger a refresh with the
+token just revoked (which would be read as theft and sign every device out).
+
+Ship together: a cached old page fails the password step once.
+
+### Added — Coming up: a Pro door where Lite's high-water-at-the-light rows were withheld
+
+A Lite reader now sees one worded "When high water meets the light" Pro door on the first Coming up tide card whose sunrise and sunset high-water rows the server withheld, instead of a card that silently lacks them. Pro and Admin are unchanged.
+
+### Changed — the tide relative to the light is Pro and Admin only (client first)
+
+The first phase of `docs/engineering/tide-light-pro-plan.md`. A Lite reader's pages no longer state where high or low water falls against the light: the Plan row's nearest-extreme fact draws the clock alone ("HW 19:28") instead of "HW 19:28 · 1h43 before sunset"; a Lite window's spring or king tide badge never borrows the other window's "tide aligned with sunrise at 47 of 61" sentence; the four-day sheet shows no "Rising tide — high at 07:12 (20 min after sunrise)" badge; a tide stand-down is worded as the generic "not evaluated by Claude" line; and big seas drop the light clause, "On the sunset ›", the aligned ring and the bolt on the aligned light row while keeping the waves, the window, the high-water clock, the daylight High-water row and the jumps. The context strips the whole structured fields behind these for Lite as defence in depth ahead of the server change; Pro and Admin are unchanged and still receive the fetched briefing object itself.
+
+### Changed — the Coming up feed withholds the tide at the light from Lite readers (server)
+
+The second server phase of `docs/engineering/tide-light-pro-plan.md`. `GET /api/almanac` is now role-shaped at the controller: a Lite reader's copy has no sunrise or sunset high-water rows ("HW 07:40, 10m before", "no high water within an hour"), including on a supermoon-hosted merged card, and the coincidence lines drop the aligned high-water clock; every other fact, date and card stays. An entry that lost something is marked `lightRowsWithheld` for the door the client draws next. Pro and Admin receive the service's feed unchanged (the field is absent from their JSON), anything that is not positively Pro or Admin is treated as Lite, and the ETag is hashed from the shaped body so validators never cross roles.
+
+### Changed — the tide at the light is Pro and Admin only on /api/briefing, the scores rows and the forecast detail
+
+Server half of the briefing and forecast shaping in `docs/engineering/tide-light-pro-plan.md` (B1). A Lite reader (anything not positively PRO_USER or ADMIN) no longer receives any statement of where the water falls against the light on `GET /api/briefing`: the window tide's `nearestOffset`, each fact's and slot's tide-on-the-light fields, a tide-mismatch stand-down reason, the spring and king topics' alignment sentence (replaced by the light-free "N coastal locations" clause, or nothing when that in-memory carrier is absent), their run row, resolved light and aligned counts, the matching window badges' alignment detail and clock, and big seas' gap, aligned light and aligned rings (the daylight high water stays). A `TIDE_MISALIGNED` stand-down is served to Lite as a plain `GENERIC` one with no message on `GET /api/forecast/{id}` and `GET /api/briefing/evaluate/scores`. Every topic, size fact and clock stays free; Pro and Admin bodies are unchanged byte for byte.
+
+### Added — sub-regions: the server can now hold back a Lite reader's ratings outside their picks (switched off)
+
+A new `LitePickShaper` shapes the briefing, its digest, the evaluation scores, the forecast list, the forecast
+detail and the astro conditions for a reader who is not Pro or Admin. With `photocast.sub-regions.enforce` on,
+every rating of a location outside the sub-regions the reader picked is removed and the place is marked
+`gated`: the slot's verdict, stars, display verdict, stand-down reason, flags and neighbour mark; the region's
+best, mean and mean-change stars and each window's best star; the bluebell topic's per-place scores, "Best"
+badge, best score, conditions chips and summary; the astro stars and prose; and the forecast rating, stand-down
+reason and bluebell summary of a list row or an id (an id outside the picks is served the stripped detail, never
+the full one). Region and window verdicts, labels and prose, hot topics and the weather and tide facts stay
+free. The shaped briefing also carries `allowedLocationIds`. Anything that is not positively Pro or Admin is
+shaped, and a failed read of the picks shows no ratings rather than all of them. A shaped response is sent
+`Cache-Control: no-store` with no ETag, because it reveals the picks.
+
+The flag is off in every committed config, so nothing changes for any reader yet: Pro, Admin and flag-off bodies
+carry none of the new fields and keep their ETags. The client does not yet draw a gated place; that is a later
+phase.
+
+### Added — sub-regions: the picks API (Lite readers choose; nothing is limited yet)
+
+A Lite reader can now choose their sub-regions through `GET` and `PUT /api/user/settings/sub-regions`. The
+reply lists what they hold, every sub-region by region with its location count and two example names, the
+sub-regions nearest their home when they have a home and no picks yet, and where they stand on the change
+rule: a first choice starts a seven-day free-change period; after it, adding a pick is always free, and
+swapping one out is allowed once every thirty days (a locked change is a 409 `SUB_REGIONS_LOCKED` with the date
+it opens). All dates are UK civil dates, and the lock check and its stamp are one conditional update, so two
+overlapping requests cannot both pass. Pro and Admin readers do not pick. Migration V192 adds the picks table
+(both keys cascade, so deleting an account or a sub-region removes its picks), the two change columns on
+`app_user`, and a one-row `sub_region_policy` table.
+
+How many picks a Lite reader may hold is an admin setting (default 3): the Operations tab has a new
+Sub-regions sub-tab with a number control that says how many Lite readers would be left over a lowered value
+before it is saved. Admins can also see each reader's picks in the Users table, set them, and lift a lock
+(`/api/users/{id}/sub-regions`). Deleting a sub-region clears its pickers' locks. `photocast.sub-regions.enforce`
+(off) is reported by the API but changes nothing yet: limiting ratings to the picks is a later phase.
+
+### Added — sub-regions: 24 guidebook areas that partition the four regions (data, admin and Ask)
+
+A sub-region is a named area of a new kind, `SUB_REGION`, tied to one region, and every location with a
+region now belongs to exactly one sub-region of it. Migration V191 adds `area.kind` and `area.region_id`
+and a `location_sub_region` table whose primary key is the one-per-location rule, then seeds the 24
+sub-regions, their two-word and one-word aliases, and their members by location name and region (the
+current misspellings and the corrected spellings both match). A pre-flight stops the migration if any
+seeded name or alias would clash with a location, a region or another area. Nothing a reader sees changes
+yet: picks, shaping and the picker are later phases.
+
+In the Operations tab the Areas section now shows each area's kind and region, lists a sub-region's
+members read-only (membership is set on the location), and says how many enabled locations have no
+sub-region and which. The location edit form gains a Sub-region select for the location's region, and the
+location add and update requests accept a `subRegionId`; a region change drops a membership that no longer
+fits. A sub-region's aliases may be one word ("Keswick"); a named area's still need two.
+
+Ask understands the sub-regions as areas: "Swaledale" or "Teesdale" resolves to the sub-region, "Hadrian's
+Wall" still resolves to the Wall area and "Hadrian's Wall & Tynedale" to its sub-region, a question naming
+two areas is answered for the first with an "Also matched areas" note and a prompt line to call once per
+area, and the list of known areas in an unknown-area error now holds every name.
+
+### Removed — legacy free-text outcome API, service and UI leftovers
+
+The older `POST /api/outcome`, `GET /api/outcome` and `GET /api/outcome/all` endpoints, `OutcomeService`, `ActualOutcomeEntity`/repository, their models, the unmounted `OutcomeModal` and the `forecastApi` outcome bindings are deleted; the legacy store held no rows and had no UI since February. The calibration report (`GET /api/admin/calibration`) now scores readers' "How was it?" ratings only, and its buckets no longer carry `meanAbsoluteFierySkyError` (no reader). The empty `actual_outcome` table is left in place for one release; a later release drops it.
+
+### Changed — the region gloss no longer says the tide matches
+
+The one-line region gloss on the briefing is no longer told how many locations have a tide that suits
+them, and its prompt now says it may mention a king or spring tide as a fact about the coast but must
+never say the tide suits, matches or aligns with a location or with the light. That per-location match
+is a Pro feature, and the free gloss had been able to leak it. The best-bet advisor is unchanged.
+Glosses are only regenerated by a briefing build, so existing text clears on the first build after the
+release.
+
+### Added — dormant-account sweep (paused, dry-run by default)
+
+A new `dormant_account_sweep` job warns a Lite reader who has not used PhotoCast for 90 days, and deletes the
+account 14 days later if they still have not signed in. A sign-in, a promotion to Pro or Admin, or a disable
+after the warning cancels the deletion; Pro, Admin, disabled, pending and address-less accounts are never
+touched. The warning is stamped (`app_user.dormancy_warning_sent_at`, V193) only after the mail sender accepted
+it, the delete re-checks every condition under the row lock, and nothing is sent or deleted when no mail sender
+is configured. The job is seeded PAUSED and `photocast.dormancy.dry-run` defaults to true, so even "Run now"
+only logs would-warn and would-delete projections until the owner sets `dry-run: false`. Logs carry account ids
+only, and "Run now" now logs the admin who triggered it.
+
+### Docs — landing and reference copy match the audit follow-ups
+
+The Privacy Policy and Terms now describe the dormant-account policy (a Lite account with no activity for 90 days may be deleted, after a warning email at least 14 days earlier), the 30-minute password window after a verification link, sign-out ending that device's session and invalidating the current sign-in token, the waitlist (invitations, removal, Turnstile) and the waitlist sign-up no longer being logged with the address; the older outcome-records disclosure is removed because the API is gone. The auth and scheduler reference, the app-store privacy note and the editorial audit are brought up to date.
+
 ## [v2.33.3] - 2026-10-26
 
 ### Changed — tide heights and the tide match are Pro on the last two open paths

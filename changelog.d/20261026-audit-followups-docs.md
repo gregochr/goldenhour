@@ -1,3 +1,0 @@
-### Docs — landing and reference copy match the audit follow-ups
-
-The Privacy Policy and Terms now describe the dormant-account policy (a Lite account with no activity for 90 days may be deleted, after a warning email at least 14 days earlier), the 30-minute password window after a verification link, sign-out ending that device's session and invalidating the current sign-in token, the waitlist (invitations, removal, Turnstile) and the waitlist sign-up no longer being logged with the address; the older outcome-records disclosure is removed because the API is gone. The auth and scheduler reference, the app-store privacy note and the editorial audit are brought up to date.
