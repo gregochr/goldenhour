@@ -57,6 +57,7 @@ export default function WindowControl({
   onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
   emptyOlderDayLabel = null, ratedCounts = null, thinCounts = null, betterNext = null, auroraDoor = null,
+  shaped = false,
 }) {
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -143,8 +144,10 @@ export default function WindowControl({
     // is neither a night row ("not scored yet" would be a false claim) nor a solar one.
     if (!row || row.kind === 'solar' || row.kind === 'hw' || row.past === true) return undefined;
     const kind = KIND_TEXT[row.eventType] || row.eventType;
+    // A shaped body (sub-regions S5a-2): a night with no best star may be one whose places lie outside the
+    // reader's sub-regions, which is not "not scored yet", so the phrase is simply left out.
     const best = Number.isFinite(row.bestRating)
-      ? `best ${row.bestRating} star${row.bestRating === 1 ? '' : 's'}` : 'not scored yet';
+      ? `best ${row.bestRating} star${row.bestRating === 1 ? '' : 's'}` : (shaped ? null : 'not scored yet');
     return [kind, row.dayLabel ?? row.label, row.time || null, best].filter(Boolean).join(', ');
   }
   /** `‹` on the oldest window fetches the next older day instead of stepping. */
@@ -652,6 +655,7 @@ export default function WindowControl({
                     active={row.id === active?.id}
                     onSelect={() => selectRow(row)}
                     ratedCount={ratedCounts?.get(row.id) ?? null}
+                    shaped={shaped}
                   />
                 ))}
               </div>
@@ -677,6 +681,7 @@ export default function WindowControl({
                     row={row}
                     active={row.id === active?.id}
                     onSelect={() => selectRow(row)}
+                    shaped={shaped}
                   />
                 ))}
               </div>
@@ -800,6 +805,11 @@ WindowControl.propTypes = {
    * of the open menu. Null (the default, and what Pro and Admin pass) draws nothing.
    */
   auroraDoor: PropTypes.shape({ label: PropTypes.string.isRequired }),
+  /**
+   * The body was shaped by the reader's picks (sub-regions S5a-2): a window row with no served best star
+   * draws nothing in place of the dash, and a night pill's name leaves out "not scored yet". Default false.
+   */
+  shaped: PropTypes.bool,
   /** Whether the scope segment reads "My area" — decides only the all-in-scope wording. */
   scopeIsArea: PropTypes.bool,
   /** Opens the window panel on the row in force (map-landing-plan.md §3 L5). Null withholds it. */
@@ -1035,7 +1045,7 @@ const CHANNEL_ICON = {
 };
 
 /** One dropdown row — kind chip · label+time · `N★ best` with swatch · topic icons. */
-function WindowRow({ row, active, onSelect, ratedCount = null }) {
+function WindowRow({ row, active, onSelect, ratedCount = null, shaped = false }) {
   const icons = useMemo(() => {
     const seen = new Set();
     const out = [];
@@ -1094,7 +1104,9 @@ function WindowRow({ row, active, onSelect, ratedCount = null }) {
             <i aria-hidden="true" style={{ background: rampHex(row.bestRating) }} />
             {row.bestRating}&#9733; best
           </>
-        ) : (
+        ) : shaped ? null : (
+          // A shaped body (S5a-2) carries no served best star for a window (the server strips it), so a dash
+          // here would claim "unscored" of windows whose places are merely outside the picks: nothing is drawn.
           <span className="wf-win-row-unscored">&mdash;</span>
         )}
       </span>
@@ -1172,6 +1184,7 @@ PastWindowRow.propTypes = {
 };
 
 WindowRow.propTypes = {
+  shaped: PropTypes.bool,
   row: PropTypes.shape({
     id: PropTypes.string.isRequired,
     label: PropTypes.string.isRequired,

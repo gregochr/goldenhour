@@ -24,6 +24,7 @@ import {
   isMultiRank, rankBadge, rankOnPress, ranksOf,
 } from '../../utils/askPickChip.js';
 import TideWave from './TideWave.jsx';
+import { pickedLineText } from '../../utils/pickGeography.js';
 
 /**
  * The pane the label layer paints into, and its stacking order.
@@ -292,7 +293,7 @@ const TOOLTIP_WIDTH_FALLBACK = 240;
 export default function MapLabels({
   spots: allSpots, standRegions = NO_STAND_REGIONS, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
   onSelect = null, onSelectAskPick = null, eventLabel = '', bottomInset = 0, chromeKey = '', rampHex = defaultRampHex,
-  omitUnrated = false, bigSeasChips = NO_BIG_SEAS_CHIPS,
+  omitUnrated = false, bigSeasChips = NO_BIG_SEAS_CHIPS, regionPicks = null,
 }) {
   const map = useMap();
 
@@ -812,6 +813,7 @@ export default function MapLabels({
           data-hot={it.hot ? 'true' : undefined}
           data-tiny={frame.tiny ? 'true' : undefined}
           data-standdown={it.standDown || undefined}
+          data-picks={!it.standDown && regionPicks ? 'true' : undefined}
           data-testid="map-label-region"
           style={styleFor(it.key)}
         >
@@ -819,6 +821,20 @@ export default function MapLabels({
             <>
               <span className="wf-maplab-standdown-name">{it.rid}</span>
               <span className="wf-maplab-standdown-cause">{`stood down · ${it.standDown}`}</span>
+            </>
+          ) : regionPicks ? (
+            // A shaped body (S5a-2): a third line saying how many of the region's sub-regions the reader holds,
+            // or that none are theirs. Plain text in this aria-hidden, click-through pane (no button; the door
+            // lives in the region panel). A stood-down label above keeps its two lines instead.
+            <>
+              <span className="wf-maplab-region-name">{it.rid}</span>
+              <span
+                className="wf-maplab-region-picks"
+                data-testid="map-label-region-picks"
+                data-picked={(regionPicks.get(it.rid) ?? 0) > 0 ? 'true' : 'false'}
+              >
+                {pickedLineText(regionPicks.get(it.rid) ?? 0)}
+              </span>
             </>
           ) : it.rid}
         </span>
@@ -1061,6 +1077,13 @@ export default function MapLabels({
 }
 
 MapLabels.propTypes = {
+  /**
+   * For a body the server shaped by the reader's picks only (sub-regions S5a-2): each region's count of
+   * sub-regions the reader holds, by region name. Adds a third line to every ordinary region label ("{n}
+   * sub-regions picked", or "outside your sub-regions" at none); a stood-down label keeps its two lines.
+   * Null (every Pro, Admin and flag-off reader) draws the labels exactly as before.
+   */
+  regionPicks: PropTypes.instanceOf(Map),
   /**
    * The big-seas chips to draw (big-seas plan F2, {@code bigSeasChipItems} minus the Ask picks and the
    * selection): placed between the regions and the ordinary chips, each REPLACING that place's

@@ -270,6 +270,10 @@
   --color-outside-plate: #3a3633;
   --color-outside-rim: rgba(190, 198, 206, 0.4);
   --color-picks-outline: rgba(242, 231, 211, 0.85);
+  /* The region label's third line (S5a-2): "N sub-regions picked", mono 9px. */
+  --color-picks-label: #C3CAD1;
+  /* The grey wash behind the region panel's "Ratings here are outside your sub-regions." block. */
+  --color-outside-wash: rgba(156, 158, 160, 0.1);
 
   /* Matrix-axis (docs/engineering/matrix-axis-plan.md D14) — the sunrise/sunset axis pair. Consumed
      by hand-written CSS only (the strip's `.wf-hc-sun.am`/`.pm` chip rules below, and Phase 2's
@@ -6518,6 +6522,78 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   color: var(--color-plex-text-secondary);
   text-wrap: pretty;
 }
+/* Sub-regions S5a-2, the region panel for a shaped body. The no-picks block is a faint grey wash (the veil's
+   family) over the panel plate; the sub-regions list under it is two plain-text columns; the outside rows
+   reuse `.wf-win-panel-row` and add only the divider and the collapse button. */
+.wf-reg-outside-block {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--color-plex-border);
+  background: var(--color-outside-wash);
+}
+.wf-reg-outside-line {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--color-plex-text-secondary);
+}
+.wf-reg-subs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 14px;
+  margin: 0;
+  padding: 9px 12px;
+  list-style: none;
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-reg-sub {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.wf-reg-sub-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-reg-sub-count {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-reg-outside-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--color-plex-border);
+  border-bottom: 1px solid var(--color-plex-border);
+  background: rgba(0, 0, 0, 0.18);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--color-plex-text-secondary);
+}
+.wf-reg-outside-title { font-weight: 600; }
+.wf-reg-outside-count { letter-spacing: 0.02em; text-align: right; }
+.wf-reg-outside-row { grid-template-columns: minmax(0, 1fr); }
+.wf-reg-show-all {
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-plex-border);
+  text-align: left;
+  color: var(--color-plex-text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.wf-reg-show-all:hover,
+.wf-reg-show-all:focus-visible { color: var(--color-plex-text); }
 /* ⚠️ The app's own action row (`.wf-callout-actions`), NOT the bundle's teal-on-teal and
    gold-on-gold fills. Two reasons, both recorded rather than assumed: this bundle already shipped a
    1.24:1 CTA once, and the map's other card of actions is twenty pixels away — a second visual
@@ -7207,6 +7283,33 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   color: var(--color-standdown-ink);
   text-shadow: 0 1px 3px rgba(0, 0, 0, .95), 0 0 9px rgba(0, 0, 0, .85);
 }
+.wf-maplab-region[data-picks] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1.2;
+}
+/* The tiny-frame clip must not take the third line: only the NAME truncates, as a stood-down label's does. */
+.wf-maplab-region[data-picks][data-tiny='true'] {
+  max-width: none;
+  overflow: visible;
+}
+.wf-maplab-region[data-picks][data-tiny='true'] .wf-maplab-region-name {
+  display: block;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-maplab-region-picks {
+  display: block;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--color-picks-label);
+}
+.wf-maplab-region-picks[data-picked='false'] { color: var(--color-outside-dot); }
 .wf-maplab-standdown-cause {
   font-size: 8.5px;
   color: var(--color-standdown-ink-2);

@@ -1,5 +1,6 @@
 import { eligibleRegions, pickTopEligibleRegion, verdictEligible } from './windowFirstCards.js';
 import { resolveRegionDisplay } from './tierUtils.js';
+import { compareNames } from './pickGeography.js';
 
 /**
  * The Map tab's window verdict and its region tally — pure logic only
@@ -151,15 +152,15 @@ export function buildShapedLeadIndex(days) {
 const TIER_ORDER = ['WORTH_IT', 'MAYBE', 'UNRATED', 'STAND_DOWN', 'AWAITING'];
 
 /**
- * Case-insensitive code-unit order, the same order the server's lead pick uses
- * ({@code String.CASE_INSENSITIVE_ORDER}); deliberately not {@code localeCompare}, which folds accents and
- * orders by locale, so the two ends cannot disagree on a pair like "abc" and "Äbc".
+ * A verdict tier's place in a shaped window's order, best first; an unknown tier last. Shared by the pill's
+ * lead pick and the window panel's rows, which must agree.
+ *
+ * @param {?string} tier a resolved verdict tier
+ * @returns {number}
  */
-function compareNames(a, b) {
-  const x = String(a ?? '').toLowerCase();
-  const y = String(b ?? '').toLowerCase();
-  if (x < y) return -1;
-  return x > y ? 1 : 0;
+export function shapedTierRank(tier) {
+  const at = TIER_ORDER.indexOf(tier);
+  return at < 0 ? TIER_ORDER.length : at;
 }
 
 /**
@@ -177,10 +178,7 @@ function pickShapedTop(records, leadName) {
   const scored = records.filter((record) => record.scoredLocationCount > 0);
   const lead = scored.find((record) => record.regionName === leadName);
   if (lead) return lead;
-  const rank = (record) => {
-    const at = TIER_ORDER.indexOf(resolveRegionDisplay(record));
-    return at < 0 ? TIER_ORDER.length : at;
-  };
+  const rank = (record) => shapedTierRank(resolveRegionDisplay(record));
   return [...scored].sort((a, b) => (
     Number(verdictEligible(b)) - Number(verdictEligible(a))
     || rank(a) - rank(b)

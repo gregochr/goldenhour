@@ -1588,3 +1588,92 @@ describe('MapLabels — the places a selected hot topic rings (topic-ring-names-
     expect(chipNames()).toContain('Ringed');
   });
 });
+
+describe('MapLabels — the region labels of a body shaped by the reader\'s picks (sub-regions S5a-2)', () => {
+  const regionsOf = () => [...document.querySelectorAll('[data-testid="map-label-region"]')];
+  const lineOf = (el) => el.querySelector('[data-testid="map-label-region-picks"]');
+  const nameOf = (label) => regionsOf().find((r) => r.textContent.startsWith(label));
+
+  it('adds a third line: the count of picked sub-regions, singular at one, and "outside your sub-regions" at none', async () => {
+    restoreMeasure = withMeasuredLabels(60, 12);
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ regionPicks: new Map([['North East', 1], ['The Lakes', 0]]) });
+    await act(async () => { runFrames(); });
+
+    expect(lineOf(nameOf('North East'))).toHaveTextContent('1 sub-region picked');
+    expect(lineOf(nameOf('North East'))).toHaveAttribute('data-picked', 'true');
+    expect(lineOf(nameOf('The Lakes'))).toHaveTextContent('outside your sub-regions');
+    expect(lineOf(nameOf('The Lakes'))).toHaveAttribute('data-picked', 'false');
+  });
+
+  it('prints the plural at two or more', async () => {
+    restoreMeasure = withMeasuredLabels(60, 12);
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ regionPicks: new Map([['North East', 3]]) });
+    await act(async () => { runFrames(); });
+
+    expect(lineOf(nameOf('North East'))).toHaveTextContent('3 sub-regions picked');
+  });
+
+  it('keeps it plain text in the aria-hidden label: no button, no link', async () => {
+    restoreMeasure = withMeasuredLabels(60, 12);
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ regionPicks: new Map([['North East', 2], ['The Lakes', 0]]) });
+    await act(async () => { runFrames(); });
+
+    regionsOf().forEach((label) => {
+      expect(label).toHaveAttribute('aria-hidden', 'true');
+      expect(label.querySelector('button, a, [role="button"]')).toBeNull();
+    });
+  });
+
+  it('treats a region the picks map does not name as having none', async () => {
+    restoreMeasure = withMeasuredLabels(60, 12);
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ regionPicks: new Map() });
+    await act(async () => { runFrames(); });
+
+    regionsOf().forEach((label) => expect(lineOf(label)).toHaveTextContent('outside your sub-regions'));
+  });
+
+  it('lets a stood-down label win: it keeps its two lines and carries no picks line', async () => {
+    restoreMeasure = withMeasuredLabels(60, 12);
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      regionPicks: new Map([['North East', 2], ['The Lakes', 0]]),
+      standRegions: [{
+        rid: 'North East',
+        cause: 'rain',
+        points: [{ lat: 55.0, lng: -1.5, rid: 'North East' }, { lat: 55.2, lng: -1.7, rid: 'North East' }],
+      }],
+    });
+    await act(async () => { runFrames(); });
+
+    const stood = regionsOf().find((r) => r.dataset.standdown);
+    expect(stood.querySelector('.wf-maplab-standdown-cause')).toHaveTextContent('stood down · rain');
+    expect(lineOf(stood)).toBeNull();
+    expect(stood).not.toHaveAttribute('data-picks');
+    // The other region still gets its line.
+    expect(lineOf(nameOf('The Lakes'))).toHaveTextContent('outside your sub-regions');
+  });
+
+  it('draws the labels exactly as before without the prop (Pro, Admin, flag off)', async () => {
+    restoreMeasure = withMeasuredLabels(60, 12);
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount();
+    await act(async () => { runFrames(); });
+
+    expect(document.querySelector('[data-testid="map-label-region-picks"]')).toBeNull();
+    regionsOf().forEach((label) => expect(label).not.toHaveAttribute('data-picks'));
+    expect(regionsOf().map((r) => r.textContent).sort()).toEqual(['North East', 'The Lakes']);
+  });
+
+  it('draws no third line at or above the region zoom gate, with the labels themselves', async () => {
+    restoreMeasure = withMeasuredLabels(60, 12);
+    currentMap = makeFullMap({ zoom: 12 });
+    await mount({ regionPicks: new Map([['North East', 2]]) });
+    await act(async () => { runFrames(); });
+
+    expect(regionsOf()).toHaveLength(0);
+  });
+});

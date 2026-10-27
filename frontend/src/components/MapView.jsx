@@ -92,9 +92,10 @@ import { useOutsideDismiss } from '../hooks/useOutsideDismiss.js';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import MapWindowPanel from './map/MapWindowPanel.jsx';
 import {
-  buildPanelRegionRows, buildRegionLocationRows, windowPanelNote, REGION_PANEL_LOCATIONS,
+  buildPanelRegionRows, buildRegionLocationRows, windowPanelNote, shapedWindowPanelNote, REGION_PANEL_LOCATIONS,
 } from '../utils/mapDrilldown.js';
 import MapRegionPanel from './map/MapRegionPanel.jsx';
+import { picksNoteText } from '../utils/pickGeography.js';
 import { regionGlossEntry } from '../utils/regionGloss.js';
 import AskCameraController from './map/AskCameraController.jsx';
 import MapPeekAsk from './map/MapPeekAsk.jsx';
@@ -303,6 +304,10 @@ const STOOD_DOWN_UNSCORED_LINE = 'Stood down by the weather — no place rated f
 /** The same line when the window still has places nobody has looked at. */
 const STOOD_DOWN_SOME_UNRATED_LINE = 'Some places stood down by the weather — none rated yet';
 /** Stable empty rows — the window panel's fallback while it is closed (map-landing-plan.md §3 L5). */
+/** A region the served roster has no place in (so no summary): every count is nil. */
+const EMPTY_REGION_PICKS = Object.freeze({
+  places: 0, allowedPlaces: 0, outsidePlaces: [], subRegions: [], pickedNames: [],
+});
 const EMPTY_ROWS = [];
 
 /**
@@ -1421,6 +1426,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const [heatArea, setHeatArea] = useState(true);
   const [heatFitNonce, setHeatFitNonce] = useState(0);
+  /**
+   * The scope segment of a SHAPED body (sub-regions S5a-2): which frame the camera was last asked for, 'picks'
+   * (the allowed places' box) or 'all' (the roster's). Null until the reader presses it, so the camera opens on
+   * exactly the frame it always did. <b>Camera only</b>: nothing but `heatBounds` reads it, so it moves no count,
+   * no pool and not `heatArea`.
+   */
+  const [picksView, setPicksView] = useState(null);
   /**
    * The tide strip's own collapse state (tide-window-plan.md T6 §4 #12) — `MapView` state, not
    * `sessionStorage`: the pane is never unmounted (`plan-to-map-doors-plan.md`'s D2 note), so
@@ -2929,9 +2941,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * declaration for why an override, not a second controller, is what keeps a region jump and an
    * ordinary scope press from racing each other's `fitBounds` call in the same commit.
    */
+  const picksSegment = shaped && (heat?.allowedCount ?? 0) > 0;
+  const picksBounds = !picksSegment || picksView == null ? null
+    : (picksView === 'picks' ? heat?.allowedBounds : heat?.catalogueBounds) || null;
   const heatBounds = jumpFitOverride
     ? jumpFitOverride.bounds
-    : (heatArea ? heat?.areaBounds : heat?.catalogueBounds) || null;
+    : picksBounds || (heatArea ? heat?.areaBounds : heat?.catalogueBounds) || null;
   const heatBoundsNonce = jumpFitOverride ? jumpFitOverride.nonce : heatFitNonce;
   /** `[40, 40]` for a region jump (the design bundle's own `jumpTo`), `[28, 28]` otherwise. */
   const heatBoundsPadding = jumpFitOverride ? [40, 40] : [28, 28];
@@ -3609,6 +3624,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // served; `null` for everyone else keeps the pick exactly as it was.
     shapedLeads: shaped ? shapedLeadIndex : null,
   });
+  /**
+   * The picks across each region (S5a-2), for a shaped body only: `pickGeography.regionPickSummaries`, from the
+   * served ids and each place's served sub-region. Null for every Pro, Admin and flag-off reader.
+   */
+  const regionPicks = shaped ? (heat?.regionPicks ?? null) : null;
+  /**
+   * The key's facts for a shaped body (S5a), drawn by the desktop legend panel and the phone's Layers section
+   * alike, and only while the veil and outline are actually drawn (the land clip is live below
+   * LAND_CLIP_MAX_ZOOM). Null for everyone else.
+   */
+  const legendPicks = heatOffered && shaped && zoom < LAND_CLIP_MAX_ZOOM
+    ? { allowed: heat.allowedCount ?? 0, total: (heat.spots || []).length } : null;
+  /** Each region's count of picked sub-regions, for the labels' third line; null unshaped. */
+  const regionPickCounts = useMemo(() => (regionPicks
+    ? new Map([...regionPicks].map(([name, summary]) => [name, summary.pickedNames.length])) : null),
+  [regionPicks]);
 
   /**
    * The pill's `· N rated` per solar row — rated sky places in the SCOPE pool, shown only on a thin
@@ -5055,6 +5086,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     regionsInScope,
     points: panelPoints,
     driveMap: activeDriveMap,
+    regionPicks,
     // The panel's "k of m at 4★+" counts the reader's OWN places: one outside their sub-regions (the
     // server's `gated`) is in neither half. The regions in scope above still name every region.
     spots: verdictScopePool.filter((spot) => !isGatedIn(activeStates, spot)),
@@ -5304,6 +5336,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   function resetToMyArea() {
     setJumpFitOverride(null);
+    setPicksView(null);
     setHeatArea(true);
     setHeatFitNonce((n) => n + 1);
   }
@@ -6055,6 +6088,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       setHeatFitNonce((n) => n + 1);
     },
     areaLabel: heat?.areaLabel,
+    // Sub-regions S5a-2: the shaped body's own scope segment, with at least one pick; camera only.
+    picksScope: picksSegment ? {
+      view: picksView ?? 'all',
+      onSelect: (next) => {
+        setJumpFitOverride(null);
+        setPicksView(next);
+        setHeatFitNonce((n) => n + 1);
+      },
+    } : null,
     isAuroraMode,
     isAstroMode,
     showAdminRow: role === 'ADMIN' && !isAuroraMode && !isAstroMode,
@@ -6077,6 +6119,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const windowControl = (
     <WindowControl
+      shaped={shaped}
       events={mapEvents}
       activeIndex={activeEvIndex}
       onSelect={selectEvRow}
@@ -6448,6 +6491,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 omitUnrated={isAuroraMode}
                 bigSeasChips={bigSeasChips}
                 chromeKey={`${chromeTlNonce}.${chromeBlNonce}`}
+                // A shaped body only (S5a-2): the region labels' third line, from the served picks.
+                regionPicks={regionPickCounts}
                 // The phone's peek sheet is an obstacle while an answer's picks are on the map (F4),
                 // from its TARGET height; with no answer it is not one, as it never was.
                 bottomInset={isMobile && askActive ? peekTarget : 0}
@@ -6800,6 +6845,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             region={panelRegionRow}
             locations={panelLocations}
             gloss={panelGloss}
+            // A shaped body (S5a-2): this region's picks facts; null for everyone else.
+            picks={regionPicks ? (regionPicks.get(panelRegionRow.name) ?? EMPTY_REGION_PICKS) : null}
             onBack={() => { setPanelReturnTo(panelRegionRow.name); setPanelRegion(null); }}
             // ⚠️ Neither of these clears the LEVEL, and mutation testing is why. Both close the
             // drilldown, `panelRows` is `EMPTY_ROWS` the moment it is closed, and `openDrilldown`
@@ -6829,11 +6876,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           <MapWindowPanel
             row={activeMapEvent}
             verdict={activeMapEvent ? (evVerdicts.get(activeMapEvent.id) ?? null) : null}
-            note={windowPanelNote({
-              verdict: activeMapEvent ? (evVerdicts.get(activeMapEvent.id) ?? null) : null,
-              isSolar: activeMapEvent?.kind === EVENT_KIND.SOLAR,
-              scopeIsArea: heatArea && Boolean(heat?.hasHome),
-            })}
+            note={regionPicks && activeMapEvent?.kind === EVENT_KIND.SOLAR
+              // A shaped body (S5a-2): the lead-outside note, or none at all for a reader with no pick.
+              ? shapedWindowPanelNote({
+                rows: panelRows,
+                leadRegion: evVerdicts.get(activeMapEvent.id)?.regionName ?? null,
+              })
+              : windowPanelNote({
+                verdict: activeMapEvent ? (evVerdicts.get(activeMapEvent.id) ?? null) : null,
+                isSolar: activeMapEvent?.kind === EVENT_KIND.SOLAR,
+                scopeIsArea: heatArea && Boolean(heat?.hasHome),
+              })}
             rows={panelRows}
             scopeIsArea={heatArea && Boolean(heat?.hasHome)}
             onClose={closeDrilldown}
@@ -6958,6 +7011,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               )}
               windowsBody={(
                 <MapPeekWindowsSection
+                  shaped={shaped}
                   // A night-only list (the aurora-only tab) has no solar rows for the landing header to
                   // name, which left an empty heading: fall back to the first row's own label ("Tonight").
                   heading={landingHeader(nextTwo) || (noSolarEvent ? (mapEvents[0]?.label ?? '') : '')}
@@ -7076,6 +7130,33 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       </span>
                     </div>
                   )}
+                  {/* Sub-regions S5a-2: the desktop legend is not mounted on the phone, so a shaped body's key (the grey
+                      "outside your sub-regions" swatch with its Pro pill, the dashed "your sub-regions" row) and its
+                      note live here, in the Layers section that already carries the colour key and the ground key.
+                      Not a door: the pill is a label. Unshaped phones draw nothing new. */}
+                  {legendPicks && !isAuroraMode && (
+                    <div data-testid="wf-map-peek-picks" className="wf-map-peek-lay-row">
+                      <span className="wf-map-peek-lay-label">Your sub-regions</span>
+                      <span className="wf-legend-ground">
+                        <span className="wf-legend-ground-item" data-testid="wf-map-peek-picks-outside">
+                          <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-outside" />
+                          outside your sub-regions
+                          <span className="wf-lens-pro">Pro</span>
+                        </span>
+                        {legendPicks.allowed > 0 && (
+                          <span className="wf-legend-ground-item" data-testid="wf-map-peek-picks-yours">
+                            <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-picks" />
+                            your sub-regions
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  {legendPicks && !isAuroraMode && (
+                    <p data-testid="wf-map-peek-picks-note" className="wf-map-peek-tide-hint">
+                      {picksNoteText(legendPicks)}
+                    </p>
+                  )}
                   {/* The ground key (thin-sample plan F4), solar and rated windows only: the hatch is
                       not drawn on a night or an unscored window, so neither is its key. */}
                   {/* Big-seas plan F3: the row also opens for a stand-down hatch, on a whole-window
@@ -7182,7 +7263,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 seasKey={bigSeasShown}
                 // Sub-regions S5a: the picks rows and note, for a shaped body only, and only while the veil and
                 // outline are actually drawn (the land clip is live below LAND_CLIP_MAX_ZOOM).
-                picks={shaped && zoom < LAND_CLIP_MAX_ZOOM ? { allowed: heat.allowedCount ?? 0, total: (heat.spots || []).length } : null}
+                picks={legendPicks}
               />
             )}
             {/* The four-day hot-topics strip (hot-topics-by-day-plan §3 M2): a flex child BEFORE the tide

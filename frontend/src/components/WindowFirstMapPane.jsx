@@ -34,6 +34,7 @@ import { useOutcomeRatings } from '../hooks/useOutcomeRatings.js';
 import { ratedCountByWindow } from '../utils/outcomeRatingJoin.js';
 import { emptyOlderDay, olderDayState } from '../utils/mapOlderDay.js';
 import { isShaped } from '../utils/pickScope.js';
+import { regionPickSummaries } from '../utils/pickGeography.js';
 
 /**
  * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
@@ -53,6 +54,21 @@ const NO_PAST_HEAT = Object.freeze({ windows: [], pointSets: new Map(), windowSt
 
 /** Stable empty list: no older days fetched. The `loadedPastDays` prop's default, so an absent prop keeps one identity. */
 const NO_LOADED_DAYS = Object.freeze([]);
+
+/**
+ * The camera box of the places the served {@code allowedLocationIds} names, or null for an unshaped body or
+ * when none of them is on the roster. A selection by the served list, never a client membership rule.
+ *
+ * @param {Array<{id: *, lat: number, lng: number}>} spots the roster's heat spots
+ * @param {?Array<*>} allowedIds the briefing's served {@code allowedLocationIds}
+ * @returns {?object} the {@code latLngBounds} box, or null
+ */
+function allowedBoundsOf(spots, allowedIds) {
+  if (!isShaped(allowedIds)) return null;
+  const allowed = new Set(allowedIds);
+  const own = spots.filter((spot) => spot.id != null && allowed.has(spot.id));
+  return own.length > 0 ? latLngBounds(own, FRAME_PAD_DEG) : null;
+}
 
 /**
  * Subscribes to everything that can change whether this page is the one in front of the reader:
@@ -661,6 +677,12 @@ export default function WindowFirstMapPane({
       shaped: isShaped(allowedLocationIds),
       // How many places the picks cover, as the server counted them (the legend's {n}); null unshaped.
       allowedCount: isShaped(allowedLocationIds) ? allowedLocationIds.length : null,
+      // The picks across each region (S5a-2): sub-regions held, places outside, and the sub-regions a region
+      // has, counted over the served ids and each place's served sub-region. Null for an unshaped body.
+      regionPicks: regionPickSummaries(heatSpots, allowedLocationIds),
+      // The box of the places the picks cover, for the scope segment's "Your sub-regions" (camera only). Null
+      // when none of them can be framed; read by `MapView` for a shaped body only.
+      allowedBounds: allowedBoundsOf(heatSpots, allowedLocationIds),
       spots: heatSpots,
       areaSpots: framed,
       // The briefing's own point sets, plus the PAST windows' (`pastHeat`, built above and never in

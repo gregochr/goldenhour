@@ -6,6 +6,8 @@ import { formatDriveDuration } from './briefingDisplay.js';
 import { eventInstantOf, lookupForWindow } from './locationSheet.js';
 import { calloutLeaveBy } from './mapCallout.js';
 import { tierOf } from './mapTideFit.js';
+import { shapedTierRank } from './mapVerdict.js';
+import { compareNames } from './pickGeography.js';
 
 /**
  * The Map tab's drilldown — window → regions (map-landing-plan.md §3 L5,
@@ -103,10 +105,15 @@ function finite(value) {
  *        region-base matrix, never both (`MapView`'s `activeDriveMap`)
  * @param {Array<{id: *, regionName: ?string}>} args.spots the reader's scope pool — the drive map's
  *        join, AND the denominator: how many PLACES each region holds here
+ * @param {?Map<string, {places: number, allowedPlaces: number}>} [args.regionPicks] from
+ *        {@code pickGeography.regionPickSummaries}; present ONLY for a body the server shaped by the
+ *        reader's picks (sub-regions S5a-2). It adds {@code hasPicks}, {@code outsideCount} and the
+ *        served {@code picksBestRating} to each row and re-orders them: regions with a pick first, then
+ *        verdict tier, then name (a shaped region carries no mean to rank by). Absent, nothing changes.
  * @returns {Array<object>} ranked rows — always empty for a night window, see the module doc
  */
 export function buildPanelRegionRows({
-  index, date, targetType, regionsInScope, points, driveMap, spots,
+  index, date, targetType, regionsInScope, points, driveMap, spots, regionPicks = null,
 }) {
   const inScope = new Set((Array.isArray(regionsInScope) ? regionsInScope : []).filter(Boolean));
 
@@ -191,9 +198,77 @@ export function buildPanelRegionRows({
       driveLabel: driveMinutes == null ? null : formatDriveDuration(driveMinutes),
       placeCount: places.get(name) ?? 0,
       atFourPlus: strong.get(name) ?? 0,
+      ...(regionPicks ? shapedRowFields(region, regionPicks.get(name)) : {}),
     });
   }
-  return rows.sort(byMeanThenName);
+  return rows.sort(regionPicks ? byPicksTierName : byMeanThenName);
+}
+
+/**
+ * The extra fields of a window-panel row for a SHAPED body, all read off served facts: whether the reader
+ * holds a pick in the region (the served {@code allowedLocationIds}, counted per region by
+ * {@code pickGeography}), how many of its places lie outside the picks, and the region's served
+ * {@code picksBestRating} as the best column (never a client max; the shaper strips {@code bestRating}).
+ * A region with no pick carries no best at all: its column is the Pro pill, not "not scored".
+ */
+function shapedRowFields(region, summary) {
+  const hasPicks = (summary?.allowedPlaces ?? 0) > 0;
+  return {
+    shaped: true,
+    hasPicks,
+    outsideCount: Math.max(0, (summary?.places ?? 0) - (summary?.allowedPlaces ?? 0)),
+    bestRating: hasPicks ? finite(region.picksBestRating) : null,
+  };
+}
+
+/** A shaped body's row order: regions with a pick first, then verdict tier, then name (no drive for Lite). */
+function byPicksTierName(a, b) {
+  return (Number(b.hasPicks) - Number(a.hasPicks))
+    || (shapedTierRank(a.tier) - shapedTierRank(b.tier))
+    || compareNames(a.name, b.name);
+}
+
+/**
+ * The window panel's one note for a SHAPED body (sub-regions S5a-2), or {@code ''} when there is none.
+ *
+ * <ul>
+ *   <li>A reader with no pick in any region on the panel gets no note at all.</li>
+ *   <li>When the window's lead region holds no pick of theirs: <b>Best in the {region}, outside your
+ *       sub-regions.</b> and, naming the best region that does hold one (the rows' own order), <b>In your
+ *       sub-regions, {region} is {verdict} too.</b> ("too" only when it is the same verdict; otherwise the
+ *       sentence drops it, since it would be false).</li>
+ *   <li>Otherwise one sentence on the order, because the unshaped note's "ranked on the average" is false
+ *       of a body with no means.</li>
+ * </ul>
+ *
+ * @param {object} args
+ * @param {Array<{name: string, tier: string, verdictLabel: string, hasPicks: boolean}>} args.rows the
+ *        shaped rows, in panel order
+ * @param {?string} args.leadRegion the window's lead region (the pill's own, {@code evVerdicts})
+ * @returns {string}
+ */
+export function shapedWindowPanelNote({ rows, leadRegion }) {
+  const list = Array.isArray(rows) ? rows : [];
+  const best = list.find((row) => row.hasPicks) ?? null;
+  if (!best) return '';
+  const lead = list.find((row) => row.name === leadRegion) ?? null;
+  if (!lead || lead.hasPicks) {
+    return 'Regions with places in your sub-regions come first, then by verdict.';
+  }
+  const word = best.verdictLabel;
+  return `Best in ${inSentence(lead.name)}, outside your sub-regions. `
+    + `In your sub-regions, ${inSentence(best.name)} is ${word}${best.tier === lead.tier ? ' too' : ''}.`;
+}
+
+/**
+ * A region's name inside a sentence: a leading "The" goes lower case ("Best in the Yorkshire Dales", "In your
+ * sub-regions, the Lake District is Maybe"), and a name without one stands bare ("Best in Northumberland &
+ * Tyneside"), where the handoff's literal "Best in the {region}" would double the article on the first and
+ * misread the second.
+ */
+function inSentence(name) {
+  const text = String(name ?? '');
+  return /^the\s/i.test(text) ? `the ${text.slice(4)}` : text;
 }
 
 /**
