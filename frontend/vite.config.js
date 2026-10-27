@@ -27,13 +27,14 @@ export default defineConfig(({ mode }) => {
     //  - autoUpdate so a deploy can't strand a user on a stale shell.
     VitePWA({
       registerType: 'autoUpdate',
-      // Web-app manifest so the app can be installed / added to a Home Screen. Icons are the
-      // standard 192 and 512 squares generated from the logo; theme/background match the dark UI
-      // (--color-plex-bg) so the splash and status bar don't flash white on launch. Both icons are
-      // purpose "any" — a "maskable" variant would need safe-zone padding the current logo doesn't
-      // have, and a wrongly-cropped adaptive icon is worse than none.
+      // Web-app manifest so the app can be installed / added to a Home Screen. Icons are the film-spine
+      // "P" mark from the header lockup (see public/favicon.svg): the 192 and 512 squares are rounded,
+      // purpose "any", and pwa-maskable-512x512.png is the same art scaled into the central 80% safe
+      // zone on a full-bleed background so Android's adaptive-icon mask never crops the spine or the P.
+      // Theme/background match the dark UI (--color-plex-bg) so the splash and status bar don't flash
+      // white on launch.
       // No `includeAssets`: favicon/apple-touch-icon are served on demand rather than precached.
-      // The two manifest icons (~94 KB) ARE precached — the plugin injects manifest assets into the
+      // The manifest icons ARE precached — the plugin injects manifest assets into the
       // precache and neither globIgnores nor omitting includeAssets overrides that. Accepted as the
       // price of installability: it's a one-off per deploy, and an installable PWA wants its icons.
       manifest: {
@@ -48,6 +49,7 @@ export default defineConfig(({ mode }) => {
         icons: [
           { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: 'pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {

@@ -14,8 +14,9 @@ COPY shot-ask.webp /usr/share/nginx/html/
 COPY field-map.webp /usr/share/nginx/html/
 COPY field-decide.webp /usr/share/nginx/html/
 COPY field-steel-rigg.webp /usr/share/nginx/html/
+COPY favicon.svg /usr/share/nginx/html/
 COPY favicon.png /usr/share/nginx/html/
-COPY logo.png /usr/share/nginx/html/
+COPY apple-touch-icon.png /usr/share/nginx/html/
 COPY screenshot.png /usr/share/nginx/html/
 COPY screenshot-map.png /usr/share/nginx/html/
 COPY screenshot-popup.png /usr/share/nginx/html/
@@ -26,7 +27,7 @@ COPY security-headers.conf /etc/nginx/security-headers.conf
 # exact quoted reference "file" in the pages to "file?v=<10 hex of md5>". The source HTML keeps plain
 # URLs, so local previews are unaffected; the plain paths are still served, bytes unchanged.
 RUN cd /usr/share/nginx/html && \
-    for f in *.css *.js *.webp *.png; do \
+    for f in *.css *.js *.webp *.png *.svg; do \
         [ -f "$f" ] || continue; \
         h=$(md5sum "$f" | cut -c1-10); \
         e=$(printf '%s' "$f" | sed 's/[.]/\\./g'); \
