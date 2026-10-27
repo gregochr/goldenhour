@@ -438,6 +438,65 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(chip).toHaveAttribute('aria-label', 'Unrated');
   });
 
+  describe('a place outside the reader\'s sub-regions (sub-regions-plan S5a-1)', () => {
+    const gatedSpot = (over = {}) => ({
+      name: 'Craster', lat: 55.47, lng: -1.59, rid: 'North East', rating: null, gated: true, ...over,
+    });
+
+    it('wears a small grey dot and its name, and is named "outside your sub-regions" — never "not rated"', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({ spots: [gatedSpot()] });
+      await act(async () => { runFrames(); });
+
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      expect(chip).toHaveAttribute('aria-label', 'Craster, outside your sub-regions');
+      expect(chip.getAttribute('aria-label')).not.toMatch(/not rated|unrated|not scored|star/i);
+      expect(chip).toHaveAttribute('data-gated', 'true');
+      expect(chip.querySelector('.wf-maplab-chip-n')).toHaveTextContent('Craster');
+      const dot = chip.querySelector('[data-testid="map-label-chip-outside"]');
+      expect(dot).not.toBeNull();
+      // The dot is drawn by the stylesheet's token, not an inline colour.
+      expect(dot.getAttribute('style')).toBeNull();
+    });
+
+    it('is still the tap target: pressing the chip selects the place, as ever', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      const onSelect = vi.fn();
+      await mount({ spots: [gatedSpot()], onSelect });
+      await act(async () => { runFrames(); });
+
+      fireEvent.click(document.querySelector('[data-testid="map-label-chip"]'));
+
+      expect(onSelect).toHaveBeenCalledWith('Craster');
+    });
+
+    it('does not fall through to the reader\'s own outcome-rating clause on a past window', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({ spots: [gatedSpot({ myRating: 'NOT_SEEN' })] });
+      await act(async () => { runFrames(); });
+
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      expect(chip).toHaveAttribute('aria-label', 'Craster, outside your sub-regions');
+      expect(chip.querySelector('[data-testid="rated-badge"]')).toBeNull();
+    });
+
+    it('leaves a place that is not marked exactly as it was: the ramp swatch and the star in its name', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount();
+      await act(async () => { runFrames(); });
+
+      const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+        .find((el) => el.textContent.includes('Bamburgh'));
+      expect(chip).not.toHaveAttribute('data-gated');
+      expect(chip.querySelector('[data-testid="map-label-chip-outside"]')).toBeNull();
+      expect(chip.querySelector('.wf-maplab-chip-m').getAttribute('style')).toContain('background');
+    });
+  });
+
   it('clicking a chip calls onSelect with the location name', async () => {
     restoreMeasure = withMeasuredLabels(50, 14);
     currentMap = makeFullMap({ zoom: 13 });

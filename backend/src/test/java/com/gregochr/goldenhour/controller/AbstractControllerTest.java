@@ -285,6 +285,13 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected com.gregochr.goldenhour.service.SubRegionPolicyService subRegionPolicyService;
 
+    /**
+     * Each location's sub-region, read in one query for {@code GET /api/locations}. A mock so a test can plant
+     * memberships without a database; unstubbed it answers an empty map, so every place reads as unassigned.
+     */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.SubRegionMembershipService subRegionMembershipService;
+
     @MockitoBean
     protected com.gregochr.goldenhour.service.ask.AskService askService;
 

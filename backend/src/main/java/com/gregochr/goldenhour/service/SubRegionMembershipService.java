@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.AreaEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.exception.AreaConflictException;
+import com.gregochr.goldenhour.model.LocationSubRegionRow;
 import com.gregochr.goldenhour.model.SubRegionMemberRow;
 import com.gregochr.goldenhour.model.UncoveredLocationDto;
 import com.gregochr.goldenhour.repository.AreaRepository;
@@ -69,6 +70,21 @@ public class SubRegionMembershipService {
         }
         byArea.values().forEach(ids -> ids.sort(Comparator.naturalOrder()));
         return byArea;
+    }
+
+    /**
+     * Every member location's sub-region (id and name), keyed by the location's id. One query, for the
+     * location roster's {@code subRegionId} / {@code subRegionName}.
+     *
+     * @return location id to its sub-region row; locations with no sub-region are absent
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, LocationSubRegionRow> subRegionsByLocation() {
+        Map<Long, LocationSubRegionRow> byLocation = new LinkedHashMap<>();
+        for (LocationSubRegionRow row : membership.findAllLabelledRows()) {
+            byLocation.put(row.locationId(), row);
+        }
+        return byLocation;
     }
 
     /**

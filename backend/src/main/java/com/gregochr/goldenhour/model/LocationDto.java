@@ -47,6 +47,10 @@ import java.util.Set;
  * @param structureFacesDeg          compass bearing the structure faces (0-359), or {@code null}
  * @param structureLabel             the big-seas chip's short name, or {@code null}
  * @param woodlandOnly              true when this location's only photographic subject is under canopy
+ * @param subRegionId               the area id of the sub-region this location belongs to, or {@code null}
+ *                                  when it has none; a role-free fact (ETag-safe), read from
+ *                                  {@code location_sub_region}
+ * @param subRegionName             that sub-region's name, or {@code null}
  */
 public record LocationDto(
         Long id,
@@ -77,5 +81,7 @@ public record LocationDto(
         CoastalStructure coastalStructure,
         Integer structureFacesDeg,
         String structureLabel,
-        boolean woodlandOnly) {
+        boolean woodlandOnly,
+        Long subRegionId,
+        String subRegionName) {
 }

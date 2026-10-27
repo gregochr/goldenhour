@@ -417,6 +417,25 @@ class SubRegionsJpaTest {
     }
 
     @Test
+    @DisplayName("subRegionsByLocation labels every member with its sub-region's id and name, in one read")
+    void subRegionsByLocation_labelsEveryMember() {
+        AreaDto swale = subRegion("Swaledale", dales);
+        AreaDto lakeland = subRegion("Keswick & Borrowdale", lakes);
+        LocationEntity forceFall = location("High Force", dales);
+        LocationEntity catBells = location("Cat Bells", lakes);
+        location("Unplaced", dales);
+        membership.assign(forceFall, swale.id());
+        membership.assign(catBells, lakeland.id());
+        reload();
+
+        assertThat(membership.subRegionsByLocation()).containsOnlyKeys(forceFall.getId(), catBells.getId());
+        assertThat(membership.subRegionsByLocation().get(forceFall.getId()).areaId()).isEqualTo(swale.id());
+        assertThat(membership.subRegionsByLocation().get(forceFall.getId()).areaName()).isEqualTo("Swaledale");
+        assertThat(membership.subRegionsByLocation().get(catBells.getId()).areaName())
+                .isEqualTo("Keswick & Borrowdale");
+    }
+
+    @Test
     @DisplayName("membersByArea groups every sub-region's members, ascending")
     void membersByArea_groupsAndSorts() {
         AreaDto swale = subRegion("Swaledale", dales);

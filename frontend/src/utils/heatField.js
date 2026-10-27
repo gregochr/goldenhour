@@ -768,7 +768,24 @@ export function paintStandDown(ctx, w, h, stood, rated, opts) {
  * @returns {boolean} whether anything was drawn
  */
 function paintMasked(ctx, w, h, subject, rated, opts, rule) {
-  const m = unknownMask(subject, rated, w, h, opts);
+  return paintMask(ctx, w, h, unknownMask(subject, rated, w, h, opts), opts, rule);
+}
+
+/**
+ * The drawing half of {@link paintMasked}: a texture ruled by {@code rule}, multiplied by a ready-made
+ * mask (the shape {@link unknownMask} returns) and drawn through the land clip. Split out so the
+ * outside-your-sub-regions veil can supply its own mask and take the same blur, clip and opacity as
+ * the hatches rather than a second copy of them.
+ *
+ * @param {CanvasRenderingContext2D} ctx target context, drawing in CSS px
+ * @param {number} w surface width in CSS px
+ * @param {number} h surface height in CSS px
+ * @param {?{cols: number, rows: number, gp: number, alpha: Float32Array}} m the mask, or null
+ * @param {object} opts the options both layers take
+ * @param {function(CanvasRenderingContext2D): void} rule draws the texture on the temp canvas
+ * @returns {boolean} whether anything was drawn
+ */
+function paintMask(ctx, w, h, m, opts, rule) {
   if (!m) return false;
   const off = document.createElement('canvas');
   off.width = m.cols;
@@ -844,6 +861,283 @@ function ratedMaskPoints(pts) {
 }
 
 /**
+ * Outside your sub-regions (sub-regions-plan D6, S5a): the two layers a Lite reader's field gets for
+ * the places the server marked {@code gated}. Both are drawn only when a host passes
+ * {@code opts.outside} (an array, possibly empty), so every host that never does paints exactly what
+ * it always did.
+ *
+ * <ul>
+ *   <li><b>The veil</b> — ground reached by an outside place's kernel (radius x 1.15) and NOT by an
+ *   allowed place's is washed with a flat, neutral grey on the plate, under the colour, the way the
+ *   hatches are: never the "not rated yet" hatch, never bare plate. It yields as allowed coverage
+ *   reaches {@link VEIL_YIELD}.</li>
+ *   <li><b>The outline</b> — a dashed bone line at the {@link OUTLINE_LEVEL} contour of allowed
+ *   coverage (radius x 0.9), drawn last. The contour is a hand-written marching-squares pass
+ *   ({@link contourLines}); there is no new dependency.</li>
+ * </ul>
+ *
+ * <p>"Allowed" is every place that is not outside, rated or not. One allowed-coverage grid (radius x
+ * 0.9) serves both the veil's suppressor and the contour, so the veil has begun to yield before the
+ * outline is reached and the two never disagree about where the picks end.
+ */
+const VEIL_RADIUS_SCALE = 1.15;
+const OUTLINE_RADIUS_SCALE = 0.9;
+/** Outside coverage at which the veil is fully drawn. */
+const VEIL_GATE = 0.35;
+/** Allowed coverage at which the veil has fully yielded. */
+const VEIL_YIELD = 0.5;
+/** The contour level of allowed coverage the outline traces. */
+const OUTLINE_LEVEL = 0.42;
+/**
+ * The veil's ink. Neutral grey (R, G and B within 4) at .18, from the handoff's {@code rgba(150,160,
+ * 170,.20)}: the handoff's cool tint sat within a few units of {@code --color-topic-air} (#8FA3B8), and
+ * an air-quality topic's rings can be on the map at the same time as the veil. Taking the blue out and
+ * a little of the alpha off keeps a wash (about #393737 on the plate) clearly apart from a 2px
+ * #8FA3B8 ring.
+ */
+const VEIL_FILL = 'rgba(156,158,160,.18)';
+const OUTLINE_INK = 'rgba(242,231,211,.85)';
+const OUTLINE_DASH = [5, 3];
+const OUTLINE_WIDTH = 1.4;
+/** The coarsest pitch, in CSS px, the outside layers' coverage grids are sampled at. */
+const OUTSIDE_GRID_MAX = 12;
+
+/**
+ * Gaussian coverage of a set of places over a grid: per cell, {@code 1 - exp(-sum / 1.15)} of the
+ * places' weights (the field's own clamp), the same lattice and cut-off as {@link unknownMask}.
+ * {@code opts.focus} multiplies every other region's weight by 1e-4, as the field's colour does.
+ *
+ * @param {Array<{x: number, y: number, rid: *}>} points places in CSS px
+ * @param {number} w surface width in CSS px
+ * @param {number} h surface height in CSS px
+ * @param {number} radius the kernel radius in CSS px
+ * @param {number} gp the grid pitch in CSS px
+ * @param {*} [focus] a region key, or falsy for none
+ * @returns {{cols: number, rows: number, gp: number, values: Float32Array, empty: boolean}}
+ */
+export function coverageGrid(points, w, h, radius, gp, focus) {
+  const cols = Math.ceil(w / gp) + 1;
+  const rows = Math.ceil(h / gp) + 1;
+  const values = new Float32Array(cols * rows);
+  const grid = bucketPoints(points, w, h, radius, gp);
+  if (!grid.keep.length) return { cols, rows, gp, values, empty: true };
+  const R2 = radius * radius;
+  let px = 0;
+  let py = 0;
+  let sum = 0;
+  const accumulate = (list) => {
+    for (const p of list) {
+      const dx = px - p.x;
+      const dy = py - p.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > R2 * 6) continue;
+      let wt = Math.exp(-d2 / R2);
+      if (focus && p.rid !== focus) wt *= 1e-4;
+      sum += wt;
+    }
+  };
+  for (let j = 0; j < rows; j += 1) {
+    for (let i = 0; i < cols; i += 1) {
+      px = i * gp;
+      py = j * gp;
+      sum = 0;
+      forNeighbours(grid, px, py, accumulate);
+      values[j * cols + i] = 1 - Math.exp(-sum / 1.15);
+    }
+  }
+  return { cols, rows, gp, values, empty: false };
+}
+
+/**
+ * Marching squares: the polylines where a scalar grid crosses {@code level}.
+ *
+ * <p>Joined into polylines, not left as per-cell segments, because a canvas dash pattern restarts at
+ * every sub-path: thousands of two-point segments would draw as a solid line. Open lines (the contour
+ * leaving the frame) come first, then closed loops (first point repeated at the end). Points are in
+ * grid units, interpolated linearly along cell edges. A saddle is resolved by the cell's centre mean.
+ *
+ * @param {Float32Array|number[]} values row-major scalars, {@code cols * rows} of them
+ * @param {number} cols grid width
+ * @param {number} rows grid height
+ * @param {number} level the contour level; a cell value {@code >= level} counts as above
+ * @returns {Array<Array<[number, number]>>} the polylines, each of two or more points
+ */
+export function contourLines(values, cols, rows, level) {
+  const points = new Map();
+  const links = new Map();
+  // An edge's id: horizontal (i,j)-(i+1,j) is 2*(j*cols+i); vertical (i,j)-(i,j+1) is that + 1.
+  const horizontal = (i, j) => {
+    const id = 2 * (j * cols + i);
+    if (!points.has(id)) {
+      const a = values[j * cols + i];
+      const b = values[j * cols + i + 1];
+      points.set(id, [i + (level - a) / (b - a), j]);
+    }
+    return id;
+  };
+  const vertical = (i, j) => {
+    const id = 2 * (j * cols + i) + 1;
+    if (!points.has(id)) {
+      const a = values[j * cols + i];
+      const b = values[(j + 1) * cols + i];
+      points.set(id, [i, j + (level - a) / (b - a)]);
+    }
+    return id;
+  };
+  const join = (a, b) => {
+    if (!links.has(a)) links.set(a, []);
+    if (!links.has(b)) links.set(b, []);
+    links.get(a).push(b);
+    links.get(b).push(a);
+  };
+  for (let j = 0; j < rows - 1; j += 1) {
+    for (let i = 0; i < cols - 1; i += 1) {
+      const tl = values[j * cols + i];
+      const tr = values[j * cols + i + 1];
+      const br = values[(j + 1) * cols + i + 1];
+      const bl = values[(j + 1) * cols + i];
+      const code = (tl >= level ? 8 : 0) | (tr >= level ? 4 : 0) | (br >= level ? 2 : 0) | (bl >= level ? 1 : 0);
+      if (code === 0 || code === 15) continue;
+      const top = () => horizontal(i, j);
+      const bottom = () => horizontal(i, j + 1);
+      const left = () => vertical(i, j);
+      const right = () => vertical(i + 1, j);
+      const centreAbove = (tl + tr + br + bl) / 4 >= level;
+      switch (code) {
+        case 1: case 14: join(left(), bottom()); break;
+        case 2: case 13: join(bottom(), right()); break;
+        case 3: case 12: join(left(), right()); break;
+        case 4: case 11: join(top(), right()); break;
+        case 6: case 9: join(top(), bottom()); break;
+        case 7: case 8: join(top(), left()); break;
+        case 5:
+          if (centreAbove) { join(top(), left()); join(bottom(), right()); } else { join(top(), right()); join(left(), bottom()); }
+          break;
+        default: // 10
+          if (centreAbove) { join(top(), right()); join(left(), bottom()); } else { join(top(), left()); join(bottom(), right()); }
+          break;
+      }
+    }
+  }
+  const seen = new Set();
+  const lines = [];
+  const walk = (start) => {
+    const line = [];
+    let prev = -1;
+    let cur = start;
+    while (cur !== undefined && !seen.has(cur)) {
+      seen.add(cur);
+      line.push(points.get(cur));
+      const here = cur;
+      cur = links.get(cur).find((n) => n !== prev && !seen.has(n));
+      prev = here;
+    }
+    return line;
+  };
+  for (const [id, next] of links) {
+    if (next.length === 1 && !seen.has(id)) lines.push(walk(id));
+  }
+  for (const [id] of links) {
+    if (seen.has(id)) continue;
+    const loop = walk(id);
+    if (loop.length > 1) loop.push(loop[0]);
+    lines.push(loop);
+  }
+  return lines.filter((line) => line.length > 1);
+}
+
+/**
+ * Plans the outside-your-sub-regions layers for one frame: the veil's mask and the outline's polylines,
+ * from ONE allowed-coverage grid.
+ *
+ * @param {Array<{x: number, y: number, rid: *}>} outside the gated places, in CSS px
+ * @param {Array<{x: number, y: number, rid: *}>} allowed every other place, rated or not, in CSS px
+ * @param {number} w surface width in CSS px
+ * @param {number} h surface height in CSS px
+ * @param {{radius?: number, grid?: number, focus?: *}} [opts] the field's radius, grid pitch and focus
+ * @returns {{veil: ?{cols: number, rows: number, gp: number, alpha: Float32Array},
+ *          lines: Array<Array<[number, number]>>, gp: number}} {@code veil} is null when no outside
+ *          place can reach the frame; {@code lines} (CSS px) is empty when no allowed place can
+ */
+export function planOutsidePicks(outside, allowed, w, h, opts) {
+  opts = opts || {};
+  const R = opts.radius || Math.max(14, w * 0.085);
+  // Coarser than the field's own pitch when the radius allows it. A coverage cell costs every place within
+  // the cut-off, so the cost of a grid grows with the square of the radius over the pitch, and this plan is
+  // recomputed on every frame of a pan. A gaussian of radius R sampled every R/4 px (never coarser than 12px,
+  // never finer than the field's pitch) still contours and blurs smoothly: measured on a 260-place roster at
+  // 1280 x 800, it takes the plan from about 42ms to about 10ms at R = 90.
+  const gp = Math.max(opts.grid || 4, Math.min(R / 4, OUTSIDE_GRID_MAX));
+  const permitted = coverageGrid(allowed, w, h, R * OUTLINE_RADIUS_SCALE, gp, opts.focus);
+  const gated = coverageGrid(outside, w, h, R * VEIL_RADIUS_SCALE, gp, opts.focus);
+  let veil = null;
+  if (!gated.empty) {
+    const alpha = new Float32Array(gated.values.length);
+    // A reader with nothing allowed has no ground of their own to leave clear: the veil covers all the
+    // land (the clip does the cutting), not only the ground near the places.
+    const wholeLand = permitted.empty;
+    for (let k = 0; k < alpha.length; k += 1) {
+      alpha[k] = wholeLand ? 1
+        : clamp(gated.values[k] / VEIL_GATE, 0, 1) * clamp(1 - permitted.values[k] / VEIL_YIELD, 0, 1);
+    }
+    veil = { cols: gated.cols, rows: gated.rows, gp, alpha };
+  }
+  const lines = permitted.empty ? [] : contourLines(permitted.values, permitted.cols, permitted.rows, OUTLINE_LEVEL)
+    .map((line) => line.map(([x, y]) => [x * gp, y * gp]));
+  return { veil, lines, gp };
+}
+
+/**
+ * Paints the veil under the field, on the plate: the same blur (plus 1px), land clip and opacity as
+ * the hatches.
+ *
+ * @param {CanvasRenderingContext2D} ctx target context, drawing in CSS px
+ * @param {number} w surface width in CSS px
+ * @param {number} h surface height in CSS px
+ * @param {{veil: ?object}} plan from {@link planOutsidePicks}
+ * @param {object} [opts] what {@link paintUnknown} takes (clip, blur, conf, opacity)
+ * @returns {boolean} whether anything was drawn
+ */
+export function paintVeil(ctx, w, h, plan, opts) {
+  opts = opts || {};
+  if (!plan || !plan.veil) return false;
+  return paintMask(ctx, w, h, plan.veil, { ...opts, blur: (opts.blur || 3) + 1 }, (tc) => {
+    tc.fillStyle = VEIL_FILL;
+    tc.fillRect(0, 0, w, h);
+  });
+}
+
+/**
+ * Strokes the dashed outline of the picks, clipped to land, after the field.
+ *
+ * @param {CanvasRenderingContext2D} ctx target context, drawing in CSS px
+ * @param {{lines: Array<Array<[number, number]>>}} plan from {@link planOutsidePicks}
+ * @param {object} [opts] the land clip ({@code clipPath}, {@code clipDx}, {@code clipDy} or
+ *        {@code clip}), {@code opacity} (a factor on the stroke; absent is 1) and
+ *        {@code outlineWidth} (CSS px; absent, {@link OUTLINE_WIDTH})
+ * @returns {boolean} whether anything was drawn
+ */
+export function paintOutline(ctx, plan, opts) {
+  opts = opts || {};
+  if (!plan || !plan.lines.length) return false;
+  ctx.save();
+  applyHardClip(ctx, opts);
+  ctx.globalAlpha = opts.opacity == null ? 1 : clamp(opts.opacity, 0, 1);
+  ctx.filter = 'none';
+  ctx.setLineDash(OUTLINE_DASH);
+  ctx.lineWidth = opts.outlineWidth || OUTLINE_WIDTH;
+  ctx.strokeStyle = OUTLINE_INK;
+  ctx.beginPath();
+  for (const line of plan.lines) {
+    ctx.moveTo(line[0][0], line[0][1]);
+    for (let k = 1; k < line.length; k += 1) ctx.lineTo(line[k][0], line[k][1]);
+  }
+  ctx.stroke();
+  ctx.restore();
+  return true;
+}
+
+/**
  * Host A: a static canvas with a d3 projection, clipped to real coastline (the Plan thumbnails
  * and the open row's field map).
  *
@@ -890,6 +1184,15 @@ export function drawGeo(cv, w, h, spots, win, opts) {
     return { x: p[0], y: p[1], sc: s.r[win], rid: s.rid };
   });
   const clip = () => path(LAND);
+  // Outside the picks (sub-regions-plan S5a): the veil first, on the plate; the outline after the
+  // field. Absent unless the host passes `outside`, so every existing host's output is unchanged.
+  const ground = opts.outside
+    ? planOutsidePicks(
+      maskPoints(opts.outside, (s) => projection([s.lng, s.lat])),
+      maskPoints(opts.allowed, (s) => projection([s.lng, s.lat])),
+      w, h, opts,
+    ) : null;
+  if (ground) paintVeil(ctx, w, h, ground, { ...opts, clip });
   // Above the plate, under the field: colour wins where a rated place is near. Absent by default,
   // so every existing host's output is exactly what it was.
   if (opts.unrated && opts.unrated.length) {
@@ -911,6 +1214,7 @@ export function drawGeo(cv, w, h, spots, win, opts) {
     );
   }
   paint(ctx, w, h, pts, { ...opts, alpha: opts.focus ? 238 : 206, clip });
+  if (ground) paintOutline(ctx, ground, { ...opts, clip });
   // After the field and before the coastline: the mark belongs to the plate, so it sits under the
   // edge that defines the plate. Ordinary callers never set it, so every existing host's paint
   // order is unchanged.
@@ -953,20 +1257,30 @@ export function drawTiles(cv, map, spots, win, opts) {
     const p = map.latLngToContainerPoint([s.lat, s.lng]);
     return { x: p.x, y: p.y, sc: score(s), rid: s.rid };
   });
+  // Outside the picks (sub-regions-plan S5a): only when the host passes `outside` (an array, possibly
+  // empty). The veil goes first, on the plate and under both hatches; the outline waits until after
+  // the field. A host that never passes it draws exactly what it always did.
+  const project = (s) => {
+    const p = map.latLngToContainerPoint([s.lat, s.lng]);
+    return [p.x, p.y];
+  };
+  const ground = opts.outside
+    ? planOutsidePicks(maskPoints(opts.outside, project), maskPoints(opts.allowed, project), w, h, opts)
+    : null;
+  if (ground) paintVeil(ctx, w, h, ground, opts);
   if (opts.unrated && opts.unrated.length) {
     paintUnknown(
       ctx, w, h,
-      maskPoints(opts.unrated, (s) => {
-        const p = map.latLngToContainerPoint([s.lat, s.lng]);
-        return [p.x, p.y];
-      }),
+      maskPoints(opts.unrated, project),
       ratedMaskPoints(pts),
       opts,
     );
   }
   // After the unrated hatch, before the field (big-seas plan F3): rated colour wins.
   paintStoodOnTiles(ctx, w, h, map, opts, pts);
-  return paint(ctx, w, h, pts, opts);
+  const painted = paint(ctx, w, h, pts, opts);
+  if (ground) paintOutline(ctx, ground, opts);
+  return painted;
 }
 
 /**

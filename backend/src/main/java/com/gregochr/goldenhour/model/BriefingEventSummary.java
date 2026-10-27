@@ -21,13 +21,19 @@ import java.util.Objects;
  *                       every internal path and in the persisted cache — it is derived at serve
  *                       time, as the last step before the response leaves {@code BriefingService},
  *                       and omitted from JSON when absent so the stored payload is unchanged
+ * @param shapedLeadRegion the name of the region the window leads with, chosen by verdict tier alone (never
+ *                       by a mean or a star). Set ONLY by {@code LitePickShaper} on a shaped response, so a
+ *                       Lite reader's Map pill can keep its verdict word after the shaper strips every region
+ *                       mean; null, and omitted from JSON, on every unshaped response and on an event with no
+ *                       region to lead with
  */
 public record BriefingEventSummary(
         TargetType targetType,
         List<BriefingRegion> regions,
         List<BriefingSlot> unregioned,
         @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime solarEventTime,
-        @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindow window) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindow window,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String shapedLeadRegion) {
 
     /**
      * Canonical constructor: takes immutable copies of {@code regions} and {@code unregioned}, so a
@@ -37,6 +43,22 @@ public record BriefingEventSummary(
     public BriefingEventSummary {
         regions = List.copyOf(regions);
         unregioned = List.copyOf(unregioned);
+    }
+
+    /**
+     * Builds a summary with no shaped lead region: the shape every construction site had before
+     * {@code shapedLeadRegion} existed. Only {@code LitePickShaper} sets it, through
+     * {@link #withShapedLeadRegion}.
+     *
+     * @param targetType     the solar event type (SUNRISE or SUNSET)
+     * @param regions        region-level rollups with their child slots
+     * @param unregioned     location slots not assigned to any region
+     * @param solarEventTime when this event occurs, or null
+     * @param window         the window-first projection, or null
+     */
+    public BriefingEventSummary(TargetType targetType, List<BriefingRegion> regions,
+            List<BriefingSlot> unregioned, LocalDateTime solarEventTime, BriefingWindow window) {
+        this(targetType, regions, unregioned, solarEventTime, window, null);
     }
 
     /**
@@ -89,7 +111,7 @@ public record BriefingEventSummary(
      * @return a copy carrying the new regions
      */
     public BriefingEventSummary withRegions(List<BriefingRegion> newRegions) {
-        return new BriefingEventSummary(targetType, newRegions, unregioned, solarEventTime, window);
+        return new BriefingEventSummary(targetType, newRegions, unregioned, solarEventTime, window, shapedLeadRegion);
     }
 
     /**
@@ -104,7 +126,7 @@ public record BriefingEventSummary(
      * @return a copy carrying them
      */
     public BriefingEventSummary withUnregioned(List<BriefingSlot> newUnregioned) {
-        return new BriefingEventSummary(targetType, regions, newUnregioned, solarEventTime, window);
+        return new BriefingEventSummary(targetType, regions, newUnregioned, solarEventTime, window, shapedLeadRegion);
     }
 
     /**
@@ -119,6 +141,17 @@ public record BriefingEventSummary(
      * @return a copy with the window attached
      */
     public BriefingEventSummary withWindow(BriefingWindow newWindow) {
-        return new BriefingEventSummary(targetType, regions, unregioned, solarEventTime, newWindow);
+        return new BriefingEventSummary(targetType, regions, unregioned, solarEventTime, newWindow, shapedLeadRegion);
+    }
+
+    /**
+     * Returns a copy carrying the given shaped lead region, leaving everything else untouched.
+     *
+     * @param newShapedLeadRegion the region name the window leads with by verdict tier, or null
+     * @return a copy carrying it
+     */
+    public BriefingEventSummary withShapedLeadRegion(String newShapedLeadRegion) {
+        return new BriefingEventSummary(targetType, regions, unregioned, solarEventTime, window,
+                newShapedLeadRegion);
     }
 }

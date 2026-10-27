@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.model.LocationSubRegionRow;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.mockito.Mockito.when;
@@ -86,6 +88,9 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 .build();
 
         when(locationService.findAll()).thenReturn(List.of(full, minimal));
+        // Bamburgh is in a sub-region; the minimal spot is in none.
+        when(subRegionMembershipService.subRegionsByLocation())
+                .thenReturn(Map.of(1L, new LocationSubRegionRow(1L, 71L, "Northumberland Coast")));
 
         String expectedJson = "["
                 + "{\"id\":1,\"name\":\"Bamburgh Castle\",\"lat\":55.609,\"lon\":-1.7099,"
@@ -102,7 +107,7 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"coastalTidal\":true,\"elevationMetres\":30,\"overlooksWater\":true,\"mistProne\":true,"
                 + "\"gridLat\":55.61,\"gridLng\":-1.71,\"bluebellExposure\":\"WOODLAND\","
                 + "\"coastalStructure\":\"PIER\",\"structureFacesDeg\":45,\"structureLabel\":\"Bamburgh Pier\","
-                + "\"woodlandOnly\":false},"
+                + "\"woodlandOnly\":false,\"subRegionId\":71,\"subRegionName\":\"Northumberland Coast\"},"
                 + "{\"id\":2,\"name\":\"Minimal Spot\",\"lat\":1.0,\"lon\":2.0,"
                 + "\"solarEventType\":[],\"tideType\":[],\"locationType\":[],\"region\":null,"
                 + "\"enabled\":true,\"createdAt\":\"2026-01-01T00:00:00\","
@@ -112,7 +117,8 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"avgShelfDepthMetres\":null,\"coastalTidal\":false,\"elevationMetres\":null,"
                 + "\"overlooksWater\":false,\"mistProne\":false,\"gridLat\":null,\"gridLng\":null,"
                 + "\"bluebellExposure\":null,\"coastalStructure\":null,\"structureFacesDeg\":null,"
-                + "\"structureLabel\":null,\"woodlandOnly\":false}"
+                + "\"structureLabel\":null,\"woodlandOnly\":false,\"subRegionId\":null,"
+                + "\"subRegionName\":null}"
                 + "]";
 
         mockMvc.perform(get("/api/locations"))

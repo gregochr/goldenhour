@@ -46,7 +46,7 @@ vi.mock('../utils/landMask.js', () => ({
   createLandMask: vi.fn(() => ({ get: landMaskGet, invalidate: landMaskInvalidate })),
 }));
 
-import MapHeatLayer, { coastAlphaAt, fadeAt } from '../components/MapHeatLayer.jsx';
+import MapHeatLayer, { coastAlphaAt, fadeAt, outlineWidthAt } from '../components/MapHeatLayer.jsx';
 import { setMode } from '../utils/scoreRamp.js';
 
 /**
@@ -1203,5 +1203,90 @@ describe('MapHeatLayer — the stand-down hatch (big-seas plan F3)', () => {
     await mount({ stood });
     expect('stood' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
     expect('standRadius' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+  });
+});
+
+describe('MapHeatLayer — outside your sub-regions (sub-regions-plan S5a-1)', () => {
+  const OUTSIDE = [{ lat: 54.2, lng: -2.9, rid: 'The Lakes' }];
+  const ALLOWED = [{ lat: 55.6, lng: -1.7, rid: 'North East' }];
+  const stubPath = { __stub: 'land' };
+
+  beforeEach(() => {
+    landMaskGet.mockReset();
+    landMaskGet.mockReturnValue(stubPath);
+    HTMLCanvasElement.prototype.getContext = () => makeCanvasCtxStub();
+  });
+
+  it('hands the kernel the outside and allowed places and the zoomed-out outline width, below the land clip', async () => {
+    currentMap = makeMap({ zoom: 8, panes: markerPanes() });
+    await mount({ outside: OUTSIDE, allowed: ALLOWED });
+    const opts = drawTiles.mock.calls.at(-1)[4];
+    expect(opts.outside).toBe(OUTSIDE);
+    expect(opts.allowed).toBe(ALLOWED);
+    expect(opts.outlineWidth).toBe(1.4);
+    // The clip is live, which is what makes the veil a statement about land.
+    expect(opts.clipPath).toBe(stubPath);
+  });
+
+  it('draws the outline thicker zoomed in (1.6px) than zoomed out (1.4px)', () => {
+    expect(outlineWidthAt(6)).toBe(1.4);
+    expect(outlineWidthAt(8)).toBe(1.4);
+    expect(outlineWidthAt(9.5)).toBeCloseTo(1.5, 5);
+    expect(outlineWidthAt(11)).toBeCloseTo(1.6, 5);
+    expect(outlineWidthAt(13)).toBeCloseTo(1.6, 5);
+  });
+
+  it('treats an empty `outside` as shaped: the key is passed, with whatever is allowed', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ outside: [], allowed: ALLOWED });
+    const opts = drawTiles.mock.calls.at(-1)[4];
+    expect(opts.outside).toEqual([]);
+    expect(opts.allowed).toBe(ALLOWED);
+  });
+
+  it.each([[null], [undefined]])('passes no outside key at all for %j: the kernel sees today\'s exact options', async (outside) => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ outside, allowed: ALLOWED });
+    const opts = drawTiles.mock.calls.at(-1)[4];
+    expect('outside' in opts).toBe(false);
+    expect('allowed' in opts).toBe(false);
+    expect('outlineWidth' in opts).toBe(false);
+  });
+
+  it('draws neither layer at/above the land-clip zoom, where there is no land to clip them to', async () => {
+    currentMap = makeMap({ zoom: 11.5, panes: markerPanes() });
+    await mount({ outside: OUTSIDE, allowed: ALLOWED });
+    const opts = drawTiles.mock.calls.at(-1)[4];
+    expect('outside' in opts).toBe(false);
+    expect('clipPath' in opts).toBe(false);
+  });
+
+  it('draws neither layer while the land topology is still in flight (no clip to hold them to land)', async () => {
+    landMaskGet.mockReturnValue(null);
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ outside: OUTSIDE, allowed: ALLOWED });
+    expect('outside' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+  });
+
+  it('carries the field\'s own opacity, so the handover fade and Ask\'s dim reach both layers', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ outside: OUTSIDE, allowed: ALLOWED, dim: 1 });
+    const full = drawTiles.mock.calls.at(-1)[4].opacity;
+    await mount({ outside: OUTSIDE, allowed: ALLOWED, dim: 0.5 });
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(full * 0.5, 5);
+  });
+
+  it('repaints when only the outside set changes', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    const view = await mount({ outside: OUTSIDE, allowed: ALLOWED });
+    drawTiles.mockClear();
+
+    await act(async () => {
+      view.rerender(<MapHeatLayer points={POINTS} conf={1} outside={[]} allowed={ALLOWED} />);
+    });
+    await act(async () => { runFrames(); });
+
+    expect(drawTiles).toHaveBeenCalled();
+    expect(drawTiles.mock.calls.at(-1)[4].outside).toEqual([]);
   });
 });

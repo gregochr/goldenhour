@@ -1,4 +1,4 @@
-import { eligibleRegions, pickTopEligibleRegion } from './windowFirstCards.js';
+import { eligibleRegions, pickTopEligibleRegion, verdictEligible } from './windowFirstCards.js';
 import { resolveRegionDisplay } from './tierUtils.js';
 
 /**
@@ -124,6 +124,71 @@ export function buildRegionVerdictIndex(days) {
 }
 
 /**
+ * Every window's served {@code shapedLeadRegion}, keyed {@code date|targetType}. Present on a body the
+ * server shaped by the reader's sub-region picks (and only then): the shaper strips every region
+ * {@code meanRating}, which {@link pickTopEligibleRegion} ranks and skips by, so the lead region is
+ * served instead, chosen by verdict tier alone (sub-regions-plan S5a). A selection among served names;
+ * nothing is derived.
+ *
+ * @param {Array<{date: string, eventSummaries: Array<object>}>} days {@code briefing.days}
+ * @returns {Map<string, string>} window key to the lead region's name; empty for an unshaped body
+ */
+export function buildShapedLeadIndex(days) {
+  const index = new Map();
+  for (const day of Array.isArray(days) ? days : []) {
+    if (!day?.date) continue;
+    for (const summary of day.eventSummaries ?? []) {
+      const lead = summary?.shapedLeadRegion;
+      if (summary?.targetType && typeof lead === 'string' && lead) {
+        index.set(`${day.date}|${summary.targetType}`, lead);
+      }
+    }
+  }
+  return index;
+}
+
+/** The served verdict tiers, best first: the order a shaped window's regions are ranked in without a mean. */
+const TIER_ORDER = ['WORTH_IT', 'MAYBE', 'UNRATED', 'STAND_DOWN', 'AWAITING'];
+
+/**
+ * Case-insensitive code-unit order, the same order the server's lead pick uses
+ * ({@code String.CASE_INSENSITIVE_ORDER}); deliberately not {@code localeCompare}, which folds accents and
+ * orders by locale, so the two ends cannot disagree on a pair like "abc" and "Äbc".
+ */
+function compareNames(a, b) {
+  const x = String(a ?? '').toLowerCase();
+  const y = String(b ?? '').toLowerCase();
+  if (x < y) return -1;
+  return x > y ? 1 : 0;
+}
+
+/**
+ * The region a SHAPED window's verdict is true of, over the in-scope records. The served
+ * {@code shapedLeadRegion} when it is among them; otherwise (the lead lies outside the scope) the best
+ * by the same order the server used — verdict-eligible first, then tier, then name — never a mean,
+ * because a shaped body carries none. A record that was not scored ({@code scoredLocationCount} 0) has
+ * no verdict to state, exactly as a region without a mean has none on an unshaped body.
+ *
+ * @param {Array<object>} records the in-scope served region records
+ * @param {?string} leadName the window's served {@code shapedLeadRegion}
+ * @returns {?object} the record, or null when none was scored
+ */
+function pickShapedTop(records, leadName) {
+  const scored = records.filter((record) => record.scoredLocationCount > 0);
+  const lead = scored.find((record) => record.regionName === leadName);
+  if (lead) return lead;
+  const rank = (record) => {
+    const at = TIER_ORDER.indexOf(resolveRegionDisplay(record));
+    return at < 0 ? TIER_ORDER.length : at;
+  };
+  return [...scored].sort((a, b) => (
+    Number(verdictEligible(b)) - Number(verdictEligible(a))
+    || rank(a) - rank(b)
+    || compareNames(a.regionName, b.regionName)
+  ))[0] ?? null;
+}
+
+/**
  * One window's verdict, the region it is true of, and how many other in-scope regions share it.
  *
  * <p><b>The three label cases the design specifies fall out of the return value</b>, and the third
@@ -181,10 +246,16 @@ export function buildRegionVerdictIndex(days) {
  * @param {?string} args.targetType SUNRISE or SUNSET — a night window has no per-region rollup and
  *        must never be passed one (map-tab-v2-plan.md O-16)
  * @param {Array<string>} args.regionsInScope region names currently in scope, deduplicated here
+ * @param {?Map<string, string>} [args.shapedLeads] from {@link buildShapedLeadIndex}; present ONLY for a
+ *        body the server shaped by the reader's picks, where it replaces the mean-ranked pick (a shaped
+ *        region carries no mean, so {@link pickTopEligibleRegion} would find none and the pill would
+ *        lose its verdict word). Null or absent leaves the pick exactly as it was.
  * @returns {?{tier: string, regionName: ?string, sharingCount: number, allInScope: boolean,
  *          scopedRegionCount: number}}
  */
-export function windowVerdict({ index, date, targetType, regionsInScope }) {
+export function windowVerdict({
+  index, date, targetType, regionsInScope, shapedLeads = null,
+}) {
   if (!index || !date || !targetType) return null;
   const names = [...new Set((Array.isArray(regionsInScope) ? regionsInScope : []).filter(Boolean))];
   if (names.length === 0) return null;
@@ -195,7 +266,9 @@ export function windowVerdict({ index, date, targetType, regionsInScope }) {
     if (record) records.push(record);
   }
 
-  const top = pickTopEligibleRegion(records);
+  const top = shapedLeads instanceof Map
+    ? pickShapedTop(records, shapedLeads.get(`${date}|${targetType}`) ?? null)
+    : pickTopEligibleRegion(records);
   if (!top) return null;
 
   // Through the app's shared helper, not `top.displayVerdict` raw: it prefers the served field and
@@ -276,9 +349,13 @@ export function regionNamesOf(spots) {
  * @param {Array<{id: string, kind: string, date: string, eventType: string}>} args.events the EV list
  * @param {?Map<string, object>} args.index from {@link buildRegionVerdictIndex}
  * @param {Array<string>} args.regionsInScope region names currently in scope
+ * @param {?Map<string, string>} [args.shapedLeads] the shaped body's lead regions
+ *        ({@link buildShapedLeadIndex}); null for everyone else
  * @returns {Map<string, object>} row id to that window's verdict, omitting rows that have none
  */
-export function buildEvVerdicts({ events, index, regionsInScope }) {
+export function buildEvVerdicts({
+  events, index, regionsInScope, shapedLeads = null,
+}) {
   const out = new Map();
   if (!index) return out;
   for (const row of Array.isArray(events) ? events : []) {
@@ -301,7 +378,7 @@ export function buildEvVerdicts({ events, index, regionsInScope }) {
     // (L4's own step 2); the pill and the drilldown did not.
     if (row.served === false) continue;
     const verdict = windowVerdict({
-      index, date: row.date, targetType: row.eventType, regionsInScope,
+      index, date: row.date, targetType: row.eventType, regionsInScope, shapedLeads,
     });
     if (verdict) out.set(row.id, verdict);
   }

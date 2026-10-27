@@ -325,6 +325,144 @@ class LitePickShaperTest {
         assertThat(shaped.headline()).isEqualTo("headline");
     }
 
+    private static BriefingSlot ratedSlot(Long id, String name, int rating, boolean canopy) {
+        return new BriefingSlot(id, name, AT, Verdict.GO, weather(), BriefingSlot.TideInfo.NONE,
+                List.of("Clear all layers"), "reason", rating, 3, 70, 60, "summary", DisplayVerdict.WORTH_IT,
+                "headline", canopy, null, null);
+    }
+
+    private static BriefingRegion shapedRegion(DailyBriefingResponse response) {
+        return eventOf(response).regions().get(0);
+    }
+
+    @Test
+    @DisplayName("picksBestRating: the max over the allowed places only; an unpicked 5 never counts")
+    void picksBestRating_isTheAllowedOnlyMax() {
+        DailyBriefingResponse response = briefing(List.of(region("North East", List.of(
+                ratedSlot(PICKED_ID, PICKED, 2, false), ratedSlot(UNPICKED_ID, UNPICKED, 5, false)))),
+                List.of(), null, List.of());
+
+        BriefingRegion shaped = shapedRegion(shaper.shapeBriefing(response, scopeOfPicked()));
+
+        assertThat(shaped.picksBestRating()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("picksBestRating: the region's own canopy rule, so a picked wood in a sky region does not vote")
+    void picksBestRating_appliesTheCanopyRuleToTheFullSlotList() {
+        // The region has a sky slot (unpicked), so only sky slots vote; the picked place is a wood.
+        DailyBriefingResponse response = briefing(List.of(region("North East", List.of(
+                ratedSlot(PICKED_ID, PICKED, 5, true), ratedSlot(UNPICKED_ID, UNPICKED, 3, false)))),
+                List.of(), null, List.of());
+
+        BriefingRegion shaped = shapedRegion(shaper.shapeBriefing(response, scopeOfPicked()));
+
+        assertThat(shaped.picksBestRating()).as("the wood's 5 is not a sky star").isNull();
+    }
+
+    @Test
+    @DisplayName("picksBestRating: an all-woodland region falls back to its woods, exactly as its own best does")
+    void picksBestRating_allCanopyRegionCountsItsWoods() {
+        DailyBriefingResponse response = briefing(List.of(region("North East", List.of(
+                ratedSlot(PICKED_ID, PICKED, 4, true), ratedSlot(UNPICKED_ID, UNPICKED, 5, true)))),
+                List.of(), null, List.of());
+
+        BriefingRegion shaped = shapedRegion(shaper.shapeBriefing(response, scopeOfPicked()));
+
+        assertThat(shaped.picksBestRating()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("picksBestRating: null with no allowed slot, with an unrated allowed slot, and for a blanked region")
+    void picksBestRating_nullWhenNothingQualifies() {
+        BriefingSlot unrated = new BriefingSlot(PICKED_ID, PICKED, AT, Verdict.GO, weather(),
+                BriefingSlot.TideInfo.NONE, List.of(), null, null, null, null, null, null,
+                DisplayVerdict.UNRATED, null, false, null, null);
+        DailyBriefingResponse noAllowed = briefing(List.of(region("North East", List.of(
+                ratedSlot(UNPICKED_ID, UNPICKED, 5, false)))), List.of(), null, List.of());
+        DailyBriefingResponse unratedAllowed = briefing(List.of(region("North East", List.of(unrated))),
+                List.of(), null, List.of());
+        DailyBriefingResponse blanked = briefing(List.of(region("North East", List.of())), List.of(), null,
+                List.of());
+
+        assertThat(shapedRegion(shaper.shapeBriefing(noAllowed, scopeOfPicked())).picksBestRating()).isNull();
+        assertThat(shapedRegion(shaper.shapeBriefing(unratedAllowed, scopeOfPicked())).picksBestRating())
+                .isNull();
+        assertThat(shapedRegion(shaper.shapeBriefing(blanked, scopeOfPicked())).picksBestRating()).isNull();
+        assertThat(shapedRegion(shaper.shapeBriefing(noAllowed, PickScope.nothing())).picksBestRating())
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("picksBestRating: an unshaped response (unrestricted scope) is returned as it was, with none")
+    void picksBestRating_absentWhenUnrestricted() {
+        DailyBriefingResponse response = briefing(List.of(region("North East", List.of(
+                ratedSlot(PICKED_ID, PICKED, 2, false)))), List.of(), null, List.of());
+
+        DailyBriefingResponse out = shaper.shapeBriefing(response, PickScope.unrestricted());
+
+        assertThat(shapedRegion(out).picksBestRating()).isNull();
+        assertThat(eventOf(out).shapedLeadRegion()).isNull();
+    }
+
+    private static BriefingRegion tiered(String name, DisplayVerdict verdict, Double mean, boolean sufficient,
+            List<BriefingSlot> slots) {
+        return new BriefingRegion(name, Verdict.GO, "prose", List.of(), slots, 11.0, 10.0, 4.0, 3, null, null,
+                verdict, slots.size(), null, false, Confidence.HIGH, mean, 5, null, sufficient, null);
+    }
+
+    @Test
+    @DisplayName("shapedLeadRegion: by verdict tier alone, never by a mean; ties by name")
+    void shapedLeadRegion_isChosenByTierThenName() {
+        List<BriefingSlot> sky = List.of(ratedSlot(PICKED_ID, PICKED, 4, false));
+        DailyBriefingResponse response = briefing(List.of(
+                tiered("Zeta", DisplayVerdict.MAYBE, 4.9, true, sky),
+                tiered("Yorkshire", DisplayVerdict.WORTH_IT, 3.5, true, sky),
+                tiered("Cumbria", DisplayVerdict.WORTH_IT, 3.6, true, sky),
+                tiered("Thin", DisplayVerdict.WORTH_IT, 4.4, false, sky)), List.of(), null, List.of());
+
+        assertThat(eventOf(shaper.shapeBriefing(response, scopeOfPicked())).shapedLeadRegion())
+                .as("eligible WORTH_IT regions first, then the name: Cumbria before Yorkshire")
+                .isEqualTo("Cumbria");
+    }
+
+    @Test
+    @DisplayName("shapedLeadRegion: ties break on the name case-insensitively, so a lower-case name is not last")
+    void shapedLeadRegion_nameOrderIgnoresCase() {
+        List<BriefingSlot> sky = List.of(ratedSlot(PICKED_ID, PICKED, 4, false));
+        DailyBriefingResponse response = briefing(List.of(
+                tiered("Borders", DisplayVerdict.WORTH_IT, 3.6, true, sky),
+                tiered("alnwick", DisplayVerdict.WORTH_IT, 3.6, true, sky)), List.of(), null, List.of());
+
+        assertThat(eventOf(shaper.shapeBriefing(response, scopeOfPicked())).shapedLeadRegion())
+                .isEqualTo("alnwick");
+    }
+
+    @Test
+    @DisplayName("shapedLeadRegion: none when the top region has no mean (a mixed region rated only on woods)")
+    void shapedLeadRegion_nullWhenTheTopRegionHasNoMean() {
+        List<BriefingSlot> sky = List.of(ratedSlot(PICKED_ID, PICKED, 4, false));
+        DailyBriefingResponse response = briefing(List.of(
+                tiered("Meanless", DisplayVerdict.UNRATED, null, false, sky)), List.of(), null, List.of());
+
+        assertThat(eventOf(shaper.shapeBriefing(response, scopeOfPicked())).shapedLeadRegion()).isNull();
+    }
+
+    @Test
+    @DisplayName("shapedLeadRegion: a woodland-only region is not eligible in a mixed window; null with no region")
+    void shapedLeadRegion_dropsCanopyOnlyRegionsAndIsNullWithNoRegion() {
+        DailyBriefingResponse mixed = briefing(List.of(
+                tiered("Aardvark Woods", DisplayVerdict.WORTH_IT, 4.5, true,
+                        List.of(ratedSlot(UNPICKED_ID, UNPICKED, 5, true))),
+                tiered("Borders", DisplayVerdict.MAYBE, 3.0, true,
+                        List.of(ratedSlot(PICKED_ID, PICKED, 3, false)))), List.of(), null, List.of());
+        DailyBriefingResponse empty = briefing(List.of(), List.of(), null, List.of());
+
+        assertThat(eventOf(shaper.shapeBriefing(mixed, scopeOfPicked())).shapedLeadRegion())
+                .isEqualTo("Borders");
+        assertThat(eventOf(shaper.shapeBriefing(empty, scopeOfPicked())).shapedLeadRegion()).isNull();
+    }
+
     @Test
     @DisplayName("Briefing: a reader with no picks sees every slot gated and an empty (not absent) allowed list")
     void briefing_zeroPicksGatesEverythingAndServesAnEmptyAllowedList() {
@@ -732,6 +870,8 @@ class LitePickShaperTest {
         BriefingRegion shaped = eventOf(shapedResponse).regions().get(0);
 
         Set<String> stripped = Set.of("meanRating", "bestRating", "meanRatingDelta");
+        // picksBestRating is computed by the shaper from the allowed slots, so it is neither stripped nor carried.
+        Set<String> computed = Set.of("picksBestRating");
         Set<String> shapedPerSlot = Set.of("slots");
         Set<String> kept = Set.of("regionName", "verdict", "summary", "tideHighlights",
                 "regionTemperatureCelsius", "regionApparentTemperatureCelsius", "regionWindSpeedMs",
@@ -739,7 +879,7 @@ class LitePickShaperTest {
                 "verdictLabel", "lightlyEvaluated", "confidence", "sampleSufficient", "forcedSample",
                 "coverageReason");
         assertThat(names(BriefingRegion.class)).as("classify every BriefingRegion component")
-                .containsExactlyInAnyOrderElementsOf(union(stripped, shapedPerSlot, kept));
+                .containsExactlyInAnyOrderElementsOf(union(stripped, computed, shapedPerSlot, kept));
         for (RecordComponent c : BriefingRegion.class.getRecordComponents()) {
             if (stripped.contains(c.getName())) {
                 assertThat(get(c, full)).as(c.getName() + " in the fixture").isNotNull();
@@ -764,7 +904,7 @@ class LitePickShaperTest {
         assertThat(names(BriefingDayPeak.class)).as("the day peak carries a verdict, never a star")
                 .containsExactlyInAnyOrderElementsOf(Set.of("verdict", "events", "regions"));
         assertThat(names(BriefingEventSummary.class)).containsExactlyInAnyOrderElementsOf(
-                Set.of("regions", "unregioned", "window", "targetType", "solarEventTime"));
+                Set.of("regions", "unregioned", "window", "targetType", "solarEventTime", "shapedLeadRegion"));
         assertThat(names(HotTopic.class)).containsExactlyInAnyOrderElementsOf(union(
                 Set.of("expandedDetail", "detail", "facts", "glance"),
                 Set.of("type", "label", "date", "priority", "filterAction", "regions", "description",

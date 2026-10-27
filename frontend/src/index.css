@@ -260,6 +260,17 @@
      deliberately framework-free and is shared with the Leaflet host, which has no sea at all. */
   --color-heat-sea: #13100e;
 
+  /* Outside your sub-regions (sub-regions-plan S5a): the grey family a Lite reader's unpicked places
+     wear, used by hand-written CSS only. `heatField.js` paints the veil and the outline from its own
+     literals (the kernel takes no CSS), so VEIL_FILL / OUTLINE_INK there and the two here are mirrors
+     that must move together. The veil is neutral grey, not the handoff's cool tint, so it stays apart
+     from `--color-topic-air` (#8FA3B8) when an air-quality topic's rings are up at the same time. */
+  --color-outside-veil: rgba(156, 158, 160, 0.18);
+  --color-outside-dot: rgba(190, 198, 206, 0.55);
+  --color-outside-plate: #3a3633;
+  --color-outside-rim: rgba(190, 198, 206, 0.4);
+  --color-picks-outline: rgba(242, 231, 211, 0.85);
+
   /* Matrix-axis (docs/engineering/matrix-axis-plan.md D14) — the sunrise/sunset axis pair. Consumed
      by hand-written CSS only (the strip's `.wf-hc-sun.am`/`.pm` chip rules below, and Phase 2's
      `.wf-rail`), so `static` per this block's own pruning rule. `--color-plex-dawn` is Phase 1's
@@ -7298,6 +7309,14 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   height: 5px;
   flex: none;
 }
+/* A place outside the reader's sub-regions (S5a): a small solid grey dot in place of the square (r 1.8),
+   no star, and its name label as ever. */
+.wf-maplab-chip-m[data-gated='true'] {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-outside-dot);
+}
 /* The wave glyph (bundle rev 2) — a glyph, not a second number, sitting between the name and the
    star exactly like the design bundle's own chip markup. `currentColor` + `--color-tide` rather
    than the badge ink: this is a small vector stroke on a near-black plate, not text needing the
@@ -7967,6 +7986,16 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
     #241d18;
 }
 /* The stand-down key (big-seas plan F3): 20x9, the map's own veil with the cool 45 degree rule. */
+/* The sub-regions key (S5a): the veil's plate with the grey rim, and the outline's dashed bone line. */
+.wf-legend-swatch-outside {
+  background: var(--color-outside-plate);
+  box-shadow: inset 0 0 0 1px var(--color-outside-rim);
+}
+.wf-legend-swatch-picks {
+  background: #241d18;
+  box-shadow: none;
+  border: 1px dashed var(--color-picks-outline);
+}
 .wf-legend-swatch-standdown {
   width: 20px;
   height: 9px;
@@ -7989,6 +8018,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   .wf-legend-swatch-standdown {
     forced-color-adjust: none;
     border-style: dotted;
+  }
+  .wf-legend-swatch-picks {
+    border-style: dashed;
   }
 }
 .wf-legend-ring-toggle {

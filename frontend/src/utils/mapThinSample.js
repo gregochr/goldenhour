@@ -1,5 +1,6 @@
 import { heatSpotKey } from './heatSpots.js';
 import { hasSpreadSample } from './windowFirstSpread.js';
+import { isGatedIn } from './pickScope.js';
 
 /**
  * The Map tab's thin-sample count — the pill's `· N rated` (thin-sample plan F4, §1 #3–#4).
@@ -16,6 +17,10 @@ import { hasSpreadSample } from './windowFirstSpread.js';
  * and at least one place in the pool is rated (no "0 rated" beside a verdict resting on places
  * further away). A filter/map/select over the states the heat spots already carry, no rating
  * derived: CLAUDE.md's Backend-heavy bullet, sixth class, member (f).
+ *
+ * <p>A place the server marked {@code gated} (outside a Lite reader's sub-regions) is in NEITHER half
+ * of the count: not rated, and not part of the total either, so a reader holding a few picks is told
+ * "2 rated" of their own places and never "2 of 260".
  */
 
 /** Verdict tiers that never wear the count: they are not a rated word. */
@@ -37,6 +42,7 @@ export function thinRatedCount({ verdict, states, scopePool }) {
   let rated = 0;
   for (const spot of Array.isArray(scopePool) ? scopePool : []) {
     if (!spot?.skySubject) continue;
+    if (isGatedIn(states, spot)) continue;
     total += 1;
     if (states.get(heatSpotKey(spot)) === 'rated') rated += 1;
   }

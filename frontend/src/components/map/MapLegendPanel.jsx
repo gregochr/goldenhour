@@ -77,6 +77,10 @@ export function handoverPhase(t) {
  *   A3). `'aurora'` paints the bar from {@link AURORA_RAMP}`.gradientCss()` — never
  *   {@link rampGradientCss}, for the reason above — and words the labels and note for an aurora
  *   night; the handover indicator and the reach-rings toggle are the same in both.
+ * @param {?{allowed: number, total: number}} [props.picks] present ONLY for a body the server shaped by
+ *   the reader's sub-regions (S5a): {@code allowed} the places the picks cover (the served
+ *   {@code allowedLocationIds} count), {@code total} the roster. Adds the two ground rows and the note.
+ *   Null (every Pro, Admin and flag-off reader) renders exactly what it did.
  * @param {boolean} [props.viewlineShown] whether the viewline overlay is actually mounted; the
  *   aurora note exists only when it is (the note names the line; with no line there is no note)
  * @param {boolean} [props.reachMeasured] whether a real drive time gates this reader's reach lens
@@ -87,7 +91,7 @@ export function handoverPhase(t) {
 export default function MapLegendPanel({
   open, onOpenChange, handoverFraction, ringsEnabled, onToggleRings,
   hasHome = false, reachMeasured = false, variant = 'solar', viewlineShown = false,
-  groundKey = true, stoodKey = false, seasKey = false,
+  groundKey = true, stoodKey = false, seasKey = false, picks = null,
 }) {
   const aurora = variant === 'aurora';
   const rootRef = useRef(null);
@@ -188,6 +192,25 @@ export default function MapLegendPanel({
             </div>
           )}
 
+          {/* Sub-regions S5a: the two ground states of a body shaped by the reader's picks, after "not rated
+              yet / no places". "Outside your sub-regions" carries a plain Pro pill - a label, not a door. The
+              dashed row names the outline, which is not drawn for a reader with no picks. */}
+          {!aurora && picks && (
+            <div data-testid="wf-legend-picks" className="wf-legend-ground">
+              <span className="wf-legend-ground-item" data-testid="wf-legend-outside">
+                <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-outside" />
+                outside your sub-regions
+                <span className="wf-lens-pro">Pro</span>
+              </span>
+              {picks.allowed > 0 && (
+                <span className="wf-legend-ground-item" data-testid="wf-legend-yours">
+                  <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-picks" />
+                  your sub-regions
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Big-seas plan F3: the stand-down hatch's key, while the hatch is drawn (solar, with a
               weather stand-down in the window), beside the ground key. */}
           {stoodKey && !aurora && (
@@ -242,6 +265,14 @@ export default function MapLegendPanel({
             </button>
           )}
 
+          {!aurora && picks && (
+            <div data-testid="wf-legend-picks-note" className="wf-legend-note">
+              {picks.allowed > 0
+                ? `Colour shows the ${picks.allowed} ${picks.allowed === 1 ? 'place' : 'places'} in your sub-regions. Pro rates all ${picks.total}.`
+                : 'Choose your sub-regions in Settings to see ratings.'}
+            </div>
+          )}
+
           {aurora ? (
             viewlineShown && (
               <div data-testid="wf-legend-note" className="wf-legend-note">
@@ -277,4 +308,6 @@ MapLegendPanel.propTypes = {
   stoodKey: PropTypes.bool,
   /** Whether big-seas chips are drawn (big-seas plan F2); the key is withheld otherwise. */
   seasKey: PropTypes.bool,
+  /** The reader's sub-region picks for a shaped body (S5a); null draws none of the picks rows. */
+  picks: PropTypes.shape({ allowed: PropTypes.number.isRequired, total: PropTypes.number.isRequired }),
 };

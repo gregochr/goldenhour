@@ -33,6 +33,7 @@ import java.util.TreeSet;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -57,9 +58,14 @@ class LitePickSentinelTest {
     private final LitePickShaper shaper = new LitePickShaper(Mockito.mock(UserSubRegionService.class),
             new SubRegionProperties());
 
+    /** The star an unpicked place carries: distinct from every picked star so any leak is visible. */
+    private static final int UNPICKED_STAR = 5;
+    private static final int PICKED_STAR = 2;
+
     private static BriefingSlot slot(long id, String name, String tag) {
+        int star = id == PICKED_ID ? PICKED_STAR : UNPICKED_STAR;
         return new BriefingSlot(id, name, EVENT, Verdict.GO, null, null, List.of(tag + "_FLAG"),
-                tag + "_STANDDOWN", 4, 3, 70, 60, tag + "_SUMMARY", DisplayVerdict.WORTH_IT, tag + "_HEADLINE",
+                tag + "_STANDDOWN", star, 3, 70, 60, tag + "_SUMMARY", DisplayVerdict.WORTH_IT, tag + "_HEADLINE",
                 false, null, null);
     }
 
@@ -136,6 +142,54 @@ class LitePickSentinelTest {
             assertThat(json).as("leaked: " + marker).doesNotContain(marker);
         }
         assertThat(json).contains("P_STANDDOWN").contains("P_FLAG").contains("P_LOC_SUMMARY");
+    }
+
+    // ------------------------------------------------------------------ picksBestRating and shapedLeadRegion
+
+    private JsonNode regionNode(String json) {
+        return mapper.readTree(json).get("days").get(0).get("eventSummaries").get(0).get("regions").get(0);
+    }
+
+    private static boolean containsNumber(JsonNode node, int value) {
+        if (node.isNumber() && node.asInt() == value && !node.isFloatingPointNumber()) {
+            return true;
+        }
+        for (JsonNode child : node) {
+            if (containsNumber(child, value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
+    @DisplayName("A shaped body serves the picked place's star as picksBestRating (2) and the unpicked 5 is nowhere")
+    void shapedRegionServesOnlyThePickedBest() {
+        String json = served(PickScope.of(List.of(
+                new SubRegionLocationRow(100L, PICKED_ID, "Bamburgh Castle", 55.6, -1.7))));
+
+        assertThat(json).contains("\"picksBestRating\":2");
+        assertThat(containsNumber(regionNode(json), UNPICKED_STAR)).as("no unpicked star under the region")
+                .isFalse();
+        assertThat(json).contains("\"shapedLeadRegion\":\"North East\"");
+    }
+
+    @Test
+    @DisplayName("A reader with no picks: no picksBestRating key, no 5 under the region, the lead region is kept")
+    void noPicksServesNoPicksBest() {
+        String json = served(PickScope.nothing());
+
+        assertThat(json).doesNotContain("picksBestRating");
+        assertThat(containsNumber(regionNode(json), UNPICKED_STAR)).isFalse();
+        assertThat(json).contains("\"shapedLeadRegion\":\"North East\"");
+    }
+
+    @Test
+    @DisplayName("An unshaped body (PRO, or enforcement off) carries neither picksBestRating nor shapedLeadRegion")
+    void unshapedBodyCarriesNeither() {
+        String json = served(PickScope.unrestricted());
+
+        assertThat(json).doesNotContain("picksBestRating").doesNotContain("shapedLeadRegion");
     }
 
     // ------------------------------------------------------------------ every reachable record
