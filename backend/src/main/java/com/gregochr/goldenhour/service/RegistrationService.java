@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.EmailVerificationTokenEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
+import com.gregochr.goldenhour.model.VerificationSentRow;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
 import com.gregochr.goldenhour.service.AuthAttemptLimiter.Window;
@@ -21,7 +22,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -307,6 +312,22 @@ public class RegistrationService {
         LOG.info("Admin resent verification: username='{}', email='{}'",
                 LogSanitizer.sanitize(issued.get().username()), LogSanitizer.sanitize(issued.get().email()));
         return true;
+    }
+
+    /**
+     * When each pending account's latest verification link was sent, for the admin user list: one query for
+     * every account. The stored time is a zone-less value written in the JVM default zone, so it is read back
+     * in that zone and returned as an instant.
+     *
+     * @return user id to the instant its newest unverified link was minted; accounts with none are absent
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, Instant> verificationSentAtByUser() {
+        Map<Long, Instant> sent = new HashMap<>();
+        for (VerificationSentRow row : tokenRepository.findLatestUnverifiedCreatedAt()) {
+            sent.put(row.userId(), row.createdAt().atZone(ZoneId.systemDefault()).toInstant());
+        }
+        return sent;
     }
 
     private AppUserEntity findPendingUserByEmail(String email) {

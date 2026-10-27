@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.EmailVerificationTokenEntity;
+import com.gregochr.goldenhour.model.VerificationSentRow;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -31,6 +32,16 @@ public interface EmailVerificationTokenRepository extends JpaRepository<EmailVer
      * @return list of unverified tokens
      */
     List<EmailVerificationTokenEntity> findByUserIdAndVerifiedFalse(Long userId);
+
+    /**
+     * When each account's newest unverified verification link was minted, for the admin user list (one
+     * query for every user, not one per user).
+     *
+     * @return one row per account holding an unverified link: the account and its latest link's creation time
+     */
+    @Query("SELECT new com.gregochr.goldenhour.model.VerificationSentRow(t.userId, MAX(t.createdAt)) "
+            + "FROM EmailVerificationTokenEntity t WHERE t.verified = false GROUP BY t.userId")
+    List<VerificationSentRow> findLatestUnverifiedCreatedAt();
 
     /**
      * Counts tokens created for a user after a given timestamp (for rate limiting).

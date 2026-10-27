@@ -34,7 +34,7 @@ public class UserSubRegionAdminController {
     }
 
     /**
-     * A reader's picks and standing (no options). 404 if there is no such user.
+     * A reader's picks and standing, with the sub-region options for the admin's picker. 404 if there is no such user.
      *
      * @param id the user's primary key
      * @return the state

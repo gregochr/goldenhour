@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.model.UserSubRegionSummary;
 import com.gregochr.goldenhour.service.DeletedAccount;
 import com.gregochr.goldenhour.service.EmailClaims;
 import com.gregochr.goldenhour.service.PasswordResetResult;
@@ -64,9 +65,11 @@ public class UserController {
      */
     @GetMapping
     public ResponseEntity<List<Map<String, Object>>> listUsers() {
-        Map<Long, List<String>> picks = userSubRegionService.pickNamesByUser();
-        List<Map<String, Object>> users = userService.listAllUsers().stream()
-                .map(user -> toSummary(user, picks.getOrDefault(user.getId(), List.of())))
+        List<AppUserEntity> all = userService.listAllUsers();
+        Map<Long, UserSubRegionSummary> standing = userSubRegionService.adminSummaries(all);
+        Map<Long, Instant> verificationSent = registrationService.verificationSentAtByUser();
+        List<Map<String, Object>> users = all.stream()
+                .map(user -> toSummary(user, standing.get(user.getId()), verificationSent.get(user.getId())))
                 .toList();
         return ResponseEntity.ok(users);
     }
@@ -113,7 +116,7 @@ public class UserController {
         try {
             AppUserEntity created = userService.createUser(username, password, role, email.trim());
             userEmailService.sendWelcomeEmail(email.trim(), username, password);
-            return ResponseEntity.status(HttpStatus.CREATED).body(toSummary(created, List.of()));
+            return ResponseEntity.status(HttpStatus.CREATED).body(toSummary(created, null, null));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
         } catch (DataIntegrityViolationException ex) {
@@ -305,11 +308,15 @@ public class UserController {
     /**
      * Converts an {@link AppUserEntity} to a safe summary map that excludes the password.
      *
-     * @param user       the entity to convert
-     * @param subRegions the names of the sub-regions the user has picked (sub-regions-plan S2)
-     * @return map with id, username, role, enabled, createdAt, lastActiveAt and subRegions
+     * @param user             the entity to convert
+     * @param standing         the user's sub-region standing (sub-regions-plan S2, S4b), or null when none was
+     *                         computed (a user just created)
+     * @param verificationSent when the user's newest unverified link was minted, or null
+     * @return map with id, username, role, enabled, createdAt, lastActiveAt, the sub-region fields and
+     *         {@code awaitingVerification}
      */
-    private Map<String, Object> toSummary(AppUserEntity user, List<String> subRegions) {
+    private Map<String, Object> toSummary(AppUserEntity user, UserSubRegionSummary standing,
+            Instant verificationSent) {
         LocalDateTime createdAt = user.getCreatedAt();
         LocalDateTime lastActiveAt = user.getLastActiveAt();
         Map<String, Object> summary = new HashMap<>();
@@ -325,7 +332,20 @@ public class UserController {
         summary.put("termsVersion", user.getTermsVersion());
         summary.put("homePostcode", user.getHomePostcode());
         summary.put("marketingEmailOptIn", user.isMarketingEmailOptIn());
-        summary.put("subRegions", subRegions);
+        summary.put("subRegions", standing != null ? standing.names() : List.of());
+        summary.put("subRegionStatus", standing != null ? standing.status() : null);
+        summary.put("freeUntil", standing != null && standing.freeUntil() != null
+                ? standing.freeUntil().toString() : null);
+        summary.put("nextChangeOn", standing != null && standing.nextChangeOn() != null
+                ? standing.nextChangeOn().toString() : null);
+        summary.put("overLimit", standing != null && standing.overLimit());
+        // A self-registration still waiting on its verification link: disabled with the empty password marker,
+        // the same shape RegistrationService.adminResendVerification acts on. An admin-disabled account holds a
+        // password hash, so it is never mistaken for one.
+        boolean awaiting = !user.isEnabled() && "".equals(user.getPassword());
+        summary.put("awaitingVerification", awaiting);
+        summary.put("verificationSentAt",
+                awaiting && verificationSent != null ? verificationSent.toString() : null);
         return summary;
     }
 }

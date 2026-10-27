@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.SubRegionsLockedException;
 import com.gregochr.goldenhour.model.SubRegionState;
+import com.gregochr.goldenhour.model.UserSubRegionSummary;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -607,7 +608,65 @@ class UserSubRegionServiceJpaTest {
         assertThat(changedAtOf(userId)).isNull();
         assertThat(graceUntilOf(userId)).isEqualTo(LocalDate.of(2026, 10, 1));
         assertThat(state.status()).isEqualTo(SubRegionState.OPEN);
-        assertThat(state.options()).as("the admin view carries no options").isEmpty();
+        assertThat(state.options()).as("the admin view carries the options its picker needs")
+                .extracting(SubRegionState.RegionOptions::regionName)
+                .containsExactly("Northumberland & Tyneside", "The Lake District");
+        assertThat(state.suggested()).as("a suggestion is the reader's own first choice").isEmpty();
+    }
+
+    @Test
+    @DisplayName("an admin's read of a Lite reader carries the options; of a Pro reader, the kept picks and no "
+            + "options")
+    void admin_getCarriesOptionsForLiteAndKeptPicksForPro() {
+        standing(userId, "2026-10-01", null, berwick, keswick);
+        Long pro = user("pete", UserRole.PRO_USER);
+        standing(pro, null, null, bamburgh);
+
+        SubRegionState lite = service.getStateForAdmin(userId);
+        SubRegionState kept = service.getStateForAdmin(pro);
+
+        assertThat(lite.options()).hasSize(2);
+        assertThat(lite.options().get(0).subRegions()).extracting(SubRegionState.Option::name)
+                .containsExactly("Alnwick & the Coquet Coast", "Bamburgh to Howick", "Berwick & Holy Island");
+        assertThat(kept.status()).isEqualTo(SubRegionState.NOT_APPLICABLE);
+        assertThat(kept.options()).isEmpty();
+        assertThat(kept.picks()).extracting(SubRegionState.Pick::name).containsExactly("Bamburgh to Howick");
+    }
+
+    @Test
+    @DisplayName("the admin list reads every status in one pass: free, locked, open, first choice, over the "
+            + "limit and not applicable")
+    void adminSummaries_statusForEveryReader() {
+        Long free = userId;
+        standing(free, "2026-10-30", "2026-10-25T10:00:00Z", berwick, keswick);
+        Long locked = user("lola", UserRole.LITE_USER);
+        standing(locked, "2026-10-01", "2026-10-25T10:00:00Z", berwick);
+        Long open = user("olly", UserRole.LITE_USER);
+        standing(open, "2026-10-01", "2026-09-01T10:00:00Z", bamburgh);
+        Long none = user("nina", UserRole.LITE_USER);
+        Long over = user("ollie", UserRole.LITE_USER);
+        standing(over, "2026-10-01", "2026-09-01T10:00:00Z", berwick, bamburgh, alnwick, keswick);
+        Long pro = user("pete", UserRole.PRO_USER);
+        standing(pro, null, null, langdales);
+        List<AppUserEntity> everyone = List.of(free, locked, open, none, over, pro).stream()
+                .map(id -> entityManager.find(AppUserEntity.class, id)).toList();
+
+        Map<Long, UserSubRegionSummary> summaries = service.adminSummaries(everyone);
+
+        assertThat(summaries.get(free).status()).isEqualTo(SubRegionState.FREE_UNTIL);
+        assertThat(summaries.get(free).freeUntil()).isEqualTo(LocalDate.of(2026, 10, 30));
+        assertThat(summaries.get(free).names()).containsExactly("Berwick & Holy Island", "Keswick & Borrowdale");
+        assertThat(summaries.get(locked).status()).isEqualTo(SubRegionState.LOCKED);
+        assertThat(summaries.get(locked).nextChangeOn()).isEqualTo(LocalDate.of(2026, 11, 24));
+        assertThat(summaries.get(open).status()).isEqualTo(SubRegionState.OPEN);
+        assertThat(summaries.get(none).status()).isEqualTo(SubRegionState.FIRST_CHOICE);
+        assertThat(summaries.get(none).names()).isEmpty();
+        assertThat(summaries.get(over).overLimit()).isTrue();
+        assertThat(summaries.get(free).overLimit()).isFalse();
+        assertThat(summaries.get(pro).status()).isEqualTo(SubRegionState.NOT_APPLICABLE);
+        assertThat(summaries.get(pro).names()).as("a Pro reader's kept picks stay visible")
+                .containsExactly("The Langdales");
+        assertThat(summaries.get(pro).overLimit()).isFalse();
     }
 
     @Test

@@ -390,6 +390,36 @@ its confirmation swaps to the default short sheet. LOCKED with room under the li
 nothing, Settings renders no section (and an Admin makes no request). Pinned by tests in the registration, sign-in,
 Settings and `App` suites.
 
+### S4b Users rebuild (2026-10-27)
+
+Part B of the same handoff: Manage → Data → Users rebuilt around the S2 admin endpoints (`UserManagementView` plus
+`components/users/*`; behaviour in `reference/platform.md`, the wire in `reference/api-endpoints.md`).
+
+**Backend, admin-only.** `GET /api/users` gains `subRegionStatus`, `freeUntil`, `nextChangeOn`, `overLimit`,
+`awaitingVerification` and `verificationSentAt`. They come from `UserSubRegionService.adminSummaries`, one pick query
+for the whole list; the status is the same private `standing(...)` the reader's own GET uses, so the two cannot drift.
+`GET /api/users/{id}/sub-regions` now carries `options` (a Lite reader's; a Pro reader's kept `picks` were already
+there), never `suggested`. `awaitingVerification` is `!enabled && password == ''`, the shape `adminResendVerification`
+acts on (`VerificationTokenIssuer.issue` refuses anything else). The link's send time is one grouped query on the
+unverified tokens (`findLatestUnverifiedCreatedAt`), read back in the JVM zone it was written in and sent as an instant.
+
+**Last active needed no tracking.** `app_user.last_active_at` already exists (`JwtAuthenticationFilter` touches it at
+most hourly, login stamps it) and `lastActiveAt` was already in the summary, so the column stays.
+
+**Departures from the handoff.**
+
+- *Resend verification email* acts at once (a toast confirms) with no dialog: the handoff's B6 lists no dialog for it
+  and it is not destructive. *Enable account* likewise has none.
+- *Save picks* is off with nothing chosen (Clear all picks is that action, and confirms) and over the limit; an
+  unchanged selection may be saved, which clears the lock.
+- *Terms* reads `Accepted {date} · {termsVersion}` with the stored string (for example "April 2026"), not "v3": the
+  column is free text.
+- *The role-change note* says "Admin sees every sub-region" for Admin (the handoff's wording is Pro's), uses the
+  singular for one pick, and for a move between Pro and Admin, which changes nothing about sub-regions, shows none.
+- *Escape* closes the whole panel from any mode (Change picks, Edit); an open dialog keeps the key.
+- *`formFieldFocusRules`* now reads the shared form classes from `components/users/userFormClasses.js` (the
+  `const inputClass` definitions moved out of `UserManagementView.jsx`).
+
 ## Appendix A — allocation (production roster, 2026-10-26)
 
 Location names as stored on 2026-10-26, misspellings included; ids are production ids (a fresh database's ids

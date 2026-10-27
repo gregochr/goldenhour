@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.model.SubRegionState;
+import com.gregochr.goldenhour.model.UserSubRegionSummary;
 import com.gregochr.goldenhour.service.DeletedAccount;
 import com.gregochr.goldenhour.service.PasswordResetResult;
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.sql.SQLException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -46,17 +49,76 @@ class UserControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("GET /api/users carries each reader's sub-region picks by name, and [] for a reader with none")
-    void getUsers_includesSubRegionPicks() throws Exception {
-        when(userService.listAllUsers()).thenReturn(List.of(
-                buildUser(1L, "alice", UserRole.LITE_USER), buildUser(2L, "bob", UserRole.LITE_USER)));
-        when(userSubRegionService.pickNamesByUser()).thenReturn(Map.of(1L, List.of("Swaledale", "Wensleydale")));
+    @DisplayName("GET /api/users carries each reader's picks by name and standing: status, free-until, "
+            + "next-change-on and over-limit")
+    void getUsers_includesSubRegionStanding() throws Exception {
+        AppUserEntity alice = buildUser(1L, "alice", UserRole.LITE_USER);
+        AppUserEntity bob = buildUser(2L, "bob", UserRole.LITE_USER);
+        AppUserEntity pat = buildUser(3L, "pat", UserRole.PRO_USER);
+        List<AppUserEntity> all = List.of(alice, bob, pat);
+        when(userService.listAllUsers()).thenReturn(all);
+        when(userSubRegionService.adminSummaries(all)).thenReturn(Map.of(
+                1L, new UserSubRegionSummary(List.of("Swaledale", "Wensleydale"), SubRegionState.LOCKED, null,
+                        LocalDate.of(2026, 11, 25), true),
+                2L, new UserSubRegionSummary(List.of(), SubRegionState.FIRST_CHOICE, null, null, false),
+                3L, new UserSubRegionSummary(List.of("Swaledale"), SubRegionState.NOT_APPLICABLE, null, null,
+                        false)));
 
         mockMvc.perform(get("/api/users"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].subRegions[0]").value("Swaledale"))
                 .andExpect(jsonPath("$[0].subRegions[1]").value("Wensleydale"))
-                .andExpect(jsonPath("$[1].subRegions").isEmpty());
+                .andExpect(jsonPath("$[0].subRegionStatus").value("LOCKED"))
+                .andExpect(jsonPath("$[0].nextChangeOn").value("2026-11-25"))
+                .andExpect(jsonPath("$[0].freeUntil").doesNotExist())
+                .andExpect(jsonPath("$[0].overLimit").value(true))
+                .andExpect(jsonPath("$[1].subRegions").isEmpty())
+                .andExpect(jsonPath("$[1].subRegionStatus").value("FIRST_CHOICE"))
+                .andExpect(jsonPath("$[1].overLimit").value(false))
+                .andExpect(jsonPath("$[2].subRegionStatus").value("NOT_APPLICABLE"))
+                .andExpect(jsonPath("$[2].subRegions[0]").value("Swaledale"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/users tells a pending registration (disabled, empty password) from an admin-disabled "
+            + "account, and dates the link only for the pending one")
+    void getUsers_awaitingVerificationIsNotDisabled() throws Exception {
+        AppUserEntity pending = buildUser(1L, "hollie", UserRole.LITE_USER);
+        pending.setEnabled(false);
+        pending.setPassword("");
+        AppUserEntity switchedOff = buildUser(2L, "stormchaser", UserRole.LITE_USER);
+        switchedOff.setEnabled(false);
+        AppUserEntity active = buildUser(3L, "tom", UserRole.LITE_USER);
+        List<AppUserEntity> all = List.of(pending, switchedOff, active);
+        when(userService.listAllUsers()).thenReturn(all);
+        when(registrationService.verificationSentAtByUser()).thenReturn(Map.of(
+                1L, Instant.parse("2026-10-27T08:02:00Z"), 2L, Instant.parse("2026-10-01T08:02:00Z")));
+
+        mockMvc.perform(get("/api/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].awaitingVerification").value(true))
+                .andExpect(jsonPath("$[0].enabled").value(false))
+                .andExpect(jsonPath("$[0].verificationSentAt").value("2026-10-27T08:02:00Z"))
+                .andExpect(jsonPath("$[1].awaitingVerification").value(false))
+                .andExpect(jsonPath("$[1].verificationSentAt").doesNotExist())
+                .andExpect(jsonPath("$[2].awaitingVerification").value(false));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/users carries the last active time already tracked, and an empty string for a "
+            + "reader never seen")
+    void getUsers_carriesLastActive() throws Exception {
+        AppUserEntity seen = buildUser(1L, "seen", UserRole.LITE_USER);
+        seen.setLastActiveAt(LocalDateTime.of(2026, 10, 27, 9, 14));
+        AppUserEntity never = buildUser(2L, "never", UserRole.LITE_USER);
+        when(userService.listAllUsers()).thenReturn(List.of(seen, never));
+
+        mockMvc.perform(get("/api/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].lastActiveAt").value("2026-10-27T09:14"))
+                .andExpect(jsonPath("$[1].lastActiveAt").value(""));
     }
 
     @Test
