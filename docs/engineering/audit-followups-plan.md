@@ -181,6 +181,8 @@ impossible.
   migration `DROP TABLE actual_outcome;` (nothing references it) + a CI migration test.
   **Owner, before releasing O2:** on prod `SELECT count(*) FROM actual_outcome;`; if it is above 0,
   `pg_dump -t actual_outcome` to a file kept outside the backup rotation (the rotation keeps ~5 weeks).
+  **Status: done.** Prod was dropped by hand on 2026-10-27 with its one row carried into `outcome_rating`; V195
+  (`DROP TABLE IF EXISTS`) brings fresh databases into line.
 - Docs in O1's PR: `CLAUDE.md:8`, `README.md`, `reference/api-endpoints.md`, `reference/ratings-stores.md`,
   `reference/roles-and-gating.md`, `v1-retirement-plan.md` §8 (status); `reference/database-migrations.md`
   and `dev-and-testing.md` (local H2 keeps an orphan table) in O2's PR. Privacy and app-store copy go to Z.
