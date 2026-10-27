@@ -40,6 +40,8 @@ import ProUpsellDoor, {
   BEST_BETS_UPSELL_BODY, BEST_BETS_UPSELL_HEADING, BEST_BETS_UPSELL_LABEL,
 } from './shared/ProUpsell.jsx';
 import { prefersReducedMotion } from '../utils/askCamera.js';
+import { picksNoteText } from '../utils/pickGeography.js';
+import { SubRegionActionButton } from './subregions/SubRegionActions.jsx';
 
 /**
  * The thumbnail frame's aspect clamps.
@@ -99,6 +101,16 @@ const THUMB_BLOOM_BLUR = 0.9;
  * this component's own tests pin.
  */
 const MIN_THUMB_PX = 26;
+
+/**
+ * What the Spread label names on a shaped body (S5b-1): the pool is the places in the reader's sub-regions. Shaped
+ * like {@code spreadQualifier}'s answer; {@code spoken} does not start with "within ", so the sentence joins it
+ * with a comma ("7 locations, in your sub-regions").
+ */
+const PICKS_QUALIFIER = Object.freeze({ text: 'your sub-regions', spoken: 'in your sub-regions' });
+
+/** The dashed outline's width on a thumbnail, in CSS px (handoff task 6: 1px where the Map's is heavier). */
+const THUMB_OUTLINE_WIDTH = 1;
 
 
 /** The planning-area threshold in whole hours, for the beyond line's own sentence. */
@@ -209,6 +221,8 @@ function verdictBeyondReach(card) {
   const region = card?.hotRegionName;
   const limit = card?.reachLimitMinutes;
   if (card?.away || !region || card?.verdictMean == null) return null;
+  // A shaped (Lite) body has no reach tier to be beyond; its pool is emptied by the picks, which this line never says.
+  if (card.picksScoped === true) return null;
   if (!card.reachMeasured || limit == null) return null;
   const pool = card.pool ?? [];
   if (pool.length === 0 || buildSpread(pool).rated > 0) return null;
@@ -252,9 +266,15 @@ function verdictBeyondReach(card) {
  *       at all). "Not scored yet" is the strip footer's own existing word for this state.</li>
  * </ul>
  *
+ * <p><b>On a body shaped by the reader's sub-regions (S5b-1)</b> the pool holds their places only, so an empty one
+ * is the picks' doing and the line is {@code null} (the row is not drawn); a pool with places and no star says
+ * {@code None of your sub-regions are rated for this sunrise yet.}; and the beyond-reach and "nothing in reach"
+ * lines never fire, since a Lite reader has no tier to be beyond.
+ *
  * @param {object} card the thumbnail descriptor
- * @returns {{rating: ?number, label: ?string, value: string, muted: boolean, title: ?string,
- *          tideAligned: boolean, tideState: ?string, spoken: string}} what to draw and what to say
+ * @returns {?{rating: ?number, label: ?string, value: string, muted: boolean, title: ?string,
+ *          tideAligned: boolean, tideState: ?string, spoken: string}} what to draw and what to say; null where
+ *          the row is omitted (a shaped reader with no place of their own)
  */
 export function bestReachLine(card) {
   const best = card?.bestReach ?? null;
@@ -321,6 +341,24 @@ export function bestReachLine(card) {
     };
   }
   const empty = (card?.pool?.length ?? 0) === 0;
+  // A body shaped by the reader's sub-regions (S5b-1): the pool holds only the places inside them, so an empty
+  // one is the picks' doing, never "nothing in reach" or "nothing to show", and "not scored yet" is true only of
+  // places the reader holds. No place in the pool: the row is omitted (null). Places, none rated: its own line.
+  if (card?.picksScoped === true) {
+    if (empty) return null;
+    const event = card.targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
+    const value = `None of your sub-regions are rated for this ${event} yet.`;
+    return {
+      rating: null,
+      label: 'Best',
+      value,
+      muted: true,
+      title: null,
+      tideAligned: false,
+      tideState: null,
+      spoken: `best, ${value}`,
+    };
+  }
   const beyond = verdictBeyondReach(card);
   if (beyond) return beyond;
   // ⚠️ "In reach" only where the reach axis could have acted — `card.reachMeasured`, computed once
@@ -679,8 +717,12 @@ function areaLabel(regionName, tiny) {
 export default function WindowFirstHeatStrip({
   cards, pointSets, unratedSets, stoodSets, spots, reachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
   origin = null, onSearchRegion, colourMode = null, homeCoords = null, highlightKeys = null,
-  picksLocked = false,
+  picksLocked = false, groundSets = null, picks = null,
 }) {
+  // A body the server SHAPED by the reader's sub-region picks (S5b-1): `picks` is handed in only then. Never the
+  // role. `zeroPicks` is a shaped reader who holds no pick yet, whose every place is outside.
+  const shaped = picks != null;
+  const zeroPicks = shaped && picks.allowed === 0;
   // Framing is the ONE thing scope is allowed to decide about the field: which regions are in shot.
   // It must never become the point set — handing the scoped list to the kernel would turn the
   // framing into the reach filter plan §3 forbids, and the footer's own caption promises it does
@@ -777,7 +819,11 @@ export default function WindowFirstHeatStrip({
         // would wear "(within 45m)" over bars that also count the unknown ones. `reachLimitMinutes`
         // is null under "Any" (`buildHeatStripCards` folds it so); an `undefined` is an unresolved
         // lens and the helper keeps it silent.
-        qualifier: spreadQualifier({ reachLimitMinutes: card.reachLimitMinutes, withinReach }),
+        // On a shaped body the pool is the places in the reader's sub-regions, and that, not a drive tier, is what
+        // the label names (S5b-1): a Lite reader's lens is pinned to "Any", so the plain label would read "any drive".
+        qualifier: shaped
+          ? PICKS_QUALIFIER
+          : spreadQualifier({ reachLimitMinutes: card.reachLimitMinutes, withinReach }),
         // This card's OWN count layout, from the bars that are actually DRAWN: the hatched bar's
         // count takes part only when the row is in bars mode, because below the minimum-sample
         // gate `unratedBar` is non-null for a real remainder and nothing is drawn for it (the
@@ -798,7 +844,7 @@ export default function WindowFirstHeatStrip({
       facts.countLayout = stripLayout;
     });
     return byKey;
-  }, [cards, topicIndex, scopeNames, run]);
+  }, [cards, topicIndex, scopeNames, run, shaped]);
 
   /**
    * The windows the payload says carry no rating at all.
@@ -816,10 +862,20 @@ export default function WindowFirstHeatStrip({
   const unscored = useMemo(() => {
     const keys = new Set();
     for (const card of cards) {
-      if (!card.away && card.bestRating == null) keys.add(card.key);
+      if (card.away) continue;
+      // ⚠️ A shaped (Lite) body's windows ALL carry a null `bestRating` (the server strips it), so the served best
+      // cannot say "not scored" there (S5b-1, B1). The question goes to the place states, as the Map's does: a window
+      // is not scored when the reader holds places in it and none of them is rated. Unknown (scores not loaded, or
+      // no states) is silence, never "not scored"; and a reader with no pick has nothing the forecast failed to score.
+      if (shaped) {
+        const ground = groundSets?.get?.(card.key);
+        if (ground && ground.rated === false && ground.allowed.length > 0) keys.add(card.key);
+      } else if (card.bestRating == null) {
+        keys.add(card.key);
+      }
     }
     return keys;
-  }, [cards]);
+  }, [cards, shaped, groundSets]);
 
   /**
    * A window's stood places inside the thumbnail's frame: the thumbnails crop to the scope regions,
@@ -838,9 +894,22 @@ export default function WindowFirstHeatStrip({
    * with a non-empty stood list), so the key never names a mark that is not on screen.
    */
   const plateHatched = useCallback(
-    (card) => unscored.has(card.key) && stoodInFrame(card.key).length === 0,
-    [unscored, stoodInFrame],
+    // Never over a shaped body's plate: its hatch would also cover ground outside the picks, which is not "not rated
+    // yet" but outside them. A shaped unscored window hatches around the reader's own unrated places instead.
+    (card) => !shaped && unscored.has(card.key) && stoodInFrame(card.key).length === 0,
+    [shaped, unscored, stoodInFrame],
   );
+  /**
+   * The places a card's canvas hatches as "not rated yet": the window's own unrated list, and on a SHAPED window
+   * that is not scored (and stood nothing down) the reader's own unrated places, since a window with no rated
+   * place has no evidence for the general list. Never a place outside the picks.
+   */
+  const unratedFor = useCallback((card) => {
+    if (shaped && unscored.has(card.key) && stoodInFrame(card.key).length === 0) {
+      return groundSets?.get?.(card.key)?.unrated ?? null;
+    }
+    return unratedSets?.get?.(card.key) ?? null;
+  }, [shaped, unscored, stoodInFrame, groundSets, unratedSets]);
   const stoodShown = useMemo(
     () => cards.some((card) => !card.away && stoodInFrame(card.key).length > 0),
     [cards, stoodInFrame],
@@ -961,14 +1030,27 @@ export default function WindowFirstHeatStrip({
         hatch: plateHatched(card),
         // "Not rated yet" ground (thin-sample plan F2): not under a whole-plate hatch (it is
         // already hatched — the same predicate, not an empty set), nor on an away cell.
-        ...(card.away || plateHatched(card) || !unratedSets?.get?.(card.key)?.length
-          ? null : { unrated: unratedSets.get(card.key) }),
+        // A shaped, unscored window (S5b-1) has no evidence to hatch from (`unratedSets` needs a rated or stood place),
+        // so it hatches around the reader's own unrated places alone, from the grounds below.
+        ...(card.away || plateHatched(card) || !unratedFor(card)?.length
+          ? null : { unrated: unratedFor(card) }),
         // Stood-down ground (big-seas plan F4): the Map's list, never on an away cell. Unlike the
         // unrated layer it is NOT withheld on an unscored window: a window where every place stood
         // down has no rating, and is the one this exists for. Disc radius = the field's `radius`.
         ...(card.away || !stoodSets?.get?.(card.key)?.length
           ? null : { stood: stoodSets.get(card.key) }),
         fit: fitTo,
+        // Outside the reader's sub-regions (S5b-1, handoff task 6): the veil under the field and a 1px dashed outline
+        // after it, the same layers the Map draws, from the window's own two grounds. Spread only on a shaped body
+        // that holds place states for this window, so every other reader's options object is exactly what it was.
+        // Zero picks: `allowed` is empty, so the veil covers all the land and no outline is drawn.
+        ...(shaped && !card.away && groundSets?.get?.(card.key)
+          ? {
+            outside: groundSets.get(card.key).outside,
+            allowed: groundSets.get(card.key).allowed,
+            outlineWidth: THUMB_OUTLINE_WIDTH,
+          }
+          : null),
         // Bloom only in TEMPERATURE mode (map-tab-v2-plan.md §3 P2, decision D-1): the bloom's
         // whole rationale is the temp ramp's luminance inversion, and the verdict ramp has none —
         // an ember glow over a green "go" would be a false signal. In verdict mode this spreads NO
@@ -1020,8 +1102,8 @@ export default function WindowFirstHeatStrip({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [cards, pointSets, unratedSets, stoodSets, plateHatched, fitTo, todayStr, frameAspect, colourMode, framed, scopeNames,
-    origin, homeCoords]);
+  }, [cards, pointSets, stoodSets, plateHatched, fitTo, todayStr, frameAspect, colourMode, framed, scopeNames,
+    origin, homeCoords, shaped, groundSets, unratedFor]);
 
   /**
    * The greedy placement pass for the thumbnail overlay — home first, then regions in scope order
@@ -1265,7 +1347,8 @@ export default function WindowFirstHeatStrip({
     // visible best-reach words verbatim" for speech control (SC 2.5.3), and the pool clause is not
     // those words; the redundancy is the price of that contract. With no qualifier the pool clause
     // is null, exactly as before.
-    const poolClause = spokenPoolPhrase(poolTotal, facts.qualifier);
+    // A reader with no pick has no pool to describe, and the Spread and Best rows are not drawn for them (S5b-1).
+    const poolClause = zeroPicks ? null : spokenPoolPhrase(poolTotal, facts.qualifier);
     const bandsSpoken = facts.state.bars ? spreadBandsSpoken(facts.spread) : '';
     const spokenPool = poolTotal === 0
       ? poolClause
@@ -1320,7 +1403,8 @@ export default function WindowFirstHeatStrip({
       // beyond the tier — so its clause is NEW information, not a repeat, and replaces the
       // suppressed one.
       .concat(
-        card.away || ((notScored || facts.spread.rated === 0) && poolTotal > 0 && !facts.best.beyond)
+        card.away || !facts.best
+          || ((notScored || facts.spread.rated === 0) && poolTotal > 0 && !facts.best.beyond)
           ? []
           : [facts.best.spoken],
       )
@@ -1482,6 +1566,7 @@ export default function WindowFirstHeatStrip({
                   columns, so the second label line can never widen the `auto` column the rating
                   pill below sits in. Both states — bars and the below-gate note — live inside it,
                   so the pool label is drawn in both. */}
+              {!zeroPicks && (
               <span data-testid="wf-heat-spread-row" className="wf-hc-sprow">
                 <span data-testid="wf-heat-spread-label" className="wf-hc-k wf-hc-sk">
                   Spread
@@ -1565,7 +1650,8 @@ export default function WindowFirstHeatStrip({
                   </span>
                 </span>
               </span>
-              {facts.best.rating != null ? (
+              )}
+              {facts.best && (facts.best.rating != null ? (
                 <span
                   data-testid="wf-heat-best-rating"
                   className="wf-hc-rt"
@@ -1581,7 +1667,8 @@ export default function WindowFirstHeatStrip({
                 </span>
               ) : (
                 <span className="wf-hc-k">{facts.best.label}</span>
-              )}
+              ))}
+              {facts.best && (
               <span className="wf-hc-pv2">
                 <span
                   data-testid="wf-heat-best"
@@ -1603,6 +1690,7 @@ export default function WindowFirstHeatStrip({
                   {facts.best.value}
                 </span>
               </span>
+              )}
               {/* Reserved even when empty, so a topic-free card's rows land on the same baselines
                   as its neighbours' — the design's own reason. */}
               <span data-testid="wf-heat-topics" className="wf-hc-tps">
@@ -1937,6 +2025,32 @@ export default function WindowFirstHeatStrip({
           <span className="wf-hstrip-sw" aria-hidden="true" />
           no places
         </span>
+        {/* Outside your sub-regions (S5b-1, handoff task 6): the two grounds of a body shaped by the reader's picks,
+            and the note under which the colour is drawn. "Outside your sub-regions" carries a plain Pro pill — a
+            label, not a door (the one door on this surface is the best-bets one above). The dashed swatch names the
+            outline, which a reader with no pick does not have; they get the way in instead, once, as a button. On a
+            phone the whole group takes its own wrapped line. */}
+        {shaped && (
+          <span data-testid="wf-heat-picks" className="wf-hstrip-picks">
+            <span className="wf-hstrip-key" data-testid="wf-heat-key-outside">
+              <span className="wf-hstrip-sw wf-hstrip-sw-outside" aria-hidden="true" />
+              outside your sub-regions
+              <span className="wf-lens-pro">Pro</span>
+            </span>
+            {!zeroPicks && (
+              <span className="wf-hstrip-key" data-testid="wf-heat-key-picks">
+                <span className="wf-hstrip-sw wf-hstrip-sw-picks" aria-hidden="true" />
+                your sub-regions
+              </span>
+            )}
+            <span data-testid="wf-heat-picks-note" className="wf-hstrip-picks-note">
+              {picksNoteText(picks)}
+            </span>
+            {zeroPicks && (
+              <SubRegionActionButton className="wf-subregion-btn" testId="wf-heat-picks-action" />
+            )}
+          </span>
+        )}
         {/* The histogram's own hatch (the minimum-sample rule's Part 2) gets the SAME treatment as
             the map plate's note above, for the same reason: a texture is not vocabulary and a
             card's own rows have no room for it. ⚠️ NOT rare in practice — a catalogue with any
@@ -2129,7 +2243,26 @@ WindowFirstHeatStrip.propTypes = {
     reachLimitMinutes: PropTypes.number,
     /** Whether a drive time exists for the tier to have gated on (H2 requires it). */
     reachMeasured: PropTypes.bool,
+    /** Present (true) only on a body the server shaped by the reader's sub-regions (S5b-1): the pool holds their places only. */
+    picksScoped: PropTypes.bool,
+    /** The places of the window outside the reader's sub-regions; only on a shaped body's card. */
+    outsideCount: PropTypes.number,
   })).isRequired,
+  /**
+   * Each window's two grounds on a body shaped by the reader's sub-regions (S5b-1), keyed by window key: the places
+   * outside the picks, every other place, the allowed places nobody has rated, and whether any is rated
+   * ({@code pickScope.buildGroundSets}). Absent or empty for every other reader.
+   */
+  groundSets: PropTypes.instanceOf(Map),
+  /**
+   * Present ONLY for a body the server shaped by the reader's sub-regions: {@code allowed} the places the picks
+   * cover (the served {@code allowedLocationIds}), {@code total} the roster. Null (every Pro, Admin and flag-off
+   * reader) draws exactly what it always did.
+   */
+  picks: PropTypes.shape({
+    allowed: PropTypes.number.isRequired,
+    total: PropTypes.number.isRequired,
+  }),
   pointSets: PropTypes.instanceOf(Map),
   unratedSets: PropTypes.instanceOf(Map),
   stoodSets: PropTypes.instanceOf(Map),

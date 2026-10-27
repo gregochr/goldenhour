@@ -60,7 +60,9 @@ export default function WindowSpotCard({
   spot, typeLabels, onOpen, openLabel = '◍ Open on map →',
   onMouseEnter, onMouseLeave, onFocus, onBlur,
 }) {
-  const badge = spotBadgeStyle(spot.rating);
+  // Outside the reader's sub-regions (S5b-1): no star, no badge, no unrated word — only where the place lies.
+  const outside = spot.gated === true;
+  const badge = outside ? null : spotBadgeStyle(spot.rating);
   const reach = reachLine(spot.driveMinutes, spot.distanceMiles);
   const leave = leaveBy(spot.solarEventTime, spot.driveMinutes);
   // The region and the types share one line and one separator, so a spot with no region still
@@ -71,7 +73,8 @@ export default function WindowSpotCard({
     <button
       type="button"
       data-testid="window-spot"
-      data-rating={spot.rating ?? undefined}
+      data-rating={outside ? undefined : (spot.rating ?? undefined)}
+      data-outside={outside ? 'true' : undefined}
       data-far={spot.far ? 'true' : undefined}
       onClick={onOpen}
       // All four are the strip's peek handlers and all four are absent in the sheet, which has no
@@ -123,6 +126,17 @@ export default function WindowSpotCard({
           style={{ fontSize: '10px' }}
         >
           {meta}
+        </span>
+      )}
+
+      {/* The label of a place the reader's picks leave out (S5b-1), grey: where it lies, not a rating word. */}
+      {outside && (
+        <span
+          data-testid="window-spot-outside"
+          className="font-mono text-plex-text-secondary"
+          style={{ fontSize: '10px' }}
+        >
+          outside your sub-regions
         </span>
       )}
 
@@ -205,6 +219,8 @@ export const SPOT_SHAPE = {
   driveMinutes: PropTypes.number,
   distanceMiles: PropTypes.number,
   far: PropTypes.bool,
+  /** Outside the reader's sub-regions (S5b-1); present only on a shaped body's spot. */
+  gated: PropTypes.bool,
 };
 
 WindowSpotCard.propTypes = {

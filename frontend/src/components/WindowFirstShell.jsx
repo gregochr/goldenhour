@@ -20,6 +20,7 @@ import { useAsk } from '../context/AskContext.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useSubRegionStatus } from '../context/SubRegionStatusContext.jsx';
 import { isOutsidePicks } from '../utils/pickScope.js';
+import { placesOf } from '../utils/windowFirstSpots.js';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 import { buildLocationTypeMap } from '../utils/locationTypes.js';
 import { ANY_TIER_ID } from '../utils/reachLens.js';
@@ -394,7 +395,8 @@ export default function WindowFirstShell({
   forecastDates = null, registerCloseDialogs = null,
 }) {
   const {
-    heatStripCards, heatPointSets, heatUnratedSets, heatStoodSets, heatSpots, reachById, regionSeries,
+    heatStripCards, heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets, regionPicks,
+    heatSpots, reachById, regionSeries,
     windowCards, paneItems, loading, briefing, evaluationScores, scoresLoaded,
     scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
     origin, setOrigin, regions, effectiveReachById,
@@ -402,6 +404,13 @@ export default function WindowFirstShell({
     allowedLocationIds,
   } = useWindowFirstBriefing();
   const { openSubRegions } = useSubRegionStatus();
+  // What the strip's key and note need on a body shaped by the reader's sub-region picks (S5b-1): the places the picks
+  // cover (the served list) and the roster. Null for every other reader. Memoised so the strip's props are stable.
+  const picksFacts = useMemo(
+    () => (Array.isArray(allowedLocationIds)
+      ? { allowed: allowedLocationIds.length, total: heatSpots.length } : null),
+    [allowedLocationIds, heatSpots.length],
+  );
   /**
    * Whether the first fetch has been running long enough that the pending line should admit it is
    * taking a while, rather than quietly repeating "Loading the forecast…" with nothing to show
@@ -1364,6 +1373,10 @@ export default function WindowFirstShell({
       // The origin has already answered "which region" for the whole page, so the popup's own rail
       // has nothing left to choose (plan §4.8).
       singleRegionScope: Boolean(origin),
+      // The picks across each region, for the rail (S5b-1); null unless the body is shaped by the reader's picks.
+      regionPicks,
+      // This window's two grounds on a shaped body (S5b-1): null for everyone else.
+      ground: heatGroundSets?.get?.(openCard.key) ?? null,
       origin: origin ?? null,
       // Read by `WindowSheetDialog`, which converts it to `[lng, lat]` and hands it to
       // `WindowRowFieldMap` as `homePoint` — the popup field's reach rings and home marker
@@ -1372,7 +1385,7 @@ export default function WindowFirstShell({
       homeCoords,
     };
   }, [openCard, heatSpots, heatPointSets, heatUnratedSets, heatStoodSets, heatStripCards, regionSeries, reachById,
-    eventSummariesByKey, fieldLens, focusedRegion, origin, homeCoords]);
+    eventSummariesByKey, fieldLens, focusedRegion, origin, homeCoords, regionPicks, heatGroundSets]);
 
   // Lifted to App for the Map tab's doors. Without this a tile handed to the map lands on a map that
   // has filtered out every unrated pin - see the provider's note on why this arm fetches them at all.
@@ -2610,7 +2623,7 @@ export default function WindowFirstShell({
           stuck={lensStuck}
           lens={reachLens}
           ratingLens={ratingLens}
-          spotCount={windowCards.reduce((total, card) => total + card.spots.length, 0)}
+          spotCount={windowCards.reduce((total, card) => total + placesOf(card.spots).length, 0)}
           // The rating floor's own denominator — what reach left for it to choose from. Summed here
           // rather than derived in the bar for the reason `spotCount` already is: the counts have to
           // be the lengths of the arrays that were drawn, and only this component can see all six.
@@ -2737,6 +2750,10 @@ export default function WindowFirstShell({
             pointSets={heatPointSets}
             unratedSets={heatUnratedSets}
             stoodSets={heatStoodSets}
+            // Outside the reader's sub-regions (S5b-1): a body shaped by their picks hands the strip each window's
+            // two grounds and the facts for its key and note. Both are null/empty for every other reader.
+            groundSets={heatGroundSets}
+            picks={picksFacts}
             spots={heatSpots}
             reachById={reachById}
             /* The served topics, for the matrix's scope filter (plan-matrix A8). Read straight off
@@ -2991,6 +3008,11 @@ export default function WindowFirstShell({
               : undefined}
             scoreIndex={scoreIndex}
             colourMode={mapColourScale}
+            // The rail's S4 action (S5b-1): the popup closes FIRST and Settings opens after it, so Settings and
+            // its confirm are the second dialog, never a third. Withheld (null) with no way to open Settings.
+            onOpenSubRegions={openSubRegions
+              ? () => { openWindow(null); openSubRegions(selectedTabNode); }
+              : null}
           />
         </Suspense>
       )}

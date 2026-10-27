@@ -1,4 +1,5 @@
 import { heatSpotKey } from './heatSpots.js';
+import { windowKey } from './windowKeys.js';
 
 /**
  * The reader's sub-region picks, as the Map and the heat field see them (sub-regions-plan D6, S5a).
@@ -91,4 +92,43 @@ export function hasRatedState(states) {
     if (state === 'rated') return true;
   }
   return false;
+}
+
+/**
+ * Each rendered window's two grounds, for the Plan thumbnails (sub-regions-plan S5b-1): the places outside the
+ * picks (the veil), every other place (what the outline traces), the allowed places nobody has rated yet (what a
+ * not-yet-rated window hatches around), and whether any of the reader's own places is rated.
+ *
+ * <p>The same {@link splitGround} the Map reads, over the same {@code states} the Map's {@code windowStates}
+ * hold, so the Plan and the Map cannot disagree about which places are outside. Built for a SHAPED body only;
+ * the caller hands nothing otherwise. A window holding no place states at all has no entry (nothing is claimed).
+ *
+ * <p>{@code rated} is {@code null} until the scores have loaded ({@code scoresLoaded}): before then no place
+ * reads rated, which is an absence of evidence, never a claim that the window is not scored.
+ *
+ * @param {Array<object>} spots spots from {@code buildHeatSpots}
+ * @param {Array<{date: string, targetType: string}>} renderedEvents the windows, in render order
+ * @param {boolean} scoresLoaded whether {@code /evaluate/scores} has answered
+ * @returns {Map<string, {outside: Array<object>, allowed: Array<object>, unrated: Array<object>,
+ *   rated: ?boolean}>} window key to its grounds
+ */
+export function buildGroundSets(spots, renderedEvents, scoresLoaded) {
+  const out = new Map();
+  const list = Array.isArray(spots) ? spots : [];
+  (Array.isArray(renderedEvents) ? renderedEvents : []).forEach((event, index) => {
+    if (!event || !event.date || !event.targetType) return;
+    const states = new Map();
+    for (const spot of list) {
+      const state = spot?.states?.[index];
+      if (state) states.set(heatSpotKey(spot), state);
+    }
+    const ground = splitGround({ shaped: true, spots: list, states });
+    if (!ground) return;
+    out.set(windowKey(event.date, event.targetType), {
+      ...ground,
+      unrated: ground.allowed.filter((point) => states.get(heatSpotKey(point)) === 'unrated'),
+      rated: scoresLoaded ? hasRatedState(states) : null,
+    });
+  });
+  return out;
 }

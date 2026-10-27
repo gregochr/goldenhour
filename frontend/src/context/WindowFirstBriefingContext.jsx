@@ -24,7 +24,8 @@ import { stoodPointSetsOf } from '../utils/mapStandDown.js';
 import { buildRegionSeries } from '../utils/windowFirstRegions.js';
 import { AWAY_TIER_ID, originReachMap, toOrigin } from '../utils/planOrigin.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
-import { isShaped } from '../utils/pickScope.js';
+import { buildGroundSets, isShaped } from '../utils/pickScope.js';
+import { regionPickSummaries } from '../utils/pickGeography.js';
 import { SubRegionStatusProvider } from './SubRegionStatusContext.jsx';
 
 /** The payload regenerates every ~8–10h; polling faster only adds revalidations. */
@@ -55,6 +56,7 @@ const EMPTY_ARRAY = [];
  * or a PropTypes check on a provider-less render, would have found an array under a Map's name.
  */
 const EMPTY_POINT_SETS = new Map();
+const EMPTY_GROUND_SETS = new Map();
 
 /**
  * The region series' empty value — its own constant rather than a share of the one above, because
@@ -187,6 +189,8 @@ const WindowFirstBriefingContext = createContext({
   heatPointSets: EMPTY_POINT_SETS,
   heatUnratedSets: EMPTY_POINT_SETS,
   heatStoodSets: EMPTY_POINT_SETS,
+  heatGroundSets: EMPTY_GROUND_SETS,
+  regionPicks: null,
   regionSeries: EMPTY_REGION_SERIES,
   reachById: EMPTY_REACH,
   effectiveReachById: EMPTY_REACH,
@@ -762,6 +766,14 @@ export function WindowFirstBriefingProvider({
     };
   }, [briefing, travelRanges]);
 
+  // The served `allowedLocationIds` as a Set, on a body the server SHAPED by the reader's sub-region picks only.
+  // The window cards (S5b-1, B2) and the heat spots (S5a) both ask it who is outside the picks.
+  const servedAllowedIds = briefing?.allowedLocationIds;
+  const allowedIdSet = useMemo(
+    () => (isShaped(servedAllowedIds) ? new Set(servedAllowedIds) : null),
+    [servedAllowedIds],
+  );
+
   const windowCards = useMemo(
     () => (briefing
       ? buildWindowCards(
@@ -775,13 +787,15 @@ export function WindowFirstBriefingProvider({
           // The origin's scope, applied before either gate: away, a window is about ONE region,
           // and the lens then chooses within it. Null is home and changes nothing.
           origin,
+          // Outside the reader's sub-regions (S5b-1): null unless the body is shaped.
+          allowedIds: allowedIdSet,
         },
         picksLocked,
       )
       : []),
     [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, effectiveReachById,
       reachLens.tier.limitMinutes, defaultLimitMinutes,
-      ratingLens.minRating, origin, picksLocked],
+      ratingLens.minRating, origin, picksLocked, allowedIdSet],
   );
 
   /**
@@ -859,11 +873,6 @@ export function WindowFirstBriefingProvider({
    * every poll and every focus event, and this walks the whole roster against the whole score
    * response; the prototype's unmemoised equivalent cost seconds per repaint.
    */
-  const servedAllowedIds = briefing?.allowedLocationIds;
-  const allowedIdSet = useMemo(
-    () => (isShaped(servedAllowedIds) ? new Set(servedAllowedIds) : null),
-    [servedAllowedIds],
-  );
   const heatSpotList = useMemo(
     () => buildHeatSpots(locations, scoreRows, upcomingEvents, allowedIdSet),
     [locations, scoreRows, upcomingEvents, allowedIdSet],
@@ -910,6 +919,26 @@ export function WindowFirstBriefingProvider({
   );
 
   /**
+   * The Plan thumbnails' two grounds per window — the places outside the reader's sub-regions and every other
+   * place — for a body the server SHAPED by their picks (S5b-1); an empty Map for everyone else, so a Pro, Admin
+   * or flag-off thumbnail is handed nothing new. Built from the same place states the Map reads.
+   */
+  const heatGroundSets = useMemo(
+    () => (allowedIdSet ? buildGroundSets(heatSpotList, upcomingEvents, scoresLoaded) : EMPTY_GROUND_SETS),
+    [allowedIdSet, heatSpotList, upcomingEvents, scoresLoaded],
+  );
+
+  /**
+   * The picks across each region (S5a-2's {@code regionPickSummaries}), for the popup's region rail (S5b-1): which
+   * regions hold a pick, how many sub-regions each has, and the places a region holds. Null unless the body is
+   * shaped.
+   */
+  const regionPicks = useMemo(
+    () => (allowedIdSet ? regionPickSummaries(heatSpotList, servedAllowedIds) : null),
+    [allowedIdSet, heatSpotList, servedAllowedIds],
+  );
+
+  /**
    * Each region's served mean across every rendered window, for the open row's six-dot strip.
    *
    * <p>Built here rather than per card because it is a CROSS-window quantity: a card holds one
@@ -943,7 +972,7 @@ export function WindowFirstBriefingProvider({
       briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
       heatSpots: heatSpotList,
-      heatPointSets, heatUnratedSets, heatStoodSets,
+      heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets, regionPicks,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
@@ -956,7 +985,7 @@ export function WindowFirstBriefingProvider({
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
-      heatSpotList, heatPointSets, heatUnratedSets, heatStoodSets,
+      heatSpotList, heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets, regionPicks,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
