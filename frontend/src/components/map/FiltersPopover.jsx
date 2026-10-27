@@ -56,7 +56,7 @@ export default function FiltersPopover({
   showAdminRow, showStandDown, onToggleStandDown, hasStandDown,
   showUnrated, onToggleUnrated, hasUnrated,
   activeCount, filteredCount, scopeCount, onClearAll,
-  chipHidden = false, restoreFallback = null,
+  chipHidden = false, restoreFallback = null, picksScope = null,
 }) {
   const rootRef = useRef(null);
   const panelRef = useRef(null);
@@ -258,6 +258,35 @@ export default function FiltersPopover({
           D-6, which is the unrelated maxZoom-16 decision): with no postcode "My area" and
           "Everywhere" frame the same box over the same spots, and a control whose every
           press does nothing is banned outright. ── */}
+      {/* Sub-regions S5a-2: for a body the server shaped by the reader's picks, with allowed places to frame, a
+          second scope row. A reader with a home (or an away origin) keeps the My area / Everywhere row below as
+          it always was. CAMERA ONLY: this one fits the allowed places or the roster, touches neither `heatArea`
+          nor any count, and is pressed only after the reader presses it (`view` null: neither). */}
+      {picksScope && (
+        <div className="wf-filters-row" data-testid="wf-filters-picks-scope">
+          <span className="wf-filters-key">Scope</span>
+          <div className="wf-filters-seg" role="group" aria-label="Map area">
+            <button
+              type="button"
+              data-testid="wf-filters-scope-picks"
+              aria-pressed={picksScope.view === 'picks'}
+              className={`wf-filters-seg-btn${picksScope.view === 'picks' ? ' on' : ''}`}
+              onClick={() => picksScope.onSelect('picks')}
+            >
+              Your sub-regions
+            </button>
+            <button
+              type="button"
+              data-testid="wf-filters-scope-everywhere"
+              aria-pressed={picksScope.view === 'all'}
+              className={`wf-filters-seg-btn${picksScope.view === 'all' ? ' on' : ''}`}
+              onClick={() => picksScope.onSelect('all')}
+            >
+              Everywhere
+            </button>
+          </div>
+        </div>
+      )}
       {hasHome && (
         <div className="wf-filters-row">
           <span className="wf-filters-key">Scope</span>
@@ -373,6 +402,16 @@ FiltersPopover.propTypes = {
   hasHome: PropTypes.bool,
   heatArea: PropTypes.bool,
   onSelectScope: PropTypes.func,
+  /**
+   * The scope segment of a body shaped by the reader's picks (sub-regions S5a-2): present only when the
+   * body is shaped and holds at least one pick. {@code view} is which camera frame is current ('picks' fits
+   * the allowed places, 'all' the roster); {@code onSelect('picks' | 'all')} moves the camera and nothing
+   * else. Absent, the home segment above is the only scope control, exactly as before.
+   */
+  picksScope: PropTypes.shape({
+    view: PropTypes.oneOf(['picks', 'all']),
+    onSelect: PropTypes.func.isRequired,
+  }),
   areaLabel: PropTypes.string,
   isAuroraMode: PropTypes.bool,
   isAstroMode: PropTypes.bool,

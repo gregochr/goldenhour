@@ -244,6 +244,9 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents, allowedIds 
       rid: regionName,
       skySubject,
       bortleClass: location.bortleClass ?? null,
+      // The served sub-region (S5a-2), for the picks chrome's counts and the region panel's outside rows.
+      subRegionId: location.subRegionId ?? null,
+      subRegionName: location.subRegionName ?? null,
       scores,
       // Beside each score, what the window knows about the place — see windowState.
       states,

@@ -41,6 +41,9 @@ function buildLocations(forecasts, locationMeta) {
       solarEventType: l.solarEventType ?? ['SUNRISE', 'SUNSET'],
       bortleClass: l.bortleClass ?? null,
       regionName: l.region?.name ?? null,
+      // The place's served sub-region (sub-regions-plan S5a): a role-free fact the Map's picks chrome counts.
+      subRegionId: l.subRegionId ?? null,
+      subRegionName: l.subRegionName ?? null,
     }));
 }
 

@@ -8,6 +8,7 @@ import { AURORA_RAMP } from '../../utils/auroraRamp.js';
 import { RING_TIERS } from '../../utils/reachRings.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import BoltIcon from './BoltIcon.jsx';
+import { picksNoteText } from '../../utils/pickGeography.js';
 
 /** Below this handover fraction the field is still whole — README §8's first zoom state. */
 const HANDOVER_FIELD_MAX = 0.05;
@@ -267,9 +268,7 @@ export default function MapLegendPanel({
 
           {!aurora && picks && (
             <div data-testid="wf-legend-picks-note" className="wf-legend-note">
-              {picks.allowed > 0
-                ? `Colour shows the ${picks.allowed} ${picks.allowed === 1 ? 'place' : 'places'} in your sub-regions. Pro rates all ${picks.total}.`
-                : 'Choose your sub-regions in Settings to see ratings.'}
+              {picksNoteText(picks)}
             </div>
           )}
 

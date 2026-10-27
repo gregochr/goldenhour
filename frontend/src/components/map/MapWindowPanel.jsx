@@ -8,6 +8,7 @@ import { PANEL_STAR_FLOOR } from '../../utils/mapDrilldown.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { PICK_TEXT } from './WindowControl.jsx';
 import VerdictWord from '../shared/VerdictWord.jsx';
+import { countWord } from '../../utils/pickGeography.js';
 
 /**
  * The Map tab's window panel — one window, region by region (map-landing-plan.md §3 L5,
@@ -44,7 +45,7 @@ import VerdictWord from '../shared/VerdictWord.jsx';
  * increment's most repeated defect after focus loss.
  */
 export default function MapWindowPanel({
-  row, verdict, note, rows, scopeIsArea = true, onClose, onSelectRegion, focusRegion = null,
+  row, verdict, note, noteStrong = null, rows, scopeIsArea = true, onClose, onSelectRegion, focusRegion = null,
 }) {
   const rootRef = useRef(null);
   const returnRef = useRef(null);
@@ -161,7 +162,18 @@ export default function MapWindowPanel({
         </button>
       </div>
 
-      <p className="wf-win-panel-note" data-testid="wf-win-panel-note">{note}</p>
+      {/* A shaped reader with no pick in any region on the panel has no note (S5a-2): an empty string draws none. */}
+      {note && (
+        <p className="wf-win-panel-note" data-testid="wf-win-panel-note">
+          {noteStrong && note.includes(noteStrong) ? (
+            <>
+              {note.slice(0, note.indexOf(noteStrong))}
+              <b>{noteStrong}</b>
+              {note.slice(note.indexOf(noteStrong) + noteStrong.length)}
+            </>
+          ) : note}
+        </p>
+      )}
 
       <div className="wf-win-panel-rows">
         {rows.map((region) => (
@@ -182,19 +194,36 @@ export default function MapWindowPanel({
           >
             <span className="wf-win-panel-name">{region.name}</span>
             {' '}
-            <span className="wf-win-panel-stat" data-testid="wf-win-panel-stat">
-              {/* ⚠️ No reach word. This count is scope-scoped, not reach-gated, and CLAUDE.md's rule
-                  is that nothing may say "within reach" unless a drive exists to have gated on. The
-                  drive beside it is the region's own NEAREST measured one, absent where unmeasured
-                  rather than shown as zero. */}
-              {region.driveLabel ? `${region.driveLabel} · ` : ''}
-              {`${region.atFourPlus} of ${region.placeCount} at ${PANEL_STAR_FLOOR}`}
-              {/* ⚠️ The glyph is hidden and the word is spoken — this app's standing pattern
-                  (`WindowSheetDialog`, `LocationFourDaySheet`, `HeatmapGrid` each carry the same
-                  note): NVDA at its default symbol level does not speak U+2605, so this sentence
-                  announced as "4 of 9 at 4 plus", with the unit stripped and a dangling plus. */}
-              <span aria-hidden="true">★+</span>
-              <span className="sr-only"> stars or better</span>
+            <span
+              className="wf-win-panel-stat"
+              data-testid="wf-win-panel-stat"
+              data-outside={region.shaped && !region.hasPicks ? 'true' : undefined}
+            >
+              {region.shaped && !region.hasPicks ? (
+                // Sub-regions S5a-2: a region with none of the reader's places. The words are always
+                // "Outside your sub-regions", never "0 of 0" and never a dash.
+                <span data-testid="wf-win-panel-outside">
+                  {`Outside your sub-regions · ${countWord(region.outsideCount, 'place', 'places')}`}
+                </span>
+              ) : (
+                <>
+                  {/* ⚠️ No reach word. This count is scope-scoped, not reach-gated, and CLAUDE.md's rule
+                      is that nothing may say "within reach" unless a drive exists to have gated on. The
+                      drive beside it is the region's own NEAREST measured one, absent where unmeasured
+                      rather than shown as zero. */}
+                  {region.driveLabel ? `${region.driveLabel} · ` : ''}
+                  {`${region.atFourPlus} of ${region.placeCount} at ${PANEL_STAR_FLOOR}`}
+                  {/* ⚠️ The glyph is hidden and the word is spoken — this app's standing pattern
+                      (`WindowSheetDialog`, `LocationFourDaySheet`, `HeatmapGrid` each carry the same
+                      note): NVDA at its default symbol level does not speak U+2605, so this sentence
+                      announced as "4 of 9 at 4 plus", with the unit stripped and a dangling plus. */}
+                  <span aria-hidden="true">★+</span>
+                  <span className="sr-only"> stars or better</span>
+                  {region.shaped && region.outsideCount > 0 && (
+                    <span data-testid="wf-win-panel-more-outside">{` · ${region.outsideCount} more outside`}</span>
+                  )}
+                </>
+              )}
             </span>
             {' '}
             <span
@@ -219,7 +248,11 @@ export default function MapWindowPanel({
             </span>
             {' '}
             <span className="wf-win-panel-best" data-testid="wf-win-panel-best">
-              {region.bestRating == null ? (
+              {region.shaped && !region.hasPicks ? (
+                // An explicit branch (S5a-2, decision 14): a plain Pro pill, a label rather than a door,
+                // never "not scored" for a place the reader has no ratings for.
+                <span className="wf-lens-pro" data-testid="wf-win-panel-pro">Pro</span>
+              ) : region.bestRating == null ? (
                 <span className="wf-win-panel-unscored">not scored</span>
               ) : (
                 <>
@@ -270,8 +303,10 @@ MapWindowPanel.propTypes = {
   }),
   /** From `mapVerdict.windowVerdict` — null on a night window or an unrated one. */
   verdict: PropTypes.shape({ tier: PropTypes.string.isRequired }),
-  /** From `mapDrilldown.windowPanelNote`. */
+  /** From `mapDrilldown.windowPanelNote`; for a shaped body `shapedWindowPanelNote`, `''` drawing none. */
   note: PropTypes.string.isRequired,
+  /** The lead region's bare name, set in bold inside the note (shaped body only). */
+  noteStrong: PropTypes.string,
   /** From `mapDrilldown.buildPanelRegionRows`. */
   rows: PropTypes.arrayOf(PropTypes.shape({
     name: PropTypes.string.isRequired,
@@ -289,6 +324,10 @@ MapWindowPanel.propTypes = {
     driveLabel: PropTypes.string,
     placeCount: PropTypes.number,
     atFourPlus: PropTypes.number,
+    /** Shaped body only (S5a-2): the row's picks facts, from `mapDrilldown.buildPanelRegionRows`. */
+    shaped: PropTypes.bool,
+    hasPicks: PropTypes.bool,
+    outsideCount: PropTypes.number,
   })).isRequired,
   scopeIsArea: PropTypes.bool,
   onClose: PropTypes.func.isRequired,

@@ -374,7 +374,7 @@ export function MapPeekWindowsSection({
   heading, rows, verdicts = null, activeId = null, onSelect, onOpenDrilldown = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
   emptyOlderDayLabel = null,
-  ratedCounts = null, topics = null, auroraDoor = null,
+  ratedCounts = null, topics = null, auroraDoor = null, shaped = false,
 }) {
   // The same EARLIER group the dropdown draws (WindowControl): every PAST row under a sub-header per
   // day, the Load row first. ⚠️ The Load row and the header sit OUTSIDE the listbox (it chooses no
@@ -487,7 +487,9 @@ export function MapPeekWindowsSection({
                     <i aria-hidden="true" style={{ background: row.kind === EVENT_KIND.AURORA ? auroraRampHex(row.bestRating) : rampHex(row.bestRating) }} />
                     {row.bestRating}&#9733; best
                   </b>
-                ) : (
+                ) : shaped ? null : (
+                  // A shaped body (sub-regions S5a-2) draws no dash: an unscored night there may be one whose
+                  // places are outside the reader's sub-regions, which is not "unscored".
                   <span className="wf-map-peek-wr-verdict wf-map-peek-wr-unscored">&mdash;</span>
                 )
               ) : row.kind === EVENT_KIND.HW ? (
@@ -544,6 +546,8 @@ export function MapPeekWindowsSection({
 }
 
 MapPeekWindowsSection.propTypes = {
+  /** The body was shaped by the reader's picks (S5a-2): an unscored night row draws no dash. */
+  shaped: PropTypes.bool,
   heading: PropTypes.string.isRequired,
   rows: PropTypes.arrayOf(PropTypes.shape({
     id: PropTypes.string.isRequired,

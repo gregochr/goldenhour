@@ -1,13 +1,19 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
-import { regionStatSegments } from '../../utils/mapDrilldown.js';
+import { regionStatSegments, PANEL_STAR_FLOOR } from '../../utils/mapDrilldown.js';
 import { glossLead } from '../../utils/regionGloss.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { tideAccessibleClause } from '../../utils/mapTideFit.js';
 import { PICK_TEXT } from './WindowControl.jsx';
 import TideWave from './TideWave.jsx';
+import { countWord } from '../../utils/pickGeography.js';
+
+/** A shaped region's outside list collapses only past this many places (sub-regions-plan D11: n > 4). */
+export const OUTSIDE_COLLAPSE_OVER = 4;
+/** How many outside places stay visible while it is collapsed. */
+const OUTSIDE_VISIBLE_WHEN_COLLAPSED = 3;
 
 /**
  * The Map tab's region panel — one region, on one window (map-landing-plan.md §3 L6,
@@ -46,9 +52,10 @@ import TideWave from './TideWave.jsx';
  */
 export default function MapRegionPanel({
   row, region, locations, gloss = null, onBack, onClose,
-  onZoomToRegion, onOpenLocationSheet,
+  onZoomToRegion, onOpenLocationSheet, picks = null, outsideSlot = null, actionsSlot = null,
 }) {
   const rootRef = useRef(null);
+  const [showAllOutside, setShowAllOutside] = useState(false);
   useOutsideDismiss({ open: true, rootRef, onDismiss: onClose });
 
   // ⚠️ **Focus the panel itself on mount, and this is the THIRD time this plan has paid for not
@@ -91,7 +98,16 @@ export default function MapRegionPanel({
   // page framed to the Lakes". A window with no pick, or a pick naming another region, shows none.
   const pick = (row?.pickKind && row?.pickRegion && row.pickRegion === region.name)
     ? PICK_TEXT[row.pickKind] : null;
-  const stats = regionStatSegments(region);
+  // A SHAPED body (S5a-2): `picks` carries the region's served facts, and the words change with whether the
+  // reader holds a place here. Absent (every Pro, Admin and flag-off reader) nothing below differs.
+  const shapedNone = picks != null && picks.allowedPlaces === 0;
+  const shapedSome = picks != null && picks.allowedPlaces > 0;
+  const outside = picks?.outsidePlaces ?? [];
+  const outsideSubCount = new Set(outside.filter((p) => p.subRegionName).map((p) => p.subRegionId ?? p.subRegionName)).size;
+  const collapsible = outside.length > OUTSIDE_COLLAPSE_OVER;
+  const collapsed = collapsible && !showAllOutside;
+  const outsideShown = collapsed ? outside.slice(0, OUTSIDE_VISIBLE_WHEN_COLLAPSED) : outside;
+  const stats = picks == null ? regionStatSegments(region) : [];
   // ⚠️ The FULL name, and the design says so twice: splitting on whitespace produced "Four days at
   // Infinity" and "Four days at Scott's", which are not places. The top row is the panel's own
   // recommendation, so the action names it rather than asking the reader to choose again.
@@ -169,6 +185,18 @@ export default function MapRegionPanel({
       </div>
 
       <p className="wf-win-panel-note" data-testid="wf-reg-panel-stats">
+        {shapedNone && (
+          <span data-testid="wf-reg-panel-stats-none">
+            {`${countWord(picks.subRegions.length, 'sub-region', 'sub-regions')} · ${countWord(picks.places, 'place', 'places')} · none picked`}
+          </span>
+        )}
+        {shapedSome && (
+          <span data-testid="wf-reg-panel-stats-picked">
+            {`${picks.pickedNames.join(', ')} · ${countWord(picks.allowedPlaces, 'place', 'places')} · ${region.atFourPlus} at ${PANEL_STAR_FLOOR}`}
+            <span aria-hidden="true">★+</span>
+            <span className="sr-only"> stars or better</span>
+          </span>
+        )}
         {stats.map((segment, i) => (
           <span key={segment.key}>
             {i > 0 ? ' · ' : ''}
@@ -181,6 +209,25 @@ export default function MapRegionPanel({
           </span>
         ))}
       </p>
+
+      {shapedNone && (
+        <div className="wf-reg-outside-block" data-testid="wf-reg-panel-outside-block">
+          <p className="wf-reg-outside-line">Ratings here are outside your sub-regions.</p>
+          {/* The S5a-3 seam: the S4 status line and the region's Pro door render here, through `outsideSlot`. */}
+          {outsideSlot}
+        </div>
+      )}
+
+      {shapedNone && picks.subRegions.length > 0 && (
+        <ul className="wf-reg-subs" data-testid="wf-reg-panel-subs" aria-label={`Sub-regions in ${region.name}`}>
+          {picks.subRegions.map((sub) => (
+            <li key={sub.key} className="wf-reg-sub" data-testid="wf-reg-panel-sub">
+              <span className="wf-reg-sub-name">{sub.name}</span>
+              <span className="wf-reg-sub-count">{countWord(sub.places, 'place', 'places')}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div className="wf-win-panel-rows">
         {locations.map((spot) => (
@@ -245,15 +292,64 @@ export default function MapRegionPanel({
         ))}
       </div>
 
-      {locations.length === 0 && (
+      {locations.length === 0 && !shapedNone && (
         <p className="wf-win-panel-empty" data-testid="wf-reg-panel-empty">
           {/* ⚠️ **"this window", not the event word.** `windowFirstCards.eventWord` has no night
               arm — anything that is not SUNRISE is "sunset" — so the moment O-16 serves a night
               rollup and the window panel gains night rows, drilling into an ASTRO window would
               print "rated for this sunset yet". Nothing here needs to name the event side: the
               header two inches up already says which window this is. */}
-          {`Nothing in ${region.name} is rated for this window yet.`}
+          {shapedSome
+            ? `Nothing in your sub-regions in ${region.name} is rated for this window yet.`
+            : `Nothing in ${region.name} is rated for this window yet.`}
         </p>
+      )}
+
+      {shapedSome && outside.length > 0 && (
+        <>
+          <div className="wf-reg-outside-head" data-testid="wf-reg-panel-outside-head">
+            <span className="wf-reg-outside-title">OUTSIDE YOUR SUB-REGIONS</span>
+            <span className="wf-reg-outside-count" data-testid="wf-reg-panel-outside-count">
+              {outsideSubCount > 0
+                ? `${countWord(outside.length, 'place', 'places')} in ${countWord(outsideSubCount, 'sub-region', 'sub-regions')}`
+                : countWord(outside.length, 'place', 'places')}
+            </span>
+          </div>
+          <div className="wf-win-panel-rows" data-testid="wf-reg-panel-outside-rows">
+            {outsideShown.map((place) => (
+              <button
+                type="button"
+                key={place.id ?? place.name}
+                data-testid="wf-reg-panel-outside-row"
+                data-location={place.name}
+                className="wf-win-panel-row wf-reg-row wf-reg-outside-row"
+                aria-haspopup="dialog"
+                onClick={() => onOpenLocationSheet(place)}
+              >
+                <span className="wf-win-panel-name">{place.name}</span>
+                {place.subRegionName && (
+                  <>
+                    {' '}
+                    <span className="wf-win-panel-stat">{place.subRegionName}</span>
+                  </>
+                )}
+              </button>
+            ))}
+            {collapsible && (
+              // A real toggle that stays mounted, so focus stays on it and Escape keeps working.
+              <button
+                type="button"
+                data-testid="wf-reg-panel-show-all"
+                className="wf-reg-show-all"
+                aria-expanded={showAllOutside}
+                onClick={() => setShowAllOutside((v) => !v)}
+              >
+                {showAllOutside ? 'Show fewer ' : `Show all ${outside.length} `}
+                <span aria-hidden="true">{showAllOutside ? '▴' : '▾'}</span>
+              </button>
+            )}
+          </div>
+        </>
       )}
 
       {gloss && (
@@ -276,6 +372,8 @@ export default function MapRegionPanel({
           <span aria-hidden="true">◍</span>
           {' Zoom to region'}
         </button>
+        {/* The S5a-3 seam: the S4 change button renders here, through `actionsSlot`. */}
+        {actionsSlot}
         {top && (
           <button
             type="button"
@@ -349,4 +447,24 @@ MapRegionPanel.propTypes = {
   onClose: PropTypes.func.isRequired,
   onZoomToRegion: PropTypes.func.isRequired,
   onOpenLocationSheet: PropTypes.func.isRequired,
+  /**
+   * For a body the server shaped by the reader's picks only (sub-regions S5a-2): this region's facts from
+   * `pickGeography.regionPickSummaries`. Null (every Pro, Admin and flag-off reader) draws exactly what the
+   * panel always drew.
+   */
+  picks: PropTypes.shape({
+    places: PropTypes.number.isRequired,
+    allowedPlaces: PropTypes.number.isRequired,
+    outsidePlaces: PropTypes.arrayOf(PropTypes.shape({
+      id: PropTypes.any, name: PropTypes.string, subRegionId: PropTypes.any, subRegionName: PropTypes.string,
+    })).isRequired,
+    subRegions: PropTypes.arrayOf(PropTypes.shape({
+      key: PropTypes.string, name: PropTypes.string, places: PropTypes.number, picked: PropTypes.bool,
+    })).isRequired,
+    pickedNames: PropTypes.arrayOf(PropTypes.string).isRequired,
+  }),
+  /** S5a-3's seam, inside the no-picks block: the S4 status line and the region door. Nothing draws until then. */
+  outsideSlot: PropTypes.node,
+  /** S5a-3's seam, in the actions row: the S4 change button. Nothing draws until then. */
+  actionsSlot: PropTypes.node,
 };

@@ -536,6 +536,39 @@ frame at the Map's grid of 6: planning the two layers (both coverage grids and t
 canvas draws (a temp-canvas blur and one `destination-in` for the veil, one stroked path for the outline) cannot be timed outside a
 browser and were not measured. A paint is throttled to one per animation frame.
 
+### S5a-2 build notes
+
+Decisions 6, 7, 8 (rest), 14 and 15, the window and region panels without doors or the S4 change buttons, and the phone key.
+The surface notes are in `docs/engineering/reference/map-tab.md` (*Outside your sub-regions: the chrome, the panels and the
+phone key*). The choices that were the builder's to make:
+
+- **Picks source (decision 6): `LocationDto.subRegionId`/`subRegionName` over the served `allowedLocationIds`**, not S4's
+  `GET /api/user/settings/sub-regions`. Both are served facts and need no client rule; the first is already in the body on
+  screen, so the label and the field cannot disagree after a refetch, and it needs no extra request. `useForecasts` and
+  `buildHeatSpots` now carry the two fields; `WindowFirstMapPane` puts `regionPicks` and `allowedBounds` on `heat`. S5a-3's
+  status fetch (the S4 GET, outside `swrCache`, refetched on `subRegionsVersion`) is still its own.
+- **Stand-down precedence (decision 6).** A stood-down region label keeps its two lines and takes no picks line; a stood region
+  always holds a pick, so no information is lost, and the label's measured box does not grow.
+- **Scope segment (decision 7).** A Lite reader can have a `hasHome` (a postcode or an away origin), so the old segment stays
+  exactly as it was and the new one is a second row, shown whenever `heat.allowedBounds` can be framed. `picksView` is its own state feeding `heatBounds` only (null until
+  pressed, so the camera opens where it always did, and the roster frame shows pressed). `resetToMyArea` clears it.
+- **Window-panel note (decision 15).** The handoff's "otherwise the note is unchanged" would print "Regions rank on that
+  average" over a body with no means, so a shaped body whose lead region holds a pick gets one sentence on the order instead.
+  The second sentence drops "too" when the best picked region's verdict differs from the lead's. A leading "The" in a region
+  name is lowercased inside the sentence and the "the" before a name without one is dropped ("Best in the Yorkshire Dales",
+  "Best in Northumberland & Tyneside").
+- **"n places" on a no-pick row** counts every place the region holds (all are outside), so it matches the region panel's list,
+  while "k of m at 4★+" keeps its `m` of allowed sky places.
+- **Dropdown dash (decision 14).** The dash goes from a shaped body's window rows and unscored night rows (the server strips
+  the window's best star, so it said "unscored" of every window); `nightPillName` drops "not scored yet". A solar row with no
+  verdict keeps its dash, which says there is no verdict, not that a place is outside the picks.
+- **Phone key.** The peek sheet's **Layers** section, beside the colour key and the ground key it already holds: the least
+  intrusive surface, with no new control. Same gate as the desktop key; the note text is shared (`picksNoteText`).
+- **Seams for S5a-3.** `MapRegionPanel`'s `outsideSlot` (inside the no-pick block) and `actionsSlot` (the actions row). The
+  zero-picks legend line stays text.
+- **Architecture note.** `regionPickSummaries` is a new named member of the Backend-heavy class (a count and a sort over
+  served lists), recorded in `architecture-decisions.md`.
+
 ## Appendix A — allocation (production roster, 2026-10-26)
 
 Location names as stored on 2026-10-26, misspellings included; ids are production ids (a fresh database's ids
