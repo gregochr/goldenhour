@@ -1,5 +1,0 @@
-### Added — Coming up tells a Lite reader when none of their sub-regions are coastal or dark-sky (S5b-2), dark until enforcement is on
-
-On Coming up, a coastal or dark-sky entry now says so when none of a Lite reader's own sub-regions has such a place: "None of your sub-regions are on the coast. These days open the map with coastal spots shown outside your sub-regions." (and the same for dark-sky sites and nights). A reader with no sub-regions chosen yet is told to choose them in Settings to see ratings at coastal or dark-sky spots. The day buttons and the map door still work as before. One entry on the tab also carries "Coastal spots everywhere" or "Dark-sky spots everywhere" with a Pro label, the sub-regions status line and the button that opens Settings; a reader with no sub-regions gets the "Choose your sub-regions" button only. The entry that already carries the tide door is skipped.
-
-All of it draws only when `photocast.sub-regions.enforce` is on and the reader is shaped by the server; for Pro and Admin, and with enforcement off, Coming up is exactly what it was. This completes the sub-regions series.
