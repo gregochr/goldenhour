@@ -4386,7 +4386,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     bigSeasDay,
     roster: topicRoster,
     locationsById,
-  }), [activeMapEvent, topicIndex, hotTopics, topicScopeNames, bigSeasDay, topicRoster, locationsById]);
+    // The tide at the light is Pro and Admin (tide-light-pro-plan.md): LITE's chips read as before.
+    tideLight: !tideLocked,
+  }), [activeMapEvent, topicIndex, hotTopics, topicScopeNames, bigSeasDay, topicRoster, locationsById,
+    tideLocked]);
   const activeTopicChip = topicChips.find((chip) => chip.type === selectedTopic) ?? null;
   // The four-day strip (M2): desktop and tablet; the phone shows the same grid in the peek sheet (M4). Built from the same index and
   // scope as the chips, never from `row.badges`; no rows means no strip.
@@ -4403,8 +4406,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     activeRow: activeMapEvent,
     nightDate: auroraNight,
     now: new Date(gridClock * 60000),
+    tideMarks: !tideLocked,
   })), [mapEvents, topicIndex, hotTopics, topicScopeNames, bigSeas, mapTodayStr, activeMapEvent,
-    auroraNight, gridClock]);
+    auroraNight, gridClock, tideLocked]);
   const topicStripMounted = !isMobile && topicGrid != null && topicGrid.rows.length > 0;
   // The phone's section of the same grid, inside the peek sheet's Windows body (M4). Never both mounts.
   const phoneTopicsMounted = isMobile && topicGrid != null && topicGrid.rows.length > 0;

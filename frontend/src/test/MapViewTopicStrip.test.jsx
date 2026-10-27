@@ -185,7 +185,7 @@ const HOT_TOPICS = [
 
 function Pane({
   hotTopics, tide = null, tideSat = null, startDate = TODAY, bigSeas = undefined, forecastDates = [TODAY, SAT],
-  planHandoff = null, externalDate = null,
+  planHandoff = null, externalDate = null, tideLocked = false,
 }) {
   const [date, setDate] = React.useState(startDate);
   return (
@@ -200,6 +200,7 @@ function Pane({
       bigSeas={bigSeas}
       onSelectDate={(d) => setDate(d)}
       planHandoff={planHandoff}
+      tideLocked={tideLocked}
     />
   );
 }
@@ -263,6 +264,41 @@ describe('MapView: the four-day strip mount', () => {
     await renderMap();
     expect(screen.getByTestId('wf-topic-strip-now').style.gridArea).toMatch(/^1 \/ 3 \//);
     expect(screen.getByTestId('wf-topic-bar-DUST-1')).toHaveAttribute('data-current', 'true');
+  });
+});
+
+describe('MapView: the tide at the light (Pro and Admin)', () => {
+  // The served rollup of tonight's sunset, with the Pro-only alignment fields the server adds.
+  const LIGHT_TIDE = {
+    ...TIDE,
+    nearestType: 'HW',
+    nearestTime: '18:30',
+    nearestOffset: '18m after sunset',
+    lightAlignment: 'HW',
+    nearestHeight: '4.3 m',
+    eventTime: '18:12',
+  };
+
+  it('marks the window, writes the detail line and puts the clause on the chip for a Pro reader', async () => {
+    await renderMap({ tide: LIGHT_TIDE });
+    await act(async () => { fireEvent.click(toggle()); });
+
+    expect(screen.getByTestId('wf-topic-strip-mark-KING_TIDE-1')).toHaveTextContent('HW');
+    expect(screen.getByTestId('wf-topic-strip-tide-detail')).toHaveTextContent(
+      'Thu sunset 18:12 \u00B7 high water 18:30, 18m after \u00B7 4.3 m \u00B7 Bamburgh Castle',
+    );
+    expect(within(chip('KING_TIDE')).getByTestId('wf-topic-light')).toHaveTextContent('HW on the light');
+  });
+
+  it('draws none of it for a LITE reader, who keeps the locked row and the plain chip', async () => {
+    await renderMap({ tide: LIGHT_TIDE, tideLocked: true });
+    await act(async () => { fireEvent.click(toggle()); });
+
+    expect(screen.queryByTestId('wf-topic-strip-grid')).not.toBeNull();
+    expect(document.querySelector('.wf-tl-m')).toBeNull();
+    expect(screen.queryByTestId('wf-topic-strip-tide-detail')).toBeNull();
+    expect(screen.queryByTestId('wf-topic-light')).toBeNull();
+    expect(screen.queryByTestId('wf-topic-strip-sub-KING_TIDE')).toBeNull();
   });
 });
 

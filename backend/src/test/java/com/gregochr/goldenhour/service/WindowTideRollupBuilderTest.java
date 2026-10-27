@@ -1063,6 +1063,72 @@ class WindowTideRollupBuilderTest {
         assertThat(tide.nearestOffset()).isEqualTo("55m after sunset");
     }
 
+    // ── on the light (the Map strip's HW / LW marks) ──────────────────────────
+
+    @Nested
+    @DisplayName("lightAlignment: whether the nearest water lands on the light")
+    class LightAlignment {
+
+        private BriefingWindowTide sunriseWith(Pending... pending) {
+            stubSunrise();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(day(ID_WHITBY, DAY, pending));
+            return rollup(DAY, TargetType.SUNRISE);
+        }
+
+        @Test
+        @DisplayName("a high water exactly 90 minutes after the light is on it (the boundary is inclusive)")
+        void exactlyNinetyMinutesIsAligned() {
+            BriefingWindowTide tide = sunriseWith(
+                    low("03:30", 0.6), high("09:40", 5.4), low("15:50", 0.9));
+
+            assertThat(tide.lightAlignment()).isEqualTo("HW");
+            assertThat(tide.nearestOffset()).isEqualTo("1h30 after sunrise");
+        }
+
+        @Test
+        @DisplayName("91 minutes is not: mid tide")
+        void ninetyOneMinutesIsNotAligned() {
+            BriefingWindowTide tide = sunriseWith(
+                    low("03:30", 0.6), high("09:41", 5.4), low("15:50", 0.9));
+
+            assertThat(tide.lightAlignment()).isEqualTo("NONE");
+        }
+
+        @Test
+        @DisplayName("a low water 90 minutes before the light is LW, the same rule on the other side")
+        void lowWaterBeforeTheLightIsLw() {
+            BriefingWindowTide tide = sunriseWith(
+                    low("06:40", 0.7), high("12:50", 5.4), low("19:10", 0.8));
+
+            assertThat(tide.nearestType()).isEqualTo("LW");
+            assertThat(tide.lightAlignment()).isEqualTo("LW");
+        }
+
+        @Test
+        @DisplayName("the nearest extreme's own height, and the station's own sunrise, are served")
+        void servesTheNearestHeightAndTheEventTime() {
+            BriefingWindowTide tide = sunriseWith(
+                    low("03:30", 0.6), high("08:35", 4.6), low("15:50", 0.9));
+
+            assertThat(tide.nearestHeight()).isEqualTo("4.6 m");
+            assertThat(tide.eventTime()).isEqualTo("08:10");
+        }
+
+        @Test
+        @DisplayName("Lite is served none of the three: they relate the water to the light")
+        void liteIsServedNone() {
+            BriefingWindowTide lite = sunriseWith(
+                    low("03:30", 0.6), high("08:35", 4.6), low("15:50", 0.9)).forLite();
+
+            assertThat(lite.lightAlignment()).isNull();
+            assertThat(lite.nearestHeight()).isNull();
+            assertThat(lite.eventTime()).isNull();
+            assertThat(lite.nearestType()).as("the free fact stays").isEqualTo("HW");
+        }
+    }
+
     // ── fixtures ──────────────────────────────────────────────────────────────
 
     private BriefingWindowTide rollup(LocalDate date, TargetType targetType) {

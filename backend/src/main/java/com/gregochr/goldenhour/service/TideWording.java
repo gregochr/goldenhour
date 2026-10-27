@@ -60,6 +60,25 @@ final class TideWording {
      */
     static final double MIN_ANOMALY_METRES = 0.05;
 
+    /**
+     * How close a high or low water must sit to a solar event, in minutes either side and inclusive,
+     * to count as "on the light": the window rollup's {@code lightAlignment}, which the Map's four-day
+     * strip marks (HW/LW) draw from. {@code SurgeRunDayBuilder}'s 90 is a different question (peak
+     * surge against high water) and stays its own. {@code TideRunBuilder} keeps its own, tighter 60-minute
+     * window for the Plan tab's tide-run verdict; the two answer different questions and are
+     * deliberately not merged here.
+     */
+    static final long LIGHT_ALIGNED_MINUTES = 90;
+
+    /** {@code lightAlignment} when the nearest extreme is a high water within the window. */
+    static final String ALIGN_HW = "HW";
+
+    /** {@code lightAlignment} when the nearest extreme is a low water within the window. */
+    static final String ALIGN_LW = "LW";
+
+    /** {@code lightAlignment} when the nearest extreme sits outside the window: mid tide. */
+    static final String ALIGN_NONE = "NONE";
+
     private TideWording() {
     }
 
@@ -229,5 +248,20 @@ final class TideWording {
         }
         return String.join(", ", words.subList(0, words.size() - 1))
                 + " or " + words.get(words.size() - 1);
+    }
+
+    /**
+     * Whether the nearest extreme lands on the light.
+     *
+     * @param nearestIsHigh whether the nearest extreme is a high water
+     * @param signedMinutes minutes from the solar event to that extreme, either sign
+     * @return {@link #ALIGN_HW} or {@link #ALIGN_LW} at or inside {@link #LIGHT_ALIGNED_MINUTES},
+     *         {@link #ALIGN_NONE} beyond it
+     */
+    static String lightAlignment(boolean nearestIsHigh, long signedMinutes) {
+        if (Math.abs(signedMinutes) > LIGHT_ALIGNED_MINUTES) {
+            return ALIGN_NONE;
+        }
+        return nearestIsHigh ? ALIGN_HW : ALIGN_LW;
     }
 }

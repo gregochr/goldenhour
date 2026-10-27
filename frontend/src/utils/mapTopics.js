@@ -38,6 +38,50 @@ export const BIG_SEAS_STYLE = Object.freeze({
 /** The word a whole-sky chip carries in place of a count. */
 export const SKY_WIDE = 'sky-wide';
 
+/**
+ * The topic types whose rows and chips carry the tide-at-the-light treatment (marks, detail line,
+ * chip clause): the spring and king tides and the storm surge. Big seas is deliberately absent: its
+ * HW ticks are a different event (daylight high water plus swell).
+ */
+export const TIDE_LIGHT_TYPES = new Set(['SPRING_TIDE', 'KING_TIDE', 'STORM_SURGE']);
+
+/** The tidal-run types: they alone carry a served run row ({@code tideRun}) for the sub-line. */
+const TIDE_RUN_TYPES = new Set(['SPRING_TIDE', 'KING_TIDE']);
+
+/**
+ * The served tide-at-the-light fact for one window, or null when there is none to read: the row's
+ * {@code tide} carries {@code lightAlignment} only for a Pro or Admin reader (the server strips it
+ * for LITE), and only when the rollup could be built. {@code align} is {@code 'HW'}, {@code 'LW'} or
+ * null for mid tide (the server's {@code "NONE"}). Nothing is computed here: the 90-minute rule is
+ * the server's, and every string is served.
+ *
+ * @param {?object} tide the window's served {@code BriefingWindowTide} (an EV row's {@code tide})
+ * @returns {?{align: ?string, kind: string, time: ?string, offset: ?string, height: ?string,
+ *   eventTime: ?string, station: ?string}} the fact, or null
+ */
+export function tideLightFact(tide) {
+  const a = tide?.lightAlignment;
+  if (a !== 'HW' && a !== 'LW' && a !== 'NONE') return null;
+  return {
+    align: a === 'NONE' ? null : a,
+    kind: tide.nearestType === 'LW' ? 'LW' : 'HW',
+    time: tide.nearestTime ?? null,
+    offset: tide.nearestOffset ?? null,
+    height: tide.nearestHeight ?? null,
+    eventTime: tide.eventTime ?? null,
+    station: tide.locationName ?? null,
+  };
+}
+
+/** "high" / "low" for an HW / LW kind, the prose form. */
+const KIND_WORD = Object.freeze({ HW: 'high', LW: 'low' });
+
+/** "1h09 after sunrise" to "1h09 after" (a trailing event word dropped; "at sunrise" is kept whole). */
+function gapOf(offset) {
+  if (typeof offset !== 'string' || offset === '') return null;
+  return offset.replace(/ (before|after) (sunrise|sunset)$/, ' $1');
+}
+
 /** Night row kinds: the astro and aurora rows ({@code EVENT_KIND.ASTRO}/{@code AURORA}). */
 const NIGHT_ROW_KINDS = new Set(['astro', 'aur']);
 
@@ -119,6 +163,18 @@ export function bigSeasPlaces(day, locationsById) {
   return out;
 }
 
+/** The chip's tide-at-the-light clause: "HW on the light" / "LW on the light" / "mid tide", or null. */
+function chipLight(tide) {
+  const fact = tideLightFact(tide);
+  if (!fact) return null;
+  if (!fact.align) return { align: null, text: 'mid tide', spoken: 'mid tide at the light' };
+  return {
+    align: fact.align,
+    text: `${fact.align} on the light`,
+    spoken: `${KIND_WORD[fact.align]} water on the light`,
+  };
+}
+
 /** "66 coastal" / "12 places" / "1 place": the visible `where`, or null for none. */
 function whereText(count, noun) {
   if (count <= 0) return null;
@@ -164,12 +220,16 @@ function rowTopics(row, topicIndex, hotTopics) {
  * @param {?object} [args.bigSeasDay] the served day when the line is in its full form, else null
  * @param {?Array<object>} [args.roster] the scoped roster rings join to
  * @param {?Map<*, object>} [args.locationsById] the full roster by id, for Big seas' structures
+ * @param {boolean} [args.tideLight] draw the tide-at-the-light clause on the tide and surge chips of a
+ *        solar row (Pro and Admin only: the caller passes {@code !tideLocked}); the clause is the
+ *        window's served {@code lightAlignment}, never computed here
  * @returns {Array<{type: string, name: string, shortName: string, glyph: ?string, colour: string,
  *          where: ?string, label: string, wholeSky: boolean, bigSeas: boolean, topics: object[],
  *          places: ?object[]}>} one entry per chip; empty when the window has none
  */
 export function topicsOnRow({
   row, topicIndex, hotTopics, scopeNames, bigSeasDay = null, roster = null, locationsById = null,
+  tideLight = false,
 }) {
   const chips = [];
   if (bigSeasDay && row) {
@@ -205,6 +265,9 @@ export function topicsOnRow({
     const count = places?.length ?? 0;
     const where = wholeSky ? SKY_WIDE : whereText(count, style.placeNoun);
     const detail = wholeSky ? SKY_WIDE : whereLabel(count, style.placeNoun);
+    const light = tideLight && row?.kind === 'solar' && TIDE_LIGHT_TYPES.has(type)
+      ? chipLight(row.tide) : null;
+    const baseLabel = detail ? `${style.name}, ${detail}` : style.name;
     chips.push({
       type,
       name: style.name,
@@ -212,7 +275,8 @@ export function topicsOnRow({
       glyph: style.glyph,
       colour: style.colour,
       where,
-      label: detail ? `${style.name}, ${detail}` : style.name,
+      label: light ? `${style.name}, ${light.spoken}${detail ? `, ${detail}` : ''}` : baseLabel,
+      light,
       wholeSky,
       bigSeas: false,
       topics,
@@ -355,6 +419,10 @@ function runsOf(on) {
  * @param {?object} [args.activeRow] the EV row on screen
  * @param {?string} [args.nightDate] the night in progress, for the pre-dawn night's column
  * @param {Date} [args.now] the app clock
+ * @param {boolean} [args.tideMarks] draw the tide-at-the-light treatment on the tide and surge rows
+ *        (marks, sub-line, open edge) and the grid's {@code tideDetail}: Pro and Admin only, so the
+ *        caller passes {@code !tideLocked}. Every figure is served ({@code tide.lightAlignment},
+ *        {@code tideRun.peak}/{@code range}); this only filters, maps and selects
  * @returns {{days: Array<{date: string, dow: string, dayNum: string, today: boolean}>,
  *   columns: Array<{index: number, date: string, eventType: string, row: ?object,
  *   interactive: boolean, current: boolean}>, currentColumn: number,
@@ -363,7 +431,7 @@ function runsOf(on) {
  */
 export function fourDayGrid({
   events, topicIndex, hotTopics, scopeNames, bigSeas = null, todayStr, activeRow = null,
-  nightDate = null, now = appNow(),
+  nightDate = null, now = appNow(), tideMarks = false,
 }) {
   const dates = Array.from({ length: GRID_DAYS }, (_, i) => shiftDateStr(todayStr, i));
   const days = dates.map((date, i) => ({
@@ -401,10 +469,11 @@ export function fourDayGrid({
       const type = String(topic.type || '').toUpperCase();
       let entry = byType.get(type);
       if (!entry) {
-        entry = { on: new Array(GRID_COLUMNS).fill(false), label: topic.label };
+        entry = { on: new Array(GRID_COLUMNS).fill(false), label: topic.label, topics: [] };
         byType.set(type, entry);
       }
       entry.on[col.index] = true;
+      if (!entry.topics.includes(topic)) entry.topics.push(topic);
     }
   });
   // Served order: the first appearance of each type in `hotTopics`.
@@ -428,9 +497,9 @@ export function fourDayGrid({
     });
   }
   for (const type of order) {
-    const { on, label } = byType.get(type);
+    const { on, label, topics } = byType.get(type);
     const style = topicStyle(type, label);
-    rows.push({
+    const row = {
       type,
       name: style.name,
       shortName: style.shortName,
@@ -439,9 +508,83 @@ export function fourDayGrid({
       bigSeas: false,
       on,
       bars: runsOf(on),
-    });
+    };
+    if (tideMarks && TIDE_LIGHT_TYPES.has(type)) addTideLight(row, columns, topics);
+    rows.push(row);
   }
-  return { days, columns, currentColumn, currentSpan, rows, hwTicks: hwTicksOf(events, dates, activeRow) };
+  const grid = {
+    days, columns, currentColumn, currentSpan, rows, hwTicks: hwTicksOf(events, dates, activeRow),
+  };
+  if (tideMarks) grid.tideDetail = tideDetailOf(grid, activeRow);
+  return grid;
+}
+
+/**
+ * Adds the tide-at-the-light treatment to one strip row, in place: {@code marks} (a mark per "on"
+ * column whose window is served HW or LW on the light), {@code sub} (the run's peak day and range,
+ * tide runs only, from the served {@code tideRun.peak}; absent when no served day is the peak) and
+ * {@code open} on a bar that reaches the strip's last window (the run is clipped by the forecast
+ * edge, so its right end is drawn open). A row with no served alignment gets no marks and draws
+ * as before.
+ */
+function addTideLight(row, columns, topics) {
+  const marks = [];
+  row.on.forEach((on, c) => {
+    const fact = on ? tideLightFact(columns[c].row?.tide) : null;
+    if (!fact?.align) return;
+    const gap = fact.offset ? ` \u00B7 ${fact.offset}` : '';
+    marks.push({
+      column: c,
+      align: fact.align,
+      title: `${fact.align}${fact.time ? ` ${fact.time}` : ''}${gap}`,
+      spoken: `${KIND_WORD[fact.align]} water on the light ${columnWordOf(columns, c)}`,
+    });
+  });
+  row.marks = marks;
+  if (TIDE_RUN_TYPES.has(row.type)) {
+    const peak = topics.find((t) => t?.tideRun?.peak === true && t.date);
+    if (peak) row.sub = { dow: weekdayOf(peak.date), range: peak.tideRun.range ?? null };
+    row.bars = row.bars.map((bar) => (bar.end === GRID_COLUMNS - 1 ? { ...bar, open: true } : bar));
+  }
+}
+
+/** "Friday sunrise" from a bare columns array (the grid's {@link columnWord} needs the days too). */
+function columnWordOf(columns, c) {
+  const col = columns[c];
+  return `${weekdayOf(col.date)} ${col.eventType === 'SUNRISE' ? 'sunrise' : 'sunset'}`;
+}
+
+/**
+ * The one full-width line under the grid for the window on the map, or null. Only for a solar
+ * window that a tide-at-the-light row covers (tide runs before the surge, so a window both cover
+ * is drawn once), and only when the window's served fact carries an alignment.
+ *
+ * @param {object} grid the grid so far
+ * @param {?object} activeRow the EV row on screen
+ * @returns {?object} the line's served pieces
+ */
+function tideDetailOf(grid, activeRow) {
+  const c = grid.currentColumn;
+  if (c < 0 || activeRow?.kind !== 'solar') return null;
+  const rows = grid.rows.filter((r) => Array.isArray(r.marks) && r.on[c]);
+  rows.sort((a, b) => Number(TIDE_RUN_TYPES.has(b.type)) - Number(TIDE_RUN_TYPES.has(a.type)));
+  for (const row of rows) {
+    const fact = tideLightFact(grid.columns[c].row?.tide);
+    if (!fact) continue;
+    return {
+      column: c,
+      type: row.type,
+      sunWord: columnWordOf(grid.columns, c).replace(/^(\w{3})\w*/, '$1'),
+      eventTime: fact.eventTime,
+      align: fact.align,
+      kindWord: KIND_WORD[fact.kind],
+      time: fact.time,
+      gap: gapOf(fact.offset),
+      height: fact.align ? fact.height : null,
+      station: fact.station,
+    };
+  }
+  return null;
 }
 
 /** A tick never touches the day's edge: clamped to 4-96% of the two columns (plan §3 M3). */
@@ -535,6 +678,17 @@ export function labelTarget(grid, topicRow, onCurrentRow) {
   if (onCurrentRow) return { toggle: true };
   const column = topicRow.on.findIndex((on, c) => on && grid.columns[c]?.interactive);
   return column < 0 ? null : { toggle: false, column };
+}
+
+/**
+ * The tide-at-the-light words for one bar's accessible name ("high water on the light Friday sunrise,
+ * low water on the light Saturday sunset"), from the row's served marks inside the bar; '' for none.
+ */
+export function markPhrase(topicRow, bar) {
+  return (topicRow.marks ?? [])
+    .filter((m) => m.column >= bar.start && m.column <= bar.end)
+    .map((m) => m.spoken)
+    .join(', ');
 }
 
 /** "Friday sunrise" / "Saturday sunset" for a column, from the strip's day names. */

@@ -4602,6 +4602,69 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   white-space: nowrap;
   color: var(--color-tide-light);
 }
+/* Tide at the light (Pro and Admin): the Spring, King and Storm surge rows. A two-line label (the run's peak
+   day and range under the name; the row is 32px), an HW or LW mark over each bar column whose window has that
+   water within 90 minutes of the light (the server's call: `tide.lightAlignment`), an open right edge on a bar
+   the forecast edge clips, and one full-width line under the grid for the window on the map. The marks are
+   decoration (pointer-events none); their words are in the bar's accessible name. */
+.wf-tl-nt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.2;
+}
+.wf-tl-sub {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--color-plex-text-muted);
+}
+.wf-tl-b[data-open='true'] {
+  border-right-style: dashed;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.wf-tl-m {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 1;
+}
+.wf-tl-m span {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  padding: 1px 3px;
+  border-radius: 3px;
+  color: var(--color-plex-bg);
+  background: var(--color-tide-light);
+}
+.wf-tl-m[data-align='LW'] span {
+  background: none;
+  color: var(--color-tide-light);
+  box-shadow: inset 0 0 0 1px var(--color-tide-light);
+}
+.wf-tl-m[data-current='true'] span { box-shadow: 0 0 0 1.5px var(--color-plex-text); }
+.wf-tl-m[data-align='LW'][data-current='true'] span {
+  box-shadow: inset 0 0 0 1px var(--color-tide-light), 0 0 0 1.5px var(--color-plex-text);
+}
+.wf-tl-det {
+  margin: 3px 0 0;
+  padding-top: 7px;
+  border-top: 1px solid var(--color-plex-border);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1.45;
+  color: var(--color-plex-text-secondary);
+}
+.wf-tl-det b { color: var(--color-plex-text); font-weight: 600; }
+.wf-tl-det .wf-tl-k { color: var(--color-tide-light); font-weight: 600; }
+.wf-tl-det .wf-tl-dim { color: var(--color-plex-text-muted); }
 /* Forced colours drop background and box-shadow: the current and selected bars keep a real outline. */
 @media (forced-colors: active) {
   /* The tick is drawn by BORDER, not background, so it survives (plan §3 M2/M3). */
@@ -4618,6 +4681,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   .wf-tl-b[data-selected='true']:focus-visible,
   .wf-tl-n[data-selected='true']:focus-visible { outline: 3px solid CanvasText; outline-offset: 3px; }
   .wf-tl-now { border-left: 1px dashed CanvasText; border-right: 1px dashed CanvasText; }
+  .wf-tl-m span { background: none; color: CanvasText; box-shadow: inset 0 0 0 1px CanvasText; }
+  .wf-tl-m[data-current='true'] span { box-shadow: inset 0 0 0 1px CanvasText, 0 0 0 2px Highlight; }
+  .wf-tl-b[data-open='true'] { border-right-style: dashed; }
 }
 
 /* The phone's strip (hot-topics-by-day M4): the same grid inside the peek sheet's Windows body. Full width of
@@ -4656,6 +4722,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
     text-overflow: ellipsis;
   }
   .wf-topic-strip-sheet .wf-tl-b { margin: 4px 2px; }
+  .wf-topic-strip-sheet .wf-tl-det { font-size: 10.5px; }
   .wf-topic-strip-sheet .wf-tl-n.wf-tl-tall { height: 32px; }
   .wf-topic-strip-sheet .wf-tl-b.wf-tl-tall { height: 24px; }
   /* The High-water tick: the wrapper is the Big seas track; its line is drawn by the wrapper at the true
@@ -7033,6 +7100,17 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   font-size: 9.5px;
   color: var(--color-plex-text-muted);
   white-space: nowrap;
+}
+.wf-tch-l {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--color-tide-light);
+  white-space: nowrap;
+}
+.wf-tch-l[data-align='none'] {
+  font-weight: 400;
+  color: var(--color-plex-text-secondary);
 }
 .wf-topics-none,
 .wf-topics-sky {
