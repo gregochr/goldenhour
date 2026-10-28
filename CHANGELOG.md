@@ -5,6 +5,60 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.34.1] - 2026-10-28
+
+### Fixed — the stand-down legend swatch matches the other swatches
+
+The "Stood down" legend swatch was drawn 20x9, smaller than its neighbours. It now takes the shared 26x13 swatch size on the Plan and Map legends, with the same hatch and forced-colors treatment as before.
+
+### Fixed — Settings' close button stays on screen on a phone
+
+Opening Settings on the sub-region picker (from the Map or Coming up) could scroll the dialog's header off the top of a phone screen, taking the × with it. On a phone the header now sits outside Settings' scrolling body, so it stays put. Tablet and desktop are unchanged.
+
+### Fixed — Escape closes Settings
+
+Pressing Escape now closes the Settings dialog, as the × does (and still not while an account deletion is in flight). While the sub-region sheet or its save confirmation is open over Settings, the first Escape closes that and the next closes Settings. Escape on "Drive times updated" goes back to Settings.
+
+### Removed — Regional planner door on the Plan tab
+
+The collapsible "Regional planner" tile at the foot of the Plan tab ("every region, morning and
+evening"), and the old heatmap grid it opened, are gone. The matrix replaced it. The code that
+existed only to serve it went too: the door and panel components, the grid, its door-state storage
+helper, the grid-only helpers and the stylesheet rules behind them. Nothing else on the Plan tab
+changes.
+
+### Fixed — Coming up's tide-light Pro door spans the card again, not the date column
+
+On the Coming up tab, the "When high water meets the light" Pro prompt shown to Lite readers was squeezed into the narrow date column beside the card. It now sits under the card, in the same column as the card itself, and its explanation opens at full width.
+
+### Changed — Coming up keeps this week's events as full cards
+
+Coming up used to drop any almanac event that ended inside the next four days, leaving only a truncated
+chip in "Next four days": this week's 4.8 m spring tide run showed as three "Spr… 4.8 m" chips while the
+only full card was a smaller run twelve days out. Every event that has not yet ended now keeps its card
+(prose, superlative, best spot, high-water-versus-light line, comparison with other runs), and the tiles
+stay as a pointer to it. A near-term chip now scrolls to its card instead of opening the Plan window. The
+list footer and the empty-state copy no longer say the list "starts where the four-day forecast stops".
+
+### Fixed — the old yellow aperture icons are gone
+
+The browser-tab, home-screen and installed-app icons now use the film-spine "P" mark from the header (a coral perforation spine beside a cream Newsreader "P" on the dark tile) instead of the retired yellow aperture, on both the app and the landing site. The app gains an SVG favicon and a maskable install icon so Android's adaptive-icon mask no longer crops it, the landing site gains an apple-touch icon, and the unused `logo.png` copies are deleted.
+
+### Removed — Ask answer card no longer draws the per-window spread lines
+
+The mono lines under an Ask answer's summary (`Thu sunrise · 154 rated across every region · 88 at
+4★+`) repeated the summary and pushed the picks down on a phone, so the owner asked for them gone.
+`AskWindowSpread`, `askSpread.js` and their styles and tests are deleted, and the client no longer
+keeps `windows` on a normalised answer. The server still serves `windows`, and `AskReadyFreshness`
+still uses it.
+
+### Fixed — Ask no longer shows "&amp;" in a summary
+
+The model occasionally wrote an HTML entity in its answer ("Northumberland &amp; Tyneside"), and the
+client prints text verbatim. `AskAnswerParser` now decodes the basic named entities and numeric
+character references in the model's free text only (`summary`, `missing`, each pick's and event's
+`why`), in a single pass; window ids, event types and dates are left exactly as written.
+
 ## [v2.34.0] - 2026-10-27
 
 ### Changed — Lite readers see ratings only in the sub-regions they choose
