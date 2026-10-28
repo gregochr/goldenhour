@@ -74,7 +74,7 @@ class PasswordChangeRequiredFilterTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"/api/auth/change-password", "/api/auth/logout", "/api/auth/reset-password",
-            "/api/auth/refresh", "/api/waitlist"})
+            "/api/auth/refresh", "/api/waitlist", "/api/waitlist/", "/api/auth"})
     @DisplayName("a flagged caller passes on the exempt paths, so change-password, logout and reset still work")
     void flagged_exemptPaths_pass(String path) throws Exception {
         signedIn(new JwtAuthenticationDetails(2L, true));
@@ -86,7 +86,7 @@ class PasswordChangeRequiredFilterTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/api/authentication", "/api/waitlisted", "/api/users", "/api/ask"})
+    @ValueSource(strings = {"/api/authentication", "/api/waitlisted", "/api/waitlistx", "/api/users", "/api/ask"})
     @DisplayName("a path that merely starts with an exempt name is NOT exempt")
     void flagged_siblingOfAnExemptPath_isRefused(String path) throws Exception {
         signedIn(new JwtAuthenticationDetails(2L, true));
@@ -105,6 +105,29 @@ class PasswordChangeRequiredFilterTest {
 
         run("GET", path);
 
+        verify(chain).doFilter(any(), any());
+    }
+
+    @Test
+    @DisplayName("a percent-encoded spelling of /api/ cannot dodge the filter: /%61pi/... is judged decoded")
+    void flagged_encodedApiPath_isRefused() throws Exception {
+        signedIn(new JwtAuthenticationDetails(2L, true));
+
+        run("GET", "/%61pi/user/settings/ask");
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).isEqualTo(EXPECTED_BODY);
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    @DisplayName("an encoded spelling of an exempt path is exempt, as it decodes to /api/auth/logout")
+    void flagged_encodedExemptPath_passes() throws Exception {
+        signedIn(new JwtAuthenticationDetails(2L, true));
+
+        run("POST", "/api/%61uth/logout");
+
+        assertThat(response.getStatus()).isEqualTo(200);
         verify(chain).doFilter(any(), any());
     }
 

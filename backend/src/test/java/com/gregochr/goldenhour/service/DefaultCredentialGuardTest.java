@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
@@ -24,7 +25,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -138,15 +139,24 @@ class DefaultCredentialGuardTest {
                 admin(1L, "admin", "$2a$10$one"), admin(2L, "admin2", "$2a$10$two")));
         when(passwordEncoder.matches("golden2026", "$2a$10$one")).thenReturn(true);
         when(passwordEncoder.matches("golden2026", "$2a$10$two")).thenReturn(true);
-        when(credentialChangeWriter.apply(any(), any(), any(), any()))
-                .thenThrow(new IllegalStateException("db down"))
+        when(credentialChangeWriter.apply(1L, "!disabled-default-admin", Change.adminTemporaryPassword(),
+                VersionExpectation.trusted())).thenThrow(new IllegalStateException("db down"));
+        when(credentialChangeWriter.apply(2L, "!disabled-default-admin", Change.adminTemporaryPassword(),
+                VersionExpectation.trusted()))
                 .thenReturn(new CredentialChangeOutcome(2L, "admin2", null, 1L));
 
         assertThatCode(() -> guard.disableDefaultAdminPassword()).doesNotThrowAnyException();
 
-        verify(credentialChangeWriter).apply(2L, "!disabled-default-admin", Change.adminTemporaryPassword(),
-                VersionExpectation.trusted());
-        assertThat(logs.list).anySatisfy(event -> assertThat(event.getLevel()).isEqualTo(Level.ERROR));
+        InOrder order = inOrder(credentialChangeWriter);
+        order.verify(credentialChangeWriter).apply(1L, "!disabled-default-admin",
+                Change.adminTemporaryPassword(), VersionExpectation.trusted());
+        order.verify(credentialChangeWriter).apply(2L, "!disabled-default-admin",
+                Change.adminTemporaryPassword(), VersionExpectation.trusted());
+        assertThat(logs.list).filteredOn(event -> event.getLevel() == Level.ERROR).hasSize(1)
+                .allSatisfy(event -> assertThat(event.getFormattedMessage())
+                        .contains("Could not disable the default password for user id 1"));
+        assertThat(logs.list).filteredOn(event -> event.getLevel() == Level.WARN).hasSize(1)
+                .allSatisfy(event -> assertThat(event.getFormattedMessage()).contains("'admin2'"));
     }
 
     @Test

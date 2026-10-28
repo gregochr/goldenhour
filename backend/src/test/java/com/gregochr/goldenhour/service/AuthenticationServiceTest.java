@@ -33,11 +33,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -170,7 +170,7 @@ class AuthenticationServiceTest {
             user.setPassword("!disabled-default-admin");
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("golden2026", "!disabled-default-admin")).thenReturn(false);
-            when(passwordEncoder.encode(any())).thenReturn("$2a$10$dummy");
+            when(passwordEncoder.encode("not-a-real-password")).thenReturn("$2a$10$dummy");
 
             assertThatThrownBy(() -> service.login("admin", "golden2026"))
                     .isInstanceOf(InvalidCredentialsException.class)
@@ -191,8 +191,8 @@ class AuthenticationServiceTest {
             assertThatThrownBy(() -> service.login("admin", "wrong"))
                     .isInstanceOf(InvalidCredentialsException.class);
 
-            verify(passwordEncoder, times(1)).matches(any(), any());
-            verify(passwordEncoder, never()).encode(any());
+            verify(passwordEncoder).matches("wrong", "$2a$10$storedhashvalue");
+            verifyNoMoreInteractions(passwordEncoder);
         }
 
         @Test
@@ -651,9 +651,8 @@ class AuthenticationServiceTest {
 
         private static final String BUDGET_KEY = "change-password:user:1";
 
-        @BeforeEach
-        void budgetAdmits() {
-            lenient().when(attemptLimiter.tryAcquire(BUDGET_KEY, 5, AuthAttemptLimiter.Window.QUARTER_HOUR))
+        private void budgetAdmits() {
+            when(attemptLimiter.tryAcquire(BUDGET_KEY, 5, AuthAttemptLimiter.Window.QUARTER_HOUR))
                     .thenReturn(true);
         }
 
@@ -661,6 +660,7 @@ class AuthenticationServiceTest {
         @DisplayName("takes the budget, verifies the current password, THEN encodes, applies ONE writer change "
                 + "with the caller's version expectation, and issues fresh tokens against the hash it wrote")
         void verifiesThenEncodesThenWritesThenIssuesFreshTokens() {
+            budgetAdmits();
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("OldPass1!", "hashed-password")).thenReturn(true);
             when(passwordEncoder.encode("NewPass1!")).thenReturn("encoded-new");
@@ -687,6 +687,7 @@ class AuthenticationServiceTest {
         @DisplayName("a wrong current password throws CurrentPasswordMismatch and hashes, writes and issues "
                 + "nothing")
         void wrongCurrentPassword_isRefusedBeforeAnyWrite() {
+            budgetAdmits();
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("Wrong1!", "hashed-password")).thenReturn(false);
 
@@ -721,10 +722,12 @@ class AuthenticationServiceTest {
         @DisplayName("if the issuer refuses AFTER the writer committed (the account changed again in the gap) "
                 + "the refusal propagates: the caller signs in again with the password that did change")
         void issuerRefusalAfterTheWrite_propagates() {
+            budgetAdmits();
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("OldPass1!", "hashed-password")).thenReturn(true);
             when(passwordEncoder.encode("NewPass1!")).thenReturn("encoded-new");
-            when(credentialChangeWriter.apply(any(), any(), any(), any()))
+            when(credentialChangeWriter.apply(1L, "encoded-new", Change.changePassword(),
+                    VersionExpectation.trusted()))
                     .thenReturn(new CredentialChangeOutcome(1L, "admin", "admin@example.com", 4L));
             when(tokenIssuer.issue(1L, "encoded-new"))
                     .thenThrow(new InvalidCredentialsException("Invalid username or password"));
@@ -740,10 +743,12 @@ class AuthenticationServiceTest {
         @Test
         @DisplayName("a stale session is refused by the writer, and NO fresh tokens are issued")
         void staleSession_issuesNothing() {
+            budgetAdmits();
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("OldPass1!", "hashed-password")).thenReturn(true);
             when(passwordEncoder.encode("NewPass1!")).thenReturn("encoded-new");
-            when(credentialChangeWriter.apply(any(), any(), any(), any()))
+            when(credentialChangeWriter.apply(1L, "encoded-new", Change.changePassword(),
+                    VersionExpectation.legacyUnchanged()))
                     .thenThrow(new StaleCredentialsException());
 
             assertThatThrownBy(() -> service.changePassword("admin", "OldPass1!", "NewPass1!",

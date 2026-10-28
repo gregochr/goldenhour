@@ -8,6 +8,8 @@ import org.jspecify.annotations.NonNull;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -25,10 +27,13 @@ import java.nio.charset.StandardCharsets;
  * authenticated principal's {@link JwtAuthenticationDetails}, read from the row the JWT filter already
  * loaded: there is no second database read and no token claim.
  *
- * <p>It applies when the request is authenticated, the flag is set and the path starts with {@code /api/}
- * but is NOT under {@code /api/auth/} or {@code /api/waitlist}. Those two are {@code permitAll} and the
+ * <p>It applies when the request is authenticated, the flag is set and the path is under {@code /api/}
+ * but NOT under {@code /api/auth/} or {@code /api/waitlist}. Those two are {@code permitAll} and the
  * client attaches its Bearer token to every call, so blocking them would break reset-password,
- * set-password and logout for a flagged user who is signed in. Unauthenticated requests pass untouched
+ * set-password and logout for a flagged user who is signed in. Paths are judged with Spring Security's
+ * {@code PathPatternRequestMatcher}, as the security chain's own rules are, so percent-encoded spellings
+ * such as {@code /%61pi/...} are matched by their decoded form, exactly as MVC routes them. Unauthenticated
+ * requests pass untouched
  * (they meet the entry point's 401 as ever), as do paths outside {@code /api/} (actuator, static). Async
  * and error dispatches are skipped, as in the JWT filter. The body follows the {@code {error, code}} shape
  * of {@link AskAccessDeniedHandler}.
@@ -44,9 +49,13 @@ public class PasswordChangeRequiredFilter extends OncePerRequestFilter {
 
     private static final String BODY = "{\"error\":\"" + MESSAGE + "\",\"code\":\"" + CODE + "\"}";
 
-    private static final String API_PREFIX = "/api/";
-    private static final String AUTH_PREFIX = "/api/auth";
-    private static final String WAITLIST_PREFIX = "/api/waitlist";
+    // The same matcher API and path semantics as SecurityConfig's rules, so the filter judges the DECODED,
+    // context-relative path that Spring MVC will route (a raw-URI prefix test is bypassed by /%61pi/...).
+    // A pattern ending in /** also matches the bare prefix, so /api/waitlist itself is exempt.
+    private static final RequestMatcher API = PathPatternRequestMatcher.withDefaults().matcher("/api/**");
+    private static final RequestMatcher AUTH = PathPatternRequestMatcher.withDefaults().matcher("/api/auth/**");
+    private static final RequestMatcher WAITLIST =
+            PathPatternRequestMatcher.withDefaults().matcher("/api/waitlist/**");
 
     /**
      * Skips async dispatches (e.g. SSE emitter flushes): the initial request was already judged.
@@ -85,18 +94,6 @@ public class PasswordChangeRequiredFilter extends OncePerRequestFilter {
     }
 
     private static boolean isGuardedPath(HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        String context = request.getContextPath();
-        String path = context != null && !context.isEmpty() && uri.startsWith(context)
-                ? uri.substring(context.length()) : uri;
-        if (!path.startsWith(API_PREFIX)) {
-            return false;
-        }
-        return !isUnder(path, AUTH_PREFIX) && !isUnder(path, WAITLIST_PREFIX);
-    }
-
-    /** True when {@code path} is the prefix itself or a sub-path of it, never a longer sibling name. */
-    private static boolean isUnder(String path, String prefix) {
-        return path.equals(prefix) || path.startsWith(prefix + "/");
+        return API.matches(request) && !AUTH.matches(request) && !WAITLIST.matches(request);
     }
 }

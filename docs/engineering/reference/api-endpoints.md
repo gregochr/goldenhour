@@ -54,7 +54,7 @@
 >
 > **While the account is flagged `passwordChangeRequired`, every other `/api/` call returns 403**
 > `{"error":"Password change required","code":"PASSWORD_CHANGE_REQUIRED"}` (`PasswordChangeRequiredFilter`). Exempt:
-> `/api/auth/**` (so change-password, logout, refresh and reset still work) and `/api/waitlist`. Unauthenticated requests
+> `/api/auth/**` (so change-password, logout, refresh and reset still work) and `/api/waitlist`. Paths are matched decoded (`PathPatternRequestMatcher`, as `SecurityConfig` does), so `/%61pi/...` is still guarded. Unauthenticated requests
 > keep their 401 and paths outside `/api/` are unaffected.
 
 > The two event streams (`GET /api/status/stream`, `GET /api/forecast/run/{id}/progress`)
