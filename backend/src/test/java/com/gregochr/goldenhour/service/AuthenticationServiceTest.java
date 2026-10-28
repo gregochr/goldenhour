@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.CurrentPasswordMismatchException;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
+import com.gregochr.goldenhour.exception.NewPasswordUnchangedException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.exception.TooManyAttemptsException;
 import com.gregochr.goldenhour.model.AuthTokens;
@@ -179,6 +180,21 @@ class AuthenticationServiceTest {
             verify(passwordEncoder).matches("golden2026", "$2a$10$dummy");
             verify(userRepository, never()).touchLastActiveAt(any(), any());
             verifyNoInteractions(tokenIssuer);
+        }
+
+        @Test
+        @DisplayName("the empty pending-registration marker also spends the dummy comparison")
+        void emptyStoredHash_spendsADummyComparison() {
+            user.setPassword("");
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("golden2026", "")).thenReturn(false);
+            when(passwordEncoder.encode("not-a-real-password")).thenReturn("$2a$10$dummy");
+
+            assertThatThrownBy(() -> service.login("admin", "golden2026"))
+                    .isInstanceOf(InvalidCredentialsException.class)
+                    .hasMessage("Invalid username or password");
+
+            verify(passwordEncoder).matches("golden2026", "$2a$10$dummy");
         }
 
         @Test
@@ -663,6 +679,7 @@ class AuthenticationServiceTest {
             budgetAdmits();
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("OldPass1!", "hashed-password")).thenReturn(true);
+            when(passwordEncoder.matches("NewPass1!", "hashed-password")).thenReturn(false);
             when(passwordEncoder.encode("NewPass1!")).thenReturn("encoded-new");
             VersionExpectation expectation = VersionExpectation.exact(3L);
             when(credentialChangeWriter.apply(1L, "encoded-new", Change.changePassword(), expectation))
@@ -677,6 +694,7 @@ class AuthenticationServiceTest {
             InOrder order = inOrder(attemptLimiter, passwordEncoder, credentialChangeWriter, tokenIssuer);
             order.verify(attemptLimiter).tryAcquire(BUDGET_KEY, 5, AuthAttemptLimiter.Window.QUARTER_HOUR);
             order.verify(passwordEncoder).matches("OldPass1!", "hashed-password");
+            order.verify(passwordEncoder).matches("NewPass1!", "hashed-password");
             order.verify(passwordEncoder).encode("NewPass1!");
             order.verify(credentialChangeWriter).apply(1L, "encoded-new", Change.changePassword(), expectation);
             order.verify(tokenIssuer).issue(1L, "encoded-new");
@@ -696,6 +714,25 @@ class AuthenticationServiceTest {
                     .isInstanceOf(CurrentPasswordMismatchException.class)
                     .hasMessage("Current password is incorrect");
 
+            verify(passwordEncoder, never()).encode(any());
+            verifyNoInteractions(credentialChangeWriter);
+            verifyNoInteractions(tokenIssuer);
+        }
+
+        @Test
+        @DisplayName("a new password equal to the stored one throws NewPasswordUnchanged, checked AFTER the "
+                + "current password, and nothing is hashed, written or issued")
+        void newPasswordEqualToTheStoredHash_isRefused() {
+            budgetAdmits();
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("OldPass1!", "hashed-password")).thenReturn(true);
+
+            assertThatThrownBy(() -> service.changePassword("admin", "OldPass1!", "OldPass1!",
+                    VersionExpectation.trusted()))
+                    .isInstanceOf(NewPasswordUnchangedException.class)
+                    .hasMessage("New password must differ from the current one");
+
+            verify(passwordEncoder, times(2)).matches("OldPass1!", "hashed-password");
             verify(passwordEncoder, never()).encode(any());
             verifyNoInteractions(credentialChangeWriter);
             verifyNoInteractions(tokenIssuer);
@@ -725,6 +762,7 @@ class AuthenticationServiceTest {
             budgetAdmits();
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("OldPass1!", "hashed-password")).thenReturn(true);
+            when(passwordEncoder.matches("NewPass1!", "hashed-password")).thenReturn(false);
             when(passwordEncoder.encode("NewPass1!")).thenReturn("encoded-new");
             when(credentialChangeWriter.apply(1L, "encoded-new", Change.changePassword(),
                     VersionExpectation.trusted()))
@@ -746,6 +784,7 @@ class AuthenticationServiceTest {
             budgetAdmits();
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("OldPass1!", "hashed-password")).thenReturn(true);
+            when(passwordEncoder.matches("NewPass1!", "hashed-password")).thenReturn(false);
             when(passwordEncoder.encode("NewPass1!")).thenReturn("encoded-new");
             when(credentialChangeWriter.apply(1L, "encoded-new", Change.changePassword(),
                     VersionExpectation.legacyUnchanged()))

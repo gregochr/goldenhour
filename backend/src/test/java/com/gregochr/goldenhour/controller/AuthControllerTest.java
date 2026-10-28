@@ -444,6 +444,8 @@ class AuthControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("POST /api/auth/change-password with a new password equal to the current one is a 400")
     void changePassword_sameAsCurrent_returns400() throws Exception {
+        adminUser.setPassword(passwordEncoder.encode("NewPass1!"));
+        known(adminUser);
         String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
 
         mockMvc.perform(post("/api/auth/change-password")

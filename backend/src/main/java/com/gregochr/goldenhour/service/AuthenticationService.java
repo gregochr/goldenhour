@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.exception.CurrentPasswordMismatchException;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
+import com.gregochr.goldenhour.exception.NewPasswordUnchangedException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.exception.TooManyAttemptsException;
 import com.gregochr.goldenhour.model.AuthTokens;
@@ -64,8 +65,11 @@ public class AuthenticationService {
     /** The sentence for a current password that does not match. */
     public static final String CURRENT_PASSWORD_INCORRECT = "Current password is incorrect";
 
-    /** What every BCrypt hash starts with; a stored hash without it can never verify. */
-    private static final String BCRYPT_PREFIX = "$2";
+    /** What a neutralised credential's stored value starts with; no BCrypt hash does. */
+    private static final String DISABLED_HASH_PREFIX = "!";
+
+    /** The sentence for a new password equal to the current one. */
+    public static final String NEW_PASSWORD_UNCHANGED = "New password must differ from the current one";
 
     /** The throwaway string whose hash a no-candidate sign-in compares against. */
     private static final String DUMMY_PASSWORD = "not-a-real-password";
@@ -194,10 +198,11 @@ public class AuthenticationService {
                     break;
                 }
                 verifiedButDisabled = true;
-            } else if (!isBcryptShaped(candidate.getPassword())) {
-                // A stored hash that is not BCrypt-shaped (a neutralised default credential, or the empty
-                // marker of a pending registration) is refused without BCrypt's cost. Spend that cost
-                // here so this row's response time matches every other row's.
+            } else if (isNeverValidHash(candidate.getPassword())) {
+                // A stored value no password can match (a neutralised default credential, "!"-prefixed, or
+                // the empty marker of a pending registration) is refused without BCrypt's cost. Spend that
+                // cost here so this row's response time matches every other row's. A null (impossible in
+                // the NOT NULL column) is left alone.
                 passwordEncoder.matches(password, dummyHash());
             }
         }
@@ -257,8 +262,8 @@ public class AuthenticationService {
         return hash;
     }
 
-    private static boolean isBcryptShaped(String storedHash) {
-        return storedHash != null && storedHash.startsWith(BCRYPT_PREFIX);
+    private static boolean isNeverValidHash(String storedHash) {
+        return storedHash != null && (storedHash.isEmpty() || storedHash.startsWith(DISABLED_HASH_PREFIX));
     }
 
     /**
@@ -340,6 +345,7 @@ public class AuthenticationService {
      * @throws InvalidCredentialsException      if no user with that username exists
      * @throws TooManyAttemptsException         if the account's change-password budget is spent
      * @throws CurrentPasswordMismatchException if the current password is wrong
+     * @throws NewPasswordUnchangedException    if the new password is the current one
      * @throws StaleCredentialsException        if the account's credentials moved since the caller's token
      *                                          was issued, or the account is no longer active
      */
@@ -356,6 +362,11 @@ public class AuthenticationService {
         if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
             LOG.warn("Change-password refused: wrong current password for user id {}", user.getId());
             throw new CurrentPasswordMismatchException(CURRENT_PASSWORD_INCORRECT);
+        }
+        // Compared against the stored hash here, after the current password is verified, rather than as
+        // an equality of two request strings.
+        if (passwordEncoder.matches(newPassword, user.getPassword())) {
+            throw new NewPasswordUnchangedException(NEW_PASSWORD_UNCHANGED);
         }
 
         String encoded = passwordEncoder.encode(newPassword);

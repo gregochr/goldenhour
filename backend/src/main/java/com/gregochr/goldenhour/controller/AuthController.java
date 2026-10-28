@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.config.JwtAuthenticationDetails;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.exception.CurrentPasswordMismatchException;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
+import com.gregochr.goldenhour.exception.NewPasswordUnchangedException;
 import com.gregochr.goldenhour.exception.TooManyAttemptsException;
 import com.gregochr.goldenhour.model.AuthTokens;
 import com.gregochr.goldenhour.repository.AppUserRepository;
@@ -194,10 +195,6 @@ public class AuthController {
         if (complexityError != null) {
             return ResponseEntity.badRequest().body(Map.of("error", complexityError));
         }
-        if (newPassword.equals(currentPassword)) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "New password must differ from the current one"));
-        }
 
         try {
             AuthTokens tokens = authenticationService.changePassword(username, currentPassword, newPassword,
@@ -205,7 +202,7 @@ public class AuthController {
             Map<String, Object> response = buildAuthResponse(tokens);
             response.put("message", "Password updated");
             return ResponseEntity.ok(response);
-        } catch (CurrentPasswordMismatchException ex) {
+        } catch (CurrentPasswordMismatchException | NewPasswordUnchangedException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
         } catch (TooManyAttemptsException ex) {
             return tooManyAttempts();
