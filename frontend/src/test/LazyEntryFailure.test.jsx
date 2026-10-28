@@ -1,12 +1,11 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  act, render, screen, fireEvent, within, waitFor,
+  act, render, screen, fireEvent, waitFor,
 } from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { ukDateStrOffset } from '../utils/mapDates.js';
-import { foreignModalOver } from '../utils/mapForeignModal.js';
 
 /**
  * P2d: a settings chunk that fails to load (a stale tab after a deploy, an offline PWA) shows the
@@ -105,7 +104,6 @@ import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getSettings, getReach, getDriveTimes } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
-import { deleteAccount } from '../api/accountApi.js';
 import { getAuroraStatus } from '../api/auroraApi.js';
 import { getNlcSighting } from '../api/nlcApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
@@ -133,11 +131,6 @@ const SETTINGS_NO_HOME = {
   role: 'PRO_USER', homePostcode: null, homePlaceName: null, homeLatitude: null,
   homeLongitude: null, driveTimesCalculatedAt: null, mapColourScale: 'temp',
   comingUpLastSeenDate: null,
-};
-
-/** A live alert the banner shows, so its Map door can be pressed. */
-const AURORA_ALERT = {
-  level: 'MODERATE', kpIndex: 6, active: true, currentNightDate: TOMORROW, simulated: false,
 };
 
 const CARD = {
@@ -242,10 +235,6 @@ const ctx = () => ({
   setComingUpLastSeenAt: vi.fn(),
 });
 
-const NUDGE = 'Set a postcode for light and drive times';
-const HOME_CONTROL = 'Set your home postcode in Settings';
-/** The postcode field's accessible name — the settings dialog's "Home location" heading. */
-const POSTCODE_FIELD = 'Home location';
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -255,10 +244,6 @@ const renderApp = () => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
   render(<App />);
 };
-
-/** The dialogs claiming to be THE modal — the property this file exists for is that there is one. */
-const modals = () => screen.queryAllByRole('dialog')
-  .filter((dialog) => dialog.getAttribute('aria-modal') === 'true');
 
 /**
  * Presses a control the way a keyboard reader does — focus first, then the activation — so each
@@ -270,69 +255,6 @@ async function press(control) {
   await act(async () => { fireEvent.click(control); });
 }
 
-/**
- * Waits for a dialog to take focus on opening, which `useDialogFocus` does a frame after mount.
- *
- * <p>⚠️ Spent before the next press rather than left pending: an unspent mount frame can land in
- * the middle of a later step and supply a focus assertion's expected value itself.
- */
-async function tookFocus(dialog) {
-  await waitFor(() => expect(dialog).toHaveFocus());
-  return dialog;
-}
-
-/**
- * Opens the first window's popup. Awaits the matrix's lazy boundary and then the popup's, so the
- * first test in the file behaves like the rest (frontend-test-standards, "The first test in a file
- * is not like the others").
- */
-async function openPopup() {
-  await screen.findByTestId('wf-heat-strip');
-  await press(screen.getAllByTestId('wf-heat-card')[0]);
-  return tookFocus(await screen.findByTestId('window-sheet'));
-}
-
-/** Selects the Map tab — the pane mounts on first selection — and waits for the stub pane. */
-async function openMapTab() {
-  const tab = await screen.findByRole('tab', { name: 'Map' });
-  await act(async () => { fireEvent.click(tab); });
-  await screen.findByTestId('map-pane-stub');
-  return tab;
-}
-
-/** Opens the four-day sheet OVER the map, the way the callout's `Four days here ›` does. */
-async function openPeek() {
-  await press(screen.getByTestId('stub-four-days'));
-  return tookFocus(await screen.findByTestId('location-sheet'));
-}
-
-/** Closes the settings dialog from its own ×, and lets a frame pass so nothing is still pending. */
-async function closeSettings(dialog) {
-  await press(within(dialog).getByRole('button', { name: 'Close' }));
-  await act(async () => {
-    await new Promise((resolve) => { requestAnimationFrame(() => requestAnimationFrame(resolve)); });
-  });
-  expect(screen.queryByTestId('settings-modal')).toBeNull();
-}
-
-/**
- * Waits for the settings dialog's own read, so nothing is still landing when a test asserts — and
- * for its mount frame, so a later focus assertion cannot be answered by it.
- *
- * <p>⚠️ And checks the Plan did not crash behind it. `PlanErrorBoundary` wraps the shell while the
- * settings dialog is its sibling, so a shell that threw on the press — a render-phase loop in the
- * close, say — still leaves "one modal, named Settings, and the Plan dialog gone": every count in
- * this file would pass against a dead Plan.
- */
-async function settingsSettled() {
-  const dialog = await screen.findByTestId('settings-modal');
-  expect(screen.queryByTestId('plan-error')).toBeNull();
-  await within(dialog).findByRole('textbox', { name: POSTCODE_FIELD });
-  await act(async () => {
-    await new Promise((resolve) => { requestAnimationFrame(() => requestAnimationFrame(resolve)); });
-  });
-  return dialog;
-}
 
 beforeEach(() => {
   localStorage.clear();
