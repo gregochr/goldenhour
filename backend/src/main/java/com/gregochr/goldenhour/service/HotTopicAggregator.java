@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -33,6 +34,8 @@ public class HotTopicAggregator {
     private final TravelDayService travelDayService;
     private final HotTopicEventEnricher eventEnricher;
     private final HotTopicGlanceDecorator glanceDecorator;
+    private final SlotSignalReader slotSignalReader;
+    private final LocationRepository locationRepository;
 
     /**
      * Constructs a {@code HotTopicAggregator} with all registered strategies.
@@ -42,17 +45,23 @@ public class HotTopicAggregator {
      * @param travelDayService  suppresses topics dated on a travel day (operator is away)
      * @param eventEnricher     fills in each topic's photographic event type and time
      * @param glanceDecorator   fills in each topic's Coming up chip line, last of all
+     * @param slotSignalReader  the slot read model, read once per serve and shared by the strategies
+     * @param locationRepository the location rosters, each read once per serve
      */
     public HotTopicAggregator(List<HotTopicStrategy> strategies,
                                HotTopicSimulationService simulationService,
                                TravelDayService travelDayService,
                                HotTopicEventEnricher eventEnricher,
-                               HotTopicGlanceDecorator glanceDecorator) {
+                               HotTopicGlanceDecorator glanceDecorator,
+                               SlotSignalReader slotSignalReader,
+                               LocationRepository locationRepository) {
         this.strategies = strategies;
         this.simulationService = simulationService;
         this.travelDayService = travelDayService;
         this.eventEnricher = eventEnricher;
         this.glanceDecorator = glanceDecorator;
+        this.slotSignalReader = slotSignalReader;
+        this.locationRepository = locationRepository;
     }
 
     /**
@@ -67,20 +76,27 @@ public class HotTopicAggregator {
      * @return sorted list of hot topics; never null
      */
     public List<HotTopic> getHotTopics(LocalDate fromDate, LocalDate toDate) {
+        HotTopicInputs inputs = new HotTopicInputs(
+                () -> slotSignalReader.read(fromDate, toDate),
+                locationRepository::findCoastalLocations,
+                locationRepository::findAllByEnabledTrueOrderByNameAsc,
+                locationRepository::findByBortleClassIsNotNullAndEnabledTrue,
+                locationRepository::findBluebellLocations,
+                travelDayService::isTravelDay);
         if (simulationService.isEnabled()) {
             return glanceDecorator.decorate(
-                    eventEnricher.enrich(simulationService.getSimulatedTopics(fromDate, toDate)));
+                    eventEnricher.enrich(simulationService.getSimulatedTopics(fromDate, toDate), inputs));
         }
         List<HotTopic> topics = strategies.stream()
-                .flatMap(s -> s.detect(fromDate, toDate).stream())
+                .flatMap(s -> s.detect(fromDate, toDate, inputs).stream())
                 .sorted()
                 .toList();
         // Enriched BEFORE the travel filter: the filter reads the dates a topic covers, and a
         // NIGHT anchor is what the enricher adds.
         // Decorated LAST, in both branches: BriefingService keeps its cached briefing only when the
         // cached topics equal the live ones, so the cache and every serve must see the same glance.
-        return glanceDecorator.decorate(eventEnricher.enrich(topics).stream()
-                .filter(topic -> actionableOutsideTravel(topic, fromDate))
+        return glanceDecorator.decorate(eventEnricher.enrich(topics, inputs).stream()
+                .filter(topic -> actionableOutsideTravel(topic, fromDate, inputs))
                 .toList());
     }
 
@@ -95,13 +111,13 @@ public class HotTopicAggregator {
      * day today still reaches tomorrow's sunrise card when tomorrow is not one. Dates already behind
      * {@code fromDate} are not consulted (nothing can be acted on there); an undated topic is kept.
      */
-    private boolean actionableOutsideTravel(HotTopic topic, LocalDate fromDate) {
+    private boolean actionableOutsideTravel(HotTopic topic, LocalDate fromDate, HotTopicInputs inputs) {
         List<LocalDate> covered = topic.coveredDates();
         if (covered.isEmpty()) {
             return true;
         }
         List<LocalDate> ahead = covered.stream().filter(d -> !d.isBefore(fromDate)).toList();
         List<LocalDate> actionable = ahead.isEmpty() ? covered : ahead;
-        return actionable.stream().anyMatch(d -> !travelDayService.isTravelDay(d));
+        return actionable.stream().anyMatch(d -> !inputs.isTravelDay(d));
     }
 }

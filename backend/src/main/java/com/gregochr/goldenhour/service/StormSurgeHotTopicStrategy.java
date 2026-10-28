@@ -76,7 +76,14 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<SlotSignals> highRisk = slotSignalReader.read(fromDate, toDate).stream()
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofSlotSignals(() -> slotSignalReader.read(fromDate, toDate)));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
+        List<SlotSignals> highRisk = inputs.slotSignals().stream()
                 .filter(s -> EVENTS.contains(s.eventType()))
                 .filter(s -> HIGH_RISK.equals(s.readings().surgeRiskLevel()))
                 .sorted(Comparator.comparing(SlotSignals::date))

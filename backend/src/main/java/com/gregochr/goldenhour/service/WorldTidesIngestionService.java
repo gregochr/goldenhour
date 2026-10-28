@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.model.WorldTidesResponse;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import com.gregochr.goldenhour.util.SecretRedactor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -314,14 +315,15 @@ public class WorldTidesIngestionService {
 
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - callStartMs;
-            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            String errorMsg = SecretRedactor.redactKeys(
+                    e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
             if (jobRun != null) {
                 Integer statusCode = getStatusCode(e);
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
                         "GET", "https://" + WORLDTIDES_HOST + "/api/v3", null, durationMs,
                         statusCode, null, false, errorMsg);
             }
-            LOG.warn("Failed to fetch tide extremes for {}: {}", location.getName(), e.getMessage());
+            LOG.warn("Failed to fetch tide extremes for {}: {}", location.getName(), errorMsg);
         }
     }
 
@@ -543,10 +545,10 @@ public class WorldTidesIngestionService {
                     Integer statusCode = getStatusCode(e);
                     jobRunService.logApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
                             "GET", tideUrl, null, durationMs, statusCode, null, false,
-                            e.getMessage());
+                            SecretRedactor.redactKeys(e.getMessage()));
                 }
                 LOG.warn("Backfill failed for {} at {}: {}",
-                        location.getName(), chunkStart, e.getMessage());
+                        location.getName(), chunkStart, SecretRedactor.redactKeys(e.getMessage()));
             }
         }
 

@@ -76,9 +76,39 @@ class ModelsControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/models is ADMIN only: a LITE_USER is refused")
+    void getAvailableModels_liteUser_forbidden() throws Exception {
+        String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
+
+        mockMvc.perform(get("/api/models").header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET /api/models is ADMIN only: a PRO_USER is refused")
+    void getAvailableModels_proUser_forbidden() throws Exception {
+        when(userRepository.findByUsername("pro")).thenReturn(Optional.of(account(3L, "pro", UserRole.PRO_USER)));
+        String token = jwtService.generateAccessToken("pro", UserRole.PRO_USER);
+
+        mockMvc.perform(get("/api/models").header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET /api/models is ADMIN only: an admin gets 200")
+    void getAvailableModels_admin_ok() throws Exception {
+        String token = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
+        when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
+
+        mockMvc.perform(get("/api/models").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     @DisplayName("GET /api/models returns available models and configs, and no optimisation strategies")
     void getAvailableModels_returnsConfigsMap() throws Exception {
-        String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
+        String token = jwtService.generateAccessToken("admin", UserRole.ADMIN);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
         when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
 
@@ -103,7 +133,7 @@ class ModelsControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("GET /api/models returns model versions in available array")
     void getAvailableModels_includesVersions() throws Exception {
-        String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
+        String token = jwtService.generateAccessToken("admin", UserRole.ADMIN);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
         when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
 
@@ -123,7 +153,7 @@ class ModelsControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("GET /api/models carries extendedThinkingConfigs.BRIEFING_BEST_BET=true when set")
     void getAvailableModels_carriesExtendedThinkingTrueForBriefing() throws Exception {
-        String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
+        String token = jwtService.generateAccessToken("admin", UserRole.ADMIN);
         Map<RunType, Boolean> etConfigs = new EnumMap<>(RunType.class);
         for (RunType rt : RunType.values()) {
             etConfigs.put(rt, false);
@@ -144,7 +174,7 @@ class ModelsControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("GET /api/models does not include WILDLIFE in available models")
     void getAvailableModels_excludesWildlife() throws Exception {
-        String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
+        String token = jwtService.generateAccessToken("admin", UserRole.ADMIN);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
         when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
 

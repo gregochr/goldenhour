@@ -117,11 +117,18 @@ public class EclipseHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofEnabled(locationRepository::findAllByEnabledTrueOrderByNameAsc));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
         List<EclipseCatalog.Eclipse> eclipses = EclipseCatalog.between(fromDate, toDate);
         if (eclipses.isEmpty()) {
             return List.of();
         }
-        List<LocationEntity> enabled = locationRepository.findAllByEnabledTrueOrderByNameAsc();
+        List<LocationEntity> enabled = inputs.enabledLocations();
         if (enabled.isEmpty()) {
             return List.of();
         }

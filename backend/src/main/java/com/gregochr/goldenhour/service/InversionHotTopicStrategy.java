@@ -149,7 +149,14 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<SlotSignals> strong = slotSignalReader.read(fromDate, toDate).stream()
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofSlotSignals(() -> slotSignalReader.read(fromDate, toDate)));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
+        List<SlotSignals> strong = inputs.slotSignals().stream()
                 .filter(s -> s.eventType() == TargetType.SUNRISE)
                 .filter(s -> s.effectiveInversionScore() != null
                         && s.effectiveInversionScore() >= STRONG_SCORE_INCLUSIVE)

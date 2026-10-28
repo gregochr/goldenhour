@@ -112,7 +112,14 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<SlotSignals> snowy = slotSignalReader.read(fromDate, toDate).stream()
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofSlotSignals(() -> slotSignalReader.read(fromDate, toDate)));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
+        List<SlotSignals> snowy = inputs.slotSignals().stream()
                 .filter(s -> isFreshSnow(s.readings().snowDepthMetres()))
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
                 .sorted(Comparator.comparing(SlotSignals::date))

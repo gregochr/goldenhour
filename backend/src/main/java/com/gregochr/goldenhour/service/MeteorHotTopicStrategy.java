@@ -110,6 +110,13 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofDarkSky(locationRepository::findByBortleClassIsNotNullAndEnabledTrue));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
         // Candidate years cover a window that may straddle a year boundary (e.g. Dec→Jan).
         Set<Integer> years = new LinkedHashSet<>();
         years.add(fromDate.getYear());
@@ -136,12 +143,12 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
         if (best == null) {
             return List.of();
         }
-        return List.of(buildTopic(best, bestPeak));
+        return List.of(buildTopic(best, bestPeak, inputs));
     }
 
-    private HotTopic buildTopic(Shower shower, LocalDate peak) {
+    private HotTopic buildTopic(Shower shower, LocalDate peak, HotTopicInputs inputs) {
         List<String> darkSkyRegions =
-                locationRepository.findByBortleClassIsNotNullAndEnabledTrue().stream()
+                inputs.darkSkyLocations().stream()
                         .map(LocationEntity::getRegion)
                         .filter(Objects::nonNull)
                         .map(RegionEntity::getName)
