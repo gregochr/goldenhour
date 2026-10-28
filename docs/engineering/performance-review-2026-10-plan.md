@@ -510,6 +510,7 @@ P1 and P2 touch disjoint files and may be built in parallel worktrees; each stil
 | phase | branch | PR | date | before → after |
 |---|---|---|---|---|
 | plan | `claude/app-performance-review-d46a33` | | 2026-10-28 | |
+| P6a | `perf/p6a-indexes` | | 2026-10-28 | five indexes (V196); I5 skipped |
 
 ## 11. What the review changed (draft 1 → draft 2)
 
