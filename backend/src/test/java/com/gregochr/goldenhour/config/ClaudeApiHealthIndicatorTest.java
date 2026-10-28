@@ -9,6 +9,7 @@ import org.springframework.boot.health.contributor.Status;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import com.gregochr.goldenhour.util.RestClientMocks;
 
@@ -45,6 +46,22 @@ class ClaudeApiHealthIndicatorTest {
 
         assertThat(health.getStatus()).isEqualTo(Status.DOWN);
         assertThat(health.getDetails()).containsKey("error");
-        assertThat(health.getDetails().get("error").toString()).contains("Connection refused");
+        assertThat(health.getDetails().get("error")).isEqualTo("ResourceAccessException");
+        assertThat(health.getDetails().toString()).doesNotContain("Connection refused");
+    }
+
+    @Test
+    @DisplayName("Reports the HTTP status, never the message, when the probe gets an error response")
+    void downWithStatusWhenErrorResponse() {
+        RestClient restClient = mock(RestClient.class);
+        RestClientMocks.stubGetBodilessEntityThrows(restClient,
+                new RestClientResponseException("boom?key=SECRETKEY", 503, "Service Unavailable", null, null, null));
+
+        Health health = new ClaudeApiHealthIndicator(restClient, "test-key").health();
+
+        assertThat(health.getStatus()).isEqualTo(Status.DOWN);
+        assertThat(health.getDetails().get("status")).isEqualTo(503);
+        assertThat(health.getDetails().get("error")).isEqualTo("RestClientResponseException");
+        assertThat(health.getDetails().toString()).doesNotContain("SECRETKEY");
     }
 }

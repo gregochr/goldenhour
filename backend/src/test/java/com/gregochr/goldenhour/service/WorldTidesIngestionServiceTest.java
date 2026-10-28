@@ -141,4 +141,46 @@ class WorldTidesIngestionServiceTest {
                 eq(ServiceName.WORLD_TIDES), eq("GET"), anyString(), isNull(), anyLong(), isNull(),
                 isNull(), eq(false), eq("connection reset"));
     }
+
+    @Test
+    @DisplayName("fetchAndStoreTideExtremes() masks the API key in the stored API-call error message")
+    void fetchAndStoreTideExtremes_ioErrorWithKey_keyNotLogged() {
+        when(worldTidesProperties.getApiKey()).thenReturn("SECRETKEY");
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGetThrows(mockClient, WorldTidesResponse.class,
+                new org.springframework.web.client.ResourceAccessException(
+                        "I/O error on GET request for \"https://www.worldtides.info/api/v3"
+                                + "?extremes&lat=1&lon=2&key=SECRETKEY\": timeout"));
+        WorldTidesIngestionService service = new WorldTidesIngestionService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+
+        service.fetchAndStoreTideExtremes(location(), JobRunEntity.builder().id(9L).build());
+
+        org.mockito.ArgumentCaptor<String> msg = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(jobRunService).logApiCall(eq(9L), eq(ServiceName.WORLD_TIDES),
+                eq("GET"), anyString(), isNull(), anyLong(), isNull(), isNull(), eq(false), msg.capture());
+        assertThat(msg.getValue()).doesNotContain("SECRETKEY").contains("key=***");
+    }
+
+    @Test
+    @DisplayName("backfillTideExtremes() masks the API key in the stored API-call error message")
+    void backfillTideExtremes_ioErrorWithKey_keyNotLogged() {
+        when(worldTidesProperties.getApiKey()).thenReturn("SECRETKEY");
+        when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(
+                anyLong(), any(), any())).thenReturn(false);
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGetThrows(mockClient, WorldTidesResponse.class,
+                new org.springframework.web.client.ResourceAccessException(
+                        "I/O error on GET request for \"https://www.worldtides.info/api/v3"
+                                + "?extremes&key=SECRETKEY\": timeout"));
+        WorldTidesIngestionService service = new WorldTidesIngestionService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+
+        service.backfillTideExtremes(location(), JobRunEntity.builder().id(9L).build());
+
+        org.mockito.ArgumentCaptor<String> msg = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(jobRunService, atLeastOnce()).logApiCall(eq(9L), eq(ServiceName.WORLD_TIDES),
+                eq("GET"), anyString(), isNull(), anyLong(), isNull(), isNull(), eq(false), msg.capture());
+        assertThat(msg.getAllValues()).allSatisfy(m -> assertThat(m).doesNotContain("SECRETKEY"));
+    }
 }

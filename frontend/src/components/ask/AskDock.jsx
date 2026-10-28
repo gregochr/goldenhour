@@ -5,8 +5,7 @@ import AskConversation from './AskConversation.jsx';
 import AskInputRow from './AskInputRow.jsx';
 import { planActionsShape, refShape } from './askShapes.js';
 
-/** The dock's id: the one an {@code AskField}'s {@code aria-controls} names while it is open. */
-export const ASK_DOCK_ID = 'wf-ask-dock';
+import { ASK_DOCK_ID } from './askIds.js';
 
 /**
  * Keeps a sticky dock's bottom at the bottom of the viewport.

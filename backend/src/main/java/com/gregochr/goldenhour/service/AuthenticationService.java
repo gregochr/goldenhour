@@ -2,7 +2,9 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.RefreshTokenEntity;
+import com.gregochr.goldenhour.exception.CurrentPasswordMismatchException;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
+import com.gregochr.goldenhour.exception.NewPasswordUnchangedException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.exception.TooManyAttemptsException;
 import com.gregochr.goldenhour.model.AuthTokens;
@@ -53,6 +55,24 @@ public class AuthenticationService {
 
     /** Fallback sign-in attempts admitted per account in a quarter hour. */
     static final int FALLBACK_USER_LIMIT = 5;
+
+    /** Limiter key prefix for the per-account change-password budget. */
+    static final String CHANGE_PASSWORD_USER_KEY_PREFIX = "change-password:user:";
+
+    /** Change-password attempts admitted per account in a quarter hour. */
+    static final int CHANGE_PASSWORD_USER_LIMIT = 5;
+
+    /** The sentence for a change-password request with no current password. */
+    public static final String CURRENT_PASSWORD_REQUIRED = "Current password is required";
+
+    /** The sentence for a current password that does not match. */
+    public static final String CURRENT_PASSWORD_INCORRECT = "Current password is incorrect";
+
+    /** What a neutralised credential's stored value starts with; no BCrypt hash does. */
+    private static final String DISABLED_HASH_PREFIX = "!";
+
+    /** The sentence for a new password equal to the current one. */
+    public static final String NEW_PASSWORD_UNCHANGED = "New password must differ from the current one";
 
     /** The throwaway string whose hash a no-candidate sign-in compares against. */
     private static final String DUMMY_PASSWORD = "not-a-real-password";
@@ -181,6 +201,12 @@ public class AuthenticationService {
                     break;
                 }
                 verifiedButDisabled = true;
+            } else if (isNeverValidHash(candidate.getPassword())) {
+                // A stored value no password can match (a neutralised default credential, "!"-prefixed, or
+                // the empty marker of a pending registration) is refused without BCrypt's cost. Spend that
+                // cost here so this row's response time matches every other row's. A null (impossible in
+                // the NOT NULL column) is left alone.
+                passwordEncoder.matches(password, dummyHash());
             }
         }
 
@@ -239,6 +265,10 @@ public class AuthenticationService {
         return hash;
     }
 
+    private static boolean isNeverValidHash(String storedHash) {
+        return storedHash != null && (storedHash.isEmpty() || storedHash.startsWith(DISABLED_HASH_PREFIX));
+    }
+
     /**
      * Rotates a refresh token: consumes the supplied token atomically and issues a new access
      * + refresh token pair.
@@ -295,28 +325,56 @@ public class AuthenticationService {
     }
 
     /**
-     * Changes the signed-in user's password, ends every other session and returns fresh tokens for the
-     * caller's device.
+     * Changes the signed-in user's password after re-verifying the current one, ends every other session
+     * and returns fresh tokens for the caller's device.
      *
      * <p>Complexity validation is the caller's responsibility via
-     * {@link #validatePasswordComplexity(String)}. Deliberately not transactional: the password is
-     * encoded first, with no connection held, and then ONE transaction on {@link CredentialChangeWriter}
-     * sets it, clears the {@code passwordChangeRequired} flag, bumps the credential version and revokes
-     * every refresh token. The caller's {@code expectation} makes a stale session lose: two requests
-     * authenticated under the same old version can both reach the writer, and a stolen session finishing
-     * its hash after the legitimate change committed must not overwrite the new password.
+     * {@link #validatePasswordComplexity(String)}. The order is: load the user; refuse a missing or blank
+     * current password (before the budget, so a malformed request spends none); ALWAYS take the account's
+     * change-password budget (five per quarter hour, the window login uses) — {@link TurnstileGate} bounds
+     * only the tokenless fallback and the limiter has no failure hook, so the check runs on every
+     * attempt; verify the current password; then encode the new one. Deliberately not transactional: both
+     * BCrypt operations run with no connection held, and then ONE transaction on
+     * {@link CredentialChangeWriter} sets the password, clears the {@code passwordChangeRequired} flag,
+     * bumps the credential version and revokes every refresh token. The caller's {@code expectation} makes
+     * a stale session lose: two requests authenticated under the same old version can both reach the
+     * writer, and a stolen session finishing its hash after the legitimate change committed must not
+     * overwrite the new password.
      *
-     * @param username    the authenticated user's username
-     * @param newPassword the new plain-text password
-     * @param expectation the credential version the caller's session was issued at
+     * @param username        the authenticated user's username
+     * @param currentPassword the plain-text password the user signs in with today
+     * @param newPassword     the new plain-text password
+     * @param expectation     the credential version the caller's session was issued at
      * @return the fresh tokens, so the device that changed the password stays signed in
-     * @throws InvalidCredentialsException if no user with that username exists
-     * @throws StaleCredentialsException   if the account's credentials moved since the caller's token was
-     *                                     issued, or the account is no longer active
+     * @throws InvalidCredentialsException      if no user with that username exists
+     * @throws TooManyAttemptsException         if the account's change-password budget is spent
+     * @throws CurrentPasswordMismatchException if the current password is missing, blank or wrong
+     * @throws NewPasswordUnchangedException    if the new password is the current one
+     * @throws StaleCredentialsException        if the account's credentials moved since the caller's token
+     *                                          was issued, or the account is no longer active
      */
-    public AuthTokens changePassword(String username, String newPassword, VersionExpectation expectation) {
+    public AuthTokens changePassword(String username, String currentPassword, String newPassword,
+            VersionExpectation expectation) {
         AppUserEntity user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new InvalidCredentialsException("User not found"));
+
+        if (currentPassword == null || currentPassword.isBlank()) {
+            throw new CurrentPasswordMismatchException(CURRENT_PASSWORD_REQUIRED);
+        }
+        if (!attemptLimiter.tryAcquire(CHANGE_PASSWORD_USER_KEY_PREFIX + user.getId(),
+                CHANGE_PASSWORD_USER_LIMIT, AuthAttemptLimiter.Window.QUARTER_HOUR)) {
+            LOG.info("Change-password refused: attempt budget spent for user id {}", user.getId());
+            throw new TooManyAttemptsException("Change-password budget spent for the account");
+        }
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            LOG.warn("Change-password refused: wrong current password for user id {}", user.getId());
+            throw new CurrentPasswordMismatchException(CURRENT_PASSWORD_INCORRECT);
+        }
+        // Compared against the stored hash here, after the current password is verified, rather than as
+        // an equality of two request strings.
+        if (passwordEncoder.matches(newPassword, user.getPassword())) {
+            throw new NewPasswordUnchangedException(NEW_PASSWORD_UNCHANGED);
+        }
 
         String encoded = passwordEncoder.encode(newPassword);
         CredentialChangeOutcome outcome = credentialChangeWriter.apply(user.getId(), encoded,
