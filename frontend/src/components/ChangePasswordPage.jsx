@@ -12,6 +12,7 @@ import PasswordChecklist from './auth/PasswordChecklist.jsx';
  */
 export default function ChangePasswordPage() {
   const { changePassword, logout } = useAuth();
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [turnstileToken, setTurnstileToken] = useState('');
@@ -29,12 +30,14 @@ export default function ChangePasswordPage() {
     { label: 'Passwords match', ok: confirmPassword.length > 0 && newPassword === confirmPassword },
   ];
 
-  const allPassed = checks.every((c) => c.ok);
+  // The current password is not part of the new password's checklist: the server verifies it, and the
+  // form only insists that something was typed.
+  const allPassed = checks.every((c) => c.ok) && currentPassword.length > 0;
 
   const [error, submitAction, isPending] = useActionState(async () => {
     if (!allPassed || (!turnstileToken && !turnstileLoadFailed)) return '';
     try {
-      await changePassword(newPassword, turnstileToken);
+      await changePassword(currentPassword, newPassword, turnstileToken);
       return '';
     } catch (err) {
       setTurnstileToken('');
@@ -54,6 +57,24 @@ export default function ChangePasswordPage() {
           <p className="text-xs text-plex-text-secondary mt-1">
             You must set a new password before accessing the app.
           </p>
+          <p className="text-xs text-plex-text-secondary mt-1" data-testid="cp-current-hint">
+            Enter the temporary password you signed in with, then choose a new one.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="cp-current">
+            Current password
+          </label>
+          <PasswordInput
+            id="cp-current"
+            testId="cp-current-password"
+            autoComplete="current-password"
+            eyeLabel="current password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            disabled={isPending}
+          />
         </div>
 
         <div>
@@ -64,6 +85,7 @@ export default function ChangePasswordPage() {
             id="cp-new"
             testId="cp-new-password"
             autoComplete="new-password"
+            eyeLabel="new password"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
             disabled={isPending}
@@ -78,6 +100,7 @@ export default function ChangePasswordPage() {
             id="cp-confirm"
             testId="cp-confirm-password"
             autoComplete="new-password"
+            eyeLabel="password confirmation"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             disabled={isPending}

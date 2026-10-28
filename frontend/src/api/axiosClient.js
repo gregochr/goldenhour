@@ -30,6 +30,8 @@ export const REWIND_HEADER = 'X-Rewind-To';
  * auth calls (login, refresh, logout), which the access token does not authenticate.
  */
 export const SKIP_AUTH_REFRESH = 'skipAuthRefresh';
+/** The `code` of the server's 403 for an account that must still change its password. */
+const PASSWORD_CHANGE_REQUIRED_CODE = 'PASSWORD_CHANGE_REQUIRED';
 /**
  * Internal config field: the access token a retried request must carry. Set from the refresh
  * result so the retry does not depend on the token having been persisted to storage.
@@ -87,6 +89,13 @@ apiClient.interceptors.response.use(
     // token) must never re-enter the refresh path below, or it would await itself and hang
     // every request. Login and logout opt out too: a refresh cannot fix their 401.
     if (original?.[SKIP_AUTH_REFRESH]) {
+      return Promise.reject(error);
+    }
+    // The server holds a flagged account to the change-password page (403 PASSWORD_CHANGE_REQUIRED on
+    // every other /api/ call). Tell AuthContext so a stale client flag is corrected, then reject as
+    // usual. Raised here, before any API module swallows its own 403.
+    if (error.response?.status === 403 && error.response?.data?.code === PASSWORD_CHANGE_REQUIRED_CODE) {
+      window.dispatchEvent(new Event('goldenhour:password-change-required'));
       return Promise.reject(error);
     }
     const storedRefresh = localStorage.getItem(REFRESH_KEY);

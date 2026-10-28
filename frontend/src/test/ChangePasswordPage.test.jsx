@@ -30,9 +30,10 @@ describe('ChangePasswordPage', () => {
     delete window.turnstile;
   });
 
-  it('renders the change password form with new and confirm password fields', () => {
+  it('renders the change password form with current, new and confirm password fields', () => {
     renderWithAuth(<ChangePasswordPage />);
     expect(screen.getByText(/change your password/i)).toBeInTheDocument();
+    expect(screen.getByTestId('cp-current-password')).toBeInTheDocument();
     expect(screen.getByTestId('cp-new-password')).toBeInTheDocument();
     expect(screen.getByTestId('cp-confirm-password')).toBeInTheDocument();
   });
@@ -55,6 +56,32 @@ describe('ChangePasswordPage', () => {
       .toHaveClass('text-plex-text-secondary');
   });
 
+  it('asks for the current password above the new one, with the temporary-password copy', () => {
+    renderWithAuth(<ChangePasswordPage />);
+    const current = screen.getByLabelText('Current password');
+
+    expect(current).toBe(screen.getByTestId('cp-current-password'));
+    expect(current).toHaveAttribute('id', 'cp-current');
+    expect(current).toHaveAttribute('autocomplete', 'current-password');
+    expect(screen.getByTestId('cp-new-password')).toHaveAttribute('autocomplete', 'new-password');
+    expect(screen.getByTestId('cp-confirm-password')).toHaveAttribute('autocomplete', 'new-password');
+    expect(screen.getByTestId('cp-current-hint')).toHaveTextContent(
+      'Enter the temporary password you signed in with, then choose a new one.',
+    );
+    const order = [...document.querySelectorAll('input')].map((i) => i.dataset.testid);
+    expect(order).toEqual(['cp-current-password', 'cp-new-password', 'cp-confirm-password']);
+  });
+
+  it('keeps the current password out of the checklist: six items, all still unmet when only it is typed', () => {
+    renderWithAuth(<ChangePasswordPage />);
+
+    fireEvent.change(screen.getByTestId('cp-current-password'), { target: { value: 'Temp-Pass1!' } });
+
+    const items = [...screen.getByTestId('cp-checklist').querySelectorAll('li')];
+    expect(items).toHaveLength(6);
+    expect(items.map((li) => li.textContent.charAt(0))).toEqual(['○', '○', '○', '○', '○', '○']);
+  });
+
   it('uses the shared checklist: ○ for unmet, ✓ in plex-ok for met, live as the user types', () => {
     renderWithAuth(<ChangePasswordPage />);
     const items = () => [...screen.getByTestId('cp-checklist').querySelectorAll('li')];
@@ -68,14 +95,17 @@ describe('ChangePasswordPage', () => {
     items().forEach((li) => expect(li).toHaveClass('text-plex-ok'));
   });
 
-  it('gives each password field its own show/hide eye and the .field class', () => {
+  it('gives each password field its own, distinctly named show/hide eye and the .field class', () => {
     renderWithAuth(<ChangePasswordPage />);
-    const [first] = screen.getAllByRole('button', { name: 'Show password' });
+    expect(screen.getByRole('button', { name: 'Show current password' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show password confirmation' })).toBeInTheDocument();
 
-    fireEvent.click(first);
+    fireEvent.click(screen.getByRole('button', { name: 'Show new password' }));
 
     expect(screen.getByTestId('cp-new-password')).toHaveAttribute('type', 'text');
     expect(screen.getByTestId('cp-confirm-password')).toHaveAttribute('type', 'password');
+    expect(screen.getByTestId('cp-current-password')).toHaveAttribute('type', 'password');
+    expect(screen.getByTestId('cp-current-password')).toHaveClass('field');
     expect(screen.getByTestId('cp-new-password')).toHaveClass('field');
     expect(screen.getByTestId('cp-confirm-password')).toHaveClass('field');
   });
@@ -83,6 +113,7 @@ describe('ChangePasswordPage', () => {
   it('shows a failed change in the error token', async () => {
     vi.spyOn(AuthApi, 'changePassword').mockRejectedValue({ response: { data: { error: 'Too weak' } } });
     renderWithAuth(<ChangePasswordPage />);
+    fireEvent.change(screen.getByTestId('cp-current-password'), { target: { value: 'Temp-Pass1!' } });
     fireEvent.change(screen.getByTestId('cp-new-password'), { target: { value: 'Abcdef1!' } });
     fireEvent.change(screen.getByTestId('cp-confirm-password'), { target: { value: 'Abcdef1!' } });
 
@@ -120,14 +151,21 @@ describe('ChangePasswordPage', () => {
       target: { value: 'Complex123!' },
     });
 
+    // The new password alone is not enough: the current one must be typed too
+    expect(submitButton).toBeDisabled();
+    fireEvent.change(screen.getByTestId('cp-current-password'), { target: { value: 'Temp-Pass1!' } });
+
     // Should be enabled once all requirements met and confirmation matches
     expect(submitButton).not.toBeDisabled();
   });
 
-  it('calls changePassword API with turnstile token when form is submitted', async () => {
+  it('calls changePassword API with current, new and turnstile token when form is submitted', async () => {
     vi.spyOn(AuthApi, 'changePassword').mockResolvedValue({});
     renderWithAuth(<ChangePasswordPage />);
 
+    fireEvent.change(screen.getByTestId('cp-current-password'), {
+      target: { value: 'Temp-Pass1!' },
+    });
     fireEvent.change(screen.getByTestId('cp-new-password'), {
       target: { value: 'NewPass123!' },
     });
@@ -138,8 +176,26 @@ describe('ChangePasswordPage', () => {
     fireEvent.click(screen.getByTestId('cp-submit'));
 
     await waitFor(() => {
-      expect(AuthApi.changePassword).toHaveBeenCalledWith('NewPass123!', 'test-turnstile-token');
+      // The two password values are not swapped: current first, new second.
+      expect(AuthApi.changePassword).toHaveBeenCalledWith('Temp-Pass1!', 'NewPass123!', 'test-turnstile-token');
     });
+  });
+
+  it('shows a wrong-current-password 400 by its error text after exactly one POST', async () => {
+    vi.spyOn(AuthApi, 'changePassword').mockRejectedValue({
+      response: { status: 400, data: { error: 'Current password is incorrect' } },
+    });
+    renderWithAuth(<ChangePasswordPage />);
+    fireEvent.change(screen.getByTestId('cp-current-password'), { target: { value: 'Wrong-Pass1!' } });
+    fireEvent.change(screen.getByTestId('cp-new-password'), { target: { value: 'NewPass123!' } });
+    fireEvent.change(screen.getByTestId('cp-confirm-password'), { target: { value: 'NewPass123!' } });
+
+    fireEvent.click(screen.getByTestId('cp-submit'));
+
+    const alert = await screen.findByTestId('cp-error');
+    expect(alert).toHaveTextContent('Current password is incorrect');
+    expect(AuthApi.changePassword).toHaveBeenCalledTimes(1);
+    expect(AuthApi.changePassword).toHaveBeenCalledWith('Wrong-Pass1!', 'NewPass123!', 'test-turnstile-token');
   });
 
   it('shows error message on API failure', async () => {
@@ -148,6 +204,9 @@ describe('ChangePasswordPage', () => {
     });
     renderWithAuth(<ChangePasswordPage />);
 
+    fireEvent.change(screen.getByTestId('cp-current-password'), {
+      target: { value: 'Temp-Pass1!' },
+    });
     fireEvent.change(screen.getByTestId('cp-new-password'), {
       target: { value: 'NewPass123!' },
     });
@@ -204,6 +263,7 @@ describe('ChangePasswordPage Turnstile fallback', () => {
   });
 
   const fillValidPasswords = () => {
+    fireEvent.change(screen.getByTestId('cp-current-password'), { target: { value: 'Temp-Pass1!' } });
     fireEvent.change(screen.getByTestId('cp-new-password'), { target: { value: 'NewPass123!' } });
     fireEvent.change(screen.getByTestId('cp-confirm-password'), { target: { value: 'NewPass123!' } });
   };
@@ -246,7 +306,7 @@ describe('ChangePasswordPage Turnstile fallback', () => {
     fireEvent.click(screen.getByTestId('cp-submit'));
 
     await waitFor(() => expect(AuthApi.changePassword).toHaveBeenCalledTimes(1));
-    expect(AuthApi.changePassword).toHaveBeenCalledWith('NewPass123!', '');
+    expect(AuthApi.changePassword).toHaveBeenCalledWith('Temp-Pass1!', 'NewPass123!', '');
   });
 
   it("renders the server's 429 sentence in the error slot and keeps the form usable", async () => {

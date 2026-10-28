@@ -41,12 +41,17 @@ export async function logout(refreshToken) {
  * Changes the authenticated user's password and clears the first-login flag.
  * Requires a valid access token (attached automatically by the apiClient interceptor).
  *
+ * The server re-verifies the current password: a wrong or missing one is a 400, and the per-account
+ * attempt budget being spent is a 429.
+ *
+ * @param {string} currentPassword - The password the reader signs in with today (the temporary one, on first login).
  * @param {string} newPassword - The new plain-text password.
  * @param {string} turnstileToken - Cloudflare Turnstile verification token.
  * @returns {Promise<{message: string}>}
  */
-export async function changePassword(newPassword, turnstileToken) {
-  const response = await apiClient.post(`${BASE_URL}/change-password`, { newPassword, turnstileToken });
+export async function changePassword(currentPassword, newPassword, turnstileToken) {
+  const response = await apiClient.post(`${BASE_URL}/change-password`,
+    { currentPassword, newPassword, turnstileToken });
   return response.data;
 }
 

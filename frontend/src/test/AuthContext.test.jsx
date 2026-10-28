@@ -53,7 +53,7 @@ function SessionActions({ data }) {
       <button data-testid="sign-in" onClick={() => signInWithTokens(data)}>sign in</button>
       <button data-testid="complete" onClick={() => completeRegistration(data)}>complete</button>
       <button data-testid="finish" onClick={finishRegistration}>finish</button>
-      <button data-testid="change" onClick={() => changePassword('New1!pass', 'ts').catch(() => {})}>change</button>
+      <button data-testid="change" onClick={() => changePassword('Old1!pass', 'New1!pass', 'ts').catch(() => {})}>change</button>
       <button data-testid="logout" onClick={logout}>logout</button>
     </div>
   );
@@ -101,6 +101,30 @@ describe('AuthContext', () => {
     expect(screen.getByTestId('token')).toHaveTextContent('null');
     expect(screen.getByTestId('role')).toHaveTextContent('null');
     expect(screen.getByTestId('username')).toHaveTextContent('null');
+  });
+
+  describe('password-change-required event', () => {
+    it('stores the first-login flag and routes to the change-password gate when the server enforces it', () => {
+      localStorage.setItem(TOKEN_KEY, 'test-jwt');
+      localStorage.setItem(ROLE_KEY, 'PRO_USER');
+      localStorage.setItem(MUST_CHANGE_KEY, 'false');
+
+      render(
+        <AuthProvider>
+          <AuthStateDisplay />
+        </AuthProvider>
+      );
+      expect(screen.getByTestId('must-change')).toHaveTextContent('false');
+
+      act(() => {
+        window.dispatchEvent(new Event('goldenhour:password-change-required'));
+      });
+
+      expect(screen.getByTestId('must-change')).toHaveTextContent('true');
+      expect(localStorage.getItem(MUST_CHANGE_KEY)).toBe('true');
+      // It corrects the flag only: the session itself is untouched.
+      expect(screen.getByTestId('token')).toHaveTextContent('test-jwt');
+    });
   });
 
   describe('session-expired event', () => {
@@ -472,7 +496,7 @@ describe('AuthContext', () => {
 
       await act(async () => { fireEvent.click(screen.getByTestId('change')); });
 
-      expect(AuthApi.changePassword).toHaveBeenCalledWith('New1!pass', 'ts');
+      expect(AuthApi.changePassword).toHaveBeenCalledWith('Old1!pass', 'New1!pass', 'ts');
       expect(screen.getByTestId('must-change')).toHaveTextContent('false');
       expect(localStorage.getItem(MUST_CHANGE_KEY)).toBeNull();
       expect(localStorage.getItem(TOKEN_KEY)).toBe('old-access');

@@ -316,7 +316,20 @@ class JwtAuthenticationFilterTest {
             assertThat(authentication.getName()).isEqualTo("alice");
             assertThat(authentication.getAuthorities()).extracting(Object::toString)
                     .containsExactly("ROLE_PRO_USER");
-            assertThat(authentication.getDetails()).isEqualTo(new JwtAuthenticationDetails(4L));
+            assertThat(authentication.getDetails()).isEqualTo(new JwtAuthenticationDetails(4L, false));
+        }
+
+        @Test
+        @DisplayName("the details carry the loaded row's passwordChangeRequired flag")
+        void accepted_carriesThePasswordChangeRequiredFlagFromTheRow() throws Exception {
+            AppUserEntity flagged = row(9L, UserRole.PRO_USER, 4L);
+            flagged.setPasswordChangeRequired(true);
+            when(repository.findByUsername("alice")).thenReturn(Optional.of(flagged));
+
+            run(jwtService.generateAccessToken("alice", UserRole.PRO_USER, 9L, 4L));
+
+            assertThat(SecurityContextHolder.getContext().getAuthentication().getDetails())
+                    .isEqualTo(new JwtAuthenticationDetails(4L, true));
         }
 
         @Test
@@ -327,7 +340,7 @@ class JwtAuthenticationFilterTest {
             run(jwtService.generateAccessToken("alice", UserRole.LITE_USER));
 
             assertThat(SecurityContextHolder.getContext().getAuthentication().getDetails())
-                    .isEqualTo(new JwtAuthenticationDetails(null));
+                    .isEqualTo(new JwtAuthenticationDetails(null, false));
         }
 
         @Test
