@@ -6,7 +6,10 @@ import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
 import java.time.Duration;
 
 /**
@@ -60,10 +63,18 @@ public class TideCheckHealthIndicator implements HealthIndicator {
                     .build();
         }
 
-        String url = BASE_URL + "?extremes&lat=0&lon=0&length=1&key=" + apiKey;
+        URI uri = UriComponentsBuilder.fromUriString(BASE_URL)
+                .queryParam("extremes")
+                .queryParam("lat", 0)
+                .queryParam("lon", 0)
+                .queryParam("length", 1)
+                .queryParam("key", apiKey)
+                .build()
+                .encode()
+                .toUri();
         long start = System.currentTimeMillis();
         try {
-            restClient.get().uri(url).retrieve().toBodilessEntity();
+            restClient.get().uri(uri).retrieve().toBodilessEntity();
             long latency = System.currentTimeMillis() - start;
             return Health.up()
                     .withDetail("latencyMs", latency)
@@ -71,10 +82,14 @@ public class TideCheckHealthIndicator implements HealthIndicator {
         } catch (Exception ex) {
             long latency = System.currentTimeMillis() - start;
             LOG.debug("WorldTides health probe failed in {}ms", latency, ex);
-            return Health.down()
+            // Never the message: Spring's I/O errors quote the full request URL, key included.
+            Health.Builder down = Health.down()
                     .withDetail("latencyMs", latency)
-                    .withDetail("error", ex.getMessage())
-                    .build();
+                    .withDetail("error", ex.getClass().getSimpleName());
+            if (ex instanceof RestClientResponseException responseEx) {
+                down.withDetail("status", responseEx.getStatusCode().value());
+            }
+            return down.build();
         }
     }
 }
