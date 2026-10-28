@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
-import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -12,11 +11,9 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.RestClientResponseException;
 
-import java.util.List;
 import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -39,22 +36,21 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @BeforeEach
     void setUp() {
         when(turnstileService.verify(any())).thenReturn(true);
-        // POST /api/forecast/run is only the vehicle for the exceptions below, and it refuses to
-        // start a run with no sky location to offer, so give it one (untyped = a sky subject).
-        when(locationService.findAllEnabled()).thenReturn(List.of(
-                LocationEntity.builder().id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build()));
     }
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("RestClientResponseException is mapped to 502 Bad Gateway")
     void handleUpstreamError_returns502() throws Exception {
-        when(commandFactory.create(any(), anyBoolean(), any(), any(), any()))
+        // GET /api/forecast/compare is only the vehicle: it resolves the location before anything else.
+        when(locationService.findByName("Durham UK"))
                 .thenThrow(new RestClientResponseException(
                         "Service Unavailable", 503, "Service Unavailable",
                         null, null, null));
 
-        mockMvc.perform(post("/api/forecast/run"))
+        mockMvc.perform(get("/api/forecast/compare")
+                        .param("location", "Durham UK").param("date", "2026-10-14")
+                        .param("targetType", "SUNRISE"))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error").exists());
     }
@@ -77,10 +73,12 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("NoSuchElementException is mapped to 404 Not Found")
     void handleNotFound_returns404() throws Exception {
-        when(commandFactory.create(any(), anyBoolean(), any(), any(), any()))
+        when(locationService.findByName("Durham UK"))
                 .thenThrow(new NoSuchElementException("Location not found"));
 
-        mockMvc.perform(post("/api/forecast/run"))
+        mockMvc.perform(get("/api/forecast/compare")
+                        .param("location", "Durham UK").param("date", "2026-10-14")
+                        .param("targetType", "SUNRISE"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("Location not found"));
     }
@@ -89,10 +87,12 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("IllegalArgumentException is mapped to 400 Bad Request")
     void handleBadRequest_returns400() throws Exception {
-        when(commandFactory.create(any(), anyBoolean(), any(), any(), any()))
+        when(locationService.findByName("Durham UK"))
                 .thenThrow(new IllegalArgumentException("Invalid location coordinates"));
 
-        mockMvc.perform(post("/api/forecast/run"))
+        mockMvc.perform(get("/api/forecast/compare")
+                        .param("location", "Durham UK").param("date", "2026-10-14")
+                        .param("targetType", "SUNRISE"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Invalid location coordinates"));
     }
@@ -118,9 +118,28 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("Unreadable request body is mapped to 400 with a fixed message that echoes nothing")
     void handleUnreadableBody_returns400() throws Exception {
-        mockMvc.perform(put("/api/models/optimisation")
+        // A truncated body: the JSON never closes, so it cannot be read, and it carries the probe.
+        mockMvc.perform(put("/api/models/active")
                         .contentType("application/json")
-                        .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"ZZ_ECHO_PROBE\"}"))
+                        .content("{\"runType\":\"BRIEFING_BEST_BET\",\"model\":\"ZZ_ECHO_PROBE\""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Request body could not be read"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("ZZ_ECHO_PROBE"))));
+    }
+
+    /**
+     * The stale-client case: well-formed JSON whose enum value the server no longer recognises. It must
+     * be a 400, and must not echo the caller-supplied value.
+     */
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("An unknown enum value in a well-formed body is mapped to 400 and not echoed")
+    void handleUnknownEnumValue_returns400WithoutEchoing() throws Exception {
+        mockMvc.perform(put("/api/outcome/ratings")
+                        .contentType("application/json")
+                        .content("{\"locationId\":1,\"eventDate\":\"2026-10-14\","
+                                + "\"eventType\":\"ZZ_ECHO_PROBE\",\"rating\":3}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Request body could not be read"))
                 .andExpect(content().string(org.hamcrest.Matchers.not(
@@ -128,13 +147,24 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("A path nothing is mapped to is a 404, not a 500")
+    @WithMockUser(roles = {"ADMIN"})
+    void handleNoResource_returns404() throws Exception {
+        mockMvc.perform(post("/api/forecast/run/very-short-term"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Not found"));
+    }
+
+    @Test
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("Unexpected RuntimeException is mapped to 500 Internal Server Error")
     void handleUnexpected_returns500() throws Exception {
-        when(commandFactory.create(any(), anyBoolean(), any(), any(), any()))
+        when(locationService.findByName("Durham UK"))
                 .thenThrow(new RuntimeException("Unexpected failure"));
 
-        mockMvc.perform(post("/api/forecast/run"))
+        mockMvc.perform(get("/api/forecast/compare")
+                        .param("location", "Durham UK").param("date", "2026-10-14")
+                        .param("targetType", "SUNRISE"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error").exists());
     }

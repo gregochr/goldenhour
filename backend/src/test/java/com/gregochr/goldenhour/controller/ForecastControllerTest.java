@@ -8,8 +8,6 @@ import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.model.ForecastListDto;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.JobRunEntity;
-import com.gregochr.goldenhour.service.FailedSlotRetryService;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,11 +15,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -47,7 +45,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -65,13 +62,12 @@ class ForecastControllerTest extends AbstractControllerTest {
     /**
      * A synchronous stand-in for the application's real, asynchronous {@code forecastExecutor}.
      *
-     * <p>The controller starts every run with {@code CompletableFuture.runAsync(..., forecastExecutor)}.
-     * With the real virtual-thread executor, a run started by one test could execute inside the
-     * NEXT test (the lambda reaching the mocked {@code ForecastCommandExecutor} after that test's
-     * mocks had been reset), which is how a {@code verify(..., never()).execute(...)} in a later test
-     * once failed in CI. Running every started run inline, on the request thread, makes it finish
-     * within its own test. The bean keeps its name, so the controller and the tide-refresh tests
-     * (which pass this same instance to {@code startTideRefresh}) still see "the forecast executor".
+     * <p>The controller starts the tide backfill with {@code CompletableFuture.runAsync(...,
+     * forecastExecutor)}. With the real virtual-thread executor, work started by one test could
+     * execute inside the NEXT test, after that test's mocks had been reset. Running it inline, on the
+     * request thread, makes it finish within its own test. The bean keeps its name, so the controller
+     * and the tide-refresh tests (which pass this same instance to {@code startTideRefresh}) still see
+     * "the forecast executor".
      */
     @MockitoBean(name = "forecastExecutor")
     private Executor forecastExecutor;
@@ -83,22 +79,10 @@ class ForecastControllerTest extends AbstractControllerTest {
     void setUp() {
         when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM));
         when(locationService.findByName(eq("Durham UK"))).thenReturn(DURHAM);
-        when(commandFactory.create(any(), any(boolean.class)))
-                .thenReturn(new com.gregochr.goldenhour.service.ForecastCommand(
-                        com.gregochr.goldenhour.entity.RunType.SHORT_TERM,
-                        List.of(), null, null, true));
-        when(commandFactory.create(any(), any(boolean.class), any(), any()))
-                .thenReturn(new com.gregochr.goldenhour.service.ForecastCommand(
-                        com.gregochr.goldenhour.entity.RunType.SHORT_TERM,
-                        List.of(), null, null, true));
         doAnswer(invocation -> {
             ((Runnable) invocation.getArgument(0)).run();
             return null;
         }).when(forecastExecutor).execute(any(Runnable.class));
-        JobRunEntity stubJobRun = new JobRunEntity();
-        stubJobRun.setId(1L);
-        when(jobRunService.startRun(any(), any(boolean.class), any(), any()))
-                .thenReturn(stubJobRun);
     }
 
     @Test
@@ -546,58 +530,6 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.error").exists());
     }
 
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run as ADMIN returns 202 Accepted")
-    void runForecast_asAdmin_noBody_returns202() throws Exception {
-        com.gregochr.goldenhour.service.ForecastCommand command =
-                new com.gregochr.goldenhour.service.ForecastCommand(
-                        com.gregochr.goldenhour.entity.RunType.SHORT_TERM,
-                        List.of(), null, null, true);
-        when(commandFactory.create(eq(com.gregochr.goldenhour.entity.RunType.SHORT_TERM),
-                eq(true), eq(List.of(DURHAM)), any(), eq(java.util.Set.of())))
-                .thenReturn(command);
-
-        mockMvc.perform(post("/api/forecast/run"))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("Forecast run started"))
-                .andExpect(jsonPath("$.runType").value("SHORT_TERM"));
-
-        // The run executes inline now, so the started run is asserted rather than assumed.
-        ArgumentCaptor<JobRunEntity> jobRun = ArgumentCaptor.forClass(JobRunEntity.class);
-        verify(forecastCommandExecutor).execute(eq(command), jobRun.capture());
-        assertThat(jobRun.getValue().getId()).isEqualTo(1L);
-    }
-
-    @Test
-    @WithMockUser(roles = {"PRO_USER"})
-    @DisplayName("POST /api/forecast/run as non-admin returns 403")
-    void runForecast_asNonAdmin_returns403() throws Exception {
-        mockMvc.perform(post("/api/forecast/run"))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run returns 400 when the specified location is not configured")
-    void runForecast_unknownLocation_returns400() throws Exception {
-        mockMvc.perform(post("/api/forecast/run")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"location\":\"Unknown City\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").exists());
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run with multiple dates returns 202 Accepted")
-    void runForecast_multipleDates_returns202() throws Exception {
-        mockMvc.perform(post("/api/forecast/run")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"dates\":[\"2026-03-01\",\"2026-03-02\"]}"))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("Forecast run started"));
-    }
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
@@ -711,59 +643,6 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .andExpect(status().isForbidden());
     }
 
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/very-short-term as ADMIN returns 202 Accepted")
-    void runVeryShortTermForecast_asAdmin_returns202() throws Exception {
-        mockMvc.perform(post("/api/forecast/run/very-short-term"))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("Forecast run started"))
-                .andExpect(jsonPath("$.runType").value("VERY_SHORT_TERM"));
-    }
-
-    @Test
-    @WithMockUser(roles = {"PRO_USER"})
-    @DisplayName("POST /api/forecast/run/very-short-term as non-admin returns 403")
-    void runVeryShortTermForecast_asNonAdmin_returns403() throws Exception {
-        mockMvc.perform(post("/api/forecast/run/very-short-term"))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/short-term as ADMIN returns 202 Accepted")
-    void runShortTermForecast_asAdmin_returns202() throws Exception {
-        mockMvc.perform(post("/api/forecast/run/short-term"))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("Forecast run started"))
-                .andExpect(jsonPath("$.runType").value("SHORT_TERM"));
-    }
-
-    @Test
-    @WithMockUser(roles = {"PRO_USER"})
-    @DisplayName("POST /api/forecast/run/short-term as non-admin returns 403")
-    void runShortTermForecast_asNonAdmin_returns403() throws Exception {
-        mockMvc.perform(post("/api/forecast/run/short-term"))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/long-term as ADMIN returns 202 Accepted")
-    void runLongTermForecast_asAdmin_returns202() throws Exception {
-        mockMvc.perform(post("/api/forecast/run/long-term"))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("Forecast run started"))
-                .andExpect(jsonPath("$.runType").value("LONG_TERM"));
-    }
-
-    @Test
-    @WithMockUser(roles = {"PRO_USER"})
-    @DisplayName("POST /api/forecast/run/long-term as non-admin returns 403")
-    void runLongTermForecast_asNonAdmin_returns403() throws Exception {
-        mockMvc.perform(post("/api/forecast/run/long-term"))
-                .andExpect(status().isForbidden());
-    }
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
@@ -811,26 +690,21 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .findByLocationIdInAndTargetDateBetween(any(), any(LocalDate.class), any(LocalDate.class));
     }
 
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run with maxDays returns 202 Accepted")
-    void runForecast_withMaxDays_returns202() throws Exception {
-        mockMvc.perform(post("/api/forecast/run")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"dates\":[\"2026-03-01\",\"2026-03-02\",\"2026-03-03\"]}")
-                        .param("maxDays", "1"))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("Forecast run started"));
-    }
 
-    @Test
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "/api/forecast/run",
+            "/api/forecast/run/very-short-term",
+            "/api/forecast/run/short-term",
+            "/api/forecast/run/long-term",
+            "/api/forecast/run/1/retry-failed"})
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run with maxLocations returns 202 Accepted")
-    void runForecast_withMaxLocations_returns202() throws Exception {
-        mockMvc.perform(post("/api/forecast/run")
-                        .param("maxLocations", "1"))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("Forecast run started"));
+    @DisplayName("the retired manual-run endpoints are no longer mapped, even for an ADMIN")
+    void retiredManualRunEndpoints_areNotMapped(String path) throws Exception {
+        mockMvc.perform(post(path))
+                .andExpect(status().isNotFound())
+                .andExpect(result -> assertThat(result.getResolvedException())
+                        .isInstanceOf(NoResourceFoundException.class));
     }
 
     @Test
@@ -992,8 +866,7 @@ class ForecastControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/forecast").param("date", ukToday().minusDays(1).toString()))
                 .andExpect(status().isOk());
 
-        verifyNoInteractions(commandFactory, forecastCommandExecutor, scheduledForecastService,
-                jobRunService, forceSubmitBatchService, scheduledBatchEvaluationService, failedSlotRetryService);
+        verifyNoInteractions(scheduledForecastService, forceSubmitBatchService, scheduledBatchEvaluationService);
     }
 
     @Test
@@ -1003,81 +876,6 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 404 with no body when there is nothing to retry")
-    void retryFailed_nothingToRetry_returns404() throws Exception {
-        when(failedSlotRetryService.retry(99L)).thenReturn(new FailedSlotRetryService.NothingToRetry());
-
-        mockMvc.perform(post("/api/forecast/run/99/retry-failed"))
-                .andExpect(status().isNotFound())
-                .andExpect(content().string(""));
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 202 with the new run, the original run "
-            + "type, how many slots it was given and which failed slots were left out")
-    void retryFailed_started_returns202WithSlotsAndSkipped() throws Exception {
-        when(failedSlotRetryService.retry(1L)).thenReturn(new FailedSlotRetryService.Started(
-                8L, com.gregochr.goldenhour.entity.RunType.VERY_SHORT_TERM, 2,
-                List.of(new FailedSlotRetryService.SkippedSlot("Bamburgh", "2026-10-04", "SUNRISE",
-                        "The place is disabled or no longer exists."))));
-
-        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("Retry run started"))
-                .andExpect(jsonPath("$.runType").value("VERY_SHORT_TERM"))
-                .andExpect(jsonPath("$.jobRunId").value(8))
-                .andExpect(jsonPath("$.slots").value(2))
-                .andExpect(jsonPath("$.skipped[0].locationName").value("Bamburgh"))
-                .andExpect(jsonPath("$.skipped[0].date").value("2026-10-04"))
-                .andExpect(jsonPath("$.skipped[0].targetType").value("SUNRISE"))
-                .andExpect(jsonPath("$.skipped[0].reason").value("The place is disabled or no longer exists."));
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 409 with a plain {error} sentence "
-            + "when the run's failures cannot be retried")
-    void retryFailed_refused_returns409WithError() throws Exception {
-        when(failedSlotRetryService.retry(1L)).thenReturn(new FailedSlotRetryService.Refused(
-                "Light-pollution failures are retried by pressing Refresh Light Pollution again."));
-
-        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error")
-                        .value("Light-pollution failures are retried by pressing Refresh Light Pollution again."));
-    }
-
-    @Test
-    @WithMockUser(roles = {"LITE_USER"})
-    @DisplayName("POST /api/forecast/run/{runId}/retry-failed is forbidden for LITE_USER and starts nothing")
-    void retryFailed_liteUser_returns403() throws Exception {
-        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
-                .andExpect(status().isForbidden());
-
-        verify(failedSlotRetryService, never()).retry(anyLong());
-    }
-
-    @Test
-    @WithMockUser(roles = {"PRO_USER"})
-    @DisplayName("POST /api/forecast/run/{runId}/retry-failed is forbidden for PRO_USER and starts nothing")
-    void retryFailed_proUser_returns403() throws Exception {
-        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
-                .andExpect(status().isForbidden());
-
-        verify(failedSlotRetryService, never()).retry(anyLong());
-    }
-
-    @Test
-    @DisplayName("POST /api/forecast/run/{runId}/retry-failed is rejected for an anonymous caller and starts nothing")
-    void retryFailed_anonymous_isRejected() throws Exception {
-        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
-                .andExpect(status().isUnauthorized());
-
-        verify(failedSlotRetryService, never()).retry(anyLong());
-    }
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
@@ -1099,16 +897,6 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk());
     }
 
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run with a known location name returns 202 Accepted")
-    void runForecast_knownLocation_returns202() throws Exception {
-        mockMvc.perform(post("/api/forecast/run")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"location\":\"Durham UK\"}"))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("Forecast run started"));
-    }
 
     private static LocationEntity hide() {
         return LocationEntity.builder().id(2L).name("Reserve Hide").lat(55.1).lon(-1.6)
@@ -1128,132 +916,6 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .build();
     }
 
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run naming a wildlife-only location returns 400 and starts no run")
-    void runForecast_namedWildlifeOnlyLocation_returns400AndStartsNothing() throws Exception {
-        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, hide()));
-
-        mockMvc.perform(post("/api/forecast/run")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"location\":\"Reserve Hide\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value(
-                        "'Reserve Hide' is not a sky location: it has no sunrise or sunset forecast"));
-
-        verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
-        verify(commandFactory, never()).create(any(), anyBoolean(), any(), any(), any());
-        verify(forecastCommandExecutor, never()).execute(any(), any());
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run naming a woodland-only location returns 400 and starts no run")
-    void runForecast_namedWoodlandOnlyLocation_returns400AndStartsNothing() throws Exception {
-        LocationEntity wood = LocationEntity.builder().id(4L).name("Canopy Wood").lat(55.2).lon(-1.9)
-                .locationType(java.util.Set.of(com.gregochr.goldenhour.entity.LocationType.WOODLAND))
-                .build();
-        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, wood));
-
-        mockMvc.perform(post("/api/forecast/run")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"location\":\"Canopy Wood\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value(
-                        "'Canopy Wood' is not a sky location: it has no sunrise or sunset forecast"));
-
-        verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run naming a sky location still starts a run for exactly that place")
-    void runForecast_namedSkyLocation_startsRunForThatPlace() throws Exception {
-        LocationEntity wall = landscape();
-        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, hide(), wall));
-
-        mockMvc.perform(post("/api/forecast/run")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"location\":\"Hadrian's Wall\"}"))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("Forecast run started"));
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<LocationEntity>> locations = ArgumentCaptor.forClass(List.class);
-        verify(commandFactory).create(eq(com.gregochr.goldenhour.entity.RunType.SHORT_TERM), eq(true),
-                locations.capture(), any(), any());
-        assertThat(locations.getValue()).containsExactly(wall);
-        verify(jobRunService, times(1)).startRun(any(), anyBoolean(), any(), any());
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run for all locations offers only the sky ones "
-            + "(the executor filters again as the enforcement point)")
-    void runForecast_allLocations_offersOnlySkyLocations() throws Exception {
-        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, hide()));
-
-        mockMvc.perform(post("/api/forecast/run"))
-                .andExpect(status().isAccepted());
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<LocationEntity>> locations = ArgumentCaptor.forClass(List.class);
-        verify(commandFactory).create(eq(com.gregochr.goldenhour.entity.RunType.SHORT_TERM), eq(true),
-                locations.capture(), any(), any());
-        assertThat(locations.getValue()).containsExactly(DURHAM);
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run maxLocations=2 caps the sky list, not the whole roster")
-    void runForecast_maxLocations_countsOnlySkyLocations() throws Exception {
-        LocationEntity wall = landscape();
-        LocationEntity wood = LocationEntity.builder().id(4L).name("Canopy Wood").lat(55.2).lon(-1.9)
-                .locationType(java.util.Set.of(com.gregochr.goldenhour.entity.LocationType.WOODLAND))
-                .build();
-        // The first two entries are not sky subjects: a cap applied to the whole roster would
-        // hand the command none of the sky places at all.
-        when(locationService.findAllEnabled())
-                .thenReturn(List.of(hide(), wood, DURHAM, wall, landscapeTwo()));
-
-        mockMvc.perform(post("/api/forecast/run").param("maxLocations", "2"))
-                .andExpect(status().isAccepted());
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<LocationEntity>> locations = ArgumentCaptor.forClass(List.class);
-        verify(commandFactory).create(eq(com.gregochr.goldenhour.entity.RunType.SHORT_TERM), eq(true),
-                locations.capture(), any(), any());
-        assertThat(locations.getValue()).containsExactly(DURHAM, wall);
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run for all locations returns 400 and starts no run "
-            + "when no enabled location is a sky subject")
-    void runForecast_noSkyLocationEnabled_returns400AndStartsNothing() throws Exception {
-        when(locationService.findAllEnabled()).thenReturn(List.of(hide()));
-
-        mockMvc.perform(post("/api/forecast/run"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("No enabled sky locations: there is nothing to run"));
-
-        verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
-        verify(commandFactory, never()).create(any(), anyBoolean(), any(), any(), any());
-        verify(forecastCommandExecutor, never()).execute(any(), any());
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run returns 400 and starts no run when no location is enabled at all")
-    void runForecast_noLocationsEnabled_returns400AndStartsNothing() throws Exception {
-        when(locationService.findAllEnabled()).thenReturn(List.of());
-
-        mockMvc.perform(post("/api/forecast/run"))
-                .andExpect(status().isBadRequest());
-
-        verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
-        verify(forecastCommandExecutor, never()).execute(any(), any());
-    }
 
     private ForecastEvaluationEntity buildEntity(LocationEntity location, LocalDate targetDate) {
         return ForecastEvaluationEntity.builder()

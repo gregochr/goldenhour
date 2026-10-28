@@ -2,26 +2,27 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.OptimisationStrategyEntity;
-import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.JwtService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.LocalDateTime;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Tests for {@link ModelsController} — validates per-run-type model selection
- * and optimisation strategy endpoints.
+ * and the absence of the retired optimisation endpoint.
  */
 class ModelsControllerTest extends AbstractControllerTest {
 
@@ -60,11 +61,10 @@ class ModelsControllerTest extends AbstractControllerTest {
 
     private Map<RunType, EvaluationModel> buildDefaultConfigs() {
         Map<RunType, EvaluationModel> configs = new EnumMap<>(RunType.class);
-        configs.put(RunType.VERY_SHORT_TERM, EvaluationModel.HAIKU);
-        configs.put(RunType.SHORT_TERM, EvaluationModel.HAIKU);
-        configs.put(RunType.LONG_TERM, EvaluationModel.HAIKU);
         configs.put(RunType.BRIEFING_BEST_BET, EvaluationModel.HAIKU);
         configs.put(RunType.AURORA_EVALUATION, EvaluationModel.HAIKU);
+        configs.put(RunType.BATCH_NEAR_TERM, EvaluationModel.HAIKU);
+        configs.put(RunType.BATCH_FAR_TERM, EvaluationModel.HAIKU);
         return configs;
     }
 
@@ -77,12 +77,11 @@ class ModelsControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/models returns available models, configs, and optimisation strategies")
+    @DisplayName("GET /api/models returns available models and configs, and no optimisation strategies")
     void getAvailableModels_returnsConfigsMap() throws Exception {
         String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
         when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
-        when(optimisationStrategyService.getAllConfigs()).thenReturn(new EnumMap<>(RunType.class));
 
         mockMvc.perform(get("/api/models")
                 .header("Authorization", "Bearer " + token))
@@ -91,17 +90,15 @@ class ModelsControllerTest extends AbstractControllerTest {
                 .andExpect(content().string(containsString("HAIKU")))
                 .andExpect(content().string(containsString("SONNET")))
                 .andExpect(content().string(containsString("OPUS")))
-                .andExpect(jsonPath("$.configs.VERY_SHORT_TERM").value("HAIKU"))
-                .andExpect(jsonPath("$.configs.SHORT_TERM").value("HAIKU"))
-                .andExpect(jsonPath("$.configs.LONG_TERM").value("HAIKU"))
+                .andExpect(jsonPath("$.configs.BATCH_NEAR_TERM").value("HAIKU"))
+                .andExpect(jsonPath("$.configs.BATCH_FAR_TERM").value("HAIKU"))
                 .andExpect(jsonPath("$.configs.BRIEFING_BEST_BET").value("HAIKU"))
                 .andExpect(jsonPath("$.configs.AURORA_EVALUATION").value("HAIKU"))
                 .andExpect(jsonPath("$.extendedThinkingConfigs.BRIEFING_BEST_BET").value(false))
-                .andExpect(jsonPath("$.optimisationStrategies").exists());
+                .andExpect(jsonPath("$.optimisationStrategies").doesNotExist());
 
         verify(modelSelectionService).getAllConfigs();
         verify(modelSelectionService).getAllExtendedThinkingConfigs();
-        verify(optimisationStrategyService).getAllConfigs();
     }
 
     @Test
@@ -110,7 +107,6 @@ class ModelsControllerTest extends AbstractControllerTest {
         String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
         when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
-        when(optimisationStrategyService.getAllConfigs()).thenReturn(new EnumMap<>(RunType.class));
 
         mockMvc.perform(get("/api/models")
                 .header("Authorization", "Bearer " + token))
@@ -136,7 +132,6 @@ class ModelsControllerTest extends AbstractControllerTest {
         etConfigs.put(RunType.BRIEFING_BEST_BET, true);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
         when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(etConfigs);
-        when(optimisationStrategyService.getAllConfigs()).thenReturn(new EnumMap<>(RunType.class));
 
         mockMvc.perform(get("/api/models")
                 .header("Authorization", "Bearer " + token))
@@ -153,7 +148,6 @@ class ModelsControllerTest extends AbstractControllerTest {
         String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
         when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
-        when(optimisationStrategyService.getAllConfigs()).thenReturn(new EnumMap<>(RunType.class));
 
         String body = mockMvc.perform(get("/api/models")
                 .header("Authorization", "Bearer " + token))
@@ -167,34 +161,64 @@ class ModelsControllerTest extends AbstractControllerTest {
     @DisplayName("PUT /api/models/active with ADMIN role and runType succeeds")
     void setActiveModel_adminUser_withRunType_succeeds() throws Exception {
         String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
-        when(modelSelectionService.setActiveModel(RunType.VERY_SHORT_TERM, EvaluationModel.OPUS))
+        when(modelSelectionService.setActiveModel(RunType.BATCH_FAR_TERM, EvaluationModel.OPUS))
                 .thenReturn(EvaluationModel.OPUS);
 
         mockMvc.perform(put("/api/models/active")
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType("application/json")
-                .content("{\"runType\":\"VERY_SHORT_TERM\",\"model\":\"OPUS\"}"))
+                .content("{\"runType\":\"BATCH_FAR_TERM\",\"model\":\"OPUS\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.runType").value("VERY_SHORT_TERM"))
+                .andExpect(jsonPath("$.runType").value("BATCH_FAR_TERM"))
                 .andExpect(jsonPath("$.active").value("OPUS"));
 
-        verify(modelSelectionService).setActiveModel(RunType.VERY_SHORT_TERM, EvaluationModel.OPUS);
+        verify(modelSelectionService).setActiveModel(RunType.BATCH_FAR_TERM, EvaluationModel.OPUS);
     }
 
     @Test
-    @DisplayName("PUT /api/models/active switches SHORT_TERM to SONNET")
-    void setActiveModel_switchesShortTermToSonnet() throws Exception {
+    @DisplayName("PUT /api/models/active switches BATCH_NEAR_TERM to SONNET")
+    void setActiveModel_switchesBatchNearTermToSonnet() throws Exception {
         String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
-        when(modelSelectionService.setActiveModel(RunType.SHORT_TERM, EvaluationModel.SONNET))
+        when(modelSelectionService.setActiveModel(RunType.BATCH_NEAR_TERM, EvaluationModel.SONNET))
                 .thenReturn(EvaluationModel.SONNET);
 
         mockMvc.perform(put("/api/models/active")
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType("application/json")
-                .content("{\"runType\":\"SHORT_TERM\",\"model\":\"SONNET\"}"))
+                .content("{\"runType\":\"BATCH_NEAR_TERM\",\"model\":\"SONNET\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.runType").value("SHORT_TERM"))
+                .andExpect(jsonPath("$.runType").value("BATCH_NEAR_TERM"))
                 .andExpect(jsonPath("$.active").value("SONNET"));
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/active accepts BLUEBELL_GLOSS, a live run type the screen now lists")
+    void setActiveModel_bluebellGloss_succeeds() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(modelSelectionService.setActiveModel(RunType.BLUEBELL_GLOSS, EvaluationModel.SONNET))
+                .thenReturn(EvaluationModel.SONNET);
+
+        mockMvc.perform(put("/api/models/active")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"BLUEBELL_GLOSS\",\"model\":\"SONNET\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.runType").value("BLUEBELL_GLOSS"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"VERY_SHORT_TERM", "SHORT_TERM", "LONG_TERM", "WEATHER", "TIDE"})
+    @DisplayName("PUT /api/models/active refuses a run type the screen does not manage with 400")
+    void setActiveModel_nonConfigurableRunType_badRequest(String runType) throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+
+        mockMvc.perform(put("/api/models/active")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"" + runType + "\",\"model\":\"SONNET\"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(modelSelectionService, never()).setActiveModel(any(RunType.class), any(EvaluationModel.class));
     }
 
     @Test
@@ -205,7 +229,7 @@ class ModelsControllerTest extends AbstractControllerTest {
         mockMvc.perform(put("/api/models/active")
                 .header("Authorization", "Bearer " + userToken)
                 .contentType("application/json")
-                .content("{\"runType\":\"SHORT_TERM\",\"model\":\"SONNET\"}"))
+                .content("{\"runType\":\"BATCH_NEAR_TERM\",\"model\":\"SONNET\"}"))
                 .andExpect(status().isForbidden());
     }
 
@@ -214,7 +238,7 @@ class ModelsControllerTest extends AbstractControllerTest {
     void setActiveModel_noToken_unauthorized() throws Exception {
         mockMvc.perform(put("/api/models/active")
                 .contentType("application/json")
-                .content("{\"runType\":\"SHORT_TERM\",\"model\":\"SONNET\"}"))
+                .content("{\"runType\":\"BATCH_NEAR_TERM\",\"model\":\"SONNET\"}"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -226,7 +250,7 @@ class ModelsControllerTest extends AbstractControllerTest {
         mockMvc.perform(put("/api/models/active")
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType("application/json")
-                .content("{\"runType\":\"SHORT_TERM\",\"model\":\"INVALID_MODEL\"}"))
+                .content("{\"runType\":\"BATCH_NEAR_TERM\",\"model\":\"INVALID_MODEL\"}"))
                 .andExpect(status().isBadRequest());
     }
 
@@ -279,88 +303,21 @@ class ModelsControllerTest extends AbstractControllerTest {
     }
 
     // -------------------------------------------------------------------------
-    // Optimisation strategy endpoints
+    // The optimisation endpoint is retired
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("PUT /api/models/optimisation with ADMIN enables strategy")
-    void updateOptimisation_admin_succeeds() throws Exception {
-        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
-        var updated = OptimisationStrategyEntity.builder()
-                .runType(RunType.VERY_SHORT_TERM)
-                .strategyType(OptimisationStrategyType.SENTINEL_SAMPLING)
-                .enabled(true)
-                .paramValue(4)
-                .updatedAt(LocalDateTime.now())
-                .build();
-        when(optimisationStrategyService.updateStrategy(
-                eq(RunType.VERY_SHORT_TERM), eq(OptimisationStrategyType.SENTINEL_SAMPLING),
-                eq(true), eq(4)))
-                .thenReturn(updated);
-
-        mockMvc.perform(put("/api/models/optimisation")
-                .header("Authorization", "Bearer " + adminToken)
-                .contentType("application/json")
-                .content("{\"runType\":\"VERY_SHORT_TERM\","
-                        + "\"strategyType\":\"SENTINEL_SAMPLING\","
-                        + "\"enabled\":true,\"paramValue\":4}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.runType").value("VERY_SHORT_TERM"))
-                .andExpect(jsonPath("$.strategyType").value("SENTINEL_SAMPLING"))
-                .andExpect(jsonPath("$.enabled").value(true))
-                .andExpect(jsonPath("$.paramValue").value(4));
-    }
-
-    @Test
-    @DisplayName("PUT /api/models/optimisation without ADMIN returns 403")
-    void updateOptimisation_nonAdmin_forbidden() throws Exception {
-        String userToken = jwtService.generateAccessToken("user", UserRole.LITE_USER);
-
-        mockMvc.perform(put("/api/models/optimisation")
-                .header("Authorization", "Bearer " + userToken)
-                .contentType("application/json")
-                .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"TIDE_ALIGNMENT\",\"enabled\":true}"))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    @DisplayName("PUT /api/models/optimisation without token returns 401")
-    void updateOptimisation_noToken_unauthorized() throws Exception {
-        mockMvc.perform(put("/api/models/optimisation")
-                .contentType("application/json")
-                .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"TIDE_ALIGNMENT\",\"enabled\":true}"))
-                .andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    @DisplayName("PUT /api/models/optimisation for a row that does not exist returns 400")
-    void updateOptimisation_notFound_returnsBadRequest() throws Exception {
-        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
-        when(optimisationStrategyService.updateStrategy(any(), any(), eq(true), any()))
-                .thenThrow(new IllegalArgumentException("Strategy not found: SHORT_TERM/TIDE_ALIGNMENT"));
-
-        mockMvc.perform(put("/api/models/optimisation")
-                .header("Authorization", "Bearer " + adminToken)
-                .contentType("application/json")
-                .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"TIDE_ALIGNMENT\",\"enabled\":true}"))
-                .andExpect(status().isBadRequest());
-    }
-
-    /**
-     * A client still sending one of the types V153 retired — a stale bundle, a bookmarked request —
-     * must get a 400, not a 500, and must never reach the service. The type no longer exists in the
-     * enum, so the request fails at deserialisation.
-     */
-    @Test
-    @DisplayName("PUT /api/models/optimisation naming a retired strategy type returns 400")
-    void updateOptimisation_retiredType_returnsBadRequest() throws Exception {
+    @DisplayName("PUT /api/models/optimisation is no longer mapped, even for an ADMIN")
+    void updateOptimisation_isNoLongerMapped() throws Exception {
         String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
 
         mockMvc.perform(put("/api/models/optimisation")
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType("application/json")
-                .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"EVALUATE_ALL\",\"enabled\":true}"))
-                .andExpect(status().isBadRequest());
+                .content("{}"))
+                .andExpect(status().isNotFound())
+                .andExpect(result -> assertThat(result.getResolvedException())
+                        .isInstanceOf(NoResourceFoundException.class));
 
         verify(optimisationStrategyService, never()).updateStrategy(any(), any(), anyBoolean(), any());
     }

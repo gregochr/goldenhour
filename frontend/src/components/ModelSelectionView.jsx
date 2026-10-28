@@ -1,18 +1,11 @@
 import { useEffect, useState } from 'react';
 import { modelLabel } from '../utils/modelLabels.js';
-import { getAvailableModels, setActiveModel, setExtendedThinking, updateOptimisationStrategy } from '../api/modelsApi.js';
-import { fetchLocations } from '../api/forecastApi.js';
+import { getAvailableModels, setActiveModel, setExtendedThinking } from '../api/modelsApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import InfoTip from './InfoTip.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
-import { RUN_TYPE_RANGES } from '../utils/runTypeRanges.js';
-import { isWildlifeOnly } from '../utils/locationTypes.js';
-import { apiErrorMessage } from '../utils/apiError.js';
 
 const CONFIG_TABS = [
-  { key: 'VERY_SHORT_TERM', label: 'Very Short-Term (T, T+1)', tip: 'Imminent forecasts — today and tomorrow. Use a high-accuracy model here.' },
-  { key: 'SHORT_TERM', label: 'Short-Term (T, T+1, T+2)', tip: 'Near-term forecasts — up to 2 days out. Good balance of accuracy and cost.' },
-  { key: 'LONG_TERM', label: 'Long-Term (T+3 \u2013 T+5)', tip: 'Extended forecasts — 3 to 5 days out. Weather data is less precise, so a cheaper model is fine.' },
   { key: 'BRIEFING_BEST_BET', label: 'Briefing', tip: 'Claude model for the best-bet photography advisor in the daily briefing.' },
   { key: 'AURORA_EVALUATION', label: 'Aurora', tip: 'Claude model for scoring aurora photography conditions per location.' },
   { key: 'BATCH_NEAR_TERM', label: 'Batch Near-Term', tip: 'Claude model for overnight near-term batch runs (T+0, T+1). High-confidence forecasts evaluated every night.', adminOnly: true },
@@ -81,13 +74,6 @@ function toGbp(usd) {
 /** Typical cost per call in USD, used for run cost estimates. */
 const COST_PER_CALL = { HAIKU: 0.002, HAIKU_55: 0.0003, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
 
-/** Number of forecast days per run type. Each day has 2 slots (sunrise + sunset). */
-const DAYS_PER_RUN = {
-  VERY_SHORT_TERM: RUN_TYPE_RANGES.VERY_SHORT_TERM.days,
-  SHORT_TERM: RUN_TYPE_RANGES.SHORT_TERM.days,
-  LONG_TERM: RUN_TYPE_RANGES.LONG_TERM.days,
-};
-
 /** Tab-specific model card descriptions (override generic MODEL_INFO.description). */
 const TAB_DESCRIPTIONS = {
   BRIEFING_BEST_BET: 'Analyses region-level triage data to recommend the best photography opportunity',
@@ -113,7 +99,7 @@ const BATCH_COST_ROWS = [
 ];
 
 /**
- * Cost estimate config for non-forecast tabs.
+ * Cost estimate config for the tabs that have one (the batch tabs use the static batch table).
  * callsPerRun: typical calls per run. label: human description.
  */
 const CUSTOM_COST = {
@@ -122,55 +108,24 @@ const CUSTOM_COST = {
 };
 
 /**
- * The two strategies that can act. ⚠️ Both reach only forecast runs started by hand — the
- * synchronous engine behind the admin `POST /api/forecast/run*` endpoints: the Very-Short-Term,
- * Short-Term and Long-Term runs on Job Runs, and Run Forecast on a map location (which uses the
- * Short-Term settings). Scheduled batches, overnight and intraday, read neither, and nor do the Run
- * Scheduled Batch / Run JFDI Batch buttons. What a hand-started run writes can still reach readers:
- * `GET /api/forecast` serves its rows until a later run replaces them.
- *
- * Six more used to be listed here (Skip Low-Rated, Skip Already-Evaluated, Always Evaluate Today,
- * Re-evaluate Stale Data, Evaluate Everything, Next Event Only) and were retired in V153. They had
- * been unable to act since v2.7.2 (2026-04-06), when a `!triggeredManually` guard stopped them
- * skipping slots on hand-started runs — the only runs that engine still makes. Every mutual-exclusion
- * rule went with them; the two left are independent.
- */
-const STRATEGY_INFO = {
-  SENTINEL_SAMPLING: {
-    label: 'Sentinel Sampling',
-    description: 'Evaluate a handful of geographic sentinel locations per region first. If all sentinels rate at or below the threshold, skip the rest of that region with canned results. Saves cost when conditions are uniformly poor across a region. Applies to forecast runs started by hand only, not to scheduled batches.',
-    hasParam: true,
-    paramLabel: 'Max skip threshold',
-    paramDefault: 2,
-  },
-  TIDE_ALIGNMENT: {
-    label: 'Tide Triage',
-    description: 'Adds a tide check to triage for SEASCAPE locations with tide preferences: if none of the preferred tide types (High, Mid or Low) falls within the golden/blue hour window around the solar event, the slot is stood down without a Claude call. Weather triage (cloud, rain, visibility) runs whether this is on or off. A location with no tide data or no tide preferences skips the check. Applies to forecast runs started by hand only, not to scheduled batches.',
-  },
-};
-
-/**
- * Admin-only view for selecting the active evaluation model per run type
- * and configuring cost optimisation strategies.
+ * Admin-only view for selecting the active evaluation model per run type.
  */
 export default function ModelSelectionView() {
   const { isAdmin } = useAuth();
   const [availableModels, setAvailableModels] = useState([]);
   const [configs, setConfigs] = useState({});
   const [extendedThinkingConfig, setExtendedThinkingConfig] = useState({});
-  const [strategies, setStrategies] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [switching, setSwitching] = useState(false);
-  const [activeTab, setActiveTab] = useState('VERY_SHORT_TERM');
-  const [locationCount, setLocationCount] = useState(0);
+  const [activeTab, setActiveTab] = useState('BRIEFING_BEST_BET');
 
   /**
    * Clears the success banner {@link SUCCESS_BANNER_MS} after it appears.
    *
-   * <p>⚠️ The dismiss is an effect keyed on {@code success}, the idiom {@code App.jsx}'s run banner
-   * and {@code RegisterPage}'s cooldown already use, and not a {@code setTimeout} armed by the
+   * <p>⚠️ The dismiss is an effect keyed on {@code success}, the idiom {@code RegisterPage}'s
+   * cooldown already uses, and not a {@code setTimeout} armed by the
    * handlers. Those were bare calls placed *after* each handler's network await, so the callback
    * outlived the component: it ran against a torn-down tree and React's {@code dispatchSetState}
    * read a {@code window} that no longer existed. Vitest fails a run that records an unhandled
@@ -183,16 +138,15 @@ export default function ModelSelectionView() {
    * never runs after unmount, and a {@code setSuccess} on an unmounted component is a no-op — so
    * no {@code isMounted} guard is needed either.
    *
-   * <p>⚠️ The three handlers that show a message each clear {@code success} before their await,
-   * and that null is load-bearing: the effect re-runs only when {@code success} changes, and the
-   * strategy message does not name its run type, so enabling the same strategy on a second config
-   * tab produces an identical string. The null committed in between is what makes that repeat
-   * re-run the effect and get its own window; three quick toggles used to leave three independent
-   * timers, the first of which wiped the newest message early.
+   * <p>The two handlers that show a message (model switch, extended thinking) each clear
+   * {@code success} before their await. The effect re-runs only when {@code success} changes, so
+   * the null committed in between guarantees a newer message gets its own full window. The two
+   * messages the screen can show today never repeat back to back, so this is a guard rather than
+   * something a current path exercises.
    *
    * <p>One case it does not cover: two requests for the same thing in flight at once (a
-   * double-click — the toggles stay enabled mid-request). Both responses carry the same string, so
-   * the second {@code setSuccess} is a no-op and the banner clears on the first response's timer,
+   * double-click on the extended-thinking toggle, which stays enabled mid-request). Both responses
+   * carry the same string, so the second {@code setSuccess} is a no-op and the banner clears on the first response's timer,
    * exactly as it did before this change.
    */
   useEffect(() => {
@@ -206,18 +160,12 @@ export default function ModelSelectionView() {
       try {
         setLoading(true);
         setError(null);
-        const [data, locations] = await Promise.all([getAvailableModels(), fetchLocations()]);
+        const data = await getAvailableModels();
         // available is now [{name, version}, ...] — extract names for backward compat
         const available = (data.available || []).map((m) => (typeof m === 'string' ? m : m.name));
         setAvailableModels(available);
         setConfigs(data.configs || {});
         setExtendedThinkingConfig(data.extendedThinkingConfigs || {});
-        setStrategies(data.optimisationStrategies || {});
-        // Count enabled non-wildlife locations (wildlife doesn't use Claude)
-        const evalLocations = (locations || []).filter(
-          (l) => l.enabled !== false && !isWildlifeOnly(l.locationType)
-        );
-        setLocationCount(evalLocations.length);
       } catch (err) {
         setError('Failed to load available models');
         console.error(err);
@@ -244,48 +192,6 @@ export default function ModelSelectionView() {
       console.error(err);
     } finally {
       setSwitching(false);
-    }
-  };
-
-  const handleStrategyToggle = async (runType, strategyType, newEnabled, paramValue = null) => {
-    try {
-      setError(null);
-      setSuccess(null);
-      const result = await updateOptimisationStrategy(runType, strategyType, newEnabled, paramValue);
-      // Update local state
-      setStrategies((prev) => {
-        const updated = { ...prev };
-        const list = (updated[runType] || []).map((s) =>
-          s.strategyType === result.strategyType
-            ? { ...s, enabled: result.enabled, paramValue: result.paramValue || s.paramValue }
-            : s
-        );
-        updated[runType] = list;
-        return updated;
-      });
-      const info = STRATEGY_INFO[strategyType];
-      setSuccess(`${info?.label || strategyType} ${newEnabled ? 'enabled' : 'disabled'}`);
-    } catch (err) {
-      setError(apiErrorMessage(err, `Failed to update ${strategyType}`));
-      console.error(err);
-    }
-  };
-
-  const handleParamChange = async (runType, strategyType, newParam) => {
-    try {
-      setError(null);
-      await updateOptimisationStrategy(runType, strategyType, true, newParam);
-      setStrategies((prev) => {
-        const updated = { ...prev };
-        const list = (updated[runType] || []).map((s) =>
-          s.strategyType === strategyType ? { ...s, paramValue: newParam } : s
-        );
-        updated[runType] = list;
-        return updated;
-      });
-    } catch (err) {
-      setError(`Failed to update parameter for ${strategyType}`);
-      console.error(err);
     }
   };
 
@@ -324,7 +230,6 @@ export default function ModelSelectionView() {
   const visibleTabs = CONFIG_TABS.filter((t) => !t.adminOnly || isAdmin);
 
   const activeModelForTab = configs[activeTab] || 'HAIKU';
-  const tabStrategies = strategies[activeTab] || [];
 
   return (
     <div className="space-y-6">
@@ -592,18 +497,11 @@ export default function ModelSelectionView() {
 
       {/* Cost estimate table for the active run type */}
       {(() => {
-        const forecastCalls = DAYS_PER_RUN[activeTab] && locationCount > 0
-          ? locationCount * DAYS_PER_RUN[activeTab] * 2
-          : null;
         const custom = CUSTOM_COST[activeTab];
-        const calls = forecastCalls || (custom ? custom.callsPerRun : null);
-        if (!calls) return null;
-        const costLabel = forecastCalls
-          ? `${locationCount} location${locationCount !== 1 ? 's' : ''}, ${DAYS_PER_RUN[activeTab]} days, sunrise + sunset`
-          : custom.label;
-        const callLabel = forecastCalls
-          ? `${calls} Claude calls per run, before optimisation strategies`
-          : `${calls} Claude calls per run`;
+        if (!custom) return null;
+        const calls = custom.callsPerRun;
+        const costLabel = custom.label;
+        const callLabel = `${calls} Claude calls per run`;
         return (
           <div className="card border border-plex-border">
             <h3 className="font-semibold text-plex-text mb-1">
@@ -653,97 +551,11 @@ export default function ModelSelectionView() {
         );
       })()}
 
-      {/* Cost Optimisation Strategies */}
-      {tabStrategies.length > 0 && (
-        <div className="card border border-plex-border">
-          <h3 className="font-semibold text-plex-text mb-1">Cost Optimisation</h3>
-          <p id="strategy-scope-note" className="text-xs text-plex-text-secondary mb-4" data-testid="strategy-scope-note">
-            Applies only to forecast runs started by hand: the Very-Short-Term, Short-Term and
-            Long-Term runs on Job Runs, and Run Forecast on a map location (which uses the Short-Term
-            settings). Scheduled batches, overnight and intraday, ignore these, as do the Run
-            Scheduled Batch and Run JFDI Batch buttons.
-          </p>
-          <div className="space-y-3">
-            {tabStrategies
-              .filter((s) => STRATEGY_INFO[s.strategyType])
-              .map((strategy) => {
-                const info = STRATEGY_INFO[strategy.strategyType];
-
-                return (
-                  <div
-                    key={strategy.strategyType}
-                    className={`flex items-center justify-between py-2 px-3 rounded-lg ${
-                      strategy.enabled
-                        ? 'bg-green-900/10 border border-green-800/30'
-                        : 'bg-plex-surface hover:bg-plex-surface-light'
-                    }`}
-                    data-testid={`strategy-row-${strategy.strategyType}`}
-                  >
-                    <div className="flex-1 min-w-0 mr-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-plex-text">
-                          {info.label}
-                        </span>
-                        <InfoTip text={info.description} />
-                      </div>
-                      {/* Parameter buttons — the sentinel threshold is the only one left */}
-                      {info.hasParam && strategy.enabled && (
-                        <div className="flex items-center gap-2 mt-2">
-                          <span className="text-xs text-plex-text-secondary">{info.paramLabel}:</span>
-                          <div className="flex gap-1">
-                            {[1, 2, 3, 4, 5].map((val) => (
-                              <button
-                                key={val}
-                                onClick={() => handleParamChange(activeTab, strategy.strategyType, val)}
-                                aria-pressed={(strategy.paramValue ?? info.paramDefault) === val}
-                                className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
-                                  (strategy.paramValue ?? info.paramDefault) === val
-                                    ? 'bg-plex-gold text-gray-900'
-                                    : 'bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border'
-                                }`}
-                                data-testid={`param-${strategy.strategyType}-${val}`}
-                              >
-                                {val}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      onClick={() =>
-                        handleStrategyToggle(
-                          activeTab,
-                          strategy.strategyType,
-                          !strategy.enabled,
-                          strategy.paramValue
-                        )
-                      }
-                      className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                        strategy.enabled
-                          ? 'bg-green-600/30 text-green-400 hover:bg-green-600/50'
-                          : 'bg-plex-border text-plex-text-secondary hover:bg-plex-border-light'
-                      }`}
-                      aria-label={info.label}
-                      aria-pressed={strategy.enabled}
-                      aria-describedby="strategy-scope-note"
-                      data-testid={`strategy-toggle-${strategy.strategyType}`}
-                    >
-                      {strategy.enabled ? 'ON' : 'OFF'}
-                    </button>
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-      )}
-
       <div className="bg-plex-surface border border-plex-border rounded-lg p-4 text-sm text-plex-text-secondary">
         <p className="font-medium text-plex-text mb-2">About model configuration</p>
         <ul className="space-y-1 text-xs">
           <li>Each run type can use a different Claude model independently</li>
-          <li>Use a more accurate model (Opus/Sonnet) for imminent forecasts, cheaper (Haiku) for distant ones</li>
-          <li>Cost optimisation strategies can skip slots on forecast runs started by hand; scheduled batches do not use them</li>
+          <li>Use a more accurate model (Opus/Sonnet) for near-term batch runs, cheaper (Haiku) for far-term ones</li>
           <li>Wildlife-only locations automatically display weather data without AI evaluation</li>
           <li>Previous forecasts are preserved with their original model</li>
           <li>Haiku offers excellent value for most use cases</li>

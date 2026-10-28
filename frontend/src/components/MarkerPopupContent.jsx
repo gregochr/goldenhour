@@ -5,15 +5,10 @@ import {
   formatGeneratedAtFull,
   mpsToMph,
 } from '../utils/conversions.js';
-import { runForecast } from '../api/forecastApi.js';
 import useForecastDetail from '../hooks/useForecastDetail.js';
 import {
   TRIAGE_REASON_LABELS, isDustEnhanced, mistBadgeOf, risingTideOf,
 } from '../utils/forecastDetailFacts.js';
-import createEventSource from '../utils/createEventSource.js';
-import {
-  completedWithFailures, failedOutright, failureMessage, stoppedEarly,
-} from '../utils/runOutcome.js';
 import { bortleLabel } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
@@ -25,7 +20,6 @@ import {
 } from './WeatherIcons.jsx';
 import { resolveStandDown } from '../utils/standDown.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES } from '../utils/locationTypes.js';
-import { apiErrorMessage } from '../utils/apiError.js';
 import { modelLabel } from '../utils/modelLabels.js';
 
 /**
@@ -173,70 +167,16 @@ export default function MarkerPopupContent({
   isAuroraMode = false,
   astroScore = null,
   isAstroMode = false,
-  onForecastRun,
   driveMinutes = null,
   briefingScore = null,
   travelDay = false,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [runningForecast, setRunningForecast] = useState(false);
-  const [runProgress, setRunProgress] = useState('');
-  const [forecastError, setForecastError] = useState(null);
 
   // Header + comfort fields render instantly from the slim `forecast` prop; the
   // heavy popup-only fields come from this lazily-resolved `detail` object.
   const { detail, detailLoading } = useForecastDetail(forecast);
 
-  /** Triggers a single-location, single-date, single-event forecast run and tracks via SSE. */
-  const handleRunForecast = async () => {
-    setRunningForecast(true);
-    setRunProgress('');
-    setForecastError(null);
-    try {
-      const { jobRunId } = await runForecast(date, location.name, eventType);
-      createEventSource(
-        '/api/forecast/run/' + jobRunId + '/progress',
-        {},
-        {
-          'run-summary': (data) => {
-            setRunProgress(`${data.completed}/${data.total}`);
-          },
-          'run-complete': (data) => {
-            setRunningForecast(false);
-            if (failedOutright(data)) {
-              // The run failed as a whole (possibly before it had any task, so `failed` reads 0):
-              // say why, and do not refresh the map as though something had been updated.
-              setForecastError(failureMessage(data));
-            } else if (stoppedEarly(data)) {
-              // Cut short after some places completed: what did update is real, so refresh it, and
-              // still say why the rest did not.
-              setForecastError(data.reason);
-              onForecastRun?.();
-            } else if (completedWithFailures(data)) {
-              // Some places updated and some failed: what did update is real, so refresh it, and say
-              // that part of it failed rather than that the whole run did.
-              setForecastError('Part of this forecast failed.');
-              onForecastRun?.();
-            } else if (data.failed > 0) {
-              setForecastError('Forecast run failed');
-            } else {
-              onForecastRun?.();
-            }
-          },
-        },
-        {
-          closeOn: 'run-complete',
-          onError: () => {
-            setRunningForecast(false);
-            setForecastError('Lost connection to server');
-          },
-        },
-      );
-    } catch (err) {
-      setRunningForecast(false);
-      setForecastError(apiErrorMessage(err, err?.message || 'Failed to start forecast run'));
-    }
-  };
   const onToggleExpanded = () => setIsExpanded((prev) => !prev);
 
   const isSunrise = eventType === 'SUNRISE';
@@ -991,35 +931,7 @@ export default function MarkerPopupContent({
                     no forecast yet
                   </span>
                 </div>
-
-                {/* Run Forecast button (admin only) */}
-                {role === 'ADMIN' && (
-                  <button
-                    data-testid="run-forecast-btn"
-                    disabled={runningForecast}
-                    onClick={handleRunForecast}
-                    style={{
-                      display: 'block',
-                      padding: '4px 12px',
-                      fontSize: '11px',
-                      fontWeight: 500,
-                      color: '#fff',
-                      backgroundColor: runningForecast ? '#6b7280' : '#3b82f6',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: runningForecast ? 'not-allowed' : 'pointer',
-                      opacity: runningForecast ? 0.7 : 1,
-                    }}
-                  >
-                    {runningForecast ? `Running\u2026 ${runProgress}` : 'Run Forecast'}
-                  </button>
-                )}
               </>
-            )}
-            {forecastError && (
-              <div style={{ marginTop: '4px', color: '#ef4444', fontSize: '11px' }}>
-                {forecastError}
-              </div>
             )}
           </div>
         );
@@ -1081,7 +993,6 @@ MarkerPopupContent.propTypes = {
     moonIlluminationPct: PropTypes.number,
   }),
   isAstroMode: PropTypes.bool,
-  onForecastRun: PropTypes.func,
   driveMinutes: PropTypes.number,
   briefingScore: PropTypes.shape({
     rating: PropTypes.number,

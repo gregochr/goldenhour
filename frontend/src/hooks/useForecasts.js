@@ -214,7 +214,7 @@ export function useForecasts() {
       writeSwrCache(cacheKey, { forecasts, locationMeta }, gen);
     } catch (err) {
       // Surface the error on a cold load (nothing on screen), or when the user explicitly asked to
-      // refresh — an explicit action (Run Forecast, drive-time change, manual re-run) expects
+      // refresh — an explicit action (the refresh button, a drive-time change) expects
       // feedback, so a failure must show an error/retry rather than silently leave stale numbers.
       // A silent BACKGROUND revalidation failure still keeps the stale map (the intended SWR trade).
       if (!hasDataRef.current || userInitiated) {

@@ -11,10 +11,6 @@ import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.EvaluationViewService;
-import com.gregochr.goldenhour.service.FailedSlotRetryService;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
-import com.gregochr.goldenhour.service.ForecastCommandFactory;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
@@ -76,12 +72,6 @@ class ForecastHistoryQueryCountTest {
     private LocationService locationService;
 
     @Mock
-    private ForecastCommandFactory commandFactory;
-
-    @Mock
-    private ForecastCommandExecutor commandExecutor;
-
-    @Mock
     private ScheduledForecastService scheduledForecastService;
 
     @Mock
@@ -91,13 +81,7 @@ class ForecastHistoryQueryCountTest {
     private EvaluationViewService evaluationViewService;
 
     @Mock
-    private JobRunService jobRunService;
-
-    @Mock
     private RunProgressTracker progressTracker;
-
-    @Mock
-    private FailedSlotRetryService retryService;
 
     @Mock
     private com.gregochr.goldenhour.service.AsOfEventResolver asOfEventResolver;
@@ -110,10 +94,10 @@ class ForecastHistoryQueryCountTest {
     }
 
     private ForecastController buildController() {
-        return new ForecastController(forecastEvaluationRepository, locationService, commandFactory,
-                commandExecutor, scheduledForecastService, dtoMapper, evaluationViewService,
-                jobRunService, progressTracker, Runnable::run, Clock.systemUTC().withZone(ZoneOffset.UTC),
-                retryService, asOfEventResolver, solarEventFreshness,
+        return new ForecastController(forecastEvaluationRepository, locationService,
+                scheduledForecastService, dtoMapper, evaluationViewService,
+                progressTracker, Runnable::run, Clock.systemUTC().withZone(ZoneOffset.UTC),
+                asOfEventResolver, solarEventFreshness,
                 new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()));
     }
 

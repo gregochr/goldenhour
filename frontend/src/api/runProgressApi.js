@@ -1,5 +1,4 @@
 import createEventSource from '../utils/createEventSource.js';
-import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api';
 
@@ -27,34 +26,4 @@ export function subscribeToRunProgress(runId, onTaskUpdate, onRunSummary, onRunC
     },
     { onError, closeOn: ['run-complete', 'run-expired'] },
   );
-}
-
-/**
- * Subscribes to run-complete notifications for the map view via SSE.
- * Fires a single event per completed run (lightweight, no per-location detail).
- *
- * @param {function} onRunComplete - Called with run complete data.
- * @param {function} onError - Called on connection error.
- * @returns {function} Cleanup function to close the stream.
- */
-export function subscribeToRunNotifications(onRunComplete, onError) {
-  return createEventSource(
-    `${BASE_URL}/forecast/run/notifications`,
-    {},
-    { 'run-complete': onRunComplete },
-    { onError },
-  );
-}
-
-/**
- * Retries failed tasks from a previous run, through the shared axios client so an expired token is
- * refreshed on the way and a refusal rejects with the shape {@code utils/apiError.js} reads
- * ({@code err.response.status}, {@code err.response.data}).
- *
- * @param {number} runId - The job run ID whose failed tasks to retry.
- * @returns {Promise<{status: string, runType: string, jobRunId: number}>} New run response.
- */
-export async function retryFailed(runId) {
-  const { data } = await apiClient.post(`${BASE_URL}/forecast/run/${runId}/retry-failed`);
-  return data;
 }

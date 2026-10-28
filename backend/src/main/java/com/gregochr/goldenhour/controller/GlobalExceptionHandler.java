@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -179,9 +180,9 @@ public class GlobalExceptionHandler {
      *
      * <p>A request body that cannot be read — malformed JSON, or an enum value the server no longer
      * recognises — is the caller's error. Without this handler the catch-all below intercepts it and
-     * returns 500, the same gap {@link #handleMissingParam} closed for missing parameters. V153 made
-     * it reachable a new way: retiring six optimisation strategy types means a stale client naming
-     * one now sends a body that cannot be deserialised.
+     * returns 500, the same gap {@link #handleMissingParam} closed for missing parameters. It is reachable
+     * whenever an enum loses a value: a stale client naming the retired value sends a well-formed body
+     * that cannot be deserialised.
      *
      * <p>⚠️ The message is generic on purpose, and nothing is logged. Jackson's own message names
      * internal types and echoes caller-supplied values, so returning it would leak the one and
@@ -235,6 +236,23 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleResponseStatus(ResponseStatusException ex) {
         return ResponseEntity.status(ex.getStatusCode())
                 .body(new ErrorResponse(ex.getReason()));
+    }
+
+    /**
+     * Maps {@link NoResourceFoundException} to HTTP 404.
+     *
+     * <p>A request for a path nothing is mapped to (a stale client calling an endpoint that has been
+     * retired, or a typo) is the caller's error. Without this handler the catch-all below turns it into
+     * a 500 and logs it at ERROR with a stack trace. It is logged at DEBUG, without the stack.
+     *
+     * @param ex the exception
+     * @return a 404 response with a fixed message
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ErrorResponse handleNoResource(NoResourceFoundException ex) {
+        LOG.debug("No handler for {} {}", ex.getHttpMethod(), ex.getResourcePath());
+        return new ErrorResponse("Not found");
     }
 
     /**

@@ -8,7 +8,7 @@ import apiClient from './axiosClient.js';
 /**
  * Fetch recent job runs, optionally filtered by run type.
  *
- * @param {string} runType - Optional run type filter (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE)
+ * @param {string} runType - Optional run type filter (e.g. WEATHER, TIDE, BRIEFING, SCHEDULED_BATCH)
  * @param {number} page - Page number (0-indexed, default 0)
  * @param {number} size - Page size (default 20)
  * @returns {Promise} Response with job runs and pagination info
@@ -39,15 +39,6 @@ export const getApiCalls = (jobRunId) => {
  */
 export const getBatchSummary = (jobRunId) => {
   return apiClient.get(`/api/metrics/batch-summary?jobRunId=${jobRunId}`);
-};
-
-/**
- * Fetch the application build and deploy metadata.
- *
- * @returns {Promise<{version: string, deployedAt: string}>} version and ISO deploy timestamp
- */
-export const getBuildInfo = () => {
-  return apiClient.get('/api/admin/build-info');
 };
 
 /**

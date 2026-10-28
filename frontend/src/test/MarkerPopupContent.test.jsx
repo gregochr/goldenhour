@@ -1085,12 +1085,13 @@ describe('MarkerPopupContent', () => {
       expect(screen.queryByText(/\d+ mins/)).not.toBeInTheDocument();
     });
 
-    it('shows Run Forecast button for ADMIN', () => {
+    it('shows no Run Forecast button for ADMIN (manual runs were retired)', () => {
       renderEmpty({ role: 'ADMIN' });
-      expect(screen.getByTestId('run-forecast-btn')).toBeInTheDocument();
+      expect(screen.getByTestId('empty-popup')).toBeInTheDocument();
+      expect(screen.queryByTestId('run-forecast-btn')).not.toBeInTheDocument();
     });
 
-    it('hides Run Forecast button for non-admin roles', () => {
+    it('shows no Run Forecast button for non-admin roles', () => {
       renderEmpty({ role: 'PRO_USER' });
       expect(screen.queryByTestId('run-forecast-btn')).not.toBeInTheDocument();
     });
@@ -1202,7 +1203,7 @@ describe('MarkerPopupContent', () => {
       expect(screen.queryByTestId('empty-popup')).not.toBeInTheDocument();
     });
 
-    it('still renders "no forecast yet" + Run Forecast when briefingScore has no triageReason', () => {
+    it('still renders "no forecast yet" without a Run Forecast button when briefingScore has no triageReason', () => {
       render(
         <MarkerPopupContent
           {...DEFAULT_PROPS}
@@ -1215,7 +1216,7 @@ describe('MarkerPopupContent', () => {
       );
       expect(screen.getByTestId('empty-popup')).toBeInTheDocument();
       expect(screen.getByText('no forecast yet')).toBeInTheDocument();
-      expect(screen.getByTestId('run-forecast-btn')).toBeInTheDocument();
+      expect(screen.queryByTestId('run-forecast-btn')).not.toBeInTheDocument();
       expect(screen.queryByTestId('triage-standdown-badge')).not.toBeInTheDocument();
     });
 
@@ -1578,7 +1579,7 @@ describe('MarkerPopupContent', () => {
       );
       expect(screen.getByTestId('empty-popup')).toBeInTheDocument();
       expect(screen.getByText('no forecast yet')).toBeInTheDocument();
-      expect(screen.getByTestId('run-forecast-btn')).toBeInTheDocument();
+      expect(screen.queryByTestId('run-forecast-btn')).not.toBeInTheDocument();
       expect(screen.queryByTestId('batch-scored-popup')).not.toBeInTheDocument();
       expect(screen.queryByTestId('standdown-popup')).not.toBeInTheDocument();
       expect(screen.queryByTestId('triage-standdown-badge')).not.toBeInTheDocument();

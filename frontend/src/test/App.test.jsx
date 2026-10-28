@@ -89,7 +89,6 @@ vi.mock('../api/auroraApi.js', () => ({
 vi.mock('../api/nlcApi.js', () => ({ getNlcSighting: vi.fn() }));
 vi.mock('../api/astroApi.js', () => ({ getAstroConditions: vi.fn() }));
 vi.mock('../api/almanacApi.js', () => ({ getAlmanac: vi.fn(), ALMANAC_DAYS: 90 }));
-vi.mock('../api/runProgressApi.js', () => ({ subscribeToRunNotifications: vi.fn() }));
 vi.mock('../api/lightApi.js', () => ({ getTodaysLight: vi.fn() }));
 vi.mock('../api/authApi.js', () => ({
   login: vi.fn(),
@@ -119,7 +118,6 @@ import { getAuroraForecastResults, getAuroraLocations, getAuroraStatus } from '.
 import { getNlcSighting } from '../api/nlcApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
-import { subscribeToRunNotifications } from '../api/runProgressApi.js';
 import { getTodaysLight } from '../api/lightApi.js';
 import {
   verifyEmail, requestPasswordReset, resetPassword, setPasswordForNewUser, register,
@@ -200,10 +198,9 @@ beforeEach(() => {
   getNlcSighting.mockReset().mockResolvedValue(null);
   getAstroConditions.mockReset().mockResolvedValue(null);
   getAlmanac.mockReset().mockResolvedValue({ entries: [] });
-  subscribeToRunNotifications.mockReset().mockReturnValue(() => {});
   getTodaysLight.mockReset().mockResolvedValue(null); // 204 — no home postcode saved
   // Hold `useAfterFirstPaint` at false for the whole test: an idle callback that never fires keeps
-  // the two long-lived SSE streams (health status, run notifications) off, so no test ever opens a
+  // the long-lived health-status SSE stream off, so no test ever opens a
   // real stream. (`setup.js` makes an unmocked `fetch` throw, which is the net under this.) The
   // 200ms setTimeout fallback would let a slow test open them mid-run.
   window.requestIdleCallback = () => 1;

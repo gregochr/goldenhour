@@ -12,6 +12,7 @@ popup's admin "Run Forecast" button and the run types `VERY_SHORT_TERM`, `SHORT_
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
 | plan | `claude/job-runs-config-audit-2833f9` | *(fill after merge)* | 2026-10-28 | Survey: two read-only traces (backend engine reachability, frontend Operations tab). Review: four prosecutor lenses (backend deletions, data/migrations, frontend, phasing/tests/docs) with 43 charges, triaged by the planner (§10). |
+| 1 | `chore/sync-engine-retirement-phase-1` | *(fill after merge)* | 2026-10-28 | `OptimisationStrategyUpdateRequest` pulled forward from Phase 2; unmapped paths now answer 404 (`NoResourceFoundException` handler). |
 
 ---
 
@@ -239,7 +240,7 @@ and tests `BriefingEvaluationControllerTest:94,163`, `LitePickEnforcementControl
   `ForecastCommandExecutor`, `FailedSlotRetryService`, `SentinelSelector`.
 - **Optimisation strategies:** `OptimisationStrategyService`, `OptimisationStrategyEntity`,
   `OptimisationStrategyRepository`, `OptimisationStrategyType`,
-  `model/OptimisationStrategyUpdateRequest`. **The `optimisation_strategy` table stays until Phase 3**
+  `model/OptimisationStrategyUpdateRequest` (**already deleted in Phase 1**: once `ModelsController` stopped using it, the JaCoCo per-class gate failed it at 0%). **The `optimisation_strategy` table stays until Phase 3**
   (see §5 on rollback).
 - **Notification channels** (owner decision §8b, recommended: delete): `NotificationDispatcher`,
   `NotificationChannel`, `EmailNotificationService`, `PushoverNotificationService`,
@@ -303,6 +304,8 @@ Delete the no-argument `getActiveModel()` and `setActiveModel(model)`; nothing i
 
 ### Tests
 
+- **Done in Phase 1:** `GlobalExceptionHandlerTest` used `POST /api/forecast/run` and `PUT /api/models/optimisation` as exception vehicles; it was rewired in Phase 1 (to `GET /api/forecast/compare`, `PUT /api/outcome/ratings` and `PUT /api/models/active`).
+- **`runOutcome.js`:** `runCountsLine` and `failedOutright` have no production caller after Phase 1; delete them in Phase 2 if still unused.
 - **Delete:**
   - `ForecastCommandExecutor*Test` (Completion, EvaluationFailure, ReadingsSeam, SkyFilter, Slots,
     base) and `ForecastCommandFactoryTest`;

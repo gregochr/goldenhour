@@ -22,8 +22,6 @@ import { ukDateStr, ukDateStrOffset, resolveAuroraNight, resolveMapDate } from '
 import { auroraTabOffered } from './utils/auroraTab.js';
 import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
-import { useRunNotifications } from './hooks/useRunNotifications.js';
-import RunCompleteBanner from './components/RunCompleteBanner.jsx';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
 import useReaderSettings from './hooks/useReaderSettings.js';
@@ -229,7 +227,7 @@ AskWhenLive.propTypes = {
  * Inner app component — only rendered when the user is authenticated.
  */
 function AppInner() {
-  const { isAdmin, role, logout, token, postcodePromptSuppressed, suppressPostcodePrompt } = useAuth();
+  const { isAdmin, role, logout, postcodePromptSuppressed, suppressPostcodePrompt } = useAuth();
   // The admin's rewind, if any. Read ONCE per mount for the two seeds below (`RewindGate` remounts
   // this component on every change, so a mount always sees the rewind it was mounted for) and
   // live for the pill.
@@ -282,16 +280,14 @@ function AppInner() {
     setSubRegionsVersion((v) => v + 1);
     refresh();
   }, [refresh]);
-  // Defer the two long-lived SSE streams until after first paint so they don't compete with the
-  // critical forecast/briefing fetches during boot.
+  // Defer the long-lived health-status SSE stream until after first paint so it doesn't compete with
+  // the critical forecast/briefing fetches during boot.
   const streamsReady = useAfterFirstPaint();
   const {
     status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt,
     build: healthBuild, services: healthServices, database: healthDatabase,
     session: healthSession, appVersion: healthAppVersion, startedAt: healthStartedAt,
   } = useHealthStatus(streamsReady);
-  const { lastCompletedRun } = useRunNotifications(!!token && streamsReady);
-  const [showRunBanner, setShowRunBanner] = useState(false);
 
   /** Monotonic counter so repeat taps on the same location re-trigger the handoff. */
   // Nonce -1 is reserved for the rewind seed `mapTabHandoff` below is initialised with, so the
@@ -783,17 +779,6 @@ function AppInner() {
     setTabRequest({ id: 'operations', nonce: tabRequestNonce.current });
   };
 
-  // Show banner when a run completes, auto-dismiss after 15 seconds
-  useEffect(() => {
-    if (!lastCompletedRun) return;
-    // Effect-driven banner: show on each newly completed run, then auto-dismiss
-    // via the timer below. The reveal is the effect's purpose, not derivable state.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setShowRunBanner(true);
-    const timer = setTimeout(() => setShowRunBanner(false), 15000);
-    return () => clearTimeout(timer);
-  }, [lastCompletedRun]);
-
   const isDown = healthStatus === 'DOWN';
   /**
    * Whether the settings dialog is open — the one condition it mounts on below, and what the Plan
@@ -866,16 +851,6 @@ function AppInner() {
             <NlcSightingBanner />
           </div>
         </div>
-
-        {showRunBanner && lastCompletedRun && (
-          <RunCompleteBanner
-            run={lastCompletedRun}
-            onRefresh={() => {
-              refresh();
-              setShowRunBanner(false);
-            }}
-          />
-        )}
 
         {isDown && (
           <div
