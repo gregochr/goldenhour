@@ -6,7 +6,7 @@
  *
  * What breaks if this fails: a fact reads differently on the sheet than on the popup, or a badge
  * the popup shows (or hides) for a tier is hidden (or shown) on the sheet. Kept after the overlay's
- * deletion (C5) because the popup survives as the admin `PromptTestView`'s renderer, so the two
+ * deletion (C5) because the popup (`MarkerPopupContent`) still renders facts, so the two
  * surfaces still exist to disagree; the thresholds and labels now come from one module, which makes
  * this a rendering check rather than a logic one.
  */

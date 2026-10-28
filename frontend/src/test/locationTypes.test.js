@@ -70,8 +70,8 @@ describe('isSkyPromptCandidate', () => {
   });
 
   it('includes WATERFALL — the harness predicates used to omit it', () => {
-    // ModelTestView (twice) and PromptTestView tested LANDSCAPE || SEASCAPE only, so waterfall
-    // locations could not be selected in either harness even though the backend gate admits them.
+    // ModelTestView (twice) and the since-deleted Prompt Test tested LANDSCAPE || SEASCAPE only, so
+    // waterfall locations could not be selected in either harness even though the backend gate admits them.
     expect(isSkyPromptCandidate(['WATERFALL'])).toBe(true);
   });
 

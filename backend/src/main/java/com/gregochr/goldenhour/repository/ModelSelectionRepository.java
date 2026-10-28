@@ -23,7 +23,7 @@ public interface ModelSelectionRepository extends JpaRepository<ModelSelectionEn
     /**
      * Get the model selection for a specific run type.
      *
-     * @param runType the run type (VERY_SHORT_TERM, SHORT_TERM, or LONG_TERM)
+     * @param runType the run type (e.g. BATCH_NEAR_TERM or BRIEFING_GLOSS)
      * @return the model selection for that run type, or empty if not seeded
      */
     Optional<ModelSelectionEntity> findByRunType(RunType runType);

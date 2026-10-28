@@ -53,7 +53,7 @@ class ApiCallLogCacheDiagnosticsMigrationTest extends IntegrationTestBase {
     @DisplayName("a batch result written through JobRunService stores the diagnostics JSON, and a call without "
             + "them stores NULL; the measurement query reads both")
     void diagnosticsAreWrittenAndQueryable() {
-        JobRunEntity run = jobRunService.startRun(RunType.SHORT_TERM, false, EvaluationModel.HAIKU);
+        JobRunEntity run = jobRunService.startRun(RunType.SCHEDULED_BATCH, false, EvaluationModel.HAIKU);
         TokenUsage usage = new TokenUsage(1_000, 100, 0, 4_726);
         jobRunService.logBatchResult(run.getId(), "msgbatch_v168", "fc-1-2026-10-08-SUNRISE", true,
                 null, null, EvaluationModel.HAIKU, usage, LocalDate.of(2026, 10, 8), TargetType.SUNRISE, null,

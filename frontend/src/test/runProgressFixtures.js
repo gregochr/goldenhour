@@ -6,10 +6,8 @@
 //                   skipped, status, elapsedMs
 //   run-complete <- buildRunCompleteEvent: jobRunId, status, phase, total, completed, triaged,
 //                   failed, skipped, durationMs, failedTasks[{taskKey, locationName, errorMessage}],
-//                   reason (null unless the run failed as a whole), retryable (false for a run stopped
-//                   on a rejected API key and for a light-pollution run), retryBlockedReason (null when
-//                   retryable; otherwise API_KEY_REJECTED, LIGHT_POLLUTION or NOT_FORECAST_SLOTS)
-//                   (NO inProgress)
+//                   reason (null unless the run failed as a whole)
+//                   (NO inProgress, and no retry fields: the retry feature is gone)
 // and the counters and status are derived from the tasks the way RunProgress derives them.
 
 const FINISHED = ['COMPLETE', 'FAILED', 'SKIPPED', 'TRIAGED'];
@@ -65,9 +63,7 @@ export const completeEvent = (
   jobRunId,
   tasks,
   {
-    phase = 'FULL_EVALUATION', durationMs = 2100, reason = null, retryable = true,
-    // A run that is not retryable is, by default, the one that was stopped on a rejected key.
-    retryBlockedReason = retryable ? null : 'API_KEY_REJECTED',
+    phase = 'FULL_EVALUATION', durationMs = 2100, reason = null,
   } = {},
 ) => ({
   jobRunId,
@@ -85,8 +81,6 @@ export const completeEvent = (
     errorMessage: t.errorMessage ?? '',
   })),
   reason,
-  retryable,
-  retryBlockedReason,
 });
 
 /** What the server says when a run stopped because Claude rejected the API key. */
@@ -152,9 +146,6 @@ export const LIGHT_POLLUTION_ONE_FAILURE = [
   bortleTask('Test Hill', 'COMPLETE'),
   bortleTask('East Fell', 'FAILED'),
 ];
-
-/** What the server sends for that run: not retryable, because its failed tasks are not forecast slots. */
-export const LIGHT_POLLUTION_COMPLETE_OPTIONS = { retryable: false, retryBlockedReason: 'LIGHT_POLLUTION' };
 
 /** A run with one rated place and two that failed to fetch weather. */
 export const TWO_FAILURES = [

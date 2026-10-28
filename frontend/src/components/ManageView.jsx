@@ -8,7 +8,6 @@ import JobRunsMetricsView from './JobRunsMetricsView.jsx';
 import ModelSelectionView from './ModelSelectionView.jsx';
 import ModelTestView from './ModelTestView.jsx';
 import BriefingModelTestView from './BriefingModelTestView.jsx';
-import PromptTestView from './PromptTestView.jsx';
 import SchedulerView from './SchedulerView.jsx';
 import TravelDaysView from './TravelDaysView.jsx';
 import SkyRatingEvalView from './SkyRatingEvalView.jsx';
@@ -40,7 +39,6 @@ const GROUPS = [
       { value: 'models', label: 'Run Config' },
       { value: 'modeltest', label: 'Location Model Test' },
       { value: 'briefingmodeltest', label: 'Briefing Model Test' },
-      { value: 'prompttest', label: 'Prompt Test' },
       { value: 'skyeval', label: 'Sky Eval' },
       { value: 'scheduler', label: 'Scheduler' },
       { value: 'traveldays', label: 'Travel Days' },
@@ -58,7 +56,7 @@ const GROUPS = [
  * @param {object}   props
  * @param {function} props.onComplete - Called after any change so other views refresh.
  */
-/** Resolve group and tab from a hash fragment like "manage/prompttest". */
+/** Resolve group and tab from a hash fragment like "manage/skyeval". */
 function parseHash() {
   const hash = window.location.hash.replace('#', '');
   const parts = hash.split('/');
@@ -222,13 +220,6 @@ export default function ManageView({ onComplete }) {
           <div className="card flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">Briefing Model Comparison Test</p>
             <BriefingModelTestView />
-          </div>
-        )}
-
-        {activeTab === 'prompttest' && (
-          <div className="card flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">Prompt Regression Test</p>
-            <PromptTestView />
           </div>
         )}
 

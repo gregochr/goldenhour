@@ -4,7 +4,7 @@
  *
  * What breaks if these fail: the sheet shows a badge the popup never showed (or drops one it did),
  * a LITE reader sees a PRO-only fact, or a thresholded fact (dust, rising tide) drifts from the
- * popup's own boundary values while the popup still exists in the admin Prompt Test.
+ * popup's own boundary values.
  */
 import { describe, it, expect } from 'vitest';
 import {

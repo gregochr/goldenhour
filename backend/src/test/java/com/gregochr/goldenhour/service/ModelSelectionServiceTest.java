@@ -42,10 +42,10 @@ class ModelSelectionServiceTest {
     @Test
     @DisplayName("getActiveModel(runType) returns HAIKU when no selection exists")
     void getActiveModel_noSelection_returnsHaiku() {
-        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_GLOSS))
                 .thenReturn(Optional.empty());
 
-        EvaluationModel active = modelSelectionService.getActiveModel(RunType.SHORT_TERM);
+        EvaluationModel active = modelSelectionService.getActiveModel(RunType.BRIEFING_GLOSS);
 
         assertThat(active).isEqualTo(EvaluationModel.HAIKU);
     }
@@ -55,13 +55,13 @@ class ModelSelectionServiceTest {
     void getActiveModel_selectionExists_returnsSonnet() {
         ModelSelectionEntity selection = ModelSelectionEntity.builder()
                 .id(1L)
-                .runType(RunType.SHORT_TERM)
+                .runType(RunType.BRIEFING_GLOSS)
                 .activeModel(EvaluationModel.SONNET)
                 .build();
-        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_GLOSS))
                 .thenReturn(Optional.of(selection));
 
-        EvaluationModel active = modelSelectionService.getActiveModel(RunType.SHORT_TERM);
+        EvaluationModel active = modelSelectionService.getActiveModel(RunType.BRIEFING_GLOSS);
 
         assertThat(active).isEqualTo(EvaluationModel.SONNET);
     }
@@ -71,39 +71,39 @@ class ModelSelectionServiceTest {
     void setActiveModel_existingRow_updatesIt() {
         ModelSelectionEntity existing = ModelSelectionEntity.builder()
                 .id(1L)
-                .runType(RunType.VERY_SHORT_TERM)
+                .runType(RunType.AURORA_GLOSS)
                 .activeModel(EvaluationModel.HAIKU)
                 .build();
-        when(modelSelectionRepository.findByRunType(RunType.VERY_SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.AURORA_GLOSS))
                 .thenReturn(Optional.of(existing));
 
         EvaluationModel result = modelSelectionService.setActiveModel(
-                RunType.VERY_SHORT_TERM, EvaluationModel.SONNET);
+                RunType.AURORA_GLOSS, EvaluationModel.SONNET);
 
         assertThat(result).isEqualTo(EvaluationModel.SONNET);
         ArgumentCaptor<ModelSelectionEntity> captor = ArgumentCaptor.forClass(ModelSelectionEntity.class);
         verify(modelSelectionRepository).save(captor.capture());
         ModelSelectionEntity saved = captor.getValue();
         assertThat(saved.getActiveModel()).isEqualTo(EvaluationModel.SONNET);
-        assertThat(saved.getRunType()).isEqualTo(RunType.VERY_SHORT_TERM);
+        assertThat(saved.getRunType()).isEqualTo(RunType.AURORA_GLOSS);
         assertThat(saved.getUpdatedAt()).isNotNull();
     }
 
     @Test
     @DisplayName("setActiveModel(runType, model) creates new row when none exists")
     void setActiveModel_noExistingRow_createsNew() {
-        when(modelSelectionRepository.findByRunType(RunType.LONG_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.BLUEBELL_GLOSS))
                 .thenReturn(Optional.empty());
 
         EvaluationModel result = modelSelectionService.setActiveModel(
-                RunType.LONG_TERM, EvaluationModel.OPUS);
+                RunType.BLUEBELL_GLOSS, EvaluationModel.OPUS);
 
         assertThat(result).isEqualTo(EvaluationModel.OPUS);
         ArgumentCaptor<ModelSelectionEntity> captor = ArgumentCaptor.forClass(ModelSelectionEntity.class);
         verify(modelSelectionRepository).save(captor.capture());
         ModelSelectionEntity saved = captor.getValue();
         assertThat(saved.getActiveModel()).isEqualTo(EvaluationModel.OPUS);
-        assertThat(saved.getRunType()).isEqualTo(RunType.LONG_TERM);
+        assertThat(saved.getRunType()).isEqualTo(RunType.BLUEBELL_GLOSS);
     }
 
     @Test
@@ -119,11 +119,9 @@ class ModelSelectionServiceTest {
     }
 
     @Test
-    @DisplayName("isConfigurable() is false for the retired term run types and for non-model run types")
+    @DisplayName("isConfigurable() is false for run types that carry no model_selection row")
     void isConfigurable_retiredAndOtherRunTypes_false() {
-        assertThat(ModelSelectionService.isConfigurable(RunType.VERY_SHORT_TERM)).isFalse();
-        assertThat(ModelSelectionService.isConfigurable(RunType.SHORT_TERM)).isFalse();
-        assertThat(ModelSelectionService.isConfigurable(RunType.LONG_TERM)).isFalse();
+        assertThat(ModelSelectionService.isConfigurable(RunType.SCHEDULED_BATCH)).isFalse();
         assertThat(ModelSelectionService.isConfigurable(RunType.WEATHER)).isFalse();
         assertThat(ModelSelectionService.isConfigurable(RunType.TIDE)).isFalse();
     }
@@ -157,8 +155,7 @@ class ModelSelectionServiceTest {
         Map<RunType, EvaluationModel> configs = modelSelectionService.getAllConfigs();
 
         assertThat(configs).hasSize(7);
-        assertThat(configs).doesNotContainKeys(
-                RunType.VERY_SHORT_TERM, RunType.SHORT_TERM, RunType.LONG_TERM);
+        assertThat(configs).doesNotContainKeys(RunType.SCHEDULED_BATCH, RunType.WEATHER, RunType.TIDE);
         assertThat(configs.get(RunType.BLUEBELL_GLOSS)).isEqualTo(EvaluationModel.OPUS);
         assertThat(configs.get(RunType.BRIEFING_BEST_BET)).isEqualTo(EvaluationModel.HAIKU);
         assertThat(configs.get(RunType.BRIEFING_GLOSS)).isEqualTo(EvaluationModel.HAIKU);
@@ -247,18 +244,18 @@ class ModelSelectionServiceTest {
     @Test
     @DisplayName("Different run types are independent")
     void differentRunTypes_areIndependent() {
-        when(modelSelectionRepository.findByRunType(RunType.VERY_SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.AURORA_GLOSS))
                 .thenReturn(Optional.of(ModelSelectionEntity.builder()
-                        .runType(RunType.VERY_SHORT_TERM)
+                        .runType(RunType.AURORA_GLOSS)
                         .activeModel(EvaluationModel.OPUS).build()));
-        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_GLOSS))
                 .thenReturn(Optional.of(ModelSelectionEntity.builder()
-                        .runType(RunType.SHORT_TERM)
+                        .runType(RunType.BRIEFING_GLOSS)
                         .activeModel(EvaluationModel.HAIKU).build()));
 
-        assertThat(modelSelectionService.getActiveModel(RunType.VERY_SHORT_TERM))
+        assertThat(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
                 .isEqualTo(EvaluationModel.OPUS);
-        assertThat(modelSelectionService.getActiveModel(RunType.SHORT_TERM))
+        assertThat(modelSelectionService.getActiveModel(RunType.BRIEFING_GLOSS))
                 .isEqualTo(EvaluationModel.HAIKU);
     }
 

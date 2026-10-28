@@ -40,7 +40,7 @@ Checkstyle and SpotBugs gate those in CI.
    derivation routes through `util/ForecastHorizon` with an injected `Clock`.
    "Today" is the **Europe/London** civil date; `now` comparisons against solar
    event times stay **UTC**. `ForecastHorizon`'s javadoc enumerates the sites
-   deliberately still on UTC (e.g. `PromptTestService.resolveDates`)
+   deliberately still on UTC (currently none)
    and a separate list of known-unfixed ones. A mixed-calendar file is not
    automatically wrong — check the javadoc lists before flagging. Aurora night
    selection uses an **instant** (`now.isBefore(dawn)`), not a calendar date, and

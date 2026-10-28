@@ -30,12 +30,8 @@ public class RunProgress {
     private final Instant startedAt;
     private volatile RunPhase phase = RunPhase.TRIAGE;
     private volatile String failureReason;
-    private volatile boolean stopped;
     private final Object streamLock = new Object();
-    private final Object retryLock = new Object();
     private volatile Instant completedAt;
-    private volatile Long retriedAs;
-    private volatile Instant retriedAt;
 
     /**
      * Constructs a new run progress tracker for a job run.
@@ -82,48 +78,6 @@ public class RunProgress {
      */
     public Object streamLock() {
         return streamLock;
-    }
-
-    /**
-     * The monitor that makes "retry this run's failures" a single decision: whoever holds it checks
-     * whether a retry has already been started from this run, starts one, and records it with
-     * {@link #recordRetry} before releasing it, so two requests cannot both start one. One per run.
-     *
-     * @return the run's retry lock
-     */
-    public Object retryLock() {
-        return retryLock;
-    }
-
-    /**
-     * Records the run that retried this one. Call it only while holding {@link #retryLock()}.
-     * Held in memory with this progress entry, so it is forgotten when the entry is evicted and does
-     * not survive a restart.
-     *
-     * @param retryJobRunId the job run id of the retry that was started
-     * @param at            when it was started
-     */
-    public void recordRetry(long retryJobRunId, Instant at) {
-        this.retriedAs = retryJobRunId;
-        this.retriedAt = at;
-    }
-
-    /**
-     * When the retry recorded by {@link #recordRetry} was started.
-     *
-     * @return the instant, or {@code null} when no retry has been started from this run
-     */
-    public Instant getRetriedAt() {
-        return retriedAt;
-    }
-
-    /**
-     * The job run that retried this run, if a retry has been started from it.
-     *
-     * @return the retry's job run id, or {@code null} when none has been started
-     */
-    public Long getRetriedAs() {
-        return retriedAs;
     }
 
     /**
@@ -269,88 +223,7 @@ public class RunProgress {
      * @param reason a fixed, safe phrase describing why the run stopped (never a raw exception message)
      */
     public synchronized void markFailed(String reason) {
-        if (stopped) {
-            return; // the stop reason names what ended the run, and nothing later is more specific
-        }
         this.failureReason = reason;
-    }
-
-    /**
-     * Stops this run: Claude rejected the API key, so every further evaluation would fail the same
-     * way and none is attempted. Sets the run-level failure reason (which {@link #markFailed} will not
-     * overwrite from here on) and makes the run non-retryable.
-     *
-     * <p>Scoped to this one run's progress object, so two overlapping runs do not affect each other
-     * and a later run starts unstopped.
-     *
-     * @param reason a fixed, safe phrase describing why the run stopped
-     * @return {@code true} if this call stopped the run, {@code false} if it was already stopped
-     */
-    public synchronized boolean stop(String reason) {
-        if (stopped) {
-            return false;
-        }
-        this.failureReason = reason;
-        this.stopped = true;
-        return true;
-    }
-
-    /**
-     * Whether the run was stopped because Claude rejected the API key.
-     *
-     * @return {@code true} once {@link #stop} has been called
-     */
-    public boolean isStopped() {
-        return stopped;
-    }
-
-    /**
-     * Why "Retry failed" is not offered for this run; the one answer both the {@code run-complete}
-     * payload and the retry endpoint read, so the panel and the server cannot disagree.
-     */
-    public enum RetryBlock {
-        /** The run was stopped on a rejected API key: re-running its places fails them the same way. */
-        API_KEY_REJECTED,
-        /** A light-pollution (Bortle) run: its failed tasks are locations, not forecast slots. */
-        LIGHT_POLLUTION,
-        /** Some other run whose failed tasks are not sunrise/sunset slots, so there is no slot to re-run. */
-        NOT_FORECAST_SLOTS
-    }
-
-    /**
-     * Why "Retry failed" cannot do any good for this run, or {@code null} when it can.
-     *
-     * <p>Blocked when the run was stopped on a rejected key (the places it would re-run fail the same
-     * way until the key is fixed and a new run is started), and when a failed task is not a forecast
-     * slot: retry re-runs (location, date, sunrise/sunset) triples, and a Bortle task has a location
-     * and no date or event.
-     *
-     * @return the reason retry is not offered, or {@code null}
-     */
-    public RetryBlock getRetryBlock() {
-        if (stopped) {
-            return RetryBlock.API_KEY_REJECTED;
-        }
-        RetryBlock block = null;
-        for (LocationTaskSnapshot task : getFailedTasks()) {
-            String type = task.targetType();
-            if ("BORTLE".equals(type)) {
-                return RetryBlock.LIGHT_POLLUTION;
-            }
-            if (!"SUNRISE".equals(type) && !"SUNSET".equals(type)) {
-                block = RetryBlock.NOT_FORECAST_SLOTS;
-            }
-        }
-        return block;
-    }
-
-    /**
-     * Whether "Retry failed" can do any good for this run.
-     *
-     * @return {@code true} when {@link #getRetryBlock()} is {@code null}
-     */
-    public boolean isRetryable() {
-        return getRetryBlock() == null;
     }
 
     /**

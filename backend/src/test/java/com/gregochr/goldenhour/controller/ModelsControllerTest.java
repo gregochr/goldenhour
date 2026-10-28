@@ -206,9 +206,22 @@ class ModelsControllerTest extends AbstractControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"VERY_SHORT_TERM", "SHORT_TERM", "LONG_TERM", "WEATHER", "TIDE"})
-    @DisplayName("PUT /api/models/active refuses a run type the screen does not manage with 400")
-    void setActiveModel_nonConfigurableRunType_badRequest(String runType) throws Exception {
+    @ValueSource(strings = {"VERY_SHORT_TERM", "SHORT_TERM", "LONG_TERM"})
+    @DisplayName("PUT /api/models/active refuses a name RunType no longer declares (the retired term types) "
+            + "with 400: the unknown-enum guard")
+    void setActiveModel_unknownRunType_badRequest(String runType) throws Exception {
+        assertActiveModelRefused(runType);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"WEATHER", "TIDE"})
+    @DisplayName("PUT /api/models/active refuses a live run type that is not configurable with 400: "
+            + "the CONFIGURABLE_RUN_TYPES guard")
+    void setActiveModel_nonConfigurableLiveRunType_badRequest(String runType) throws Exception {
+        assertActiveModelRefused(runType);
+    }
+
+    private void assertActiveModelRefused(String runType) throws Exception {
         String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
 
         mockMvc.perform(put("/api/models/active")

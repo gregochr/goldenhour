@@ -42,14 +42,8 @@ import java.time.temporal.ChronoUnit;
  * {@code docs/engineering/intraday-settled-refresh-plan.md} §8a and §8b.
  *
  * <p><b>What is deliberately still UTC — enumerated, because "everything routes through here" is
- * exactly the kind of claim that rots.</b>
- * <ul>
- *   <li>{@code PromptTestService.resolveDates} — the admin prompt-test harness. Its range would
- *       belong here, but the same class decides which target types a date still has via
- *       {@code resolveTargetTypesForDate}, whose day comes from a caller-supplied UTC instant.
- *       Converting the range alone would split one class across two calendars, which is the defect
- *       this class exists to prevent rather than a step towards fixing it.</li>
- * </ul>
+ * exactly the kind of claim that rots.</b> The list is empty: its last entry, the admin prompt-test
+ * harness, was deleted with the term run types.
  *
  * <p><b>And what is still UTC without a defence — a separate list, because collapsing the two is
  * how a hedge becomes a completeness claim.</b> {@code ForceSubmitBatchService}'s JFDI range headed
@@ -73,7 +67,7 @@ import java.time.temporal.ChronoUnit;
  * an ECB publication day rather than a UK one, and anything keying a cache purely by "when did I
  * last fetch". All the entries above are pre-existing and none was introduced by the changes above.
  * They are listed rather than fixed because each wants its own reasoning about what its date
- * <em>means</em> — the lesson {@code PromptTestService} taught, and the one
+ * <em>means</em> — the lesson the deleted prompt-test harness taught, and the one
  * {@code AuroraForecastRunService} then made concrete by being the first case where the answer came
  * back "no calendar at all".
  *

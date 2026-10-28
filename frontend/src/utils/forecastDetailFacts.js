@@ -8,8 +8,8 @@
  * licensed class (CLAUDE.md, *Backend-heavy*). Two thresholds are carried over UNCHANGED from
  * `MarkerPopupContent.jsx` because the popup applied them client-side before this module existed:
  * the dust test (`isDustEnhanced`) and the rising-tide window (`risingTideOf`). They are MOVED, not
- * invented, and since overlay convergence C5 this module is their ONE home - the popup (now mounted
- * only by the admin `PromptTestView`) imports them from here. They are a debt with a name, not a
+ * invented, and since overlay convergence C5 this module is their ONE home - the popup
+ * (`MarkerPopupContent`) imports them from here. They are a debt with a name, not a
  * precedent: the exit for both is a served boolean on the detail DTO.
  *
  * <p>Role gating mirrors the popup's, section by section: a LITE reader gets the plain "High
