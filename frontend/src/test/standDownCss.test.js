@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 /**
  * The stand-down key, label and footer count, asserted against the real `index.css` (big-seas-plan.md
  * F3). jsdom lays nothing out, so what this pins is the MECHANISM: the three tokens exist with the
- * design's values, the swatch is 20x9, and under `forced-colors: active` all the swatches keep a
+ * design's values, the swatch sets no size of its own (it shares the base 26x13), and under `forced-colors: active` all the swatches keep a
  * border and the two hatched ones stay distinguishable from each other (dashed vs dotted) because
  * backgrounds and box-shadows are dropped there.
  */
@@ -101,10 +101,13 @@ describe('the stand-down label (big-seas plan F3)', () => {
 });
 
 describe('the stand-down swatch', () => {
-  it('is 20x9', () => {
+  it('sets no width or height of its own, so it shares the base swatch 26x13', () => {
     const body = ruleFor('.wf-legend-swatch-standdown');
-    expect(body).toMatch(/width:\s*20px/);
-    expect(body).toMatch(/height:\s*9px/);
+    expect(body).not.toMatch(/(^|[\s;{])width:/);
+    expect(body).not.toMatch(/(^|[\s;{])height:/);
+    expect(body).toContain('repeating-linear-gradient(-45deg');
+    expect(ruleFor('.wf-legend-swatch')).toMatch(/width:\s*26px/);
+    expect(ruleFor('.wf-legend-swatch')).toMatch(/height:\s*13px/);
   });
 
   it('forced colours: every swatch keeps a border, and the two hatched ones differ in style', () => {
@@ -126,7 +129,7 @@ describe('the stand-down swatch', () => {
       .toBeGreaterThan(media.bodyInner.indexOf('.wf-legend-swatch {'));
   });
 
-  it('the stand-down rule sits after the base swatch, so its 20x9 wins the cascade', () => {
+  it('the stand-down rule sits after the base swatch, so its background wins the cascade', () => {
     const css = readCss();
     expect(css.indexOf('.wf-legend-swatch-standdown {'))
       .toBeGreaterThan(css.indexOf('.wf-legend-swatch {'));
