@@ -83,11 +83,11 @@ describe('every auth input carries the shared .field style and nothing that outr
     inputs.forEach(expectOnlyTheSharedFieldStyle);
   });
 
-  it('change password: both fields', () => {
+  it('change password: the current, new and confirm fields', () => {
     const { container } = renderAuth(<ChangePasswordPage />);
 
     const inputs = textInputs(container);
-    expect(inputs.map((i) => i.id)).toEqual(['cp-new', 'cp-confirm']);
+    expect(inputs.map((i) => i.id)).toEqual(['cp-current', 'cp-new', 'cp-confirm']);
     inputs.forEach(expectOnlyTheSharedFieldStyle);
   });
 

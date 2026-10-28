@@ -148,9 +148,10 @@ Set `OFFBOX_DEST` in the service unit to keep a second copy on separate hardware
 
 All API endpoints except `/api/auth/**` require a valid JWT.
 
-**Default admin credentials:** `admin` / `golden2026`
+**Default admin credentials (local H2 profile only):** `admin` / `golden2026`
 
-> Change the admin password immediately after first login.
+> These exist only when you run with the `local` profile. On any Postgres environment the app disables that
+> password at startup; see `DEVOPS.md` ("Default Credentials") for how to set a real admin password.
 
 Users can self-register at the login page — email verification is required, and Cloudflare Turnstile protects against bots. Admins can also create users directly.
 
