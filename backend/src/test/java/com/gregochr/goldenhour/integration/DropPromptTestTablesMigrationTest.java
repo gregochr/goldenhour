@@ -17,10 +17,10 @@ import java.sql.Statement;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Proves V197 ({@code drop_prompt_test_tables}) against a real Postgres 17 engine.
+ * Proves V198 ({@code drop_prompt_test_tables}) against a real Postgres 17 engine.
  *
  * <p>Flyway is driven directly, as {@link RetireTermRunTypesMigrationTest} does, so the test can stop
- * at V196, confirm both tables still exist, and only then apply V197.
+ * at V197 (after V196 and the growing-table indexes), confirm both tables still exist, and only then apply V198.
  */
 @Testcontainers
 class DropPromptTestTablesMigrationTest {
@@ -57,9 +57,9 @@ class DropPromptTestTablesMigrationTest {
     }
 
     @Test
-    @DisplayName("V197 drops prompt_test_result and prompt_test_run")
-    void v197_dropsPromptTestTables() throws SQLException {
-        flywayTo("196").migrate();
+    @DisplayName("V198 drops prompt_test_result and prompt_test_run")
+    void v198_dropsPromptTestTables() throws SQLException {
+        flywayTo("197").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(tableCount(st, "prompt_test_run")).isEqualTo(1);

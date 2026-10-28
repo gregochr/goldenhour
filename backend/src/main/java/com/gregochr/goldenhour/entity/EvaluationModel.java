@@ -27,7 +27,7 @@ public enum EvaluationModel {
      * production (as of 2026-10-04): api_call_log.evaluation_model,
      * briefing_model_test_result.evaluation_model, forecast_evaluation.evaluation_model,
      * job_run.evaluation_model, model_selection.active_model, model_test_result.evaluation_model,
-     * prompt_test_result.evaluation_model, prompt_test_run.evaluation_model (both dropped by V197) and
+     * prompt_test_result.evaluation_model, prompt_test_run.evaluation_model (both dropped by V198) and
      * sky_rating_eval_run.model.
      *
      * <p>A refusal from this model counts as a failed result for {@code LocationFailureService}
