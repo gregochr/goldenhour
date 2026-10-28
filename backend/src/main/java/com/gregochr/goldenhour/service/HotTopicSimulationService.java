@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -24,6 +25,22 @@ public class HotTopicSimulationService {
 
     private volatile boolean enabled = false;
     private final Set<String> activeTypes = ConcurrentHashMap.newKeySet();
+    private final ServedBriefingEpoch servedEpoch;
+
+    /**
+     * Constructs the service.
+     *
+     * @param servedEpoch bumped on every toggle, so the memoised served briefing is rebuilt
+     */
+    @Autowired
+    public HotTopicSimulationService(ServedBriefingEpoch servedEpoch) {
+        this.servedEpoch = servedEpoch;
+    }
+
+    /** Constructs the service with a private epoch (nothing memoised observes it); for tests. */
+    public HotTopicSimulationService() {
+        this(new ServedBriefingEpoch());
+    }
 
     /**
      * Returns true when simulation mode is active.
@@ -41,6 +58,7 @@ public class HotTopicSimulationService {
      */
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+        servedEpoch.bump();
     }
 
     /**
@@ -64,6 +82,7 @@ public class HotTopicSimulationService {
         } else {
             activeTypes.remove(type);
         }
+        servedEpoch.bump();
     }
 
     /**

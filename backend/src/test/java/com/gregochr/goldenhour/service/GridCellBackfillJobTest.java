@@ -45,7 +45,7 @@ class GridCellBackfillJobTest {
     @BeforeEach
     void setUp() {
         job = new GridCellBackfillJob(locationRepository, locationEnrichmentService,
-                dynamicSchedulerService);
+                dynamicSchedulerService, new ServedBriefingEpoch());
     }
 
     @Test

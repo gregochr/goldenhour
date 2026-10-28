@@ -511,6 +511,7 @@ P1 and P2 touch disjoint files and may be built in parallel worktrees; each stil
 |---|---|---|---|---|
 | plan | `claude/app-performance-review-d46a33` | | 2026-10-28 | |
 | P6a | `perf/p6a-indexes` | | 2026-10-28 | five indexes (V197); I5 skipped |
+| P1b | `perf/p1b-served-briefing-memo` | | 2026-10-28 | `/api/briefing` on a memo hit: 0 statements (assembler not called); a miss assembles as before. 30 s memo, keyed by cache identity, UK date and `ServedBriefingEpoch` |
 
 ## 11. What the review changed (draft 1 → draft 2)
 

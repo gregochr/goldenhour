@@ -46,6 +46,7 @@ public class BriefingWeatherLoader {
     private final OpenMeteoClient openMeteoClient;
     private final LocationRepository locationRepository;
     private final JobRunService jobRunService;
+    private final ServedBriefingEpoch servedEpoch;
 
     /**
      * Constructs a {@code BriefingWeatherLoader}.
@@ -53,12 +54,15 @@ public class BriefingWeatherLoader {
      * @param openMeteoClient    resilient Open-Meteo API client
      * @param locationRepository repository for persisting grid coordinates discovered in responses
      * @param jobRunService      service for job run and API-call metrics tracking
+     * @param servedEpoch        bumped after each grid-cell write
      */
     public BriefingWeatherLoader(OpenMeteoClient openMeteoClient,
-            LocationRepository locationRepository, JobRunService jobRunService) {
+            LocationRepository locationRepository, JobRunService jobRunService,
+            ServedBriefingEpoch servedEpoch) {
         this.openMeteoClient = openMeteoClient;
         this.locationRepository = locationRepository;
         this.jobRunService = jobRunService;
+        this.servedEpoch = servedEpoch;
     }
 
     /**
@@ -168,6 +172,7 @@ public class BriefingWeatherLoader {
                 for (LocationEntity loc : toSave) {
                     locationRepository.updateGridCell(
                             loc.getId(), forecast.getLatitude(), forecast.getLongitude());
+                    servedEpoch.bump();
                 }
                 LOG.debug("Captured grid cell {},{} for {} location(s)",
                         forecast.getLatitude(), forecast.getLongitude(), toSave.size());

@@ -47,6 +47,7 @@ public class LocationService {
     private final LocationEnrichmentService locationEnrichmentService;
     private final NameNamespaceGuard nameGuard;
     private final SubRegionMembershipService subRegionMembership;
+    private final ServedBriefingEpoch servedEpoch;
 
     /**
      * Constructs a {@code LocationService}.
@@ -58,15 +59,18 @@ public class LocationService {
      *                                  is saved without one, or is moved
      * @param nameGuard          the shared name rules: a location name may not shadow a named area or an alias
      * @param subRegionMembership the only writer of which sub-region a location belongs to
+     * @param servedEpoch bumped after commit on every location save, enable and failure reset
      */
     public LocationService(LocationRepository locationRepository,
                            RegionRepository regionRepository,
                            TideService tideService,
                            LocationEnrichmentService locationEnrichmentService,
                            NameNamespaceGuard nameGuard,
-                           SubRegionMembershipService subRegionMembership) {
+                           SubRegionMembershipService subRegionMembership,
+                           ServedBriefingEpoch servedEpoch) {
         this.nameGuard = nameGuard;
         this.subRegionMembership = subRegionMembership;
+        this.servedEpoch = servedEpoch;
         this.locationRepository = locationRepository;
         this.regionRepository = regionRepository;
         this.tideService = tideService;
@@ -184,6 +188,7 @@ public class LocationService {
                 .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
         LocationEntity saved = locationRepository.save(entity);
+        servedEpoch.bump();
         if (request.subRegionId() != null) {
             subRegionMembership.assign(saved, request.subRegionId());
         }
@@ -309,6 +314,7 @@ public class LocationService {
         refreshGridCell(location, coordinatesMoved);
 
         LocationEntity saved = locationRepository.save(location);
+        servedEpoch.bump();
 
         // A region change strands a membership in a sub-region of the old region: drop it (and say so), then
         // honour a sub-region this same request names.
@@ -398,6 +404,7 @@ public class LocationService {
         // enabled and the failure columns are not updatable through the entity (see LocationEntity):
         // write them with scoped updates, and mirror that on the in-memory copy that is returned.
         locationRepository.updateEnabled(saved.getId(), enabled);
+        servedEpoch.bump();
         saved.setEnabled(enabled);
         if (enabled) {
             locationRepository.clearFailureState(saved.getId());
@@ -483,6 +490,7 @@ public class LocationService {
             locationRepository.updateEnabled(saved.getId(), true);
             saved.setEnabled(true);
         }
+        servedEpoch.bump();
         locationRepository.clearFailureState(saved.getId());
         saved.setConsecutiveFailures(0);
         saved.setDisabledReason(null);

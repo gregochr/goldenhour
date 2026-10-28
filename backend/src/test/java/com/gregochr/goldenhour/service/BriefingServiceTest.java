@@ -210,7 +210,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
     }
 
     /**
@@ -286,7 +286,7 @@ class BriefingServiceTest {
      * @return a fresh loader wired over the mocked collaborators
      */
     private BriefingWeatherLoader weatherLoader() {
-        return new BriefingWeatherLoader(openMeteoClient, locationRepository, jobRunService);
+        return new BriefingWeatherLoader(openMeteoClient, locationRepository, jobRunService, new ServedBriefingEpoch());
     }
 
     /** NLC clarity service wired with a real transect sampler over the mocked Open-Meteo client. */
@@ -573,7 +573,8 @@ class BriefingServiceTest {
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     evaluationViewService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), BST_CLOCK, marineWaveRefreshService,
-                    snapshots(), assembler(BST_CLOCK), rollup(BST_CLOCK), eclipseSightAssembler);
+                    snapshots(), assembler(BST_CLOCK), rollup(BST_CLOCK), eclipseSightAssembler,
+                    new ServedBriefingEpoch());
             freshService.loadPersistedBriefing();
 
             DailyBriefingResponse api = freshService.getCachedBriefingForApi();
@@ -951,7 +952,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -985,7 +986,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1012,7 +1013,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1558,7 +1559,7 @@ class BriefingServiceTest {
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     evaluationViewService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                    snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+                    snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1
@@ -1737,7 +1738,7 @@ class BriefingServiceTest {
                     slotBuilder, eventPublisher, realAggregator,
                     evaluationViewService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                    snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+                    snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
             refreshWithOneLocation();
 
             DailyBriefingResponse first = briefingService.getCachedBriefing();

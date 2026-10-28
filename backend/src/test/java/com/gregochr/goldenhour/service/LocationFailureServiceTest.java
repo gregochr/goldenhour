@@ -184,7 +184,7 @@ class LocationFailureServiceTest {
         });
         service = new LocationFailureService(resolver, locationRepository, adminAlertService,
                 Clock.fixed(NOW, ZoneOffset.UTC), transactionManager, pipelineRunRepository,
-                forecastBatchRepository);
+                forecastBatchRepository, new ServedBriefingEpoch());
         serviceLogger = (Logger) LoggerFactory.getLogger(LocationFailureService.class);
         logAppender = new ListAppender<>();
         logAppender.start();
@@ -1300,7 +1300,7 @@ class LocationFailureServiceTest {
         service.settleCycle(run(RUN_ID, CycleType.NIGHTLY));
         LocationFailureService restarted = new LocationFailureService(resolver, locationRepository,
                 adminAlertService, Clock.fixed(NOW, ZoneOffset.UTC), transactionManager,
-                pipelineRunRepository, forecastBatchRepository);
+                pipelineRunRepository, forecastBatchRepository, new ServedBriefingEpoch());
 
         restarted.settleCycle(run(RUN_ID, CycleType.NIGHTLY));
 

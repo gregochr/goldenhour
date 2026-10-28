@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.service.ServedBriefingEpoch;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -141,8 +143,22 @@ public class AuroraStateCache {
 
     private final Clock clock;
 
+    /** Bumped by every write, so the memoised served briefing picks up the aurora overlay change. */
+    private final ServedBriefingEpoch servedEpoch;
+
     /**
      * Constructs the state machine, IDLE, on the system clock.
+     *
+     * @param servedEpoch bumped by every state write
+     */
+    @Autowired
+    public AuroraStateCache(ServedBriefingEpoch servedEpoch) {
+        this(Clock.systemUTC(), servedEpoch);
+    }
+
+    /**
+     * Constructs the state machine, IDLE, on the system clock, with a private epoch (nothing
+     * memoised observes it); for tests.
      */
     public AuroraStateCache() {
         this(Clock.systemUTC());
@@ -154,7 +170,18 @@ public class AuroraStateCache {
      * @param clock supplies the instant an alert becomes active, escalates, or a simulation starts
      */
     AuroraStateCache(Clock clock) {
+        this(clock, new ServedBriefingEpoch());
+    }
+
+    /**
+     * Constructs the state machine, IDLE, stamping {@link #getActiveSince()} from {@code clock}.
+     *
+     * @param clock       supplies the instant an alert becomes active, escalates, or a simulation starts
+     * @param servedEpoch bumped by every state write
+     */
+    AuroraStateCache(Clock clock, ServedBriefingEpoch servedEpoch) {
         this.clock = clock;
+        this.servedEpoch = servedEpoch;
     }
 
     /**
@@ -202,6 +229,7 @@ public class AuroraStateCache {
             // An escalation writes currentLevel and activeSince only, never the rest of the state.
             currentLevel = incoming;
             activeSince = clock.instant();
+            servedEpoch.bump();
             return new Evaluation(Action.NOTIFY, incoming, current);
         } finally {
             transitionLock.unlock();
@@ -274,6 +302,7 @@ public class AuroraStateCache {
         transitionLock.lock();
         try {
             this.cachedScores = List.copyOf(scores);
+            servedEpoch.bump();
         } finally {
             transitionLock.unlock();
         }
@@ -293,6 +322,7 @@ public class AuroraStateCache {
         try {
             this.lastTriggerType = triggerType;
             this.lastTriggerKp = kp;
+            servedEpoch.bump();
         } finally {
             transitionLock.unlock();
         }
@@ -329,6 +359,7 @@ public class AuroraStateCache {
         try {
             this.darkSkyLocationCount = darkSkyCount;
             this.clearLocationCount = clearCount;
+            servedEpoch.bump();
         } finally {
             transitionLock.unlock();
         }
@@ -517,5 +548,6 @@ public class AuroraStateCache {
         if (simulation == null) {
             simulatedData = null;
         }
+        servedEpoch.bump();
     }
 }

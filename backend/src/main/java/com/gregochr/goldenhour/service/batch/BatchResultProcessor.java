@@ -25,6 +25,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.CostCalculator;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.ServedBriefingEpoch;
 import com.gregochr.goldenhour.service.evaluation.AuroraResultHandler;
 import com.gregochr.goldenhour.service.evaluation.AuroraResultHandler.AuroraBatchOutcome;
 import com.gregochr.goldenhour.service.evaluation.ClaudeBatchOutcome;
@@ -77,6 +78,7 @@ public class BatchResultProcessor {
     private final AuroraResultHandler auroraResultHandler;
     private final EvaluationAbandonmentService evaluationAbandonmentService;
     private final PipelineRunRepository pipelineRunRepository;
+    private final ServedBriefingEpoch servedEpoch;
 
     /**
      * Constructs the batch result processor.
@@ -98,6 +100,7 @@ public class BatchResultProcessor {
      *                               every result this batch produces, shared identically by every
      *                               batch (including a retry) the same cycle submits. See {@link
      *                               #resolveSubmissionInstant}
+     * @param servedEpoch            bumped once a result batch has been processed, whichever way it ended
      */
     public BatchResultProcessor(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
@@ -107,7 +110,9 @@ public class BatchResultProcessor {
             ForecastResultHandler forecastResultHandler,
             AuroraResultHandler auroraResultHandler,
             EvaluationAbandonmentService evaluationAbandonmentService,
-            PipelineRunRepository pipelineRunRepository) {
+            PipelineRunRepository pipelineRunRepository,
+            ServedBriefingEpoch servedEpoch) {
+        this.servedEpoch = servedEpoch;
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.locationRepository = locationRepository;
@@ -131,13 +136,19 @@ public class BatchResultProcessor {
         LOG.info("Processing batch results: batchId={}, type={}", batch.getAnthropicBatchId(),
                 batch.getBatchType());
 
-        if (batch.getBatchType() == BatchType.FORECAST) {
-            processForecastBatch(batch);
-        } else if (batch.getBatchType() == BatchType.AURORA) {
-            processAuroraBatch(batch);
-        } else {
-            LOG.warn("Unknown batch type: {}", batch.getBatchType());
-            markFailed(batch, "Unknown batch type: " + batch.getBatchType());
+        try {
+            if (batch.getBatchType() == BatchType.FORECAST) {
+                processForecastBatch(batch);
+            } else if (batch.getBatchType() == BatchType.AURORA) {
+                processAuroraBatch(batch);
+            } else {
+                LOG.warn("Unknown batch type: {}", batch.getBatchType());
+                markFailed(batch, "Unknown batch type: " + batch.getBatchType());
+            }
+        } finally {
+            // The end of every result batch (also a failed or partial one: results flushed before
+            // a failure are already written): the memoised served briefing re-reads the ratings.
+            servedEpoch.bump();
         }
     }
 

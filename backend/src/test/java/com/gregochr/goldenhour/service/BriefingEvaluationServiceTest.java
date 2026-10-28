@@ -214,7 +214,7 @@ class BriefingEvaluationServiceTest {
             BriefingEvaluationService restarted = new BriefingEvaluationService(
                     cachedEvaluationRepository, deltaLogRepository,
                     objectMapper, freshnessResolver, stabilitySnapshotProvider,
-                    supersedingDispositionService);
+                    supersedingDispositionService, new ServedBriefingEpoch());
             restarted.rehydrateCacheOnStartup();
 
             assertThat(restarted.getCachedScores(REGION, today, TargetType.SUNRISE)
@@ -227,7 +227,7 @@ class BriefingEvaluationServiceTest {
         service = new BriefingEvaluationService(
                 cachedEvaluationRepository, deltaLogRepository,
                 objectMapper, freshnessResolver, stabilitySnapshotProvider,
-                supersedingDispositionService);
+                supersedingDispositionService, new ServedBriefingEpoch());
         // Default: no existing DB cache entries
         org.mockito.Mockito.lenient()
                 .when(cachedEvaluationRepository.findByCacheKey(any()))

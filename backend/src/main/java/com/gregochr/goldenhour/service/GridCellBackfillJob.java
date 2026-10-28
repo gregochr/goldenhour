@@ -70,6 +70,7 @@ public class GridCellBackfillJob {
     private final LocationRepository locationRepository;
     private final LocationEnrichmentService locationEnrichmentService;
     private final DynamicSchedulerService dynamicSchedulerService;
+    private final ServedBriefingEpoch servedEpoch;
 
     /**
      * Creates the job.
@@ -77,13 +78,15 @@ public class GridCellBackfillJob {
      * @param locationRepository        source of locations missing a grid cell, and the sink
      * @param locationEnrichmentService performs the Open-Meteo grid cell lookup
      * @param dynamicSchedulerService   the DB-backed scheduler this job registers with
+     * @param servedEpoch               bumped after each grid-cell write
      */
     public GridCellBackfillJob(LocationRepository locationRepository,
             LocationEnrichmentService locationEnrichmentService,
-            DynamicSchedulerService dynamicSchedulerService) {
+            DynamicSchedulerService dynamicSchedulerService, ServedBriefingEpoch servedEpoch) {
         this.locationRepository = locationRepository;
         this.locationEnrichmentService = locationEnrichmentService;
         this.dynamicSchedulerService = dynamicSchedulerService;
+        this.servedEpoch = servedEpoch;
     }
 
     /** Registers the nightly backfill with the dynamic scheduler. */
@@ -150,6 +153,7 @@ public class GridCellBackfillJob {
             // Scoped: this snapshot was loaded before a remote call and may be stale, so it must
             // not rewrite any other column (an admin's edit, or enabled / the failure state).
             locationRepository.updateGridCell(location.getId(), cell[0], cell[1]);
+            servedEpoch.bump();
             filled++;
             LOG.info("Grid cell backfill: '{}' → {},{}", location.getName(), cell[0], cell[1]);
         }

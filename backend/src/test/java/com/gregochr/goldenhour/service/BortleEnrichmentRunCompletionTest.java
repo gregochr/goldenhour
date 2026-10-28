@@ -85,7 +85,7 @@ class BortleEnrichmentRunCompletionTest {
                         published.add(taskEvent);
                         tracker.onTaskEvent(taskEvent);
                     }
-                });
+                }, new ServedBriefingEpoch());
         JobRunEntity jobRun = new JobRunEntity();
         jobRun.setId(1L);
         LocationEntity good = location("Bamburgh", 55.6);
@@ -132,7 +132,7 @@ class BortleEnrichmentRunCompletionTest {
                     if (event instanceof LocationTaskEvent taskEvent) {
                         tracker.onTaskEvent(taskEvent);
                     }
-                });
+                }, new ServedBriefingEpoch());
         JobRunEntity jobRun = new JobRunEntity();
         jobRun.setId(1L);
         when(locationRepository.findByBortleClassIsNull())

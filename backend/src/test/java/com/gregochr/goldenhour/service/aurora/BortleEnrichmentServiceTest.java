@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.aurora;
 
+import com.gregochr.goldenhour.service.ServedBriefingEpoch;
 import com.gregochr.goldenhour.client.LightPollutionClient;
 import com.gregochr.goldenhour.client.LightPollutionClient.SkyBrightnessResult;
 import com.gregochr.goldenhour.entity.JobRunEntity;
@@ -51,7 +52,7 @@ class BortleEnrichmentServiceTest {
     @BeforeEach
     void setUp() {
         service = new BortleEnrichmentService(locationRepository, lightPollutionClient,
-                jobRunService, progressTracker, eventPublisher);
+                jobRunService, progressTracker, eventPublisher, new ServedBriefingEpoch());
         stubJobRun = new JobRunEntity();
         stubJobRun.setId(1L);
     }

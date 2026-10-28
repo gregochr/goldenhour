@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.ForecastRunDispositionEntity;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.DispositionBreakdownResponse;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.service.ServedBriefingEpoch;
 import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,15 +47,19 @@ public class ForecastDispositionService {
 
     private final ForecastRunDispositionRepository repository;
     private final PipelineRunRepository pipelineRunRepository;
+    private final ServedBriefingEpoch servedEpoch;
 
     /**
      * Constructs the service.
      *
      * @param repository            disposition repository
      * @param pipelineRunRepository records which job run holds a cycle's dispositions
+     * @param servedEpoch           bumped after commit on every disposition write (a stability skip
+     *                              retracts a rating at serve time)
      */
     public ForecastDispositionService(ForecastRunDispositionRepository repository,
-            PipelineRunRepository pipelineRunRepository) {
+            PipelineRunRepository pipelineRunRepository, ServedBriefingEpoch servedEpoch) {
+        this.servedEpoch = servedEpoch;
         this.repository = repository;
         this.pipelineRunRepository = pipelineRunRepository;
     }
@@ -133,6 +138,7 @@ public class ForecastDispositionService {
                     .build());
         }
         repository.saveAll(entities);
+        servedEpoch.bump();
         LOG.info("[DISPOSITION] Persisted {} disposition row(s) for jobRunId={}",
                 entities.size(), jobRunId);
     }
