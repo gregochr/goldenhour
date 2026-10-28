@@ -1,6 +1,41 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+/**
+ * Every `/assets/*` file `dist/index.html` references through a script, modulepreload or
+ * stylesheet tag: the entry's whole static closure, which the browser fetches before first paint.
+ *
+ * The precache used to be a hand-kept list of globs (`index-*`, `react-*`), so any other chunk the
+ * entry statically imports (`authApi`, `conversions`, ...) was fetched from the network on every
+ * cold start even with the service worker installed. Reading the generated HTML keeps the list in
+ * step with whatever Rolldown decides to emit. Workbox runs after the bundle is written, so
+ * `dist/index.html` exists by then; if it somehow does not, the build fails rather than precaching
+ * a shell that cannot paint offline.
+ *
+ * @param {string} distDir absolute path of the build output
+ * @returns {Set<string>} precache-style urls (`assets/x.js`, no leading slash)
+ */
+function entryClosureUrls(distDir) {
+  const htmlPath = resolve(distDir, 'index.html');
+  if (!existsSync(htmlPath)) {
+    throw new Error(`precache: ${htmlPath} not found; cannot derive the entry closure`);
+  }
+  const html = readFileSync(htmlPath, 'utf8');
+  const urls = new Set();
+  for (const [tag] of html.matchAll(/<(?:script|link)\b[^>]*>/gi)) {
+    const isScript = tag.toLowerCase().startsWith('<script');
+    const rel = /\brel="([^"]*)"/i.exec(tag)?.[1] ?? '';
+    const href = /\b(?:href|src)="([^"]*)"/i.exec(tag)?.[1];
+    if (!href || !href.includes('/assets/')) continue;
+    if (isScript || ['modulepreload', 'stylesheet'].includes(rel)) {
+      urls.add(href.replace(/^\//, ''));
+    }
+  }
+  return urls;
+}
 
 // `loadEnv`, not bare `process.env`. Vite's .env files populate `import.meta.env` for CLIENT
 // code; this config runs in Node, where `process.env` holds only what the shell exported. So a
@@ -54,12 +89,22 @@ export default defineConfig(({ mode }) => {
         ],
       },
       workbox: {
-        globPatterns: [
-          '**/*.{css,html,woff2}',
-          'assets/index-*.js',
-          'assets/AuthPages-*.js',
-          'assets/react-*.js',
-          'assets/rolldown-runtime-*.js',
+        // Every built script is a candidate; `manifestTransforms` below keeps only the entry's
+        // closure and AuthPages. (The old `rolldown-runtime-*` glob matched nothing: Rolldown
+        // inlines its runtime, so it was dropped.)
+        globPatterns: ['**/*.{css,html,woff2}', 'assets/*.js'],
+        manifestTransforms: [
+          async (entries) => {
+            const closure = entryClosureUrls(resolve(process.cwd(), 'dist'));
+            const keep = (url) => !url.endsWith('.js')
+              // AuthPages is not in the closure (the login screen is lazy) but must be precached
+              // so a reload offline can still sign in.
+              || closure.has(url) || /^assets\/AuthPages-[^/]*\.js$/.test(url);
+            const manifest = entries.filter((entry) => keep(entry.url));
+            const missing = [...closure].filter((url) => !manifest.some((e) => e.url === url));
+            const warnings = missing.map((url) => `precache: entry closure file not precached: ${url}`);
+            return { manifest, warnings };
+          },
         ],
         navigateFallback: '/index.html',
         // API and actuator requests must never be answered with the SPA shell.

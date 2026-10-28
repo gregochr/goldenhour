@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PropTypes from 'prop-types';
 import { useNlcSighting } from '../hooks/useNlcSighting.js';
 import { formatInstantUk, parseUtcInstant } from '../utils/conversions.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
@@ -105,8 +106,8 @@ const NLC_A_STYLE = `
  * - Inert: no click or keyboard route to the map exists for it yet
  * - Calm: no pulse animation
  */
-export default function NlcSightingBanner() {
-  const { sighting } = useNlcSighting();
+export default function NlcSightingBanner({ eligible = true }) {
+  const { sighting } = useNlcSighting(eligible);
   const [dismissedKey, setDismissedKey] = useState(null);
 
   // Not eligible (free-tier, 403) or not yet loaded
@@ -197,3 +198,8 @@ export default function NlcSightingBanner() {
     </>
   );
 }
+
+NlcSightingBanner.propTypes = {
+  /** False for a reader the endpoint refuses (Lite): no request is made. */
+  eligible: PropTypes.bool,
+};

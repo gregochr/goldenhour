@@ -1392,6 +1392,40 @@ describe('WindowFirstBriefingProvider', () => {
         .toHaveTextContent('The Lake District|The North Yorkshire Coast'));
     });
 
+    it('caches the shared regions and matrix, and paints from them before the network answers', async () => {
+      await withScores();
+      await waitFor(() => expect(screen.getByTestId('origin-regions'))
+        .toHaveTextContent('The Lake District'));
+      // Written under shared (not per-role) keys, and never with a per-user reach figure.
+      expect(JSON.parse(localStorage.getItem(storageKey('regions:shared'))).value).toHaveLength(2);
+      expect(JSON.parse(localStorage.getItem(storageKey('regionDriveTimes:shared'))).value)
+        .toEqual({ 3: { 7: 12 } });
+      expect(localStorage.getItem(storageKey('regionDriveTimes:shared'))).not.toMatch(/driveMinutes/);
+
+      cleanup();
+      fetchRegions.mockReset().mockReturnValue(new Promise(() => {}));
+      fetchRegionDriveTimes.mockReset().mockReturnValue(new Promise(() => {}));
+      renderProvider();
+      // Both requests still pending: this text can only have come from the cache.
+      expect(screen.getByTestId('origin-regions'))
+        .toHaveTextContent('The Lake District|The North Yorkshire Coast');
+    });
+
+    it('survives a refused cache write: the fetched regions still reach the origin', async () => {
+      const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await withScores();
+        await waitFor(() => expect(screen.getByTestId('origin-regions'))
+          .toHaveTextContent('The Lake District'));
+      } finally {
+        setItem.mockRestore();
+        warn.mockRestore();
+      }
+    });
+
     it('starts at home, with the reader\'s own reach map', async () => {
       await withScores();
       await waitFor(() => expect(screen.getByTestId('origin-drive')).toHaveTextContent('7=41/19'));

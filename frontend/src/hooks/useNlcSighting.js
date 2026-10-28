@@ -31,9 +31,16 @@ const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
  * slower, successful scrape until the next poll or focus. Accepted — it needs a fast failure to
  * race a slow success, and its cure is one scrape at a time on the backend, not a rule here.
  *
+ * <p><b>`enabled` is the role gate.</b> The endpoint is `ADMIN` and `PRO_USER` only
+ * (`NlcController`'s `@PreAuthorize`), so a Lite reader's request was always a 403. The caller
+ * passes `role === 'PRO_USER' || role === 'ADMIN'` (the same predicate as the backend) and a
+ * disabled hook makes no request, polls nothing and listens for no focus. Backend 403 remains the
+ * real enforcement; this only stops the wasted round trip at startup.
+ *
+ * @param {boolean} [enabled=true] false for a reader the endpoint would refuse
  * @returns {{ sighting: object|null, loading: boolean }}
  */
-export function useNlcSighting() {
+export function useNlcSighting(enabled = true) {
   const [sighting, setSighting] = useState(null);
   const [loading, setLoading] = useState(true);
   const intervalRef = useRef(null);
@@ -50,6 +57,11 @@ export function useNlcSighting() {
   const appliedRef = useRef(0);
 
   useEffect(() => {
+    if (!enabled) {
+      setSighting(null);
+      setLoading(false);
+      return undefined;
+    }
     async function fetchSighting() {
       requestedRef.current += 1;
       const request = requestedRef.current;
@@ -77,7 +89,7 @@ export function useNlcSighting() {
       clearInterval(intervalRef.current);
       window.removeEventListener('focus', handleFocus);
     };
-  }, []);
+  }, [enabled]);
 
-  return { sighting, loading };
+  return { sighting: enabled ? sighting : null, loading };
 }

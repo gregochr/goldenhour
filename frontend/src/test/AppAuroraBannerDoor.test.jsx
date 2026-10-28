@@ -446,3 +446,19 @@ describe('App — a simulated alert\'s banner opens Operations (C4, S3)', () => 
     expect(ShellStub.lastProps.tabRequest.nonce).toBeGreaterThan(first);
   });
 });
+
+describe('App — the NLC sighting request follows the backend role gate (P2f)', () => {
+  it('a Lite reader makes no NLC request (the endpoint is a 403 for them)', async () => {
+    renderApp('LITE_USER');
+    // Control: the app really mounted and ran its startup requests before the negative is read.
+    await waitFor(() => expect(fetchLocations).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+    expect(getNlcSighting).not.toHaveBeenCalled();
+  });
+
+  it.each(['PRO_USER', 'ADMIN'])('%s still asks for the sighting', async (role) => {
+    renderApp(role);
+    await waitFor(() => expect(getNlcSighting).toHaveBeenCalled());
+  });
+});
+

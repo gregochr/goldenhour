@@ -74,6 +74,18 @@ const EMPTY_REGION_SERIES = new Map();
  */
 const EMPTY_REGIONS = [];
 const EMPTY_MATRIX = {};
+/**
+ * SWR keys for the two shared region reads. Not role-specific: neither payload differs by reader
+ * (the matrix is "base town to roster", the same for everyone), so no per-user data rides them.
+ * Measured at P2f: worst case (24 regions all with a base x a 209-location roster) is 46.8 KB for
+ * the matrix and 3.4 KB for the regions, ~50 KB raw (~100 KB as UTF-16) against iOS's ~5 MB, so
+ * they fit beside the briefing. A write that fails is dropped by `swrCache` and costs only the
+ * instant paint of these two.
+ */
+const REGIONS_CACHE_KEY = 'regions:shared';
+const REGION_MATRIX_CACHE_KEY = 'regionDriveTimes:shared';
+/** Admin-managed and nightly-refreshed; a week old is still the right answer to paint from. */
+const REGION_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** A stable do-nothing setter, for a provider rendered without the reader's settings (tests). */
 const NOOP = () => {};
 
@@ -382,8 +394,12 @@ export function WindowFirstBriefingProvider({
   const [fetchedReach, setReachById] = useState(EMPTY_REACH);
   // Derived, not cleared in an effect: a demotion inside the session drops whatever a Pro answer left.
   const reachById = driveLocked ? EMPTY_REACH : fetchedReach;
-  const [regions, setRegions] = useState(EMPTY_REGIONS);
-  const [regionMatrix, setRegionMatrix] = useState(EMPTY_MATRIX);
+  const [regions, setRegions] = useState(
+    () => readSwrCache(REGIONS_CACHE_KEY, REGION_CACHE_MAX_AGE_MS) ?? EMPTY_REGIONS,
+  );
+  const [regionMatrix, setRegionMatrix] = useState(
+    () => readSwrCache(REGION_MATRIX_CACHE_KEY, REGION_CACHE_MAX_AGE_MS) ?? EMPTY_MATRIX,
+  );
   /**
    * The frame of reference the whole Plan tab is written from — null is home (plan §4.8).
    *
@@ -637,8 +653,15 @@ export function WindowFirstBriefingProvider({
    * not have.
    */
   useEffect(() => {
-    fetchRegions().then((rows) => setRegions(rows || EMPTY_REGIONS)).catch(() => {});
-    fetchRegionDriveTimes().then((rows) => setRegionMatrix(rows || EMPTY_MATRIX)).catch(() => {});
+    const gen = cacheGeneration(); // BEFORE the awaits — the logout race in the class comment
+    fetchRegions().then((rows) => {
+      setRegions(rows || EMPTY_REGIONS);
+      if (rows) writeSwrCache(REGIONS_CACHE_KEY, rows, gen);
+    }).catch(() => {});
+    fetchRegionDriveTimes().then((rows) => {
+      setRegionMatrix(rows || EMPTY_MATRIX);
+      if (rows) writeSwrCache(REGION_MATRIX_CACHE_KEY, rows, gen);
+    }).catch(() => {});
   }, []);
 
   /**

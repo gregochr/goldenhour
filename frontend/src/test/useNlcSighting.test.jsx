@@ -362,4 +362,21 @@ describe('useNlcSighting — answers are applied in the order they were asked fo
 
     expect(banner()).toHaveTextContent('Noctilucent cloud reported over Scotland');
   });
+
+  describe('role gate (the backend answers 403 for Lite)', () => {
+    it('makes no request for an ineligible reader, on mount, focus or poll', async () => {
+      await act(async () => { render(<NlcSightingBanner eligible={false} />); });
+      await refocus();
+      await poll();
+      await poll();
+      expect(getNlcSighting).not.toHaveBeenCalled();
+      expect(banner()).toBeNull();
+    });
+
+    it('still asks for an eligible reader (Pro and Admin)', async () => {
+      getNlcSighting.mockResolvedValue({ ...REPORT });
+      await act(async () => { render(<NlcSightingBanner eligible />); });
+      expect(getNlcSighting).toHaveBeenCalledTimes(1);
+    });
+  });
 });

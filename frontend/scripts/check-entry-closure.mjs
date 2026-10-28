@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Run after `npm run build`. Reads dist/index.html and fails if the first-load closure (the entry
-// script, its modulepreloads and its stylesheets) pulls in Leaflet, its CSS, or the lazy-only
-// chart/geo/heat-field chunks. Prints each closure file with raw and gzip sizes.
+// Run after `npm run build`. Reads dist/index.html and dist/sw.js and fails if the first-load closure
+// (the entry script, its modulepreloads and its stylesheets) pulls in Leaflet, its CSS, or the
+// lazy-only chart/geo/heat-field chunks, or if any closure file (or AuthPages) is missing from the
+// service worker's precache list. Prints each closure file with raw and gzip sizes.
 import { readFileSync, existsSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { join, dirname } from 'node:path';
@@ -47,8 +48,28 @@ for (const [href, kind] of refs) {
   }
 }
 console.log(`entry closure total: ${(rawTotal / 1024).toFixed(2)} KB raw, ${(gzTotal / 1024).toFixed(2)} KB gzip`);
+// The service worker's precache list must hold every file the first load needs, plus AuthPages
+// (offline sign-in). dist/sw.js is generated after index.html, so a closure file missing here would
+// be fetched from the network on every cold start.
+const swPath = join(dist, 'sw.js');
+if (!existsSync(swPath)) {
+  console.error('dist/sw.js not found: run `npm run build` first.');
+  process.exit(2);
+}
+const sw = readFileSync(swPath, 'utf8');
+const precached = new Set([...sw.matchAll(/url:\s*"([^"]+)"/g)].map((m) => m[1]));
+for (const href of refs.keys()) {
+  if (!precached.has(href.replace(/^\//, ''))) {
+    violations.push(`${href} (in index.html but not in the sw.js precache)`);
+  }
+}
+if (![...precached].some((url) => /^assets\/AuthPages-[^/]+\.js$/.test(url))) {
+  violations.push('assets/AuthPages-*.js (not in the sw.js precache; offline sign-in needs it)');
+}
+console.log(`precache entries: ${precached.size}`);
+
 if (violations.length) {
-  console.error(`First load must not include:\n  ${violations.join('\n  ')}`);
+  console.error(`Entry closure check failed:\n  ${violations.join('\n  ')}`);
   process.exit(1);
 }
 console.log('entry closure OK');
