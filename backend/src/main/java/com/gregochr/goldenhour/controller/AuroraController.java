@@ -151,17 +151,18 @@ public class AuroraController {
             updatedAt = ZonedDateTime.now(ZoneOffset.UTC);
         } else {
             try {
-                List<KpReading> recentKp = noaaClient.fetchKp();
+                List<KpReading> recentKp = noaaClient.getOrRefreshAsyncKp();
                 if (!recentKp.isEmpty()) {
                     KpReading latest = recentKp.get(recentKp.size() - 1);
                     kp = latest.kp();
                     updatedAt = latest.timestamp();
                 }
-                OvationReading ovationReading = noaaClient.fetchOvation();
+                OvationReading ovationReading = noaaClient.getOrRefreshAsyncOvation();
                 if (ovationReading != null) {
                     ovation = ovationReading.probabilityAtLatitude();
                 }
-                List<com.gregochr.goldenhour.model.SolarWindReading> solarWind = noaaClient.fetchSolarWind();
+                List<com.gregochr.goldenhour.model.SolarWindReading> solarWind =
+                        noaaClient.getOrRefreshAsyncSolarWind();
                 if (!solarWind.isEmpty()) {
                     bz = solarWind.get(solarWind.size() - 1).bzNanoTesla();
                 }

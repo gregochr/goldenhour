@@ -49,10 +49,10 @@ class AuroraControllerTest extends AbstractControllerTest {
         when(stateCache.getCurrentLevel()).thenReturn(null);
         when(stateCache.getCachedScores()).thenReturn(List.of());
         // Avoid HTTP calls in tests
-        when(noaaClient.fetchKp()).thenReturn(List.of());
+        when(noaaClient.getOrRefreshAsyncKp()).thenReturn(List.of());
         when(noaaClient.fetchKpForecast()).thenReturn(List.of());
-        when(noaaClient.fetchOvation()).thenReturn(null);
-        when(noaaClient.fetchSolarWind()).thenReturn(List.of());
+        when(noaaClient.getOrRefreshAsyncOvation()).thenReturn(null);
+        when(noaaClient.getOrRefreshAsyncSolarWind()).thenReturn(List.of());
     }
 
     // -------------------------------------------------------------------------
@@ -131,7 +131,7 @@ class AuroraControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     void getStatus_withSolarWind_returnsBz() throws Exception {
         SolarWindReading reading = new SolarWindReading(ZonedDateTime.now(), -8.3, 450.0, 5.0);
-        when(noaaClient.fetchSolarWind()).thenReturn(List.of(reading));
+        when(noaaClient.getOrRefreshAsyncSolarWind()).thenReturn(List.of(reading));
 
         mockMvc.perform(get("/api/aurora/status"))
                 .andExpect(status().isOk())
@@ -139,10 +139,24 @@ class AuroraControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/aurora/status reads NOAA through the cached async methods, never the synchronous fetches")
+    @WithMockUser(roles = {"ADMIN"})
+    void getStatus_usesCachedAsyncReads() throws Exception {
+        mockMvc.perform(get("/api/aurora/status")).andExpect(status().isOk());
+
+        verify(noaaClient).getOrRefreshAsyncKp();
+        verify(noaaClient).getOrRefreshAsyncOvation();
+        verify(noaaClient).getOrRefreshAsyncSolarWind();
+        verify(noaaClient, never()).fetchKp();
+        verify(noaaClient, never()).fetchOvation();
+        verify(noaaClient, never()).fetchSolarWind();
+    }
+
+    @Test
     @DisplayName("GET /api/aurora/status returns null bzNanoTesla when solar wind list is empty")
     @WithMockUser(roles = {"ADMIN"})
     void getStatus_noSolarWind_returnsBzNull() throws Exception {
-        when(noaaClient.fetchSolarWind()).thenReturn(List.of());
+        when(noaaClient.getOrRefreshAsyncSolarWind()).thenReturn(List.of());
 
         mockMvc.perform(get("/api/aurora/status"))
                 .andExpect(status().isOk())

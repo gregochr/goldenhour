@@ -28,6 +28,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 /**
  * Fetches and caches real-time space weather data from NOAA SWPC public endpoints.
@@ -99,6 +102,11 @@ public class NoaaSwpcClient {
     private final AuroraProperties properties;
     private final ObjectMapper mapper;
     private final Clock clock;
+
+    /** In-flight background refresh per feed (single-flight guard for the status endpoint path). */
+    private final AtomicReference<CompletableFuture<Void>> kpFlight = new AtomicReference<>();
+    private final AtomicReference<CompletableFuture<Void>> ovationFlight = new AtomicReference<>();
+    private final AtomicReference<CompletableFuture<Void>> solarWindFlight = new AtomicReference<>();
 
     private volatile CachedResult<List<KpReading>> cachedKp;
     private volatile CachedResult<List<KpForecast>> cachedKpForecast;
@@ -185,6 +193,97 @@ public class NoaaSwpcClient {
                     LogSanitizer.sanitize(e.getMessage()));
             return cache != null ? cache.data() : List.of();
         }
+    }
+
+    /**
+     * Kp for the status endpoint: the cached value at once, refreshed off the request thread.
+     *
+     * <p>Used only by {@code AuroraController}. The synchronous {@link #fetchKp()} stays what the
+     * aurora state machine's poller decides on; this path may serve a value up to one refresh stale.
+     * A stale (older than the 15-minute TTL) cache starts at most one background refresh; an empty
+     * cache waits for the one in-flight fetch.
+     *
+     * @return the Kp readings (oldest first), or empty when none was ever fetched
+     */
+    public List<KpReading> getOrRefreshAsyncKp() {
+        CachedResult<List<KpReading>> cache = cachedKp;
+        if (!isFresh(cache, KP_TTL_MINUTES)) {
+            CompletableFuture<Void> flight = refreshInBackground(kpFlight, this::fetchKp);
+            if (cache == null) {
+                flight.join();
+                cache = cachedKp;
+            }
+        }
+        return cache != null ? cache.data() : List.of();
+    }
+
+    /**
+     * OVATION for the status endpoint: the cached value at once, refreshed off the request thread
+     * (5-minute TTL); see {@link #getOrRefreshAsyncKp()}.
+     *
+     * @return the OVATION reading, or {@code null} when none was ever fetched
+     */
+    public OvationReading getOrRefreshAsyncOvation() {
+        CachedResult<OvationReading> cache = cachedOvation;
+        if (!isFresh(cache, OVATION_TTL_MINUTES)) {
+            CompletableFuture<Void> flight = refreshInBackground(ovationFlight, this::fetchOvation);
+            if (cache == null) {
+                flight.join();
+                cache = cachedOvation;
+            }
+        }
+        return cache != null ? cache.data() : null;
+    }
+
+    /**
+     * Solar wind for the status endpoint: the cached value at once, refreshed off the request thread
+     * (1-minute TTL); see {@link #getOrRefreshAsyncKp()}.
+     *
+     * @return the solar wind readings (oldest first), or empty when none was ever fetched
+     */
+    public List<SolarWindReading> getOrRefreshAsyncSolarWind() {
+        CachedResult<List<SolarWindReading>> cache = cachedSolarWind;
+        if (!isFresh(cache, SOLAR_WIND_TTL_MINUTES)) {
+            CompletableFuture<Void> flight =
+                    refreshInBackground(solarWindFlight, this::fetchSolarWind);
+            if (cache == null) {
+                flight.join();
+                cache = cachedSolarWind;
+            }
+        }
+        return cache != null ? cache.data() : List.of();
+    }
+
+    /**
+     * Single-flight refresh: starts {@code fetch} on a virtual thread unless one is already running
+     * for this feed, and returns the flight in progress. A failed fetch leaves the stale cache
+     * untouched (the synchronous fetch methods already fail open) and the slot is freed, so the next
+     * stale call retries.
+     */
+    private CompletableFuture<Void> refreshInBackground(
+            AtomicReference<CompletableFuture<Void>> slot, Supplier<?> fetch) {
+        CompletableFuture<Void> mine = new CompletableFuture<>();
+        while (true) {
+            CompletableFuture<Void> current = slot.get();
+            if (current != null) {
+                return current;
+            }
+            if (slot.compareAndSet(null, mine)) {
+                break;
+            }
+        }
+        Thread.startVirtualThread(() -> {
+            try {
+                fetch.get();
+            } catch (RuntimeException e) {
+                LOG.warn("NOAA background refresh failed (retaining cached): {}",
+                        LogSanitizer.sanitize(e.getMessage()));
+            } finally {
+                slot.set(null);
+                mine.complete(null);
+            }
+        });
+        return mine;
     }
 
     /**

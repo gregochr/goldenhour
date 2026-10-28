@@ -67,7 +67,7 @@ class AuroraControllerStatusSnapshotTest {
     void clearDuringNoaaCalls_answersAsTheRunningAlert() {
         startAlert();
         Instant detectedAt = stateCache.getActiveSince();
-        when(noaaClient.fetchKp()).thenAnswer(invocation -> {
+        when(noaaClient.getOrRefreshAsyncKp()).thenAnswer(invocation -> {
             stateCache.evaluate(AlertLevel.QUIET); // the polling job's CLEAR
             return List.of();
         });
@@ -92,7 +92,7 @@ class AuroraControllerStatusSnapshotTest {
         // The machine has not alerted since it last went idle — after a restart, or after a CLEAR,
         // which drops the trigger with everything else — so the trigger is null before the NOTIFY,
         // which also makes any leak unmissable.
-        when(noaaClient.fetchKp()).thenAnswer(invocation -> {
+        when(noaaClient.getOrRefreshAsyncKp()).thenAnswer(invocation -> {
             // The polling job's NOTIFY, and the trigger `AuroraOrchestrator.scoreAndCache` records
             // straight after it on either poll (a daylight poll fetches its snapshot first).
             stateCache.evaluate(AlertLevel.MODERATE);
@@ -117,7 +117,7 @@ class AuroraControllerStatusSnapshotTest {
     @Test
     @DisplayName("a simulation started while the request waits on NOAA is answered as the quiet state throughout")
     void simulationStartedDuringNoaaCalls_answersAsTheQuietState() {
-        when(noaaClient.fetchKp()).thenAnswer(invocation -> {
+        when(noaaClient.getOrRefreshAsyncKp()).thenAnswer(invocation -> {
             // An admin's POST /api/aurora/admin/simulate, which moves the machine without the FSM,
             // landing while this request fetches a live Kp high enough to carry a storm scale beside
             // a quiet machine — only a night poll reads the Kp for now and would act on it.
@@ -152,7 +152,7 @@ class AuroraControllerStatusSnapshotTest {
         CurrentNight tonight = new CurrentNight(LocalDate.of(2026, 9, 14), Instant.parse("2026-09-15T05:00:00Z"));
         CurrentNight[] clock = {lastNight};
         when(forecastRunService.currentNight()).thenAnswer(invocation -> clock[0]);
-        when(noaaClient.fetchKp()).thenAnswer(invocation -> {
+        when(noaaClient.getOrRefreshAsyncKp()).thenAnswer(invocation -> {
             clock[0] = tonight;
             return List.of();
         });

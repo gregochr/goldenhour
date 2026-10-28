@@ -484,3 +484,5 @@ CLAUDE.md's Almanac section) |
 `GET /api/push/vapid-public-key` (none) | `POST|DELETE /api/push/subscribe` (Bearer)
 
 ---
+
+> **`GET /api/regions/drive-times` is memoised** (performance P1e): `RegionDriveMatrixMemo` holds the last matrix as an unmodifiable map, cleared **after commit** by `RegionDriveTimeWriter.replaceForRegion` / `clearForRegion` (a rolled-back write does not clear it; a load that began before an invalidation never stores). The FK cascades on location or region delete (V145) have no application delete path, so nothing else clears it; a manual SQL delete needs a restart.

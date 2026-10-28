@@ -146,9 +146,9 @@ class AuroraSimulationLifecycleTest {
         assertThat(statusController.getStatus().getBody().simulated()).isTrue();
 
         // The live readings the status fetches for itself — quiet at the first poll, a storm later.
-        when(noaaClient.fetchKp()).thenReturn(List.of(reading(2.0)), List.of(reading(5.3)));
-        when(noaaClient.fetchOvation()).thenReturn(null);
-        when(noaaClient.fetchSolarWind()).thenReturn(List.of());
+        when(noaaClient.getOrRefreshAsyncKp()).thenReturn(List.of(reading(2.0)), List.of(reading(5.3)));
+        when(noaaClient.getOrRefreshAsyncOvation()).thenReturn(null);
+        when(noaaClient.getOrRefreshAsyncSolarWind()).thenReturn(List.of());
         // What the two night polls fetch: quiet, then a real Kp 5.3 storm.
         when(noaaClient.fetchAll()).thenReturn(nightSnapshot(2.0), nightSnapshot(5.3));
         overcastAtKielder();
@@ -185,9 +185,9 @@ class AuroraSimulationLifecycleTest {
         // the MODERATE threshold — below the simulated STRONG either way.
         when(noaaClient.fetchAll()).thenReturn(nightSnapshot(3.0, 25.0));
         overcastAtKielder();
-        when(noaaClient.fetchKp()).thenReturn(List.of(reading(3.0)));
-        when(noaaClient.fetchOvation()).thenReturn(null);
-        when(noaaClient.fetchSolarWind()).thenReturn(List.of());
+        when(noaaClient.getOrRefreshAsyncKp()).thenReturn(List.of(reading(3.0)));
+        when(noaaClient.getOrRefreshAsyncOvation()).thenReturn(null);
+        when(noaaClient.getOrRefreshAsyncSolarWind()).thenReturn(List.of());
 
         // Broken: SUPPRESS — measured against the fake storm, and never scored.
         assertThat(pollingJob.runCycleIfIdle()).isPresent();
@@ -215,9 +215,9 @@ class AuroraSimulationLifecycleTest {
         simulateAndForget();
         when(noaaClient.fetchAll()).thenReturn(nightSnapshot(3.0, 25.0));
         overcastAtKielder();
-        when(noaaClient.fetchKp()).thenReturn(List.of(reading(3.0)));
-        when(noaaClient.fetchOvation()).thenReturn(null);
-        when(noaaClient.fetchSolarWind()).thenReturn(List.of());
+        when(noaaClient.getOrRefreshAsyncKp()).thenReturn(List.of(reading(3.0)));
+        when(noaaClient.getOrRefreshAsyncOvation()).thenReturn(null);
+        when(noaaClient.getOrRefreshAsyncSolarWind()).thenReturn(List.of());
         assertThat(pollingJob.runCycleIfIdle()).isPresent();
         assertThat(stateCache.isActive()).isTrue();
 

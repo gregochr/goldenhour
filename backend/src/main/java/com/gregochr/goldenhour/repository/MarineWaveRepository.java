@@ -34,4 +34,16 @@ public interface MarineWaveRepository extends JpaRepository<MarineWaveEntity, Lo
      * @return all matching samples, possibly empty
      */
     List<MarineWaveEntity> findByEvaluationDateBetween(LocalDate fromDate, LocalDate toDate);
+
+    /**
+     * Returns one location's sea-state samples across an inclusive date range, the window-tide
+     * rollup's single read, replacing one lookup per window.
+     *
+     * @param locationId the location primary key
+     * @param fromDate   start of the range (inclusive)
+     * @param toDate     end of the range (inclusive)
+     * @return the location's samples in the range, possibly empty
+     */
+    List<MarineWaveEntity> findByLocation_IdAndEvaluationDateBetween(
+            Long locationId, LocalDate fromDate, LocalDate toDate);
 }

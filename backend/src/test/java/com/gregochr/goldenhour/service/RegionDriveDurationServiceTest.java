@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -60,7 +61,7 @@ class RegionDriveDurationServiceTest {
     @BeforeEach
     void setUp() {
         service = new RegionDriveDurationService(orsClient, orsProperties,
-                locationRepository, driveTimeRepository, driveTimeWriter);
+                locationRepository, driveTimeRepository, driveTimeWriter, new RegionDriveMatrixMemo());
     }
 
     private static RegionEntity based() {
@@ -344,5 +345,22 @@ class RegionDriveDurationServiceTest {
         when(driveTimeRepository.findAll()).thenReturn(List.of());
 
         assertThat(service.getMatrix()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("two reads run one findAll, and the served map cannot be mutated")
+    void getMatrix_memoisedAndUnmodifiable() {
+        when(driveTimeRepository.findAll()).thenReturn(List.of(
+                new RegionDriveTimeEntity(7L, 11L, 1500)));
+
+        Map<Long, Map<Long, Integer>> first = service.getMatrix();
+        Map<Long, Map<Long, Integer>> second = service.getMatrix();
+
+        assertThat(second).isSameAs(first);
+        org.mockito.Mockito.verify(driveTimeRepository, org.mockito.Mockito.times(1)).findAll();
+        assertThatThrownBy(() -> first.put(1L, Map.of()))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> first.get(7L).put(12L, 5))
+                .isInstanceOf(UnsupportedOperationException.class);
     }
 }
