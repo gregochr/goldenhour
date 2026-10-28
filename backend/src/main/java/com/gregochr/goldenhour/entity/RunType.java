@@ -70,13 +70,13 @@ public enum RunType {
      * The target dates this run type covers, relative to the given day.
      *
      * <p>The single source of truth for the run-type date table. It previously existed twice —
-     * in {@code ForecastCommandFactory} (production) and {@code PromptTestService} (the admin
+     * in the (since deleted) {@code ForecastCommandFactory} and {@code PromptTestService} (the admin
      * prompt-test harness) — and the two had drifted: the harness swept LONG_TERM out to T+7,
      * past {@link #FORECAST_HORIZON_DAYS} and past Gate 4's "T+4 and beyond is never evaluated"
      * policy, so it prompt-tested horizons production never scores. This table is production's.
      *
      * @param today the day to compute the range from. ⚠️ The two callers no longer agree on which
-     *              calendar that is: {@code ForecastCommandFactory} passes the UK civil date (see
+     *              calendar that is: the deleted factory passed the UK civil date (see
      *              {@code ForecastHorizon}), the prompt-test harness still passes a UTC one. They
      *              differ only between 23:00 and 00:00 UTC under BST; §8b of
      *              {@code docs/engineering/intraday-settled-refresh-plan.md} records why the

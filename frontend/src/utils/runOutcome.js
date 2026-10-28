@@ -48,23 +48,6 @@ export const completedWithFailures = (data) => data?.failed > 0
   && (data?.status === 'PARTIAL' || data?.completed > 0 || data?.triaged > 0);
 
 /**
- * The counts of a finished run that did some work, in the progress panel's own vocabulary and order:
- * "N locations updated, T triaged, M failed", leaving out ", T triaged" and ", M failed" when zero.
- * Triaged places are named because a run in which triage stood many places down would otherwise read
- * "0 locations updated" and hide what it did.
- *
- * @param {object} data - The run-complete payload.
- * @returns {string}
- */
-export const runCountsLine = (data) => {
-  const completed = data?.completed ?? 0;
-  const parts = [`${completed} location${completed !== 1 ? 's' : ''} updated`];
-  if (data?.triaged > 0) parts.push(`${data.triaged} triaged`);
-  if (data?.failed > 0) parts.push(`${data.failed} failed`);
-  return parts.join(', ');
-};
-
-/**
  * Whether a finished run needs the admin's attention and so stays on screen: any failed task, a
  * FAILED or PARTIAL status, or a run-level reason.
  *

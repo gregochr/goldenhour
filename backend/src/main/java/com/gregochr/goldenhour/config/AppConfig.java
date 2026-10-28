@@ -94,7 +94,7 @@ public class AppConfig {
      *
      * <p>Uses virtual threads — each forecast task gets its own lightweight thread
      * (~1 KB each vs ~1 MB for platform threads). No pool sizing needed;
-     * concurrency is controlled by {@code @Bulkhead} on the service methods.
+     * concurrency is bounded by the callers (batch submission and the Anthropic client's own limits).
      *
      * @return a virtual-thread-per-task executor
      */

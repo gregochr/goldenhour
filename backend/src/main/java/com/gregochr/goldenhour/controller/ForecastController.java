@@ -13,7 +13,7 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.AsOfEventResolver;
 import com.gregochr.goldenhour.service.AsOfEventResolver.AsOfEvent;
 import com.gregochr.goldenhour.service.EvaluationViewService;
-import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.LitePickShaper;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.PickScope;
@@ -123,7 +123,7 @@ public class ForecastController {
     /**
      * Returns stored forecast evaluations for all configured locations from
      * T-{@value ForecastHorizon#SERVE_PAST_DAYS} through
-     * T+{@value ForecastCommandFactory#FORECAST_HORIZON_DAYS}.
+     * T+{@value RunType#FORECAST_HORIZON_DAYS}.
      *
      * <p>Merges two sources so the Map tab stays in sync with the Plan tab:
      * <ul>
@@ -150,7 +150,7 @@ public class ForecastController {
     public List<ForecastListDto> getForecasts(Authentication auth) {
         LocalDate today = ForecastHorizon.today(clock);
         LocalDate from = today.minusDays(ForecastHorizon.SERVE_PAST_DAYS);
-        LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
+        LocalDate horizon = today.plusDays(RunType.FORECAST_HORIZON_DAYS);
         return serveRange(from, horizon, auth);
     }
 
@@ -605,17 +605,6 @@ public class ForecastController {
     @PreAuthorize("hasRole('ADMIN')")
     public SseEmitter getRunProgress(@PathVariable long runId) {
         return progressTracker.subscribe(runId);
-    }
-
-    /**
-     * SSE endpoint for run-complete notifications. Any authenticated user can subscribe.
-     * Fires a single event per completed run (lightweight, no per-location detail).
-     *
-     * @return an SSE emitter streaming run-complete events
-     */
-    @GetMapping(value = "/run/notifications", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter getRunNotifications() {
-        return progressTracker.subscribeNotifications();
     }
 
     private boolean isLiteUser(Authentication auth) {

@@ -2,7 +2,6 @@ package com.gregochr.goldenhour.service.evaluation;
 
 import com.anthropic.errors.AnthropicIoException;
 import com.anthropic.errors.AnthropicServiceException;
-import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.TestAtmosphericData;
@@ -45,11 +44,11 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -123,7 +122,7 @@ class SyncFailureApiCallLogTest {
                 new AuroraProperties(), jobRunService);
         service = new EvaluationServiceImpl(batchSubmissionService, batchRequestFactory,
                 anthropicApiClient, claudeAuroraInterpreter, jobRunService,
-                List.of(forecastHandler, auroraHandler), CLOCK, mock(ForecastPromptStore.class));
+                List.of(forecastHandler, auroraHandler), mock(ForecastPromptStore.class));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -154,8 +153,7 @@ class SyncFailureApiCallLogTest {
         region.setName("Lake District");
         loc.setRegion(region);
         return new EvaluationTask.Forecast(
-                loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, TestAtmosphericData.defaults(),
-                EvaluationTask.Forecast.WriteTarget.NONE);
+                loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, TestAtmosphericData.defaults());
     }
 
     private EvaluationTask.Aurora auroraTask() {
@@ -166,6 +164,14 @@ class SyncFailureApiCallLogTest {
                 List.of(loc), Map.of(loc, 30), SPACE_WEATHER, TriggerType.REALTIME, null);
     }
 
+    /** Binds the prompt-builder stub to exactly this task's data, so wrong forwarding fails the test. */
+    private void stubUserMessage(EvaluationTask.Aurora task) {
+        when(claudeAuroraInterpreter.buildUserMessage(
+                eq(task.alertLevel()), eq(task.viableLocations()), eq(task.cloudByLocation()),
+                eq(task.spaceWeather()), eq(task.triggerType()), isNull()))
+                .thenReturn("user-message");
+    }
+
     private JobRunEntity stubJobRun(RunType runType) {
         JobRunEntity jobRun = new JobRunEntity();
         jobRun.setId(JOB_RUN_ID);
@@ -173,96 +179,18 @@ class SyncFailureApiCallLogTest {
         return jobRun;
     }
 
-    /** Runs the forecast sync path against a Claude call that throws {@code failure}. */
-    private void forecastCallThrows(Throwable failure) {
-        stubJobRun(RunType.SHORT_TERM);
-        EvaluationTask.Forecast task = forecastTask();
-        when(batchRequestFactory.selectBuilder(eq(task.data()))).thenReturn(new PromptBuilder());
-        when(anthropicApiClient.createMessage(anyRequest())).thenThrow((RuntimeException) failure);
-
-        EvaluationResult result = service.evaluateNow(task, BatchTriggerSource.ADMIN);
-
-        assertThat(result).isInstanceOf(EvaluationResult.Errored.class);
-    }
-
-    /** Verifies the one failed row the forecast path wrote, with exactly this status and error type. */
-    private void assertFailedRow(Integer status, String errorType, String message) {
-        verify(jobRunService).logAnthropicApiCall(
-                eq(JOB_RUN_ID), duration.capture(), eq(status),
-                eq(message), eq(false), eq(message),
-                eq(EvaluationModel.HAIKU), eq(TokenUsage.EMPTY),
-                eq(false),
-                eq(DATE), eq(TargetType.SUNRISE), eq(errorType), eq(null));
-        assertThat(duration.getValue()).isNotNegative();
-    }
-
-    // ── forecast path ────────────────────────────────────────────────────────
-
-    @Test
-    @DisplayName("a 401 is logged with status 401 and error type anthropic_401, not 500 with none")
-    void forecast_rejectedKey_logsItsStatusAndType() {
-        forecastCallThrows(serviceError(401, "invalid x-api-key"));
-
-        assertFailedRow(401, "anthropic_401", "invalid x-api-key");
-    }
-
-    @Test
-    @DisplayName("a 529 is logged with status 529 and error type anthropic_529")
-    void forecast_overloaded_logsItsStatusAndType() {
-        forecastCallThrows(serviceError(529, "Overloaded"));
-
-        assertFailedRow(529, "anthropic_529", "Overloaded");
-    }
-
-    @Test
-    @DisplayName("a connection failure has no HTTP status: logged with a null status and the SDK's I/O exception "
-            + "name as its error type")
-    void forecast_connectionFailure_logsNullStatus() {
-        forecastCallThrows(new AnthropicIoException("timed out"));
-
-        assertFailedRow(null, "AnthropicIoException", "timed out");
-    }
-
-    @Test
-    @DisplayName("a reply with no text block has no HTTP status: logged with a null status and reply_unreadable")
-    void forecast_unreadableReply_logsNullStatus() {
-        stubJobRun(RunType.SHORT_TERM);
-        EvaluationTask.Forecast task = forecastTask();
-        when(batchRequestFactory.selectBuilder(eq(task.data()))).thenReturn(new PromptBuilder());
-        Message noText = mock(Message.class);
-        when(noText.stopReason()).thenReturn(Optional.empty());
-        when(noText.content()).thenReturn(List.of());
-        when(anthropicApiClient.createMessage(anyRequest())).thenReturn(noText);
-
-        service.evaluateNow(task, BatchTriggerSource.ADMIN);
-
-        assertFailedRow(null, "reply_unreadable", "Claude returned no text");
-    }
-
-    @Test
-    @DisplayName("a call the circuit breaker refused has no HTTP status: logged with a null status and circuit_open")
-    void forecast_openBreaker_logsNullStatus() {
-        CircuitBreaker breaker = CircuitBreaker.ofDefaults("anthropic");
-        breaker.transitionToOpenState();
-        CallNotPermittedException refused = CallNotPermittedException.createCallNotPermittedException(breaker);
-
-        forecastCallThrows(refused);
-
-        assertFailedRow(null, "circuit_open", refused.getMessage());
-    }
-
-    // ── aurora path (the same JobRunService method) ──────────────────────────
+    // ── aurora path (the one synchronous path left) ──────────────────────────
 
     @Test
     @DisplayName("aurora: a 401 is logged with status 401 and error type anthropic_401 as well")
     void aurora_rejectedKey_logsItsStatusAndType() {
         stubJobRun(RunType.AURORA_EVALUATION);
-        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
-                .thenReturn("user-message");
+        EvaluationTask.Aurora task = auroraTask();
+        stubUserMessage(task);
         AnthropicServiceException rejected = serviceError(401, "invalid x-api-key");
         when(anthropicApiClient.createMessage(anyRequest())).thenThrow(rejected);
 
-        EvaluationResult result = service.evaluateNow(auroraTask(), BatchTriggerSource.SCHEDULED);
+        EvaluationResult result = service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
 
         assertThat(result).isInstanceOf(EvaluationResult.Errored.class);
         verify(jobRunService).logAnthropicApiCall(
@@ -277,11 +205,11 @@ class SyncFailureApiCallLogTest {
     @DisplayName("aurora: a connection failure is logged with a null status and the I/O exception name")
     void aurora_connectionFailure_logsNullStatus() {
         stubJobRun(RunType.AURORA_EVALUATION);
-        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
-                .thenReturn("user-message");
+        EvaluationTask.Aurora task = auroraTask();
+        stubUserMessage(task);
         when(anthropicApiClient.createMessage(anyRequest())).thenThrow(new AnthropicIoException("timed out"));
 
-        service.evaluateNow(auroraTask(), BatchTriggerSource.SCHEDULED);
+        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
 
         verify(jobRunService).logAnthropicApiCall(
                 eq(JOB_RUN_ID), duration.capture(), eq(null),
@@ -289,5 +217,26 @@ class SyncFailureApiCallLogTest {
                 eq(EvaluationModel.HAIKU), eq(TokenUsage.EMPTY),
                 eq(false),
                 eq(null), eq(null), eq("AnthropicIoException"), eq(null));
+    }
+
+    @Test
+    @DisplayName("aurora: a call the circuit breaker refused is logged with a null status and circuit_open")
+    void aurora_openBreaker_logsNullStatus() {
+        stubJobRun(RunType.AURORA_EVALUATION);
+        EvaluationTask.Aurora task = auroraTask();
+        stubUserMessage(task);
+        CircuitBreaker breaker = CircuitBreaker.ofDefaults("anthropic");
+        breaker.transitionToOpenState();
+        CallNotPermittedException refused = CallNotPermittedException.createCallNotPermittedException(breaker);
+        when(anthropicApiClient.createMessage(anyRequest())).thenThrow(refused);
+
+        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+        verify(jobRunService).logAnthropicApiCall(
+                eq(JOB_RUN_ID), duration.capture(), eq(null),
+                eq(refused.getMessage()), eq(false), eq(refused.getMessage()),
+                eq(EvaluationModel.HAIKU), eq(TokenUsage.EMPTY),
+                eq(false),
+                eq(null), eq(null), eq("circuit_open"), eq(null));
     }
 }

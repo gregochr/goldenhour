@@ -31,17 +31,6 @@ spring:
           timeout: 10000
           writetimeout: 10000
 notifications:
-  schedule:
-    cron: "0 30 7 * * *"
-  email:
-    enabled: true
-    recipient: YOUR_EMAIL
-  pushover:
-    enabled: true
-    app-token: YOUR_PUSHOVER_APP_TOKEN
-    user-key: YOUR_PUSHOVER_USER_KEY
-  macos-toast:
-    enabled: true
   admin-alerts:
     # Emails every enabled ADMIN account when a pipeline run is marked DEGRADED (see
     # AdminAlertService). Default is false when this key is absent at all — set explicitly per
@@ -515,12 +504,6 @@ resilience4j:
       ask:
         maxConcurrentCalls: 4
         maxWaitDuration: 2s
-      forecast:
-        maxConcurrentCalls: 8
-        maxWaitDuration: 120s
-      claude:
-        maxConcurrentCalls: 6
-        maxWaitDuration: 120s
 
 management:
   endpoints:

@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.integration;
 
-import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
 import org.junit.jupiter.api.DisplayName;
@@ -15,7 +14,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,10 +31,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * deleted in the same change, and {@code strategy_type} maps through {@code @Enumerated(STRING)}. A
  * single row left behind naming a retired type makes Hibernate throw on read — taking down the Models
  * screen and any manual run that loads it. So the assertion that matters most is the last one: every
- * row that survives names a type the enum can still load.
+ * row that survives names a type the live type list still names.
  */
 @Testcontainers
 class RetireDeadOptimisationStrategiesMigrationTest {
+
+    /**
+     * The two strategy types V153 keeps. A literal list, because the {@code OptimisationStrategyType}
+     * enum was deleted with the synchronous engine (the table itself goes in a later migration).
+     */
+    private static final List<String> LIVE_TYPES = List.of("SENTINEL_SAMPLING", "TIDE_ALIGNMENT");
 
     private static final List<String> RETIRED = List.of(
             "SKIP_LOW_RATED", "SKIP_EXISTING", "FORCE_IMMINENT", "FORCE_STALE",
@@ -80,7 +84,7 @@ class RetireDeadOptimisationStrategiesMigrationTest {
 
     @Test
     @DisplayName("V153 deletes every retired strategy row and leaves the two live types exactly as "
-            + "configured, so every surviving row names a type the enum can still load")
+            + "configured, so every surviving row names a live strategy type")
     void v153_retiresDeadStrategies_andLeavesLiveConfigurationUntouched() throws SQLException {
         // 1. Stop at V152: the table as a production database holds it before this change.
         flywayTo("152").migrate();
@@ -97,8 +101,9 @@ class RetireDeadOptimisationStrategiesMigrationTest {
                     + "WHERE run_type = 'SHORT_TERM' AND strategy_type = 'SENTINEL_SAMPLING'");
         }
 
-        // 2. Apply V153 alone — it is the latest migration in this change.
-        flywayTo(null).migrate();
+        // 2. Apply V153, and stop there: later migrations (the one that drops this table) must not
+        // run, or the assertions below would have no table to read.
+        flywayTo("153").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             List<String> after = rows(st);
@@ -114,10 +119,9 @@ class RetireDeadOptimisationStrategiesMigrationTest {
             assertThat(after).noneMatch(r -> RETIRED.stream().anyMatch(t -> r.contains("/" + t + "/")));
 
             // The load-bearing property: nothing left for @Enumerated(STRING) to choke on.
-            List<String> loadable = Arrays.stream(OptimisationStrategyType.values()).map(Enum::name).toList();
             try (ResultSet rs = st.executeQuery("SELECT DISTINCT strategy_type FROM optimisation_strategy")) {
                 while (rs.next()) {
-                    assertThat(loadable).contains(rs.getString(1));
+                    assertThat(LIVE_TYPES).contains(rs.getString(1));
                 }
             }
         }

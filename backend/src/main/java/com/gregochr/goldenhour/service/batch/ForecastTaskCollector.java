@@ -377,14 +377,14 @@ public class ForecastTaskCollector {
             try {
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                         candidate.location(), candidate.date(), candidate.targetType(),
-                        candidate.location().getTideType(), nearTermModel, false, null,
+                        candidate.location().getTideType(), nearTermModel, null,
                         prefetchedWeather, cloudCache);
                 // Record conditions for every place this cycle fetched weather for — no longer a
                 // call made here. `ForecastService.fetchWeatherAndTriage` above now makes this
                 // write itself, immediately after assembling the atmospheric data and before its
-                // own triage checks, so it covers this call site and every other caller of that
+                // own triage check, so it covers this call site and every other caller of that
                 // method (collectRegionFilteredBatches below, ForceSubmitBatchService,
-                // BatchRetryService, and the synchronous engine's runTriagePhase) with the one
+                // BatchRetryService) with the one
                 // seam — see that method's own javadoc for the full reasoning (owner decision
                 // 2026-09-29 "record conditions for every place", Phase 1, and the P1 fix that
                 // moved the write off this collector's own three call sites and into the seam).
@@ -539,7 +539,6 @@ public class ForecastTaskCollector {
                 EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
                         candidate.location(), candidate.date(), candidate.targetType(),
                         decision.model(), preEval.atmosphericData(),
-                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                         EvaluationTask.Forecast.PromptKind.SKY, evalRowId, forced);
                 boolean isCoastal = preEval.atmosphericData().tide() != null;
                 String locationType = isCoastal ? "coastal" : "inland";
@@ -668,7 +667,6 @@ public class ForecastTaskCollector {
         return new EvaluationTask.Forecast(
                 candidate.location(), candidate.date(), candidate.targetType(),
                 decision.model(), preEval.atmosphericData(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.BLUEBELL, null, forced);
     }
 
@@ -687,7 +685,6 @@ public class ForecastTaskCollector {
         return new EvaluationTask.Forecast(
                 candidate.location(), candidate.date(), candidate.targetType(),
                 decision.model(), preEval.atmosphericData(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.WOODLAND, null, forced);
     }
 
@@ -831,7 +828,7 @@ public class ForecastTaskCollector {
                 // woodland lane strictly AFTER this same call, does.
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                         candidate.location(), candidate.date(), candidate.targetType(),
-                        candidate.location().getTideType(), model, false, null,
+                        candidate.location().getTideType(), model, null,
                         prefetchedWeather, cloudCache);
 
                 // Canopy sites never belong in the sky lane, and this path has no woodland
@@ -869,7 +866,6 @@ public class ForecastTaskCollector {
                 EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
                         candidate.location(), candidate.date(), candidate.targetType(),
                         decision.model(), preEval.atmosphericData(),
-                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                         EvaluationTask.Forecast.PromptKind.SKY, evalRowId);
                 if (preEval.atmosphericData().tide() != null) {
                     coastal.add(eval);

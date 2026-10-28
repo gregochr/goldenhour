@@ -35,7 +35,7 @@ import java.util.Locale;
  *
  * <p>Gracefully skips sending when {@code JavaMailSender} is not configured
  * (e.g. local dev without SMTP), matching the pattern used by
- * {@link EmailNotificationService}.
+ * the (since deleted) forecast-result email channel.
  */
 @Service
 public class UserEmailService {

@@ -45,7 +45,7 @@ import java.util.function.Predicate;
  *
  * <p>⚠️ <b>Neither entry point writes a {@code slot_atmosphere} reading itself.</b>
  * {@code fetchWeatherAndTriage} records the candidate's atmospheric readings as part of its own
- * body, before either triage check it runs — the one seam every caller of that method shares (see
+ * body, before the triage check it runs — the one seam every caller of that method shares (see
  * its own javadoc) — so a JFDI or force-submit slot is recorded exactly like a scheduled cycle's,
  * with no extra call needed here. This class briefly carried its own {@code SlotAtmosphereWriter}
  * dependency and two explicit write calls (one per entry point); both were removed once the seam
@@ -136,7 +136,7 @@ public class ForceSubmitBatchService {
                     try {
                         ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                                 location, date, event, location.getTideType(),
-                                model, false, null);
+                                model, null);
 
                         AtmosphericData data = preEval.atmosphericData();
                         if (data == null) {
@@ -152,7 +152,6 @@ public class ForceSubmitBatchService {
                         Long evalRowId = forecastService.persistPendingEvaluation(preEval);
                         tasks.add(new EvaluationTask.Forecast(
                                 location, date, event, model, data,
-                                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                                 EvaluationTask.Forecast.PromptKind.SKY, evalRowId));
                     } catch (Exception e) {
                         LOG.warn("[JFDI BATCH] Failed data assembly for {} {} {}: {}",
@@ -234,7 +233,7 @@ public class ForceSubmitBatchService {
             try {
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                         location, date, event, location.getTideType(),
-                        model, false, null);
+                        model, null);
 
                 AtmosphericData data = preEval.atmosphericData();
                 if (data == null) {
@@ -248,7 +247,6 @@ public class ForceSubmitBatchService {
                 Long evalRowId = forecastService.persistPendingEvaluation(preEval);
                 tasks.add(new EvaluationTask.Forecast(
                         location, date, event, model, data,
-                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                         EvaluationTask.Forecast.PromptKind.SKY, evalRowId));
                 LOG.info("[FORCE BATCH] INCLUDE {} | date={} event={}",
                         location.getName(), date, event);

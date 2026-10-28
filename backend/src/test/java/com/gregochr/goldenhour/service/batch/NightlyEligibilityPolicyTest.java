@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Unit tests for {@link NightlyEligibilityPolicy#permitsHorizon}, the boolean view of
- * the Gate 4 table consumed by the synchronous {@code ForecastCommandExecutor} path.
+ * the Gate 4 table consumed by the batch pipeline.
  *
  * <p>The {@code resolve()} table itself is exercised through
  * {@code ForecastTaskCollectorEligibilityPolicyTest}; these tests pin the boundary rows

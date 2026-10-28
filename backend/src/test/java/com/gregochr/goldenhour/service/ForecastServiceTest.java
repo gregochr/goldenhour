@@ -6,13 +6,10 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
-import com.gregochr.goldenhour.exception.EvaluationFailedException;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
-import com.gregochr.goldenhour.exception.RunStoppedException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.CloudApproachData;
@@ -26,7 +23,6 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend.SolarCloudSlot;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
-import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideRiskLevel;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.TriageReason;
@@ -35,10 +31,6 @@ import com.gregochr.goldenhour.model.TriageRule;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
-import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
-import com.gregochr.goldenhour.service.evaluation.EvaluationResult;
-import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
-import com.gregochr.goldenhour.service.notification.NotificationDispatcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -56,8 +48,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -72,7 +62,6 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -98,24 +87,14 @@ class ForecastServiceTest {
     @Mock
     private ForecastDataAugmentor augmentor;
     @Mock
-    private EvaluationService evaluationService;
-    @Mock
-    private com.gregochr.goldenhour.service.evaluation.EvaluationService engineEvaluationService;
-    @Mock
     private ForecastEvaluationRepository repository;
-    @Mock
-    private NotificationDispatcher notificationDispatcher;
     @Mock
     private ApplicationEventPublisher eventPublisher;
     @Mock
     private WeatherTriageEvaluator weatherTriageEvaluator;
     @Mock
-    private TideAlignmentEvaluator tideAlignmentEvaluator;
-    @Mock
     private com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
             slotAtmosphereWriter;
-    @Mock
-    private RunProgressTracker runProgressTracker;
 
     /**
      * 2026-08-11 12:00 UTC — midday, where the UTC and Europe/London dates agree, so the
@@ -163,257 +142,6 @@ class ForecastServiceTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
-        // Tide alignment passes by default (non-SEASCAPE locations in most tests)
-        lenient().when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
-                .thenReturn(Optional.empty());
-    }
-
-    @Test
-    @DisplayName("runForecasts() evaluates sunrise and sunset and saves two entities")
-    void runForecasts_savesOneEntityPerTargetType() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-
-        AtmosphericData forecastData = buildAtmosphericData(sunrise, TargetType.SUNRISE);
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 70, 75, "Good conditions.");
-        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(1L).build();
-
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(forecastData, null));
-        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
-                .thenReturn(evaluation);
-        when(repository.save(any())).thenReturn(savedEntity);
-
-        List<ForecastEvaluationEntity> results = forecastService.runForecasts(
-                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null);
-
-        assertThat(results).hasSize(2);
-        ArgumentCaptor<ForecastEvaluationEntity> saveCaptor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository, times(2)).save(saveCaptor.capture());
-        assertThat(saveCaptor.getAllValues())
-                .extracting(ForecastEvaluationEntity::getLocationName)
-                .containsOnly(DURHAM);
-    }
-
-    @Test
-    @DisplayName("runForecasts() dispatches notifications for each target type")
-    void runForecasts_sendsNotificationsForEachTargetType() {
-        LocalDate date = LocalDate.of(2026, 2, 20);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
-        LocalDateTime sunset = LocalDateTime.of(2026, 2, 20, 17, 10);
-
-        AtmosphericData forecastData = buildAtmosphericData(sunrise, TargetType.SUNRISE);
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 50, 60, "Moderate potential.");
-        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(2L).build();
-
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(forecastData, null));
-        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
-                .thenReturn(evaluation);
-        when(repository.save(any())).thenReturn(savedEntity);
-
-        forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(),
-                EvaluationModel.SONNET, null);
-
-        verify(notificationDispatcher)
-                .dispatch(eq(evaluation), eq(DURHAM), eq(TargetType.SUNRISE), eq(date));
-        verify(notificationDispatcher)
-                .dispatch(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
-    }
-
-    @Test
-    @DisplayName("runForecasts() persists entity with correct evaluation fields")
-    void runForecasts_entityHasCorrectEvaluationFields() {
-        LocalDate date = LocalDate.of(2026, 2, 20);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
-        LocalDateTime sunset = LocalDateTime.of(2026, 2, 20, 17, 10);
-
-        AtmosphericData forecastData = buildAtmosphericData(sunrise, TargetType.SUNRISE);
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 88, 82, "Exceptional setup.");
-
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(forecastData, null));
-        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
-                .thenReturn(evaluation);
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(),
-                EvaluationModel.SONNET, null);
-
-        ArgumentCaptor<ForecastEvaluationEntity> captor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository, times(2)).save(captor.capture());
-
-        ForecastEvaluationEntity first = captor.getAllValues().get(0);
-        assertThat(first.getFierySkyPotential()).isEqualTo(88);
-        assertThat(first.getGoldenHourPotential()).isEqualTo(82);
-        assertThat(first.getRating()).isNull();
-        assertThat(first.getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
-        assertThat(first.getSummary()).isEqualTo("Exceptional setup.");
-        assertThat(first.getLocationName()).isEqualTo(DURHAM);
-        assertThat(first.getTargetDate()).isEqualTo(date);
-        assertThat(first.getSolarEventTime()).isEqualTo(sunrise);
-        // Confidence is the horizon derivation of the persisted row's own daysAhead — asserting
-        // the relationship (not an absolute tier) keeps this robust to the fixture's date.
-        assertThat(first.getConfidence())
-                .isEqualTo(ConfidenceDeriver.fromHorizon(first.getDaysAhead()).name());
-
-        ForecastEvaluationEntity second = captor.getAllValues().get(1);
-        assertThat(second.getSolarEventTime()).isEqualTo(sunset);
-    }
-
-    @Test
-    @DisplayName("runForecasts() persists Haiku entity with rating and null scores")
-    void runForecasts_haikuEntity_hasRatingAndNullScores() {
-        LocalDate date = LocalDate.of(2026, 2, 20);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
-        LocalDateTime sunset = LocalDateTime.of(2026, 2, 20, 17, 10);
-
-        AtmosphericData forecastData = buildAtmosphericData(sunrise, TargetType.SUNRISE);
-        SunsetEvaluation evaluation = new SunsetEvaluation(4, null, null, "Good conditions.");
-
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(forecastData, null));
-        when(evaluationService.evaluate(eq(forecastData), eq(EvaluationModel.HAIKU), any()))
-                .thenReturn(evaluation);
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(),
-                EvaluationModel.HAIKU, null);
-
-        ArgumentCaptor<ForecastEvaluationEntity> captor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository, times(2)).save(captor.capture());
-
-        ForecastEvaluationEntity first = captor.getAllValues().get(0);
-        assertThat(first.getRating()).isEqualTo(4);
-        assertThat(first.getFierySkyPotential()).isNull();
-        assertThat(first.getGoldenHourPotential()).isNull();
-        assertThat(first.getEvaluationModel()).isEqualTo(EvaluationModel.HAIKU);
-    }
-
-    @Test
-    @DisplayName("runForecasts() with WILDLIFE model skips Claude, saves hourly entities with no notifications")
-    void runForecasts_wildlifeModel_skipsClaudeAndNotifications() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-
-        AtmosphericData slot1 = buildAtmosphericData(LocalDateTime.of(2026, 6, 21, 3, 0), TargetType.SUNRISE);
-        AtmosphericData slot2 = buildAtmosphericData(LocalDateTime.of(2026, 6, 21, 4, 0), TargetType.SUNRISE);
-        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(5L).build();
-
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getHourlyAtmosphericData(any(ForecastRequest.class), any(), any(), any()))
-                .thenReturn(java.util.List.of(slot1, slot2));
-        when(repository.save(any())).thenReturn(savedEntity);
-
-        List<ForecastEvaluationEntity> results = forecastService.runForecasts(
-                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.WILDLIFE, null);
-
-        assertThat(results).hasSize(2);
-        ArgumentCaptor<ForecastEvaluationEntity> wildlifeCaptor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository, times(2)).save(wildlifeCaptor.capture());
-        assertThat(wildlifeCaptor.getAllValues())
-                .extracting(ForecastEvaluationEntity::getEvaluationModel)
-                .containsOnly(EvaluationModel.WILDLIFE);
-        verify(evaluationService, never())
-                .evaluate(any(), any(EvaluationModel.class), any());
-        verify(notificationDispatcher, never()).dispatch(any(), any(), any(), any());
-    }
-
-    @Test
-    @DisplayName("runForecasts() with WILDLIFE model persists HOURLY entities with null scores")
-    void runForecasts_wildlifeModel_entityHasHourlyTargetTypeAndNullScores() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-
-        AtmosphericData slot = buildAtmosphericData(LocalDateTime.of(2026, 6, 21, 7, 0), TargetType.SUNRISE);
-
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getHourlyAtmosphericData(any(ForecastRequest.class), any(), any(), any()))
-                .thenReturn(java.util.List.of(slot));
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(),
-                EvaluationModel.WILDLIFE, null);
-
-        ArgumentCaptor<ForecastEvaluationEntity> captor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository, times(1)).save(captor.capture());
-
-        ForecastEvaluationEntity saved = captor.getValue();
-        assertThat(saved.getEvaluationModel()).isEqualTo(EvaluationModel.WILDLIFE);
-        assertThat(saved.getTargetType()).isEqualTo(TargetType.HOURLY);
-        assertThat(saved.getRating()).isNull();
-        assertThat(saved.getFierySkyPotential()).isNull();
-        assertThat(saved.getGoldenHourPotential()).isNull();
-        assertThat(saved.getSummary()).isNull();
-    }
-
-    @Test
-    @DisplayName("runForecasts() when weather fetch fails with exception throws WeatherDataFetchException")
-    void runForecasts_weatherFetchFails_throwsWeatherDataFetchException() {
-        LocalDate date = LocalDate.of(2026, 2, 20);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
-
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenThrow(new RuntimeException("Network error: API timeout"));
-
-        assertThatThrownBy(() -> forecastService.runForecasts(
-                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null))
-                .isInstanceOf(WeatherDataFetchException.class)
-                .hasMessageContaining("Weather data fetch failed for " + DURHAM + " SUNRISE");
-    }
-
-    @Test
-    @DisplayName("runForecasts() when weather fetch fails, EvaluationService is never called")
-    void runForecasts_weatherFetchFails_neverCallsEvaluationService() {
-        LocalDate date = LocalDate.of(2026, 2, 20);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
-
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenThrow(new RuntimeException("Connection refused"));
-
-        assertThatThrownBy(() -> forecastService.runForecasts(
-                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null))
-                .isInstanceOf(WeatherDataFetchException.class);
-
-        verify(evaluationService, never()).evaluate(any(), any(EvaluationModel.class), any());
-    }
-
-    @Test
-    @DisplayName("runForecasts() when weather fetch returns null throws WeatherDataFetchException")
-    void runForecasts_weatherFetchReturnsNull_throwsWeatherDataFetchException() {
-        LocalDate date = LocalDate.of(2026, 2, 20);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
-
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(null, null));
-
-        assertThatThrownBy(() -> forecastService.runForecasts(
-                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null))
-                .isInstanceOf(WeatherDataFetchException.class)
-                .hasMessageContaining("Weather service returned null");
-
-        verify(evaluationService, never()).evaluate(any(), any(EvaluationModel.class), any());
     }
 
     // --- fetchWeatherAndTriage tests ---
@@ -425,15 +153,16 @@ class ForecastServiceTest {
         LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
         AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
 
+        OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(data, null));
+                .thenReturn(new WeatherExtractionResult(data, resp));
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null);
+                EvaluationModel.SONNET, null);
 
         assertThat(result.triaged()).isFalse();
         assertThat(result.triageReason()).isNull();
@@ -441,6 +170,7 @@ class ForecastServiceTest {
         assertThat(result.location()).isEqualTo(DURHAM_LOCATION);
         assertThat(result.targetType()).isEqualTo(TargetType.SUNSET);
         assertThat(result.azimuth()).isEqualTo(310);
+        assertThat(result.forecastResponse()).isSameAs(resp);
         verify(repository, never()).save(any());
     }
 
@@ -462,7 +192,7 @@ class ForecastServiceTest {
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(),
-                EvaluationModel.SONNET, true, null);
+                EvaluationModel.SONNET, null);
 
         assertThat(result.triaged()).isTrue();
         assertThat(result.triageReason()).isEqualTo("Low cloud 85%");
@@ -490,7 +220,7 @@ class ForecastServiceTest {
 
         assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null))
+                EvaluationModel.SONNET, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather data fetch failed");
         // Record conditions for every place (P1 fix, 2026-09-30): a slot whose weather fetch
@@ -510,7 +240,7 @@ class ForecastServiceTest {
 
         assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null))
+                EvaluationModel.SONNET, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather service returned null");
         verifyNoInteractions(slotAtmosphereWriter);
@@ -527,7 +257,7 @@ class ForecastServiceTest {
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
 
         assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
-                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(), EvaluationModel.SONNET, true, jobRun,
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(), EvaluationModel.SONNET, jobRun,
                 Map.of(), new CloudPointCache(Map.of())))
                 .isInstanceOf(WeatherDataFetchException.class);
 
@@ -539,32 +269,6 @@ class ForecastServiceTest {
         assertThat(failed.getErrorMessage()).isEqualTo("Weather data fetch failed for " + DURHAM
                 + " SUNSET: Weather data could not be fetched.");
         verify(openMeteoService, never()).getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any());
-    }
-
-    @Test
-    @DisplayName("runForecasts() also publishes a raw exception message capped at 200 characters, while the "
-            + "thrown exception keeps the whole of it")
-    void runForecasts_longExceptionMessage_publishedTruncated() {
-        LocalDate date = LocalDate.of(2026, 2, 20);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
-        JobRunEntity jobRun = new JobRunEntity();
-        jobRun.setId(42L);
-        String raw = "y".repeat(500);
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenThrow(new RuntimeException(raw));
-
-        assertThatThrownBy(() -> forecastService.runForecasts(
-                DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(), EvaluationModel.SONNET, jobRun))
-                .isInstanceOf(WeatherDataFetchException.class)
-                .hasMessageContaining(raw);
-
-        ArgumentCaptor<LocationTaskEvent> eventCaptor = ArgumentCaptor.forClass(LocationTaskEvent.class);
-        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
-        LocationTaskEvent failed = eventCaptor.getAllValues().get(1);
-        assertThat(failed.getState()).isEqualTo(LocationTaskState.FAILED);
-        assertThat(failed.getErrorMessage()).hasSize(200)
-                .startsWith("Weather data fetch failed for " + DURHAM + " SUNRISE: yyy").endsWith("yyy...");
     }
 
     @Test
@@ -581,7 +285,7 @@ class ForecastServiceTest {
                 .thenThrow(new RuntimeException(raw));
 
         assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
-                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(), EvaluationModel.SONNET, true, jobRun))
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(), EvaluationModel.SONNET, jobRun))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining(raw);
 
@@ -631,7 +335,7 @@ class ForecastServiceTest {
 
         forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null);
+                EvaluationModel.SONNET, null);
 
         verify(slotAtmosphereWriter, times(1))
                 .write(DURHAM_LOCATION, date, TargetType.SUNSET, data);
@@ -657,7 +361,7 @@ class ForecastServiceTest {
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(),
-                EvaluationModel.SONNET, true, null);
+                EvaluationModel.SONNET, null);
 
         assertThat(result.triaged()).isTrue();
         verify(slotAtmosphereWriter, times(1))
@@ -688,7 +392,7 @@ class ForecastServiceTest {
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
                 mistProne, date, TargetType.SUNRISE, Set.of(),
-                EvaluationModel.SONNET, true, null);
+                EvaluationModel.SONNET, null);
 
         assertThat(result.triaged()).isTrue();
         verify(augmentor).augmentWithValleyMist(any(), eq(true));
@@ -711,41 +415,9 @@ class ForecastServiceTest {
 
         forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null);
+                EvaluationModel.SONNET, null);
 
         verify(augmentor).augmentWithValleyMist(any(), eq(false));
-    }
-
-    @Test
-    @DisplayName("fetchWeatherAndTriage() still records the candidate's atmospheric readings "
-            + "when tide-alignment triage stands a SEASCAPE slot down")
-    void fetchWeatherAndTriage_tideTriaged_stillRecordsReadings() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        LocationEntity seascape = LocationEntity.builder()
-                .id(2L).name("Seaham").lat(DURHAM_LAT).lon(DURHAM_LON)
-                .locationType(Set.of(LocationType.SEASCAPE)).build();
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(11L).build();
-
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
-        when(solarService.civilDuskUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset.plusHours(1));
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(data, null));
-        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
-        when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
-                .thenReturn(Optional.of(new TriageResult("No high tide in window",
-                        TriageRule.TIDE_MISALIGNED)));
-        when(repository.save(any())).thenReturn(savedEntity);
-
-        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
-                seascape, date, TargetType.SUNSET, Set.of(TideType.HIGH),
-                EvaluationModel.SONNET, true, null);
-
-        assertThat(result.triaged()).isTrue();
-        verify(slotAtmosphereWriter, times(1))
-                .write(seascape, date, TargetType.SUNSET, data);
     }
 
     @Test
@@ -766,7 +438,7 @@ class ForecastServiceTest {
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null);
+                EvaluationModel.SONNET, null);
 
         assertThat(result.triaged()).isFalse();
         assertThat(result.atmosphericData()).isNotNull();
@@ -788,10 +460,8 @@ class ForecastServiceTest {
                 new com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter(
                         realRepo, clock, false);
         ForecastService serviceWithFlagOff = new ForecastService(
-                solarService, openMeteoService, augmentor, evaluationService,
-                engineEvaluationService, repository, notificationDispatcher, eventPublisher,
-                weatherTriageEvaluator, tideAlignmentEvaluator, flagOffWriter, runProgressTracker, clock,
-                new AppBuild(BUILD));
+                solarService, openMeteoService, augmentor, repository, eventPublisher,
+                weatherTriageEvaluator, flagOffWriter, clock, new AppBuild(BUILD));
 
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
@@ -801,7 +471,7 @@ class ForecastServiceTest {
 
         serviceWithFlagOff.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null);
+                EvaluationModel.SONNET, null);
 
         verifyNoInteractions(realRepo);
     }
@@ -823,7 +493,7 @@ class ForecastServiceTest {
 
         forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, jobRun);
+                EvaluationModel.SONNET, jobRun);
 
         // Should publish FETCHING_WEATHER, FETCHING_CLOUD (no FETCHING_TIDES — empty tideTypes)
         ArgumentCaptor<LocationTaskEvent> eventCaptor =
@@ -838,523 +508,11 @@ class ForecastServiceTest {
 
     // --- tide alignment optimisation strategy tests ---
 
-    @Test
-    @DisplayName("fetchWeatherAndTriage() triages SEASCAPE when tideAlignmentEnabled=true and tide misaligned")
-    void fetchWeatherAndTriage_seascapeTideAlignmentEnabled_misaligned_triages() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        LocationEntity seascape = LocationEntity.builder()
-                .id(2L).name("Bamburgh").lat(55.6).lon(-1.7)
-                .locationType(new java.util.HashSet<>(Set.of(LocationType.SEASCAPE)))
-                .tideType(new java.util.HashSet<>(Set.of(TideType.HIGH)))
-                .build();
-        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(10L).build();
-
-        when(solarService.sunsetUtc(55.6, -1.7, date)).thenReturn(sunset);
-        when(solarService.sunsetAzimuthDeg(55.6, -1.7, date)).thenReturn(300);
-        when(solarService.civilDuskUtc(55.6, -1.7, date))
-                .thenReturn(sunset.plusMinutes(45));
-        when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
-                .thenReturn(new WeatherExtractionResult(data, null));
-        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
-        when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
-                .thenReturn(Optional.of(new TriageResult(
-                        "No high tide aligned with golden/blue hour window",
-                        TriageRule.TIDE_MISALIGNED)));
-        when(repository.save(any())).thenReturn(savedEntity);
-
-        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
-                seascape, date, TargetType.SUNSET, Set.of(TideType.HIGH),
-                EvaluationModel.SONNET, true, null);
-
-        assertThat(result.triaged()).isTrue();
-        assertThat(result.triageReason()).contains("tide");
-
-        ArgumentCaptor<ForecastEvaluationEntity> tideCaptor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository).save(tideCaptor.capture());
-        ForecastEvaluationEntity saved = tideCaptor.getValue();
-        assertThat(saved.getLocationName()).isEqualTo("Bamburgh");
-        assertThat(saved.getTargetType()).isEqualTo(TargetType.SUNSET);
-        assertThat(saved.getRating()).isNull();
-        assertThat(saved.getSummary()).isNull();
-        assertThat(saved.getTriage().getReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
-        assertThat(saved.getTriage().getMessage()).contains("tide");
-        assertThat(saved.getScoredAt()).as("a tide stand-down is stamped like any triage row")
-                .isEqualTo(STAMP);
-        assertThat(saved.getAppBuild()).as("and carries the build that decided it").isEqualTo(BUILD);
-        assertThat(saved.getPromptHash()).as("a triage row had no prompt").isNull();
-    }
-
-    @Test
-    @DisplayName("fetchWeatherAndTriage() skips tide triage when tideAlignmentEnabled=false even for SEASCAPE")
-    void fetchWeatherAndTriage_seascapeTideAlignmentDisabled_doesNotTriage() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        LocationEntity seascape = LocationEntity.builder()
-                .id(2L).name("Bamburgh").lat(55.6).lon(-1.7)
-                .locationType(new java.util.HashSet<>(Set.of(LocationType.SEASCAPE)))
-                .tideType(new java.util.HashSet<>(Set.of(TideType.HIGH)))
-                .build();
-
-        when(solarService.sunsetUtc(55.6, -1.7, date)).thenReturn(sunset);
-        when(solarService.sunsetAzimuthDeg(55.6, -1.7, date)).thenReturn(300);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
-                .thenReturn(new WeatherExtractionResult(data, null));
-        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
-
-        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
-                seascape, date, TargetType.SUNSET, Set.of(TideType.HIGH),
-                EvaluationModel.SONNET, false, null);
-
-        assertThat(result.triaged()).isFalse();
-        verify(tideAlignmentEvaluator, never()).evaluate(any(), any(), any(), any());
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("fetchWeatherAndTriage() does not apply tide alignment for non-SEASCAPE locations")
-    void fetchWeatherAndTriage_landscapeLocation_tideAlignmentNotApplied() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
-                .thenReturn(new WeatherExtractionResult(data, null));
-        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
-
-        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
-                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null);
-
-        assertThat(result.triaged()).isFalse();
-        verify(tideAlignmentEvaluator, never()).evaluate(any(), any(), any(), any());
-    }
-
     // --- evaluateAndPersist tests ---
-
-    @Test
-    @DisplayName("evaluateAndPersist() evaluates with Claude and saves entity")
-    void evaluateAndPersist_evaluatesAndSaves() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 85, 78, "Great sunset.");
-        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(20L).build();
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, DURHAM_LOCATION, date,
-                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET", null);
-
-        when(engineEvaluationService.evaluateNow(
-                any(EvaluationTask.Forecast.class), eq(BatchTriggerSource.ADMIN)))
-                .thenReturn(new EvaluationResult.Scored(evaluation));
-        when(repository.save(any())).thenReturn(savedEntity);
-
-        ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEval, null);
-
-        assertThat(result).isEqualTo(savedEntity);
-        ArgumentCaptor<EvaluationTask.Forecast> taskCaptor =
-                ArgumentCaptor.forClass(EvaluationTask.Forecast.class);
-        verify(engineEvaluationService).evaluateNow(
-                taskCaptor.capture(), eq(BatchTriggerSource.ADMIN));
-        assertThat(taskCaptor.getValue().writeTarget())
-                .isEqualTo(EvaluationTask.Forecast.WriteTarget.NONE);
-        assertThat(taskCaptor.getValue().model()).isEqualTo(EvaluationModel.SONNET);
-        assertThat(taskCaptor.getValue().data()).isEqualTo(data);
-
-        ArgumentCaptor<ForecastEvaluationEntity> evalCaptor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository).save(evalCaptor.capture());
-        ForecastEvaluationEntity saved = evalCaptor.getValue();
-        assertThat(saved.getLocationName()).isEqualTo(DURHAM);
-        assertThat(saved.getTargetType()).isEqualTo(TargetType.SUNSET);
-        assertThat(saved.getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
-        assertThat(saved.getFierySkyPotential()).isEqualTo(85);
-        assertThat(saved.getGoldenHourPotential()).isEqualTo(78);
-    }
-
-    @Test
-    @DisplayName("evaluateAndPersist() persists Claude-authored headline when present")
-    void evaluateAndPersist_persistsHeadlineWhenPresent() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        SunsetEvaluation evaluation = new SunsetEvaluation(
-                4, 80, 75, "Layered cloud should catch fire near the horizon.",
-                null, null, null, null, null,
-                "Layered horizon — fire likely");
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, DURHAM_LOCATION, date,
-                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET", null);
-
-        when(engineEvaluationService.evaluateNow(any(), any()))
-                .thenReturn(new EvaluationResult.Scored(evaluation));
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        forecastService.evaluateAndPersist(preEval, null);
-
-        ArgumentCaptor<ForecastEvaluationEntity> evalCaptor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository).save(evalCaptor.capture());
-        assertThat(evalCaptor.getValue().getHeadline())
-                .isEqualTo("Layered horizon — fire likely");
-    }
-
-    @Test
-    @DisplayName("evaluateAndPersist() leaves headline null when Claude omitted it")
-    void evaluateAndPersist_leavesHeadlineNullWhenOmitted() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        // Legacy 4-arg constructor — headline defaults to null.
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 50, 60, "Soft pastel light.");
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, DURHAM_LOCATION, date,
-                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET", null);
-
-        when(engineEvaluationService.evaluateNow(any(), any()))
-                .thenReturn(new EvaluationResult.Scored(evaluation));
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        forecastService.evaluateAndPersist(preEval, null);
-
-        ArgumentCaptor<ForecastEvaluationEntity> evalCaptor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository).save(evalCaptor.capture());
-        assertThat(evalCaptor.getValue().getHeadline()).isNull();
-    }
-
-    @Test
-    @DisplayName("evaluateAndPersist() sends notifications after saving")
-    void evaluateAndPersist_sendsNotifications() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        SunsetEvaluation evaluation = new SunsetEvaluation(4, null, null, "Good.");
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, DURHAM_LOCATION, date,
-                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.HAIKU, Set.of(),
-                DURHAM + "|" + date + "|SUNSET", null);
-
-        when(engineEvaluationService.evaluateNow(any(), any()))
-                .thenReturn(new EvaluationResult.Scored(evaluation));
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        forecastService.evaluateAndPersist(preEval, null);
-
-        verify(notificationDispatcher)
-                .dispatch(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
-    }
-
-    @Test
-    @DisplayName("evaluateAndPersist() swallows notification exceptions without failing")
-    void evaluateAndPersist_notificationFails_doesNotThrow() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 50, 60, "Moderate.");
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, DURHAM_LOCATION, date,
-                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET", null);
-
-        when(engineEvaluationService.evaluateNow(any(), any()))
-                .thenReturn(new EvaluationResult.Scored(evaluation));
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        doThrow(new RuntimeException("SMTP down"))
-                .when(notificationDispatcher).dispatch(any(), any(), any(), any());
-
-        ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEval, null);
-
-        assertThat(result).isNotNull();
-
-        ArgumentCaptor<ForecastEvaluationEntity> notifCaptor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository).save(notifCaptor.capture());
-        ForecastEvaluationEntity saved = notifCaptor.getValue();
-        assertThat(saved.getLocationName()).isEqualTo(DURHAM);
-        assertThat(saved.getTargetType()).isEqualTo(TargetType.SUNSET);
-        assertThat(saved.getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
-    }
-
-    @Test
-    @DisplayName("evaluateAndPersist() throws EvaluationFailedException when engine returns Errored, no entity saved")
-    void evaluateAndPersist_engineErrored_throwsAndDoesNotSave() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, DURHAM_LOCATION, date,
-                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET", null);
-
-        when(engineEvaluationService.evaluateNow(any(), any()))
-                .thenReturn(new EvaluationResult.Errored("overloaded_error", "busy"));
-
-        assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval, null))
-                .isInstanceOf(EvaluationFailedException.class)
-                .extracting(t -> ((EvaluationFailedException) t).getErrorType())
-                .isEqualTo("overloaded_error");
-
-        verify(repository, never()).save(any());
-        verify(notificationDispatcher, never()).dispatch(any(), any(), any(), any());
-    }
-
-    // --- evaluateAndPersist: which layer publishes a failure, and the stop check ---
-    //
-    // These pin ForecastService ITSELF. The executor also publishes FAILED for a task still in progress
-    // (the same phrase), so an executor-level test cannot notice this class ceasing to publish.
-
-    @Nested
-    @DisplayName("evaluateAndPersist() publishes its own failures and honours the run's stop")
-    class EvaluationFailurePublication {
-
-        private static final String KEY_REJECTED = "Claude rejected the API key.";
-        private static final String NOT_ATTEMPTED =
-                "Not attempted: the run stopped because Claude rejected the API key.";
-        private static final long RUN_ID = 77L;
-
-        private final LocalDate date = LocalDate.of(2026, 6, 21);
-        private final LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        private final JobRunEntity jobRun = runWithId(RUN_ID);
-
-        private JobRunEntity runWithId(long id) {
-            JobRunEntity run = new JobRunEntity();
-            run.setId(id);
-            return run;
-        }
-
-        private ForecastPreEvalResult preEval(LocalDate on) {
-            return new ForecastPreEvalResult(
-                    false, null, buildAtmosphericData(sunset, TargetType.SUNSET), DURHAM_LOCATION, on,
-                    TargetType.SUNSET, sunset, 310, 1, EvaluationModel.SONNET, Set.of(),
-                    DURHAM + "|" + on + "|SUNSET", null);
-        }
-
-        private List<LocationTaskEvent> publishedEvents(int expected) {
-            ArgumentCaptor<LocationTaskEvent> captor = ArgumentCaptor.forClass(LocationTaskEvent.class);
-            verify(eventPublisher, times(expected)).publishEvent(captor.capture());
-            return captor.getAllValues();
-        }
-
-        @Test
-        @DisplayName("an Errored 401: exactly one FAILED event with the key phrase at EVALUATING, run stopped")
-        void erroredKeyRejected_publishesFailedOnce_andStopsTheRun() {
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Errored("anthropic_401", "invalid x-api-key"));
-
-            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
-                    .isInstanceOf(EvaluationFailedException.class);
-
-            List<LocationTaskEvent> events = publishedEvents(2);
-            assertThat(events.get(0).getState()).isEqualTo(LocationTaskState.EVALUATING);
-            assertThat(events.get(1).getState()).isEqualTo(LocationTaskState.FAILED);
-            assertThat(events.get(1).getErrorMessage()).isEqualTo(KEY_REJECTED);
-            assertThat(events.get(1).getFailedStep()).isEqualTo("EVALUATING");
-            assertThat(events.get(1).getJobRunId()).isEqualTo(RUN_ID);
-            verify(runProgressTracker).stopRun(RUN_ID);
-        }
-
-        @Test
-        @DisplayName("an Errored 529: the overloaded phrase, and the run is NOT stopped")
-        void erroredOverloaded_publishesItsPhrase_doesNotStop() {
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Errored("anthropic_529", "overloaded"));
-
-            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
-                    .isInstanceOf(EvaluationFailedException.class);
-
-            List<LocationTaskEvent> events = publishedEvents(2);
-            assertThat(events.get(1).getErrorMessage()).isEqualTo("Claude was overloaded.");
-            assertThat(events.get(1).getFailedStep()).isEqualTo("EVALUATING");
-            verify(runProgressTracker, never()).stopRun(RUN_ID);
-        }
-
-        @Test
-        @DisplayName("an Errored circuit-breaker refusal: its own not-attempted phrase, and the run is NOT stopped")
-        void erroredCircuitOpen_publishesItsPhrase_doesNotStop() {
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Errored("circuit_open", "CircuitBreaker is OPEN"));
-
-            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
-                    .isInstanceOf(EvaluationFailedException.class);
-
-            assertThat(publishedEvents(2).get(1).getErrorMessage())
-                    .isEqualTo("Not attempted: Claude calls are paused after repeated failures. "
-                            + "Try again in a minute.");
-            verify(runProgressTracker, never()).stopRun(RUN_ID);
-        }
-
-        @Test
-        @DisplayName("a failure saving the scored result: one FAILED event with the fallback phrase, no COMPLETE")
-        void saveFails_publishesFallbackPhrase() {
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(new SunsetEvaluation(null, 85, 78, "Great.")));
-            when(repository.save(any())).thenThrow(new IllegalStateException("jdbc:postgresql://secret/db"));
-
-            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
-                    .isInstanceOf(IllegalStateException.class);
-
-            List<LocationTaskEvent> events = publishedEvents(2);
-            assertThat(events.get(1).getState()).isEqualTo(LocationTaskState.FAILED);
-            assertThat(events.get(1).getErrorMessage()).isEqualTo("Evaluation failed (see server log).");
-            assertThat(events.get(1).getFailedStep()).isEqualTo("EVALUATING");
-            verify(runProgressTracker, never()).stopRun(RUN_ID);
-        }
-
-        @Test
-        @DisplayName("an exception thrown by the evaluation call: one FAILED event with the fallback phrase")
-        void evaluationCallThrows_publishesFallbackPhrase() {
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenThrow(new IllegalStateException("password=hunter2"));
-
-            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
-                    .isInstanceOf(IllegalStateException.class);
-
-            LocationTaskEvent failed = publishedEvents(2).get(1);
-            assertThat(failed.getErrorMessage()).isEqualTo("Evaluation failed (see server log).");
-        }
-
-        @Test
-        @DisplayName("a stopped run: one not-attempted FAILED event, RunStoppedException, engine never called")
-        void stoppedRun_publishesNotAttempted_neverCallsTheEngine() {
-            when(runProgressTracker.isStopped(RUN_ID)).thenReturn(true);
-
-            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
-                    .isInstanceOf(RunStoppedException.class);
-
-            List<LocationTaskEvent> events = publishedEvents(1);
-            assertThat(events.get(0).getState()).isEqualTo(LocationTaskState.FAILED);
-            assertThat(events.get(0).getErrorMessage()).isEqualTo(NOT_ATTEMPTED);
-            assertThat(events.get(0).getFailedStep()).isEqualTo("EVALUATING");
-            verifyNoInteractions(engineEvaluationService);
-            verify(repository, never()).save(any());
-        }
-
-        @Test
-        @DisplayName("with no run id nothing is published and no stop is consulted (the failure still throws)")
-        void noRun_publishesNothing() {
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Errored("anthropic_401", "invalid x-api-key"));
-
-            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), null))
-                    .isInstanceOf(EvaluationFailedException.class);
-
-            verifyNoInteractions(eventPublisher);
-            verifyNoInteractions(runProgressTracker);
-        }
-
-        @Test
-        @DisplayName("the stop check is INSIDE the bulkhead: with one permit and five calls started together, the "
-                + "first answers 401 and the engine is called exactly once, every other call not attempted")
-        void stopCheck_isInsideTheBulkhead_oneEngineCallForFiveWaiters() throws Exception {
-            RunProgressTracker realTracker = new RunProgressTracker(mock(DynamicSchedulerService.class));
-            ForecastService service = new ForecastService(
-                    solarService, openMeteoService, augmentor, evaluationService, engineEvaluationService,
-                    repository, notificationDispatcher, eventPublisher, weatherTriageEvaluator,
-                    tideAlignmentEvaluator, slotAtmosphereWriter, realTracker, clock,
-                    new AppBuild(BUILD));
-            int calls = 5;
-            List<String[]> tasks = new ArrayList<>();
-            List<ForecastPreEvalResult> preEvals = new ArrayList<>();
-            for (int i = 0; i < calls; i++) {
-                ForecastPreEvalResult pre = preEval(date.plusDays(i));
-                preEvals.add(pre);
-                tasks.add(new String[] {pre.taskKey(), DURHAM, pre.date().toString(), "SUNSET"});
-            }
-            realTracker.initRun(RUN_ID, tasks);
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Errored("anthropic_401", "invalid x-api-key"));
-            io.github.resilience4j.bulkhead.Bulkhead bulkhead = io.github.resilience4j.bulkhead.Bulkhead.of(
-                    "claude", io.github.resilience4j.bulkhead.BulkheadConfig.custom()
-                            .maxConcurrentCalls(1).maxWaitDuration(java.time.Duration.ofSeconds(30)).build());
-            java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
-            java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(calls);
-            List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
-            try {
-                for (ForecastPreEvalResult pre : preEvals) {
-                    futures.add(pool.submit(() -> {
-                        go.await();
-                        try {
-                            io.github.resilience4j.bulkhead.Bulkhead.decorateSupplier(bulkhead,
-                                    () -> service.evaluateAndPersist(pre, jobRun)).get();
-                        } catch (RuntimeException expected) {
-                            // every call fails: one with the 401, the rest not attempted
-                        }
-                        return null;
-                    }));
-                }
-                go.countDown();
-                for (java.util.concurrent.Future<?> f : futures) {
-                    f.get(30, java.util.concurrent.TimeUnit.SECONDS);
-                }
-            } finally {
-                pool.shutdownNow();
-            }
-
-            ArgumentCaptor<EvaluationTask> taskCaptor = ArgumentCaptor.forClass(EvaluationTask.class);
-            verify(engineEvaluationService, times(1)).evaluateNow(taskCaptor.capture(),
-                    eq(com.gregochr.goldenhour.service.batch.BatchTriggerSource.ADMIN));
-            assertThat(taskCaptor.getValue()).isInstanceOf(EvaluationTask.Forecast.class);
-            ArgumentCaptor<LocationTaskEvent> events = ArgumentCaptor.forClass(LocationTaskEvent.class);
-            verify(eventPublisher, times(calls + 1)).publishEvent(events.capture());
-            List<LocationTaskEvent> failed = events.getAllValues().stream()
-                    .filter(e -> e.getState() == LocationTaskState.FAILED).toList();
-            assertThat(failed).extracting(LocationTaskEvent::getErrorMessage)
-                    .containsExactlyInAnyOrder(KEY_REJECTED, NOT_ATTEMPTED, NOT_ATTEMPTED, NOT_ATTEMPTED,
-                            NOT_ATTEMPTED);
-            assertThat(failed).extracting(LocationTaskEvent::getTaskKey).doesNotHaveDuplicates();
-        }
-    }
 
     // --- forecast_evaluation.scored_at (V178): the availability stamp's write sites ---
 
     private static final Instant STAMP = Instant.parse("2026-08-11T12:00:00Z");
-
-    @Test
-    @DisplayName("V178: a synchronous row inserted with a rating is stamped at insert; one without is not")
-    void runForecasts_stampsScoredAtOnlyWhenTheRowHasARating() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData forecastData = buildAtmosphericData(sunrise, TargetType.SUNRISE);
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(forecastData, null));
-        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
-                .thenReturn(new SunsetEvaluation(4, 70, 75, "Rated."))
-                .thenReturn(new SunsetEvaluation(null, 70, 75, "Potentials only, no star."));
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null);
-
-        ArgumentCaptor<ForecastEvaluationEntity> saved = ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository, times(2)).save(saved.capture());
-        assertThat(saved.getAllValues().get(0).getRating()).isEqualTo(4);
-        assertThat(saved.getAllValues().get(0).getScoredAt()).isEqualTo(STAMP);
-        assertThat(saved.getAllValues().get(0).getAppBuild()).isEqualTo(BUILD);
-        assertThat(saved.getAllValues().get(0).getPromptHash())
-                .as("the synchronous engine has no batch request, so no prompt fingerprint").isNull();
-        assertThat(saved.getAllValues().get(1).getRating()).isNull();
-        assertThat(saved.getAllValues().get(1).getScoredAt())
-                .as("nothing to say, so no availability instant").isNull();
-        assertThat(saved.getAllValues().get(1).getAppBuild())
-                .as("nothing to say, so no build either").isNull();
-    }
 
     @Test
     @DisplayName("V178: a triage stand-down row is stamped at insert — a triage reason is something to say")
@@ -1371,7 +529,7 @@ class ForecastServiceTest {
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         forecastService.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(),
-                EvaluationModel.SONNET, true, null);
+                EvaluationModel.SONNET, null);
 
         ArgumentCaptor<ForecastEvaluationEntity> saved = ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
         verify(repository).save(saved.capture());
@@ -1412,61 +570,6 @@ class ForecastServiceTest {
 
     // --- persistCannedResult tests ---
 
-    @Test
-    @DisplayName("persistCannedResult() saves a canned rating=1 entity with the given reason")
-    void persistCannedResult_savesCannedEntity() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, DURHAM_LOCATION, date,
-                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET", null);
-
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        ForecastEvaluationEntity result = forecastService.persistCannedResult(
-                preEval, "Sentinel skip — region poor", null);
-
-        assertThat(result).isNotNull();
-
-        ArgumentCaptor<ForecastEvaluationEntity> captor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository).save(captor.capture());
-
-        ForecastEvaluationEntity saved = captor.getValue();
-        assertThat(saved.getRating()).isNull();
-        assertThat(saved.getFierySkyPotential()).isNull();
-        assertThat(saved.getGoldenHourPotential()).isNull();
-        assertThat(saved.getSummary()).isNull();
-        assertThat(saved.getTriage().getReason()).isEqualTo(
-                com.gregochr.goldenhour.model.TriageReason.GENERIC);
-        assertThat(saved.getTriage().getMessage()).contains("Sentinel skip — region poor");
-        assertThat(saved.getScoredAt()).as("a sentinel skip is a stand-down, stamped like a triage row")
-                .isEqualTo(STAMP);
-        assertThat(saved.getAppBuild()).isEqualTo(BUILD);
-    }
-
-    @Test
-    @DisplayName("persistCannedResult() does not call evaluationService")
-    void persistCannedResult_doesNotCallClaude() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, DURHAM_LOCATION, date,
-                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET", null);
-
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        forecastService.persistCannedResult(preEval, "region poor", null);
-
-        verify(evaluationService, never()).evaluate(any(), any(), any());
-    }
-
     // --- Batch prefetch cache integration tests ---
 
     @Test
@@ -1491,7 +594,7 @@ class ForecastServiceTest {
 
         forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null, prefetched, null);
+                EvaluationModel.SONNET, null, prefetched, null);
 
         verify(openMeteoService).getAtmosphericDataFromCache(
                 eq(expectedRequest), eq(sunset), eq(prefetched));
@@ -1513,7 +616,7 @@ class ForecastServiceTest {
 
         forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null, null, null);
+                EvaluationModel.SONNET, null, null, null);
 
         verify(openMeteoService).getAtmosphericDataWithResponse(
                 any(ForecastRequest.class), any(), any());
@@ -1534,7 +637,7 @@ class ForecastServiceTest {
 
         assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null, prefetched, null))
+                EvaluationModel.SONNET, null, prefetched, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather data fetch failed");
     }
@@ -1560,7 +663,7 @@ class ForecastServiceTest {
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, jobRun);
+                EvaluationModel.SONNET, jobRun);
 
         // Triage should complete successfully despite SSE failures
         assertThat(result).isNotNull();
@@ -1584,168 +687,18 @@ class ForecastServiceTest {
 
         forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null);
+                EvaluationModel.SONNET, null);
 
         verify(eventPublisher, never()).publishEvent(any(LocationTaskEvent.class));
     }
 
     // --- runForecasts: single target type ---
 
-    @Test
-    @DisplayName("runForecasts() with SUNRISE targetType evaluates only sunrise, not sunset")
-    void runForecasts_sunriseOnly_evaluatesOnlySunrise() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
-        AtmosphericData data = buildAtmosphericData(sunrise, TargetType.SUNRISE);
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 70, 75, "Good.");
-
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(data, null));
-        when(evaluationService.evaluate(eq(data), eq(EvaluationModel.SONNET), any()))
-                .thenReturn(evaluation);
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        List<ForecastEvaluationEntity> results = forecastService.runForecasts(
-                DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(),
-                EvaluationModel.SONNET, null);
-
-        assertThat(results).hasSize(1);
-        verify(solarService, never()).sunsetUtc(anyDouble(), anyDouble(), any());
-        ArgumentCaptor<ForecastEvaluationEntity> captor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository).save(captor.capture());
-        assertThat(captor.getValue().getTargetType()).isEqualTo(TargetType.SUNRISE);
-    }
-
-    @Test
-    @DisplayName("runForecasts() with SUNSET targetType evaluates only sunset, not sunrise")
-    void runForecasts_sunsetOnly_evaluatesOnlySunset() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 60, 55, "Moderate.");
-
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(data, null));
-        when(evaluationService.evaluate(eq(data), eq(EvaluationModel.SONNET), any()))
-                .thenReturn(evaluation);
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        List<ForecastEvaluationEntity> results = forecastService.runForecasts(
-                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, null);
-
-        assertThat(results).hasSize(1);
-        verify(solarService, never()).sunriseUtc(anyDouble(), anyDouble(), any());
-        ArgumentCaptor<ForecastEvaluationEntity> captor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository).save(captor.capture());
-        assertThat(captor.getValue().getTargetType()).isEqualTo(TargetType.SUNSET);
-    }
-
     // --- evaluateAndPersist: event publishing ---
-
-    @Test
-    @DisplayName("evaluateAndPersist() publishes EVALUATING then COMPLETE events with correct fields")
-    void evaluateAndPersist_withJobRun_publishesEvaluatingAndComplete() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 85, 78, "Great.");
-        JobRunEntity jobRun = new JobRunEntity();
-        jobRun.setId(77L);
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, DURHAM_LOCATION, date,
-                TargetType.SUNSET, sunset, 310, 1, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET", null);
-
-        when(engineEvaluationService.evaluateNow(any(), any()))
-                .thenReturn(new EvaluationResult.Scored(evaluation));
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        forecastService.evaluateAndPersist(preEval, jobRun);
-
-        ArgumentCaptor<LocationTaskEvent> eventCaptor =
-                ArgumentCaptor.forClass(LocationTaskEvent.class);
-        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
-        List<LocationTaskEvent> events = eventCaptor.getAllValues();
-
-        assertThat(events.get(0).getState()).isEqualTo(LocationTaskState.EVALUATING);
-        assertThat(events.get(0).getJobRunId()).isEqualTo(77L);
-        assertThat(events.get(0).getLocationName()).isEqualTo(DURHAM);
-        assertThat(events.get(0).getTargetDate()).isEqualTo(date.toString());
-        assertThat(events.get(0).getTargetType()).isEqualTo("SUNSET");
-
-        assertThat(events.get(1).getState()).isEqualTo(LocationTaskState.COMPLETE);
-        assertThat(events.get(1).getJobRunId()).isEqualTo(77L);
-    }
 
     // --- evaluateAndPersist: entity field preservation ---
 
-    @Test
-    @DisplayName("evaluateAndPersist() persists entity with correct preEval fields")
-    void evaluateAndPersist_entityPreservesPreEvalFields() {
-        LocalDate date = LocalDate.of(2026, 7, 15);
-        LocalDateTime sunset = LocalDateTime.of(2026, 7, 15, 21, 12);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 72, 68, "Decent.");
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, DURHAM_LOCATION, date,
-                TargetType.SUNSET, sunset, 295, 2, EvaluationModel.HAIKU, Set.of(),
-                DURHAM + "|" + date + "|SUNSET", null);
-
-        when(engineEvaluationService.evaluateNow(any(), any()))
-                .thenReturn(new EvaluationResult.Scored(evaluation));
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEval, null);
-
-        assertThat(result.getLocationName()).isEqualTo(DURHAM);
-        assertThat(result.getLocationLat()).isEqualByComparingTo(BigDecimal.valueOf(DURHAM_LAT));
-        assertThat(result.getLocationLon()).isEqualByComparingTo(BigDecimal.valueOf(DURHAM_LON));
-        assertThat(result.getTargetDate()).isEqualTo(date);
-        assertThat(result.getTargetType()).isEqualTo(TargetType.SUNSET);
-        assertThat(result.getDaysAhead()).isEqualTo(2);
-        assertThat(result.getSolarEventTime()).isEqualTo(sunset);
-        assertThat(result.getAzimuthDeg()).isEqualTo(295);
-        assertThat(result.getEvaluationModel()).isEqualTo(EvaluationModel.HAIKU);
-        assertThat(result.getFierySkyPotential()).isEqualTo(72);
-        assertThat(result.getGoldenHourPotential()).isEqualTo(68);
-    }
-
     // --- persistCannedResult: event publishing ---
-
-    @Test
-    @DisplayName("persistCannedResult() publishes SKIPPED event with correct fields")
-    void persistCannedResult_withJobRun_publishesSkippedEvent() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        JobRunEntity jobRun = new JobRunEntity();
-        jobRun.setId(55L);
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, DURHAM_LOCATION, date,
-                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET", null);
-
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        forecastService.persistCannedResult(preEval, "Sentinel: region poor", jobRun);
-
-        ArgumentCaptor<LocationTaskEvent> eventCaptor =
-                ArgumentCaptor.forClass(LocationTaskEvent.class);
-        verify(eventPublisher).publishEvent(eventCaptor.capture());
-        LocationTaskEvent event = eventCaptor.getValue();
-        assertThat(event.getState()).isEqualTo(LocationTaskState.SKIPPED);
-        assertThat(event.getJobRunId()).isEqualTo(55L);
-        assertThat(event.getLocationName()).isEqualTo(DURHAM);
-        assertThat(event.getTargetType()).isEqualTo("SUNSET");
-    }
 
     // --- fetchWeatherAndTriage: sunrise path uses civilDawn ---
 
@@ -1764,7 +717,7 @@ class ForecastServiceTest {
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(),
-                EvaluationModel.SONNET, true, null);
+                EvaluationModel.SONNET, null);
 
         assertThat(result.targetType()).isEqualTo(TargetType.SUNRISE);
         assertThat(result.azimuth()).isEqualTo(52);
@@ -1777,248 +730,9 @@ class ForecastServiceTest {
 
     // --- fetchWeatherAndTriage: weather passes but tide fails ---
 
-    @Test
-    @DisplayName("fetchWeatherAndTriage() weather passes but tide alignment triages SEASCAPE")
-    void fetchWeatherAndTriage_weatherPassesTideFails_triages() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        LocationEntity seascape = LocationEntity.builder()
-                .id(3L).name("Bamburgh").lat(55.6).lon(-1.7)
-                .locationType(new java.util.HashSet<>(Set.of(LocationType.SEASCAPE)))
-                .tideType(new java.util.HashSet<>(Set.of(TideType.HIGH)))
-                .build();
-
-        when(solarService.sunsetUtc(55.6, -1.7, date)).thenReturn(sunset);
-        when(solarService.sunsetAzimuthDeg(55.6, -1.7, date)).thenReturn(300);
-        when(solarService.civilDuskUtc(55.6, -1.7, date))
-                .thenReturn(LocalDateTime.of(2026, 6, 21, 21, 30));
-        when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
-                .thenReturn(new WeatherExtractionResult(data, null));
-        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
-        when(tideAlignmentEvaluator.evaluate(any(), eq(Set.of(TideType.HIGH)), any(), any()))
-                .thenReturn(Optional.of(new TriageResult("No high tide in window",
-                        TriageRule.TIDE_MISALIGNED)));
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
-                seascape, date, TargetType.SUNSET, Set.of(TideType.HIGH),
-                EvaluationModel.SONNET, true, null);
-
-        assertThat(result.triaged()).isTrue();
-        assertThat(result.triageReason()).contains("No high tide in window");
-        ArgumentCaptor<ForecastEvaluationEntity> captor =
-                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
-        verify(repository).save(captor.capture());
-        assertThat(captor.getValue().getSummary()).isNull();
-        assertThat(captor.getValue().getRating()).isNull();
-        assertThat(captor.getValue().getTriage().getReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
-        assertThat(captor.getValue().getTriage().getMessage()).contains("tide");
-    }
-
-    // --- fetchWeatherAndTriage: result carries daysAhead and forecastResponse ---
-
-    @Test
-    @DisplayName("fetchWeatherAndTriage() result carries correct daysAhead and forecastResponse")
-    void fetchWeatherAndTriage_resultCarriesDaysAheadAndResponse() {
-        // Relative to the injected clock, not the wall clock: this assertion is about the
-        // horizon arithmetic, so it must not also depend on what hour the suite runs at.
-        LocalDate tomorrow = LocalDate.now(clock.withZone(ZoneId.of("Europe/London"))).plusDays(1);
-        LocalDateTime sunset = tomorrow.atTime(20, 30);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        OpenMeteoForecastResponse forecastResp = new OpenMeteoForecastResponse();
-
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, tomorrow)).thenReturn(sunset);
-        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, tomorrow)).thenReturn(310);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(data, forecastResp));
-        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
-
-        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
-                DURHAM_LOCATION, tomorrow, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null);
-
-        assertThat(result.daysAhead()).isEqualTo(1);
-        assertThat(result.forecastResponse()).isSameAs(forecastResp);
-    }
-
-    // --- runForecasts() event publishing and notification resilience ---
-
-    @Test
-    @DisplayName("runForecasts() swallows notification failure and still returns saved entities")
-    void runForecasts_notificationFails_stillReturnsSavedEntities() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunrise, TargetType.SUNRISE);
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 70, 65, "Good.");
-
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(data, null));
-        when(evaluationService.evaluate(eq(data), any(EvaluationModel.class), any()))
-                .thenReturn(evaluation);
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        doThrow(new RuntimeException("SMTP down"))
-                .when(notificationDispatcher).dispatch(any(), any(), any(), any());
-
-        List<ForecastEvaluationEntity> results = forecastService.runForecasts(
-                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null);
-
-        assertThat(results).hasSize(2);
-        verify(repository, times(2)).save(any());
-    }
-
-    @Test
-    @DisplayName("runForecasts() publishes FAILED event before throwing on weather fetch error")
-    void runForecasts_weatherFetchFails_publishesFailedEvent() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
-        JobRunEntity jobRun = new JobRunEntity();
-        jobRun.setId(88L);
-
-        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenThrow(new RuntimeException("Network error"));
-
-        assertThatThrownBy(() -> forecastService.runForecasts(
-                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, jobRun))
-                .isInstanceOf(WeatherDataFetchException.class);
-
-        ArgumentCaptor<LocationTaskEvent> eventCaptor =
-                ArgumentCaptor.forClass(LocationTaskEvent.class);
-        verify(eventPublisher, org.mockito.Mockito.atLeastOnce())
-                .publishEvent(eventCaptor.capture());
-
-        List<LocationTaskEvent> events = eventCaptor.getAllValues();
-        LocationTaskEvent failedEvent = events.stream()
-                .filter(e -> e.getState() == LocationTaskState.FAILED)
-                .findFirst()
-                .orElse(null);
-        assertThat(failedEvent).isNotNull();
-        assertThat(failedEvent.getJobRunId()).isEqualTo(88L);
-        assertThat(failedEvent.getLocationName()).isEqualTo(DURHAM);
-        assertThat(failedEvent.getErrorMessage()).contains("Network error");
-    }
-
-    @Test
-    @DisplayName("runForecasts() publishes FETCHING_WEATHER → FETCHING_CLOUD → EVALUATING → COMPLETE events")
-    void runForecasts_success_publishesLifecycleEvents() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 70, 65, "Good.");
-        JobRunEntity jobRun = new JobRunEntity();
-        jobRun.setId(99L);
-
-        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(data, null));
-        when(evaluationService.evaluate(eq(data), any(EvaluationModel.class), any()))
-                .thenReturn(evaluation);
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        forecastService.runForecasts(
-                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, jobRun);
-
-        ArgumentCaptor<LocationTaskEvent> eventCaptor =
-                ArgumentCaptor.forClass(LocationTaskEvent.class);
-        verify(eventPublisher, org.mockito.Mockito.atLeast(3))
-                .publishEvent(eventCaptor.capture());
-
-        List<LocationTaskState> states = eventCaptor.getAllValues().stream()
-                .map(LocationTaskEvent::getState)
-                .toList();
-        assertThat(states).contains(
-                LocationTaskState.FETCHING_WEATHER,
-                LocationTaskState.FETCHING_CLOUD,
-                LocationTaskState.EVALUATING,
-                LocationTaskState.COMPLETE);
-    }
-
-    // --- Notification failure cascade ---
-
-    @Test
-    @DisplayName("evaluateAndPersist() saves entity even when all three notification services fail")
-    void evaluateAndPersist_allNotificationsFail_entityStillSaved() {
-        LocalDate date = LocalDate.of(2026, 6, 21);
-        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-        SunsetEvaluation evaluation = new SunsetEvaluation(null, 90, 85, "Spectacular.");
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, DURHAM_LOCATION, date,
-                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET", null);
-
-        when(engineEvaluationService.evaluateNow(any(), any()))
-                .thenReturn(new EvaluationResult.Scored(evaluation));
-        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        doThrow(new RuntimeException("SMTP down"))
-                .when(notificationDispatcher)
-                .dispatch(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
-
-        ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEval, null);
-
-        assertThat(result).isNotNull();
-        assertThat(result.getFierySkyPotential()).isEqualTo(90);
-        verify(repository).save(any(ForecastEvaluationEntity.class));
-    }
-
-    // --- Event publishing — mutation kill tests ---
-
     @Nested
     @DisplayName("Event publishing")
     class EventPublishingTests {
-
-        @Test
-        @DisplayName("runForecasts() publishes FAILED event when weather data is null and jobRun is set")
-        void runForecasts_nullWeather_withJobRun_publishesFailedEvent() {
-            LocalDate date = LocalDate.of(2026, 6, 21);
-            LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
-            JobRunEntity jobRun = new JobRunEntity();
-            jobRun.setId(11L);
-
-            when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-            when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), eq(jobRun)))
-                    .thenReturn(new WeatherExtractionResult(null, null));
-
-            assertThatThrownBy(() -> forecastService.runForecasts(
-                    DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(), EvaluationModel.SONNET, jobRun))
-                    .isInstanceOf(WeatherDataFetchException.class);
-
-            ArgumentCaptor<LocationTaskEvent> captor = ArgumentCaptor.forClass(LocationTaskEvent.class);
-            verify(eventPublisher, org.mockito.Mockito.atLeastOnce()).publishEvent(captor.capture());
-            assertThat(captor.getAllValues())
-                    .anyMatch(e -> e.getState() == LocationTaskState.FAILED);
-        }
-
-        @Test
-        @DisplayName("runForecasts() publishes FETCHING_TIDES event in the success path")
-        void runForecasts_success_publishesFetchingTidesEvent() {
-            LocalDate date = LocalDate.of(2026, 6, 21);
-            LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-            AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-            SunsetEvaluation evaluation = new SunsetEvaluation(null, 70, 65, "Good.");
-            JobRunEntity jobRun = new JobRunEntity();
-            jobRun.setId(22L);
-
-            when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-            when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
-                    .thenReturn(new WeatherExtractionResult(data, null));
-            when(evaluationService.evaluate(any(), any(), any())).thenReturn(evaluation);
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            forecastService.runForecasts(DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                    EvaluationModel.SONNET, jobRun);
-
-            ArgumentCaptor<LocationTaskEvent> captor = ArgumentCaptor.forClass(LocationTaskEvent.class);
-            verify(eventPublisher, org.mockito.Mockito.atLeastOnce()).publishEvent(captor.capture());
-            assertThat(captor.getAllValues())
-                    .anyMatch(e -> e.getState() == LocationTaskState.FETCHING_TIDES);
-        }
 
         @Test
         @DisplayName("fetchWeatherAndTriage() publishes FAILED event when weather fetch throws and jobRun is set")
@@ -2034,7 +748,7 @@ class ForecastServiceTest {
 
             assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
                     DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                    EvaluationModel.SONNET, true, jobRun))
+                    EvaluationModel.SONNET, jobRun))
                     .isInstanceOf(WeatherDataFetchException.class);
 
             ArgumentCaptor<LocationTaskEvent> captor = ArgumentCaptor.forClass(LocationTaskEvent.class);
@@ -2057,7 +771,7 @@ class ForecastServiceTest {
 
             assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
                     DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                    EvaluationModel.SONNET, true, jobRun))
+                    EvaluationModel.SONNET, jobRun))
                     .isInstanceOf(WeatherDataFetchException.class);
 
             ArgumentCaptor<LocationTaskEvent> captor = ArgumentCaptor.forClass(LocationTaskEvent.class);
@@ -2083,7 +797,7 @@ class ForecastServiceTest {
 
             forecastService.fetchWeatherAndTriage(
                     DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(TideType.HIGH),
-                    EvaluationModel.SONNET, false, jobRun);
+                    EvaluationModel.SONNET, jobRun);
 
             ArgumentCaptor<LocationTaskEvent> captor = ArgumentCaptor.forClass(LocationTaskEvent.class);
             verify(eventPublisher, org.mockito.Mockito.atLeastOnce()).publishEvent(captor.capture());
@@ -2110,42 +824,7 @@ class ForecastServiceTest {
 
             forecastService.fetchWeatherAndTriage(
                     DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                    EvaluationModel.SONNET, false, jobRun);
-
-            ArgumentCaptor<LocationTaskEvent> captor = ArgumentCaptor.forClass(LocationTaskEvent.class);
-            verify(eventPublisher, org.mockito.Mockito.atLeastOnce()).publishEvent(captor.capture());
-            assertThat(captor.getAllValues())
-                    .anyMatch(e -> e.getState() == LocationTaskState.TRIAGED);
-        }
-
-        @Test
-        @DisplayName("fetchWeatherAndTriage() publishes TRIAGED event when tide alignment fires and jobRun is set")
-        void fetchWeatherAndTriage_tideTriaged_withJobRun_publishesTriagedEvent() {
-            LocalDate date = LocalDate.of(2026, 6, 21);
-            LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-            AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-            JobRunEntity jobRun = new JobRunEntity();
-            jobRun.setId(77L);
-            LocationEntity seascape = LocationEntity.builder()
-                    .id(5L).name("Seaham").lat(54.8).lon(-1.3)
-                    .locationType(new java.util.HashSet<>(Set.of(LocationType.SEASCAPE)))
-                    .tideType(new java.util.HashSet<>(Set.of(TideType.HIGH)))
-                    .build();
-
-            when(solarService.sunsetUtc(54.8, -1.3, date)).thenReturn(sunset);
-            when(solarService.sunsetAzimuthDeg(54.8, -1.3, date)).thenReturn(280);
-            when(solarService.civilDuskUtc(54.8, -1.3, date)).thenReturn(sunset.plusMinutes(40));
-            when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
-                    .thenReturn(new WeatherExtractionResult(data, null));
-            when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
-            when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
-                    .thenReturn(Optional.of(new TriageResult("No high tide in window",
-                            TriageRule.TIDE_MISALIGNED)));
-            when(repository.save(any())).thenReturn(ForecastEvaluationEntity.builder().id(101L).build());
-
-            forecastService.fetchWeatherAndTriage(
-                    seascape, date, TargetType.SUNSET, Set.of(TideType.HIGH),
-                    EvaluationModel.SONNET, true, jobRun);
+                    EvaluationModel.SONNET, jobRun);
 
             ArgumentCaptor<LocationTaskEvent> captor = ArgumentCaptor.forClass(LocationTaskEvent.class);
             verify(eventPublisher, org.mockito.Mockito.atLeastOnce()).publishEvent(captor.capture());
@@ -2154,136 +833,10 @@ class ForecastServiceTest {
         }
     }
 
-    // --- Azimuth selection — mutation kill tests ---
+    // --- buildEntity field mapping, via persistPendingEvaluation() ---
 
     @Nested
-    @DisplayName("Azimuth selection in runForecasts()")
-    class AzimuthSelectionTests {
-
-        @Test
-        @DisplayName("runForecasts() SUNRISE path stores sunriseAzimuthDeg value in entity")
-        void runForecasts_sunrise_entityHasSunriseAzimuth() {
-            LocalDate date = LocalDate.of(2026, 6, 21);
-            LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
-            AtmosphericData data = buildAtmosphericData(sunrise, TargetType.SUNRISE);
-            SunsetEvaluation evaluation = new SunsetEvaluation(null, 70, 75, "Good.");
-
-            when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-            when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(52);
-            when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
-                    .thenReturn(new WeatherExtractionResult(data, null));
-            when(evaluationService.evaluate(any(), any(), any())).thenReturn(evaluation);
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            List<ForecastEvaluationEntity> results = forecastService.runForecasts(
-                    DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(), EvaluationModel.SONNET, null);
-
-            assertThat(results).hasSize(1);
-            assertThat(results.get(0).getAzimuthDeg()).isEqualTo(52);
-            verify(solarService).sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date);
-            verify(solarService, never()).sunsetAzimuthDeg(anyDouble(), anyDouble(), any());
-        }
-
-        @Test
-        @DisplayName("runForecasts() SUNSET path stores sunsetAzimuthDeg value in entity")
-        void runForecasts_sunset_entityHasSunsetAzimuth() {
-            LocalDate date = LocalDate.of(2026, 6, 21);
-            LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-            AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-            SunsetEvaluation evaluation = new SunsetEvaluation(null, 60, 55, "Moderate.");
-
-            when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-            when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(285);
-            when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
-                    .thenReturn(new WeatherExtractionResult(data, null));
-            when(evaluationService.evaluate(any(), any(), any())).thenReturn(evaluation);
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            List<ForecastEvaluationEntity> results = forecastService.runForecasts(
-                    DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(), EvaluationModel.SONNET, null);
-
-            assertThat(results).hasSize(1);
-            assertThat(results.get(0).getAzimuthDeg()).isEqualTo(285);
-            verify(solarService).sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date);
-            verify(solarService, never()).sunriseAzimuthDeg(anyDouble(), anyDouble(), any());
-        }
-    }
-
-    // --- Tide alignment window — mutation kill tests ---
-
-    @Nested
-    @DisplayName("Tide alignment window boundaries in fetchWeatherAndTriage()")
-    class TideAlignmentWindowTests {
-
-        private static final double SEA_LAT = 54.8;
-        private static final double SEA_LON = -1.3;
-        private static final String SEAHAM = "Seaham";
-
-        private LocationEntity seahamSeascape() {
-            return LocationEntity.builder()
-                    .id(5L).name(SEAHAM).lat(SEA_LAT).lon(SEA_LON)
-                    .locationType(new java.util.HashSet<>(Set.of(LocationType.SEASCAPE)))
-                    .tideType(new java.util.HashSet<>(Set.of(TideType.HIGH)))
-                    .build();
-        }
-
-        @Test
-        @DisplayName("SUNRISE window: civilDawn is used as start and eventTime+1h as end (not civilDusk)")
-        void fetchWeatherAndTriage_sunrise_tideWindow_usesCivilDawnStartAndEventPlusOneEnd() {
-            LocalDate date = LocalDate.of(2026, 6, 21);
-            LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
-            LocalDateTime civilDawn = LocalDateTime.of(2026, 6, 21, 2, 55);
-            AtmosphericData data = buildAtmosphericData(sunrise, TargetType.SUNRISE);
-
-            when(solarService.sunriseUtc(SEA_LAT, SEA_LON, date)).thenReturn(sunrise);
-            when(solarService.sunriseAzimuthDeg(SEA_LAT, SEA_LON, date)).thenReturn(52);
-            when(solarService.civilDawnUtc(SEA_LAT, SEA_LON, date)).thenReturn(civilDawn);
-            when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
-                    .thenReturn(new WeatherExtractionResult(data, null));
-            when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
-            when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
-                    .thenReturn(Optional.empty());
-
-            forecastService.fetchWeatherAndTriage(
-                    seahamSeascape(), date, TargetType.SUNRISE, Set.of(TideType.HIGH),
-                    EvaluationModel.SONNET, true, null);
-
-            verify(tideAlignmentEvaluator).evaluate(
-                    any(), eq(Set.of(TideType.HIGH)), eq(civilDawn), eq(sunrise.plusHours(1)));
-            verify(solarService, never()).civilDuskUtc(anyDouble(), anyDouble(), any());
-        }
-
-        @Test
-        @DisplayName("SUNSET window: eventTime-1h is used as start and civilDusk as end (not civilDawn)")
-        void fetchWeatherAndTriage_sunset_tideWindow_usesEventMinusOneStartAndCivilDuskEnd() {
-            LocalDate date = LocalDate.of(2026, 6, 21);
-            LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
-            LocalDateTime civilDusk = LocalDateTime.of(2026, 6, 21, 21, 30);
-            AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
-
-            when(solarService.sunsetUtc(SEA_LAT, SEA_LON, date)).thenReturn(sunset);
-            when(solarService.sunsetAzimuthDeg(SEA_LAT, SEA_LON, date)).thenReturn(300);
-            when(solarService.civilDuskUtc(SEA_LAT, SEA_LON, date)).thenReturn(civilDusk);
-            when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
-                    .thenReturn(new WeatherExtractionResult(data, null));
-            when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
-            when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
-                    .thenReturn(Optional.empty());
-
-            forecastService.fetchWeatherAndTriage(
-                    seahamSeascape(), date, TargetType.SUNSET, Set.of(TideType.HIGH),
-                    EvaluationModel.SONNET, true, null);
-
-            verify(tideAlignmentEvaluator).evaluate(
-                    any(), eq(Set.of(TideType.HIGH)), eq(sunset.minusHours(1)), eq(civilDusk));
-            verify(solarService, never()).civilDawnUtc(anyDouble(), anyDouble(), any());
-        }
-    }
-
-    // --- buildEntity field mapping — mutation kill tests ---
-
-    @Nested
-    @DisplayName("buildEntity() field mapping via evaluateAndPersist()")
+    @DisplayName("buildEntity() field mapping via persistPendingEvaluation()")
     class BuildEntityFieldMappingTests {
 
         private static final LocalDate DATE = LocalDate.of(2026, 6, 21);
@@ -2296,9 +849,22 @@ class ForecastServiceTest {
                     DURHAM + "|" + DATE + "|SUNSET", null);
         }
 
+        private ForecastEvaluationEntity persisted(AtmosphericData data) {
+            when(repository.save(any())).thenAnswer(inv -> {
+                ForecastEvaluationEntity e = inv.getArgument(0);
+                e.setId(9L);
+                return e;
+            });
+            forecastService.persistPendingEvaluation(preEvalWith(data));
+            ArgumentCaptor<ForecastEvaluationEntity> captor =
+                    ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+            verify(repository).save(captor.capture());
+            return captor.getValue();
+        }
+
         @Test
         @DisplayName("non-null TideSnapshot maps tide fields into entity")
-        void evaluateAndPersist_withTide_tideFieldsMapped() {
+        void persistPending_withTide_tideFieldsMapped() {
             LocalDateTime highTideTime = LocalDateTime.of(2026, 6, 21, 18, 30);
             LocalDateTime lowTideTime = LocalDateTime.of(2026, 6, 22, 0, 45);
             TideSnapshot tide = new TideSnapshot(
@@ -2308,12 +874,7 @@ class ForecastServiceTest {
             AtmosphericData data = TestAtmosphericData.builder()
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET).tide(tide).build();
 
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(
-                            new SunsetEvaluation(null, 75, 70, "Good.")));
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
+            ForecastEvaluationEntity result = persisted(data);
 
             assertThat(result.getTide().getState()).isEqualTo(TideState.HIGH);
             assertThat(result.getTide().getAligned()).isTrue();
@@ -2323,24 +884,22 @@ class ForecastServiceTest {
         }
 
         @Test
-        @DisplayName("null TideSnapshot leaves all tide fields null in entity")
-        void evaluateAndPersist_withNullTide_tideFieldsNull() {
+        @DisplayName("data with no tide, directional cloud, cloud approach or surge leaves all four null")
+        void persistPending_withoutOptionalSections_leavesThemNull() {
             AtmosphericData data = TestAtmosphericData.builder()
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET).build();
 
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(
-                            new SunsetEvaluation(null, 75, 70, "Good.")));
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
+            ForecastEvaluationEntity result = persisted(data);
 
             assertThat(result.getTide()).isNull();
+            assertThat(result.getDirectionalCloud()).isNull();
+            assertThat(result.getCloudApproach()).isNull();
+            assertThat(result.getSurge()).isNull();
         }
 
         @Test
         @DisplayName("non-null DirectionalCloudData maps solar cloud fields into entity")
-        void evaluateAndPersist_withDirectionalCloud_solarCloudFieldsMapped() {
+        void persistPending_withDirectionalCloud_solarCloudFieldsMapped() {
             // solarLow=35, solarMid=45, solarHigh=20, antisolarLow=40, antisolarMid=50, antisolarHigh=15,
             // farSolarLow=55
             DirectionalCloudData dc = new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55);
@@ -2348,12 +907,7 @@ class ForecastServiceTest {
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET)
                     .directionalCloud(dc).build();
 
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(
-                            new SunsetEvaluation(null, 75, 70, "Good.")));
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
+            ForecastEvaluationEntity result = persisted(data);
 
             assertThat(result.getDirectionalCloud().getSolarLow()).isEqualTo(35);
             assertThat(result.getDirectionalCloud().getSolarMid()).isEqualTo(45);
@@ -2361,24 +915,8 @@ class ForecastServiceTest {
         }
 
         @Test
-        @DisplayName("null DirectionalCloudData leaves all solar cloud fields null in entity")
-        void evaluateAndPersist_withNullDirectionalCloud_solarCloudFieldsNull() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(SUNSET).targetType(TargetType.SUNSET).build();
-
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(
-                            new SunsetEvaluation(null, 75, 70, "Good.")));
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
-
-            assertThat(result.getDirectionalCloud()).isNull();
-        }
-
-        @Test
         @DisplayName("non-null CloudApproachData with slots maps trend and upwind fields into entity")
-        void evaluateAndPersist_withCloudApproach_trendAndUpwindFieldsMapped() {
+        void persistPending_withCloudApproach_trendAndUpwindFieldsMapped() {
             SolarCloudTrend trend = new SolarCloudTrend(List.of(
                     new SolarCloudSlot(3, 10),
                     new SolarCloudSlot(2, 25),
@@ -2388,15 +926,10 @@ class ForecastServiceTest {
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET)
                     .cloudApproach(new CloudApproachData(trend, upwind)).build();
 
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(
-                            new SunsetEvaluation(null, 75, 70, "Good.")));
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
+            ForecastEvaluationEntity result = persisted(data);
 
             // solarTrend: first slot=10 (earliest), last slot=40 (event time)
-            // isBuilding: peak(40) - earliest(10) = 30 ≥ 20 → true
+            // isBuilding: peak(40) - earliest(10) = 30 >= 20 -> true
             assertThat(result.getCloudApproach().getSolarTrendEarliestLowCloud()).isEqualTo(10);
             assertThat(result.getCloudApproach().getSolarTrendEventLowCloud()).isEqualTo(40);
             assertThat(result.getCloudApproach().getSolarTrendBuilding()).isTrue();
@@ -2406,130 +939,21 @@ class ForecastServiceTest {
         }
 
         @Test
-        @DisplayName("null CloudApproachData leaves all trend and upwind fields null in entity")
-        void evaluateAndPersist_withNullCloudApproach_trendFieldsNull() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(SUNSET).targetType(TargetType.SUNSET).build();
-
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(
-                            new SunsetEvaluation(null, 75, 70, "Good.")));
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
-
-            assertThat(result.getCloudApproach()).isNull();
-        }
-
-        @Test
         @DisplayName("non-null StormSurgeBreakdown maps surge fields into entity")
-        void evaluateAndPersist_withSurge_surgeFieldsMapped() {
+        void persistPending_withSurge_surgeFieldsMapped() {
             StormSurgeBreakdown surge = new StormSurgeBreakdown(
                     0.08, 0.05, 0.13, 1000.0, 8.0, 270.0, 0.9, TideRiskLevel.LOW, "Low surge");
             AtmosphericData data = TestAtmosphericData.builder()
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET)
                     .build().withSurge(surge, 3.5, 3.3);
 
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(
-                            new SunsetEvaluation(null, 75, 70, "Good.")));
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
+            ForecastEvaluationEntity result = persisted(data);
 
             assertThat(result.getSurge().getTotalMetres()).isEqualTo(0.13);
             assertThat(result.getSurge().getPressureMetres()).isEqualTo(0.08);
             assertThat(result.getSurge().getWindMetres()).isEqualTo(0.05);
             assertThat(result.getSurge().getRiskLevel()).isEqualTo("LOW");
             assertThat(result.getSurge().getAdjustedRangeMetres()).isEqualTo(3.5);
-        }
-
-        @Test
-        @DisplayName("null surge data leaves all surge fields null in entity")
-        void evaluateAndPersist_withNullSurge_surgeFieldsNull() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(SUNSET).targetType(TargetType.SUNSET).build();
-
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(
-                            new SunsetEvaluation(null, 75, 70, "Good.")));
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
-
-            assertThat(result.getSurge()).isNull();
-        }
-
-        @Test
-        @DisplayName("non-null inversionScore maps inversion fields from evaluation into entity")
-        void evaluateAndPersist_withInversionScore_inversionFieldsFromEvaluation() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(SUNSET).targetType(TargetType.SUNSET)
-                    .inversionScore(7.5).build();
-            SunsetEvaluation evaluation = new SunsetEvaluation(
-                    null, 75, 70, "Good.", null, null, null, 7, "STRONG");
-
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(evaluation));
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
-
-            assertThat(result.getInversion().getScore()).isEqualTo(7);
-            assertThat(result.getInversion().getPotential()).isEqualTo("STRONG");
-        }
-
-        @Test
-        @DisplayName("null inversionScore leaves both inversion fields null in entity regardless of evaluation")
-        void evaluateAndPersist_withNullInversionScore_inversionFieldsNull() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(SUNSET).targetType(TargetType.SUNSET).build(); // inversionScore defaults to null
-            SunsetEvaluation evaluation = new SunsetEvaluation(
-                    null, 75, 70, "Good.", null, null, null, 8, "STRONG");
-
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(evaluation));
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
-
-            assertThat(result.getInversion()).isNull();
-        }
-
-        @Test
-        @DisplayName("a mist-prone slot (band present) stores Claude's mist_potential on the entity (V186)")
-        void evaluateAndPersist_mistProneSlot_storesClaudesMistPotential() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(SUNSET).targetType(TargetType.SUNSET)
-                    .mistScore(7.0).mistPotential(com.gregochr.goldenhour.model.MistPotential.LIKELY)
-                    .build();
-            SunsetEvaluation evaluation = new SunsetEvaluation(
-                    4, 20, 70, "Mist.", null, null, null, null, null, null, "LIKELY");
-
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(evaluation));
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
-
-            assertThat(result.getMistPotential()).isEqualTo("LIKELY");
-        }
-
-        @Test
-        @DisplayName("a slot with no mist band (unflagged site) drops a mist_potential Claude volunteered")
-        void evaluateAndPersist_unflaggedSlot_dropsAStrayMistPotential() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(SUNSET).targetType(TargetType.SUNSET).build();
-            SunsetEvaluation evaluation = new SunsetEvaluation(
-                    4, 20, 70, "Haze.", null, null, null, null, null, null, "FOGBOUND");
-
-            when(engineEvaluationService.evaluateNow(any(), any()))
-                    .thenReturn(new EvaluationResult.Scored(evaluation));
-            when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
-
-            assertThat(result.getMistPotential()).isNull();
         }
     }
 
@@ -2642,13 +1066,11 @@ class ForecastServiceTest {
                     .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
 
             ForecastService service = new ForecastService(
-                    solarService, openMeteoService, augmentor, evaluationService,
-                    engineEvaluationService, repository, notificationDispatcher,
-                    eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                    slotAtmosphereWriter, runProgressTracker, at, new AppBuild(BUILD));
+                    solarService, openMeteoService, augmentor, repository, eventPublisher,
+                    weatherTriageEvaluator, slotAtmosphereWriter, at, new AppBuild(BUILD));
 
             service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
-                    Set.of(), EvaluationModel.SONNET, true, null);
+                    Set.of(), EvaluationModel.SONNET, null);
 
             ArgumentCaptor<ForecastEvaluationEntity> captor =
                     ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
@@ -2672,13 +1094,11 @@ class ForecastServiceTest {
             when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
             ForecastService service = new ForecastService(
-                    solarService, openMeteoService, augmentor, evaluationService,
-                    engineEvaluationService, repository, notificationDispatcher,
-                    eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                    slotAtmosphereWriter, runProgressTracker, at, new AppBuild(BUILD));
+                    solarService, openMeteoService, augmentor, repository, eventPublisher,
+                    weatherTriageEvaluator, slotAtmosphereWriter, at, new AppBuild(BUILD));
 
             return service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
-                    Set.of(), EvaluationModel.SONNET, true, null);
+                    Set.of(), EvaluationModel.SONNET, null);
         }
     }
 }

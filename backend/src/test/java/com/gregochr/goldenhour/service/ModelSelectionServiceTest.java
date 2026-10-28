@@ -67,22 +67,6 @@ class ModelSelectionServiceTest {
     }
 
     @Test
-    @DisplayName("getActiveModel() no-arg delegates to SHORT_TERM config")
-    void getActiveModel_noArg_delegatesToShortTerm() {
-        ModelSelectionEntity selection = ModelSelectionEntity.builder()
-                .id(1L)
-                .runType(RunType.SHORT_TERM)
-                .activeModel(EvaluationModel.OPUS)
-                .build();
-        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM))
-                .thenReturn(Optional.of(selection));
-
-        EvaluationModel active = modelSelectionService.getActiveModel();
-
-        assertThat(active).isEqualTo(EvaluationModel.OPUS);
-    }
-
-    @Test
     @DisplayName("setActiveModel(runType, model) upserts existing row")
     void setActiveModel_existingRow_updatesIt() {
         ModelSelectionEntity existing = ModelSelectionEntity.builder()
@@ -120,20 +104,6 @@ class ModelSelectionServiceTest {
         ModelSelectionEntity saved = captor.getValue();
         assertThat(saved.getActiveModel()).isEqualTo(EvaluationModel.OPUS);
         assertThat(saved.getRunType()).isEqualTo(RunType.LONG_TERM);
-    }
-
-    @Test
-    @DisplayName("setActiveModel(model) no-arg delegates to SHORT_TERM")
-    void setActiveModel_noArg_delegatesToShortTerm() {
-        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM))
-                .thenReturn(Optional.empty());
-
-        EvaluationModel result = modelSelectionService.setActiveModel(EvaluationModel.SONNET);
-
-        assertThat(result).isEqualTo(EvaluationModel.SONNET);
-        ArgumentCaptor<ModelSelectionEntity> captor = ArgumentCaptor.forClass(ModelSelectionEntity.class);
-        verify(modelSelectionRepository).save(captor.capture());
-        assertThat(captor.getValue().getRunType()).isEqualTo(RunType.SHORT_TERM);
     }
 
     @Test

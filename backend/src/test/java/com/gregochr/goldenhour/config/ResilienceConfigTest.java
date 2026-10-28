@@ -150,14 +150,6 @@ class ResilienceConfigTest {
     }
 
     @Test
-    @DisplayName("Forecast bulkhead instance exists with max 8 concurrent calls")
-    void forecastBulkheadConfigured() {
-        var bulkhead = bulkheadRegistry.bulkhead("forecast");
-        assertThat(bulkhead).isNotNull();
-        assertThat(bulkhead.getBulkheadConfig().getMaxConcurrentCalls()).isEqualTo(8);
-    }
-
-    @Test
     @DisplayName("Open-Meteo rate limiter instance exists with 8 requests per period")
     void openMeteoRateLimiterConfigured() {
         var limiter = rateLimiterRegistry.rateLimiter("open-meteo");

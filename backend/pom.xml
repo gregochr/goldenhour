@@ -596,8 +596,6 @@
                                 <exclude>com/gregochr/goldenhour/config/OrsProperties.class</exclude>
                                 <!-- Pure request/response records — no business logic -->
                                 <exclude>com/gregochr/goldenhour/model/DriveTimesRequest.class</exclude>
-                                <!-- Data-transfer records with no testable logic -->
-                                <exclude>com/gregochr/goldenhour/service/ForecastCommand.class</exclude>
                                 <!-- UriBuilder lambda unreachable via Mockito stubs; logic tested via toBortleClass -->
                                 <exclude>com/gregochr/goldenhour/client/LightPollutionClient.class</exclude>
                                 <!-- Inner records used only for Jackson deserialization — no logic -->
@@ -617,7 +615,7 @@
                                 <exclude>com/gregochr/goldenhour/entity/UserDriveTimeId.class</exclude>
                                 <!-- Batch methods use RestClient directly — integration-tested only -->
                                 <exclude>com/gregochr/goldenhour/service/OpenMeteoClient.class</exclude>
-                                <!-- Cache-from-API extraction methods — tested via ForecastService/Executor integration -->
+                                <!-- Cache-from-API extraction methods — tested via the batch collectors' integration tests -->
                                 <exclude>com/gregochr/goldenhour/service/OpenMeteoService.class</exclude>
                                 <!-- Simple cache wrapper — grid-key logic tested in OpenMeteoServiceTest -->
                                 <exclude>com/gregochr/goldenhour/model/CloudPointCache.class</exclude>

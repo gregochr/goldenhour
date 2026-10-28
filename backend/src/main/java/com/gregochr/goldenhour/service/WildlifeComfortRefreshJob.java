@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * hides and no air-quality request at all, with no Claude call.
  *
  * <p><b>Which places.</b> Enabled locations for which {@link LocationEntity#isWildlifeOnly()} is
- * true — deliberately narrower than {@code ForecastCommandExecutor.isPureWildlife}; see that
+ * true — deliberately narrower than the deleted synchronous engine's {@code isPureWildlife}; see that
  * method's javadoc. Waterfalls are not included: the backend has never written waterfall hourly
  * rows.
  *

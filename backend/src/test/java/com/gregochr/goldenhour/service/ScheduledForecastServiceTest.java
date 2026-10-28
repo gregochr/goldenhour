@@ -33,7 +33,7 @@ import static org.mockito.Mockito.when;
  *
  * <p>The service holds the tide-refresh and daily-briefing job targets plus the
  * admin tide backfill; forecast orchestration is tested in
- * {@link ForecastCommandExecutorTest}.
+ * the (deleted) synchronous engine's tests.
  */
 @ExtendWith(MockitoExtension.class)
 class ScheduledForecastServiceTest {

@@ -131,13 +131,6 @@ resilience4j:
       ask:
         maxConcurrentCalls: 4
         maxWaitDuration: 2s
-      forecast:
-        maxConcurrentCalls: 8
-        maxWaitDuration: 120s
-      claude:
-        # Cap concurrent Claude calls to avoid Anthropic 429 concurrent-request limit
-        maxConcurrentCalls: 6
-        maxWaitDuration: 120s
 
 management:
   endpoints:
@@ -167,15 +160,6 @@ openrouteservice:
   enabled: true
 
 notifications:
-  schedule:
-    cron: "${NOTIFICATIONS_CRON:0 30 7 * * *}"
-  email:
-    enabled: false
-    recipient: ${NOTIFICATION_EMAIL}
-  pushover:
-    enabled: false
-  macos-toast:
-    enabled: false
   admin-alerts:
     # Emails every enabled ADMIN account when a pipeline run is marked DEGRADED — the one
     # operational alert this app sends in production (see AdminAlertService).

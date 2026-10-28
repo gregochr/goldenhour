@@ -17,9 +17,8 @@ package com.gregochr.goldenhour.entity;
  * policy that decides which (location, daysAhead) tuples are evaluated by
  * Claude. That policy lives in
  * {@code com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy}
- * and is expressed explicitly per {@code daysAhead}; both the batch
- * pipeline and the synchronous {@code ForecastCommandExecutor} consult it,
- * so the enum no longer encodes any eligibility rule.
+ * and is expressed explicitly per {@code daysAhead}; the batch
+ * pipeline consults it, so the enum no longer encodes any eligibility rule.
  */
 public enum ForecastStability {
 
@@ -48,11 +47,11 @@ public enum ForecastStability {
      *
      * <p><b>Not authoritative for evaluation eligibility.</b> The policy
      * lives in {@code NightlyEligibilityPolicy} and is expressed explicitly
-     * per {@code daysAhead}; both forecast engines consult it. Callers
+     * per {@code daysAhead}; the batch pipeline consults it. Callers
      * wanting to know "should this task be evaluated?" must use the policy,
-     * never this field. (The former policy-proxy read in
-     * {@code ForecastCommandExecutor.applyStabilityFilter} was unified onto
-     * the policy in July 2026 — no reader treats this as policy any more.)
+     * never this field. (A former policy-proxy read in the synchronous
+     * engine was unified onto the policy in July 2026 and the engine itself
+     * was deleted in 2026-10 — no reader treats this as policy any more.)
      *
      * @return display-only depth hint in days
      */

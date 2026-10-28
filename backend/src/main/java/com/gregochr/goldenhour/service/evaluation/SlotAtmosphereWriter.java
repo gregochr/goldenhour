@@ -36,7 +36,7 @@ import java.time.LocalDate;
  * scheduled path, and both of {@code ForceSubmitBatchService}'s entry points); a Codex review
  * found two OTHER real callers of {@code fetchWeatherAndTriage} — the batch collector's own
  * {@code collectRegionFilteredBatches} and the synchronous engine's
- * {@code ForecastCommandExecutor.runTriagePhase} — reached it and got no write at all. Moving the
+ * the (since deleted) {@code ForecastCommandExecutor.runTriagePhase} — reached it and got no write at all. Moving the
  * call inside {@code fetchWeatherAndTriage} covers every present and future caller with one seam:
  * the scheduled batch collector, its admin region-filtered sibling, {@code ForceSubmitBatchService}
  * (JFDI and admin force-submit), {@code BatchRetryService}'s failed-request reconstruction, and the

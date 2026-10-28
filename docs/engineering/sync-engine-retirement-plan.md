@@ -12,7 +12,8 @@ popup's admin "Run Forecast" button and the run types `VERY_SHORT_TERM`, `SHORT_
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
 | plan | `claude/job-runs-config-audit-2833f9` | *(fill after merge)* | 2026-10-28 | Survey: two read-only traces (backend engine reachability, frontend Operations tab). Review: four prosecutor lenses (backend deletions, data/migrations, frontend, phasing/tests/docs) with 43 charges, triaged by the planner (§10). |
-| 1 | `chore/sync-engine-retirement-phase-1` | *(fill after merge)* | 2026-10-28 | `OptimisationStrategyUpdateRequest` pulled forward from Phase 2; unmapped paths now answer 404 (`NoResourceFoundException` handler). |
+| 1 | `chore/sync-engine-retirement-phase-1` | `7988dd4e` | 2026-10-28 | `OptimisationStrategyUpdateRequest` pulled forward from Phase 2; unmapped paths now answer 404 (`NoResourceFoundException` handler). |
+| 2 | `chore/sync-engine-retirement-phase-2` | *(fill after merge)* | 2026-10-28 | Engine, optimisation strategies and notification channels deleted. Phase 3 note: `RunType.defaultDateRange` still has VERY_SHORT_TERM/SHORT_TERM/LONG_TERM arms and `ModelSelectionServiceTest`/`RunCompletion` tests still use those constants as fixtures; `EvaluationFailedException` and `RunProgress.stop`/`RetryBlock` are now unused by main (left in place). |
 
 ---
 

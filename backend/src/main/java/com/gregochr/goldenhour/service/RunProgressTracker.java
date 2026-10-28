@@ -73,8 +73,8 @@ public class RunProgressTracker {
 
     /**
      * How long a COMPLETED run's entry is kept, measured from when the run completed (never from when
-     * it started): the window in which a late subscriber is replayed the run and "Retry failed" can
-     * still read its failed tasks. Unchanged from the 30 minutes every run used to get from its start.
+     * it started): the window in which a late subscriber is replayed the run. Unchanged from the 30
+     * minutes every run used to get from its start.
      */
     static final Duration COMPLETED_RUN_RETENTION = Duration.ofMinutes(30);
 
@@ -104,7 +104,6 @@ public class RunProgressTracker {
     private final ConcurrentHashMap<Long, RunProgress> activeRuns = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, CopyOnWriteArrayList<SseEmitter>> runEmitters =
             new ConcurrentHashMap<>();
-    private final CopyOnWriteArrayList<SseEmitter> notificationEmitters = new CopyOnWriteArrayList<>();
     private final ObjectMapper objectMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -242,48 +241,6 @@ public class RunProgressTracker {
     }
 
     /**
-     * Records a run-level failure reason on a run that carries on (the run is not completed, and
-     * nothing is broadcast until it is). Used when a shared step failed but the run can still
-     * finish task by task, so the eventual {@code run-complete} says why. No-op for an unknown run.
-     *
-     * @param jobRunId the job run ID
-     * @param reason   a fixed, safe phrase for the reader
-     */
-    public void noteFailure(long jobRunId, String reason) {
-        RunProgress progress = activeRuns.get(jobRunId);
-        if (progress != null) {
-            progress.markFailed(reason);
-        }
-    }
-
-    /**
-     * Stops a run because Claude rejected the API key: records the run-level reason (carried by the
-     * eventual {@code run-complete}, which then reports the run as not retryable) and makes
-     * {@link #isStopped} true so no further Claude call is made for this run. Nothing is broadcast
-     * until the run completes. No-op for an unknown run, and for a run already stopped.
-     *
-     * @param jobRunId the job run ID
-     * @return {@code true} if this call stopped the run; {@code false} if it was already stopped or
-     *         is not tracked
-     */
-    public boolean stopRun(long jobRunId) {
-        RunProgress progress = activeRuns.get(jobRunId);
-        return progress != null && progress.stop(EvaluationFailure.REASON_RUN_STOPPED);
-    }
-
-    /**
-     * Whether a run has been stopped on a rejected key. Run-scoped: it reads this run's own progress,
-     * so another run, or a run started later, is not affected.
-     *
-     * @param jobRunId the job run ID
-     * @return {@code true} if the run is tracked and stopped
-     */
-    public boolean isStopped(long jobRunId) {
-        RunProgress progress = activeRuns.get(jobRunId);
-        return progress != null && progress.isStopped();
-    }
-
-    /**
      * Marks a run as having failed as a whole and broadcasts the final run-complete event carrying
      * that failure.
      *
@@ -393,20 +350,6 @@ public class RunProgressTracker {
     }
 
     /**
-     * Subscribes an SSE emitter to run-complete notifications (all runs).
-     *
-     * @return the SSE emitter
-     */
-    public SseEmitter subscribeNotifications() {
-        SseEmitter emitter = new SseEmitter(0L);
-        notificationEmitters.add(emitter);
-        emitter.onCompletion(() -> notificationEmitters.remove(emitter));
-        emitter.onTimeout(() -> notificationEmitters.remove(emitter));
-        emitter.onError(e -> notificationEmitters.remove(emitter));
-        return emitter;
-    }
-
-    /**
      * Returns the progress for a given run, or null if not tracked.
      *
      * @param jobRunId the job run ID
@@ -430,8 +373,8 @@ public class RunProgressTracker {
     /**
      * Evicts the entries that have outlived their keep.
      *
-     * <p>A run that has completed is evicted {@link #COMPLETED_RUN_RETENTION} after it COMPLETED (so
-     * "Retry failed" is available for that long after the run finished, however long it ran). A run that
+     * <p>A run that has completed is evicted {@link #COMPLETED_RUN_RETENTION} after it COMPLETED (however
+     * long it ran). A run that
      * has not completed is never evicted, whatever its age or silence: it stays until
      * {@link #completeRun} or {@link #failRun} completes it.
      *
@@ -531,7 +474,6 @@ public class RunProgressTracker {
     }
 
     private void broadcastRunComplete(long jobRunId, Map<String, Object> completeEvent) {
-        // Send to run-specific emitters
         CopyOnWriteArrayList<SseEmitter> emitters = runEmitters.get(jobRunId);
         if (emitters != null) {
             for (SseEmitter emitter : emitters) {
@@ -543,17 +485,6 @@ public class RunProgressTracker {
                 } catch (IOException e) {
                     emitters.remove(emitter);
                 }
-            }
-        }
-
-        // Send to notification emitters (map view)
-        for (SseEmitter emitter : notificationEmitters) {
-            try {
-                emitter.send(SseEmitter.event()
-                        .name("run-complete")
-                        .data(objectMapper.writeValueAsString(completeEvent)));
-            } catch (IOException e) {
-                notificationEmitters.remove(emitter);
             }
         }
     }

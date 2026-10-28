@@ -15,10 +15,8 @@ import com.gregochr.goldenhour.model.WoodlandEvaluation;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideContext;
-import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
-import com.gregochr.goldenhour.service.EvaluationFailure;
 import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.visitor.ComponentScore;
@@ -40,20 +38,14 @@ import java.util.Set;
 /**
  * {@link ResultHandler} for forecast colour evaluations.
  *
- * <p>Owns the parsing + persistence pipeline for both Anthropic transports:
+ * <p>Owns the parsing + persistence pipeline for the batch transport:
  * <ul>
  *   <li>{@link #parseBatchResponse} — invoked once per individual response by
  *       {@link com.gregochr.goldenhour.service.batch.BatchResultProcessor}; writes
  *       {@code api_call_log} and returns the parsed result so the orchestrator can
  *       aggregate by cache key before the single per-batch
  *       {@code briefingEvaluationService.writeFromBatch} call.</li>
- *   <li>{@link #handleSyncResult} — invoked by {@link EvaluationServiceImpl#evaluateNow}
- *       for forecast tasks; writes {@code api_call_log} (with {@code is_batch=false})
- *       unconditionally, and writes {@code cached_evaluation} only when the task's
- *       {@link EvaluationTask.Forecast#writeTarget()} is
- *       {@link EvaluationTask.Forecast.WriteTarget#BRIEFING_CACHE}. Tasks with
- *       {@link EvaluationTask.Forecast.WriteTarget#NONE} skip the cache write so the
- *       caller can manage its own persistence (e.g. {@code forecast_evaluation}).</li>
+ *   <li>{@link #handleSyncResult} — refuses: forecasts have no synchronous path any more.</li>
  * </ul>
  *
  * <p>Wraps the same {@link RatingValidator} call and the same
@@ -80,11 +72,10 @@ import java.util.Set;
  * later cycle already exists for that one submission). The PENDING {@code forecast_evaluation} row
  * is untouched by this gate (scored unconditionally, exactly as {@code BriefingEvaluationService}'s
  * javadoc explains is safe), and {@code api_call_log} is written unconditionally too, via
- * {@link #persistBatchLog}/{@link #persistSyncLog}, so cost accounting for a superseded response is
+ * {@link #persistBatchLog}, so cost accounting for a superseded response is
  * complete even though its rating reaches no sink. {@code slot_atmosphere} needs no gate here at
- * all: {@code SlotAtmosphereWriter.write} is called only from {@code ForecastTaskCollector} (the
- * batch collection phase, before any batch is even submitted) and {@code ForecastService} (the
- * synchronous engine's own pre-Claude-call point) — never from this class — so a superseded RESULT
+ * all: {@code SlotAtmosphereWriter.write} is called only from {@code ForecastService.fetchWeatherAndTriage}
+ * (the batch collection phase, before any batch is even submitted) — never from this class — so a superseded RESULT
  * has no bearing on it; it captures measured weather at collection time, not Claude's opinion of it,
  * and this class's write path never touches it either way.
  */
@@ -523,53 +514,17 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         return forced ? stamped.withForced(true) : stamped;
     }
 
+    /**
+     * Always refuses: forecasts evaluate through the batch path only (the synchronous per-slot
+     * engine was retired in 2026-10). The method exists because {@link ResultHandler} declares it
+     * for every task type.
+     *
+     * @throws UnsupportedOperationException always
+     */
     @Override
     public EvaluationResult handleSyncResult(EvaluationTask.Forecast task,
             ClaudeSyncOutcome outcome, ResultContext context) {
-
-        String regionName = task.location().getRegion() != null
-                ? task.location().getRegion().getName() : task.location().getName();
-
-        if (!outcome.succeeded()) {
-            persistSyncLog(context, outcome, task);
-            return new EvaluationResult.Errored(
-                    outcome.errorType() != null ? outcome.errorType() : "unknown",
-                    outcome.errorMessage());
-        }
-
-        SunsetEvaluation eval;
-        try {
-            eval = parser.parseEvaluation(outcome.rawText(), objectMapper);
-        } catch (Exception e) {
-            LOG.warn("Forecast sync evaluation: parse failed for {}: {}",
-                    task.taskKey(), e.getMessage());
-            ClaudeSyncOutcome parseFailure = ClaudeSyncOutcome.failure(
-                    EvaluationFailure.TYPE_PARSE_ERROR, e.getMessage(), task.model(), outcome.durationMs());
-            persistSyncLog(context, parseFailure, task);
-            return new EvaluationResult.Errored(EvaluationFailure.TYPE_PARSE_ERROR, e.getMessage());
-        }
-
-        BriefingEvaluationResult result = buildResult(
-                task.location(), eval, task.date(), task.targetType(),
-                regionName, task.model().name(),
-                context != null ? context.pipelineRunId() : null,
-                task.evalRowId(), task.model(), task.forced(),
-                context != null ? context.submissionInstant() : null);
-
-        persistSyncLog(context, outcome, task);
-        if (task.writeTarget() == EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE) {
-            // Merge, not replace. The cache key is per REGION and this is ONE location's result;
-            // writeFromBatch would rebuild the region's entry from this single result and delete
-            // every other location in it. Same defect as the batch path, and worse here because
-            // the incoming set is a single row rather than a whole bucket.
-            String cacheKey = CacheKeyFactory.build(regionName, task.date(), task.targetType());
-            briefingEvaluationService.mergeFromBatch(cacheKey, List.of(result));
-        }
-
-        // Carry the result's rating into the payload so forecast_evaluation (written by
-        // ForecastService from this Scored result) stays consistent with the cache/briefing
-        // surface — including the sky-not-forecast 1★ substitution handled in buildResult.
-        return new EvaluationResult.Scored(eval.withRating(result.rating()));
+        throw new UnsupportedOperationException("forecasts evaluate through the batch path only");
     }
 
     /**
@@ -943,29 +898,6 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         } catch (Exception e) {
             LOG.warn("Forecast batch: failed to persist api_call_log for customId={}: {}",
                     outcome.customId(), e.getMessage());
-        }
-    }
-
-    private void persistSyncLog(ResultContext context, ClaudeSyncOutcome outcome,
-            EvaluationTask.Forecast task) {
-        if (context == null || context.jobRunId() == null) {
-            return;
-        }
-        try {
-            TokenUsage tokens = outcome.tokenUsage() != null
-                    ? outcome.tokenUsage() : TokenUsage.EMPTY;
-            jobRunService.logAnthropicApiCall(
-                    context.jobRunId(), outcome.durationMs(),
-                    outcome.loggedStatusCode(),
-                    outcome.succeeded() ? null : outcome.errorMessage(),
-                    outcome.succeeded(), outcome.errorMessage(),
-                    task.model(), tokens,
-                    false,
-                    task.date(), task.targetType(),
-                    outcome.errorType(), outcome.cacheDiagnostics());
-        } catch (Exception e) {
-            LOG.warn("Forecast sync: failed to persist api_call_log for {}: {}",
-                    task.taskKey(), e.getMessage());
         }
     }
 }

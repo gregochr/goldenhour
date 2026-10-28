@@ -15,8 +15,9 @@ import java.util.Set;
  *       Messages API. Latency: minutes (subject to {@link
  *       com.gregochr.goldenhour.service.batch.BatchPollingService}'s 60s polling).</li>
  *   <li>{@link #evaluateNow} — synchronous Anthropic Messages API path. Used by aurora
- *       real-time and (in Pass 3.3) by the admin "Run Forecast" pipeline. Pays full per-token
- *       rate (~2x batch cost), but returns within seconds. Intentionally low-volume.</li>
+ *       real-time. Pays full per-token rate (~2x batch cost), but returns within seconds.
+ *       Intentionally low-volume. Forecasts no longer have a synchronous path: it was retired in
+ *       2026-10 and {@code evaluateNow} refuses a forecast task.</li>
  * </ul>
  *
  * <p>Both methods consume the same {@link EvaluationTask} sealed type and route results
@@ -108,6 +109,8 @@ public interface EvaluationService {
      * @param task     the task to evaluate
      * @param trigger  what triggered this evaluation (logged in {@code job_run})
      * @return the structured evaluation result
+     * @throws UnsupportedOperationException for an {@link EvaluationTask.Forecast}: forecasts
+     *                                       evaluate through the batch path only
      */
     EvaluationResult evaluateNow(EvaluationTask task, BatchTriggerSource trigger);
 }

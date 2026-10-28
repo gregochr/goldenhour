@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
  * the in-memory cache and the durable backing store on behalf of every consumer
  * that needs to read or refresh it.
  *
- * <p>Extracted from {@code ForecastCommandExecutor} in v2.11.13 (Pass 3.2.2)
+ * <p>Extracted from the (since deleted) {@code ForecastCommandExecutor} in v2.11.13 (Pass 3.2.2)
  * so the executor's responsibility stays "execute commands" and snapshot
  * read/write concerns live behind this single collaborator.
  *

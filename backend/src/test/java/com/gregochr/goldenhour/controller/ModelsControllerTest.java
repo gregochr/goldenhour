@@ -22,7 +22,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -318,8 +317,6 @@ class ModelsControllerTest extends AbstractControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(result -> assertThat(result.getResolvedException())
                         .isInstanceOf(NoResourceFoundException.class));
-
-        verify(optimisationStrategyService, never()).updateStrategy(any(), any(), anyBoolean(), any());
     }
 
     // ── Extended thinking endpoint ──

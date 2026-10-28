@@ -101,19 +101,4 @@ public record ResultContext(Long jobRunId, String batchId, Long pipelineRunId,
     public static ResultContext forSync(Long jobRunId, BatchTriggerSource triggerSource) {
         return new ResultContext(jobRunId, null, null, null, triggerSource);
     }
-
-    /**
-     * Convenience factory for the synchronous path, carrying the round-12 submission instant —
-     * the instant the evaluation call started, captured by the caller before it dispatches to
-     * Claude.
-     *
-     * @param jobRunId          the linked job run id
-     * @param submissionInstant the instant this synchronous evaluation started
-     * @param triggerSource     what triggered the synchronous evaluation
-     * @return a context configured for sync result handling
-     */
-    public static ResultContext forSync(Long jobRunId, Instant submissionInstant,
-            BatchTriggerSource triggerSource) {
-        return new ResultContext(jobRunId, null, null, submissionInstant, triggerSource);
-    }
 }

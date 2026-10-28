@@ -276,10 +276,10 @@ public class LocationEntity {
      * True when WILDLIFE is this location's one and only type.
      *
      * <p>The rule behind the scheduled hourly comfort forecast ({@code WildlifeComfortRefreshJob}).
-     * It is deliberately <em>narrower</em> than {@code ForecastCommandExecutor.isPureWildlife},
-     * which admits any location carrying WILDLIFE and no colour type — and since
-     * {@link #hasColourTypes()} omits WOODLAND and BLUEBELL on purpose, that older test also
-     * admits WILDLIFE+WOODLAND and WILDLIFE+BLUEBELL. This one does not, for two reasons. The
+     * It is deliberately <em>narrower</em> than the {@code isPureWildlife} test of the (deleted)
+     * synchronous engine, which admitted any location carrying WILDLIFE and no colour type — and
+     * since {@link #hasColourTypes()} omits WOODLAND and BLUEBELL on purpose, that older test also
+     * admitted WILDLIFE+WOODLAND and WILDLIFE+BLUEBELL. This one does not, for two reasons. The
      * frontend decides which popup draws the comfort table with
      * {@code types.every(t => t === 'WILDLIFE')}, so the writer and the only renderer agree on
      * which places carry the rows; and a WILDLIFE+WOODLAND place is briefed as a canopy site, a
@@ -325,11 +325,11 @@ public class LocationEntity {
      *
      * <p>Lives here beside {@link #supportsTargetType} because it is a fact about the location,
      * not about any one caller. It previously existed as four copies — in
-     * {@code ForecastCommandExecutor}, {@code ModelTestService}, {@code PromptTestService} and
-     * inline in {@code ForceSubmitBatchService} — which had already drifted: only the inline copy
-     * null-guarded the type set. That guard is kept here (it is unreachable while the field
-     * defaults to an empty set, but the union of the previous behaviours is what every caller
-     * keeps).
+     * the synchronous forecast executor (since deleted), {@code ModelTestService},
+     * {@code PromptTestService} and inline in {@code ForceSubmitBatchService} — which had already
+     * drifted: only the inline copy null-guarded the type set. That guard is kept here (it is
+     * unreachable while the field defaults to an empty set, but the union of the previous
+     * behaviours is what every caller keeps).
      *
      * @return true if this location is evaluated for sky colour
      */
@@ -338,8 +338,9 @@ public class LocationEntity {
             return true;
         }
         // WOODLAND is deliberately ABSENT. This predicate is the shared gate for the SKY prompt —
-        // ForecastCommandExecutor, ForceSubmitBatchService, ModelTestService and PromptTestService
-        // all filter on it — and a location under a canopy has no sky to forecast. #347 added
+        // ForceSubmitBatchService, ModelTestService and PromptTestService (and, before it was
+        // deleted, the synchronous forecast executor) all filter on it — and a location under a
+        // canopy has no sky to forecast. #347 added
         // WOODLAND here, which silently undid V132: those woods had been removed from the sky lane
         // by losing LANDSCAPE, and this put them straight back, so every engine would have sent
         // them to the fiery-sky prompt on clear mornings. That is the opposite of what #347's own

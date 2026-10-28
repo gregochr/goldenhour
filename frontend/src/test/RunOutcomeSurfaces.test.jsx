@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  needsAttention, failedOutright, stoppedEarly, completedWithFailures, runCountsLine,
+  needsAttention, failedOutright, stoppedEarly, completedWithFailures,
 } from '../utils/runOutcome.js';
 
 // Pure reads of a run-complete payload. The Job Runs panel decides from these (Light Pollution is
@@ -57,12 +57,6 @@ describe('runOutcome', () => {
     expect(completedWithFailures({ status: 'COMPLETE', completed: 0, triaged: 3, failed: 0 })).toBe(false);
     // PARTIAL with nothing completed: triaged places stood, so it is completed with failures.
     expect(completedWithFailures({ status: 'PARTIAL', completed: 0, triaged: 2, failed: 1, reason: null })).toBe(true);
-  });
-
-  it('runCountsLine reads "N locations updated, T triaged, M failed", leaving out zero triaged and zero failed', () => {
-    expect(runCountsLine({ completed: 2, triaged: 0, failed: 0 })).toBe('2 locations updated');
-    expect(runCountsLine({ completed: 1, triaged: 0, failed: 3 })).toBe('1 location updated, 3 failed');
-    expect(runCountsLine({ completed: 0, triaged: 4, failed: 1 })).toBe('0 locations updated, 4 triaged, 1 failed');
   });
 
   it('needsAttention reads the failed count, FAILED or PARTIAL status, and a reason', () => {
