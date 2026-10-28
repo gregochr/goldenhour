@@ -313,7 +313,7 @@ class AuthControllerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/auth/change-password")
                         .header("Authorization", "Bearer " + validJwt)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"newPassword\":\"NewPass1!\"}"))
+                        .content("{\"currentPassword\":\"golden2026\",\"newPassword\":\"NewPass1!\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Password updated"))
                 // Fresh tokens for THIS device: the same body as /login.
@@ -337,7 +337,7 @@ class AuthControllerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/auth/change-password")
                         .header("Authorization", "Bearer " + legacyJwt)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"newPassword\":\"NewPass1!\"}"))
+                        .content("{\"currentPassword\":\"golden2026\",\"newPassword\":\"NewPass1!\"}"))
                 .andExpect(status().isOk());
 
         verify(userRepository).applyCredentialChange(eq(1L), anyString(), eq(1), eq(0), eq(1), eq(true),
@@ -356,7 +356,7 @@ class AuthControllerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/auth/change-password")
                         .header("Authorization", "Bearer " + jwt)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"newPassword\":\"NewPass1!\"}"))
+                        .content("{\"currentPassword\":\"golden2026\",\"newPassword\":\"NewPass1!\"}"))
                 .andExpect(status().isOk());
 
         verify(userRepository).applyCredentialChange(eq(1L), anyString(), eq(1), eq(0), eq(1), eq(true),
@@ -378,7 +378,7 @@ class AuthControllerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/auth/change-password")
                         .header("Authorization", "Bearer " + jwt)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"newPassword\":\"NewPass1!\"}"))
+                        .content("{\"currentPassword\":\"golden2026\",\"newPassword\":\"NewPass1!\"}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error").value("Your session has changed. Sign in again."))
                 .andExpect(jsonPath("$.accessToken").doesNotExist());
@@ -396,9 +396,84 @@ class AuthControllerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/auth/change-password")
                         .header("Authorization", "Bearer " + validJwt)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"newPassword\":\"short\"}"))
+                        .content("{\"currentPassword\":\"golden2026\",\"newPassword\":\"short\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/change-password with no currentPassword is a 400 and never reaches the gate "
+            + "or the service")
+    void changePassword_missingCurrentPassword_returns400() throws Exception {
+        String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+
+        for (String body : new String[] {"{\"newPassword\":\"NewPass1!\"}",
+                "{\"currentPassword\":\"   \",\"newPassword\":\"NewPass1!\"}"}) {
+            mockMvc.perform(post("/api/auth/change-password")
+                            .header("Authorization", "Bearer " + validJwt)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value("Current password is required"));
+        }
+
+        verifyNoInteractions(turnstileGate);
+        verify(userRepository, never()).applyCredentialChange(any(), any(), anyInt(), anyInt(), anyInt(),
+                anyBoolean(), org.mockito.ArgumentMatchers.anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/change-password with the WRONG current password is a 400 (never a 401, which "
+            + "the client would refresh and retry) and changes nothing")
+    void changePassword_wrongCurrentPassword_returns400() throws Exception {
+        String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+
+        mockMvc.perform(post("/api/auth/change-password")
+                        .header("Authorization", "Bearer " + validJwt)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"not-the-password\",\"newPassword\":\"NewPass1!\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Current password is incorrect"))
+                .andExpect(jsonPath("$.accessToken").doesNotExist());
+
+        verify(userRepository, never()).applyCredentialChange(any(), any(), anyInt(), anyInt(), anyInt(),
+                anyBoolean(), org.mockito.ArgumentMatchers.anyLong(), any());
+        verify(refreshTokenRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/change-password with a new password equal to the current one is a 400")
+    void changePassword_sameAsCurrent_returns400() throws Exception {
+        String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+
+        mockMvc.perform(post("/api/auth/change-password")
+                        .header("Authorization", "Bearer " + validJwt)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"NewPass1!\",\"newPassword\":\"NewPass1!\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("New password must differ from the current one"));
+
+        verify(userRepository, never()).applyCredentialChange(any(), any(), anyInt(), anyInt(), anyInt(),
+                anyBoolean(), org.mockito.ArgumentMatchers.anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/change-password is a 429 with the shared sentence when the account's "
+            + "change-password budget is spent, and changes nothing")
+    void changePassword_accountBudgetSpent_returns429() throws Exception {
+        when(attemptLimiter.tryAcquire(eq("change-password:user:1"), eq(5), eq(Window.QUARTER_HOUR)))
+                .thenReturn(false);
+        String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+
+        mockMvc.perform(post("/api/auth/change-password")
+                        .header("Authorization", "Bearer " + validJwt)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"golden2026\",\"newPassword\":\"NewPass1!\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error").value(TOO_MANY_SENTENCE));
+
+        verify(userRepository, never()).applyCredentialChange(any(), any(), anyInt(), anyInt(), anyInt(),
+                anyBoolean(), org.mockito.ArgumentMatchers.anyLong(), any());
     }
 
     @Test
@@ -406,7 +481,7 @@ class AuthControllerTest extends AbstractControllerTest {
     void changePassword_unauthenticated_returns401() throws Exception {
         mockMvc.perform(post("/api/auth/change-password")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"newPassword\":\"NewPass1!\"}"))
+                        .content("{\"currentPassword\":\"golden2026\",\"newPassword\":\"NewPass1!\"}"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -1012,7 +1087,8 @@ class AuthControllerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/auth/change-password")
                         .header("Authorization", "Bearer " + validJwt)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"newPassword\":\"NewPass1!\",\"turnstileToken\":\"bad-token\"}"))
+                        .content("{\"currentPassword\":\"golden2026\",\"newPassword\":\"NewPass1!\","
+                                + "\"turnstileToken\":\"bad-token\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("CAPTCHA verification failed. Please try again."));
 
@@ -1029,7 +1105,7 @@ class AuthControllerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/auth/change-password")
                         .header("Authorization", "Bearer " + validJwt)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"newPassword\":\"NewPass1!\"}"))
+                        .content("{\"currentPassword\":\"golden2026\",\"newPassword\":\"NewPass1!\"}"))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.error").value(TOO_MANY_SENTENCE));
 
@@ -1046,7 +1122,7 @@ class AuthControllerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/auth/change-password")
                         .header("Authorization", "Bearer " + validJwt)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"newPassword\":\"NewPass1!\"}"))
+                        .content("{\"currentPassword\":\"golden2026\",\"newPassword\":\"NewPass1!\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Password updated"));
 
@@ -1070,7 +1146,7 @@ class AuthControllerTest extends AbstractControllerTest {
 
         mockMvc.perform(post("/api/auth/change-password")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"newPassword\":\"NewPass1!\"}"))
+                        .content("{\"currentPassword\":\"golden2026\",\"newPassword\":\"NewPass1!\"}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error").value("Not authenticated"));
 

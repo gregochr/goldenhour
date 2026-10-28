@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.config.JwtAuthenticationDetails;
 import com.gregochr.goldenhour.entity.AppUserEntity;
+import com.gregochr.goldenhour.exception.CurrentPasswordMismatchException;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
 import com.gregochr.goldenhour.exception.TooManyAttemptsException;
 import com.gregochr.goldenhour.model.AuthTokens;
@@ -156,11 +157,16 @@ public class AuthController {
      * while this request hashed the new password is refused (401, "Your session has changed. Sign in
      * again.") and changes nothing.
      *
-     * @param body    map containing {@code newPassword}
+     * <p>The current password is re-verified (a briefly stolen access token must not become a permanent
+     * takeover): missing or blank, wrong, or equal to the new one is a 400 — never a 401, which the
+     * client would refresh and retry — and the per-account budget being spent is a 429.
+     *
+     * @param body    map containing {@code currentPassword} and {@code newPassword}
      * @param request the request, for the caller's address
-     * @return 200 with fresh tokens and {@code message} on success, 400 if the password fails complexity
-     *         rules or the CAPTCHA fails, 401 if unauthenticated or the session is stale, 429 when an
-     *         attempt bound is reached
+     * @return 200 with fresh tokens and {@code message} on success, 400 if the current password is
+     *         missing or wrong, the new password fails complexity rules or equals the current one, or the
+     *         CAPTCHA fails, 401 if unauthenticated or the session is stale, 429 when an attempt bound is
+     *         reached
      */
     @PostMapping("/change-password")
     public ResponseEntity<Map<String, Object>> changePassword(@RequestBody Map<String, String> body,
@@ -169,6 +175,11 @@ public class AuthController {
         if (username == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Not authenticated"));
+        }
+
+        String currentPassword = body.get("currentPassword");
+        if (currentPassword == null || currentPassword.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Current password is required"));
         }
 
         Outcome outcome = turnstileGate.admit(body.get("turnstileToken"), username,
@@ -183,13 +194,21 @@ public class AuthController {
         if (complexityError != null) {
             return ResponseEntity.badRequest().body(Map.of("error", complexityError));
         }
+        if (newPassword.equals(currentPassword)) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "New password must differ from the current one"));
+        }
 
         try {
-            AuthTokens tokens = authenticationService.changePassword(username, newPassword,
+            AuthTokens tokens = authenticationService.changePassword(username, currentPassword, newPassword,
                     sessionVersionExpectation());
             Map<String, Object> response = buildAuthResponse(tokens);
             response.put("message", "Password updated");
             return ResponseEntity.ok(response);
+        } catch (CurrentPasswordMismatchException ex) {
+            return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        } catch (TooManyAttemptsException ex) {
+            return tooManyAttempts();
         } catch (InvalidCredentialsException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", ex.getMessage()));

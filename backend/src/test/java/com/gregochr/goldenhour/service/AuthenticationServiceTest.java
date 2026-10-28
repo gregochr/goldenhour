@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.exception.CurrentPasswordMismatchException;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.exception.TooManyAttemptsException;
@@ -32,6 +33,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -159,6 +161,38 @@ class AuthenticationServiceTest {
                     .hasMessage("Invalid username or password");
 
             verifyNoInteractions(refreshTokenRepository);
+        }
+
+        @Test
+        @DisplayName("a stored hash that is not BCrypt-shaped (a neutralised default credential) yields the "
+                + "generic failure, and a dummy comparison keeps its response time uniform")
+        void nonBcryptStoredHash_isTheGenericFailureAndSpendsADummyComparison() {
+            user.setPassword("!disabled-default-admin");
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("golden2026", "!disabled-default-admin")).thenReturn(false);
+            when(passwordEncoder.encode(any())).thenReturn("$2a$10$dummy");
+
+            assertThatThrownBy(() -> service.login("admin", "golden2026"))
+                    .isInstanceOf(InvalidCredentialsException.class)
+                    .hasMessage("Invalid username or password");
+
+            verify(passwordEncoder).matches("golden2026", "$2a$10$dummy");
+            verify(userRepository, never()).touchLastActiveAt(any(), any());
+            verifyNoInteractions(tokenIssuer);
+        }
+
+        @Test
+        @DisplayName("a BCrypt-shaped stored hash that fails to match spends no extra comparison")
+        void bcryptStoredHash_wrongPassword_spendsNoDummyComparison() {
+            user.setPassword("$2a$10$storedhashvalue");
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("wrong", "$2a$10$storedhashvalue")).thenReturn(false);
+
+            assertThatThrownBy(() -> service.login("admin", "wrong"))
+                    .isInstanceOf(InvalidCredentialsException.class);
+
+            verify(passwordEncoder, times(1)).matches(any(), any());
+            verify(passwordEncoder, never()).encode(any());
         }
 
         @Test
@@ -615,11 +649,20 @@ class AuthenticationServiceTest {
     @Nested
     class ChangePassword {
 
+        private static final String BUDGET_KEY = "change-password:user:1";
+
+        @BeforeEach
+        void budgetAdmits() {
+            lenient().when(attemptLimiter.tryAcquire(BUDGET_KEY, 5, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                    .thenReturn(true);
+        }
+
         @Test
-        @DisplayName("encodes FIRST, then applies ONE writer change (the change-password record) with the "
-                + "caller's version expectation, then issues fresh tokens against the hash it just wrote")
-        void encodesThenWritesThenIssuesFreshTokens() {
+        @DisplayName("takes the budget, verifies the current password, THEN encodes, applies ONE writer change "
+                + "with the caller's version expectation, and issues fresh tokens against the hash it wrote")
+        void verifiesThenEncodesThenWritesThenIssuesFreshTokens() {
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("OldPass1!", "hashed-password")).thenReturn(true);
             when(passwordEncoder.encode("NewPass1!")).thenReturn("encoded-new");
             VersionExpectation expectation = VersionExpectation.exact(3L);
             when(credentialChangeWriter.apply(1L, "encoded-new", Change.changePassword(), expectation))
@@ -628,10 +671,12 @@ class AuthenticationServiceTest {
                     "admin", "ADMIN", false, true, "April 2026");
             when(tokenIssuer.issue(1L, "encoded-new")).thenReturn(fresh);
 
-            AuthTokens result = service.changePassword("admin", "NewPass1!", expectation);
+            AuthTokens result = service.changePassword("admin", "OldPass1!", "NewPass1!", expectation);
 
             assertThat(result).isSameAs(fresh);
-            InOrder order = inOrder(passwordEncoder, credentialChangeWriter, tokenIssuer);
+            InOrder order = inOrder(attemptLimiter, passwordEncoder, credentialChangeWriter, tokenIssuer);
+            order.verify(attemptLimiter).tryAcquire(BUDGET_KEY, 5, AuthAttemptLimiter.Window.QUARTER_HOUR);
+            order.verify(passwordEncoder).matches("OldPass1!", "hashed-password");
             order.verify(passwordEncoder).encode("NewPass1!");
             order.verify(credentialChangeWriter).apply(1L, "encoded-new", Change.changePassword(), expectation);
             order.verify(tokenIssuer).issue(1L, "encoded-new");
@@ -639,17 +684,52 @@ class AuthenticationServiceTest {
         }
 
         @Test
+        @DisplayName("a wrong current password throws CurrentPasswordMismatch and hashes, writes and issues "
+                + "nothing")
+        void wrongCurrentPassword_isRefusedBeforeAnyWrite() {
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("Wrong1!", "hashed-password")).thenReturn(false);
+
+            assertThatThrownBy(() -> service.changePassword("admin", "Wrong1!", "NewPass1!",
+                    VersionExpectation.trusted()))
+                    .isInstanceOf(CurrentPasswordMismatchException.class)
+                    .hasMessage("Current password is incorrect");
+
+            verify(passwordEncoder, never()).encode(any());
+            verifyNoInteractions(credentialChangeWriter);
+            verifyNoInteractions(tokenIssuer);
+        }
+
+        @Test
+        @DisplayName("the budget is taken on EVERY attempt, a wrong password included, and a spent budget "
+                + "throws TooManyAttempts before the password is compared")
+        void spentBudget_throwsBeforeThePasswordCheck() {
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(attemptLimiter.tryAcquire(BUDGET_KEY, 5, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                    .thenReturn(false);
+
+            assertThatThrownBy(() -> service.changePassword("admin", "OldPass1!", "NewPass1!",
+                    VersionExpectation.trusted()))
+                    .isInstanceOf(TooManyAttemptsException.class);
+
+            verifyNoInteractions(passwordEncoder);
+            verifyNoInteractions(credentialChangeWriter);
+            verifyNoInteractions(tokenIssuer);
+        }
+
+        @Test
         @DisplayName("if the issuer refuses AFTER the writer committed (the account changed again in the gap) "
                 + "the refusal propagates: the caller signs in again with the password that did change")
         void issuerRefusalAfterTheWrite_propagates() {
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("OldPass1!", "hashed-password")).thenReturn(true);
             when(passwordEncoder.encode("NewPass1!")).thenReturn("encoded-new");
             when(credentialChangeWriter.apply(any(), any(), any(), any()))
                     .thenReturn(new CredentialChangeOutcome(1L, "admin", "admin@example.com", 4L));
             when(tokenIssuer.issue(1L, "encoded-new"))
                     .thenThrow(new InvalidCredentialsException("Invalid username or password"));
 
-            assertThatThrownBy(() -> service.changePassword("admin", "NewPass1!",
+            assertThatThrownBy(() -> service.changePassword("admin", "OldPass1!", "NewPass1!",
                     VersionExpectation.trusted()))
                     .isInstanceOf(InvalidCredentialsException.class);
 
@@ -661,11 +741,12 @@ class AuthenticationServiceTest {
         @DisplayName("a stale session is refused by the writer, and NO fresh tokens are issued")
         void staleSession_issuesNothing() {
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("OldPass1!", "hashed-password")).thenReturn(true);
             when(passwordEncoder.encode("NewPass1!")).thenReturn("encoded-new");
             when(credentialChangeWriter.apply(any(), any(), any(), any()))
                     .thenThrow(new StaleCredentialsException());
 
-            assertThatThrownBy(() -> service.changePassword("admin", "NewPass1!",
+            assertThatThrownBy(() -> service.changePassword("admin", "OldPass1!", "NewPass1!",
                     VersionExpectation.legacyUnchanged()))
                     .isInstanceOf(StaleCredentialsException.class)
                     .hasMessage("Your session has changed. Sign in again.");
@@ -674,15 +755,16 @@ class AuthenticationServiceTest {
         }
 
         @Test
-        @DisplayName("unknown user throws before anything is hashed or written")
+        @DisplayName("unknown user throws before the budget, any hashing or any write")
         void unknownUser_throws() {
             when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.changePassword("ghost", "NewPass1!",
+            assertThatThrownBy(() -> service.changePassword("ghost", "OldPass1!", "NewPass1!",
                     VersionExpectation.trusted()))
                     .isInstanceOf(InvalidCredentialsException.class)
                     .hasMessage("User not found");
 
+            verifyNoInteractions(attemptLimiter);
             verifyNoInteractions(passwordEncoder);
             verifyNoInteractions(credentialChangeWriter);
             verifyNoInteractions(tokenIssuer);

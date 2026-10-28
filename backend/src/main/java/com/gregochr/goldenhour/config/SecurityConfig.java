@@ -46,6 +46,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final RewindFilter rewindFilter;
+    private final PasswordChangeRequiredFilter passwordChangeRequiredFilter;
 
     /** Additional allowed CORS origins (e.g. public production frontend URLs). Comma-separated. */
     @Value("${cors.extra-origins:}")
@@ -94,7 +95,10 @@ public class SecurityConfig {
                         UsernamePasswordAuthenticationFilter.class)
                 // After JWT authentication so it can read the caller's role: the header is
                 // honoured for admins only, and for GET only.
-                .addFilterAfter(rewindFilter, JwtAuthenticationFilter.class);
+                .addFilterAfter(rewindFilter, JwtAuthenticationFilter.class)
+                // Also after JWT authentication: it reads the flag the JWT filter put on the details, and
+                // refuses a flagged account everywhere but the endpoints that let it change the password.
+                .addFilterAfter(passwordChangeRequiredFilter, JwtAuthenticationFilter.class);
 
         // Allow H2 console frames in the local profile
         http.headers(headers -> headers.frameOptions(fo -> fo.sameOrigin()));
@@ -117,6 +121,23 @@ public class SecurityConfig {
     @Bean
     public FilterRegistrationBean<RewindFilter> rewindFilterRegistration(RewindFilter rewindFilter) {
         FilterRegistrationBean<RewindFilter> registration = new FilterRegistrationBean<>(rewindFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    /**
+     * Keeps {@link PasswordChangeRequiredFilter} out of the servlet container's own filter chain, for the
+     * reason {@link #rewindFilterRegistration} gives: it must run once, inside the security chain, after
+     * authentication.
+     *
+     * @param passwordChangeRequiredFilter the filter the security chain already holds
+     * @return a registration that is disabled, which is the point
+     */
+    @Bean
+    public FilterRegistrationBean<PasswordChangeRequiredFilter> passwordChangeRequiredFilterRegistration(
+            PasswordChangeRequiredFilter passwordChangeRequiredFilter) {
+        FilterRegistrationBean<PasswordChangeRequiredFilter> registration =
+                new FilterRegistrationBean<>(passwordChangeRequiredFilter);
         registration.setEnabled(false);
         return registration;
     }

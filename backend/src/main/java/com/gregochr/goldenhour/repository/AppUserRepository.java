@@ -88,6 +88,15 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
     List<AppUserEntity> findByRoleAndEnabledTrue(UserRole role);
 
     /**
+     * Returns every user with the given role, enabled or not — backs {@code DefaultCredentialGuard}, which
+     * must test every ADMIN hash against the published default password.
+     *
+     * @param role the role to match (e.g. {@code ADMIN})
+     * @return users with that role, in no particular order
+     */
+    List<AppUserEntity> findByRole(UserRole role);
+
+    /**
      * Updates only the Coming-up last-seen instant (plan D3/P5) — never a whole-entity save.
      *
      * <p>{@code AppUserEntity} carries neither {@code @Version} nor {@code @DynamicUpdate}, so
