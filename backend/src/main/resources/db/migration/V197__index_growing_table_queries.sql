@@ -1,4 +1,4 @@
--- V196: indexes for the repository queries that scan the tables which grow without limit
+-- V197: indexes for the repository queries that scan the tables which grow without limit
 -- (performance-review-2026-10-plan.md P6a, finding F30, audit in section 7.1).
 --
 -- Context. The owner accepted on 2026-10-28 that api_call_log, forecast_evaluation, forecast_score,

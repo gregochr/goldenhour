@@ -17,7 +17,7 @@ import java.sql.Statement;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Proves V196 against a real Postgres: each index created for a query on a growing table exists
+ * Proves V197 against a real Postgres: each index created for a query on a growing table exists
  * after every migration, and the planner uses it for that query's shape.
  *
  * <p>The tables are empty, so {@code enable_seqscan = off} is set for the session: it makes the
