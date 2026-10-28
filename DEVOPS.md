@@ -82,7 +82,8 @@ rm backend/data/goldenhour.mv.db backend/data/goldenhour.lock.db
 ## API Testing
 
 ```bash
-# Login and get tokens
+# Login and get tokens (local H2 only: the default admin exists on the local profile alone, see
+# "Default Credentials" below; on any other environment use your own account's password)
 curl -s -X POST http://127.0.0.1:8082/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"golden2026"}' | python3 -m json.tool
@@ -228,6 +229,30 @@ sleep 2 && \
 
 - **Username**: `admin`
 - **Password**: `golden2026`
+
+These are for the **local H2 profile only** (`LocalAdminSeeder` seeds them into an empty database). They can
+never sign in anywhere else: the Flyway `V10` migration still inserts that row on a Postgres database, but
+`DefaultCredentialGuard` runs at every startup on every profile except `local` and neutralises any ADMIN
+whose password is still `golden2026`. It sets a hash no password matches, bumps the credential version
+(every live access token dies), revokes every refresh token and sets `password_change_required`, then logs
+`Default admin password was still in use for '<user>' — sign-in disabled`. It never stops the app starting.
+
+If the only admin was neutralised, recover in this order:
+
+1. **Another ADMIN** sets a temporary password: `PUT /api/users/{id}/reset-password`.
+2. **Forgot password**, if the admin row has an email address.
+3. **psql**, last resort. The hash goes in as a psql variable, because a BCrypt hash is full of `$`, which an
+   unquoted heredoc would expand and corrupt (the same trick as `.github/workflows/zap.yml`):
+
+   ```bash
+   HASH=$(htpasswd -nbBC 10 '' 'NewPass!1' | tr -d ':\n')
+   docker exec -i goldenhour-db psql -U goldenhour -d goldenhour -v hash="$HASH" <<'SQL'
+   UPDATE app_user SET password = :'hash', password_change_required = TRUE WHERE username = 'admin';
+   SQL
+   ```
+
+   Sign in with that password; the app then asks for it as the current password and requires a new one.
+
 - **JWT Access Token Expiry**: 24 hours
 - **JWT Refresh Token Expiry**: 30 days
 

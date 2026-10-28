@@ -29,11 +29,12 @@ public class ModelsController {
     private final ModelSelectionService modelSelectionService;
 
     /**
-     * Get available evaluation models, per-run-type active models, and extended-thinking flags.
+     * Get available evaluation models, per-run-type active models, and extended-thinking flags (ADMIN only).
      *
      * @return response containing available models, configs, and extended-thinking config
      */
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getAvailableModels() {
         EvaluationModel[] selectableModels = {
             EvaluationModel.HAIKU, EvaluationModel.HAIKU_55, EvaluationModel.SONNET,

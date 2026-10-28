@@ -142,8 +142,8 @@ export function AuthProvider({ children }) {
     setSessionExpired(false);
   }, []);
 
-  const changePassword = useCallback(async (newPassword, turnstileToken) => {
-    const data = await apiChangePassword(newPassword, turnstileToken);
+  const changePassword = useCallback(async (currentPassword, newPassword, turnstileToken) => {
+    const data = await apiChangePassword(currentPassword, newPassword, turnstileToken);
     localStorage.removeItem(MUST_CHANGE_KEY);
     setMustChangePassword(false);
     // From R3c the server revokes every refresh token on a change and answers with a fresh session
@@ -189,6 +189,23 @@ export function AuthProvider({ children }) {
     };
     window.addEventListener('goldenhour:token-refreshed', handleRefreshed);
     return () => window.removeEventListener('goldenhour:token-refreshed', handleRefreshed);
+  }, []);
+
+  // The server enforces the first-login password change (403 PASSWORD_CHANGE_REQUIRED on every other
+  // call). If this client's flag is stale (the account was flagged after sign-in, say by an admin's
+  // temporary password on a live session), the interceptor raises this event and the app routes to the
+  // change-password page instead of leaving every screen in an error state.
+  useEffect(() => {
+    const handlePasswordChangeRequired = () => {
+      try {
+        localStorage.setItem(MUST_CHANGE_KEY, 'true');
+      } catch {
+        // Storage unusable: the in-memory flag below still routes this session.
+      }
+      setMustChangePassword(true);
+    };
+    window.addEventListener('goldenhour:password-change-required', handlePasswordChangeRequired);
+    return () => window.removeEventListener('goldenhour:password-change-required', handlePasswordChangeRequired);
   }, []);
 
   // Listen for session-expired events from the axios interceptor

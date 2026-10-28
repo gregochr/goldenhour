@@ -17,7 +17,6 @@ import com.gregochr.goldenhour.util.EmailIdentifier.Kind;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import java.time.Instant;
 
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,17 +37,13 @@ import java.util.Optional;
  * Service for user management operations.
  *
  * <p>Implements {@link UserDetailsService} so Spring Security can load users for authentication.
- * On startup, seeds a default {@code admin} account if the user table is empty (used when
- * Flyway migrations are disabled, e.g. the local H2 profile).
+ * The default {@code admin} account of the local H2 profile is seeded by {@link LocalAdminSeeder}, not here.
  */
 @Service
 @RequiredArgsConstructor
 public class UserService implements UserDetailsService {
 
     private static final Logger LOG = LoggerFactory.getLogger(UserService.class);
-
-    private static final String DEFAULT_ADMIN_USERNAME = "admin";
-    private static final String DEFAULT_ADMIN_PASSWORD = "golden2026";
 
     private static final String TEMP_PW_UPPER   = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     private static final String TEMP_PW_LOWER   = "abcdefghijklmnopqrstuvwxyz";
@@ -69,28 +64,6 @@ public class UserService implements UserDetailsService {
     private final EmailVerificationTokenRepository verificationTokenRepository;
     private final Clock clock;
     private final UserDriveTimeRepository userDriveTimeRepository;
-
-    /**
-     * Seeds a default admin account on startup if the user table is empty.
-     *
-     * <p>This ensures the app is usable immediately when Flyway migrations are disabled
-     * (e.g. local H2 profile). The Flyway V10 migration inserts the same account for
-     * production PostgreSQL environments, so this method is a no-op there.
-     */
-    @PostConstruct
-    public void seedDefaultAdmin() {
-        if (userRepository.count() == 0) {
-            AppUserEntity admin = AppUserEntity.builder()
-                    .username(DEFAULT_ADMIN_USERNAME)
-                    .password(passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD))
-                    .role(UserRole.ADMIN)
-                    .enabled(true)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            userRepository.save(admin);
-            LOG.info("Seeded default admin account (username: {})", DEFAULT_ADMIN_USERNAME);
-        }
-    }
 
     /**
      * Loads a user by username for Spring Security authentication.

@@ -267,4 +267,38 @@ describe('axiosClient interceptors', () => {
       expect(expiredEvents.length).toBe(0);
     });
   });
+
+  describe('response interceptor — password change required', () => {
+    const raisedEvents = () => dispatchSpy.mock.calls.filter(
+      ([event]) => event.type === 'goldenhour:password-change-required',
+    );
+
+    it('raises goldenhour:password-change-required on a 403 PASSWORD_CHANGE_REQUIRED, then rejects as usual', async () => {
+      localStorage.setItem(TOKEN_KEY, 'my-jwt');
+      localStorage.setItem(REFRESH_KEY, 'my-refresh');
+      const error = {
+        response: { status: 403, data: { error: 'Password change required', code: 'PASSWORD_CHANGE_REQUIRED' } },
+        config: { headers: {} },
+      };
+      const adapter = vi.fn().mockRejectedValue(error);
+
+      await expect(apiClient.get('/api/briefing', { adapter })).rejects.toBe(error);
+
+      expect(raisedEvents()).toHaveLength(1);
+      expect(adapter).toHaveBeenCalledTimes(1);
+      expect(AuthApi.refreshAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('stays silent for a 403 with another code, or none (a role refusal is not a password gate)', async () => {
+      for (const data of [{ error: 'Forbidden', code: 'NOT_ENTITLED' }, { error: 'Forbidden' }, undefined]) {
+        const adapter = vi.fn().mockRejectedValue({
+          response: { status: 403, data },
+          config: { headers: {} },
+        });
+        await expect(apiClient.get('/api/ask', { adapter })).rejects.toBeDefined();
+      }
+
+      expect(raisedEvents()).toHaveLength(0);
+    });
+  });
 });

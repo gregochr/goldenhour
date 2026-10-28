@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.util.LogSanitizer;
+import com.gregochr.goldenhour.util.SecretRedactor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -114,11 +115,11 @@ public class LightPollutionClient {
             return new SkyBrightnessResult(sqm, bortle);
         } catch (RestClientException e) {
             LOG.warn("Light pollution API call failed for ({}, {}): {}", latitude, longitude,
-                    LogSanitizer.sanitize(e.getMessage()));
+                    LogSanitizer.sanitize(SecretRedactor.redactKeys(e.getMessage())));
             return null;
         } catch (com.fasterxml.jackson.core.JsonProcessingException | NumberFormatException e) {
             LOG.warn("Failed to parse light pollution response for ({}, {}): {}", latitude, longitude,
-                    LogSanitizer.sanitize(e.getMessage()));
+                    LogSanitizer.sanitize(SecretRedactor.redactKeys(e.getMessage())));
             return null;
         }
     }
