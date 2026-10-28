@@ -25,8 +25,8 @@ import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
 import {
   buildSpread, formatSpreadCount, poolWithinReach, spokenPoolPhrase, spreadBandsSpoken,
-  spreadBars, spreadCountLayout, spreadCountLayoutAcross, spreadQualifier, spreadRowState, spreadTitle, unratedBar,
-  unratedPhrase,
+  spreadBars, spreadCountLayout, spreadCountLayoutAcross, spreadQualifier, spreadRowState, spreadTitle, stoodSpreadTitle,
+  unratedBar, unratedPhrase,
 } from '../utils/windowFirstSpread.js';
 import { thinVerdictCount } from '../utils/windowFirstThinSample.js';
 import { buildTopicIndex, chipClock, windowTopics } from '../utils/windowFirstTopics.js';
@@ -1376,10 +1376,21 @@ export default function WindowFirstHeatStrip({
     });
     // A stood-down window is not "not scored": it was looked at (the Map's wording).
     const stoodHere = card.away ? [] : stoodInFrame(card.key);
+    const stoodUnrated = (unratedSets?.get?.(card.key)?.length ?? 0) > 0;
     const notScoredWords = stoodHere.length === 0 ? 'not scored'
-      : ((unratedSets?.get?.(card.key)?.length ?? 0) > 0
+      : (stoodUnrated
         ? 'some places stood down by the weather — none rated yet'
         : 'stood down by the weather — no place rated');
+    // The VISIBLE Spread note and Best row say what the sentence above says (big-seas F4; Map parity:
+    // "Stood down by the weather — no place rated for this event"). "none rated yet" / "not scored yet"
+    // read as a fault or "too far ahead" over a hatch that means the weather ruled the places out. Read off
+    // the values just computed, never a second predicate; full (unshaped) body and a non-empty pool only —
+    // an empty pool keeps "nothing in reach", and the shaped body's `unscored` uses the reader's picks
+    // (`groundSets`), a different scope from `stoodInFrame`, so it keeps its own words. `derived` stays
+    // stood-blind; this overrides at render.
+    const stoodWords = notScored && !shaped && stoodHere.length > 0 && poolTotal > 0;
+    const spreadStood = stoodWords && !stoodUnrated && facts.spread.rated === 0 && !facts.state.bars;
+    const bestStood = stoodWords && facts.best && facts.best.rating == null && !facts.best.beyond;
     const accessibleName = [card.label, card.time, card.verdictLabel]
       .concat(blankedNote ? [BLANKED_STAND_DOWN_SPOKEN] : [])
       .concat(regionMean ? [`${regionMean} star average`] : [])
@@ -1592,7 +1603,7 @@ export default function WindowFirstHeatStrip({
                       ? `wf-hc-hist${facts.countLayout.small ? ' sm' : ''}`
                       : 'wf-hc-hist-note'}
                     style={facts.state.bars ? { '--cw': `${facts.countLayout.widthPx}px` } : undefined}
-                    title={facts.title}
+                    title={spreadStood ? stoodSpreadTitle(facts.spread, facts.withinReach) : facts.title}
                   >
                     {facts.state.bars ? (
                       <>
@@ -1647,7 +1658,7 @@ export default function WindowFirstHeatStrip({
                         ))}
                       </>
                     ) : (
-                      <span data-testid="wf-heat-spread-note">{facts.state.text}</span>
+                      <span data-testid="wf-heat-spread-note">{spreadStood ? 'stood down' : facts.state.text}</span>
                     )}
                   </span>
                 </span>
@@ -1689,7 +1700,9 @@ export default function WindowFirstHeatStrip({
                       state={facts.best.tideState}
                     />
                   )}
-                  {facts.best.value}
+                  {bestStood
+                    ? (stoodUnrated ? 'some places stood down' : 'stood down by the weather')
+                    : facts.best.value}
                 </span>
               </span>
               )}

@@ -2425,6 +2425,63 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
       expect(cardName()).not.toContain('not scored');
     });
 
+    describe('the visible Spread and Best rows say "stood down" where the sentence does', () => {
+      // Readers took "none rated yet" / "not scored yet" under the stood-down hatch for a fault or "too far
+      // ahead". The rows now agree with the card's spoken name and the Map's "Stood down by the weather".
+      const POOLED = (extra = {}) => stripCard({
+        ...UNSCORED, reachLimitMinutes: 45, pool: [poolSpot({ rating: null })], bestReach: null, ...extra,
+      });
+      const UNRATED_HERE = [{ id: 9, name: 'Alnmouth', lat: 55.4, lng: -1.6, rid: 'R', r: [0] }];
+
+      it('says "stood down" in the Spread note and tooltip and "stood down by the weather" in Best when every place stood', async () => {
+        const card = POOLED();
+        await renderStrip({ cards: [card], stoodSets: new Map([[card.key, STOOD]]) });
+        expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent(/^stood down$/);
+        expect(screen.getByTestId('wf-heat-spread'))
+          .toHaveAttribute('title', '1 location within reach — stood down by the weather.');
+        expect(screen.getByTestId('wf-heat-best')).toHaveTextContent(/^stood down by the weather$/);
+        // The spoken name is exactly today's: the new visible words are substrings of it.
+        expect(cardName()).toContain('stood down by the weather — no place rated');
+        expect(cardName()).not.toContain('not scored');
+        expect(cardName()).not.toContain('best, not scored yet');
+      });
+
+      it('keeps "none rated yet" in the Spread note and says "some places stood down" in Best while unrated places remain', async () => {
+        const card = POOLED();
+        await renderStrip({
+          cards: [card],
+          stoodSets: new Map([[card.key, STOOD]]),
+          unratedSets: new Map([[card.key, UNRATED_HERE]]),
+        });
+        expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('none rated yet');
+        expect(screen.getByTestId('wf-heat-spread'))
+          .toHaveAttribute('title', '1 location within reach — none rated yet.');
+        expect(screen.getByTestId('wf-heat-best')).toHaveTextContent(/^some places stood down$/);
+        expect(cardName()).toContain('some places stood down by the weather — none rated yet');
+      });
+
+      it('changes nothing where no ground stood down', async () => {
+        const card = POOLED();
+        await renderStrip({ cards: [card] });
+        expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('none rated yet');
+        expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('not scored yet');
+      });
+
+      it('keeps "nothing in reach" on an empty pool even with stood ground', async () => {
+        await renderStrip({ cards: [UNSCORED], stoodSets: new Map([[UNSCORED.key, STOOD]]) });
+        expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('nothing in reach');
+        expect(screen.getByTestId('wf-heat-best')).not.toHaveTextContent('stood down');
+      });
+
+      it('leaves a rated window\'s rows alone when places stood down beside the rated ones', async () => {
+        const card = ratedCard();
+        await renderStrip({ cards: [card], stoodSets: new Map([[card.key, STOOD]]) });
+        expect(screen.getByTestId('wf-heat-best')).not.toHaveTextContent('stood down');
+        expect(screen.getByTestId('wf-heat-best-rating')).toHaveTextContent('4★');
+        expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('1/1 rated');
+      });
+    });
+
     it('counts, speaks and keys only stood places inside the thumbnail\'s frame, but paints them all', async () => {
       const outside = [{ lat: 54, lng: -1.2, reason: 'HIGH_CLOUD', rid: 'Yorkshire', key: '#77' }];
       await withMeasuredThumbs(160, async () => {

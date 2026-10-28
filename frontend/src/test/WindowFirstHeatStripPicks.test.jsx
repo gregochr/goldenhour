@@ -237,6 +237,18 @@ describe('B2: a place outside the picks is in neither half of any count', () => 
     expect(screen.getByTestId('wf-heat-best')).not.toHaveTextContent(/in reach|not scored yet|nothing to show/);
   });
 
+  it('keeps its own "None of your sub-regions" words over stood ground: the stood-down wording is the full body\'s only', async () => {
+    const props = shapedProps({
+      rated: false, summaryOverrides: { mine: [slot(1, 'Bamburgh', null), slot(7, 'Craster', null)] },
+    });
+    const stood = [{ lat: 55.6, lng: -1.7, reason: 'HIGH_CLOUD', rid: 'Coast', key: '#1' }];
+    await renderStrip({ ...props, stoodSets: new Map([[props.cards[0].key, stood]]) });
+
+    expect(screen.getByTestId('wf-heat-best'))
+      .toHaveTextContent('None of your sub-regions are rated for this sunset yet.');
+    expect(screen.getByTestId('wf-heat-best')).not.toHaveTextContent('stood down');
+  });
+
   it('omits the Spread and Best rows for a reader with no pick, and the thin line', async () => {
     await renderStrip(shapedProps({ allowed: [], summaryOverrides: { mine: [] } }));
 
