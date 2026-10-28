@@ -91,7 +91,14 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<SlotSignals> dusty = slotSignalReader.read(fromDate, toDate).stream()
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofSlotSignals(() -> slotSignalReader.read(fromDate, toDate)));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
+        List<SlotSignals> dusty = inputs.slotSignals().stream()
                 .filter(s -> isDustEnhanced(s.readings().aerosolOpticalDepth(),
                         s.readings().dust(), s.readings().pm25()))
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))

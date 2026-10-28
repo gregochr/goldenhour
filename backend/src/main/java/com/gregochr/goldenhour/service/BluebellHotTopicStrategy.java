@@ -111,13 +111,20 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofSlotSignals(() -> slotSignalReader.read(fromDate, toDate)));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
         if (!bluebellSeason.isActive(fromDate)) {
             return List.of();
         }
 
         // Only bluebell sites carry a BLUEBELL component score, so filtering the slot composites
         // to a non-null bluebell score self-selects them (no separate location lookup needed).
-        List<SlotSignals> bluebellSignals = slotSignalReader.read(fromDate, toDate).stream()
+        List<SlotSignals> bluebellSignals = inputs.slotSignals().stream()
                 .filter(s -> s.scores().bluebell() != null)
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
                 .toList();

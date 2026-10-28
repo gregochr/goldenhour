@@ -105,15 +105,22 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofDarkSky(locationRepository::findByBortleClassIsNotNullAndEnabledTrue));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
         List<HotTopic> topics = new ArrayList<>();
 
         LocalDate night = forecastRunService.currentNight().date();
         if (!night.isBefore(fromDate.minusDays(1)) && !night.isAfter(toDate)) {
-            detectTonight(night, fromDate, topics);
+            detectTonight(night, fromDate, topics, inputs);
         }
         LocalDate nextNight = night.plusDays(1);
         if (!nextNight.isBefore(fromDate) && !nextNight.isAfter(toDate)) {
-            detectTomorrow(nextNight, fromDate, topics);
+            detectTomorrow(nextNight, fromDate, topics, inputs);
         }
 
         return topics;
@@ -135,7 +142,8 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         return night.equals(today) ? "tonight" : "tomorrow night";
     }
 
-    private void detectTonight(LocalDate night, LocalDate today, List<HotTopic> topics) {
+    private void detectTonight(LocalDate night, LocalDate today, List<HotTopic> topics,
+            HotTopicInputs inputs) {
         // An admin's aurora simulation (POST /api/aurora/admin/simulate) is for admin UI testing
         // only. It must never reach a signed-in user's Plan cards as if it were a real alert, so
         // this returns before touching the level or trigger Kp the simulation injects.
@@ -168,7 +176,7 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
 
         int priority = (level == AlertLevel.STRONG || level == AlertLevel.MODERATE) ? 1 : 2;
         String detail = buildTonightDetail(kp, clearCount, totalCount, nightPhrase(night, today));
-        List<String> regions = findAuroraRegions();
+        List<String> regions = findAuroraRegions(inputs);
 
         HotTopic topic = new HotTopic(
                 "AURORA",
@@ -187,7 +195,8 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         topics.add(topic);
     }
 
-    private void detectTomorrow(LocalDate nextNight, LocalDate today, List<HotTopic> topics) {
+    private void detectTomorrow(LocalDate nextNight, LocalDate today, List<HotTopic> topics,
+            HotTopicInputs inputs) {
         double tomorrowPeakKp = findTomorrowNightPeakKp(nextNight);
         if (tomorrowPeakKp < TOMORROW_KP_THRESHOLD) {
             return;
@@ -204,7 +213,7 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
                 nextNight,
                 3,
                 null,
-                findAuroraRegions(),
+                findAuroraRegions(inputs),
                 AURORA_DESCRIPTION,
                 null);
         List<HotTopicFact> facts = buildAuroraFacts(tomorrowPeakKp, moonPct);
@@ -260,8 +269,8 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         return sb.toString();
     }
 
-    private List<String> findAuroraRegions() {
-        return locationRepository.findByBortleClassIsNotNullAndEnabledTrue().stream()
+    private List<String> findAuroraRegions(HotTopicInputs inputs) {
+        return inputs.darkSkyLocations().stream()
                 .map(LocationEntity::getRegion)
                 .filter(Objects::nonNull)
                 .map(RegionEntity::getName)
