@@ -1714,10 +1714,13 @@ class BriefingServiceTest {
                     new HotTopic("DUST", "Elevated dust", "d", FIXED_TODAY, 1, null, List.of(), null, null)
                             .withScience(List.of(HotTopicFact.metric("AOD", "0.45 · thick")), null));
             HotTopicEventEnricher passthrough = mock(HotTopicEventEnricher.class);
-            when(passthrough.enrich(anyList())).thenAnswer(inv -> inv.getArgument(0));
+            when(passthrough.enrich(anyList(), org.mockito.ArgumentMatchers.any(HotTopicInputs.class)))
+                    .thenAnswer(inv -> inv.getArgument(0));
             HotTopicAggregator realAggregator = new HotTopicAggregator(List.of(dustStrategy),
                     new HotTopicSimulationService(), mock(TravelDayService.class), passthrough,
-                    new HotTopicGlanceDecorator());
+                    new HotTopicGlanceDecorator(),
+                    mock(SlotSignalReader.class),
+                    mock(com.gregochr.goldenhour.repository.LocationRepository.class));
             BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
             LunarPhaseService lunarPhaseService = new LunarPhaseService(new LunarCalculator());
             BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(

@@ -75,7 +75,14 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<SlotSignals> white = slotSignalReader.read(fromDate, toDate).stream()
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofSlotSignals(() -> slotSignalReader.read(fromDate, toDate)));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
+        List<SlotSignals> white = inputs.slotSignals().stream()
                 .filter(s -> isTopsWhite(s.readings().freezingLevelMetres(),
                         s.location() != null ? s.location().getElevationMetres() : null))
                 .sorted(Comparator.comparing(SlotSignals::date))

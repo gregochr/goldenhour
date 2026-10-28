@@ -486,3 +486,6 @@ CLAUDE.md's Almanac section) |
 ---
 
 > **`GET /api/regions/drive-times` is memoised** (performance P1e): `RegionDriveMatrixMemo` holds the last matrix as an unmodifiable map, cleared **after commit** by `RegionDriveTimeWriter.replaceForRegion` / `clearForRegion` (a rolled-back write does not clear it; a load that began before an invalidation never stores). The FK cascades on location or region delete (V145) have no application delete path, so nothing else clears it; a manual SQL delete needs a restart.
+
+### Actuator health (`/actuator/health`, permitAll)
+Component status is public (`show-components: always`), but the per-component **details** (`latencyMs`, `error`, `status`) are shown to an `ADMIN` only (`management.endpoint.health.roles: ADMIN` with `show-details: when_authorized`; pinned by `HealthDetailsProdYamlTest`). A probe's `error` detail is only the exception class name, plus an HTTP `status` for a `RestClientResponseException`, never the exception message: Spring's I/O errors quote the full request URL, which for WorldTides carries the paid API key. `SecretRedactor.redactKeys` masks `key=` / `apikey=` / `api_key=` query values before an exception message reaches a log line or the admin API-call log.

@@ -105,13 +105,29 @@ public class HotTopicEventEnricher {
      * @return a new list with the event fields filled in; never null
      */
     public List<HotTopic> enrich(List<HotTopic> topics) {
+        return enrich(topics, HotTopicInputs.ofRosters(
+                locationRepository::findCoastalLocations,
+                locationRepository::findAllByEnabledTrueOrderByNameAsc,
+                locationRepository::findByBortleClassIsNotNullAndEnabledTrue,
+                locationRepository::findBluebellLocations));
+    }
+
+    /**
+     * As {@link #enrich(List)}, reading the four location rosters from the pass's shared inputs so
+     * rosters a strategy already loaded are not loaded again.
+     *
+     * @param topics the aggregated hot topics
+     * @param inputs the pass's shared inputs
+     * @return a new list with the event fields filled in; never null
+     */
+    public List<HotTopic> enrich(List<HotTopic> topics, HotTopicInputs inputs) {
         if (topics == null || topics.isEmpty()) {
             return topics == null ? List.of() : topics;
         }
-        List<LocationEntity> enabled = locationRepository.findAllByEnabledTrueOrderByNameAsc();
-        List<LocationEntity> coastal = locationRepository.findCoastalLocations();
-        List<LocationEntity> darkSky = locationRepository.findByBortleClassIsNotNullAndEnabledTrue();
-        List<LocationEntity> bluebell = locationRepository.findBluebellLocations();
+        List<LocationEntity> enabled = inputs.enabledLocations();
+        List<LocationEntity> coastal = inputs.coastalLocations();
+        List<LocationEntity> darkSky = inputs.darkSkyLocations();
+        List<LocationEntity> bluebell = inputs.bluebellLocations();
         return topics.stream()
                 .map(topic -> enrichOne(topic, enabled, coastal, darkSky, bluebell))
                 .toList();

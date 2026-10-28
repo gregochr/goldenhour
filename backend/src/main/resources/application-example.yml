@@ -513,6 +513,7 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+      roles: ADMIN
       cache:
         time-to-live: 30s
   health:

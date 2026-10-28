@@ -108,7 +108,14 @@ public class MistHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<SlotSignals> likely = slotSignalReader.read(fromDate, toDate).stream()
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofSlotSignals(() -> slotSignalReader.read(fromDate, toDate)));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
+        List<SlotSignals> likely = inputs.slotSignals().stream()
                 .filter(s -> EVENTS.contains(s.eventType()))
                 .filter(MistHotTopicStrategy::isLikely)
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
