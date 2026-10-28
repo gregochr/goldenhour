@@ -20,7 +20,7 @@
     <properties>
         <java.version>25</java.version>
         <!-- built with the SDK's own client since 2026-10-06; see AppConfig#anthropicClient -->
-        <anthropic-sdk.version>2.71.0</anthropic-sdk.version>
+        <anthropic-sdk.version>3.1.0</anthropic-sdk.version>
         <surefire.excludedGroups>prompt-regression</surefire.excludedGroups>
 
         <!--
