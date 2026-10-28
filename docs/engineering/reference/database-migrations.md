@@ -17,7 +17,7 @@
 | V31–V35 | `regions`, email_verification_token, `model_test_run/result`, marketing opt-in |
 | V36–V39 | last_active_at, token columns + micro-dollar costs + exchange_rate, determinism re-run |
 | V41–V43 | optimisation_strategy, TideType enum refactor |
-| V44–V46 | prompt_test_run/result (rows cleared by V196, tables dropped in sync-engine retirement Phase 4), SolarEventType refactor |
+| V44–V46 | prompt_test_run/result (rows cleared by V196, tables dropped by V198), SolarEventType refactor |
 | V47–V48 | location_id FK, directional cloud columns + basic-tier scores |
 | V49–V50 | NEXT_EVENT_ONLY strategy, WATERFALL location type + reclassification |
 | V51 | Cloud approach risk columns (solar trend, upwind sample) on forecast_evaluation |
@@ -78,6 +78,7 @@
 | V195 | drops the legacy `actual_outcome` table (`DROP TABLE IF EXISTS`; audit-followups O2, code removed in O1 #1443). Production was dropped by hand on 2026-10-27 after its single real row was copied into `outcome_rating`, hence `IF EXISTS`. A local H2 file never runs Flyway, so it keeps the orphan table harmlessly; reset by deleting `backend/data/goldenhour.mv.db`. Proven by CI only (`DropActualOutcomeMigrationTest`). |
 | V196 | retires the term run types (sync-engine-retirement Phase 3): deletes the `VERY_SHORT_TERM`/`SHORT_TERM`/`LONG_TERM` rows of `model_selection` and `job_run` (the `api_call_log` children cascade, V20), deletes every `prompt_test_result` then `prompt_test_run` row, and `DROP TABLE optimisation_strategy`. The two prompt-test TABLES stay until Phase 4: prod runs `ddl-auto: validate`, so a migration may drop only what the previous phase's image no longer maps. Local H2 never runs Flyway; `LocalH2TermRunTypeCleanup` (`src/local/java`, `local` profile, H2 only, runs in `afterSingletonsInstantiated`, WARNs rather than fails) does the same deletes to an existing `backend/data` file. Proven by CI only (`RetireTermRunTypesMigrationTest`); the H2 bean by `LocalH2TermRunTypeCleanupTest` and `LocalH2TermRunTypeCleanupJpaTest` under `src/local-test`. |
 | V197 | indexes for queries on unbounded tables (performance-review P6a): partial `api_call_log (batch_id) WHERE batch_id IS NOT NULL`, partial `forecast_evaluation (forecast_run_at) WHERE batch_state = 'PENDING'` (the V149-anticipated sweep index), `forecast_score (pipeline_run_id)`, `forecast_evaluation (target_date, target_type)` and `job_run (run_type, started_at)`. Plain `CREATE INDEX` (V160 precedent), so the build blocks writes to the big tables at startup. Proven by CI only (`GrowingTableIndexMigrationTest`, `pg_indexes` plus `EXPLAIN` with `enable_seqscan = off`). |
+| V198 | drops `prompt_test_result` then `prompt_test_run` (sync-engine-retirement Phase 4), shipped one release after V196 so the Phase 3 image, which no longer maps them, is the rollback target; the only FKs were between the two tables |
 | **latest** | **Deliberately not written down — every number recorded here has rotted.** Read it from the tree before adding a migration: `ls backend/src/main/resources/db/migration/ \| sort -V \| tail -1` |
 
 ---
