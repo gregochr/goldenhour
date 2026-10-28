@@ -4,7 +4,7 @@
 
 A full-stack app that evaluates sunrise/sunset colour potential at configured locations.
 
-- **Backend**: Spring Boot 4 REST API — Open-Meteo weather + air quality, WorldTides tide data, Claude (Anthropic SDK) evaluation, H2/PostgreSQL persistence, scheduled runs, notifications (email/Pushover/macOS toast).
+- **Backend**: Spring Boot 4 REST API — Open-Meteo weather + air quality, WorldTides tide data, Claude (Anthropic SDK) evaluation, H2/PostgreSQL persistence, scheduled runs, admin alert emails and user emails.
 - **Frontend**: React 19 + Vite + Tailwind — Map tab (Leaflet, v2: heat field default, chronological window control), Plan matrix (labelled *At a Glance*; day × event heatmap, popup and location sheet), Coming up feed, Operations tab, JWT-authenticated, and **Ask PhotoCast** (Pro and Admin; a flag-gated plain-English question box over the served forecasts, linked to the Map and the Plan matrix). Outcome recording has one UI: the Map tab's "How was it?" block, where Pro and Admin readers rate a past sunrise or sunset in the location callout (`docs/engineering/outcome-rating-plan.md`); the older free-text `POST /api/outcome` stack was deleted in code (`docs/engineering/v1-retirement-plan.md` §8; its `actual_outcome` table was dropped in V195, its one row moved to `outcome_rating`).
 
 ---
@@ -63,7 +63,7 @@ Still never done by a session: creating or deleting tags, cutting a release (the
 
 | Area | File |
 |---|---|
-| Core pipeline, scoring, evaluation, command pattern, optimisation strategies, cost tracking, job metrics and per-location failure tracking, resilience, batch cache primer | `docs/engineering/reference/pipeline.md` |
+| Core pipeline, scoring, evaluation, cost tracking, job metrics and per-location failure tracking, resilience, batch cache primer | `docs/engineering/reference/pipeline.md` |
 | Daily Briefing, the Plan tab matrix (cards, popup, location sheet, dialog stacking), Plan-screen confidence, `VerdictSampleGate`, neighbour guard | `docs/engineering/reference/plan-tab.md` |
 | Map tab (v2), locations, thin-sample hatch, verdict and picks, phone peek sheet, past windows, "How was it?" rating | `docs/engineering/reference/map-tab.md` |
 | Ask PhotoCast (Ready answers, engine, typed guards, thread, night tool, client) | `docs/engineering/reference/ask-photocast.md` |
@@ -89,7 +89,7 @@ Search them with `grep -rn '<ClassName or term>' docs/engineering/reference/` ra
 - **Backend-heavy.** The frontend is a render layer. The few client-side derivations are a *named, licensed* list in `architecture-decisions.md` ("Backend-heavy"); read it before adding one. Never re-derive a served verdict or Best pick on the client.
 - **Personal data never rides an ETag-shared payload** (`/api/briefing`, `/api/almanac`, `/api/ask/ready` …). Per-user data lives under `/api/user/settings*` and `/api/outcome/ratings*`, which `HttpCachingConfig` never caches; a new personal path must be added to `HttpCachingConfigTest.personalDataPathsAreNeverFiltered`.
 - **"Today" and `daysAhead` are the UK civil date**, derived only through `util/ForecastHorizon` with an injected `Clock`. Client clock reads go through `appNow()` (Rewind).
-- **Three rating stores, one is a different engine.** The UI shows `cached_evaluation`; `forecast_evaluation` is the synchronous engine's insert-only table and is load-bearing (do not "clean it up"). Writes are ordered by submission, never arrival. See `ratings-stores.md`.
+- **Three rating stores, one is a different engine.** The UI shows `cached_evaluation`; `forecast_evaluation` is the batch path's PENDING-then-scored table and is load-bearing (do not "clean it up"). Writes are ordered by submission, never arrival. See `ratings-stores.md`.
 - **The two-question rule.** Hot topics and Coming up answer "what is happening" and are never silenced by a stability skip or triage stand-down; ratings answer "where is worth going" and are retracted. Hot topics are recomputed live on every serve, so build-time enrichment rides an in-memory carrier, never the briefing cache.
 - **Tide axes.** "King" is lunar only; never OR a height test into the king label. Spring qualifies on either axis. The map's tide question is `tideAligned` (preference), never `tideOnTheLight`.
 - **Column-scoped writes.** `app_user` settings and credential columns, and `locations.enabled` / failure columns, are `updatable = false` and written only by scoped repository updates. `setX()` + `save()` on an existing row writes none of them.

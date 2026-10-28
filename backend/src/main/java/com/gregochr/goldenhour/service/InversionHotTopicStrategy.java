@@ -20,7 +20,7 @@ import java.util.Locale;
  * <p>A temperature inversion traps cloud below elevated viewpoints, creating a "sea of
  * clouds" at dawn. {@code InversionScoreCalculator} runs a deterministic 0–10 likelihood score
  * for every inversion-eligible (elevated / overlooks-water) candidate, inside
- * {@code ForecastService.fetchWeatherAndTriage} before either triage check — so
+ * {@code ForecastService.fetchWeatherAndTriage} before the triage check — so
  * {@code SlotAtmosphereWriter} records it for every such candidate whose weather was fetched
  * this cycle, whatever the triage verdict or Gate 4 decision that follows. This detector fires
  * when any such row in the window reaches the STRONG band — score &ge;

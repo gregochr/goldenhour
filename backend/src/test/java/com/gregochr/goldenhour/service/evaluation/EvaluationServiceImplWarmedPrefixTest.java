@@ -24,11 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 
@@ -62,7 +59,6 @@ class EvaluationServiceImplWarmedPrefixTest {
         service = new EvaluationServiceImpl(batchSubmissionService, factory,
                 mock(AnthropicApiClient.class), mock(ClaudeAuroraInterpreter.class),
                 mock(JobRunService.class), List.of(),
-                Clock.fixed(Instant.parse("2026-04-14T12:00:00Z"), ZoneOffset.UTC),
                 mock(ForecastPromptStore.class));
         when(batchSubmissionService.submit(org.mockito.ArgumentMatchers.anyList(), eq(BatchType.FORECAST),
                 org.mockito.ArgumentMatchers.any(BatchTriggerSource.class), anyString(),
@@ -160,6 +156,6 @@ class EvaluationServiceImplWarmedPrefixTest {
         }
         AtmosphericData atmospheric = data.build();
         return new EvaluationTask.Forecast(location, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU,
-                atmospheric, EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                atmospheric);
     }
 }

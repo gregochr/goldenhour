@@ -62,7 +62,7 @@ class JwtAuthenticationFilterTest {
     private static final String ADMIN_ONLY_ROUTE = "/api/users";
     private static final String READER_ROUTE = "/api/forecast";
     private static final List<String> STREAM_PATHS = List.of(
-            "/api/forecast/run/123/progress", "/api/forecast/run/notifications", "/api/status/stream");
+            "/api/forecast/run/123/progress", "/api/status/stream");
 
     @Autowired
     private MockMvc mockMvc;

@@ -1,16 +1,13 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.JobRunEntity;
-import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskSnapshot;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.RunProgress;
-import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.web.client.RestClientException;
 
 import java.time.LocalDate;
 import java.util.Collections;
@@ -20,7 +17,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The one way a hand-started run (forecast or Bortle enrichment) ends, so that it always tells the
+ * The one way a hand-started run (today the Light Pollution enrichment) ends, so that it always tells the
  * admin panel and the {@code job_run} table that it has ended.
  *
  * <p>Two entry points:
@@ -63,30 +60,8 @@ public class RunCompletion {
     /** Reason on a task left in any other non-terminal state when the run otherwise completed. */
     public static final String REASON_NOT_FINISHED = "Did not finish (see server log).";
 
-    /** Run-level reason when Open-Meteo could not be reached. */
-    public static final String REASON_OPEN_METEO =
-            "Weather data (Open-Meteo) could not be fetched; nothing was updated.";
-
-    /**
-     * Run-level reason when an Open-Meteo circuit breaker refused the weather call: nothing was sent,
-     * because earlier calls kept failing. The breaker's open window is about a minute.
-     */
-    public static final String REASON_OPEN_METEO_PAUSED =
-            "Weather data (Open-Meteo) calls are paused after repeated failures; nothing was updated. "
-                    + "Try again in a minute.";
-
-    /**
-     * Names of the circuit breakers that guard Open-Meteo: {@code open-meteo} for forecast runs and
-     * {@code open-meteo-briefing} for the briefing's own copy. A refusal is told apart by the breaker's
-     * name, never by where the call was made.
-     */
-    private static final Set<String> OPEN_METEO_BREAKERS = Set.of("open-meteo", "open-meteo-briefing");
-
     /** Run-level reason for any other unexpected failure. */
     public static final String REASON_UNEXPECTED = "The run stopped unexpectedly. See the server log.";
-
-    /** How far down a cause chain {@link #reasonForForecastRun} looks (it also bounds a cyclic chain). */
-    private static final int MAX_CAUSE_DEPTH = 10;
 
     /** How many closed run ids are remembered (enough for any run that can still reach {@link #abort}). */
     private static final int REMEMBERED_CLOSED_RUNS = 256;
@@ -115,45 +90,6 @@ public class RunCompletion {
         this.jobRunService = jobRunService;
         this.progressTracker = progressTracker;
         this.eventPublisher = eventPublisher;
-    }
-
-    /**
-     * Picks the run-level reason for a forecast run that threw: the "paused" wording when an
-     * Open-Meteo circuit breaker refused the call ({@link CallNotPermittedException} whose
-     * {@code getCausingCircuitBreakerName()} is an Open-Meteo breaker, anywhere in the cause chain);
-     * otherwise Open-Meteo wording when the failure is a weather fetch (a
-     * {@link WeatherDataFetchException} or a {@link RestClientException} anywhere in the cause chain);
-     * otherwise the generic one. A refusal by any OTHER breaker (Claude's, say) is not a weather
-     * failure and keeps the generic reason. Never the exception's own message.
-     *
-     * @param cause what escaped the pipeline
-     * @return a fixed, safe phrase
-     */
-    public static String reasonForForecastRun(Throwable cause) {
-        if (refusedByOpenMeteoBreaker(cause)) {
-            return REASON_OPEN_METEO_PAUSED;
-        }
-        Throwable t = cause;
-        for (int depth = 0; t != null && depth < MAX_CAUSE_DEPTH; depth++) {
-            if (t instanceof WeatherDataFetchException || t instanceof RestClientException) {
-                return REASON_OPEN_METEO;
-            }
-            t = t.getCause();
-        }
-        return REASON_UNEXPECTED;
-    }
-
-    /** Whether an Open-Meteo breaker's refusal appears in the cause chain. */
-    private static boolean refusedByOpenMeteoBreaker(Throwable cause) {
-        Throwable t = cause;
-        for (int depth = 0; t != null && depth < MAX_CAUSE_DEPTH; depth++) {
-            if (t instanceof CallNotPermittedException refused
-                    && OPEN_METEO_BREAKERS.contains(refused.getCausingCircuitBreakerName())) {
-                return true;
-            }
-            t = t.getCause();
-        }
-        return false;
     }
 
     /**

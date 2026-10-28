@@ -289,7 +289,7 @@ public class BatchRetryService {
             EvaluationModel model = modelFor(failure.date());
             ForecastPreEvalResult pre = forecastService.fetchWeatherAndTriage(
                     location, failure.date(), failure.targetType(), location.getTideType(),
-                    model, false, null);
+                    model, null);
             if (pre.atmosphericData() == null) {
                 LOG.warn("RETRY_FAILED: {} could not be reconstructed (triaged={}) "
                         + "— stays failed", failure.customId(), pre.triaged());
@@ -308,7 +308,6 @@ public class BatchRetryService {
             }
             return new EvaluationTask.Forecast(location, failure.date(), failure.targetType(),
                     model, pre.atmosphericData(),
-                    EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                     EvaluationTask.Forecast.PromptKind.SKY, newRowId, failure.forced());
         } catch (RetryEvidenceException e) {
             throw e;

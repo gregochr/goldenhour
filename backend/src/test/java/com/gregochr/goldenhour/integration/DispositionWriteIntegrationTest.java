@@ -618,7 +618,6 @@ class DispositionWriteIntegrationTest extends IntegrationTestBase {
                         .locationName(location.getName())
                         .solarEventTime(date.atTime(5, 30))
                         .targetType(TargetType.SUNRISE)
-                        .build(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                        .build());
     }
 }

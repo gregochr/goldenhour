@@ -12,11 +12,8 @@ import com.gregochr.goldenhour.entity.TideDetails;
 import com.gregochr.goldenhour.entity.TriageDetails;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
-import com.gregochr.goldenhour.exception.EvaluationFailedException;
-import com.gregochr.goldenhour.exception.RunStoppedException;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudPointCache;
@@ -30,16 +27,10 @@ import com.gregochr.goldenhour.model.TriageReason;
 import com.gregochr.goldenhour.model.TriageResult;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
-import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
-import com.gregochr.goldenhour.service.evaluation.EvaluationResult;
-import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
-import com.gregochr.goldenhour.service.notification.NotificationDispatcher;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -48,18 +39,20 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 /**
- * Orchestrates a full forecast run for a single location and date.
+ * Fetches and triages a single location/date/target for the batch pipeline, and owns the
+ * {@code forecast_evaluation} row lifecycle that pipeline uses.
  *
- * <p>For each target type (sunrise and sunset), retrieves the solar event time,
- * fetches Open-Meteo forecast data, requests a Claude evaluation, persists the result,
- * and dispatches notifications.
+ * <p>The batch collectors ({@code ForecastTaskCollector}, {@code ForceSubmitBatchService},
+ * {@code BatchRetryService}) call {@link #fetchWeatherAndTriage} to assemble the atmospheric data and
+ * apply the weather triage heuristic, {@link #persistPendingEvaluation} to write the {@code PENDING}
+ * row the batch result later scores in place, and {@link #markAbandoned} to close a superseded row.
+ * The synchronous per-slot engine that used to evaluate and notify from here was retired in
+ * 2026-10 (see {@code docs/engineering/sync-engine-retirement-plan.md}).
  */
 @Service
 public class ForecastService {
@@ -75,16 +68,11 @@ public class ForecastService {
     private final SolarService solarService;
     private final OpenMeteoService openMeteoService;
     private final ForecastDataAugmentor augmentor;
-    private final EvaluationService evaluationService;
-    private final com.gregochr.goldenhour.service.evaluation.EvaluationService engineEvaluationService;
     private final ForecastEvaluationRepository repository;
-    private final NotificationDispatcher notificationDispatcher;
     private final ApplicationEventPublisher eventPublisher;
     private final WeatherTriageEvaluator weatherTriageEvaluator;
-    private final TideAlignmentEvaluator tideAlignmentEvaluator;
     private final com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
             slotAtmosphereWriter;
-    private final RunProgressTracker runProgressTracker;
     private final Clock clock;
     private final AppBuild appBuild;
 
@@ -94,178 +82,34 @@ public class ForecastService {
      * @param solarService            calculates solar event times
      * @param openMeteoService        retrieves Open-Meteo forecast data
      * @param augmentor               enriches atmospheric data with directional cloud and tide information
-     * @param evaluationService       legacy facade — still used by {@code runForecasts}'s non-wildlife branch
-     *                                pending its v2.13 retirement
-     * @param engineEvaluationService Pass 3.2 engine — used by {@link #evaluateAndPersist}
      * @param repository              persists forecast evaluation results
-     * @param notificationDispatcher  announces evaluations on every enabled notification channel
      * @param eventPublisher          publishes location task state transition events
      * @param weatherTriageEvaluator  heuristic triage evaluator for skipping unsuitable conditions
-     * @param tideAlignmentEvaluator  pre-Claude triage evaluator for tide misalignment at SEASCAPE locations
-     * @param slotAtmosphereWriter records atmospheric readings for every candidate whose
-     *                                 weather is fetched — called from inside
-     *                                 {@link #fetchWeatherAndTriage}, the one seam every caller
-     *                                 of this service shares
-     * @param runProgressTracker      the live-progress tracker: {@link #evaluateAndPersist} asks it whether
-     *                                the run was stopped on a rejected key before each Claude call, and
-     *                                tells it when a call shows the key was rejected
+     * @param slotAtmosphereWriter    records atmospheric readings for every candidate whose
+     *                                weather is fetched — called from inside
+     *                                {@link #fetchWeatherAndTriage}, the one seam every caller
+     *                                of this service shares
      * @param clock                   supplies "today" for the {@code daysAhead} horizon, resolved in
      *                                {@code Europe/London} by {@link ForecastHorizon}
      * @param appBuild                the running build, stamped on every row that gets a rating or a
      *                                triage reason (V182)
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
-            ForecastDataAugmentor augmentor, EvaluationService evaluationService,
-            @Lazy com.gregochr.goldenhour.service.evaluation.EvaluationService engineEvaluationService,
+            ForecastDataAugmentor augmentor,
             ForecastEvaluationRepository repository,
-            NotificationDispatcher notificationDispatcher,
             ApplicationEventPublisher eventPublisher, WeatherTriageEvaluator weatherTriageEvaluator,
-            TideAlignmentEvaluator tideAlignmentEvaluator,
             com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
                     slotAtmosphereWriter,
-            RunProgressTracker runProgressTracker,
             Clock clock, AppBuild appBuild) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
         this.augmentor = augmentor;
-        this.evaluationService = evaluationService;
-        this.engineEvaluationService = engineEvaluationService;
         this.repository = repository;
-        this.notificationDispatcher = notificationDispatcher;
         this.eventPublisher = eventPublisher;
         this.weatherTriageEvaluator = weatherTriageEvaluator;
-        this.tideAlignmentEvaluator = tideAlignmentEvaluator;
         this.slotAtmosphereWriter = slotAtmosphereWriter;
-        this.runProgressTracker = runProgressTracker;
         this.clock = clock;
         this.appBuild = appBuild;
-    }
-
-    /**
-     * Runs forecasts for the given location and date, optionally limited to a single target type.
-     *
-     * <p>Persists one {@link ForecastEvaluationEntity} per evaluated target type and sends
-     * notifications via all enabled channels.
-     *
-     * @param location   the location entity
-     * @param date       the calendar date to forecast
-     * @param targetType the target type to evaluate, or {@code null} to evaluate both
-     * @param tideTypes  tide preferences for this location (empty if inland)
-     * @param model      which Claude model to use for evaluation
-     * @param jobRun     the parent job run for metrics tracking, or {@code null} if called from controller
-     * @return the saved entities in evaluation order
-     */
-    @Bulkhead(name = "forecast")
-    public List<ForecastEvaluationEntity> runForecasts(LocationEntity location,
-            LocalDate date, TargetType targetType, Set<TideType> tideTypes,
-            EvaluationModel model, JobRunEntity jobRun) {
-        String locationName = location.getName();
-        double lat = location.getLat();
-        double lon = location.getLon();
-        Long locationId = location.getId();
-
-        int daysAhead = ForecastHorizon.daysAhead(date, clock);
-
-        if (model == EvaluationModel.WILDLIFE) {
-            return runWildlifeHourly(location, date, daysAhead, tideTypes, jobRun);
-        }
-
-        List<ForecastEvaluationEntity> results = new ArrayList<>();
-        List<TargetType> types = (targetType != null)
-                ? List.of(targetType)
-                : List.of(TargetType.SUNRISE, TargetType.SUNSET);
-
-        for (TargetType type : types) {
-            String taskKey = locationName + "|" + date + "|" + type;
-            Long runId = jobRun != null ? jobRun.getId() : null;
-
-            LocalDateTime eventTime = type == TargetType.SUNRISE
-                    ? solarService.sunriseUtc(lat, lon, date)
-                    : solarService.sunsetUtc(lat, lon, date);
-
-            ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, type);
-
-            // Fetch weather data with explicit error handling
-            publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
-                    LocationTaskState.FETCHING_WEATHER);
-            WeatherExtractionResult extraction;
-            try {
-                extraction = openMeteoService.getAtmosphericDataWithResponse(request, eventTime, jobRun);
-            } catch (Exception e) {
-                String msg = "Weather data fetch failed for " + locationName + " " + type + ": " + e.getMessage();
-                LOG.error(msg);
-                publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
-                        LocationTaskState.FAILED, truncateForPanel(msg), "FETCHING_WEATHER");
-                throw new WeatherDataFetchException(msg, locationName, type.name(), e);
-            }
-
-            AtmosphericData baseData = extraction.atmosphericData();
-            OpenMeteoForecastResponse forecastResponse = extraction.forecastResponse();
-
-            // Validate weather data was successfully retrieved (null can be returned without exception)
-            if (baseData == null) {
-                String msg = "Weather service returned null for " + locationName + " " + type;
-                LOG.error(msg);
-                publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
-                        LocationTaskState.FAILED, msg, "FETCHING_WEATHER");
-                throw new WeatherDataFetchException(msg, locationName, type.name(), null);
-            }
-
-            int azimuth = type == TargetType.SUNRISE
-                    ? solarService.sunriseAzimuthDeg(lat, lon, date)
-                    : solarService.sunsetAzimuthDeg(lat, lon, date);
-
-            publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
-                    LocationTaskState.FETCHING_CLOUD);
-            AtmosphericData withDirectional = augmentor.augmentWithDirectionalCloud(
-                    baseData, lat, lon, azimuth, eventTime, jobRun);
-            AtmosphericData withApproach = augmentor.augmentWithCloudApproach(
-                    withDirectional, lat, lon, azimuth, eventTime,
-                    LocalDateTime.now(ZoneOffset.UTC), jobRun);
-
-            publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
-                    LocationTaskState.FETCHING_TIDES);
-            AtmosphericData withTide = augmentor.augmentWithTideData(
-                    withApproach, locationId, eventTime, tideTypes, lat, lon, type);
-            AtmosphericData withOrientation = augmentor.augmentWithLocationOrientation(
-                    withTide, location.getSolarEventType());
-            AtmosphericData withSurge = augmentor.augmentWithStormSurge(
-                    withOrientation, location.toCoastalParameters(), locationId, locationName,
-                    forecastResponse);
-            AtmosphericData withInversion = augmentor.augmentWithInversionScore(
-                    withSurge, location.getElevationMetres(), location.isOverlooksWater());
-            AtmosphericData forecastData = augmentor.augmentWithBluebellConditions(
-                    withInversion, location.getLocationType(), location.getBluebellExposure(), date);
-
-            publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
-                    LocationTaskState.EVALUATING);
-            SunsetEvaluation evaluation = evaluationService.evaluate(forecastData, model, jobRun);
-
-            ForecastEvaluationEntity entity = buildEntity(
-                    location, lat, lon, date, type, daysAhead, eventTime, azimuth,
-                    forecastData, evaluation, model);
-
-            results.add(repository.save(entity));
-            publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
-                    LocationTaskState.COMPLETE);
-            if (evaluation.rating() != null) {
-                LOG.info("Forecast saved: {} {} {} (T+{}) [{}] — rating={}/5",
-                        locationName, type, date, daysAhead, model, evaluation.rating());
-            } else {
-                LOG.info("Forecast saved: {} {} {} (T+{}) [{}] — fiery={}/100 golden={}/100",
-                        locationName, type, date, daysAhead, model,
-                        evaluation.fierySkyPotential(), evaluation.goldenHourPotential());
-            }
-            try {
-                notificationDispatcher.dispatch(evaluation, locationName, type, date);
-            } catch (Exception e) {
-                // Backstop: the dispatcher already isolates each channel, so this only fires on a
-                // fault in the notification layer itself. A saved forecast must never be lost to one.
-                LOG.warn("Notification failed for {} {} {} — forecast was saved successfully: {}",
-                        locationName, type, date, e.getMessage());
-            }
-        }
-        return results;
     }
 
     /**
@@ -274,7 +118,7 @@ public class ForecastService {
      * <p>If triage determines conditions are unsuitable, a canned entity (rating=1) is persisted
      * and the result is marked as triaged. Otherwise, the atmospheric data is returned ready for
      * Claude evaluation. Every call records the candidate's atmospheric readings to
-     * {@code slot_atmosphere} before either triage check runs — see the 9-argument
+     * {@code slot_atmosphere} before the triage check runs — see the 8-argument
      * overload's javadoc for why this is the one shared seam.
      *
      * @param location              the location entity
@@ -282,15 +126,14 @@ public class ForecastService {
      * @param targetType            SUNRISE or SUNSET
      * @param tideTypes             tide preferences
      * @param model                 evaluation model
-     * @param tideAlignmentEnabled  when {@code true}, apply tide alignment triage for SEASCAPE locations
      * @param jobRun                parent job run for metrics
      * @return the pre-evaluation result
      */
     public ForecastPreEvalResult fetchWeatherAndTriage(LocationEntity location,
             LocalDate date, TargetType targetType, Set<TideType> tideTypes,
-            EvaluationModel model, boolean tideAlignmentEnabled, JobRunEntity jobRun) {
+            EvaluationModel model, JobRunEntity jobRun) {
         return fetchWeatherAndTriage(location, date, targetType, tideTypes, model,
-                tideAlignmentEnabled, jobRun, null, null);
+                jobRun, null, null);
     }
 
     /**
@@ -298,27 +141,21 @@ public class ForecastService {
      *
      * <p>⚠️ <b>The one seam every caller of this method shares — the record-conditions-for-
      * every-place write.</b> Immediately after the atmospheric data is fully assembled and before
-     * either triage check below, this method calls {@code SlotAtmosphereWriter.write} for the
+     * the triage check below, this method calls {@code SlotAtmosphereWriter.write} for the
      * candidate — whatever the triage verdict or any later Gate 4 decision turns out to be. This
      * method already persists a {@code forecast_evaluation} row as a side effect on the triage
      * branches (a fact CLAUDE.md records), so adding the readings write at the same point costs
      * no new call site and reaches every present and future caller in one place: the batch
      * collector's {@code collectScheduledBatches} and {@code collectRegionFilteredBatches},
      * {@code ForceSubmitBatchService}'s JFDI and admin force-submit, {@code BatchRetryService}'s
-     * failed-request reconstruction, and the synchronous engine's
-     * {@code ForecastCommandExecutor.runTriagePhase} (whose own triaged-away candidates are
-     * discarded by the caller without ever reaching {@link #evaluateAndPersist}, which is exactly
-     * why the write cannot live there). {@link #evaluateAndPersist} does NOT also write — every
-     * {@code preEval} it is called with was already produced by this method, so a second write
-     * there would be a redundant call for the same fetch. Isolated in its own try/catch so a
-     * carrier write failure never aborts the fetch/triage this method exists to perform.
+     * failed-request reconstruction. Isolated in its own try/catch so a carrier write failure
+     * never aborts the fetch/triage this method exists to perform.
      *
      * @param location              the location entity
      * @param date                  the target date
      * @param targetType            SUNRISE or SUNSET
      * @param tideTypes             tide preferences for the location
      * @param model                 evaluation model to use
-     * @param tideAlignmentEnabled  whether TIDE_ALIGNMENT optimisation is active
      * @param jobRun                parent job run for metrics
      * @param prefetchedWeather     pre-fetched weather data keyed by coord key, or null to fetch individually
      * @param cloudCache            pre-fetched cloud point cache, or null to fetch individually
@@ -326,7 +163,7 @@ public class ForecastService {
      */
     public ForecastPreEvalResult fetchWeatherAndTriage(LocationEntity location,
             LocalDate date, TargetType targetType, Set<TideType> tideTypes,
-            EvaluationModel model, boolean tideAlignmentEnabled, JobRunEntity jobRun,
+            EvaluationModel model, JobRunEntity jobRun,
             Map<String, WeatherExtractionResult> prefetchedWeather,
             CloudPointCache cloudCache) {
         String locationName = location.getName();
@@ -408,7 +245,7 @@ public class ForecastService {
         AtmosphericData withInversion = augmentor.augmentWithInversionScore(
                 withSurge, location.getElevationMetres(), location.isOverlooksWater());
         // Valley mist (V185, valley-mist-plan M1a): scored for a mist_prone site only, here and
-        // before the readings write and both triage checks below, exactly like the inversion score
+        // before the readings write and the triage check below, exactly like the inversion score
         // above — so a stood-down candidate still records it (the two-question rule).
         AtmosphericData withMist = augmentor.augmentWithValleyMist(
                 withInversion, location.isMistProne());
@@ -418,8 +255,7 @@ public class ForecastService {
         // Record conditions for every place whose weather was fetched — the ONE seam every
         // caller of fetchWeatherAndTriage shares (the batch collector's scheduled AND
         // region-filtered paths, ForceSubmitBatchService's JFDI and force-submit,
-        // BatchRetryService's reconstruction, and this method's own synchronous-engine callers
-        // via ForecastCommandExecutor.runTriagePhase), so every present and future caller is
+        // BatchRetryService's reconstruction), so every present and future caller is
         // covered by one write rather than one write per call site. Runs here, before either
         // triage check below, so a triaged-out or later-Gate-4-skipped candidate still gets its
         // reading — the two-question rule (see SlotAtmosphereWriter's own javadoc) requires
@@ -452,168 +288,9 @@ public class ForecastService {
                     taskKey, forecastResponse);
         }
 
-        // Apply tide alignment triage for SEASCAPE locations (when strategy is enabled)
-        boolean isSeascape = location.getLocationType() != null
-                && location.getLocationType().contains(LocationType.SEASCAPE);
-        if (tideAlignmentEnabled && isSeascape) {
-            LocalDateTime windowStart = targetType == TargetType.SUNRISE
-                    ? solarService.civilDawnUtc(lat, lon, date)
-                    : eventTime.minusHours(1);
-            LocalDateTime windowEnd = targetType == TargetType.SUNRISE
-                    ? eventTime.plusHours(1)
-                    : solarService.civilDuskUtc(lat, lon, date);
-            Optional<TriageResult> tideTriageResult = tideAlignmentEvaluator.evaluate(
-                    forecastData, tideTypes, windowStart, windowEnd);
-            if (tideTriageResult.isPresent()) {
-                TriageResult tr = tideTriageResult.get();
-                String reason = tr.reason();
-                SunsetEvaluation emptyEval = new SunsetEvaluation(null, null, null, null);
-                ForecastEvaluationEntity entity = buildEntity(
-                        location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
-                        forecastData, emptyEval, model);
-                standDown(entity, tr.triageReason(), reason);
-                repository.save(entity);
-                publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
-                        LocationTaskState.TRIAGED);
-                LOG.info("Forecast triaged (tide): {} {} {} (T+{}) — {}", locationName,
-                        targetType, date, daysAhead, reason);
-                return new ForecastPreEvalResult(true, reason, tr.triageReason(), forecastData,
-                        location, date, targetType, eventTime, azimuth, daysAhead, model,
-                        tideTypes, taskKey, forecastResponse);
-            }
-        }
-
         return new ForecastPreEvalResult(false, null, forecastData, location, date,
                 targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey,
                 forecastResponse);
-    }
-
-    /**
-     * Evaluates atmospheric data with Claude and persists the result.
-     *
-     * <p>Writes no {@code slot_atmosphere} reading of its own — {@code preEval} was already
-     * produced by {@link #fetchWeatherAndTriage}, which is the one seam that records it, so every
-     * caller of this method reaches the write before ever getting here.
-     *
-     * <p>⚠️ <b>This is where an evaluation's outcome is published, exactly once.</b> A failure of any
-     * kind after the evaluating step — Claude's error answered as an {@code Errored} result, an
-     * exception thrown by the evaluation call, a failure persisting the result — publishes the task
-     * FAILED (step {@code EVALUATING}, a fixed phrase from {@link EvaluationFailure}, never the
-     * exception's message) and then rethrows, so the caller's own bookkeeping is unchanged. Without
-     * this the task stayed in EVALUATING until the completion sweep gave it a placeholder reason.
-     *
-     * <p>⚠️ <b>The stop check is here, inside the {@code claude} bulkhead, on purpose.</b> The
-     * executor starts every evaluation at once and the bulkhead lets six through; a check made before
-     * the call into this method would see no stop for any of them. Made here, a place that waited for a
-     * permit looks at the run after the evaluation that held the permit before it has finished, so a
-     * rejected key stops the run after the first wave rather than after all of it. When the run is
-     * stopped the place is published FAILED ("not attempted"), no Claude call is made, no child
-     * {@code job_run} is created, and {@link RunStoppedException} is thrown.
-     *
-     * @param preEval the pre-evaluation result from the triage phase
-     * @param jobRun  parent job run for metrics
-     * @return the saved evaluation entity
-     */
-    @Bulkhead(name = "claude")
-    public ForecastEvaluationEntity evaluateAndPersist(ForecastPreEvalResult preEval,
-            JobRunEntity jobRun) {
-        Long runId = jobRun != null ? jobRun.getId() : null;
-
-        if (runId != null && runProgressTracker.isStopped(runId)) {
-            publishEvaluationFailed(runId, preEval, EvaluationFailure.REASON_NOT_ATTEMPTED);
-            throw new RunStoppedException("Run " + runId + " was stopped; "
-                    + preEval.taskKey() + " was not attempted");
-        }
-
-        publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
-                preEval.date().toString(), preEval.targetType().name(),
-                LocationTaskState.EVALUATING);
-
-        SunsetEvaluation evaluation;
-        ForecastEvaluationEntity saved;
-        try {
-            EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                    preEval.location(), preEval.date(), preEval.targetType(),
-                    preEval.model(), preEval.atmosphericData(),
-                    EvaluationTask.Forecast.WriteTarget.NONE);
-            EvaluationResult outcome = engineEvaluationService.evaluateNow(
-                    task, BatchTriggerSource.ADMIN);
-            evaluation = switch (outcome) {
-                case EvaluationResult.Scored s -> (SunsetEvaluation) s.payload();
-                case EvaluationResult.Errored e -> throw new EvaluationFailedException(
-                        e.errorType(), e.message(), preEval.location().getName(),
-                        preEval.targetType(), preEval.date());
-            };
-
-            ForecastEvaluationEntity entity = buildEntity(
-                    preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
-                    preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
-                    preEval.azimuth(), preEval.atmosphericData(), evaluation, preEval.model());
-
-            saved = repository.save(entity);
-        } catch (RuntimeException e) {
-            reportEvaluationFailure(runId, preEval, e);
-            throw e;
-        }
-
-        // No slot_atmosphere write here — it already happened inside fetchWeatherAndTriage,
-        // which every preEval this method is called with was produced by. Writing again here
-        // would be a second write for the same fetch (harmless — the writer upserts on the
-        // natural key — but redundant), so the single seam covers this call site for free.
-
-        publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
-                preEval.date().toString(), preEval.targetType().name(),
-                LocationTaskState.COMPLETE);
-
-        String locationName = preEval.location().getName();
-        if (evaluation.rating() != null) {
-            LOG.info("Forecast saved: {} {} {} (T+{}) [{}] — rating={}/5",
-                    locationName, preEval.targetType(), preEval.date(), preEval.daysAhead(),
-                    preEval.model(), evaluation.rating());
-        } else {
-            LOG.info("Forecast saved: {} {} {} (T+{}) [{}] — fiery={}/100 golden={}/100",
-                    locationName, preEval.targetType(), preEval.date(), preEval.daysAhead(),
-                    preEval.model(), evaluation.fierySkyPotential(),
-                    evaluation.goldenHourPotential());
-        }
-
-        try {
-            notificationDispatcher.dispatch(evaluation, locationName,
-                    preEval.targetType(), preEval.date());
-        } catch (Exception e) {
-            // Backstop — see the note in runForecasts.
-            LOG.warn("Notification failed for {} {} {} — forecast was saved successfully: {}",
-                    locationName, preEval.targetType(), preEval.date(), e.getMessage());
-        }
-
-        return saved;
-    }
-
-    /**
-     * Persists a canned result for a task skipped by sentinel sampling.
-     *
-     * @param preEval the pre-evaluation result with atmospheric data
-     * @param reason  human-readable reason for the skip
-     * @param jobRun  parent job run for metrics
-     * @return the saved canned entity
-     */
-    public ForecastEvaluationEntity persistCannedResult(ForecastPreEvalResult preEval,
-            String reason, JobRunEntity jobRun) {
-        SunsetEvaluation emptyEval = new SunsetEvaluation(null, null, null, null);
-        ForecastEvaluationEntity entity = buildEntity(
-                preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
-                preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
-                preEval.azimuth(), preEval.atmosphericData(), emptyEval, preEval.model());
-        standDown(entity, TriageReason.GENERIC, reason);
-        ForecastEvaluationEntity saved = repository.save(entity);
-
-        Long runId = jobRun != null ? jobRun.getId() : null;
-        publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
-                preEval.date().toString(), preEval.targetType().name(),
-                LocationTaskState.SKIPPED);
-        LOG.info("Forecast sentinel-skipped: {} {} {} — {}", preEval.location().getName(),
-                preEval.targetType(), preEval.date(), reason);
-        return saved;
     }
 
     /**
@@ -661,80 +338,6 @@ public class ForecastService {
                 repository.save(row);
             }
         });
-    }
-
-    /**
-     * Runs comfort-only hourly forecasts for a WILDLIFE location, covering every full UTC
-     * hour between sunrise and sunset on the given date.
-     *
-     * <p>Makes a single Open-Meteo API call for the day and extracts data for each slot.
-     * No Claude evaluation is performed. Notifications are not sent for WILDLIFE rows.
-     *
-     * @param location   the location entity
-     * @param date       the calendar date to forecast
-     * @param daysAhead  number of days from today to {@code date}
-     * @param tideTypes  tide preferences for the location (empty if inland)
-     * @param jobRun     the parent job run for metrics tracking, or {@code null}
-     * @return the saved entities, one per full UTC hour from sunrise to sunset
-     */
-    private List<ForecastEvaluationEntity> runWildlifeHourly(LocationEntity location,
-            LocalDate date, int daysAhead, Set<TideType> tideTypes, JobRunEntity jobRun) {
-        String locationName = location.getName();
-        double lat = location.getLat();
-        double lon = location.getLon();
-        Long locationId = location.getId();
-
-        LocalDateTime sunriseTime = solarService.sunriseUtc(lat, lon, date);
-        LocalDateTime sunsetTime = solarService.sunsetUtc(lat, lon, date);
-
-        ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, TargetType.SUNRISE);
-        List<AtmosphericData> hourlyData =
-                openMeteoService.getHourlyAtmosphericData(request, sunriseTime, sunsetTime, jobRun);
-
-        List<ForecastEvaluationEntity> results = new ArrayList<>();
-        SunsetEvaluation noEval = new SunsetEvaluation(null, null, null, null);
-
-        for (AtmosphericData baseData : hourlyData) {
-            AtmosphericData forecastData = augmentor.augmentWithTideData(
-                    baseData, locationId, baseData.solarEventTime(), tideTypes,
-                    lat, lon, TargetType.SUNRISE);
-            ForecastEvaluationEntity entity = buildEntity(
-                    location, lat, lon, date, TargetType.HOURLY, daysAhead,
-                    forecastData.solarEventTime(), null,
-                    forecastData, noEval, EvaluationModel.WILDLIFE);
-            results.add(repository.save(entity));
-        }
-        LOG.info("Forecast saved (WILDLIFE hourly comfort): {} {} (T+{}) — {} slot(s)",
-                locationName, date, daysAhead, results.size());
-        return results;
-    }
-
-    /**
-     * Publishes the FAILED outcome for an evaluation that threw, and stops the run when the failure
-     * is a rejected key.
-     *
-     * <p>The stop is recorded BEFORE the FAILED event, and before this method returns to the
-     * bulkhead that releases the permit, so the next place to take that permit already sees it.
-     * Logs the failure kind (never the exception's message or class: the evaluation engine's own
-     * WARN line carries the message) and, once per run, that the run stopped.
-     */
-    private void reportEvaluationFailure(Long runId, ForecastPreEvalResult preEval, RuntimeException e) {
-        EvaluationFailure failure = EvaluationFailure.of(e);
-        LOG.warn("Evaluation failed for {} (run {}): {}", preEval.taskKey(), runId, failure);
-        if (runId != null && failure.stopsRun() && runProgressTracker.stopRun(runId)) {
-            LOG.error("Run {} stopped: Claude rejected the API key; the places not yet evaluated "
-                    + "will not be attempted", runId);
-        }
-        publishEvaluationFailed(runId, preEval, failure.reason());
-    }
-
-    /**
-     * Publishes FAILED for a task at the evaluating step with a fixed phrase.
-     */
-    private void publishEvaluationFailed(Long runId, ForecastPreEvalResult preEval, String reason) {
-        publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
-                preEval.date().toString(), preEval.targetType().name(),
-                LocationTaskState.FAILED, reason, LocationTaskState.EVALUATING.name());
     }
 
     /**
@@ -800,8 +403,8 @@ public class ForecastService {
     /**
      * Marks an unsaved row as a stand-down: attaches the triage reason and stamps {@code scoredAt}
      * (V178) and the running build (V182), because a triage reason is something to say — the reader
-     * saw it as the slot's decision — and the row is saved with it, never without. The three triage
-     * sites and the sentinel skip all go through here so none can forget the stamp.
+     * saw it as the slot's decision — and the row is saved with it, never without. Every stand-down
+     * goes through here so none can forget the stamp.
      */
     private void standDown(ForecastEvaluationEntity entity, TriageReason reason, String message) {
         entity.setTriage(new TriageDetails(reason, message));

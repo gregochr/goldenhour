@@ -11,7 +11,7 @@ import java.time.LocalDate;
  * <p>The new engine surfaces failures via {@code EvaluationResult.Errored} rather
  * than throwing the underlying Anthropic SDK exception. Callers that need the
  * surrounding orchestration (e.g. {@code submitParallel} in
- * {@code ForecastCommandExecutor}) to mark the slot failed translate the
+ * the since-deleted {@code ForecastCommandExecutor}) to mark the slot failed translate the
  * {@code Errored} result into this exception so the existing per-task catch
  * block continues to apply.
  *

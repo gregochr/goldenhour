@@ -159,8 +159,7 @@ class ForceSubmitBatchServiceTest {
                 LocalDate.of(2026, 4, 16), TargetType.SUNSET,
                 LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
                 EvaluationModel.HAIKU, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any())).thenReturn(preEval);
         when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_force001", 1));
 
@@ -186,8 +185,6 @@ class ForceSubmitBatchServiceTest {
         assertThat(task.targetType()).isEqualTo(TargetType.SUNSET);
         assertThat(task.model()).isEqualTo(EvaluationModel.HAIKU);
         assertThat(task.data()).isSameAs(data);
-        assertThat(task.writeTarget())
-                .isEqualTo(EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
     }
 
     // ── Record conditions for every place (Phase 1, owner decision 2026-09-30) ────────────────
@@ -210,8 +207,7 @@ class ForceSubmitBatchServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any()))
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("Open-Meteo timeout"));
 
         ForceSubmitResult result = service.forceSubmit(7L,
@@ -240,8 +236,7 @@ class ForceSubmitBatchServiceTest {
                 LocalDate.of(2026, 4, 16), TargetType.SUNSET,
                 LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
                 EvaluationModel.HAIKU, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any())).thenReturn(preEval);
 
         ForceSubmitResult result = service.forceSubmit(7L,
                 LocalDate.of(2026, 4, 16), TargetType.SUNSET);
@@ -269,8 +264,7 @@ class ForceSubmitBatchServiceTest {
                 LocalDate.of(2026, 4, 16), TargetType.SUNSET,
                 LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
                 EvaluationModel.HAIKU, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any())).thenReturn(preEval);
         when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
                 .thenReturn(null);
 
@@ -302,8 +296,7 @@ class ForceSubmitBatchServiceTest {
                 LocalDate.of(2026, 4, 16), TargetType.SUNSET,
                 LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
                 EvaluationModel.HAIKU, loc1.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any())).thenReturn(preEval);
         when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_filter", 1));
 
@@ -341,8 +334,7 @@ class ForceSubmitBatchServiceTest {
                 EvaluationModel.SONNET, loc.getTideType(), "key", null);
         when(forecastService.fetchWeatherAndTriage(
                 eq(loc), eq(LocalDate.of(2026, 4, 16)), eq(TargetType.SUNRISE),
-                eq(Set.of(TideType.HIGH)), eq(EvaluationModel.SONNET),
-                eq(false), isNull()))
+                eq(Set.of(TideType.HIGH)), eq(EvaluationModel.SONNET), isNull()))
                 .thenReturn(preEval);
         when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_args", 1));
@@ -351,8 +343,7 @@ class ForceSubmitBatchServiceTest {
 
         verify(forecastService).fetchWeatherAndTriage(
                 eq(loc), eq(LocalDate.of(2026, 4, 16)), eq(TargetType.SUNRISE),
-                eq(Set.of(TideType.HIGH)), eq(EvaluationModel.SONNET),
-                eq(false), isNull());
+                eq(Set.of(TideType.HIGH)), eq(EvaluationModel.SONNET), isNull());
     }
 
     @Test
@@ -372,8 +363,7 @@ class ForceSubmitBatchServiceTest {
                 LocalDate.of(2026, 4, 16), TargetType.SUNSET,
                 LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
                 EvaluationModel.OPUS, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any())).thenReturn(preEval);
         when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_model", 1));
 
@@ -406,12 +396,10 @@ class ForceSubmitBatchServiceTest {
                 LocalDate.of(2026, 4, 16), TargetType.SUNSET,
                 LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
                 EvaluationModel.HAIKU, loc2.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(eq(loc1), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(okPreEval);
-        when(forecastService.fetchWeatherAndTriage(eq(loc2), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(nullDataPreEval);
-        when(forecastService.fetchWeatherAndTriage(eq(loc3), any(), any(), any(), any(),
-                any(Boolean.class), any()))
+        when(forecastService.fetchWeatherAndTriage(eq(loc1), any(), any(), any(), any(), any())).thenReturn(okPreEval);
+        when(forecastService.fetchWeatherAndTriage(eq(loc2), any(), any(), any(), any(), any()))
+                .thenReturn(nullDataPreEval);
+        when(forecastService.fetchWeatherAndTriage(eq(loc3), any(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("Open-Meteo down"));
 
         when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
@@ -446,8 +434,7 @@ class ForceSubmitBatchServiceTest {
                 LocalDate.now(), TargetType.SUNSET,
                 LocalDateTime.now(), 270, 1,
                 EvaluationModel.HAIKU, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any())).thenReturn(preEval);
         when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_jfdi", 8));
 
@@ -464,9 +451,6 @@ class ForceSubmitBatchServiceTest {
         // 1 location × 4 dates (T+0..T+3) × 2 events (SUNRISE+SUNSET) = 8 tasks
         assertThat(taskCaptor.getValue()).hasSize(8);
         assertThat(taskCaptor.getValue())
-                .allMatch(t -> t.writeTarget()
-                        == EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
-        assertThat(taskCaptor.getValue())
                 .allMatch(t -> t.model() == EvaluationModel.HAIKU);
     }
 
@@ -481,7 +465,7 @@ class ForceSubmitBatchServiceTest {
         // 00:30 on 12 August in Europe/London (BST); still 23:30 on the 11th in UTC.
         //
         // Deliberately a year in the future, and this is load-bearing rather than arbitrary. The
-        // sibling fixtures in ForecastCommandFactoryTest / ForecastWindowAnchorTest pin
+        // sibling fixtures in ForecastWindowAnchorTest pin
         // 2026-08-11T23:30:00Z, and the mutation they defend against — ForecastHorizon's zone
         // constant — still flows through the injected clock, so any instant detects it. The
         // mutation *this* case defends against is different: reverting to LocalDate.now(UTC)
@@ -511,8 +495,7 @@ class ForceSubmitBatchServiceTest {
         // would let a flip to true — which tide-triages every SEASCAPE location out of a
         // diagnostic batch — pass unnoticed.
         when(forecastService.fetchWeatherAndTriage(eq(loc), any(LocalDate.class),
-                any(TargetType.class), eq(loc.getTideType()), eq(EvaluationModel.HAIKU),
-                eq(false), isNull()))
+                any(TargetType.class), eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
                 .thenAnswer(inv -> new ForecastPreEvalResult(
                         false, null, data, loc, inv.getArgument(1), inv.getArgument(2),
                         LocalDateTime.now(), 270, 0,
@@ -528,7 +511,7 @@ class ForceSubmitBatchServiceTest {
         ArgumentCaptor<LocalDate> dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(forecastService, times(8)).fetchWeatherAndTriage(
                 eq(loc), dateCaptor.capture(), any(TargetType.class), eq(loc.getTideType()),
-                eq(EvaluationModel.HAIKU), eq(false), isNull());
+                eq(EvaluationModel.HAIKU), isNull());
 
         // Sink 1 — forecast_evaluation. fetchWeatherAndTriage derives daysAhead from this date
         // and, on the triage branch, persists it.
@@ -576,7 +559,7 @@ class ForceSubmitBatchServiceTest {
 
         AtmosphericData data = mock(AtmosphericData.class);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(longPast), eq(TargetType.SUNSET),
-                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), eq(false), isNull()))
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
                 .thenReturn(new ForecastPreEvalResult(
                         false, null, data, loc, longPast, TargetType.SUNSET,
                         LocalDateTime.now(), 270, -2400,
@@ -614,8 +597,7 @@ class ForceSubmitBatchServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any()))
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("Open-Meteo down"));
 
         BatchSubmitResult result = service.submitJfdiBatch(null);
@@ -830,8 +812,8 @@ class ForceSubmitBatchServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(hide, sky));
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEvalFor(sky, mock(AtmosphericData.class)));
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any()))
+                .thenReturn(preEvalFor(sky, mock(AtmosphericData.class)));
         when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_sky_only", 1));
 
@@ -842,9 +824,9 @@ class ForceSubmitBatchServiceTest {
         assertThat(result.requestCount()).isEqualTo(1);
         verify(forecastService, times(1)).fetchWeatherAndTriage(
                 eq(sky), eq(LocalDate.of(2026, 4, 16)), eq(TargetType.SUNSET), eq(sky.getTideType()),
-                eq(EvaluationModel.HAIKU), eq(false), isNull());
+                eq(EvaluationModel.HAIKU), isNull());
         verify(forecastService, never()).fetchWeatherAndTriage(
-                eq(hide), any(), any(), any(), any(), any(Boolean.class), any());
+                eq(hide), any(), any(), any(), any(), any());
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor =
@@ -886,15 +868,15 @@ class ForceSubmitBatchServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(hide, sky));
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEvalFor(sky, mock(AtmosphericData.class)));
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any()))
+                .thenReturn(preEvalFor(sky, mock(AtmosphericData.class)));
         when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_jfdi_sky", 8));
 
         service.submitJfdiBatch(List.of(7L));
 
         verify(forecastService, never()).fetchWeatherAndTriage(
-                eq(hide), any(), any(), any(), any(), any(Boolean.class), any());
+                eq(hide), any(), any(), any(), any(), any());
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor =
                 ArgumentCaptor.forClass(List.class);

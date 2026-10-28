@@ -280,7 +280,7 @@ class BatchRetryServiceTest {
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
         when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), eq(false), isNull()))
+                any(), any(), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
                 .thenReturn(List.of());
@@ -320,7 +320,7 @@ class BatchRetryServiceTest {
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
         when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), eq(false), isNull()))
+                any(), any(), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
                 .thenReturn(List.of());
@@ -360,7 +360,7 @@ class BatchRetryServiceTest {
             when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
             when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
             when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                    any(), any(), eq(false), isNull()))
+                    any(), any(), isNull()))
                     .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
             when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
                     .thenReturn(List.of());
@@ -429,7 +429,7 @@ class BatchRetryServiceTest {
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
         when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), eq(false), isNull()))
+                any(), any(), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
         when(forecastService.persistPendingEvaluation(any())).thenReturn(4242L);
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
@@ -465,7 +465,7 @@ class BatchRetryServiceTest {
         // atmosphericData() == null models "this retry's weather triaged the slot away" — the
         // fixture convention this file already uses for "cannot be reconstructed".
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), eq(false), isNull()))
+                any(), any(), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, true));
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
                 .thenReturn(List.of());
@@ -492,7 +492,7 @@ class BatchRetryServiceTest {
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
         when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), eq(false), isNull()))
+                any(), any(), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, true));
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
                 .thenReturn(List.of());
@@ -520,7 +520,7 @@ class BatchRetryServiceTest {
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
         when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), eq(false), isNull()))
+                any(), any(), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, true));
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
                 .thenReturn(List.of());
@@ -571,7 +571,7 @@ class BatchRetryServiceTest {
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
         when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), eq(false), isNull()))
+                any(), any(), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
         when(forecastService.persistPendingEvaluation(any())).thenReturn(4343L);
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))

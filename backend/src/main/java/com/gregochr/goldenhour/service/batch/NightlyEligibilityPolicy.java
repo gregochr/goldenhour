@@ -70,7 +70,7 @@ public final class NightlyEligibilityPolicy implements EligibilityPolicy {
     /**
      * Boolean view of {@link #resolve} for callers that need only the include/skip
      * horizon-depth decision, not the model tier — the synchronous path's stability
-     * filter in {@code ForecastCommandExecutor}. Delegates to {@code resolve} so the
+     * filter in the (since deleted) {@code ForecastCommandExecutor}. Delegates to {@code resolve} so the
      * Gate 4 table has exactly one home and the two forecast engines cannot drift.
      *
      * @param daysAhead  forecast horizon (T+0 = 0)

@@ -5,7 +5,7 @@ import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.EvaluationViewService;
-import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.LitePickShaper;
 import com.gregochr.goldenhour.service.PickScope;
 import com.gregochr.goldenhour.util.Authorities;
@@ -92,7 +92,7 @@ public class BriefingEvaluationController {
         // one hour a night when the forecast window moved to Europe/London and this did not.
         LocalDate today = ForecastHorizon.today(clock);
         LocalDate from = today.minusDays(ForecastHorizon.SERVE_PAST_DAYS);
-        LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
+        LocalDate horizon = today.plusDays(RunType.FORECAST_HORIZON_DAYS);
         List<LocationEvaluationView> views = evaluationViewService.forDateRange(
                 from, horizon, Set.of(TargetType.SUNRISE, TargetType.SUNSET));
         boolean pro = Authorities.hasRole(auth, UserRole.PRO_USER)

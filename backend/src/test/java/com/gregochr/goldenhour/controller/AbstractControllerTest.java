@@ -26,9 +26,6 @@ import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.CloudVerificationBackfillRunner;
 import com.gregochr.goldenhour.service.CloudVerificationService;
 import com.gregochr.goldenhour.service.ForecastCalibrationService;
-import com.gregochr.goldenhour.service.FailedSlotRetryService;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
-import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.GitInfoService;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -37,7 +34,6 @@ import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.ModelTestService;
 import com.gregochr.goldenhour.service.NlcSightingService;
-import com.gregochr.goldenhour.service.OptimisationStrategyService;
 import com.gregochr.goldenhour.service.PasswordResetService;
 import com.gregochr.goldenhour.service.PromptTestService;
 import com.gregochr.goldenhour.service.RegistrationService;
@@ -143,12 +139,6 @@ abstract class AbstractControllerTest {
     protected EvaluationViewService evaluationViewService;
 
     @MockitoBean
-    protected ForecastCommandExecutor forecastCommandExecutor;
-
-    @MockitoBean
-    protected ForecastCommandFactory commandFactory;
-
-    @MockitoBean
     protected ForecastDtoMapper dtoMapper;
 
     @MockitoBean
@@ -184,9 +174,6 @@ abstract class AbstractControllerTest {
     protected NlcSightingService nlcSightingService;
 
     @MockitoBean
-    protected OptimisationStrategyService optimisationStrategyService;
-
-    @MockitoBean
     protected PipelineRunService pipelineRunService;
 
     @MockitoBean
@@ -210,9 +197,6 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected RunProgressTracker progressTracker;
-
-    @MockitoBean
-    protected FailedSlotRetryService failedSlotRetryService;
 
     @MockitoBean
     protected ForceSubmitBatchService forceSubmitBatchService;

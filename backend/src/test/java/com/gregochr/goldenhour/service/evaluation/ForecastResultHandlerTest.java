@@ -59,6 +59,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -526,36 +527,6 @@ class ForecastResultHandlerTest {
 
         assertThat(result).isPresent();
         assertThat(result.get().result().forced()).isFalse();
-    }
-
-    @Test
-    @DisplayName("the sync engine (an ordinary hand-started admin run) never produces a forced "
-            + "result — Codex's #943 P1-B/round-9 scenario: an unrelated rating landing AFTER a "
-            + "forced batch's own disposition must not be exempted, and now cannot be, because "
-            + "this task's own forced field is false and nothing here compares timestamps at all")
-    void handleSyncResult_ordinaryAdminRun_neverForced() {
-        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        // The exact shape ForecastService#evaluateAndPersist builds: the six-arg convenience
-        // constructor, which defaults forced to false — the sync engine has no concept of
-        // ForceEvalHeadlineSelector at all.
-        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
-        assertThat(task.forced()).isFalse();
-        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
-                "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
-                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU, 8500);
-        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
-                .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
-
-        handler.handleSyncResult(task, outcome, ResultContext.forSync(99L, BatchTriggerSource.ADMIN));
-
-        ArgumentCaptor<List<BriefingEvaluationResult>> captor =
-                ArgumentCaptor.forClass(List.class);
-        verify(briefingEvaluationService).mergeFromBatch(
-                eq("Lake District|2026-04-16|SUNRISE"), captor.capture());
-        assertThat(captor.getValue()).hasSize(1);
-        assertThat(captor.getValue().getFirst().forced()).isFalse();
     }
 
     @Test
@@ -1112,29 +1083,6 @@ class ForecastResultHandlerTest {
     }
 
     @Test
-    @DisplayName("round 14: the synchronous path checks supersession too — a hand-started result "
-            + "superseded by a later cycle's stand-down writes no forecast_score row")
-    void handleSyncResult_reportedSuperseded_noForecastScoreWrite() {
-        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
-        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
-                "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
-                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU, 8500);
-        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
-                .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
-        Instant submittedAt = Instant.parse("2026-04-16T09:00:00Z");
-        when(supersedingDispositionService.isSuperseded(
-                "Castlerigg", DATE, SUNRISE, submittedAt)).thenReturn(true);
-
-        handler.handleSyncResult(task, outcome,
-                ResultContext.forSync(99L, submittedAt, BatchTriggerSource.ADMIN));
-
-        verify(forecastScoreWriter, never()).write(any(), any(), any(), any(), anyList(), any());
-    }
-
-    @Test
     @DisplayName("parseBatchResponse: location with no region → uses location name as cache prefix")
     void parseBatchResponse_noRegion_usesLocationNameAsCachePrefix() {
         LocationEntity location = new LocationEntity();
@@ -1487,155 +1435,22 @@ class ForecastResultHandlerTest {
         verify(forecastDataAugmentor, never()).deriveTideContext(any(), any(), any());
     }
 
-    // ── Sync path ────────────────────────────────────────────────────────────
+    // ── Sync path (refused) ──────────────────────────────────────────────────
 
     @Test
-    @DisplayName("handleSyncResult: success with BRIEFING_CACHE → Scored + api_call_log + cache write")
-    void handleSyncResult_success_writesEverything() {
+    @DisplayName("handleSyncResult: always refuses, forecasts evaluate through the batch path only")
+    void handleSyncResult_refuses() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
         EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC);
         ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
-                "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
-                new TokenUsage(500, 200, 0, 1000),
-                EvaluationModel.HAIKU, 8500);
-        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
-                .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
+                "{\"rating\":5}", new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU, 8500);
+        ResultContext context = ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED);
 
-        EvaluationResult result = handler.handleSyncResult(
-                task, outcome, ResultContext.forSync(99L, BatchTriggerSource.ADMIN));
-
-        assertThat(result).isInstanceOf(EvaluationResult.Scored.class);
-        verify(briefingEvaluationService).mergeFromBatch(
-                eq("Lake District|2026-04-16|SUNRISE"),
-                org.mockito.ArgumentMatchers.<List<BriefingEvaluationResult>>any());
-        verify(jobRunService).logAnthropicApiCall(
-                eq(99L), eq(8500L), eq(200),
-                eq(null), eq(true), eq(null),
-                eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(false),
-                eq(DATE), eq(SUNRISE), eq(null), eq(null));
-    }
-
-    @Test
-    @DisplayName("handleSyncResult: the outcome's cache diagnostics reach the api_call_log row")
-    void handleSyncResult_logsTheOutcomesCacheDiagnostics() {
-        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
-        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
-                "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
-                new TokenUsage(500, 200, 0, 1000),
-                EvaluationModel.HAIKU, 8500, CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
-        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
-                .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
-
-        handler.handleSyncResult(task, outcome, ResultContext.forSync(99L, BatchTriggerSource.ADMIN));
-
-        verify(jobRunService).logAnthropicApiCall(
-                eq(99L), eq(8500L), eq(200),
-                eq(null), eq(true), eq(null),
-                eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(false),
-                eq(DATE), eq(SUNRISE), eq(null),
-                eq(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ));
-    }
-
-    @Test
-    @DisplayName("handleSyncResult: success with NONE → Scored + api_call_log but NO cache write")
-    void handleSyncResult_success_writeTargetNone_skipsCache() {
-        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
-                EvaluationTask.Forecast.WriteTarget.NONE);
-        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
-                "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
-                new TokenUsage(500, 200, 0, 1000),
-                EvaluationModel.HAIKU, 8500);
-        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
-                .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
-
-        EvaluationResult result = handler.handleSyncResult(
-                task, outcome, ResultContext.forSync(99L, BatchTriggerSource.ADMIN));
-
-        assertThat(result).isInstanceOf(EvaluationResult.Scored.class);
-        verify(briefingEvaluationService, never()).writeFromBatch(any(), any());
-        verify(jobRunService).logAnthropicApiCall(
-                eq(99L), eq(8500L), eq(200),
-                eq(null), eq(true), eq(null),
-                eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(false),
-                eq(DATE), eq(SUNRISE), eq(null), eq(null));
-    }
-
-    @Test
-    @DisplayName("handleSyncResult: failure → Errored + api_call_log error row, no cache write")
-    void handleSyncResult_failure_returnsErroredAndSkipsCache() {
-        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
-        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.failure(
-                "overloaded_error", "busy", EvaluationModel.HAIKU, 1500);
-
-        EvaluationResult result = handler.handleSyncResult(
-                task, outcome, ResultContext.forSync(99L, BatchTriggerSource.ADMIN));
-
-        assertThat(result).isInstanceOf(EvaluationResult.Errored.class);
-        EvaluationResult.Errored err = (EvaluationResult.Errored) result;
-        assertThat(err.errorType()).isEqualTo("overloaded_error");
-        verify(briefingEvaluationService, never()).writeFromBatch(any(), any());
-        verify(jobRunService).logAnthropicApiCall(
-                eq(99L), eq(1500L), eq(null),
-                eq("busy"), eq(false), eq("busy"),
-                eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(false),
-                eq(DATE), eq(SUNRISE), eq("overloaded_error"), eq(null));
-    }
-
-    @Test
-    @DisplayName("handleSyncResult: parser throws → Errored, no cache write")
-    void handleSyncResult_parseError_returnsErrored() {
-        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
-        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
-                "garbage", new TokenUsage(0, 0, 0, 0), EvaluationModel.HAIKU, 1500);
-        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
-                .thenThrow(new IllegalArgumentException("bad json"));
-
-        EvaluationResult result = handler.handleSyncResult(
-                task, outcome, ResultContext.forSync(99L, BatchTriggerSource.ADMIN));
-
-        assertThat(result).isInstanceOf(EvaluationResult.Errored.class);
-        EvaluationResult.Errored err = (EvaluationResult.Errored) result;
-        assertThat(err.errorType()).isEqualTo("parse_error");
-        verify(briefingEvaluationService, never()).writeFromBatch(any(), any());
-    }
-
-    @Test
-    @DisplayName("handleSyncResult: null jobRunId → skips api_call_log, still writes cache")
-    void handleSyncResult_nullJobRun_skipsLogStillWritesCache() {
-        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
-        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
-                "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
-                new TokenUsage(500, 200, 0, 1000),
-                EvaluationModel.HAIKU, 8500);
-        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
-                .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
-
-        EvaluationResult result = handler.handleSyncResult(
-                task, outcome, ResultContext.forSync(null, BatchTriggerSource.ADMIN));
-
-        assertThat(result).isInstanceOf(EvaluationResult.Scored.class);
-        verify(briefingEvaluationService).mergeFromBatch(any(), any());
-        verifyNoInteractions(jobRunService);
+        assertThatThrownBy(() -> handler.handleSyncResult(task, outcome, context))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("batch path only");
+        verifyNoInteractions(jobRunService, briefingEvaluationService);
     }
 
     private LocationEntity locationWithRegion(long id, String name, String regionName) {

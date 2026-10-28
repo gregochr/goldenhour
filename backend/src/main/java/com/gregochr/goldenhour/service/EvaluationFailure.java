@@ -78,14 +78,6 @@ public enum EvaluationFailure {
     /** The phrase for a failure the code cannot classify (also the sweep's floor for a task left in EVALUATING). */
     public static final String FALLBACK_REASON = "Evaluation failed (see server log).";
 
-    /** Reason on a place the run never attempted because the key was rejected earlier in the run. */
-    public static final String REASON_NOT_ATTEMPTED =
-            "Not attempted: the run stopped because Claude rejected the API key.";
-
-    /** Run-level reason when the run was stopped on a rejected key. */
-    public static final String REASON_RUN_STOPPED =
-            "Claude rejected the API key. The run was stopped; no further places were attempted.";
-
     /** {@code errorType} for a content-filter 400. */
     public static final String TYPE_CONTENT_FILTER = "content_filter";
 
@@ -126,16 +118,6 @@ public enum EvaluationFailure {
      */
     public String reason() {
         return reason;
-    }
-
-    /**
-     * Whether this failure means every further Claude call in the run would fail the same way, so
-     * the run should stop.
-     *
-     * @return {@code true} only for {@link #KEY_REJECTED}
-     */
-    public boolean stopsRun() {
-        return this == KEY_REJECTED;
     }
 
     /**

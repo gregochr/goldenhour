@@ -45,7 +45,7 @@
 ### Auth (Bearer required)
 `POST /api/auth/logout|change-password` | `PUT /api/auth/marketing-emails`
 
-> The three event streams (`GET /api/status/stream`, `GET /api/forecast/run/notifications`, `GET /api/forecast/run/{id}/progress`)
+> The two event streams (`GET /api/status/stream`, `GET /api/forecast/run/{id}/progress`)
 > authenticate with the `Authorization: Bearer` header like every other call; the client streams with `fetch`. A `?token=` query
 > parameter is not read (`JwtAuthenticationFilter.extractToken` is header-only), so such a request is 401.
 
@@ -92,12 +92,12 @@
 > **Retired 2026-10-28 (sync-engine retirement, Phase 1):** `POST /api/forecast/run`,
 > `POST /api/forecast/run/very-short-term|short-term|long-term` and
 > `POST /api/forecast/run/{runId}/retry-failed`, with `PUT /api/models/optimisation` and the
-> `optimisationStrategies` key of `GET /api/models`. They are no longer mapped. The engine behind
-> them (`ForecastCommandFactory`, `ForecastCommandExecutor`, `FailedSlotRetryService`) is unreferenced
-> and goes in Phase 2 (`docs/engineering/sync-engine-retirement-plan.md`). The SSE endpoints
-> `GET /api/forecast/run/{id}/progress` and `GET /api/forecast/run/notifications` stay for now (the
-> Light Pollution run is the only one that reports progress; nothing in the client subscribes to
-> `/run/notifications` any more, and Phase 2 deletes it).
+> `optimisationStrategies` key of `GET /api/models`. They are no longer mapped, and the engine behind
+> them (`ForecastCommandFactory`, `ForecastCommandExecutor`, `FailedSlotRetryService`) was deleted in
+> Phase 2 (`docs/engineering/sync-engine-retirement-plan.md`), together with the run-complete SSE
+> stream `GET /api/forecast/run/notifications` (owner decision: the run-complete banner is gone).
+> `GET /api/forecast/run/{id}/progress` stays: the Light Pollution run is the only one that reports
+> progress.
 
 > **`POST /api/forecast/run/tide` answers 409 while a tide refresh is running from any route** — the
 > Monday `tide_refresh` schedule, the Scheduler's Run Now, or an earlier press. One `AtomicBoolean` in

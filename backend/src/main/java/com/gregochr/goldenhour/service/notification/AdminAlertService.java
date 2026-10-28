@@ -34,11 +34,10 @@ import java.util.function.Supplier;
  * than the per-cycle cap allows and none is disabled.
  *
  * <p><b>Why a new, dedicated service rather than the existing notification
- * machinery.</b> {@code NotificationChannel}/{@code NotificationDispatcher} carry
- * forecast RESULTS to end users (email/Pushover/macOS toast) and are all disabled
- * in production — reusing or enabling them for an operational alert would be
- * repurposing a user-facing feature flag for an ops concern, and would spend real
- * notification budget (Pushover) on something that was never a forecast result.
+ * machinery.</b> The forecast-result notification channels
+ * (email/Pushover/macOS toast, {@code NotificationChannel}/{@code NotificationDispatcher}) were
+ * disabled in production and have since been deleted; an operational alert never belonged on a
+ * user-facing feature flag or on a notification budget meant for forecast results.
  * {@link UserEmailService} is the right sibling to imitate instead: it already
  * sends transactional mail successfully in production (registration, password
  * reset) via the same {@link JavaMailSender} bean and the same {@code

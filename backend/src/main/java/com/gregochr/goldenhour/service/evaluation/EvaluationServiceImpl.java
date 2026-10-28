@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.evaluation;
 
-import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
@@ -22,8 +21,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.time.Clock;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -42,9 +39,10 @@ import java.util.Set;
  * com.gregochr.goldenhour.service.batch.BatchResultProcessor}, which dispatches to the
  * same handlers — so the engine doesn't poll itself.
  *
- * <p>For the synchronous path: builds the same prompts, calls
+ * <p>For the synchronous path (Aurora only; forecasts evaluate through the batch path, and
+ * {@link #evaluateNow} refuses a forecast task): builds the prompt, calls
  * {@link AnthropicApiClient#createMessage}, drains the SDK response into a
- * {@link ClaudeSyncOutcome}, and dispatches to the right handler in one method call.
+ * {@link ClaudeSyncOutcome}, and dispatches to the Aurora handler in one method call.
  */
 @Service
 public class EvaluationServiceImpl implements EvaluationService {
@@ -56,7 +54,6 @@ public class EvaluationServiceImpl implements EvaluationService {
     private final AnthropicApiClient anthropicApiClient;
     private final ClaudeAuroraInterpreter claudeAuroraInterpreter;
     private final JobRunService jobRunService;
-    private final Clock clock;
     private final ForecastPromptStore forecastPromptStore;
     private final Map<Class<? extends EvaluationTask>, ResultHandler<?>> handlersByType;
 
@@ -70,9 +67,6 @@ public class EvaluationServiceImpl implements EvaluationService {
      * @param jobRunService              creates job runs for the sync path
      * @param resultHandlers             all available {@link ResultHandler} beans;
      *                                   indexed by {@link ResultHandler#taskType}
-     * @param clock                      round 12: injectable clock for the submission instant
-     *                                   stamped on a synchronous forecast result — see {@link
-     *                                   #evaluateNowForecast}
      * @param forecastPromptStore        records each batch sky request's user message against its
      *                                   pending {@code forecast_evaluation} row
      */
@@ -82,7 +76,6 @@ public class EvaluationServiceImpl implements EvaluationService {
             ClaudeAuroraInterpreter claudeAuroraInterpreter,
             JobRunService jobRunService,
             List<ResultHandler<?>> resultHandlers,
-            Clock clock,
             ForecastPromptStore forecastPromptStore) {
         this.forecastPromptStore = forecastPromptStore;
         this.batchSubmissionService = batchSubmissionService;
@@ -90,7 +83,6 @@ public class EvaluationServiceImpl implements EvaluationService {
         this.anthropicApiClient = anthropicApiClient;
         this.claudeAuroraInterpreter = claudeAuroraInterpreter;
         this.jobRunService = jobRunService;
-        this.clock = clock;
         this.handlersByType = new java.util.HashMap<>();
         for (ResultHandler<?> handler : resultHandlers) {
             handlersByType.put(handler.taskType(), handler);
@@ -158,7 +150,8 @@ public class EvaluationServiceImpl implements EvaluationService {
         java.util.Objects.requireNonNull(trigger, "trigger");
 
         return switch (task) {
-            case EvaluationTask.Forecast forecast -> evaluateNowForecast(forecast, trigger);
+            case EvaluationTask.Forecast forecast -> throw new UnsupportedOperationException(
+                    "forecasts evaluate through the batch path only (task " + forecast.taskKey() + ")");
             case EvaluationTask.Aurora aurora -> evaluateNowAurora(aurora, trigger);
         };
     }
@@ -257,71 +250,6 @@ public class EvaluationServiceImpl implements EvaluationService {
                 ? EvaluationHandle.empty()
                 : new EvaluationHandle(result.jobRunId(), result.batchId(),
                         result.requestCount());
-    }
-
-    private EvaluationResult evaluateNowForecast(EvaluationTask.Forecast task,
-            BatchTriggerSource trigger) {
-        ForecastResultHandler handler = (ForecastResultHandler)
-                handlersByType.get(EvaluationTask.Forecast.class);
-        if (handler == null) {
-            throw new IllegalStateException("No ForecastResultHandler registered");
-        }
-        JobRunEntity jobRun = startSyncJobRun(RunType.SHORT_TERM, task.model());
-        // Round 12: the instant THIS evaluation call started — BriefingEvaluationResult's
-        // staleness rule compares this against a stored result's own submission instant, so it
-        // must be captured before the Claude call, not after (a slow or retried call must not
-        // read as "submitted later" than it actually was).
-        Instant submissionInstant = Instant.now(clock);
-        ResultContext context = ResultContext.forSync(
-                jobRun != null ? jobRun.getId() : null, submissionInstant, trigger);
-
-        long start = System.currentTimeMillis();
-        ClaudeSyncOutcome outcome;
-        try {
-            // Build the prompt the same way as the batch path: select coastal/inland by
-            // tide presence, surge-overload by surge presence, system block with cache
-            // control. Reuse BatchRequestFactory's selector to avoid drift.
-            PromptBuilder builder = batchRequestFactory.selectBuilder(task.data());
-            String userMessage = task.data().surge() != null
-                    ? builder.buildUserMessage(task.data(), task.data().surge(),
-                            task.data().adjustedRangeMetres(),
-                            task.data().astronomicalRangeMetres())
-                    : builder.buildUserMessage(task.data());
-            Message response = anthropicApiClient.createMessage(
-                    ModelRequestSupport.withThinkingSetting(MessageCreateParams.builder()
-                            .model(task.model().getModelId())
-                            .maxTokens(task.model().getMaxTokens())
-                            .systemOfTextBlockParams(List.of(
-                                    TextBlockParam.builder()
-                                            .text(builder.getSystemPrompt())
-                                            .cacheControl(CacheControlEphemeral.builder().build())
-                                            .build()))
-                            .outputConfig(ModelRequestSupport.withEffort(
-                                    builder.buildOutputConfig(), task.model()))
-                            .addUserMessage(userMessage), task.model())
-                            .build());
-            // Shared with the batch/strategy engine's identical check — a max_tokens
-            // truncation must not sail through as a "successful" outcome just because this
-            // engine builds its own Message and ClaudeSyncOutcome independently of
-            // ClaudeEvaluationStrategy.
-            ClaudeEvaluationStrategy.checkStopReason(response);
-            String text = response.content().stream()
-                    .filter(ContentBlock::isText)
-                    .map(ContentBlock::asText)
-                    .map(TextBlock::text)
-                    .findFirst()
-                    .orElseThrow(() -> new ClaudeReplyUnreadableException("Claude returned no text"));
-            outcome = ClaudeSyncOutcome.success(text, extractTokens(response),
-                    task.model(), System.currentTimeMillis() - start,
-                    CacheDiagnostics.from(response));
-        } catch (Exception e) {
-            LOG.warn("evaluateNow forecast {} failed: {}", task.taskKey(), e.getMessage());
-            outcome = ClaudeSyncOutcome.failure(e, task.model(), System.currentTimeMillis() - start);
-        }
-
-        EvaluationResult result = handler.handleSyncResult(task, outcome, context);
-        completeSyncJobRun(jobRun, outcome.succeeded());
-        return result;
     }
 
     private EvaluationResult evaluateNowAurora(EvaluationTask.Aurora task,

@@ -185,12 +185,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
                 NightlyEligibilityPolicy.INSTANCE,
@@ -217,12 +215,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
                 EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.BLUEBELL);
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE, false))
@@ -251,12 +247,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast farInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNSET,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE, false))
                 .thenReturn(new ScheduledBatchTasks(
@@ -286,12 +280,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
                 EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.BLUEBELL);
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE, false))
@@ -323,8 +315,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE, false))
                 .thenReturn(new ScheduledBatchTasks(
@@ -350,7 +341,6 @@ class ScheduledBatchEvaluationServiceTest {
         EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
                 EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.BLUEBELL);
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
@@ -385,12 +375,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         CandidateDisposition evaluatedDispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
                 DispositionCategory.EVALUATED, null);
@@ -557,8 +545,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         CandidateDisposition dispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
                 DispositionCategory.EVALUATED, null);
@@ -593,12 +580,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast skyTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
                 EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.BLUEBELL);
         CandidateDisposition dispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
@@ -634,12 +619,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast skyTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
                 EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.BLUEBELL);
         CandidateDisposition dispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
@@ -675,12 +658,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast skyTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
                 EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.BLUEBELL);
         CandidateDisposition dispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 5,
@@ -715,8 +696,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast farInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         CandidateDisposition dispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 5,
                 DispositionCategory.FORCE_EVALUATED, FORCE_EVAL_DETAIL);
@@ -749,8 +729,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         CandidateDisposition evaluatedDispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
                 DispositionCategory.EVALUATED, null);
@@ -790,12 +769,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNSET,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         CandidateDisposition inlandDispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
                 DispositionCategory.EVALUATED, null);
@@ -840,12 +817,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNSET,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         CandidateDisposition inlandDispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
                 DispositionCategory.EVALUATED, null);
@@ -894,16 +869,13 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNSET,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast farInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE.plusDays(1), TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         // Bucket 1 (near-term inland) is the one that orphans — its own candidate stays
         // EVALUATED, since a real request DID reach Claude for it.
         CandidateDisposition inlandDispo = new CandidateDisposition(
@@ -970,12 +942,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast skyTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
                 EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.BLUEBELL);
         CandidateDisposition dispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
@@ -1029,12 +999,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast skyTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
                 EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.BLUEBELL);
         CandidateDisposition dispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 1,
@@ -1080,8 +1048,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
                 NightlyEligibilityPolicy.INSTANCE,
@@ -1120,8 +1087,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
                 NightlyEligibilityPolicy.INSTANCE,
@@ -1159,12 +1125,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
                 NightlyEligibilityPolicy.INSTANCE,
@@ -1205,8 +1169,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectRegionFilteredBatches(any()))
                 .thenReturn(new RegionFilteredBatchTasks(
                         List.of(inlandTask), List.of()));
@@ -1228,12 +1191,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectRegionFilteredBatches(any()))
                 .thenReturn(new RegionFilteredBatchTasks(
                         List.of(inlandTask), List.of(coastalTask)));
@@ -1260,12 +1221,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity coastalLocation = buildLocation("Bamburgh");
         EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
                 inlandLocation, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
                 coastalLocation, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectRegionFilteredBatches(any()))
                 .thenReturn(new RegionFilteredBatchTasks(
                         List.of(inlandTask), List.of(coastalTask)));
@@ -1292,12 +1251,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity coastalLocation = buildLocation("Bamburgh");
         EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
                 inlandLocation, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
                 coastalLocation, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectRegionFilteredBatches(any()))
                 .thenReturn(new RegionFilteredBatchTasks(
                         List.of(inlandTask), List.of(coastalTask)));
@@ -1324,12 +1281,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity coastalLocation = buildLocation("Bamburgh");
         EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
                 inlandLocation, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
                 coastalLocation, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectRegionFilteredBatches(any()))
                 .thenReturn(new RegionFilteredBatchTasks(
                         List.of(inlandTask), List.of(coastalTask)));
@@ -1352,8 +1307,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity coastalLocation = buildLocation("Bamburgh");
         EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
                 coastalLocation, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectRegionFilteredBatches(any()))
                 .thenReturn(new RegionFilteredBatchTasks(List.of(), List.of(coastalTask)));
         when(evaluationService.submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.ADMIN)))
@@ -1571,20 +1525,16 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTaskA = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast nearInlandTaskB = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNSET,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
                 location, TEST_DATE.plusDays(1), TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast farInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE.plusDays(2), TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         List<EvaluationTask.Forecast> nearInlandBucket = List.of(nearInlandTaskA, nearInlandTaskB);
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
@@ -1630,8 +1580,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
                 NightlyEligibilityPolicy.INSTANCE,
@@ -1669,12 +1618,10 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         EvaluationTask.Forecast farInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE.plusDays(3), TargetType.SUNSET,
-                EvaluationModel.HAIKU, buildAtmospheric(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                EvaluationModel.HAIKU, buildAtmospheric());
         CandidateDisposition okDispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
                 DispositionCategory.EVALUATED, null);

@@ -19,15 +19,6 @@ anthropic:
   model: claude-sonnet-4-6
 
 notifications:
-  email:
-    enabled: false
-    recipient: test@example.com
-  pushover:
-    enabled: false
-    app-token: test
-    user-key: test
-  macos-toast:
-    enabled: false
   admin-alerts:
     enabled: false
 
@@ -139,6 +130,3 @@ resilience4j:
       ask:
         maxConcurrentCalls: 4
         maxWaitDuration: 2s
-      forecast:
-        maxConcurrentCalls: 8
-        maxWaitDuration: 0ms

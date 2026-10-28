@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Unit tests for {@link TriageResult} — the convenience constructor that auto-derives
  * {@code triageReason} from {@code rule}. Locks down the invariant that a TriageResult
  * constructed from a rule always carries a matching, non-null enum; this protects every
- * upstream call-site (WeatherTriageEvaluator, TideAlignmentEvaluator) without having to
+ * upstream call-site (WeatherTriageEvaluator) without having to
  * duplicate the assertion in each of their tests.
  */
 class TriageResultTest {

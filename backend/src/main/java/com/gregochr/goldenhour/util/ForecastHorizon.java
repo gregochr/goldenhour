@@ -29,19 +29,16 @@ import java.time.temporal.ChronoUnit;
  * {@code ScheduledBatchEvaluationService}, {@code BriefingRollupBuilder}) that used to hand-roll
  * {@code LocalDate.now(...)} in {@code Europe/London} for the same "today" — collapsed here since
  * they already agreed with this class on the calendar and the swap was behaviourally inert. The
- * synchronous engine's date <em>range</em> was the one genuine exception; it is no longer, and the
- * reason it had to stop being one is worth keeping. {@link #today} answers "which day is it", and
- * moving that answer to the UK calendar moved the single day
- * {@code ForecastCommandExecutor}'s already-past gate guards. Anything still handing that engine a
- * UTC "today" would therefore be naming a day the gate had just let go of — and, in the hour where
- * the two calendars differ, a day whose events are all over. A half-converted engine was worse than
- * an unconverted one, so everything that hands that engine a "today" moved in the same commit:
- * {@code ForecastCommandFactory} (the default range), {@code OptimisationSkipEvaluator}
- * (FORCE_IMMINENT's same-day test and NEXT_EVENT_ONLY's search window — since deleted along with
- * the strategies it evaluated, none of which could act; V153), {@code ForecastController}
- * (the {@code POST /run} default date, and the {@code GET} serve window that has to agree with what
- * the engine now forecasts) and {@code BriefingEvaluationController} (the sibling serve window,
- * which shares two constants with that one and so has to share its anchor). See
+ * synchronous engine's date <em>range</em> was the one genuine exception (that engine, its
+ * already-past gate and its default range were deleted in 2026-10; the reasoning is kept because it
+ * still explains why the serve windows share the UK anchor). {@link #today} answers "which day is
+ * it", and moving that answer to the UK calendar moved the single day an already-past gate guards.
+ * Anything still handing such a gate a UTC "today" would be naming a day the gate had just let go
+ * of — and, in the hour where the two calendars differ, a day whose events are all over. A
+ * half-converted engine was worse than an unconverted one, so everything that handed it a "today"
+ * moved in the same commit, including {@code ForecastController} (the {@code GET} serve window that
+ * has to agree with what is forecast) and {@code BriefingEvaluationController} (the sibling serve
+ * window, which shares two constants with that one and so has to share its anchor). See
  * {@code docs/engineering/intraday-settled-refresh-plan.md} §8a and §8b.
  *
  * <p><b>What is deliberately still UTC — enumerated, because "everything routes through here" is
@@ -81,9 +78,9 @@ import java.time.temporal.ChronoUnit;
  * back "no calendar at all".
  *
  * <p><b>An instant is not a calendar.</b> Nothing here answers "has this moment passed". That
- * question is settled by comparing UTC instants — {@code ForecastCommandExecutor} draws both from
- * the same injected clock, but reads the day in {@code Europe/London} and the moment in UTC. Do not
- * collapse the two.
+ * question is settled by comparing UTC instants — a caller draws both from the same injected
+ * clock, but reads the day in {@code Europe/London} and the moment in UTC. Do not collapse the
+ * two.
  *
  * <p>The clock is passed in rather than read from the system so a cycle sees one stable reference
  * date and tests can pin the disagreeing hour.

@@ -681,7 +681,6 @@ class BatchCachePrimerTest {
                     false, TideStatisticalSize.EXTRA_HIGH));
         }
         AtmosphericData atmospheric = data.build();
-        return new EvaluationTask.Forecast(location, DATE, TargetType.SUNRISE, model, atmospheric,
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE, kind);
+        return new EvaluationTask.Forecast(location, DATE, TargetType.SUNRISE, model, atmospheric, kind);
     }
 }

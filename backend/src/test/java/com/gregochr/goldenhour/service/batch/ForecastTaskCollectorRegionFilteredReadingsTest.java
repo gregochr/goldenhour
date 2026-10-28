@@ -22,10 +22,8 @@ import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
-import com.gregochr.goldenhour.service.EvaluationService;
 import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.ForecastService;
-import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.FreshnessResolver;
 import com.gregochr.goldenhour.service.LocationService;
@@ -33,11 +31,9 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
-import com.gregochr.goldenhour.service.TideAlignmentEvaluator;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.WeatherTriageEvaluator;
 import com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter;
-import com.gregochr.goldenhour.service.notification.NotificationDispatcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -104,13 +100,9 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
 
     // ── The REAL ForecastService's own leaf collaborators ───────────────────────────────────
     @Mock private ForecastDataAugmentor augmentor;
-    @Mock private EvaluationService legacyEvaluationService;
-    @Mock private com.gregochr.goldenhour.service.evaluation.EvaluationService engineEvaluationService;
     @Mock private ForecastEvaluationRepository forecastEvaluationRepository;
-    @Mock private NotificationDispatcher notificationDispatcher;
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private WeatherTriageEvaluator weatherTriageEvaluator;
-    @Mock private TideAlignmentEvaluator tideAlignmentEvaluator;
     @Mock private SlotAtmosphereWriter slotAtmosphereWriter;
 
     private static final SeasonalWindow BLUEBELL_SEASON =
@@ -164,10 +156,8 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
     @BeforeEach
     void setUp() {
         ForecastService realForecastService = new ForecastService(
-                solarService, openMeteoService, augmentor, legacyEvaluationService,
-                engineEvaluationService, forecastEvaluationRepository, notificationDispatcher,
-                eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                slotAtmosphereWriter, org.mockito.Mockito.mock(RunProgressTracker.class), CLOCK,
+                solarService, openMeteoService, augmentor, forecastEvaluationRepository,
+                eventPublisher, weatherTriageEvaluator, slotAtmosphereWriter, CLOCK,
                 new com.gregochr.goldenhour.config.AppBuild("v2.28.0"));
 
         collector = new ForecastTaskCollector(
@@ -206,8 +196,6 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
-                .thenReturn(Optional.empty());
 
         // Weather pre-fetch: the collector's own bulk prefetch feeds a non-empty map into
         // fetchWeatherAndTriage, which then reads it back via getAtmosphericDataFromCache.

@@ -8,7 +8,7 @@ import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.model.ForecastListDto;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -340,7 +340,7 @@ class ForecastControllerTest extends AbstractControllerTest {
         assertThat(fromCaptor.getValue())
                 .isEqualTo(today.minusDays(ForecastHorizon.SERVE_PAST_DAYS));
         assertThat(toCaptor.getValue())
-                .isEqualTo(today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS));
+                .isEqualTo(today.plusDays(RunType.FORECAST_HORIZON_DAYS));
     }
 
     @Test
@@ -889,12 +889,10 @@ class ForecastControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"PRO_USER"})
-    @DisplayName("GET /api/forecast/run/notifications returns SSE stream")
-    void getRunNotifications_returnsOk() throws Exception {
-        when(progressTracker.subscribeNotifications()).thenReturn(new SseEmitter());
-
+    @DisplayName("GET /api/forecast/run/notifications is no longer mapped (the run-complete stream was retired)")
+    void getRunNotifications_isNoLongerMapped() throws Exception {
         mockMvc.perform(get("/api/forecast/run/notifications"))
-                .andExpect(status().isOk());
+                .andExpect(status().isNotFound());
     }
 
 

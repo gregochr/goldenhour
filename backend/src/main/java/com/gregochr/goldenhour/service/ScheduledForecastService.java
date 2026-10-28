@@ -24,9 +24,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * consolidation onto the Anthropic Batch API pipeline
  * ({@link com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService}) left
  * them dormant with no callers — their {@code @Scheduled} triggers had already been
- * commented out. Admin manual runs go through {@code ForecastController} →
- * {@link ForecastCommandExecutor} directly, and the {@code stability_snapshot} write
- * contract is owned by the shared
+ * commented out. The synchronous per-slot engine behind the admin manual runs was deleted in
+ * 2026-10 (see {@code docs/engineering/sync-engine-retirement-plan.md}); the
+ * {@code stability_snapshot} write contract is owned by the shared
  * {@link com.gregochr.goldenhour.service.batch.GridCellStabilityService}.
  */
 @Service
