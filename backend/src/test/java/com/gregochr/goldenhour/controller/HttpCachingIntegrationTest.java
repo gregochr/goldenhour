@@ -29,7 +29,7 @@ import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpFact;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
-import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -208,9 +208,6 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
         // The detail endpoint is matched by a strict /api/forecast/\d+ pattern rather than a
         // /api/forecast/* wildcard precisely so these streaming paths stay untouched. Buffering an
         // SSE response to hash it would break the stream, so assert no ETag reaches them.
-        mockMvc.perform(get("/api/forecast/run/notifications"))
-                .andExpect(header().doesNotExist(HttpHeaders.ETAG));
-
         mockMvc.perform(get("/api/forecast/run/1/progress"))
                 .andExpect(header().doesNotExist(HttpHeaders.ETAG));
     }
@@ -367,7 +364,7 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
         LocalDate today = ForecastHorizon.today(Clock.systemUTC());
         when(evaluationViewService.forDateRange(
                 today.minusDays(ForecastHorizon.SERVE_PAST_DAYS),
-                today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS),
+                today.plusDays(RunType.FORECAST_HORIZON_DAYS),
                 Set.of(TargetType.SUNRISE, TargetType.SUNSET))).thenReturn(List.of(scored));
 
         String liteEtag = mockMvc.perform(get("/api/briefing/evaluate/scores"))
@@ -477,7 +474,7 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
         LocalDate today = ForecastHorizon.today(Clock.systemUTC());
         when(evaluationViewService.forDateRange(
                 today.minusDays(ForecastHorizon.SERVE_PAST_DAYS),
-                today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS),
+                today.plusDays(RunType.FORECAST_HORIZON_DAYS),
                 Set.of(TargetType.SUNRISE, TargetType.SUNSET))).thenReturn(List.of());
         when(locationService.findAllEnabled()).thenReturn(List.of());
 

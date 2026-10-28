@@ -9,7 +9,7 @@ import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.EvaluationViewService;
-import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
@@ -60,7 +60,7 @@ class ForecastWindowAnchorTest {
     private static final LocalDate EXPECTED_FROM =
             UK_TODAY.minusDays(ForecastHorizon.SERVE_PAST_DAYS);
     private static final LocalDate EXPECTED_TO =
-            UK_TODAY.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
+            UK_TODAY.plusDays(RunType.FORECAST_HORIZON_DAYS);
 
     @Mock
     private ForecastEvaluationRepository repository;

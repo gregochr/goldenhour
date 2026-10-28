@@ -55,7 +55,6 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.lenient;
@@ -251,7 +250,7 @@ class ForecastTaskCollectorHorizonBasisTest {
                                 new OpenMeteoAirQualityResponse())));
         int utcBasisHorizon = (int) java.time.temporal.ChronoUnit.DAYS.between(UTC_TODAY, date);
         when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(sunsetPreEval(loc, date, utcBasisHorizon));
         return loc;
     }

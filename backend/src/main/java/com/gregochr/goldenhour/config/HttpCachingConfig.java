@@ -116,7 +116,7 @@ public class HttpCachingConfig {
     /**
      * The lazy popup-detail endpoint, {@code GET /api/forecast/{id}}. Matched by a strict
      * numeric-id pattern so it can be revalidated without a {@code /api/forecast/*} wildcard that
-     * would also swallow the SSE streams at {@code /api/forecast/run/notifications} and
+     * would also swallow the SSE stream at
      * {@code /api/forecast/run/{runId}/progress}.
      */
     private static final Pattern FORECAST_DETAIL_PATH = Pattern.compile("/api/forecast/\\d+");

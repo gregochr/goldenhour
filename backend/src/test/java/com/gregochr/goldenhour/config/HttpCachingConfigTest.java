@@ -33,7 +33,6 @@ class HttpCachingConfigTest {
     @ParameterizedTest
     @ValueSource(strings = {
         "/api/status/stream",
-        "/api/forecast/run/notifications",
         "/api/forecast/run/123/progress",
         "/api/briefing/evaluate",
     })

@@ -16,7 +16,6 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
-import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
@@ -32,10 +31,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.Clock;
-import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -70,8 +66,6 @@ class EvaluationServiceImplTest {
     private static final AtmosphericData ATMOSPHERIC = TestAtmosphericData.defaults();
     private static final SpaceWeatherData SPACE_WEATHER = new SpaceWeatherData(
             List.of(), List.of(), null, List.of(), List.of());
-    private static final Clock FIXED_CLOCK =
-            Clock.fixed(Instant.parse("2026-04-16T09:00:00Z"), ZoneOffset.UTC);
 
     @Mock
     private BatchSubmissionService batchSubmissionService;
@@ -101,7 +95,7 @@ class EvaluationServiceImplTest {
         service = new EvaluationServiceImpl(
                 batchSubmissionService, batchRequestFactory, anthropicApiClient,
                 claudeAuroraInterpreter, jobRunService,
-                List.of(forecastResultHandler, auroraResultHandler), FIXED_CLOCK, forecastPromptStore);
+                List.of(forecastResultHandler, auroraResultHandler), forecastPromptStore);
     }
 
     // ── submit() ─────────────────────────────────────────────────────────────
@@ -400,24 +394,15 @@ class EvaluationServiceImplTest {
     }
 
     @Test
-    @DisplayName("evaluateNow: forecast task delegates to ForecastResultHandler.handleSyncResult")
-    void evaluateNow_forecastTask_delegatesToForecastHandler() {
+    @DisplayName("evaluateNow: a forecast task is refused, forecasts evaluate through the batch path only")
+    void evaluateNow_forecastTask_isRefused() {
         EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
-        // No PromptBuilder stub — the path will throw early when selectBuilder returns
-        // null, which is exactly the failure mode that flows into the handler's error
-        // branch via ClaudeSyncOutcome.failure(...).
-        when(forecastResultHandler.handleSyncResult(eq(task),
-                any(ClaudeSyncOutcome.class), any(ResultContext.class)))
-                .thenReturn(new EvaluationResult.Errored("NullPointerException", "x"));
 
-        EvaluationResult result = service.evaluateNow(task, BatchTriggerSource.ADMIN);
-
-        assertThat(result).isInstanceOf(EvaluationResult.Errored.class);
-        ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor =
-                ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
-        verify(forecastResultHandler).handleSyncResult(
-                eq(task), outcomeCaptor.capture(), any(ResultContext.class));
-        assertThat(outcomeCaptor.getValue().succeeded()).isFalse();
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> service.evaluateNow(task, BatchTriggerSource.SCHEDULED))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("batch path only");
+        verifyNoInteractions(anthropicApiClient, jobRunService);
     }
 
     @Test
@@ -433,94 +418,6 @@ class EvaluationServiceImplTest {
         EvaluationTask task = auroraTask(AlertLevel.MODERATE);
         assertThatNullPointerException().isThrownBy(() ->
                 service.evaluateNow(task, null));
-    }
-
-    @Test
-    @DisplayName("evaluateNow: forecast success path drains SDK Message into ClaudeSyncOutcome.success")
-    void evaluateNow_forecastSuccess_drainsResponseIntoOutcome() {
-        EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
-        // selectBuilder returns a real PromptBuilder so getSystemPrompt() / buildOutputConfig()
-        // produce SDK-valid values without us reconstructing them by hand.
-        when(batchRequestFactory.selectBuilder(eq(task.data())))
-                .thenReturn(new PromptBuilder());
-        Message message = mockMessageWithText("{\"rating\":4}", 500L, 200L, 0L, 1000L);
-        when(anthropicApiClient.createMessage(any())).thenReturn(message);
-        when(forecastResultHandler.handleSyncResult(eq(task),
-                any(ClaudeSyncOutcome.class), any(ResultContext.class)))
-                .thenReturn(new EvaluationResult.Scored("ok"));
-
-        EvaluationResult result = service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
-
-        assertThat(result).isInstanceOf(EvaluationResult.Scored.class);
-        ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor =
-                ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
-        verify(forecastResultHandler).handleSyncResult(
-                eq(task), outcomeCaptor.capture(), any(ResultContext.class));
-        ClaudeSyncOutcome outcome = outcomeCaptor.getValue();
-        assertThat(outcome.succeeded()).isTrue();
-        assertThat(outcome.rawText()).isEqualTo("{\"rating\":4}");
-        assertThat(outcome.tokenUsage().inputTokens()).isEqualTo(500L);
-        assertThat(outcome.tokenUsage().outputTokens()).isEqualTo(200L);
-        assertThat(outcome.tokenUsage().cacheReadInputTokens()).isEqualTo(1000L);
-        assertThat(outcome.tokenUsage().cacheCreationInputTokens()).isZero();
-        assertThat(outcome.model()).isEqualTo(EvaluationModel.HAIKU);
-    }
-
-    @Test
-    @DisplayName("evaluateNow: the response's cache diagnostics ride the sync outcome, EMPTY when absent")
-    void evaluateNow_forecastSuccess_carriesCacheDiagnostics() {
-        EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
-        when(batchRequestFactory.selectBuilder(eq(task.data())))
-                .thenReturn(new PromptBuilder());
-        Message withDiagnostics = mockMessageWithText("{\"rating\":4}", 500L, 200L, 0L, 1000L);
-        when(withDiagnostics.diagnostics()).thenReturn(Optional.of(CacheDiagnosticsFixtures.MESSAGES_CHANGED));
-        Message without = mockMessageWithText("{\"rating\":4}", 500L, 200L, 0L, 1000L);
-        when(anthropicApiClient.createMessage(any())).thenReturn(withDiagnostics).thenReturn(without);
-        when(forecastResultHandler.handleSyncResult(eq(task),
-                any(ClaudeSyncOutcome.class), any(ResultContext.class)))
-                .thenReturn(new EvaluationResult.Scored("ok"));
-
-        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
-        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
-
-        ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor = ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
-        verify(forecastResultHandler, org.mockito.Mockito.times(2)).handleSyncResult(
-                eq(task), outcomeCaptor.capture(), any(ResultContext.class));
-        assertThat(outcomeCaptor.getAllValues().get(0).cacheDiagnostics())
-                .isEqualTo(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
-        assertThat(outcomeCaptor.getAllValues().get(1).cacheDiagnostics())
-                .isSameAs(com.gregochr.goldenhour.model.CacheDiagnostics.EMPTY);
-    }
-
-    @Test
-    @DisplayName("evaluateNow: forecast max_tokens truncation → rejected as failure, not "
-            + "persisted as a successful outcome (the live sync engine independent of "
-            + "ClaudeEvaluationStrategy, per the Codex P1 finding on PR #659)")
-    void evaluateNow_forecastMaxTokens_rejectedAsFailure() {
-        EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
-        when(batchRequestFactory.selectBuilder(eq(task.data())))
-                .thenReturn(new PromptBuilder());
-        // Deliberately no content stubbed — checkStopReason rejects before this engine ever
-        // reads response.content(), same as the sibling batch-path fixture in
-        // BatchResultProcessorTest. What content WOULD have parsed to is irrelevant here;
-        // ClaudeEvaluationStrategyTest already proves rejection is content-independent by
-        // holding content identical to a passing case and varying only the stop reason.
-        Message message = mockMessageWithStopReason(StopReason.MAX_TOKENS);
-        when(anthropicApiClient.createMessage(any())).thenReturn(message);
-        when(forecastResultHandler.handleSyncResult(eq(task),
-                any(ClaudeSyncOutcome.class), any(ResultContext.class)))
-                .thenReturn(new EvaluationResult.Errored("IllegalStateException", "x"));
-
-        EvaluationResult result = service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
-
-        assertThat(result).isInstanceOf(EvaluationResult.Errored.class);
-        ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor =
-                ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
-        verify(forecastResultHandler).handleSyncResult(
-                eq(task), outcomeCaptor.capture(), any(ResultContext.class));
-        ClaudeSyncOutcome outcome = outcomeCaptor.getValue();
-        assertThat(outcome.succeeded()).isFalse();
-        assertThat(outcome.errorMessage()).contains("stop_reason=max_tokens");
     }
 
     /** Runs the forecast sync path against a failing Claude call and returns the errorType it reported. */
@@ -549,56 +446,6 @@ class EvaluationServiceImplTest {
     }
 
     @Test
-    @DisplayName("evaluateNow: a 401 is reported as anthropic_401 (a stop-the-run kind)")
-    void evaluateNow_forecastRejectedKey_reportedByStatus() {
-        AnthropicServiceException rejected = serviceError(401, "invalid x-api-key");
-
-        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
-                .thenThrow(rejected))).isEqualTo("anthropic_401");
-    }
-
-    @Test
-    @DisplayName("evaluateNow: a 403 is reported as anthropic_403")
-    void evaluateNow_forecastForbidden_reportedByStatus() {
-        AnthropicServiceException forbidden = serviceError(403, "not permitted");
-
-        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
-                .thenThrow(forbidden))).isEqualTo("anthropic_403");
-    }
-
-    @Test
-    @DisplayName("evaluateNow: the content-filter 400 is reported as content_filter")
-    void evaluateNow_forecastContentFilter400_isNamed() {
-        AnthropicServiceException filtered = serviceError(400, "Output blocked by content filtering policy");
-
-        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
-                .thenThrow(filtered))).isEqualTo("content_filter");
-    }
-
-    @Test
-    @DisplayName("evaluateNow: any other 400 is reported by its status, not as a content filter")
-    void evaluateNow_forecastPlain400_reportedByStatus() {
-        AnthropicServiceException badRequest = serviceError(400, "max_tokens must be positive");
-
-        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
-                .thenThrow(badRequest))).isEqualTo("anthropic_400");
-    }
-
-    @Test
-    @DisplayName("evaluateNow: a call the circuit breaker refuses is reported as circuit_open (the real route: "
-            + "CallNotPermittedException thrown by the @CircuitBreaker proxy inside the engine's try)")
-    void evaluateNow_forecastCircuitOpen_isNamed() {
-        io.github.resilience4j.circuitbreaker.CircuitBreaker breaker =
-                io.github.resilience4j.circuitbreaker.CircuitBreaker.ofDefaults("anthropic");
-        breaker.transitionToOpenState();
-        RuntimeException refused = io.github.resilience4j.circuitbreaker.CallNotPermittedException
-                .createCallNotPermittedException(breaker);
-
-        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
-                .thenThrow(refused))).isEqualTo("circuit_open");
-    }
-
-    @Test
     @DisplayName("evaluateNow: an aurora reply with no text block is reported as reply_unreadable, like a forecast's")
     void evaluateNow_auroraNoText_isReplyUnreadable() {
         EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
@@ -617,43 +464,6 @@ class EvaluationServiceImplTest {
         verify(auroraResultHandler).handleSyncResult(eq(task), outcomeCaptor.capture(), contextCaptor.capture());
         assertThat(outcomeCaptor.getValue().errorType()).isEqualTo("reply_unreadable");
         assertThat(contextCaptor.getValue().triggerSource()).isEqualTo(BatchTriggerSource.SCHEDULED);
-    }
-
-    @Test
-    @DisplayName("evaluateNow: a timeout or connection failure surfaces as the SDK's I/O exception by name")
-    void evaluateNow_forecastIoFailure_reportedByName() {
-        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
-                .thenThrow(new com.anthropic.errors.AnthropicIoException("timed out"))))
-                .isEqualTo("AnthropicIoException");
-    }
-
-    @Test
-    @DisplayName("evaluateNow: a refusal stop reason is reported as refusal")
-    void evaluateNow_forecastRefusal_isNamed() {
-        Message refusal = mockMessageWithStopReason(StopReason.REFUSAL);
-
-        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
-                .thenReturn(refusal))).isEqualTo("refusal");
-    }
-
-    @Test
-    @DisplayName("evaluateNow: a truncated reply is reported as reply_unreadable")
-    void evaluateNow_forecastTruncated_isReplyUnreadable() {
-        Message truncated = mockMessageWithStopReason(StopReason.MAX_TOKENS);
-
-        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
-                .thenReturn(truncated))).isEqualTo("reply_unreadable");
-    }
-
-    @Test
-    @DisplayName("evaluateNow: a reply with no text block is reported as reply_unreadable")
-    void evaluateNow_forecastNoText_isReplyUnreadable() {
-        Message noText = mock(Message.class);
-        when(noText.stopReason()).thenReturn(Optional.empty());
-        when(noText.content()).thenReturn(List.of());
-
-        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any())).thenReturn(noText)))
-                .isEqualTo("reply_unreadable");
     }
 
     @Test
@@ -757,26 +567,12 @@ class EvaluationServiceImplTest {
     }
 
     @Test
-    @DisplayName("evaluateNow: forecast handler missing → IllegalStateException")
-    void evaluateNow_forecastHandlerMissing_throws() {
-        EvaluationServiceImpl noForecastHandler = new EvaluationServiceImpl(
-                batchSubmissionService, batchRequestFactory, anthropicApiClient,
-                claudeAuroraInterpreter, jobRunService,
-                List.of(auroraResultHandler), FIXED_CLOCK, forecastPromptStore);
-        EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
-
-        org.assertj.core.api.Assertions.assertThatIllegalStateException()
-                .isThrownBy(() -> noForecastHandler.evaluateNow(task, BatchTriggerSource.SCHEDULED))
-                .withMessageContaining("ForecastResultHandler");
-    }
-
-    @Test
     @DisplayName("evaluateNow: aurora handler missing → IllegalStateException")
     void evaluateNow_auroraHandlerMissing_throws() {
         EvaluationServiceImpl noAuroraHandler = new EvaluationServiceImpl(
                 batchSubmissionService, batchRequestFactory, anthropicApiClient,
                 claudeAuroraInterpreter, jobRunService,
-                List.of(forecastResultHandler), FIXED_CLOCK, forecastPromptStore);
+                List.of(forecastResultHandler), forecastPromptStore);
         EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
 
         org.assertj.core.api.Assertions.assertThatIllegalStateException()
@@ -849,8 +645,7 @@ class EvaluationServiceImplTest {
         region.setName(regionName);
         loc.setRegion(region);
         return new EvaluationTask.Forecast(
-                loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC);
     }
 
     private EvaluationTask.Forecast forecastTaskWithRow(long id, String name, Long evalRowId) {
@@ -859,7 +654,6 @@ class EvaluationServiceImplTest {
         loc.setName(name);
         return new EvaluationTask.Forecast(
                 loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.SKY, evalRowId);
     }
 
@@ -872,7 +666,6 @@ class EvaluationServiceImplTest {
         loc.setRegion(region);
         return new EvaluationTask.Forecast(
                 loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.BLUEBELL);
     }
 
@@ -905,8 +698,7 @@ class EvaluationServiceImplTest {
         loc.setId(42L);
         loc.setName("Castlerigg");
         return new EvaluationTask.Forecast(
-                loc, DATE, TargetType.SUNRISE, model, ATMOSPHERIC,
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                loc, DATE, TargetType.SUNRISE, model, ATMOSPHERIC);
     }
 
     private static long skyCeiling(EvaluationModel model) {
@@ -942,30 +734,6 @@ class EvaluationServiceImplTest {
                     eq(BatchTriggerSource.SCHEDULED), anyString());
             ModelRequestAssertions.assertBatch(captor.getValue().get(0).params(), model,
                     auroraCeiling(model), Optional.empty());
-        }
-    }
-
-    @Test
-    @DisplayName("sync sky request: literal model id, JSON format kept, effort LOW only for Sonnet 5.5")
-    void evaluateNow_skyRequestShape_perModel() {
-        for (EvaluationModel model : List.of(EvaluationModel.HAIKU, EvaluationModel.SONNET,
-                EvaluationModel.SONNET_55, EvaluationModel.HAIKU_55)) {
-            org.mockito.Mockito.clearInvocations(anthropicApiClient);
-            EvaluationTask.Forecast task = forecastTaskFor(model);
-            PromptBuilder builder = new PromptBuilder();
-            when(batchRequestFactory.selectBuilder(eq(task.data()))).thenReturn(builder);
-            when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
-                    .thenReturn(ModelRequestAssertions.message(
-                            List.of(ModelRequestAssertions.text("{}")), StopReason.END_TURN));
-            when(forecastResultHandler.handleSyncResult(eq(task), any(ClaudeSyncOutcome.class),
-                    any(ResultContext.class))).thenReturn(new EvaluationResult.Errored("x", "x"));
-
-            service.evaluateNow(task, BatchTriggerSource.ADMIN);
-
-            ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
-            verify(anthropicApiClient).createMessage(captor.capture());
-            ModelRequestAssertions.assertMessage(captor.getValue(), model, skyCeiling(model),
-                    builder.buildOutputConfig().format());
         }
     }
 

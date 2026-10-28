@@ -34,12 +34,6 @@ anthropic:
 worldtides:
   api-key: ${WORLDTIDES_API_KEY:}
 notifications:
-  email:
-    enabled: false
-  pushover:
-    enabled: false
-  macos-toast:
-    enabled: false
   admin-alerts:
     enabled: false
 forecast:

@@ -1,12 +1,10 @@
 package com.gregochr.goldenhour.model;
 
 /**
- * Run-level phases of the three-phase forecast pipeline.
+ * Run-level phases a hand-started run reports to the live progress panel.
  *
  * <pre>
- * TRIAGE → SENTINEL_SAMPLING → FULL_EVALUATION → COMPLETE
- *                ↓                    ↓
- *           EARLY_STOP           EARLY_STOP
+ * TRIAGE → FULL_EVALUATION → COMPLETE
  * </pre>
  */
 public enum RunPhase {
@@ -14,15 +12,9 @@ public enum RunPhase {
     /** Phase 1: fetch weather and apply heuristic triage to all tasks. */
     TRIAGE,
 
-    /** Phase 2: evaluate geographic sentinel locations per region. */
-    SENTINEL_SAMPLING,
-
-    /** Phase 3: full Claude evaluation of remaining tasks. */
+    /** Phase 2: the run's main work (for Light Pollution, the Bortle enrichment itself). */
     FULL_EVALUATION,
 
     /** All phases completed normally. */
-    COMPLETE,
-
-    /** Run terminated early — all regions triaged or sentinel-skipped. */
-    EARLY_STOP
+    COMPLETE
 }

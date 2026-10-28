@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * for every enabled Bortle-enriched location.
  *
  * <p><b>Why a dedicated job.</b> {@link AstroConditionsService#evaluateAndPersist} was called only
- * from the hand-started synchronous engine ({@code ForecastCommandExecutor}), as a piggyback on a
+ * from the hand-started synchronous engine ({@code ForecastCommandExecutor}, deleted in 2026-10), as a piggyback on a
  * colour run, and had no scheduler row. The scheduled pipeline never reaches that engine, so
  * production held no astro row after 2026-07-31 and the night forecast the Map tab and Ask PhotoCast
  * draw on was usually absent. This job is the schedule the service never had. It makes one batched

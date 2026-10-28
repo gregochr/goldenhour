@@ -35,7 +35,7 @@ import com.gregochr.goldenhour.model.SubRegionLocationRow;
 import com.gregochr.goldenhour.model.TriageReason;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.AsOfEventResolver;
-import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -197,7 +197,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
         ForecastEvaluationEntity picked = entity(1L, BAMBURGH, DAY);
         ForecastEvaluationEntity unpicked = entity(2L, CRASTER, DAY);
         LocalDate from = today().minusDays(ForecastHorizon.SERVE_PAST_DAYS);
-        LocalDate horizon = today().plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
+        LocalDate horizon = today().plusDays(RunType.FORECAST_HORIZON_DAYS);
         when(forecastEvaluationRepository.findLatestRunPerSlotByLocationIds(
                 List.of(PICKED_ID, UNPICKED_ID), from, horizon)).thenReturn(List.of(picked, unpicked));
         when(dtoMapper.toListDtoList(List.of(picked, unpicked), true)).thenReturn(
@@ -436,7 +436,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
                 null, DisplayVerdict.STAND_DOWN, EVENT.minusHours(1), EVENT.plusMinutes(10), null, null);
         when(evaluationViewService.forDateRange(
                 today().minusDays(ForecastHorizon.SERVE_PAST_DAYS),
-                today().plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS),
+                today().plusDays(RunType.FORECAST_HORIZON_DAYS),
                 Set.of(TargetType.SUNRISE, TargetType.SUNSET))).thenReturn(List.of(picked, unpicked));
     }
 
@@ -552,7 +552,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
         enforcementOnWithPicks();
         when(locationService.findAllEnabled()).thenReturn(List.of(BAMBURGH, CRASTER));
         LocalDate from = today().minusDays(ForecastHorizon.SERVE_PAST_DAYS);
-        LocalDate horizon = today().plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
+        LocalDate horizon = today().plusDays(RunType.FORECAST_HORIZON_DAYS);
         LocationEvaluationView view = new LocationEvaluationView(UNPICKED_ID, UNPICKED, 3L, "North East",
                 DAY, TargetType.SUNSET, LocationEvaluationView.Source.CACHED_EVALUATION, 5, "Why", null, null,
                 null, null, null, null, DisplayVerdict.WORTH_IT, null, null, null, null);

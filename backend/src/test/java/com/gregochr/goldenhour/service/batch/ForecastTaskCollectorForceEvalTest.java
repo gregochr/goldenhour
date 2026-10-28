@@ -51,7 +51,6 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
@@ -311,8 +310,7 @@ class ForecastTaskCollectorForceEvalTest {
     private void stubTriagePass(LocationEntity loc, LocalDate date, int daysAhead,
             boolean coastal) {
         when(forecastService.fetchWeatherAndTriage(
-                org.mockito.ArgumentMatchers.eq(loc), any(), any(), any(), any(),
-                anyBoolean(), any(), any(), any()))
+                org.mockito.ArgumentMatchers.eq(loc), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(preEval(loc, date, daysAhead, coastal));
     }
 

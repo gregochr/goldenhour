@@ -4,7 +4,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.model.TriageReason;
-import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -91,7 +91,7 @@ class BriefingEvaluationControllerTest extends AbstractControllerTest {
         LocalDate today = ForecastHorizon.today(Clock.systemUTC());
         when(evaluationViewService.forDateRange(
                 today.minusDays(ForecastHorizon.SERVE_PAST_DAYS),
-                today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS),
+                today.plusDays(RunType.FORECAST_HORIZON_DAYS),
                 Set.of(TargetType.SUNRISE, TargetType.SUNSET))).thenReturn(List.of(scored()));
     }
 
@@ -160,7 +160,7 @@ class BriefingEvaluationControllerTest extends AbstractControllerTest {
                 "SONNET", null, DisplayVerdict.STAND_DOWN, null, null, null, null);
         when(evaluationViewService.forDateRange(
                 today.minusDays(ForecastHorizon.SERVE_PAST_DAYS),
-                today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS),
+                today.plusDays(RunType.FORECAST_HORIZON_DAYS),
                 Set.of(TargetType.SUNRISE, TargetType.SUNSET))).thenReturn(List.of(tide));
     }
 

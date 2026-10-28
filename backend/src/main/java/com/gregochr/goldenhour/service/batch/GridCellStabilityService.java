@@ -61,7 +61,7 @@ public final class GridCellStabilityService {
      *
      * <p>This is the canonical producer of {@code stability_snapshot} rows for the
      * overnight scheduled flow — previously written by
-     * {@code ForecastCommandExecutor.applyStabilityFilter} but stranded when that
+     * the (since deleted) {@code ForecastCommandExecutor.applyStabilityFilter} but stranded when that
      * path's {@code @Scheduled} trigger was commented out during the v2.12
      * consolidation. Without this write the reader at
      * {@code BriefingCandidateCollector.buildStabilityLookup()} sees nothing in memory
@@ -118,7 +118,7 @@ public final class GridCellStabilityService {
      * Classifies every unique grid cell touched by a synchronous-run batch and publishes
      * the snapshot. {@link ForecastPreEvalResult} counterpart of
      * {@link #classifyGridCellsAndPublishSnapshot(List, Map, boolean)} for the admin
-     * synchronous path ({@code ForecastCommandExecutor}), so both forecast engines share
+     * synchronous path (the deleted {@code ForecastCommandExecutor}), so both forecast engines shared
      * one snapshot schema and one publish rule.
      *
      * <p>Tasks without a grid cell are skipped entirely; tasks without a forecast

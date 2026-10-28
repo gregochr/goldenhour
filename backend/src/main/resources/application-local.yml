@@ -42,15 +42,6 @@ worldtides:
   api-key: ${WORLDTIDES_API_KEY:}
 
 notifications:
-  email:
-    enabled: false
-    recipient: dev@localhost
-  pushover:
-    enabled: false
-    app-token: dev
-    user-key: dev
-  macos-toast:
-    enabled: false
   admin-alerts:
     # Deliberately false here: application-local.yml's spring.mail block above points at a real
     # SMTP server (smtp.livemail.co.uk), so a local run with MAIL_PASSWORD set would otherwise
@@ -207,12 +198,6 @@ resilience4j:
       ask:
         maxConcurrentCalls: 4
         maxWaitDuration: 2s
-      forecast:
-        maxConcurrentCalls: 8
-        maxWaitDuration: 120s
-      claude:
-        maxConcurrentCalls: 6
-        maxWaitDuration: 120s
 
 management:
   endpoints:

@@ -213,8 +213,7 @@ class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
                         .locationName(loc.getName())
                         .solarEventTime(date.atTime(5, 30))
                         .targetType(TargetType.SUNRISE)
-                        .build(),
-                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                        .build());
         List<CandidateDisposition> dispositions = List.of(
                 new CandidateDisposition(loc.getId(), loc.getName(), date,
                         TargetType.SUNRISE, 1, DispositionCategory.EVALUATED, null),

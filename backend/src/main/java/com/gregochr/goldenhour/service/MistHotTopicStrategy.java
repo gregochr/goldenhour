@@ -20,7 +20,7 @@ import java.util.List;
  * <p>Radiation mist on a river, a lake shore or a valley floor under a clear sky is a whole genre
  * of British landscape photography, and until M1a nothing in the pipeline recorded it. Since M1a
  * {@code ValleyMistCalculator} scores the radiative set-up for every {@code mist_prone} candidate
- * inside {@code ForecastService.fetchWeatherAndTriage}, before either triage check, and
+ * inside {@code ForecastService.fetchWeatherAndTriage}, before the triage check, and
  * {@code SlotAtmosphereWriter} stores the score and its band whatever the triage verdict or Gate 4
  * decision that follows. This detector is the reader: "what is happening", free, with no Claude
  * call — the two-question rule (owner decision 2026-09-29) applied to a new subject. A weather

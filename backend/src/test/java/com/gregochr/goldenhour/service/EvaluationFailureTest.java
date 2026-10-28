@@ -73,18 +73,6 @@ class EvaluationFailureTest {
     }
 
     @Test
-    @DisplayName("only a rejected key stops the run; rate limit, overload, server error, I/O and the rest do not")
-    void stopsRun_onlyForRejectedKey() {
-        assertThat(EvaluationFailure.values()).filteredOn(EvaluationFailure::stopsRun)
-                .containsExactly(EvaluationFailure.KEY_REJECTED);
-        assertThat(EvaluationFailure.fromErrorType("anthropic_401").stopsRun()).isTrue();
-        assertThat(EvaluationFailure.fromErrorType("anthropic_403").stopsRun()).isTrue();
-        assertThat(EvaluationFailure.fromErrorType("anthropic_429").stopsRun()).isFalse();
-        assertThat(EvaluationFailure.fromErrorType("anthropic_529").stopsRun()).isFalse();
-        assertThat(EvaluationFailure.fromErrorType("anthropic_500").stopsRun()).isFalse();
-    }
-
-    @Test
     @DisplayName("errorTypeOf names an Anthropic service error by its HTTP status")
     void errorTypeOf_serviceError_isStatus() {
         assertThat(EvaluationFailure.errorTypeOf(serviceError(401, "invalid x-api-key")))
@@ -154,12 +142,11 @@ class EvaluationFailureTest {
         assertThat(kind).isEqualTo(EvaluationFailure.CIRCUIT_OPEN);
         assertThat(kind.reason())
                 .isEqualTo("Not attempted: Claude calls are paused after repeated failures. Try again in a minute.");
-        assertThat(kind.stopsRun()).isFalse();
         assertThat(EvaluationFailure.errorTypeOf(refused)).isEqualTo("circuit_open");
     }
 
     @Test
-    @DisplayName("of() maps a bulkhead refusal to its own not-attempted phrase, and it does not stop the run")
+    @DisplayName("of() maps a bulkhead refusal to its own not-attempted phrase")
     void of_bulkheadFull_isBulkheadFull() {
         Bulkhead bulkhead = Bulkhead.ofDefaults("claude");
         BulkheadFullException refused = BulkheadFullException.createBulkheadFullException(bulkhead);
@@ -168,7 +155,6 @@ class EvaluationFailureTest {
 
         assertThat(kind).isEqualTo(EvaluationFailure.BULKHEAD_FULL);
         assertThat(kind.reason()).isEqualTo("Not attempted: too many Claude calls were already waiting.");
-        assertThat(kind.stopsRun()).isFalse();
         assertThat(EvaluationFailure.errorTypeOf(refused)).isEqualTo("bulkhead_full");
     }
 
@@ -211,12 +197,8 @@ class EvaluationFailureTest {
     }
 
     @Test
-    @DisplayName("the three run-level and per-place phrases are exactly the agreed text")
+    @DisplayName("the rejected-key phrase is exactly the agreed text")
     void fixedPhrases_areExactlyTheAgreedText() {
         assertThat(EvaluationFailure.KEY_REJECTED.reason()).isEqualTo("Claude rejected the API key.");
-        assertThat(EvaluationFailure.REASON_NOT_ATTEMPTED)
-                .isEqualTo("Not attempted: the run stopped because Claude rejected the API key.");
-        assertThat(EvaluationFailure.REASON_RUN_STOPPED)
-                .isEqualTo("Claude rejected the API key. The run was stopped; no further places were attempted.");
     }
 }

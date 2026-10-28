@@ -58,17 +58,6 @@ public class ModelSelectionService {
     }
 
     /**
-     * Get the active model using the default run type (SHORT_TERM).
-     * Kept for backward compatibility with scheduled jobs.
-     *
-     * @return the active evaluation model for the SHORT_TERM config
-     */
-    @Transactional(readOnly = true)
-    public EvaluationModel getActiveModel() {
-        return getActiveModel(RunType.SHORT_TERM);
-    }
-
-    /**
      * Set the active model for a specific run type.
      *
      * @param runType which run type to update
@@ -87,18 +76,6 @@ public class ModelSelectionService {
 
         log.info("Active evaluation model for {} set to: {}", runType, model);
         return model;
-    }
-
-    /**
-     * Set the active model using the default run type (SHORT_TERM).
-     * Kept for backward compatibility.
-     *
-     * @param model the evaluation model to activate
-     * @return the newly activated model
-     */
-    @Transactional
-    public EvaluationModel setActiveModel(EvaluationModel model) {
-        return setActiveModel(RunType.SHORT_TERM, model);
     }
 
     /**

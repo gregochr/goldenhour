@@ -61,10 +61,6 @@ public sealed interface EvaluationTask
      * @param targetType  SUNRISE / SUNSET / HOURLY
      * @param model       Claude model to use
      * @param data        fully prepared atmospheric data (weather + cloud + tide + surge etc.)
-     * @param writeTarget where the engine should write the parsed result
-     *                    ({@link WriteTarget#NONE} → caller owns persistence;
-     *                    {@link WriteTarget#BRIEFING_CACHE} → engine writes
-     *                    {@code cached_evaluation} via the result handler)
      * @param promptKind  which prompt evaluates this task — {@link PromptKind#SKY} (the
      *                    colour rubric) or {@link PromptKind#BLUEBELL} (the dedicated bluebell
      *                    rubric). Selects both the prompt builder at submit time and the
@@ -99,25 +95,10 @@ public sealed interface EvaluationTask
             TargetType targetType,
             EvaluationModel model,
             AtmosphericData data,
-            WriteTarget writeTarget,
             PromptKind promptKind,
             Long evalRowId,
             boolean forced
     ) implements EvaluationTask {
-
-        /**
-         * Engine-side persistence dispatch for forecast tasks.
-         *
-         * <p>Consulted by {@link ForecastResultHandler#handleSyncResult} on the sync
-         * path. The batch path always treats results as {@link #BRIEFING_CACHE}
-         * (region-aggregated cache writes) regardless of this field.
-         */
-        public enum WriteTarget {
-            /** Engine returns parsed result; caller persists separately. */
-            NONE,
-            /** Engine writes {@code cached_evaluation} via the result handler. */
-            BRIEFING_CACHE
-        }
 
         /**
          * Which prompt evaluates a forecast task. A bluebell site in season is evaluated by the
@@ -144,11 +125,11 @@ public sealed interface EvaluationTask
          * Canonical constructor: rejects a task that could not be submitted or written back.
          *
          * <p>{@code location}, {@code date}, {@code targetType}, {@code model}, {@code data},
-         * {@code writeTarget} and {@code promptKind} must all be non-null, and the location must
+         * and {@code promptKind} must all be non-null, and the location must
          * already be persisted (non-null id) because the id is embedded in the batch custom id.
          * {@code evalRowId} is deliberately nullable and {@code forced} is a primitive.
          *
-         * @throws NullPointerException     if any of the seven required components is null
+         * @throws NullPointerException     if any of the six required components is null
          * @throws IllegalArgumentException if {@code location} has a null id
          */
         public Forecast {
@@ -161,7 +142,6 @@ public sealed interface EvaluationTask
             Objects.requireNonNull(targetType, "targetType");
             Objects.requireNonNull(model, "model");
             Objects.requireNonNull(data, "data");
-            Objects.requireNonNull(writeTarget, "writeTarget");
             Objects.requireNonNull(promptKind, "promptKind");
             // evalRowId is deliberately nullable — see the record component javadoc.
         }
@@ -180,11 +160,10 @@ public sealed interface EvaluationTask
          * @param targetType  SUNRISE / SUNSET / HOURLY
          * @param model       Claude model to use
          * @param data        fully prepared atmospheric data
-         * @param writeTarget where the engine should write the parsed result
          */
         public Forecast(LocationEntity location, LocalDate date, TargetType targetType,
-                EvaluationModel model, AtmosphericData data, WriteTarget writeTarget) {
-            this(location, date, targetType, model, data, writeTarget, PromptKind.SKY, null);
+                EvaluationModel model, AtmosphericData data) {
+            this(location, date, targetType, model, data, PromptKind.SKY, null);
         }
 
         /**
@@ -196,13 +175,12 @@ public sealed interface EvaluationTask
          * @param targetType  SUNRISE / SUNSET / HOURLY
          * @param model       Claude model to use
          * @param data        fully prepared atmospheric data
-         * @param writeTarget where the engine should write the parsed result
          * @param promptKind  which prompt evaluates this task
          */
         public Forecast(LocationEntity location, LocalDate date, TargetType targetType,
-                EvaluationModel model, AtmosphericData data, WriteTarget writeTarget,
+                EvaluationModel model, AtmosphericData data,
                 PromptKind promptKind) {
-            this(location, date, targetType, model, data, writeTarget, promptKind, null);
+            this(location, date, targetType, model, data, promptKind, null);
         }
 
         /**
@@ -217,14 +195,13 @@ public sealed interface EvaluationTask
          * @param targetType  SUNRISE / SUNSET / HOURLY
          * @param model       Claude model to use
          * @param data        fully prepared atmospheric data
-         * @param writeTarget where the engine should write the parsed result
          * @param promptKind  which prompt evaluates this task
          * @param evalRowId   primary key of the pending row this submission carries
          */
         public Forecast(LocationEntity location, LocalDate date, TargetType targetType,
-                EvaluationModel model, AtmosphericData data, WriteTarget writeTarget,
+                EvaluationModel model, AtmosphericData data,
                 PromptKind promptKind, Long evalRowId) {
-            this(location, date, targetType, model, data, writeTarget, promptKind, evalRowId,
+            this(location, date, targetType, model, data, promptKind, evalRowId,
                     false);
         }
 
@@ -283,7 +260,7 @@ public sealed interface EvaluationTask
          * viable location, so an empty list has nothing to score). {@code tonightWindow} is
          * deliberately nullable, since real-time triggers omit it.
          *
-         * @throws NullPointerException     if any of the seven required components is null
+         * @throws NullPointerException     if any of the six required components is null
          * @throws IllegalArgumentException if {@code viableLocations} is empty
          */
         public Aurora {

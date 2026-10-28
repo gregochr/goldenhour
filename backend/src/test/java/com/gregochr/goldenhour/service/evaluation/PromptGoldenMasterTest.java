@@ -45,7 +45,7 @@ import org.junit.jupiter.api.Test;
  * The surge-overload selection ({@code data.surge() != null ? buildUserMessage(data,
  * surge, ...) : buildUserMessage(data)}) is the identical ternary used in all three live
  * call sites — {@link BatchRequestFactory#buildForecastRequest}, {@code
- * EvaluationServiceImpl.evaluateNowForecast}, and {@code ClaudeEvaluationStrategy}. Only
+ * the former EvaluationServiceImpl.evaluateNowForecast}, and {@code ClaudeEvaluationStrategy}. Only
  * the genuinely-external input — the {@link AtmosphericData} forecast record — is pinned,
  * via {@link TestAtmosphericData} with fixed times and fixed weather. The builders are
  * pure functions of {@code AtmosphericData} (no clock, no randomness), so the assembled
