@@ -108,18 +108,9 @@ describe('the day header\'s topic pills stylesheet', () => {
     expect(outsidePhone).not.toContain('.wf-dtcell { grid-column: 1 / -1; }');
   });
 
-  it('shows one half of each desktop / phone pair per media query', () => {
-    for (const [desktop, short] of [['nl', 'ns'], ['vl', 'vs']]) {
-      expect(outsidePhone).toContain(`.wf-dt-${short} { display: none; }`);
-      expect(phone).toContain(`.wf-dt-${desktop} { display: none; }`);
-      expect(phone).toContain(`.wf-dt-${short} { display: inline; }`);
-      // A desktop half is never hidden outside the phone query.
-      expect(outsidePhone).not.toMatch(new RegExp(`\\.wf-dt-${desktop} \\{[^}]*display: none`));
-    }
-  });
-
-  it('hides the tag boxes on the phone only (the short value carries the cue)', () => {
-    expect(phone).toContain('.wf-dt-tags { display: none; }');
+  it('has no short-form or tag-hiding rules anywhere, so the phone shows what desktop shows', () => {
+    expect(css).not.toMatch(/\.wf-dt-(nl|ns|vl|vs)\b/);
+    expect(phone).not.toContain('.wf-dt-tags');
     expect(outsidePhone).not.toMatch(/\.wf-dt-tags \{[^}]*display: none/);
   });
 
