@@ -150,7 +150,7 @@ public class EvaluationServiceImpl implements EvaluationService {
         java.util.Objects.requireNonNull(trigger, "trigger");
 
         return switch (task) {
-            case EvaluationTask.Forecast forecast -> throw new UnsupportedOperationException(
+            case EvaluationTask.Forecast _ -> throw new UnsupportedOperationException(
                     "forecasts evaluate through the batch path only");
             case EvaluationTask.Aurora aurora -> evaluateNowAurora(aurora, trigger);
         };

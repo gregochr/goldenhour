@@ -48,6 +48,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -163,6 +164,14 @@ class SyncFailureApiCallLogTest {
                 List.of(loc), Map.of(loc, 30), SPACE_WEATHER, TriggerType.REALTIME, null);
     }
 
+    /** Binds the prompt-builder stub to exactly this task's data, so wrong forwarding fails the test. */
+    private void stubUserMessage(EvaluationTask.Aurora task) {
+        when(claudeAuroraInterpreter.buildUserMessage(
+                eq(task.alertLevel()), eq(task.viableLocations()), eq(task.cloudByLocation()),
+                eq(task.spaceWeather()), eq(task.triggerType()), isNull()))
+                .thenReturn("user-message");
+    }
+
     private JobRunEntity stubJobRun(RunType runType) {
         JobRunEntity jobRun = new JobRunEntity();
         jobRun.setId(JOB_RUN_ID);
@@ -176,12 +185,12 @@ class SyncFailureApiCallLogTest {
     @DisplayName("aurora: a 401 is logged with status 401 and error type anthropic_401 as well")
     void aurora_rejectedKey_logsItsStatusAndType() {
         stubJobRun(RunType.AURORA_EVALUATION);
-        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
-                .thenReturn("user-message");
+        EvaluationTask.Aurora task = auroraTask();
+        stubUserMessage(task);
         AnthropicServiceException rejected = serviceError(401, "invalid x-api-key");
         when(anthropicApiClient.createMessage(anyRequest())).thenThrow(rejected);
 
-        EvaluationResult result = service.evaluateNow(auroraTask(), BatchTriggerSource.SCHEDULED);
+        EvaluationResult result = service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
 
         assertThat(result).isInstanceOf(EvaluationResult.Errored.class);
         verify(jobRunService).logAnthropicApiCall(
@@ -196,11 +205,11 @@ class SyncFailureApiCallLogTest {
     @DisplayName("aurora: a connection failure is logged with a null status and the I/O exception name")
     void aurora_connectionFailure_logsNullStatus() {
         stubJobRun(RunType.AURORA_EVALUATION);
-        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
-                .thenReturn("user-message");
+        EvaluationTask.Aurora task = auroraTask();
+        stubUserMessage(task);
         when(anthropicApiClient.createMessage(anyRequest())).thenThrow(new AnthropicIoException("timed out"));
 
-        service.evaluateNow(auroraTask(), BatchTriggerSource.SCHEDULED);
+        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
 
         verify(jobRunService).logAnthropicApiCall(
                 eq(JOB_RUN_ID), duration.capture(), eq(null),
@@ -214,14 +223,14 @@ class SyncFailureApiCallLogTest {
     @DisplayName("aurora: a call the circuit breaker refused is logged with a null status and circuit_open")
     void aurora_openBreaker_logsNullStatus() {
         stubJobRun(RunType.AURORA_EVALUATION);
-        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
-                .thenReturn("user-message");
+        EvaluationTask.Aurora task = auroraTask();
+        stubUserMessage(task);
         CircuitBreaker breaker = CircuitBreaker.ofDefaults("anthropic");
         breaker.transitionToOpenState();
         CallNotPermittedException refused = CallNotPermittedException.createCallNotPermittedException(breaker);
         when(anthropicApiClient.createMessage(anyRequest())).thenThrow(refused);
 
-        service.evaluateNow(auroraTask(), BatchTriggerSource.SCHEDULED);
+        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
 
         verify(jobRunService).logAnthropicApiCall(
                 eq(JOB_RUN_ID), duration.capture(), eq(null),
