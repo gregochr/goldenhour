@@ -242,7 +242,7 @@ const MapLabels = lazy(() => import('./map/MapLabels.jsx'));
  * pads a region's own, generally tighter box more generously than the wider area/catalogue box needs.
  */
 function HeatBoundsController({
-  bounds, nonce, padding = [28, 28], onProgrammaticMove = undefined,
+  bounds, nonce, padding = [28, 28], onProgrammaticMove = undefined, active = true,
 }) {
   const map = useMap();
   /**
@@ -266,17 +266,22 @@ function HeatBoundsController({
       return;
     }
     if (applied.current === key) return;
+    // Hidden pane: Leaflet holds a cached 0x0 size, so a fit now would clamp to the map's maxZoom. Leave
+    // `applied` alone so the change replays once `active` turns true.
+    if (!active) return;
     applied.current = key;
     if (!bounds || typeof map?.fitBounds !== 'function') return;
     // A programmatic move: the tide upsell's map-move close must not read its zoom as a hand's.
     onProgrammaticMove?.();
+    // Re-measure first (see `FitBoundsController`); the optional call keeps size-less test maps working.
+    map.invalidateSize?.({ animate: false });
     map.fitBounds(bounds, { padding, animate: false });
     // Keyed on the composed value, not on the bounds ARRAY identity, which is rebuilt on every poll.
     // `padding` is deliberately NOT a dependency either: it always changes in lockstep with `bounds`
     // (both are derived from the SAME `jumpFitOverride` presence one level up), so the closure read
     // here is never stale at the moment `key` actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, active]);
   return null;
 }
 
@@ -285,6 +290,7 @@ HeatBoundsController.propTypes = {
   nonce: PropTypes.number,
   padding: PropTypes.arrayOf(PropTypes.number),
   onProgrammaticMove: PropTypes.func,
+  active: PropTypes.bool,
 };
 
 
@@ -805,34 +811,53 @@ MapSizeSync.propTypes = {
 
 /**
  * Programmatically flies the map to a target lat/lon when `target` changes.
+ *
+ * <p>`active` is the shell showing this pane (`panelShown`): the pane is only hidden between visits, so
+ * Leaflet keeps a cached 0x0 size and a move made now computes against it. A target set while hidden is
+ * held and flies once, on becoming active. `invalidateSize` may pan from that stale size; harmless, the
+ * absolute fly that follows overrides it.
  */
-function FlyToController({ target }) {
+function FlyToController({ target, active = true, onProgrammaticMove = undefined }) {
   const map = useMap();
+  const applied = useRef(null);
   useEffect(() => {
-    if (target) {
-      map.flyTo([target.lat, target.lon], Math.max(map.getZoom(), 11));
-    }
-  }, [target, map]);
+    if (!active || !target || applied.current === target) return;
+    applied.current = target;
+    onProgrammaticMove?.();
+    map.invalidateSize?.({ animate: false });
+    map.flyTo([target.lat, target.lon], Math.max(map.getZoom(), 11));
+    // `onProgrammaticMove` is a fresh closure each render; the applied ref is the once-only guard.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, map, active]);
   return null;
 }
 
 FlyToController.propTypes = {
   target: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
+  active: PropTypes.bool,
+  onProgrammaticMove: PropTypes.func,
 };
 
 /**
  * Fits the map to a region's locations when handed off from a Plan-tab bet card.
  * The {@code key} (a monotonic nonce) lets the same region re-fit on repeat taps.
  */
-function FitBoundsController({ target }) {
+function FitBoundsController({ target, active = true, onProgrammaticMove = undefined }) {
   const map = useMap();
+  const appliedKey = useRef(null);
   useEffect(() => {
-    if (target?.points?.length) {
-      map.fitBounds(L.latLngBounds(target.points), { padding: [60, 60], maxZoom: 12, animate: true });
-    }
-    // Only re-fit when the handoff key changes, not on every render.
+    // `active` is `panelShown`. A fit on a hidden pane reads Leaflet's cached 0x0 size, whose zoom is NaN,
+    // then Infinity, then clamped to `maxZoom` (12): the door landed zoomed right in. So hold the target
+    // until the pane shows, and re-measure right before fitting. `invalidateSize` may pan from the stale
+    // size; harmless, the absolute fit that follows overrides it.
+    if (!active || !target?.points?.length || target.key === appliedKey.current) return;
+    appliedKey.current = target.key;
+    onProgrammaticMove?.();
+    map.invalidateSize?.({ animate: false });
+    map.fitBounds(L.latLngBounds(target.points), { padding: [60, 60], maxZoom: 12, animate: true });
+    // Only re-fit when the handoff key changes (or the pane shows), not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.key]);
+  }, [target?.key, active]);
   return null;
 }
 
@@ -841,6 +866,8 @@ FitBoundsController.propTypes = {
     points: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
     key: PropTypes.string,
   }),
+  active: PropTypes.bool,
+  onProgrammaticMove: PropTypes.func,
 };
 
 /**
@@ -4067,14 +4094,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isMobile) setOpenMapMenu((cur) => (cur === 'tideUpsell' ? null : cur));
   }, [isMobile]);
-  // The map's own fly-to and fit-bounds are programmatic moves: stamp them before the controllers' passive
-  // effects run, so the upsell's map-move close can tell their zoom from a hand's.
+  // The map's own fly-to and fit-bounds are programmatic moves: each camera controller stamps right before it
+  // moves (a move held while the pane is hidden fires later, so stamping when the target is set would expire
+  // first), so the upsell's map-move close can tell their zoom from a hand's.
   function stampOwnCameraMove() {
     ownCameraMoveRef.current = Date.now() + TIDE_UPSELL_OWN_MOVE_MS;
   }
-  useLayoutEffect(() => {
-    if (flyTarget || fitBoundsTarget) stampOwnCameraMove();
-  }, [flyTarget, fitBoundsTarget]);
 
   /**
    * The teaser went away (a window change, no coast in view, or the strip unmounting): an open upsell goes
@@ -6574,6 +6599,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             nonce={heatBoundsNonce}
             padding={heatBoundsPadding}
             onProgrammaticMove={stampOwnCameraMove}
+            active={panelShown}
           />
           {/* CARTO's basemaps.cartocdn.com dark_all tiles now require a registered API key
               (https://carto.com/basemaps/apikey) — anonymous requests render an
@@ -6665,8 +6691,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             ownMoveUntil={tideUpsellMoveClocks}
           />
           <MapSizeSync trigger={resizeNonce} />
-          <FlyToController target={flyTarget} />
-          <FitBoundsController target={fitBoundsTarget} />
+          {/* Door cameras hold while the Map pane is hidden (`panelShown`, not `paneVisible`: only the former
+              tracks the 0x0 box; the latter also folds in window focus and modals). Mount order is
+              load-bearing: when several held moves release in the same commit their effects run in this
+              order (heat bounds, fly, fit), so the door's fit lands last and wins. */}
+          <FlyToController target={flyTarget} active={panelShown} onProgrammaticMove={stampOwnCameraMove} />
+          <FitBoundsController target={fitBoundsTarget} active={panelShown} onProgrammaticMove={stampOwnCameraMove} />
           {/* Ask PhotoCast's camera (F3): fits the picks once per answer and flies to a chosen one.
               `active` is the pane's own "is this on screen with nothing modal over it"
               (`paneVisible`), which is what holds the fit while the tablet's Ask sheet stands over

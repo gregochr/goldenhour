@@ -49,7 +49,7 @@ describe('MapLegendPanel — the ground key (thin-sample plan F4)', () => {
 });
 
 describe('MapLegendPanel — the stand-down key (big-seas plan F3)', () => {
-  it('names the hatch with a 20x9 swatch while a stand-down is drawn', () => {
+  it('names the hatch with the shared 26x13 swatch while a stand-down is drawn', () => {
     render(<MapLegendPanel {...baseProps({ open: true })} stoodKey />);
     const key = screen.getByTestId('wf-legend-standdown');
     expect(key).toHaveTextContent('ruled out by the weather, cause named on the ground');
