@@ -12,6 +12,8 @@ import WindowPickDialog from './WindowPickDialog.jsx';
 import WindowSpotSheet from './WindowSpotSheet.jsx';
 import AskBar from './ask/AskBar.jsx';
 import { ASK_DOCK_ID, ASK_SHEET_LABEL } from './ask/askIds.js';
+import ChunkErrorBoundary from './shared/ChunkErrorBoundary.jsx';
+import { warmSettingsModal } from '../utils/settingsModalChunk.js';
 import AskField from './ask/AskField.jsx';
 import AskUpsellPopover from './ask/AskUpsell.jsx';
 import { useAsk } from '../context/AskContext.jsx';
@@ -116,6 +118,7 @@ const AskSheet = lazy(() => import('./ask/AskSheet.jsx'));
 function AskDockFallback({ band, sticky }) {
   return (
     <aside
+      id={ASK_DOCK_ID}
       aria-hidden="true"
       inert
       data-testid="ask-dock-fallback"
@@ -2385,6 +2388,8 @@ export default function WindowFirstShell({
             <button
               type="button"
               onClick={() => { selectTab(effectiveTab); onOpenSettings?.(); }}
+              onPointerEnter={warmSettingsModal}
+              onFocus={warmSettingsModal}
               data-testid="window-first-settings"
               aria-label="Settings"
               className="font-mono border border-plex-border text-plex-text-muted hover:text-plex-text hover:border-plex-border-light transition-colors"
@@ -2974,6 +2979,7 @@ export default function WindowFirstShell({
           frame's own height and the map pane's `ResizeObserver` tells Leaflet about its new width;
           on Plan and Coming up it sticks to the viewport with the input row at its foot. */}
       {askDockShown && (
+        <ChunkErrorBoundary variant="inline" label="Ask PhotoCast" id={ASK_DOCK_ID} onClose={closeAskDock}>
         <Suspense fallback={<AskDockFallback band={askSurface} sticky={effectiveTab !== 'map'} />}>
         <AskDock
           band={askSurface}
@@ -2989,6 +2995,7 @@ export default function WindowFirstShell({
           planActions={askPlanActions}
         />
         </Suspense>
+        </ChunkErrorBoundary>
       )}
 
       {/* Ask PhotoCast. The phone's bar is `position: fixed` and sits BELOW every `Modal` (z-50) and
@@ -3023,6 +3030,7 @@ export default function WindowFirstShell({
           long as an entry exists, as it always has, so closing restores focus through the same instance.
           Its fallback is null: the sheet is an overlay, so nothing in the page moves while it loads. */}
       {askEntry !== null && (askSheetShown || askSheetLoaded) && (
+        <ChunkErrorBoundary variant="overlay" label="Ask PhotoCast" onClose={closeAskSheet}>
         <Suspense fallback={null}>
           <AskSheet
             open={askSheetShown}
@@ -3034,6 +3042,7 @@ export default function WindowFirstShell({
             restoreFallback={askRestoreFallback}
           />
         </Suspense>
+        </ChunkErrorBoundary>
       )}
 
       {/* The window popup — the plan's drill-down, over the plan rather than inside it.

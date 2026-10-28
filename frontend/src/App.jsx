@@ -33,6 +33,8 @@ import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContex
 import { AskProvider } from './context/AskContext.jsx';
 import { takeLinkToken } from './utils/oneTimeLinkToken.js';
 import { takeInviteToken } from './utils/inviteLinkToken.js';
+import ChunkErrorBoundary from './components/shared/ChunkErrorBoundary.jsx';
+import { loadSettingsModal, warmSettingsModal } from './utils/settingsModalChunk.js';
 
 // Code-split the heavy subtrees so they stay out of the initial bundle: the Leaflet map stack and
 // the admin-only Manage view (which also pulls in recharts). They load on demand behind the
@@ -60,7 +62,27 @@ const ResetPasswordPage = lazy(() => authPages().then((m) => ({ default: m.Reset
 // The fallback is null: the dialog is an overlay, so nothing on the page moves while it loads, and
 // `settingsOpen` has already told the shell to take its own dialogs down, so the dialog rules hold
 // whether or not the chunk has arrived.
-const UserSettingsModal = lazy(() => import('./components/UserSettingsModal.jsx'));
+const UserSettingsModal = lazy(loadSettingsModal);
+
+/**
+ * Stand-in for the settings dialog while its chunk loads. It is a dialog on purpose: the shell's
+ * foreign-dialog checks and the Map's Escape and outside-press rules all look for
+ * `[role="dialog"][aria-modal="true"]`, so a bare null fallback would leave a window in which a Plan
+ * popup or search could open over settings (a third stacked modal), Ask would not refuse, and the Map
+ * would close its callout. It must NOT take focus: the real dialog's `useDialogFocus` records the
+ * opener when it mounts.
+ */
+function SettingsFallback() {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings"
+      data-testid="settings-fallback"
+      className="fixed inset-0 z-50 app-scrim"
+    />
+  );
+}
 
 /** Page-sized stand-in for an auth page while its chunk loads: same full-height box, no content. */
 function AuthFallback() {
@@ -74,7 +96,11 @@ function AuthFallback() {
  * @param {React.ReactNode} props.children the lazy page
  */
 function AuthSuspense({ children }) {
-  return <Suspense fallback={<AuthFallback />}>{children}</Suspense>;
+  return (
+    <ChunkErrorBoundary variant="page" label="The sign-in page">
+      <Suspense fallback={<AuthFallback />}>{children}</Suspense>
+    </ChunkErrorBoundary>
+  );
 }
 
 AuthSuspense.propTypes = { children: PropTypes.node.isRequired };
@@ -319,6 +345,8 @@ function AppInner() {
   // Defer the long-lived health-status SSE stream until after first paint so it doesn't compete with
   // the critical forecast/briefing fetches during boot.
   const streamsReady = useAfterFirstPaint();
+  // The settings dialog's chunk, fetched once the page is idle so opening it is usually instant.
+  useEffect(() => { if (streamsReady) warmSettingsModal(); }, [streamsReady]);
   const {
     status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt,
     build: healthBuild, services: healthServices, database: healthDatabase,
@@ -1095,7 +1123,16 @@ function AppInner() {
       )}
 
       {settingsOpen && (
-        <Suspense fallback={null}>
+        <ChunkErrorBoundary
+          variant="overlay"
+          label="Settings"
+          onClose={() => {
+            setShowSettings(false);
+            setSettingsFocus(null);
+            setSettingsReturnFocus(null);
+          }}
+        >
+        <Suspense fallback={<SettingsFallback />}>
         <UserSettingsModal
           focusField={settingsFocus}
           restoreFocusFallback={settingsReturnFocus}
@@ -1120,6 +1157,7 @@ function AppInner() {
           onSubRegionsSaved={handleSubRegionsSaved}
         />
         </Suspense>
+        </ChunkErrorBoundary>
       )}
 
       {/* The zero-picks prompt (sub-regions-plan §4.1): a Lite reader with enforcement on and no picks.
