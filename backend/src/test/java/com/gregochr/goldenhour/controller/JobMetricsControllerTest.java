@@ -49,7 +49,7 @@ class JobMetricsControllerTest extends AbstractControllerTest {
     void getJobRuns_returnsJobRunsForAdmin() throws Exception {
         JobRunEntity run = JobRunEntity.builder()
                 .id(1L)
-                .runType(RunType.SHORT_TERM)
+                .runType(RunType.SCHEDULED_BATCH)
                 .startedAt(LocalDateTime.now())
                 .succeeded(10)
                 .failed(0)
@@ -59,7 +59,7 @@ class JobMetricsControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/metrics/job-runs")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].runType").value("SHORT_TERM"))
+                .andExpect(jsonPath("$.content[0].runType").value("SCHEDULED_BATCH"))
                 .andExpect(jsonPath("$.content[0].succeeded").value(10));
     }
 

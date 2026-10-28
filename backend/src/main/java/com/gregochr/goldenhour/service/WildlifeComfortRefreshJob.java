@@ -24,6 +24,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.IntStream;
 
 /**
  * Refreshes the hourly comfort forecast (temperature, feels-like, wind, rain between sunrise and
@@ -134,7 +135,9 @@ public class WildlifeComfortRefreshJob {
 
     private void doRun(boolean manual) {
         LocalDate today = ForecastHorizon.today(clock);
-        List<LocalDate> dates = RunType.WEATHER.defaultDateRange(today);
+        List<LocalDate> dates = IntStream.rangeClosed(0, RunType.FORECAST_HORIZON_DAYS)
+                .mapToObj(today::plusDays)
+                .toList();
         List<LocationEntity> hides = locationService.findAllEnabled().stream()
                 .filter(LocationEntity::isWildlifeOnly)
                 .toList();

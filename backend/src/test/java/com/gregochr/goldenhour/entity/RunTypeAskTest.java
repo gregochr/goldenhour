@@ -5,7 +5,6 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.time.LocalDate;
 import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,17 +22,6 @@ class RunTypeAskTest {
         assertThat(length).isEqualTo(20);
         assertThat(Arrays.asList(RunType.ASK, RunType.ASK_READY)).allSatisfy(
                 type -> assertThat(type.name().length()).isLessThanOrEqualTo(length));
-    }
-
-    @Test
-    @DisplayName("the default date range is the six-day window like every other non-forecast run type")
-    void defaultDateRange() {
-        LocalDate today = LocalDate.of(2026, 10, 5);
-
-        for (RunType type : new RunType[] {RunType.ASK, RunType.ASK_READY}) {
-            assertThat(type.defaultDateRange(today)).as(type.name()).hasSize(RunType.FORECAST_HORIZON_DAYS + 1)
-                    .startsWith(today).endsWith(today.plusDays(RunType.FORECAST_HORIZON_DAYS));
-        }
     }
 
     @Test

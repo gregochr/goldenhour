@@ -518,29 +518,12 @@ class RunProgressTrackerTest {
     }
 
     // -------------------------------------------------------------------------
-    // Stopping a run on a rejected key, and the retryable flag
+    // The run-complete payload carries no retry fields (the retry feature is gone)
     // -------------------------------------------------------------------------
 
-    private static final String RUN_STOPPED =
-            "Claude rejected the API key. The run was stopped; no further places were attempted.";
-
     @Test
-    @DisplayName("every run-complete payload carries retryable: true, live and replayed, unless the run was stopped")
-    void completeRun_normal_isRetryable() {
-        RunProgressTracker t = recordingTracker();
-        startRunWithOneFailure(t);
-        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
-
-        t.completeRun(7L);
-        RecordingEmitter late = (RecordingEmitter) t.subscribe(7L);
-
-        assertThat(eventNamed(live, "run-complete")).contains("\"retryable\":true");
-        assertThat(eventNamed(late, "run-complete")).contains("\"retryable\":true");
-    }
-
-    @Test
-    @DisplayName("a light-pollution run with a failed place completes with retryable: false and LIGHT_POLLUTION")
-    void completeRun_bortleFailure_isNotRetryable() {
+    @DisplayName("the run-complete payload, live and replayed, names its failed places and carries no retry fields")
+    void completeRun_payloadHasNoRetryFields() {
         RunProgressTracker t = recordingTracker();
         t.initRun(9L, tasks(new String[]{"Hill|BORTLE", "Hill", "–", "BORTLE"}));
         t.onTaskEvent(new LocationTaskEvent(this, 9L, "Hill|BORTLE", "Hill", "–", "BORTLE",
@@ -548,9 +531,12 @@ class RunProgressTrackerTest {
         RecordingEmitter live = (RecordingEmitter) t.subscribe(9L);
 
         t.completeRun(9L);
+        RecordingEmitter late = (RecordingEmitter) t.subscribe(9L);
 
-        assertThat(eventNamed(live, "run-complete")).contains("\"retryable\":false")
-                .contains("\"retryBlockedReason\":\"LIGHT_POLLUTION\"").contains("\"failed\":1");
+        assertThat(eventNamed(live, "run-complete")).contains("\"failed\":1")
+                .doesNotContain("retryable").doesNotContain("retryBlockedReason");
+        assertThat(eventNamed(late, "run-complete")).doesNotContain("retryable")
+                .doesNotContain("retryBlockedReason");
     }
 
     @Test

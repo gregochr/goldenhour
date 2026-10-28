@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 
 /**
  * Stores the active evaluation model and extended-thinking flag for a specific run type.
- * One row per forecast run type (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM).
+ * One row per configurable run type (see {@code ModelSelectionService}).
  */
 @Entity
 @Table(name = "model_selection")

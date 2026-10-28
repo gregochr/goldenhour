@@ -94,9 +94,9 @@ export function locationTypeLabel(type) {
 /**
  * Whether a location may be sent to the SKY prompt (the sunrise/sunset colour forecast).
  *
- * <p>Mirrors `LocationEntity.hasColourTypes()`, the gate `ForecastCommandExecutor`,
- * `ForceSubmitBatchService`, `ModelTestService` and `PromptTestService` all filter on — including
- * its rule that an untyped location counts.
+ * <p>Mirrors `LocationEntity.hasColourTypes()`, the gate `ForceSubmitBatchService` and
+ * `ModelTestService` filter on (the synchronous engine and the Prompt Test harness did too, before
+ * they were deleted) — including its rule that an untyped location counts.
  *
  * <p>Not interchangeable with the briefing's own candidacy test: "may this go to the sky prompt?"
  * and "is this a candidate for the briefing?" have different answers for a wood, and conflating
@@ -137,7 +137,7 @@ export function subjectWordsOf(types) {
  *
  * <p>The client definition for "which places get a comfort forecast". It was written out as `types.length > 0 && types.every((t) => t ===
  * 'WILDLIFE')` in three places in `MapView.jsx` (the marker's colour, the stand-down exemption, the
- * rating floor's exemption) and once in `PromptTestView`, and it now also decides which locations
+ * rating floor's exemption) and once in the since-deleted `PromptTestView`, and it now also decides which locations
  * get a comfort forecast in place of a sky verdict (`MapCallout`, `LocationFourDaySheet`). It
  * matches the backend's `LocationEntity.isWildlifeOnly()`, the predicate the hourly comfort job
  * selects on: a hide that is ALSO a landscape or seascape is a sky location and is not matched.

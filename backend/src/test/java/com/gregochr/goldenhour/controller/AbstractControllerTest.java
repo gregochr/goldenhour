@@ -35,7 +35,6 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.ModelTestService;
 import com.gregochr.goldenhour.service.NlcSightingService;
 import com.gregochr.goldenhour.service.PasswordResetService;
-import com.gregochr.goldenhour.service.PromptTestService;
 import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.RegionDriveDurationService;
 import com.gregochr.goldenhour.service.RegionService;
@@ -179,9 +178,6 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected com.gregochr.goldenhour.service.pipeline.PipelineRunComparisonService
             pipelineRunComparisonService;
-
-    @MockitoBean
-    protected PromptTestService promptTestService;
 
     @MockitoBean
     protected com.gregochr.goldenhour.service.SkyRatingEvalService skyRatingEvalService;

@@ -42,9 +42,6 @@ vi.mock('../components/ModelTestView.jsx', () => ({
 vi.mock('../components/BriefingModelTestView.jsx', () => ({
   default: () => <div>Briefing Model Test</div>,
 }));
-vi.mock('../components/PromptTestView.jsx', () => ({
-  default: () => <div>Prompt Test</div>,
-}));
 vi.mock('../components/SchedulerView.jsx', () => ({
   default: () => <div>Scheduler</div>,
 }));

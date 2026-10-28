@@ -70,7 +70,7 @@ public class JobMetricsController {
      * sensible reading of either. An oversized {@code size} is clamped to {@value #MAX_PAGE_SIZE}
      * rather than rejected, so an over-eager UI still gets its data.
      *
-     * @param runType the run type filter (optional; e.g. VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE)
+     * @param runType the run type filter (optional; e.g. SCHEDULED_BATCH, BRIEFING, WEATHER, TIDE)
      * @param page    the page index (default 0, must be &gt;= 0)
      * @param size    the page size (default 20, clamped to {@value #MAX_PAGE_SIZE})
      * @return a page of job runs, or 400 for an unusable page index / size

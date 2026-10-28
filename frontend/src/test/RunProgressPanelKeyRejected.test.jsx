@@ -7,7 +7,7 @@ import {
 } from './runProgressFixtures.js';
 
 // A run whose Claude API key is rejected stops: the places not yet evaluated are not attempted and
-// the server says so in the completion payload (`reason`, `retryable: false`). The panel keeps the
+// the server says so in the completion payload (`reason`). The panel keeps the
 // run on screen with the reason and the per-place phrases, and offers only Dismiss.
 
 vi.mock('../api/runProgressApi', () => ({
@@ -42,7 +42,7 @@ describe('RunProgressPanel for a run stopped on a rejected API key', () => {
   it('nothing triaged, nothing completed (status FAILED): no Retry control, the run reason and Dismiss', async () => {
     const handlers = renderPanel();
 
-    await playRun(5, KEY_REJECTED_NOTHING_TRIAGED, { reason: KEY_REJECTED_RUN, retryable: false });
+    await playRun(5, KEY_REJECTED_NOTHING_TRIAGED, { reason: KEY_REJECTED_RUN });
 
     expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
     expect(screen.getByTestId('run-progress-reason')).toHaveTextContent(KEY_REJECTED_RUN);
@@ -53,7 +53,7 @@ describe('RunProgressPanel for a run stopped on a rejected API key', () => {
   it('nothing triaged: renders the per-place phrases: the place that hit the rejection and those never attempted', async () => {
     renderPanel();
 
-    await playRun(5, KEY_REJECTED_NOTHING_TRIAGED, { reason: KEY_REJECTED_RUN, retryable: false });
+    await playRun(5, KEY_REJECTED_NOTHING_TRIAGED, { reason: KEY_REJECTED_RUN });
 
     const rows = screen.getAllByTestId('run-progress-row');
     expect(rows).toHaveLength(3);
@@ -68,7 +68,7 @@ describe('RunProgressPanel for a run stopped on a rejected API key', () => {
   it('nothing triaged, nothing completed: the header reads (Failed) and nothing is counted complete', async () => {
     renderPanel();
 
-    await playRun(5, KEY_REJECTED_NOTHING_TRIAGED, { reason: KEY_REJECTED_RUN, retryable: false });
+    await playRun(5, KEY_REJECTED_NOTHING_TRIAGED, { reason: KEY_REJECTED_RUN });
 
     expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Failed)');
     expect(screen.getByTestId('run-progress-status')).not.toHaveTextContent('Stopped');
@@ -79,7 +79,7 @@ describe('RunProgressPanel for a run stopped on a rejected API key', () => {
   it('a run stopped after a place had completed is kept, reads (Stopped early) and shows no Retry', async () => {
     renderPanel();
 
-    await playRun(5, KEY_REJECTED_AFTER_ONE, { reason: KEY_REJECTED_RUN, retryable: false });
+    await playRun(5, KEY_REJECTED_AFTER_ONE, { reason: KEY_REJECTED_RUN });
 
     expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Stopped early)');
     expect(screen.getByText('1 complete')).toBeInTheDocument();
@@ -88,7 +88,7 @@ describe('RunProgressPanel for a run stopped on a rejected API key', () => {
   });
 
   describe('the shape production sends: places triaged, so the status is PARTIAL rather than FAILED', () => {
-    const playReal = () => playRun(5, KEY_REJECTED_TRIAGED, { reason: KEY_REJECTED_RUN, retryable: false });
+    const playReal = () => playRun(5, KEY_REJECTED_TRIAGED, { reason: KEY_REJECTED_RUN });
 
     it('reads (Stopped early), not (Complete) or (Failed)', async () => {
       renderPanel();

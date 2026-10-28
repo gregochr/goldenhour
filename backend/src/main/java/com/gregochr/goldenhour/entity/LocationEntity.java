@@ -326,7 +326,7 @@ public class LocationEntity {
      * <p>Lives here beside {@link #supportsTargetType} because it is a fact about the location,
      * not about any one caller. It previously existed as four copies — in
      * the synchronous forecast executor (since deleted), {@code ModelTestService},
-     * {@code PromptTestService} and inline in {@code ForceSubmitBatchService} — which had already
+     * the (since deleted) prompt-test service and inline in {@code ForceSubmitBatchService} — which had already
      * drifted: only the inline copy null-guarded the type set. That guard is kept here (it is
      * unreachable while the field defaults to an empty set, but the union of the previous
      * behaviours is what every caller keeps).
@@ -338,9 +338,9 @@ public class LocationEntity {
             return true;
         }
         // WOODLAND is deliberately ABSENT. This predicate is the shared gate for the SKY prompt —
-        // ForceSubmitBatchService, ModelTestService and PromptTestService (and, before it was
-        // deleted, the synchronous forecast executor) all filter on it — and a location under a
-        // canopy has no sky to forecast. #347 added
+        // ForceSubmitBatchService and ModelTestService (and, before they were deleted, the
+        // synchronous forecast executor and the prompt-test harness) all filter on it — and a
+        // location under a canopy has no sky to forecast. #347 added
         // WOODLAND here, which silently undid V132: those woods had been removed from the sky lane
         // by losing LANDSCAPE, and this put them straight back, so every engine would have sent
         // them to the fiery-sky prompt on clear mornings. That is the opposite of what #347's own

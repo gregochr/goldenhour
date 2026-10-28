@@ -659,7 +659,7 @@ a 14-hour December night with only the five hours its scoring assertions needed.
 
 - **`OptimisationSkipEvaluator`'s FORCE_STALE** — see above. Both sides of that comparison are UTC
   and must stay on one calendar together.
-- **`PromptTestService.resolveDates`** — the admin prompt-test harness still anchors its range on
+- **`PromptTestService.resolveDates`** (RESOLVED by deletion: the harness was removed in sync-engine retirement Phase 3) — the admin prompt-test harness still anchors its range on
   UTC, so `PromptTestServiceTest`'s note that the harness "sweeps exactly production's range" is a
   day out for that one hour. It was converted during this change and then **reverted**: the same
   class decides which target types a date still has in `resolveTargetTypesForDate`, whose day comes
