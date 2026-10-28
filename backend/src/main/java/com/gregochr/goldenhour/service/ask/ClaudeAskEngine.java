@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.ask;
 import com.anthropic.core.JsonValue;
 import com.anthropic.core.RequestOptions;
 import com.anthropic.errors.AnthropicServiceException;
+import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.ContentBlockParam;
 import com.anthropic.models.messages.Message;
@@ -217,9 +218,9 @@ public class ClaudeAskEngine implements AskEngine {
         AskSnapshot.Night contextNight = question.windowId() == null ? null
                 : snapshot.nights().night(question.windowId())
                         .filter(n -> n.kind() != AskWindowKind.AURORA || user.canSeeAurora()).orElse(null);
-        String system = promptBuilder.systemPrompt(snapshot.today(), conversation.scope(), contextWindow,
-                contextNight, snapshot.nights().tonight(), user.hasUser(), !thread.isEmpty(),
-                coveredWindows(conversation));
+        AskPromptBuilder.SystemPrompt system = promptBuilder.systemPromptBlocks(snapshot.today(),
+                conversation.scope(), contextWindow, contextNight, snapshot.nights().tonight(), user.hasUser(),
+                !thread.isEmpty(), coveredWindows(conversation));
         // Built once: re-joining the thread reads the asker's drive times and, for a place that has left
         // the forecast, one query for names, neither of which should repeat each turn.
         String userMessage = promptBuilder.userMessage(question.sanitised(), thread);
@@ -316,13 +317,18 @@ public class ClaudeAskEngine implements AskEngine {
      * permitted turn the first turn is the last: no tool result exists to carry the line, and the
      * forced call alone is the whole request.
      */
-    private MessageCreateParams buildParams(EvaluationModel model, String system, List<Tool> tools,
-            String userMessage, List<Message> assistantTurns, List<List<ContentBlockParam>> results,
-            boolean lastTurn) {
+    private MessageCreateParams buildParams(EvaluationModel model, AskPromptBuilder.SystemPrompt system,
+            List<Tool> tools, String userMessage, List<Message> assistantTurns,
+            List<List<ContentBlockParam>> results, boolean lastTurn) {
         MessageCreateParams.Builder builder = MessageCreateParams.builder()
                 .model(model.getModelId())
                 .maxTokens(ModelRequestSupport.maxTokens(model, properties.getMaxTokens()))
-                .systemOfTextBlockParams(List.of(TextBlockParam.builder().text(system).build()))
+                .systemOfTextBlockParams(List.of(
+                        // Tools render before the system prompt, so this breakpoint caches both. The tail
+                        // after it changes per question and carries none.
+                        TextBlockParam.builder().text(system.staticPart())
+                                .cacheControl(CacheControlEphemeral.builder().build()).build(),
+                        TextBlockParam.builder().text(system.dynamicPart()).build()))
                 .addUserMessage(userMessage);
         if (lastTurn) {
             builder.toolChoice(ToolChoiceTool.builder().name(AskToolSchemas.SUBMIT_ANSWER).build());
@@ -342,9 +348,30 @@ public class ClaudeAskEngine implements AskEngine {
                 blocks = new ArrayList<>(blocks);
                 blocks.add(ContentBlockParam.ofText(TextBlockParam.builder().text(LAST_TURN_LINE).build()));
             }
+            if (i == completedTurns - 1) {
+                // The rolling breakpoint: only the latest tool-result message carries one (every request is
+                // rebuilt from scratch, so an earlier turn's mark is never carried forward), which with the
+                // static system block makes two breakpoints, under the limit of four.
+                blocks = withBreakpointOnLast(blocks);
+            }
             builder.addUserMessageOfBlockParams(blocks);
         }
         return builder.build();
+    }
+
+    /** The blocks with a cache breakpoint on the last one (a tool result or the last-turn text line). */
+    private static List<ContentBlockParam> withBreakpointOnLast(List<ContentBlockParam> blocks) {
+        List<ContentBlockParam> marked = new ArrayList<>(blocks);
+        int last = marked.size() - 1;
+        ContentBlockParam block = marked.get(last);
+        CacheControlEphemeral control = CacheControlEphemeral.builder().build();
+        if (block.isToolResult()) {
+            marked.set(last, ContentBlockParam.ofToolResult(
+                    block.asToolResult().toBuilder().cacheControl(control).build()));
+        } else if (block.isText()) {
+            marked.set(last, ContentBlockParam.ofText(block.asText().toBuilder().cacheControl(control).build()));
+        }
+        return marked;
     }
 
     /**

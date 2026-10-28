@@ -6,6 +6,7 @@ import com.anthropic.errors.AnthropicServiceException;
 import com.anthropic.models.messages.ContentBlockParam;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
+import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,6 +40,7 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import static com.gregochr.goldenhour.service.ask.AskFixtures.TODAY;
 import static com.gregochr.goldenhour.service.ask.AskMessages.submit;
@@ -761,7 +763,7 @@ class ClaudeAskEngineTest {
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
-        assertThat(sentParams().getFirst().system().orElseThrow().asTextBlockParams().getFirst().text())
+        assertThat(systemText(sentParams().getFirst()))
                 .contains("call look_up_place with its name");
         assertThat(toolResultsIn(sentParams().get(1)).getFirst().content().orElseThrow().string().orElseThrow())
                 .contains("rank_spots, look_up_place, rank_night_spots");
@@ -859,7 +861,7 @@ class ClaudeAskEngineTest {
 
         for (MessageCreateParams params : sentParams()) {
             assertThat(params.messages().getFirst().content().asString()).isEqualTo(secret);
-            assertThat(params.system().orElseThrow().asTextBlockParams().getFirst().text()).doesNotContain(secret);
+            assertThat(systemText(params)).doesNotContain(secret);
             assertThat(countOccurrences(params.toString(), secret)).as("occurrences in the request").isEqualTo(1);
         }
     }
@@ -881,7 +883,10 @@ class ClaudeAskEngineTest {
     }
 
     private static String systemText(MessageCreateParams params) {
-        return params.system().orElseThrow().asTextBlockParams().getFirst().text();
+        // The system prompt is two blocks (static, then the per-question tail); the text is their join.
+        return params.system().orElseThrow().asTextBlockParams().stream()
+                .map(TextBlockParam::text)
+                .collect(Collectors.joining());
     }
 
     @Test
@@ -1068,7 +1073,7 @@ class ClaudeAskEngineTest {
 
         List<MessageCreateParams> sent = sentParams();
         assertThat(sent.getFirst().toString()).doesNotContain("maxDriveMinutes");
-        assertThat(sent.getFirst().system().orElseThrow().asTextBlockParams().getFirst().text())
+        assertThat(systemText(sent.getFirst()))
                 .contains("never mention home");
         ToolResultBlockParam refusal = toolResultsIn(sent.get(1)).getFirst();
         assertThat(refusal.isError()).contains(true);
@@ -1149,7 +1154,7 @@ class ClaudeAskEngineTest {
         assertThat(run.outcome().answer().picks()).extracting(AskPick::locationName).containsExactly("Hamsterley");
         String result = toolResultsIn(sentParams().get(1)).getFirst().content().orElseThrow().string().orElseThrow();
         assertThat(result).contains("Hamsterley").doesNotContain("Bamburgh");
-        assertThat(sentParams().getFirst().system().orElseThrow().asTextBlockParams().getFirst().text())
+        assertThat(systemText(sentParams().getFirst()))
                 .contains("these regions only: Teesdale.");
     }
 
@@ -1190,9 +1195,9 @@ class ClaudeAskEngineTest {
                 snapshot(null), USER, AskRunOptions.none());
 
         List<MessageCreateParams> sent = sentParams();
-        assertThat(sent.get(0).system().orElseThrow().asTextBlockParams().getFirst().text())
+        assertThat(systemText(sent.get(0)))
                 .contains("windowId " + WINDOW);
-        assertThat(sent.get(1).system().orElseThrow().asTextBlockParams().getFirst().text())
+        assertThat(systemText(sent.get(1)))
                 .doesNotContain("The reader is looking at").doesNotContain("2026-12-25");
     }
 

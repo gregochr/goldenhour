@@ -256,11 +256,36 @@ public class AskPromptBuilder {
     public String systemPrompt(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
             AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread,
             List<String> coveredWindowIds) {
+        return systemPromptBlocks(today, scope, contextWindow, contextNight, tonight, hasUser, hasThread,
+                coveredWindowIds).text();
+    }
+
+    /**
+     * The system prompt of {@link #systemPrompt(LocalDate, AskScope, AskSnapshot.Window, AskSnapshot.Night,
+     * LocalDate, boolean, boolean, List)} in two parts, so the static part can carry a prompt-cache breakpoint:
+     * the part that depends only on {@code hasUser} (the rules and the with-user or user-less text), then the
+     * per-question tail (date, scope, covered windows, context window, thread rules). The two parts joined are
+     * byte for byte the single prompt.
+     *
+     * @param today         today on the UK civil calendar
+     * @param scope         the regions asked about; {@link AskScope#ALL} means every region
+     * @param contextWindow the solar window the reader is looking at, or null
+     * @param contextNight  the night the reader is looking at, or null
+     * @param tonight       the date of the night in progress, or null
+     * @param hasUser       whether a user is behind the conversation
+     * @param hasThread     whether the question follows earlier exchanges
+     * @param coveredWindowIds the windows a Ready question is about; empty for a typed question
+     * @return the two parts
+     */
+    public SystemPrompt systemPromptBlocks(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
+            AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread,
+            List<String> coveredWindowIds) {
         // A typed question (a user behind it) is given look_up_place; the Ready precompute is not, so its rules
         // are RULES byte for byte (AskToolSchemas.tools' withPlaceLookup is the same split).
         String rules = hasUser ? RULES.replace(PLACE_FIT_BEFORE, PLACE_FIT_AFTER) : RULES;
         StringBuilder sb = new StringBuilder(rules).append('\n');
         sb.append(hasUser ? WITH_USER : USER_LESS).append('\n');
+        int staticLength = sb.length();
         sb.append("Today is ").append(LONG_DATE.format(today)).append(" in the UK.\n");
         if (scope.isEverywhere()) {
             sb.append("The question is about every region.\n");
@@ -289,7 +314,27 @@ public class AskPromptBuilder {
         if (hasThread) {
             sb.append('\n').append(THREAD_RULES);
         }
-        return sb.toString();
+        String whole = sb.toString();
+        return new SystemPrompt(whole.substring(0, staticLength), whole.substring(staticLength));
+    }
+
+    /**
+     * A system prompt in two parts.
+     *
+     * @param staticPart  the rules and the with-user or user-less text; the same for every question of a kind,
+     *                    so it is the cacheable prefix
+     * @param dynamicPart the per-question tail
+     */
+    public record SystemPrompt(String staticPart, String dynamicPart) {
+
+        /**
+         * The whole prompt.
+         *
+         * @return both parts joined
+         */
+        public String text() {
+            return staticPart + dynamicPart;
+        }
     }
 
     /**
