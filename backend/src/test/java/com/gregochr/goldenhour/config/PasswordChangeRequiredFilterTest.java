@@ -17,6 +17,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -34,6 +35,7 @@ class PasswordChangeRequiredFilterTest {
     private final PasswordChangeRequiredFilter filter = new PasswordChangeRequiredFilter();
 
     private FilterChain chain;
+    private MockHttpServletRequest request;
     private MockHttpServletResponse response;
 
     @BeforeEach
@@ -56,7 +58,8 @@ class PasswordChangeRequiredFilterTest {
     }
 
     private void run(String method, String path) throws Exception {
-        filter.doFilter(new MockHttpServletRequest(method, path), response, chain);
+        request = new MockHttpServletRequest(method, path);
+        filter.doFilter(request, response, chain);
     }
 
     @Test
@@ -82,7 +85,7 @@ class PasswordChangeRequiredFilterTest {
         run("POST", path);
 
         assertThat(response.getStatus()).isEqualTo(200);
-        verify(chain).doFilter(any(), any());
+        verify(chain).doFilter(same(request), same(response));
     }
 
     @ParameterizedTest
@@ -105,7 +108,7 @@ class PasswordChangeRequiredFilterTest {
 
         run("GET", path);
 
-        verify(chain).doFilter(any(), any());
+        verify(chain).doFilter(same(request), same(response));
     }
 
     @Test
@@ -128,7 +131,7 @@ class PasswordChangeRequiredFilterTest {
         run("POST", "/api/%61uth/logout");
 
         assertThat(response.getStatus()).isEqualTo(200);
-        verify(chain).doFilter(any(), any());
+        verify(chain).doFilter(same(request), same(response));
     }
 
     @Test
@@ -139,7 +142,7 @@ class PasswordChangeRequiredFilterTest {
         run("GET", "/api/briefing");
 
         assertThat(response.getStatus()).isEqualTo(200);
-        verify(chain).doFilter(any(), any());
+        verify(chain).doFilter(same(request), same(response));
     }
 
     @Test
@@ -148,7 +151,7 @@ class PasswordChangeRequiredFilterTest {
         run("GET", "/api/briefing");
 
         assertThat(response.getStatus()).isEqualTo(200);
-        verify(chain).doFilter(any(), any());
+        verify(chain).doFilter(same(request), same(response));
     }
 
     @Test
@@ -158,7 +161,7 @@ class PasswordChangeRequiredFilterTest {
 
         run("GET", "/api/briefing");
 
-        verify(chain).doFilter(any(), any());
+        verify(chain).doFilter(same(request), same(response));
     }
 
     @Test
@@ -168,7 +171,7 @@ class PasswordChangeRequiredFilterTest {
         MockHttpServletRequest exempt = new MockHttpServletRequest("POST", "/app/api/auth/change-password");
         exempt.setContextPath("/app");
         filter.doFilter(exempt, response, chain);
-        verify(chain).doFilter(any(), any());
+        verify(chain).doFilter(same(exempt), same(response));
 
         MockHttpServletResponse refused = new MockHttpServletResponse();
         MockHttpServletRequest guarded = new MockHttpServletRequest("GET", "/app/api/briefing");
