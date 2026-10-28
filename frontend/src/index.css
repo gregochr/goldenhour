@@ -7939,7 +7939,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
     repeating-linear-gradient(-45deg, rgba(242, 231, 211, 0.32) 0 0.8px, transparent 0.8px 5px),
     #241d18;
 }
-/* The stand-down key (big-seas plan F3): 20x9, the map's own veil with the cool 45 degree rule. */
+/* The stand-down key (big-seas plan F3): the map's own veil with the cool 45 degree rule; it sets no size, so it takes the shared 26x13 swatch
+   size like the other legend keys. */
 /* The sub-regions key (S5a): the veil's plate with the grey rim, and the outline's dashed bone line. */
 .wf-legend-swatch-outside {
   background: var(--color-outside-plate);
@@ -7951,8 +7952,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   border: 1px dashed var(--color-picks-outline);
 }
 .wf-legend-swatch-standdown {
-  width: 20px;
-  height: 9px;
   background:
     repeating-linear-gradient(-45deg, rgba(184, 197, 220, 0.5) 0 1px, transparent 1px 4px),
     rgba(16, 15, 19, 0.66);
