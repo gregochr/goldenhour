@@ -5,6 +5,139 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.35.0] - 2026-10-28
+
+### Removed — VERY_SHORT_TERM, SHORT_TERM and LONG_TERM run types
+
+Phase 3 of retiring the synchronous forecast engine (`docs/engineering/sync-engine-retirement-plan.md`).
+The three term constants leave `RunType`, along with `RunType.defaultDateRange` (the Wildlife comfort
+refresh now builds its own six-day range). Migration V196 deletes the term-type rows of `model_selection` and
+`job_run` (the past manual runs' `api_call_log` rows cascade), clears the Prompt Test rows and drops the
+`optimisation_strategy` table. Local H2 files get the same clean-up at startup from `LocalH2TermRunTypeCleanup`.
+The unused retry plumbing goes too: `RunProgress.stop`, the retry lock and record, `RetryBlock`, and the
+`retryable` and `retryBlockedReason` fields of the run-complete event.
+
+### Removed — synchronous forecast engine
+
+Phase 2 of retiring the synchronous forecast engine (`docs/engineering/sync-engine-retirement-plan.md`).
+With the admin buttons gone in Phase 1, nothing reached the old per-slot engine, so it is deleted:
+`ForecastCommand`, `ForecastCommandFactory`, `ForecastCommandExecutor`, `FailedSlotRetryService`,
+`SentinelSelector`, and `ForecastService`'s `runForecasts`, `evaluateAndPersist`, `persistCannedResult`
+and wildlife-hourly path. Forecasts evaluate through the batch pipeline only: `EvaluationServiceImpl.evaluateNow`
+and `ForecastResultHandler.handleSyncResult` now refuse a forecast task, while Aurora's synchronous path is
+unchanged. The Sentinel Sampling and Tide Triage optimisation strategies lose their entity, repository,
+service and type (the `optimisation_strategy` table is dropped in a later phase), and the unused tide
+alignment triage goes with them. The forecast-result notification channels (email, Pushover, macOS toast)
+and their `notifications.email|pushover|macos-toast|schedule` configuration are deleted; admin alert emails
+and user emails are unchanged. The run-complete stream `GET /api/forecast/run/notifications` is deleted
+(its banner went in Phase 1), along with the stop-on-rejected-key plumbing only the old engine used. The
+`forecast` and `claude` bulkhead instances are removed from the YAML profiles. `forecast_evaluation`
+and its batch-path writers are untouched.
+
+### Removed — Prompt Test harness
+
+The admin Prompt Test sub-tab under Operations, its `/api/prompt-test/*` endpoints, `PromptTestService`, the
+run and result entities and repositories, and the front-end view and API module are deleted. Its sweep ranges
+were the retired term run types, and the Location Model Test and Sky Eval screens remain for comparing models
+and prompts. V196 empties `prompt_test_run` and `prompt_test_result`; the tables themselves are dropped one
+release later (Phase 4) so the previous image still validates against the schema.
+
+### Removed — admin manual forecast runs and optimisation strategy controls
+
+Phase 1 of retiring the synchronous forecast engine (`docs/engineering/sync-engine-retirement-plan.md`).
+Production forecasts run only through the batch pipeline, so the admin buttons that still started the
+old engine are gone: the map popup's "Run Forecast", the Job Runs Very Short-Term, Short-Term and
+Long-Term buttons (with their slot picker), and "Retry failed" on the run progress panel. The backend
+endpoints behind them (`POST /api/forecast/run`, `/run/very-short-term`, `/run/short-term`,
+`/run/long-term` and `/run/{id}/retry-failed`) are no longer mapped, nor is `PUT /api/models/optimisation`;
+`GET /api/models` no longer returns `optimisationStrategies`. The tide refresh dialog loses its region
+checkboxes, which never had any effect. Run Config drops the three term tabs and the Sentinel
+Sampling and Tide Triage cards (it opens on Briefing), and lists the Bluebell gloss model's run type
+on the configurable list. `PUT /api/models/active` now answers 400 for a run type that screen does
+not manage. The Job Runs run-type filter offers only types that runs are recorded under, with the
+batch entry now labelled "Batch". The app-wide "Forecast run completed" banner is removed: the only
+run that still reports completion is the admin's Light Pollution refresh, which should not show every
+reader a banner. The engine classes stay in place, unreferenced, until the next phase.
+An unknown API path now answers 404 instead of 500.
+
+### Fixed — Lite Plan cards say "stood down" when the reader's own places stood down
+
+A Lite reader's Plan card now says "stood down" in its Spread note and Best row (and "stood down by the weather"
+in its spoken name) when the weather stood down the places in the reader's own sub-regions, the same words the
+full body gets. The stood places a shaped card describes are limited to the reader's own, and its "some places
+stood down" test reads the reader's own unrated places, so stood ground outside the picks can no longer make a
+Lite card claim a stand-down that is not on the reader's ground.
+
+### Fixed — change-password re-verifies the current password, the first-login gate is enforced by the server, and the published default admin cannot sign in outside local
+
+`POST /api/auth/change-password` now requires `currentPassword`: a briefly stolen access token can no longer
+become a permanent takeover. A missing or wrong current password is a 400 (never a 401, which the client would
+refresh and retry), a new password equal to the current one is a 400, and the attempt is counted against a
+per-account budget of five per quarter hour on every attempt (429 when spent). The change-password page asks
+for the current (temporary) password above the new one.
+
+`passwordChangeRequired` is no longer honoured only by the client: a new `PasswordChangeRequiredFilter` answers
+403 `PASSWORD_CHANGE_REQUIRED` on every `/api/` call except `/api/auth/**` and `/api/waitlist` while the flag is
+set, and the axios interceptor turns that 403 into an event that routes a stale client to the change-password
+page.
+
+The seeded `admin` / `golden2026` account (`V10`, published in the README) is now neutralised at startup on
+every profile except `local` by `DefaultCredentialGuard` (credential version bumped, refresh tokens revoked,
+flag set), and `UserService`'s empty-table seed moved to a `local`-only `LocalAdminSeeder`. A login against a
+stored hash that is not BCrypt-shaped spends a dummy BCrypt compare so its timing matches. Recovery steps are in
+`DEVOPS.md`.
+
+### Changed — the briefing and the ratings load together, and the opening tab's code starts early
+
+The page now asks for the briefing and the ratings at the same time instead of waiting for the briefing's
+answer before asking for the ratings; the request-number guards already made either arrival order safe. A signed-in
+reader's opening tab (the map on a large screen, the heat strip on a phone) also begins downloading its code before
+the app first renders, rather than after.
+
+### Changed — Leaflet and its stylesheet no longer load before the first screen
+
+The vendor split moved from a first-match `manualChunks` function to rolldown priority groups
+(`react`, `leaflet`, `geo`, `recharts`). React previously rode inside the `leaflet` chunk, so every
+reader's first load fetched Leaflet (about 47 KB gzip) and its render-blocking stylesheet (about
+6 KB gzip) whether or not they ever opened the Map. React now has its own chunk, and Leaflet loads
+only with the Map view. The first-load closure drops from 286.75 KB to 236.33 KB gzip. CI gains a
+`check:entry` step that fails the build if `dist/index.html` ever preloads Leaflet, its CSS, or the
+recharts, geo or heat-field chunks again.
+
+### Changed — sign-in pages, settings and Ask UI load on demand (performance plan P2d)
+
+The sign-in, register, forgot, reset and change-password pages are now one lazy route chunk (also precached for offline use), the settings dialog (with the sub-region picker) is fetched the first time it opens (and warmed when the page is idle or the cog is hovered or focused), and Ask's dock and sheet are fetched the first time they open. While the settings chunk loads, a placeholder dialog keeps the page reading as modal, so the Plan popup, search, Ask and the Map's Escape rules behave as they do with the real dialog up. A chunk that fails to load (a stale tab after a deploy, offline) now shows a small "Couldn't load" panel with Reload, instead of a blank page. Ask's dock and sheet identifiers moved to `ask/askIds.js` so the shell reads them without importing the components.
+
+### Changed — index the queries that scan growing tables
+
+V197 adds five indexes so queries on the tables that grow without limit stop scanning them: the batch
+lookups on `api_call_log (batch_id)`, the hourly pending-evaluation sweep on `forecast_evaluation`, the
+per-cycle scored-components read on `forecast_score (pipeline_run_id)`, the nightly by-date read on
+`forecast_evaluation (target_date, target_type)` and `job_run (run_type, started_at)`. No behaviour
+changes; no index is dropped.
+
+### Changed — hot topics read their inputs once per serve
+
+Building the hot topics for a briefing serve used to run the slot-signal read (four queries) once in each of seven
+strategies and load the location rosters about a dozen times across the strategies and the event enricher. The
+aggregator now builds one `HotTopicInputs` per call and every strategy, the enricher and the travel-day filter read
+from it, so the slot signals are read once and each roster at most once. The topics themselves are unchanged
+(`HotTopicInputsEquivalenceTest` runs the real strategies both ways over one fixture and compares the output).
+
+### Fixed — API keys kept out of health details, logs and the API-call log
+
+`/actuator/health` details were shown to every signed-in user, and the WorldTides, Open-Meteo and Claude
+probes echoed the exception message; on a network error Spring's message quotes the full request URL, so
+the paid WorldTides key could reach any logged-in user. Health details are now ADMIN-only and carry only
+the exception class name (plus the HTTP status for an error response), never a message. The WorldTides
+probe also builds its URL with a URI builder. `GET /api/models` is now ADMIN-only, as documented and as
+its two PUT siblings already were. A new `SecretRedactor` masks `key=` / `apikey=` / `api_key=` query
+values in the WorldTides ingestion and light-pollution client log lines and in the admin API-call log.
+
+### Changed — At a Glance topic pills show full names on phone
+
+The At a Glance topic strip on a phone now prints the same full topic name, PEAK/FULL/WX tags and full value as desktop, instead of the six-character short forms made for Coming up's four-day tiles. The phone cell is full width, so there was room all along.
+
 ## [v2.34.2] - 2026-10-28
 
 ### Fixed — Plan cards say "stood down" where the weather ruled the places out
