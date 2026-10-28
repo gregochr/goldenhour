@@ -3,8 +3,10 @@ import { shiftDateStr } from './mapDates.js';
 import { topicStyle } from './topicPalette.js';
 
 /**
- * The Coming up tab's "Next four days" tiles — the model behind {@code WindowComingUpFourDays}
- * (coming-up-glance-plan §3 T1). It replaces the hot-topics-by-day C1 lanes ({@code fourDayLanes.js}).
+ * The "Next four days" topic tiles' model — now the At a Glance day header's topic pills, drawn by
+ * {@code WindowGlanceDayTopics} through {@code WindowFirstHeatStrip} (glance-topic-strip-plan.md). It began as
+ * the Coming up tab's block of the same name (coming-up-glance-plan §3 T1), which that plan moved here, and
+ * it replaced the hot-topics-by-day C1 lanes ({@code fourDayLanes.js}) before that.
  *
  * <p><b>Pure, client-side, and licensed as a filter/map member</b> (architecture-decisions
  * "Backend-heavy"): it only re-buckets {@code briefing.hotTopics} by date (through the shared
@@ -251,4 +253,32 @@ export function buildFourDayTiles({
   }
 
   return { days, topicCount: seenTypes.size };
+}
+
+/**
+ * Which of the four days' chips the At a Glance header draws, per matrix column (glance-topic-strip-plan.md
+ * R2). The matrix may start tomorrow (after today's sunset) or hold other gaps, so the model's four dates
+ * and the strip's columns need not line up.
+ *
+ * <p>Only a column whose date is one of the four gets chips; any other column is simply absent from the
+ * map. A chip is {@code isContinuation} (drawn dashed: the same topic carried on from the day before) only
+ * when the PREVIOUS calendar date is itself a rendered column — otherwise the chip is forced solid, so no
+ * column opens with a dashed pill whose start the reader cannot see. Nothing is derived beyond that flag.
+ *
+ * @param {Array<object>} days the {@code days} of {@link buildFourDayTiles}
+ * @param {Array<string>} columnDates the dates of the matrix's rendered columns, in column order
+ * @returns {Map<string, Array<object>>} column date to that day's chips; no entry for a column outside
+ *          the four
+ */
+export function glanceTopicsByColumn(days, columnDates) {
+  const rendered = new Set(columnDates);
+  const byDate = new Map();
+  for (const day of days) {
+    if (!rendered.has(day.date)) continue;
+    const startVisible = rendered.has(shiftDateStr(day.date, -1));
+    byDate.set(day.date, day.chips.map((chip) => (
+      chip.isContinuation && !startVisible ? { ...chip, isContinuation: false } : chip
+    )));
+  }
+  return byDate;
 }

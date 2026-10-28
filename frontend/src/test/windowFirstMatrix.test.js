@@ -72,8 +72,8 @@ describe('buildWindowMatrix — the grid', () => {
     expect(days.some((d) => d.today)).toBe(false);
   });
 
-  it('publishes the two rows the cells are placed into', () => {
-    expect(MATRIX_ROW).toEqual({ header: 1, sunrise: 2, sunset: 3 });
+  it('publishes the rows the cells are placed into', () => {
+    expect(MATRIX_ROW).toEqual({ header: 1, topics: 2, sunrise: 3, sunset: 4 });
   });
 });
 

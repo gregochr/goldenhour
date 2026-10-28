@@ -757,7 +757,7 @@ describe('WindowComingUpEntry — the click seam (plan §11.5, D8)', () => {
     // : true`, so an explicit `aria-label` here would not just set the name — it would throw away
     // every fact, the prose and the threshold line too, leaving a screen-reader user with only the
     // action's own sentence and none of the card's actual content. The full text must survive as
-    // the computed name instead, the way the "On Plan" header button in `WindowComingUpFourDays` does.
+    // the computed name instead, the way the topic pills in `WindowGlanceDayTopics` do.
     renderEntry({
       title: 'Spring tide run',
       superlative: 'biggest until November',

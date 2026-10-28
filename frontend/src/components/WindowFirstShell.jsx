@@ -727,6 +727,18 @@ export default function WindowFirstShell({
   // or not the reader ever opens this pane, so the fetch fires after first paint for every reader
   // rather than gating on the tab. See useComingUpFeed.js's own class doc for the reversal.
   const comingUp = useComingUpFeed(true, todayStr);
+  // A pending "open Coming up at this entry" request from At a Glance's topic pills (see `openComingUp`).
+  const [comingUpFocus, setComingUpFocus] = useState(null);
+  const comingUpSeq = useRef(0);
+  // The ids Coming up lists under its All filter — every served entry, which is what the pills' jump may target
+  // (glance-topic-strip-plan.md R1/R4). Empty unless the feed is READY: a stale `events` while a retry loads, or
+  // after a failure, names rows that are not on screen.
+  const comingUpEntryIds = useMemo(
+    () => (comingUp.status === 'ready'
+      ? new Set((comingUp.events?.entries ?? []).map((entry) => entry.id))
+      : new Set()),
+    [comingUp.status, comingUp.events],
+  );
   /**
    * The tab badge's state (plan D3/D4/D12) — null (no element at all) in the overwhelmingly common
    * case. Read off the WHOLE served feed, never the chip-filtered subset the pane itself may be
@@ -858,6 +870,37 @@ export default function WindowFirstShell({
     void date;
     selectTab('plan');
     tabRefs.current[tabs.findIndex((t) => t.id === 'plan')]?.focus();
+  };
+  /**
+   * At a Glance's topic pills (and their door) opening Coming up (glance-topic-strip-plan.md R4) — the way back
+   * from {@link goToPlan}.
+   *
+   * <p>Stores a request {@code {entryId, seq}} and selects the tab. The request lives in this shell's state and
+   * not behind {@code selectTab}, which clears dialogs and not this, so it survives the tab change that makes
+   * the pane visible; {@code WindowFirstComingUp} answers it (resetting its filter if the entry is hidden,
+   * scrolling to the card) and reports back through {@link handleComingUpFocusHandled}. {@code seq} makes a
+   * second press on the same entry a new request.
+   *
+   * @param {?string} entryId the almanac entry to open at, or null for the tab as it ordinarily arrives
+   */
+  const openComingUp = (entryId) => {
+    comingUpSeq.current += 1;
+    setComingUpFocus({ entryId: entryId ?? null, seq: comingUpSeq.current });
+    selectTab('coming-up');
+  };
+  /**
+   * The Coming up pane has answered the request. Found: the pane already scrolled to and focused the card.
+   * Not found (a null entry, or one that is not in the feed): the pressed pill's panel is hidden now, so the
+   * same fall-to-body failure {@link goToPlan} guards against applies — the window goes to the top and focus
+   * goes to the Coming up TAB.
+   *
+   * @param {boolean} found whether an entry was scrolled to
+   */
+  const handleComingUpFocusHandled = (found) => {
+    setComingUpFocus(null);
+    if (found) return;
+    window.scrollTo?.({ top: 0 });
+    tabRefs.current[tabs.findIndex((t) => t.id === 'coming-up')]?.focus();
   };
   /**
    * Left/Right/Home/End across the bar, wrapping at both ends.
@@ -2652,13 +2695,12 @@ export default function WindowFirstShell({
         hidden={effectiveTab !== 'coming-up'}
         status={comingUp.status}
         events={comingUp.events}
-        hotTopics={briefing?.hotTopics}
         todayStr={todayStr}
         onRetry={comingUp.retry}
         onGoToPlan={goToPlan}
-        openableKeys={planWindowKeys}
-        onGoToPlanWindow={goToPlanWindow}
         onShowOnMap={showOnMap ?? NO_MAP_DOOR}
+        focusRequest={comingUpFocus}
+        onFocusHandled={handleComingUpFocusHandled}
         comingUpLastSeenDate={comingUpLastSeenDate}
         forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
         onMarkSeen={markSeen}
@@ -2760,6 +2802,15 @@ export default function WindowFirstShell({
                OWN `eventType` + `date` and any client re-shaping is a chance to lose the NIGHT
                bucketing. */
             hotTopics={briefing?.hotTopics}
+            // The day header's topic pills (glance-topic-strip-plan.md): the same Map door, forecast dates and
+            // window keys the Coming up block they replaced was handed, so a pill's routes are unchanged.
+            comingUpEntries={comingUp.events?.entries}
+            renderedEntryIds={comingUpEntryIds}
+            openableKeys={planWindowKeys}
+            forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
+            onOpenComingUp={openComingUp}
+            onShowOnMap={showOnMap ?? NO_MAP_DOOR}
+            onGoToPlanWindow={goToPlanWindow}
             openKeys={openWindowKeys}
             highlightKeys={askHighlight}
             todayStr={todayStr}

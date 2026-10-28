@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildFourDayTiles, ALMANAC_TYPES_BY_TOPIC } from '../utils/fourDayTiles.js';
+import { buildFourDayTiles, glanceTopicsByColumn, ALMANAC_TYPES_BY_TOPIC } from '../utils/fourDayTiles.js';
 
 /**
- * The "Next four days" tiles model (coming-up-glance-plan §3 T1). Pure data in, tiles out; the
- * component has its own suite for markup, names and taps.
+ * The "Next four days" tiles model (coming-up-glance-plan §3 T1), now feeding At a Glance's day-header pills
+ * (glance-topic-strip-plan.md). Pure data in, tiles out; the component has its own suite for markup, names and taps.
  *
  * <p>TODAY is Sat 24 Oct 2026, passed in — no wall clock — so the four days are Sat 24, Sun 25,
  * Mon 26 and Tue 27 (the last Plan day), and "the next run" in a list is a November one.
@@ -234,7 +234,7 @@ describe('buildFourDayTiles — the jump (§2.3: the entry\'s own span must cove
     });
     for (const date of [SUN, MON]) {
       const chip = chipsOf(result, date)[0];
-      // The Glance target is still computed, but the component prefers `jump` (WindowComingUpFourDays).
+      // The Glance target is still computed, but the component prefers `jump` (WindowGlanceDayTopics).
       expect(chip.target, date).toBe(`${date}:SUNSET`);
       expect(chip.jump, date).toEqual({ entryId: near.id });
     }
@@ -422,5 +422,38 @@ describe('buildFourDayTiles — the Map door', () => {
     const [chip] = chipsOf(result, SUN);
     expect(chip.events).toEqual([]);
     expect(chip.mapDoor).toEqual({ date: SUN, eventType: 'SUNRISE' });
+  });
+});
+
+describe('glanceTopicsByColumn — the four days re-keyed to the strip\'s columns (glance-topic-strip-plan.md R2)', () => {
+  const columnsOf = (hotTopics, columnDates) => glanceTopicsByColumn(tiles({ hotTopics }).days, columnDates);
+
+  it('keys the chips by column date, one entry per column that is one of the four', () => {
+    const byDate = columnsOf([tide(TODAY), topic('DUST', MON, 'SUNSET')], [TODAY, SUN, MON]);
+    expect([...byDate.keys()]).toEqual([TODAY, SUN, MON]);
+    expect(byDate.get(TODAY).map((c) => c.type)).toEqual(['SPRING_TIDE']);
+    expect(byDate.get(SUN)).toEqual([]);
+    expect(byDate.get(MON).map((c) => c.type)).toEqual(['DUST']);
+  });
+
+  it('has no entry for a column outside the four dates', () => {
+    const byDate = columnsOf([tide(TODAY)], [TODAY, '2026-10-30']);
+    expect(byDate.has('2026-10-30')).toBe(false);
+  });
+
+  it('keeps a continuation dashed when the previous calendar date is a rendered column', () => {
+    const byDate = columnsOf([tide(TODAY), tide(SUN)], [TODAY, SUN]);
+    expect(byDate.get(SUN)[0].isContinuation).toBe(true);
+  });
+
+  it('forces a continuation solid when the previous date is not a rendered column', () => {
+    const byDate = columnsOf([tide(TODAY), tide(SUN)], [SUN, MON]);
+    expect(byDate.get(SUN)[0].isContinuation).toBe(false);
+  });
+
+  it('does not mutate the model\'s own chips', () => {
+    const { days } = tiles({ hotTopics: [tide(TODAY), tide(SUN)] });
+    glanceTopicsByColumn(days, [SUN, MON]);
+    expect(chipsOf({ days }, SUN)[0].isContinuation).toBe(true);
   });
 });

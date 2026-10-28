@@ -1,5 +1,6 @@
 import { isNewEntry } from './comingUpArrivals.js';
 import { lastPlanDateStr } from './comingUpHandoff.js';
+import { GLANCE_LABEL } from './tabLabels.js';
 
 /**
  * The "Coming up" chronology's presentation layer — {@code ComingUpEntry[]} from
@@ -539,10 +540,11 @@ export function buildChronology(entries, todayStr, filterId, lastSeenDate, forec
 }
 
 /**
- * The footer's note (coming-up-glance plan P2), shown in every status. It states a rule, not
+ * The footer's note (coming-up-glance plan P2; the four days moved to At a Glance's day headers by
+ * glance-topic-strip-plan.md), shown in every status. It states a rule, not
  * a count, so it is true before the feed has answered and after. "Fixed in advance", not "fixed by
  * orbital mechanics": two of the six sources compute nothing orbital — the NLC season boundary is a
  * hard-coded calendar window and the equinox/solstice dates are fixed `MonthDay` anchors.
  */
 export const FOOTER = 'This list shows dates fixed in advance, from today on. Weather-driven topics '
-  + "can't be known that far out, so they appear only in Next four days.";
+  + `can't be known that far out, so they appear only under the next four days on ${GLANCE_LABEL}.`;
