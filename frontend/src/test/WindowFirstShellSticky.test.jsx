@@ -516,7 +516,7 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
     // exists to prevent, per its own CSS comment).
     const css = readCss();
     const start = css.indexOf(
-      '.wf-hstrip.wf-hstrip-rows .wf-dhrow,\n.wf-hstrip.wf-hstrip-rows .wf-hcards {',
+      '.wf-hstrip.wf-hstrip-rows .wf-dhrow,\n.wf-hstrip.wf-hstrip-rows .wf-dtrow,\n.wf-hstrip.wf-hstrip-rows .wf-hcards {',
     );
     expect(start, 'the rows-mode grid rule must exist').toBeGreaterThan(-1);
     const rowsGridBlock = css.slice(start, css.indexOf('\n}', start));

@@ -510,7 +510,7 @@ export default function WindowControl({
                 `display` or `position` in here (hiding the region at ≤639px and the pick at
                 ≤389px, taking the pick's words out of flow at ≤811px) leave the pill flex.
                 They stay because they state the boundary in the DOM and jsdom's reading needs
-                them. Rule and method: `WindowComingUpFourDays`'s class doc. */}
+                them. Rule and method: `WindowGlanceDayTopics`'s class doc. */}
             {' '}
             <Medallion kind={active.pickKind} />
             {' '}
@@ -943,7 +943,7 @@ function VerdictCell({ verdict, scopeIsArea, ratedCount = null }) {
           2026-09-11 by Playwright's accessible-name algorithm over Chromium's, WebKit's and
           Firefox's layout; Chromium's native accessibility tree agreed on 2026-09-14). "Worth
           iteverywhere in your area" is jsdom's reading — it computes no layout, so they read as
-          inline to it (see `WindowComingUpFourDays`'s class doc). */}
+          inline to it (see `WindowGlanceDayTopics`'s class doc). */}
       {' '}
       {/* A `<span>`, not an `<em>`: `<em>` means stress emphasis, some AT announces it, and the
           stylesheet immediately sets `font-style: normal` on it — the tell that none is intended. */}

@@ -1303,21 +1303,6 @@ describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7
   });
 });
 
-describe('WindowFirstShell — the Coming up lanes On Plan door (plan P1/D14)', () => {
-  it('switches to Plan and moves focus to the Plan tab, not just selection', async () => {
-    // selectTab hides the panel the row was inside immediately — without an imperative focus move
-    // afterwards, focus falls to <body> and a keyboard reader loses their place entirely.
-    renderShell();
-    await openComingUp();
-
-    fireEvent.click(screen.getByTestId('coming-up-fourdays-plan'));
-    await act(async () => { await Promise.resolve(); });
-
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
-    expect(tab('At a Glance')).toHaveFocus();
-  });
-});
-
 describe('WindowFirstShell — the forecast dates reach the Coming up cards (plan §11.24)', () => {
   const MAP_FEED = {
     ...FEED,

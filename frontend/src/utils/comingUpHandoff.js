@@ -2,8 +2,9 @@ import { ukDateStrOffset } from './mapDates.js';
 import { topicCoveredDates, topicWindowKeys } from './windowFirstTopics.js';
 
 /**
- * The Coming up tab's "Next four days" boundary helpers — plan D14, superseded in presentation by
- * the lanes (hot-topics-by-day-plan §3 C1), then by the day tiles (coming-up-glance-plan T1).
+ * The "Next four days" boundary helpers — plan D14, superseded in presentation by the lanes
+ * (hot-topics-by-day-plan §3 C1), then by the Coming up day tiles (coming-up-glance-plan T1), which
+ * glance-topic-strip-plan.md moved onto At a Glance's day headers.
  *
  * <p>This module used to build the one-line handoff row ({@code buildHandoff}); that row and its
  * builder are gone, and what remains is the part the day tiles still share: {@link lastPlanDateStr}

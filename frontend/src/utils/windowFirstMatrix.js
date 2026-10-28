@@ -42,8 +42,14 @@
  * use for it, it should go rather than stay as a tested field with no reader.
  */
 
-/** The two rows of the matrix, in render order — the grid rows the caller places cells into. */
-export const MATRIX_ROW = { header: 1, sunrise: 2, sunset: 3 };
+/**
+ * The rows of the matrix, in render order — the grid rows the caller places cells into. {@code topics} is the day
+ * header's topic pills (glance-topic-strip-plan.md R3): the desktop draws them in their own row, and the phone's
+ * DOM, should it ever land at desktop width (matrix-axis plan D4), places them by this number.
+ */
+export const MATRIX_ROW = {
+  header: 1, topics: 2, sunrise: 3, sunset: 4,
+};
 
 /**
  * Which slot a target type occupies — and, read as a predicate, which target types this grid can
