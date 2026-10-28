@@ -253,6 +253,10 @@ If the only admin was neutralised, recover in this order:
 
    Sign in with that password; the app then asks for it as the current password and requires a new one.
 
+**Locked out by failed sign-ins?** An account refuses sign-in for the rest of a 15-minute window after 10
+failed attempts (HTTP 429, even with the right password). The counters are in memory only: wait out the window,
+or restart the backend container (`docker restart <backend container>`) to clear them at once.
+
 - **JWT Access Token Expiry**: 24 hours
 - **JWT Refresh Token Expiry**: 30 days
 

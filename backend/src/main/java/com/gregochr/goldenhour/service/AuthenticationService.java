@@ -56,6 +56,12 @@ public class AuthenticationService {
     /** Fallback sign-in attempts admitted per account in a quarter hour. */
     static final int FALLBACK_USER_LIMIT = 5;
 
+    /** Limiter key prefix for the per-account failed-sign-in count, on every login path. */
+    static final String LOGIN_FAILURE_KEY_PREFIX = "login:failures:user:";
+
+    /** Failed sign-ins after which an account refuses further attempts for the rest of the window. */
+    static final int LOGIN_FAILURE_LIMIT = 10;
+
     /** Limiter key prefix for the per-account change-password budget. */
     static final String CHANGE_PASSWORD_USER_KEY_PREFIX = "change-password:user:";
 
@@ -166,15 +172,38 @@ public class AuthenticationService {
      * account resolves, the gate's identifier bucket has already counted the attempt and nothing more is
      * taken.
      *
+     * <p>On EVERY path, verified or fallback, an account that has had {@value #LOGIN_FAILURE_LIMIT}
+     * failed sign-ins in the quarter hour is skipped before any password is compared: the other candidate
+     * of a two-candidate identifier is still tried, and the request is refused with 429 only when EVERY
+     * resolved candidate is locked. If the unlocked candidate then fails, the answer is the generic 401,
+     * which does not reveal the locked one. Failures are recorded only when the whole sign-in fails
+     * (including the verified-but-disabled case): one per candidate that was compared and did not match.
+     * A successful sign-in through any candidate records nothing, and an identifier that resolves to no
+     * account records nothing. The counter is in memory, so a restart clears a lockout.
+     *
      * @param identifier the login username, or the account's email address
      * @param password   the plain-text password
-     * @param fallback   true when the request is on the Turnstile fallback path
+     * @param fallback  true when the request is on the Turnstile fallback path
      * @return the issued tokens and user fields
      * @throws InvalidCredentialsException if the credentials are wrong or the account is disabled
-     * @throws TooManyAttemptsException    if the fallback's per-account budget is spent
+     * @throws TooManyAttemptsException    if every resolved account has had ten failed sign-ins in the window, or the
+     *                                     fallback's per-account budget is spent
      */
     public AuthTokens login(String identifier, String password, boolean fallback) {
         List<AppUserEntity> candidates = loginCandidates(identifier);
+
+        List<AppUserEntity> unlocked = new ArrayList<>();
+        for (AppUserEntity candidate : candidates) {
+            if (attemptLimiter.isSpent(LOGIN_FAILURE_KEY_PREFIX + candidate.getId(),
+                    LOGIN_FAILURE_LIMIT, AuthAttemptLimiter.Window.QUARTER_HOUR)) {
+                LOG.info("Login: skipping user id {}: failed-sign-in limit reached", candidate.getId());
+            } else {
+                unlocked.add(candidate);
+            }
+        }
+        if (!candidates.isEmpty() && unlocked.isEmpty()) {
+            throw new TooManyAttemptsException("Too many failed sign-ins for the account");
+        }
 
         if (fallback) {
             for (AppUserEntity candidate : candidates) {
@@ -194,23 +223,31 @@ public class AuthenticationService {
 
         AppUserEntity user = null;
         boolean verifiedButDisabled = false;
-        for (AppUserEntity candidate : candidates) {
+        List<AppUserEntity> failed = new ArrayList<>();
+        for (AppUserEntity candidate : unlocked) {
             if (passwordEncoder.matches(password, candidate.getPassword())) {
                 if (candidate.isEnabled()) {
                     user = candidate;
                     break;
                 }
                 verifiedButDisabled = true;
-            } else if (isNeverValidHash(candidate.getPassword())) {
-                // A stored value no password can match (a neutralised default credential, "!"-prefixed, or
-                // the empty marker of a pending registration) is refused without BCrypt's cost. Spend that
-                // cost here so this row's response time matches every other row's. A null (impossible in
-                // the NOT NULL column) is left alone.
-                passwordEncoder.matches(password, dummyHash());
+            } else {
+                failed.add(candidate);
+                if (isNeverValidHash(candidate.getPassword())) {
+                    // A stored value no password can match (a neutralised default credential,
+                    // "!"-prefixed, or the empty marker of a pending registration) is refused without
+                    // BCrypt's cost. Spend that cost here so this row's response time matches every
+                    // other row's. A null (impossible in the NOT NULL column) is left alone.
+                    passwordEncoder.matches(password, dummyHash());
+                }
             }
         }
 
         if (user == null) {
+            for (AppUserEntity candidate : failed) {
+                attemptLimiter.recordFailure(LOGIN_FAILURE_KEY_PREFIX + candidate.getId(),
+                        AuthAttemptLimiter.Window.QUARTER_HOUR);
+            }
             if (verifiedButDisabled) {
                 LOG.warn("Login failed: identifier='{}' — account disabled", LogSanitizer.sanitize(identifier));
                 throw new InvalidCredentialsException("Account is disabled");

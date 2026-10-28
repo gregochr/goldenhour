@@ -170,6 +170,57 @@ class AuthAttemptLimiterTest {
     }
 
     @Test
+    @DisplayName("isSpent is false for a key that was never counted")
+    void isSpent_unknownKey_false() {
+        assertThat(limiter.isSpent("never", 1, Window.QUARTER_HOUR)).isFalse();
+    }
+
+    @Test
+    @DisplayName("isSpent is false below the limit and true at the limit")
+    void isSpent_boundary() {
+        for (int i = 1; i <= 2; i++) {
+            limiter.recordFailure("k", Window.QUARTER_HOUR);
+            assertThat(limiter.isSpent("k", 3, Window.QUARTER_HOUR)).as("after %d", i).isFalse();
+        }
+        limiter.recordFailure("k", Window.QUARTER_HOUR);
+        assertThat(limiter.isSpent("k", 3, Window.QUARTER_HOUR)).isTrue();
+    }
+
+    @Test
+    @DisplayName("isSpent never creates or increments an entry")
+    void isSpent_doesNotCount() {
+        for (int i = 0; i < 5; i++) {
+            assertThat(limiter.isSpent("k", 1, Window.QUARTER_HOUR)).isFalse();
+        }
+        // If isSpent had counted, the first real attempt would not be the first.
+        assertThat(limiter.tryAcquire("k", 1, Window.QUARTER_HOUR)).isTrue();
+        assertThat(limiter.tryAcquire("k", 1, Window.QUARTER_HOUR)).isFalse();
+    }
+
+    @Test
+    @DisplayName("recordFailure and tryAcquire share one counter for the same key")
+    void recordFailure_sharesTheTryAcquireCounter() {
+        limiter.recordFailure("k", Window.QUARTER_HOUR);
+        limiter.recordFailure("k", Window.QUARTER_HOUR);
+        assertThat(limiter.tryAcquire("k", 3, Window.QUARTER_HOUR)).isTrue();
+        assertThat(limiter.tryAcquire("k", 3, Window.QUARTER_HOUR)).isFalse();
+        assertThat(limiter.isSpent("k", 4, Window.QUARTER_HOUR)).isTrue();
+    }
+
+    @Test
+    @DisplayName("a spent key recovers one window after its FIRST failure, later failures do not extend it")
+    void isSpent_windowExpiresFromTheFirstFailure() {
+        limiter.recordFailure("k", Window.QUARTER_HOUR);
+        advance(Duration.ofMinutes(10));
+        limiter.recordFailure("k", Window.QUARTER_HOUR);
+        assertThat(limiter.isSpent("k", 2, Window.QUARTER_HOUR)).isTrue();
+
+        advance(Duration.ofMinutes(6));
+
+        assertThat(limiter.isSpent("k", 2, Window.QUARTER_HOUR)).isFalse();
+    }
+
+    @Test
     @DisplayName("the window lengths are 15 minutes and one hour")
     void windowLengths() {
         assertThat(Window.QUARTER_HOUR.length()).isEqualTo(Duration.ofMinutes(15));

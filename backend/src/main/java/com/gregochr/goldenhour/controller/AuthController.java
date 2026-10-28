@@ -109,7 +109,8 @@ public class AuthController {
      *
      * <p>The Turnstile token goes through {@link TurnstileGate}: a verified token proceeds as it always
      * has, and a request with no token at all (the script could not load) proceeds only inside the
-     * gate's bounds and the account's own five-attempt budget.
+     * gate's bounds and the account's own five-attempt budget. On either path an account that has had ten
+     * failed sign-ins in a quarter hour is refused with 429 before its password is checked.
      *
      * @param body    map containing {@code username} (the username OR the account's email address — the
      *                field keeps its wire name so existing clients work) and {@code password}
