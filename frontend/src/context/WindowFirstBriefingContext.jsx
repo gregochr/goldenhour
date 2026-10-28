@@ -500,7 +500,11 @@ export function WindowFirstBriefingProvider({
   }, [briefingCacheKey]);
 
   useEffect(() => {
-    (async () => { await fetchBriefing(); await fetchScores(); })();
+    // Started together, not one after the other: the ratings do not depend on the briefing's answer,
+    // and the request-number guards (briefingRequestedRef / scoresRequestedRef, each applied by its
+    // own numbering) make either arrival order safe. Awaiting one first put the briefing's server
+    // time in front of the ratings' whole round trip.
+    (async () => { const briefingDone = fetchBriefing(); fetchScores(); await briefingDone; })();
     function refresh() { fetchBriefing(); fetchScores(); }
     intervalRef.current = setInterval(refresh, POLL_INTERVAL_MS);
     window.addEventListener('focus', refresh);
