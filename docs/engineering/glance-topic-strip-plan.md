@@ -36,6 +36,8 @@ Row 1: 8×8 dot (radius 2px, `--c` = the chip's `topicStyle` colour), name (Plex
 tag. Row 2 (cols 2–3): meta, Plex Mono 10.5px, ink-2 — `chip.value` on desktop/tablet,
 `chip.shortValue` on phone (the existing paired-span pattern); `chip.name` / `chip.chipName` likewise.
 
+> Update 2026-10-28: the phone short forms (`chipName`, `shortValue`) and the hidden tags were dropped here, because the phone cell is full width. The phone now prints the same name, tags and value as desktop. Coming up's four-day tiles still use the short forms.
+
 - **Solid** (`isContinuation === false`): fill = the chip colour at 8%, border 1px at 22%.
 - **Dashed** (`isContinuation === true`): transparent, `1px dashed rgba(ink, .28)`, name weight 500 in ink-2.
 - Tag: `chip.badge` (PEAK/FULL …) mono 9px 600, .1em tracking, chip colour; `WX` for `chip.weather`,

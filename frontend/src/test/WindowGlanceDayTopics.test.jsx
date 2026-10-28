@@ -126,13 +126,14 @@ describe('WindowGlanceDayTopics — the stacks', () => {
     expect(container.querySelector('.wf-dt-wx')).toHaveTextContent('WX');
   });
 
-  it('prints both name spans and both value spans, one of each pair per media query', () => {
-    renderStacks({ topics: [surge] });
+  it('prints the full name and full value only, with the badge, and no short forms', () => {
+    const { container } = renderStacks({ topics: [surge] });
     const button = pill('STORM_SURGE');
-    expect(button.querySelector('.wf-dt-nl')).toHaveTextContent('Storm surge');
-    expect(button.querySelector('.wf-dt-ns')).toHaveTextContent('Surge');
-    expect(button.querySelector('.wf-dt-vl')).toHaveTextContent('HW 16:02 · +0.4 m');
-    expect(button.querySelector('.wf-dt-vs')).toHaveTextContent('+0.4 m pk');
+    expect(button.querySelector('.wf-dt-name')).toHaveTextContent(/^Storm surge$/);
+    expect(button.querySelector('.wf-dt-val')).toHaveTextContent(/^HW 16:02 · \+0\.4 m$/);
+    expect(container.querySelector('.wf-dt-ns, .wf-dt-vs, .wf-dt-nl, .wf-dt-vl')).toBeNull();
+    expect(button.textContent).not.toContain('pk');
+    expect(button.querySelector('.wf-dt-badge')).toHaveTextContent('PEAK');
   });
 
   it('draws a name-only pill for a topic with no glance — no value line, no tags', () => {
@@ -168,10 +169,10 @@ describe('WindowGlanceDayTopics — the accessible name is built from content', 
     expect(pill('SUPERMOON')).toHaveAccessibleName(/full moon, Monday, opens Coming up$/);
   });
 
-  it('reads one peak pill as exactly this name (both name and value spans count in jsdom)', () => {
+  it('reads one peak pill as exactly this name', () => {
     renderStacks({ topics: [surge], builderArgs: { openableKeys: new Set() } });
     expect(pill('STORM_SURGE')).toHaveAccessibleName(
-      'Storm surge Surge HW 16:02 · +0.4 m +0.4 m pk, peak, Saturday, opens Coming up',
+      'Storm surge HW 16:02 · +0.4 m, peak, Saturday, opens Coming up',
     );
   });
 

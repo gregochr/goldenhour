@@ -1645,7 +1645,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.wf-dt-ns { display: none; }
 .wf-dt-tags {
   display: flex;
   align-items: center;
@@ -1679,7 +1678,6 @@
   color: var(--color-plex-text-secondary);
   white-space: nowrap;
 }
-.wf-dt-vs { display: none; }
 /* The key at the right end of the section head, and the door under the topic row. */
 .wf-dt-key {
   display: inline-flex;
@@ -1733,18 +1731,12 @@
   .wf-dt-door:focus-visible { outline: 2px solid Highlight; }
   .wf-dt-pill:hover { outline: 1px solid Highlight; }
 }
-/* Phone only: the short names and values, no badge or WX boxes (the short value's " pk" / "full" carries the
-   cue), and the stack a full-width cell of the flowing grid directly under its day's header. Desktop and tablet
-   are untouched. */
+/* Phone only: the stack is a full-width cell of the flowing grid directly under its day's header, with 24px
+   targets. Names, values and tags print exactly as on desktop. Desktop and tablet are untouched. */
 @media (max-width: 639px) {
   .wf-hstrip > .wf-dtcell { grid-column: 1 / -1; }
   .wf-dt-pill { min-height: 24px; }
   .wf-dt-door { min-height: 24px; padding: 4px 0; }
-  .wf-dt-nl { display: none; }
-  .wf-dt-ns { display: inline; }
-  .wf-dt-tags { display: none; }
-  .wf-dt-vl { display: none; }
-  .wf-dt-vs { display: inline; }
 }
 /* An empty cell says why it is empty — the gap is information, not a hole. Two of them are empty
    by definition on an ordinary week (this morning has gone; the last evening is past the end of

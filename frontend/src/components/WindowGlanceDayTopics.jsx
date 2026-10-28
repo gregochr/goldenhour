@@ -60,10 +60,10 @@ function spokenTail(chip, date) {
  *
  * <p><b>Each pill</b> is an {@code <li>} holding a {@code <button>}. Its accessible name is built from its
  * CONTENT, with no {@code aria-label} (WCAG 2.5.3 "label in name": the name starts with the visible
- * name): the desktop and phone names and values are paired spans, one hidden per media query; then
- * {@code sr-only} text carries what the box and swatch show only visually — the badge as a word,
+ * name): the full name and the full value print at every width (the phone cell is full width, so there is
+ * no short form here); then {@code sr-only} text carries what the box and swatch show only visually — the badge as a word,
  * "continues", "weather-driven", the weekday, and the destination. The swatch, the badge box and the WX
- * box are {@code aria-hidden}. (jsdom loads no stylesheet in the suite, so both spans of a pair count there.)
+ * box are {@code aria-hidden}.
  *
  * <p><b>What a tap does</b>, first match wins: a chip with a {@code jump} opens Coming up at that entry
  * ({@code onOpenComingUp(entryId)}); one with a {@code mapDoor} (a weather chip, for a date the reader holds
@@ -71,7 +71,8 @@ function spokenTail(chip, date) {
  * {@code onGoToPlanWindow(target, type)} when a window card exists for it; else plain
  * {@code onOpenComingUp(null)}. The destination in the pill's name says which.
  *
- * <p>The phone rules live in {@code @media (max-width: 639px)} only.
+ * <p>The phone rules live in {@code @media (max-width: 639px)} only, and are just the full-width cell and
+ * 24px targets: the phone shows the same name, tags and value as desktop.
  *
  * <h2>The separator rule — moved here with the block it was recorded in</h2>
  *
@@ -180,11 +181,7 @@ export default function WindowGlanceDayTopics({
                 onClick={() => onTap(chip)}
               >
                 <span className="wf-dt-sw" aria-hidden="true" />
-                <span className="wf-dt-name">
-                  <span className="wf-dt-nl">{chip.name}</span>
-                  {' '}
-                  <span className="wf-dt-ns">{chip.chipName}</span>
-                </span>
+                <span className="wf-dt-name">{chip.name}</span>
                 {(chip.badge || chip.weather) && (
                   <span className="wf-dt-tags" aria-hidden="true">
                     {chip.badge && <span className="wf-dt-badge">{chip.badge}</span>}
@@ -192,13 +189,7 @@ export default function WindowGlanceDayTopics({
                   </span>
                 )}
                 {' '}
-                {(chip.value || chip.shortValue) && (
-                  <span className="wf-dt-val">
-                    {chip.value && <span className="wf-dt-vl">{chip.value}</span>}
-                    {' '}
-                    {chip.shortValue && <span className="wf-dt-vs">{chip.shortValue}</span>}
-                  </span>
-                )}
+                {chip.value && <span className="wf-dt-val">{chip.value}</span>}
                 <span className="sr-only">{spokenTail(chip, date)}</span>
               </button>
             </li>
@@ -259,10 +250,8 @@ const chipShape = PropTypes.shape({
   key: PropTypes.string.isRequired,
   type: PropTypes.string.isRequired,
   name: PropTypes.string.isRequired,
-  chipName: PropTypes.string.isRequired,
   colour: PropTypes.string.isRequired,
   value: PropTypes.string,
-  shortValue: PropTypes.string,
   badge: PropTypes.string,
   weather: PropTypes.bool.isRequired,
   isContinuation: PropTypes.bool.isRequired,
