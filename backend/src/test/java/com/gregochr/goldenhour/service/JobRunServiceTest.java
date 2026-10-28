@@ -82,10 +82,10 @@ class JobRunServiceTest {
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
 
-            JobRunEntity result = jobRunService.startRun(RunType.SHORT_TERM, false, EvaluationModel.SONNET);
+            JobRunEntity result = jobRunService.startRun(RunType.SCHEDULED_BATCH, false, EvaluationModel.SONNET);
 
             JobRunEntity saved = captor.getValue();
-            assertThat(saved.getRunType()).isEqualTo(RunType.SHORT_TERM);
+            assertThat(saved.getRunType()).isEqualTo(RunType.SCHEDULED_BATCH);
             assertThat(saved.getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
             assertThat(saved.getExchangeRateGbpPerUsd()).isEqualTo(0.79);
             assertThat(saved.getTriggeredManually()).isFalse();
@@ -101,7 +101,7 @@ class JobRunServiceTest {
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
 
-            jobRunService.startRun(RunType.VERY_SHORT_TERM, true, EvaluationModel.HAIKU);
+            jobRunService.startRun(RunType.TIDE, true, EvaluationModel.HAIKU);
 
             assertThat(captor.getValue().getAppVersion()).isEqualTo("v2.8.19");
         }
@@ -113,7 +113,7 @@ class JobRunServiceTest {
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
 
-            jobRunService.startRun(RunType.SHORT_TERM, false, EvaluationModel.SONNET,
+            jobRunService.startRun(RunType.SCHEDULED_BATCH, false, EvaluationModel.SONNET,
                     "SENTINEL_SAMPLING(2),TIDE_ALIGNMENT");
 
             JobRunEntity saved = captor.getValue();
@@ -142,7 +142,7 @@ class JobRunServiceTest {
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
 
-            jobRunService.startRun(RunType.LONG_TERM, true, EvaluationModel.OPUS);
+            jobRunService.startRun(RunType.BRIEFING, true, EvaluationModel.OPUS);
 
             assertThat(captor.getValue().getTriggeredManually()).isTrue();
         }
@@ -155,7 +155,7 @@ class JobRunServiceTest {
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
             LocalDateTime before = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(1);
 
-            jobRunService.startRun(RunType.SHORT_TERM, false, EvaluationModel.HAIKU);
+            jobRunService.startRun(RunType.SCHEDULED_BATCH, false, EvaluationModel.HAIKU);
 
             LocalDateTime startedAt = captor.getValue().getStartedAt();
             assertThat(startedAt).isAfterOrEqualTo(before);
@@ -275,7 +275,7 @@ class JobRunServiceTest {
             LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minus(1, ChronoUnit.SECONDS);
             JobRunEntity jobRun = JobRunEntity.builder()
                     .id(1L)
-                    .runType(RunType.SHORT_TERM)
+                    .runType(RunType.SCHEDULED_BATCH)
                     .startedAt(startTime)
                     .build();
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
@@ -302,7 +302,7 @@ class JobRunServiceTest {
             LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minus(1, ChronoUnit.SECONDS);
             JobRunEntity jobRun = JobRunEntity.builder()
                     .id(2L)
-                    .runType(RunType.LONG_TERM)
+                    .runType(RunType.BRIEFING)
                     .startedAt(startTime)
                     .build();
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
@@ -325,7 +325,7 @@ class JobRunServiceTest {
             LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minus(1, ChronoUnit.SECONDS);
             JobRunEntity jobRun = JobRunEntity.builder()
                     .id(3L)
-                    .runType(RunType.SHORT_TERM)
+                    .runType(RunType.SCHEDULED_BATCH)
                     .startedAt(startTime)
                     .build();
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
@@ -365,7 +365,7 @@ class JobRunServiceTest {
             LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minus(1, ChronoUnit.SECONDS);
             JobRunEntity jobRun = JobRunEntity.builder()
                     .id(5L)
-                    .runType(RunType.SHORT_TERM)
+                    .runType(RunType.SCHEDULED_BATCH)
                     .startedAt(startTime)
                     .build();
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
@@ -386,7 +386,7 @@ class JobRunServiceTest {
             LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minus(500, ChronoUnit.MILLIS);
             JobRunEntity jobRun = JobRunEntity.builder()
                     .id(6L)
-                    .runType(RunType.SHORT_TERM)
+                    .runType(RunType.SCHEDULED_BATCH)
                     .startedAt(startTime)
                     .build();
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);

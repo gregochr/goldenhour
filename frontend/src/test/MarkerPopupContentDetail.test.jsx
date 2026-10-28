@@ -113,7 +113,7 @@ describe('MarkerPopupContent lazy detail resolution', () => {
   });
 
   it('(d) renders a full pass-through object (has lowCloud) inline without fetching', () => {
-    // The PromptTestView pass-through carries full detail. Even with an id set,
+    // A pass-through slot carrying full detail. Even with an id set,
     // the lowCloud sentinel must short-circuit the fetch (precedence rule 1).
     const full = {
       ...SLIM_HEADER,

@@ -7,7 +7,7 @@ package com.gregochr.goldenhour.eval;
  *
  * <p>The {@code resource} is a path under {@code /eval/fixtures/} on the test classpath holding a
  * pure {@code AtmosphericData} JSON document. Pure (un-wrapped) JSON is deliberate: it lets a
- * captured-real export from {@code prompt_test_result.atmospheric_data_json} drop straight in as a
+ * captured-real export of a stored {@code AtmosphericData} document drop straight in as a
  * fixture with no editing — the band and metadata live here in code, not in the JSON.
  *
  * <p><b>Gated vs monitored.</b> A {@code gated} fixture (the default) hard-asserts its band: a

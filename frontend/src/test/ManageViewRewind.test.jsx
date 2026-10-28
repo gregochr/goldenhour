@@ -19,7 +19,6 @@ vi.mock('../components/JobRunsMetricsView.jsx', () => ({ default: () => <div>Job
 vi.mock('../components/ModelSelectionView.jsx', () => ({ default: () => <div>Run Config</div> }));
 vi.mock('../components/ModelTestView.jsx', () => ({ default: () => <div>Model Test</div> }));
 vi.mock('../components/BriefingModelTestView.jsx', () => ({ default: () => <div>Briefing Model Test</div> }));
-vi.mock('../components/PromptTestView.jsx', () => ({ default: () => <div>Prompt Test</div> }));
 vi.mock('../components/SchedulerView.jsx', () => ({ default: () => <div>Scheduler</div> }));
 vi.mock('../components/PipelineRunsView.jsx', () => ({ default: () => <div>Pipeline Runs</div> }));
 

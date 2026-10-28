@@ -25,7 +25,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 - Directional cloud sampling (3-point cone at 113 km + far-field at 226 km) with cloud approach risk detection
 - Sunrise/sunset azimuth line on map — only the line for the selected event type is shown, reducing visual clutter
 - Per-run-type model configuration — three independent configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
-- Model comparison + prompt test harnesses for A/B evaluation
+- Model comparison harness for A/B evaluation
 - Stores every evaluation so you can track how the forecast converges as the date approaches
 - Outcome recording — Pro and Admin readers rate how a past sunrise or sunset turned out from the Map tab's location callout ("How was it?"); the older free-text `POST /api/outcome` endpoint has been removed. Ratings feed the calibration gate
 - Self-registration with email verification and Cloudflare Turnstile CAPTCHA; sign-in by username or email, forgot/reset password, and in-app account deletion
@@ -231,12 +231,6 @@ Users can self-register at the login page — email verification is required, an
 | `POST` | `/api/model-test/rerun` | ADMIN | Re-run a previous test with fresh data |
 | `GET` | `/api/model-test/runs` | ADMIN | Recent model test runs |
 | `GET` | `/api/model-test/results` | ADMIN | Results for a specific test run |
-| `POST` | `/api/prompt-test/run` | ADMIN | Start async prompt test run (202 Accepted) |
-| `POST` | `/api/prompt-test/replay` | ADMIN | Replay a previous test with current prompt |
-| `GET` | `/api/prompt-test/runs` | ADMIN | Recent prompt test runs |
-| `GET` | `/api/prompt-test/runs/{id}` | ADMIN | Single run (for progress polling) |
-| `GET` | `/api/prompt-test/results` | ADMIN | Results for a prompt test run |
-| `GET` | `/api/prompt-test/git-info` | ADMIN | Current git commit info |
 
 ### Aurora
 

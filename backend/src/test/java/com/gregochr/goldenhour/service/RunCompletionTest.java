@@ -368,7 +368,7 @@ class RunCompletionTest {
     @DisplayName("a run-level reason is written to the job_run's notes")
     void complete_writesTheRunReasonToNotes() {
         RunProgress progress = new RunProgress(RUN_ID);
-        progress.stop(KEY_REJECTED_RUN);
+        progress.markFailed(KEY_REJECTED_RUN);
         when(progressTracker.getProgress(RUN_ID)).thenReturn(progress);
 
         completion.complete(jobRun, 0, 0, null);
@@ -396,7 +396,7 @@ class RunCompletionTest {
         JobRunEntity stoppedRun = new JobRunEntity();
         stoppedRun.setId(RUN_ID + 1);
         RunProgress stopped = new RunProgress(RUN_ID + 1);
-        stopped.stop(KEY_REJECTED_RUN);
+        stopped.markFailed(KEY_REJECTED_RUN);
         when(progressTracker.getProgress(RUN_ID + 1)).thenReturn(stopped);
 
         completion.abort(stoppedRun, "The run stopped unexpectedly. See the server log.");
