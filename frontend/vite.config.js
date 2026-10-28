@@ -57,6 +57,7 @@ export default defineConfig(({ mode }) => {
         globPatterns: [
           '**/*.{css,html,woff2}',
           'assets/index-*.js',
+          'assets/AuthPages-*.js',
           'assets/react-*.js',
           'assets/rolldown-runtime-*.js',
         ],

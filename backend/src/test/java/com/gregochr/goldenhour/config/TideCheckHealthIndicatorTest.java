@@ -10,6 +10,7 @@ import org.springframework.boot.health.contributor.Status;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -67,5 +68,36 @@ class TideCheckHealthIndicatorTest {
         Health health = indicator.health();
 
         assertThat(health.getStatus()).isEqualTo(Status.UNKNOWN);
+    }
+
+    @Test
+    @DisplayName("Health details never carry the exception message, so the request URL's API key cannot leak")
+    void downDoesNotLeakKeyFromIoErrorMessage() {
+        RestClient restClient = mock(RestClient.class);
+        RestClientMocks.stubGetBodilessEntityThrows(restClient, new ResourceAccessException(
+                "I/O error on GET request for \"https://www.worldtides.info/api/v3"
+                        + "?extremes&lat=0&lon=0&length=1&key=SECRETKEY\": timeout"));
+
+        Health health = new TideCheckHealthIndicator(restClient, "SECRETKEY").health();
+
+        assertThat(health.getStatus()).isEqualTo(Status.DOWN);
+        assertThat(health.getDetails().get("error")).isEqualTo("ResourceAccessException");
+        assertThat(health.getDetails().toString()).doesNotContain("SECRETKEY");
+        assertThat(health.getDetails()).doesNotContainKey("status");
+    }
+
+    @Test
+    @DisplayName("Reports the HTTP status, never the message, when WorldTides returns an error response")
+    void downWithStatusWhenErrorResponse() {
+        RestClient restClient = mock(RestClient.class);
+        RestClientMocks.stubGetBodilessEntityThrows(restClient,
+                new RestClientResponseException("bad key=SECRETKEY", 401, "Unauthorized", null, null, null));
+
+        Health health = new TideCheckHealthIndicator(restClient, "SECRETKEY").health();
+
+        assertThat(health.getStatus()).isEqualTo(Status.DOWN);
+        assertThat(health.getDetails().get("status")).isEqualTo(401);
+        assertThat(health.getDetails().get("error")).isEqualTo("RestClientResponseException");
+        assertThat(health.getDetails().toString()).doesNotContain("SECRETKEY");
     }
 }

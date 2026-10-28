@@ -45,6 +45,18 @@
 ### Auth (Bearer required)
 `POST /api/auth/logout|change-password` | `PUT /api/auth/marketing-emails`
 
+> `POST /api/auth/change-password` `{currentPassword, newPassword, turnstileToken?}`: **200** `{message: "Password
+> updated", …the /login body}` (fresh tokens for this device); **400** `{"error":"Current password is required"}` when
+> `currentPassword` is missing or blank, `{"error":"Current password is incorrect"}` when it does not match (a 400, never
+> a 401: a 401 would be refreshed and retried by the client), `{"error":"New password must differ from the current one"}`,
+> the complexity sentence, or the CAPTCHA sentence; **401** unauthenticated or a stale session; **429** from the
+> per-account budget (`change-password:user:<id>`, 5 per 15 minutes, counted on every attempt) or the Turnstile gate.
+>
+> **While the account is flagged `passwordChangeRequired`, every other `/api/` call returns 403**
+> `{"error":"Password change required","code":"PASSWORD_CHANGE_REQUIRED"}` (`PasswordChangeRequiredFilter`). Exempt:
+> `/api/auth/**` (so change-password, logout, refresh and reset still work) and `/api/waitlist`. Paths are matched decoded (`PathPatternRequestMatcher`, as `SecurityConfig` does), so `/%61pi/...` is still guarded. Unauthenticated requests
+> keep their 401 and paths outside `/api/` are unaffected.
+
 > The two event streams (`GET /api/status/stream`, `GET /api/forecast/run/{id}/progress`)
 > authenticate with the `Authorization: Bearer` header like every other call; the client streams with `fetch`. A `?token=` query
 > parameter is not read (`JwtAuthenticationFilter.extractToken` is header-only), so such a request is 401.
@@ -484,3 +496,6 @@ CLAUDE.md's Almanac section) |
 `GET /api/push/vapid-public-key` (none) | `POST|DELETE /api/push/subscribe` (Bearer)
 
 ---
+
+### Actuator health (`/actuator/health`, permitAll)
+Component status is public (`show-components: always`), but the per-component **details** (`latencyMs`, `error`, `status`) are shown to an `ADMIN` only (`management.endpoint.health.roles: ADMIN` with `show-details: when_authorized`; pinned by `HealthDetailsProdYamlTest`). A probe's `error` detail is only the exception class name, plus an HTTP `status` for a `RestClientResponseException`, never the exception message: Spring's I/O errors quote the full request URL, which for WorldTides carries the paid API key. `SecretRedactor.redactKeys` masks `key=` / `apikey=` / `api_key=` query values before an exception message reaches a log line or the admin API-call log.

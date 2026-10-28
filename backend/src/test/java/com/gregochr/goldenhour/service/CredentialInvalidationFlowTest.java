@@ -164,7 +164,9 @@ class CredentialInvalidationFlowTest {
         JsonNode phone = login("reader", OLD_PASSWORD);
 
         JsonNode changed = send(authed(post("/api/auth/change-password"), laptop.get("accessToken").asText())
-                .contentType(MediaType.APPLICATION_JSON).content("{\"newPassword\":\"" + NEW_PASSWORD + "\"}"),
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"currentPassword\":\"" + OLD_PASSWORD + "\",\"newPassword\":\""
+                        + NEW_PASSWORD + "\"}"),
                 200);
 
         assertThat(changed.get("message").asText()).isEqualTo("Password updated");
@@ -194,11 +196,13 @@ class CredentialInvalidationFlowTest {
         JsonNode first = login("reader", OLD_PASSWORD);
         String staleAccess = first.get("accessToken").asText();
         send(authed(post("/api/auth/change-password"), staleAccess).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"newPassword\":\"" + NEW_PASSWORD + "\"}"), 200);
+                .content("{\"currentPassword\":\"" + OLD_PASSWORD + "\",\"newPassword\":\""
+                        + NEW_PASSWORD + "\"}"), 200);
 
         // The token's cv (0) is behind the row (1): the filter refuses it before the controller runs.
         send(authed(post("/api/auth/change-password"), staleAccess).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"newPassword\":\"Third-P@ssw0rd!\"}"), 401);
+                .content("{\"currentPassword\":\"" + NEW_PASSWORD + "\",\"newPassword\":\"Third-P@ssw0rd!\"}"),
+                401);
 
         assertThat(credentialsVersion(readerId)).isEqualTo(1L);
         login("reader", NEW_PASSWORD);
@@ -258,6 +262,56 @@ class CredentialInvalidationFlowTest {
         reachesTheApp(session.get("accessToken").asText(), 401);
         refresh(session.get("refreshToken").asText(), 401);
         assertThat(login("reader", temporary).get("passwordChangeRequired").asBoolean()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a flagged account is a 403 PASSWORD_CHANGE_REQUIRED on every /api/ route but /api/auth/**, and "
+            + "changing the password with the temporary one lifts it")
+    void flaggedAccount_isHeldToTheChangePasswordPage() throws Exception {
+        String admin = login("boss", ADMIN_PASSWORD).get("accessToken").asText();
+        String temporary = send(authed(put("/api/users/" + readerId + "/reset-password"), admin), 200)
+                .get("temporaryPassword").asText();
+        String flaggedAccess = login("reader", temporary).get("accessToken").asText();
+
+        MvcResult refused = mockMvc.perform(authed(get(ANY_READER_ROUTE), flaggedAccess))
+                .andExpect(status().isForbidden()).andReturn();
+        assertThat(refused.getResponse().getContentAsString())
+                .isEqualTo("{\"error\":\"Password change required\",\"code\":\"PASSWORD_CHANGE_REQUIRED\"}");
+
+        JsonNode changed = send(authed(post("/api/auth/change-password"), flaggedAccess)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"currentPassword\":\"" + temporary + "\",\"newPassword\":\"" + NEW_PASSWORD + "\"}"),
+                200);
+        reachesTheApp(changed.get("accessToken").asText(), 200);
+    }
+
+    @Test
+    @DisplayName("change-password with the wrong current password is a 400 that changes nothing; a missing one "
+            + "is a 400 too, and the sixth attempt in the quarter hour is a 429")
+    void changePassword_requiresTheCurrentPassword() throws Exception {
+        String access = login("reader", OLD_PASSWORD).get("accessToken").asText();
+
+        JsonNode wrong = send(authed(post("/api/auth/change-password"), access)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"currentPassword\":\"Wrong-P@ssw0rd!\",\"newPassword\":\"" + NEW_PASSWORD + "\"}"),
+                400);
+        assertThat(wrong.get("error").asText()).isEqualTo("Current password is incorrect");
+        JsonNode missing = send(authed(post("/api/auth/change-password"), access)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"newPassword\":\"" + NEW_PASSWORD + "\"}"), 400);
+        assertThat(missing.get("error").asText()).isEqualTo("Current password is required");
+        assertThat(credentialsVersion(readerId)).isZero();
+        login("reader", OLD_PASSWORD);
+
+        for (int attempt = 2; attempt <= 5; attempt++) {
+            send(authed(post("/api/auth/change-password"), access).contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"currentPassword\":\"Wrong-P@ssw0rd!\",\"newPassword\":\"" + NEW_PASSWORD
+                            + "\"}"), 400);
+        }
+        send(authed(post("/api/auth/change-password"), access).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"currentPassword\":\"" + OLD_PASSWORD + "\",\"newPassword\":\"" + NEW_PASSWORD
+                        + "\"}"), 429);
+        assertThat(credentialsVersion(readerId)).isZero();
     }
 
     @Test

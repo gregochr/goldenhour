@@ -140,6 +140,7 @@ management:
   endpoint:
     health:
       show-details: when_authorized
+      roles: ADMIN
       show-components: always
   health:
     circuitbreakers:
