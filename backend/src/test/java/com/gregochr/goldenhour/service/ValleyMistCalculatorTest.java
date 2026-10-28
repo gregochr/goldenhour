@@ -40,7 +40,12 @@ class ValleyMistCalculatorTest {
     }
 
     /**
-     * River Brathay, 17 Oct 2026 SUNRISE: offsets -3..+2 are 03:00..08:00 UTC, event hour 06:00.
+     * River Brathay, 17 Oct 2026 SUNRISE: a SYNTHETIC variant of the real morning, with invented
+     * temperatures. It is laid out with offsets -3..+2 as 03:00..08:00 UTC and event hour 06:00, but
+     * production reads 07:00 for this sunrise (sunrise 06:41.8 UTC, and TimeSlotUtils.findBestIndex
+     * takes the earliest slot at or after it). The real-data reading, built from the owner's Open-Meteo
+     * file through the production parser, is pinned in ValleyMistBrathayFixtureTest (7.03 LIKELY at
+     * 07:00, 5.03 POSSIBLE at 06:00).
      * Measured (plan section 3): gaps, wind, humidity, visibility, 47 percent low cloud at 06:00.
      * INVENTED to fit "temperature falling toward the dew point": the temperatures themselves, and
      * total cloud at 06:00 taken as the 47 percent low cloud. Without the cooling term this scores
