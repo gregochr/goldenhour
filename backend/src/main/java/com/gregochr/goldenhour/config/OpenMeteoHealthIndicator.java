@@ -6,6 +6,7 @@ import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Duration;
 
@@ -69,10 +70,14 @@ public class OpenMeteoHealthIndicator implements HealthIndicator {
         } catch (Exception ex) {
             long latency = System.currentTimeMillis() - start;
             LOG.debug("Open-Meteo health probe failed in {}ms", latency, ex);
-            cachedHealth = Health.down()
+            // Never the message: Spring's I/O errors quote the full request URL.
+            Health.Builder down = Health.down()
                     .withDetail("latencyMs", latency)
-                    .withDetail("error", ex.getMessage())
-                    .build();
+                    .withDetail("error", ex.getClass().getSimpleName());
+            if (ex instanceof RestClientResponseException responseEx) {
+                down.withDetail("status", responseEx.getStatusCode().value());
+            }
+            cachedHealth = down.build();
         }
         cachedAt = System.currentTimeMillis();
         return cachedHealth;

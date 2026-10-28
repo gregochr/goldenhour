@@ -484,3 +484,6 @@ CLAUDE.md's Almanac section) |
 `GET /api/push/vapid-public-key` (none) | `POST|DELETE /api/push/subscribe` (Bearer)
 
 ---
+
+### Actuator health (`/actuator/health`, permitAll)
+Component status is public (`show-components: always`), but the per-component **details** (`latencyMs`, `error`, `status`) are shown to an `ADMIN` only (`management.endpoint.health.roles: ADMIN` with `show-details: when_authorized`; pinned by `HealthDetailsProdYamlTest`). A probe's `error` detail is only the exception class name, plus an HTTP `status` for a `RestClientResponseException`, never the exception message: Spring's I/O errors quote the full request URL, which for WorldTides carries the paid API key. `SecretRedactor.redactKeys` masks `key=` / `apikey=` / `api_key=` query values before an exception message reaches a log line or the admin API-call log.
