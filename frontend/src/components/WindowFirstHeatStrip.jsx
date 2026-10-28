@@ -7,7 +7,7 @@ import {
 } from '../utils/heatField.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
-import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
+import { POINT_SCORE_INDEX, heatSpotKey } from '../utils/heatSpots.js';
 import {
   badgeChannel,
   BLANKED_STAND_DOWN_SPOKEN,
@@ -936,12 +936,19 @@ export default function WindowFirstHeatStrip({
   /**
    * A window's stood places inside the thumbnail's frame: the thumbnails crop to the scope regions,
    * so a stand-down in a region cropped out is painted (the list is handed over whole) but is
-   * neither counted, spoken, nor named by the legend. Everything that DESCRIBES the picture reads
-   * this; only the canvas reads the full list.
+   * neither counted, spoken, nor named by the legend. A shaped body's stood ground is also limited to the
+   * reader's own places (`groundSets` `allowed`; unknown is silence), so ground outside the picks never makes
+   * a card say "stood down". Everything that DESCRIBES the picture (the sentence, the count, the legend, the
+   * visible words, `unratedFor`) reads this; only the canvas reads the full list.
    */
   const stoodInFrame = useCallback(
-    (key) => (stoodSets?.get?.(key) ?? []).filter((p) => scopeNames.includes(p.rid)),
-    [stoodSets, scopeNames],
+    (key) => {
+      const inFrame = (stoodSets?.get?.(key) ?? []).filter((p) => scopeNames.includes(p.rid));
+      if (!shaped) return inFrame;
+      const own = new Set((groundSets?.get?.(key)?.allowed ?? []).map(heatSpotKey));
+      return inFrame.filter((p) => own.has(p.key));
+    },
+    [stoodSets, scopeNames, shaped, groundSets],
   );
 
   /**
@@ -1432,7 +1439,8 @@ export default function WindowFirstHeatStrip({
     });
     // A stood-down window is not "not scored": it was looked at (the Map's wording).
     const stoodHere = card.away ? [] : stoodInFrame(card.key);
-    const stoodUnrated = (unratedSets?.get?.(card.key)?.length ?? 0) > 0;
+    const stoodUnrated = ((shaped ? groundSets?.get?.(card.key)?.unrated : unratedSets?.get?.(card.key))?.length
+      ?? 0) > 0;
     const notScoredWords = stoodHere.length === 0 ? 'not scored'
       : (stoodUnrated
         ? 'some places stood down by the weather — none rated yet'
@@ -1440,11 +1448,11 @@ export default function WindowFirstHeatStrip({
     // The VISIBLE Spread note and Best row say what the sentence above says (big-seas F4; Map parity:
     // "Stood down by the weather — no place rated for this event"). "none rated yet" / "not scored yet"
     // read as a fault or "too far ahead" over a hatch that means the weather ruled the places out. Read off
-    // the values just computed, never a second predicate; full (unshaped) body and a non-empty pool only —
-    // an empty pool keeps "nothing in reach", and the shaped body's `unscored` uses the reader's picks
-    // (`groundSets`), a different scope from `stoodInFrame`, so it keeps its own words. `derived` stays
-    // stood-blind; this overrides at render.
-    const stoodWords = notScored && !shaped && stoodHere.length > 0 && poolTotal > 0;
+    // the values just computed, never a second predicate; a non-empty pool only — an empty pool keeps
+    // "nothing in reach". The shaped body gets the same words: its stood places are limited to the reader's
+    // own inside `stoodInFrame`, and its "some places stood down" test reads `ground.unrated`, so ground
+    // outside the picks never makes it say "stood down". `derived` stays stood-blind; this overrides at render.
+    const stoodWords = notScored && stoodHere.length > 0 && poolTotal > 0;
     const spreadStood = stoodWords && !stoodUnrated && facts.spread.rated === 0 && !facts.state.bars;
     const bestStood = stoodWords && facts.best && facts.best.rating == null && !facts.best.beyond;
     const accessibleName = [card.label, card.time, card.verdictLabel]
