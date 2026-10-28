@@ -1,5 +1,5 @@
 import React, {
-  useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import {
@@ -778,15 +778,19 @@ export default function WindowFirstHeatStrip({
       forecastDates,
       hasMapDoor,
     });
-    const byDate = glanceTopicsByColumn(days, matrix.days.map((day) => day.date));
-    const lastTopicDate = matrix.days.map((day) => day.date)
+    // A column whose every card is a travel day draws no topics (the cards drop theirs when `away`, and the header
+    // must agree), and counts as not rendered, so R2's forced-solid rule treats it like any other missing day.
+    const liveDates = matrix.days
+      .filter((day) => [day.am, day.pm].some((card) => card && !card.away))
+      .map((day) => day.date);
+    const byDate = glanceTopicsByColumn(days, liveDates);
+    const lastTopicDate = liveDates
       .filter((date) => (byDate.get(date)?.length ?? 0) > 0).pop() ?? null;
     return { byDate, lastTopicDate };
   }, [
     todayStr, hotTopics, comingUpEntries, renderedEntryIds, openableKeys, forecastDates, hasMapDoor,
     onGoToPlanWindow, matrix,
   ]);
-  const dayIdBase = useId();
   /**
    * What a pill's press does, first match wins — the old "Next four days" block's four routes (a topic with no
    * almanac counterpart, such as aurora or any weather topic, has no Coming up row to open, so the handoff's
@@ -1911,7 +1915,6 @@ export default function WindowFirstHeatStrip({
   const renderDayHeader = (day, column) => (
     <div
       key={day.date}
-      id={`${dayIdBase}-${day.date}`}
       data-testid="wf-heat-day"
       data-today={day.today ? 'true' : undefined}
       className={`wf-hday${day.today ? ' today' : ''}`}
@@ -1950,7 +1953,7 @@ export default function WindowFirstHeatStrip({
       column={column}
       row={MATRIX_ROW.topics}
       chips={glanceTopics.byDate.get(day.date) ?? []}
-      labelledBy={`${dayIdBase}-${day.date}`}
+      todayStr={todayStr}
       phone={phone}
       onTap={tapTopic}
     />
@@ -2012,13 +2015,13 @@ export default function WindowFirstHeatStrip({
                     has no sticky header to protect, so this is the cleanest place; the stack is NEVER inside
                     `renderDayHeader`, which the sticky, measured desktop `.wf-dhrow` shares). */}
                 {renderTopics(day, column, true)}
-                {day.date === glanceTopics.lastTopicDate && <GlanceTopicDoor onOpen={onOpenComingUp ?? noop} />}
                 {day.am
                   ? renderCard(day.am, column, MATRIX_ROW.sunrise, day.solo)
                   : renderEmpty(day.amEmpty, column, MATRIX_ROW.sunrise, `${day.date}:am`)}
                 {day.pm
                   ? renderCard(day.pm, column, MATRIX_ROW.sunset, day.solo)
                   : renderEmpty(day.pmEmpty, column, MATRIX_ROW.sunset, `${day.date}:pm`)}
+                {day.date === glanceTopics.lastTopicDate && <GlanceTopicDoor onOpen={onOpenComingUp ?? noop} />}
               </React.Fragment>
             );
           })}

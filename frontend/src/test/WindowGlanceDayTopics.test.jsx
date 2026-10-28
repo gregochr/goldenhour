@@ -45,9 +45,6 @@ function Harness({ topics, columns = DATES, onTap = () => {}, phone = false, bui
   const byDate = glanceTopicsByColumn(days, columns);
   return (
     <div>
-      {columns.map((date) => (
-        <div key={`h-${date}`} id={`head-${date}`} data-testid="head">{date}</div>
-      ))}
       {columns.map((date, i) => (
         <WindowGlanceDayTopics
           key={date}
@@ -55,7 +52,7 @@ function Harness({ topics, columns = DATES, onTap = () => {}, phone = false, bui
           column={i + 1}
           row={MATRIX_ROW.topics}
           chips={byDate.get(date) ?? []}
-          labelledBy={`head-${date}`}
+          todayStr={TODAY}
           phone={phone}
           onTap={onTap}
         />
@@ -98,11 +95,11 @@ describe('WindowGlanceDayTopics — the stacks', () => {
     expect(screen.getAllByTestId('wf-glance-topics')).toHaveLength(3);
   });
 
-  it('names each group by the header element above it', () => {
+  it('names each group by its own long-form day: today, tomorrow, then the bare weekday', () => {
     renderStacks();
-    expect(screen.getAllByRole('group').map((g) => g.getAttribute('aria-labelledby')))
-      .toEqual(['head-2026-10-24', 'head-2026-10-25', 'head-2026-10-26']);
-    expect(screen.getByRole('group', { name: SUN })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Saturday 24, today' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Sunday 25, tomorrow' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Monday 26' })).toBeInTheDocument();
   });
 
   it('makes each pill a button inside a list item, with no aria-label', () => {

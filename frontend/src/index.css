@@ -1346,7 +1346,7 @@
   background: var(--color-plex-border);
 }
 /* ── The matrix (plan-matrix §6 M1) ────────────────────────────────────────────────────────────
-   A column per day, sunrise on row 2 and sunset on row 3, so the shape of the week is in the
+   A column per day, the day topics on row 2, sunrise on row 3 and sunset on row 4, so the shape of the week is in the
    layout itself. Cells are PLACED (`--c`/`--r` from the component) rather than flowed, which is
    what lets the phone drop the identical markup into two columns under a spanning day heading
    without a second render path. `--dc` is the day count, written by the component from the data —

@@ -4577,12 +4577,32 @@ describe('WindowFirstHeatStrip — the day header\'s topic pills (glance-topic-s
     expect(screen.getAllByTestId('wf-glance-topic')).toHaveLength(1);
   });
 
-  it('names each stack by its own day header (the date chip above it)', async () => {
+  it('names each stack by its own long-form day, not the date chip\'s short text', async () => {
     await renderStrip({ cards: COLUMNS, hotTopics: [tide(D5)] });
-    const group = screen.getByRole('group');
-    const header = screen.getAllByTestId('wf-heat-day')[1];
-    expect(group.getAttribute('aria-labelledby')).toBe(header.id);
-    expect(group).toHaveAccessibleName('Wed5');
+    expect(screen.getByRole('group')).toHaveAccessibleName('Wednesday 5, tomorrow');
+  });
+
+  it('draws no topics for a travel-day column, and counts it as not rendered for the solid rule', async () => {
+    // Cards drop topics when `away`, so the header must too; Wednesday is away, so Thursday's continuation of
+    // Wednesday's tide has no visible start and is forced solid.
+    const away = (key, date, targetType, dow) => stripCard({
+      key, date, targetType, sunrise: targetType === 'SUNRISE', dow, away: true, verdict: null,
+      verdictLabel: 'Not forecast',
+    });
+    await renderStrip({
+      cards: [
+        stripCard(),
+        away(`${D5}:SUNRISE`, D5, 'SUNRISE', 'Wed'),
+        away(`${D5}:SUNSET`, D5, 'SUNSET', 'Wed'),
+        stripCard({ key: `${D6}:SUNRISE`, date: D6, targetType: 'SUNRISE', sunrise: true, dow: 'Thu' }),
+      ],
+      hotTopics: [tide(D5), tide(D6)],
+    });
+    const cells = Array.from(screen.getByTestId('wf-heat-dtrow').children);
+    expect(cells.map((c) => c.getAttribute('data-testid'))).toEqual([
+      'wf-glance-topics-empty', 'wf-glance-topics-empty', 'wf-glance-topics',
+    ]);
+    expect(screen.getByTestId('wf-glance-topic')).not.toHaveAttribute('data-continuation');
   });
 
   it('routes a press: a jump goes to Coming up at that entry', async () => {
@@ -4646,7 +4666,7 @@ describe('WindowFirstHeatStrip — the day header\'s topic pills (glance-topic-s
     expect(kids).toEqual([
       'wf-heat-day', 'wf-heat-empty', 'wf-heat-card',
       'wf-heat-day', 'wf-glance-topics', 'wf-heat-card', 'wf-heat-card',
-      'wf-heat-day', 'wf-glance-topics', 'wf-glance-topics-door-row', 'wf-heat-card', 'wf-heat-empty',
+      'wf-heat-day', 'wf-glance-topics', 'wf-heat-card', 'wf-heat-empty', 'wf-glance-topics-door-row',
       'wf-heat-day', 'wf-heat-card', 'wf-heat-empty',
     ]);
     // The placement the phone DOM carries at desktop width (matrix-axis plan D4) is the topics row.

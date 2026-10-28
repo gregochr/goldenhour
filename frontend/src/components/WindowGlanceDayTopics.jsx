@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import PropTypes from 'prop-types';
 import { GLANCE_LABEL } from '../utils/tabLabels.js';
 
@@ -15,7 +16,7 @@ function badgeWord(badge) {
 }
 
 /**
- * Where the tap goes, in words — the four routes of {@link tapChip}, first match wins. The route and its
+ * Where the tap goes, in words — the four routes of {@code tapTopic} in {@code WindowFirstHeatStrip}, first match wins. The route and its
  * wording read the same chip fields, so what a reader is told and what a press does cannot disagree.
  */
 function destination(chip) {
@@ -53,8 +54,7 @@ function spokenTail(chip, date) {
  * fact. A pill is solid when its topic starts on the day and dashed when it continues from the day before
  * ({@code isContinuation}; the strip forces solid when the previous day is not a rendered column).
  *
- * <p><b>Each day</b> is a {@code role="group"} named by its date chip in the header row above it
- * ({@code labelledBy}); a day with no topic renders an empty cell that keeps its column and no group or
+ * <p><b>Each day</b> is a {@code role="group"} named by its own {@code sr-only} long-form day ("Wednesday 28, today"); a day with no topic renders an empty cell that keeps its column and no group or
  * {@code <ul>} (no "list, 0 items"). {@code phone} renders nothing at all for such a day, since the phone
  * grid flows.
  *
@@ -139,13 +139,24 @@ function spokenTail(chip, date) {
  * @param {number}   props.column     the grid column, 1-based (`--c`)
  * @param {number}   props.row        the grid row, `MATRIX_ROW.topics` (`--r`; only the phone DOM at desktop width reads it)
  * @param {Array}    props.chips      that day's chips from `glanceTopicsByColumn` (may be empty)
- * @param {string}   props.labelledBy the id of the day header element that names the group
+ * @param {string}   [props.todayStr] the reader's today, for the group's "today"/"tomorrow" wording
  * @param {boolean}  [props.phone]    the phone's flowing grid: an empty day renders nothing
  * @param {function} props.onTap      called with the pressed chip; the strip owns the four routes
  */
+/** `Wednesday 28, today` / `Thursday 29, tomorrow` / `Friday 30` — the day, said in full for the group's name. */
+function dayName(date, todayStr) {
+  const day = Number(date.slice(8));
+  const diff = todayStr
+    ? Math.round((Date.parse(`${date}T12:00:00Z`) - Date.parse(`${todayStr}T12:00:00Z`)) / 86400000)
+    : null;
+  const rel = { 0: ', today', 1: ', tomorrow' }[diff] ?? '';
+  return `${longWeekday(date)} ${day}${rel}`;
+}
+
 export default function WindowGlanceDayTopics({
-  date, column, row, chips, labelledBy, phone = false, onTap,
+  date, column, row, chips, todayStr, phone = false, onTap,
 }) {
+  const nameId = useId();
   if (chips.length === 0) {
     return phone ? null : (
       <div className="wf-dtcell" style={{ '--c': column, '--r': row }} data-testid="wf-glance-topics-empty" />
@@ -153,7 +164,8 @@ export default function WindowGlanceDayTopics({
   }
   return (
     <div className="wf-dtcell" style={{ '--c': column, '--r': row }} data-testid="wf-glance-topics">
-      <div role="group" aria-labelledby={labelledBy}>
+      <span className="sr-only" id={nameId}>{dayName(date, todayStr)}</span>
+      <div role="group" aria-labelledby={nameId}>
         <ul className="wf-dt-list">
           {chips.map((chip) => (
             <li key={chip.key}>
@@ -265,7 +277,7 @@ WindowGlanceDayTopics.propTypes = {
   column: PropTypes.number.isRequired,
   row: PropTypes.number.isRequired,
   chips: PropTypes.arrayOf(chipShape).isRequired,
-  labelledBy: PropTypes.string.isRequired,
+  todayStr: PropTypes.string,
   phone: PropTypes.bool,
   onTap: PropTypes.func.isRequired,
 };
