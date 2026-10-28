@@ -62,6 +62,9 @@ public class AuthenticationService {
     /** Change-password attempts admitted per account in a quarter hour. */
     static final int CHANGE_PASSWORD_USER_LIMIT = 5;
 
+    /** The sentence for a change-password request with no current password. */
+    public static final String CURRENT_PASSWORD_REQUIRED = "Current password is required";
+
     /** The sentence for a current password that does not match. */
     public static final String CURRENT_PASSWORD_INCORRECT = "Current password is incorrect";
 
@@ -326,7 +329,8 @@ public class AuthenticationService {
      * and returns fresh tokens for the caller's device.
      *
      * <p>Complexity validation is the caller's responsibility via
-     * {@link #validatePasswordComplexity(String)}. The order is: load the user; ALWAYS take the account's
+     * {@link #validatePasswordComplexity(String)}. The order is: load the user; refuse a missing or blank
+     * current password (before the budget, so a malformed request spends none); ALWAYS take the account's
      * change-password budget (five per quarter hour, the window login uses) — {@link TurnstileGate} bounds
      * only the tokenless fallback and the limiter has no failure hook, so the check runs on every
      * attempt; verify the current password; then encode the new one. Deliberately not transactional: both
@@ -344,7 +348,7 @@ public class AuthenticationService {
      * @return the fresh tokens, so the device that changed the password stays signed in
      * @throws InvalidCredentialsException      if no user with that username exists
      * @throws TooManyAttemptsException         if the account's change-password budget is spent
-     * @throws CurrentPasswordMismatchException if the current password is wrong
+     * @throws CurrentPasswordMismatchException if the current password is missing, blank or wrong
      * @throws NewPasswordUnchangedException    if the new password is the current one
      * @throws StaleCredentialsException        if the account's credentials moved since the caller's token
      *                                          was issued, or the account is no longer active
@@ -354,6 +358,9 @@ public class AuthenticationService {
         AppUserEntity user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new InvalidCredentialsException("User not found"));
 
+        if (currentPassword == null || currentPassword.isBlank()) {
+            throw new CurrentPasswordMismatchException(CURRENT_PASSWORD_REQUIRED);
+        }
         if (!attemptLimiter.tryAcquire(CHANGE_PASSWORD_USER_KEY_PREFIX + user.getId(),
                 CHANGE_PASSWORD_USER_LIMIT, AuthAttemptLimiter.Window.QUARTER_HOUR)) {
             LOG.info("Change-password refused: attempt budget spent for user id {}", user.getId());

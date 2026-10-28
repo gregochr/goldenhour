@@ -178,11 +178,6 @@ public class AuthController {
                     .body(Map.of("error", "Not authenticated"));
         }
 
-        String currentPassword = body.get("currentPassword");
-        if (currentPassword == null || currentPassword.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Current password is required"));
-        }
-
         Outcome outcome = turnstileGate.admit(body.get("turnstileToken"), username,
                 ClientAddress.of(request), Endpoint.CHANGE_PASSWORD);
         ResponseEntity<Map<String, Object>> refusal = refusalFor(outcome);
@@ -190,6 +185,7 @@ public class AuthController {
             return refusal;
         }
 
+        String currentPassword = body.get("currentPassword");
         String newPassword = body.get("newPassword");
         String complexityError = authenticationService.validatePasswordComplexity(newPassword);
         if (complexityError != null) {

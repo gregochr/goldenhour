@@ -739,6 +739,26 @@ class AuthenticationServiceTest {
         }
 
         @Test
+        @DisplayName("a null or blank current password throws CurrentPasswordMismatch 'required' BEFORE the "
+                + "budget is taken, and nothing is hashed, written or issued")
+        void missingCurrentPassword_isRefusedBeforeTheBudget() {
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+
+            for (String missing : new String[] {null, "", "   "}) {
+                assertThatThrownBy(() -> service.changePassword("admin", missing, "NewPass1!",
+                        VersionExpectation.trusted()))
+                        .isInstanceOf(CurrentPasswordMismatchException.class)
+                        .hasMessage("Current password is required");
+            }
+
+            verify(attemptLimiter, never()).tryAcquire(BUDGET_KEY, 5, AuthAttemptLimiter.Window.QUARTER_HOUR);
+            verifyNoInteractions(attemptLimiter);
+            verifyNoInteractions(passwordEncoder);
+            verifyNoInteractions(credentialChangeWriter);
+            verifyNoInteractions(tokenIssuer);
+        }
+
+        @Test
         @DisplayName("the budget is taken on EVERY attempt, a wrong password included, and a spent budget "
                 + "throws TooManyAttempts before the password is compared")
         void spentBudget_throwsBeforeThePasswordCheck() {

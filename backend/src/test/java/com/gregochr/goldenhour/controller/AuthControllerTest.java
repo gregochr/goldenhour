@@ -402,8 +402,8 @@ class AuthControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/auth/change-password with no currentPassword is a 400 and never reaches the gate "
-            + "or the service")
+    @DisplayName("POST /api/auth/change-password with a missing or blank currentPassword is a 400 and spends "
+            + "no attempt budget or credential write")
     void changePassword_missingCurrentPassword_returns400() throws Exception {
         String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
 
@@ -417,7 +417,7 @@ class AuthControllerTest extends AbstractControllerTest {
                     .andExpect(jsonPath("$.error").value("Current password is required"));
         }
 
-        verifyNoInteractions(turnstileGate);
+        verify(attemptLimiter, never()).tryAcquire(eq("change-password:user:1"), eq(5), eq(Window.QUARTER_HOUR));
         verify(userRepository, never()).applyCredentialChange(any(), any(), anyInt(), anyInt(), anyInt(),
                 anyBoolean(), org.mockito.ArgumentMatchers.anyLong(), any());
     }
