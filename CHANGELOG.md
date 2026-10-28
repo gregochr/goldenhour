@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.34.2] - 2026-10-28
+
+### Fixed — Plan cards say "stood down" where the weather ruled the places out
+
+A solar window whose places the weather stood down showed "Spread — none rated yet" and "Best — not scored yet" under the
+stood-down hatch, which readers took for a fault or for a window too far ahead. On the full (unshaped) body the Spread
+note now reads "stood down" and Best reads "stood down by the weather" (Best reads "some places stood down" while
+unrated places remain), matching the card's spoken name and the Map's wording. An empty pool still says "nothing in
+reach", and the shaped body for Lite readers is unchanged.
+
+### Fixed — a Map door from Coming up or At a Glance no longer lands zoomed right in
+
+A door that opened the Map from another tab (Coming up's Inversion WX chip, an At a Glance card) could
+land zoomed in to street level around one place instead of framing every pin. The Map is hidden between
+visits and Leaflet had cached a zero size for it, so the camera's fit clamped to its maximum zoom. The
+door cameras now wait until the Map is on screen, re-measure it, then move. A framing change that
+arrives while the Map is hidden now applies when the reader returns to it.
+
+### Changed — the next four days' topics now sit in At a Glance's day header
+
+The "Next four days" block has moved from the top of Coming up to the "The days ahead" header on At a Glance: each day's hot topics are now pills directly under that day's date chip, in the same column as its cards, with a small key (`starts` / `continues`) at the right of the section head and a `Dated events in Coming up →` door beneath. A topic that starts that day is a solid pill and one carried on from the day before is dashed (forced solid where the previous day is not on screen, so no column opens on a dashed pill whose start you cannot see). Pressing a pill goes where it always did: Coming up at that entry (now resetting a filter that was hiding it), the Map for a weather topic with a forecast, or that window's popup with the topic highlighted; the door opens Coming up. On a phone each day's topics stack under its own date chip.
+
+The window cards no longer repeat each topic's name (the day header says it once, and the card's spoken sentence drops the same words); the `∿ N on tide` chip and a clocked topic such as an eclipse stay, since their instant is that window's own. Coming up's head, legend, filter chips and month list are unchanged, and its footer now says weather-driven topics appear under the next four days on At a Glance. The day header is not narrowed to your sub-regions, as Coming up's block was not.
+
 ## [v2.34.1] - 2026-10-28
 
 ### Fixed — the stand-down legend swatch matches the other swatches
