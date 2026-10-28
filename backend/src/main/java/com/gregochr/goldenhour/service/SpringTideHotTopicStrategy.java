@@ -114,6 +114,13 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofCoastal(locationRepository::findCoastalLocations));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
         List<BriefingDay> days = briefingService.getCachedDays();
         if (days == null) {
             return List.of();
@@ -141,7 +148,7 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        List<LocationEntity> coastalLocations = locationRepository.findCoastalLocations();
+        List<LocationEntity> coastalLocations = inputs.coastalLocations();
         LocationEntity representative =
                 coastalLocations.isEmpty() ? null : coastalLocations.get(0);
         List<String> coastalRegions = extractRegionNames(coastalLocations);

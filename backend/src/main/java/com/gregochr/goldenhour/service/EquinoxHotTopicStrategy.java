@@ -80,7 +80,14 @@ public class EquinoxHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<LocationEntity> enabled = locationRepository.findAllByEnabledTrueOrderByNameAsc();
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofEnabled(locationRepository::findAllByEnabledTrueOrderByNameAsc));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
+        List<LocationEntity> enabled = inputs.enabledLocations();
         if (enabled.isEmpty()) {
             return List.of();
         }

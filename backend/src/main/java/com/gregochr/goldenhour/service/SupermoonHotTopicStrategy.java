@@ -97,17 +97,24 @@ public class SupermoonHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
+        return detect(fromDate, toDate,
+                HotTopicInputs.ofCoastal(locationRepository::findCoastalLocations));
+    }
+
+    @Override
+    public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
+            HotTopicInputs inputs) {
         for (LocalDate date = fromDate; !date.isAfter(toDate); date = date.plusDays(1)) {
             if (lunarPhaseService.isFullMoon(date)
                     && lunarPhaseService.daysFromNearestPerigee(date) <= PERIGEE_WINDOW_DAYS) {
-                return List.of(buildTopic(date, fromDate));
+                return List.of(buildTopic(date, fromDate, inputs));
             }
         }
         return List.of();
     }
 
-    private HotTopic buildTopic(LocalDate date, LocalDate today) {
-        List<LocationEntity> coastal = locationRepository.findCoastalLocations();
+    private HotTopic buildTopic(LocalDate date, LocalDate today, HotTopicInputs inputs) {
+        List<LocationEntity> coastal = inputs.coastalLocations();
         List<String> coastalRegions = coastal.stream()
                 .map(LocationEntity::getRegion)
                 .filter(Objects::nonNull)
