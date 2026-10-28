@@ -778,3 +778,23 @@ describe('WindowFirstBriefingProvider — the briefing and the ratings are order
     expect(cachedBuild()).toBe(`${TODAY}T18:00:00`);
   });
 });
+
+describe('WindowFirstBriefingProvider — the briefing and the ratings are asked for together', () => {
+  it('has both requests in flight before the briefing resolves', async () => {
+    const briefingAnswer = deferred();
+    getDailyBriefing.mockReturnValueOnce(briefingAnswer.promise);
+    getAllEvaluationScores.mockResolvedValueOnce([row(3)]);
+
+    await act(async () => {
+      render(tree());
+    });
+
+    // The briefing is still pending, and the ratings request is already out.
+    expect(getDailyBriefing).toHaveBeenCalledTimes(1);
+    expect(getAllEvaluationScores).toHaveBeenCalledTimes(1);
+    expect(ratingsShown()).toEqual(expected(row(3)));
+
+    await land(() => briefingAnswer.resolve(briefing('06:00', 'MAYBE')));
+    expect(briefingShown()).toEqual({ built: `${TODAY}T06:00:00`, verdicts: 'Maybe' });
+  });
+});
