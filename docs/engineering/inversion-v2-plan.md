@@ -307,5 +307,15 @@ priors, exactly as M1 of the mist plan was. To limit that:
 ## 8. Measurements (to be filled)
 
 - 1a grid elevations and profiles for the ten sites: _pending_.
-- Dated fog-sea mornings: _pending_.
+- Dated fog-sea mornings (owner has none of their own; candidates from a web search 2026-10-28, dates
+  taken from search summaries because this container could not open the pages; confirm each before use):
+  - **15 Jan 2025, Helvellyn**: UKC Hill Talk thread "lakes inversion today, Wednesday"; the Helvellyn
+    fell-top assessor reported inversions; a walker put the cloud top at about 677 m, deeper over the
+    south-west Lakes than the north-east. The only candidate with a height.
+  - **17 Oct 2025, across the Lakes** including Scafell Pike: Cumbria Crack, "Cloud inversions spotted
+    across Lake District" (date from the article URL).
+  - **4 Nov 2024, Keswick / Skiddaw: a NEGATIVE case** ("no sign of inversion conditions here"), UKC.
+    Worth as much as a positive: the score should read low.
+  - Undated, date needs reading off the page: Times & Star, "Lake District cloud inversion spotted,
+    Honister Pass"; Chris Gouge, "Cloud inversion & Brocken spectres on Helvellyn".
 - MWIS comparison log: _pending_.
