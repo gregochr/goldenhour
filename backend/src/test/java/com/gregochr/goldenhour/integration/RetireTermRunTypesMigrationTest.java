@@ -125,7 +125,7 @@ class RetireTermRunTypesMigrationTest {
             assertThat(count(st, "SELECT count(*) FROM model_selection WHERE run_type IN ('VERY_SHORT_TERM',"
                     + "'SHORT_TERM','LONG_TERM')")).isEqualTo(3);
             assertThat(count(st, "SELECT count(*) FROM prompt_test_run")).isEqualTo(3);
-            assertThat(count(st, "SELECT count(*) FROM prompt_test_result")).isEqualTo(2);
+            assertThat(count(st, "SELECT count(*) FROM prompt_test_result")).isEqualTo(3);
             assertThat(count(st, "SELECT count(*) FROM information_schema.tables "
                     + "WHERE table_name = 'optimisation_strategy'")).isEqualTo(1);
         }
