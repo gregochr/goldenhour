@@ -7,7 +7,8 @@ import WindowFirstHeatStrip from '../components/WindowFirstHeatStrip.jsx';
 import { SubRegionStatusProvider } from '../context/SubRegionStatusContext.jsx';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
-import { buildHeatPointSets, buildHeatSpots } from '../utils/heatSpots.js';
+import { buildHeatPointSets, buildHeatSpots, buildHeatWindowStates } from '../utils/heatSpots.js';
+import { stoodPointSetsOf } from '../utils/mapStandDown.js';
 import { buildGroundSets } from '../utils/pickScope.js';
 import { picksNoteText } from '../utils/pickGeography.js';
 import { drawGeo } from '../utils/heatField.js';
@@ -74,9 +75,15 @@ const LOCATIONS = [
 ];
 
 /** The rows /api/briefing/evaluate/scores serves a Lite reader: the reader's own, and the rest gated. */
-const scoreRows = ({ rated = true } = {}) => ([
-  { locationId: 1, locationName: 'Bamburgh', date: TODAY, targetType: 'SUNSET', rating: rated ? 4 : null },
-  { locationId: 7, locationName: 'Craster', date: TODAY, targetType: 'SUNSET', rating: null },
+const scoreRows = ({ rated = true, stood = [] } = {}) => ([
+  {
+    locationId: 1, locationName: 'Bamburgh', date: TODAY, targetType: 'SUNSET', rating: rated ? 4 : null,
+    ...(stood.includes(1) ? { rating: null, triageReason: 'HIGH_CLOUD' } : {}),
+  },
+  {
+    locationId: 7, locationName: 'Craster', date: TODAY, targetType: 'SUNSET', rating: null,
+    ...(stood.includes(7) ? { triageReason: 'HIGH_CLOUD' } : {}),
+  },
   { locationId: 2, locationName: 'Malham', date: TODAY, targetType: 'SUNSET', rating: null, gated: true },
   { locationId: 3, locationName: 'Malham Tarn', date: TODAY, targetType: 'SUNSET', rating: null, gated: true },
 ]);
@@ -88,9 +95,10 @@ const scoreRows = ({ rated = true } = {}) => ([
  * @param {number[]} [opts.allowed] the served allowedLocationIds
  * @param {boolean} [opts.rated] whether Bamburgh is rated in the scores
  * @param {boolean} [opts.scoresLoaded] whether the scores have answered
+ * @param {number[]} [opts.stood] ids of the reader's places whose score row carries a triage reason (stood down)
  */
 function shapedProps({
-  allowed = [1, 7], rated = true, scoresLoaded = true, summaryOverrides,
+  allowed = [1, 7], rated = true, scoresLoaded = true, summaryOverrides, stood = [],
 } = {}) {
   const sum = summary(summaryOverrides);
   const days = [{ date: TODAY, eventSummaries: [sum] }];
@@ -99,12 +107,13 @@ function shapedProps({
     limitMinutes: null, defaultLimitMinutes: null, allowedIds,
   });
   const stripCards = buildHeatStripCards(EVENTS, cards, new Set(), days, TODAY, TOMORROW);
-  const spots = buildHeatSpots(LOCATIONS, scoreRows({ rated }), EVENTS, allowedIds);
+  const spots = buildHeatSpots(LOCATIONS, scoreRows({ rated, stood }), EVENTS, allowedIds);
   return {
     cards: stripCards,
     spots,
     pointSets: buildHeatPointSets(spots, EVENTS),
     groundSets: buildGroundSets(spots, EVENTS, scoresLoaded),
+    stoodSets: stoodPointSetsOf(buildHeatWindowStates(spots, EVENTS)),
     picks: { allowed: allowed.length, total: LOCATIONS.length },
   };
 }
@@ -237,16 +246,59 @@ describe('B2: a place outside the picks is in neither half of any count', () => 
     expect(screen.getByTestId('wf-heat-best')).not.toHaveTextContent(/in reach|not scored yet|nothing to show/);
   });
 
-  it('keeps its own "None of your sub-regions" words over stood ground: the stood-down wording is the full body\'s only', async () => {
-    const props = shapedProps({
-      rated: false, summaryOverrides: { mine: [slot(1, 'Bamburgh', null), slot(7, 'Craster', null)] },
-    });
-    const stood = [{ lat: 55.6, lng: -1.7, reason: 'HIGH_CLOUD', rid: 'Coast', key: '#1' }];
+  const nameOf = () => document.getElementById(cardButton().getAttribute('aria-labelledby')).textContent;
+  const NONE_RATED = { mine: [slot(1, 'Bamburgh', null), slot(7, 'Craster', null)] };
+
+  it('says "stood down" when both of the reader\'s own places stood down: the Best row, the Spread note and the name', async () => {
+    await renderStrip(shapedProps({ rated: false, stood: [1, 7], summaryOverrides: NONE_RATED }));
+
+    const best = screen.getByTestId('wf-heat-best').textContent;
+    const note = screen.getByTestId('wf-heat-spread-note').textContent;
+    expect(best).toContain('stood down by the weather');
+    expect(note).toBe('stood down');
+    const name = nameOf();
+    expect(name).toContain('stood down by the weather — no place rated');
+    expect(name).not.toContain('None of your sub-regions');
+    // Label-in-name: every visible word set is inside the spoken sentence.
+    expect(name).toContain(best);
+    expect(name).toContain(note);
+  });
+
+  it('says "some places stood down" when one own place stood down and the other is merely unrated', async () => {
+    await renderStrip(shapedProps({ rated: false, stood: [1], summaryOverrides: NONE_RATED }));
+
+    const best = screen.getByTestId('wf-heat-best').textContent;
+    expect(best).toContain('some places stood down');
+    expect(screen.getByTestId('wf-heat-spread-note').textContent).not.toContain('stood down');
+    const name = nameOf();
+    expect(name).toContain('some places stood down by the weather — none rated yet');
+    expect(name).toContain(best);
+  });
+
+  it('keeps its "None of your sub-regions" words when the only stood place is outside the picks', async () => {
+    const props = shapedProps({ rated: false, summaryOverrides: NONE_RATED });
+    // Malham (#2, gated). The real builder classes a gated place first so this never arrives in practice: this is the
+    // defensive case the intersection with the reader's own places guards.
+    const stood = [{ lat: 54.07, lng: -2.16, reason: 'HIGH_CLOUD', rid: 'Coast', key: '#2' }];
     await renderStrip({ ...props, stoodSets: new Map([[props.cards[0].key, stood]]) });
 
     expect(screen.getByTestId('wf-heat-best'))
       .toHaveTextContent('None of your sub-regions are rated for this sunset yet.');
+    const name = nameOf();
+    expect(name).toContain('None of your sub-regions are rated for this sunset yet.');
+    expect(name).not.toMatch(/stood down/);
     expect(screen.getByTestId('wf-heat-best')).not.toHaveTextContent('stood down');
+  });
+
+  it('counts only the reader\'s own stood places in the spoken count', async () => {
+    const props = shapedProps({ rated: false, stood: [1], summaryOverrides: NONE_RATED });
+    const key = props.cards[0].key;
+    const outside = { lat: 54.07, lng: -2.16, reason: 'HIGH_CLOUD', rid: 'Coast', key: '#2' };
+    await renderStrip({ ...props, stoodSets: new Map([[key, [...props.stoodSets.get(key), outside]]]) });
+
+    const name = nameOf();
+    expect(name).toContain('1 location stood down by the weather');
+    expect(name).not.toMatch(/2 locations stood down/);
   });
 
   it('omits the Spread and Best rows for a reader with no pick, and the thin line', async () => {
