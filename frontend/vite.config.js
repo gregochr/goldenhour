@@ -81,17 +81,29 @@ export default defineConfig(({ mode }) => {
     }),
   ],
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         // Split stable vendors into their own cacheable chunks so (a) they download in
         // parallel with app code and (b) an app-only deploy doesn't invalidate them.
-        // Combined with the React.lazy boundaries in App.jsx, the leaflet + recharts chunks
-        // are only fetched when the Map / Manage views actually open.
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return undefined;
-          if (id.includes('leaflet')) return 'leaflet'; // leaflet + react-leaflet
-          // BEFORE the `d3-` catch below, and that order is the whole rule — appended after it this
-          // never fires at all (measured at P0, which is why the plan calls it out).
+        //
+        // These are PRIORITY GROUPS (rolldown `codeSplitting`), not a first-match function. The old
+        // `manualChunks` rule pulled React into the `leaflet` chunk, so the entry statically imported
+        // `leaflet` (~47 KB gzip) and `leaflet.css` (~6 KB gzip, render-blocking) for every reader.
+        // With React in its own highest-priority group, `leaflet` holds only Leaflet and its React
+        // bindings, is reached only behind the Map view's lazy() boundary, and its CSS is injected
+        // with it. `scripts/check-entry-closure.mjs` fails CI if that regresses.
+        codeSplitting: {
+          groups: [
+          { name: 'react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/, priority: 30 },
+          {
+            name: 'leaflet',
+            test: /node_modules[\\/](leaflet|react-leaflet|@react-leaflet)[\\/]/,
+            priority: 20,
+          },
+          // `geo` MUST outrank `recharts`, and that priority order is the whole rule — the
+          // `recharts` test below also matches every `d3-*` module, including d3-geo/d3-array, so
+          // at equal or higher priority this group would never fire (measured at P0, which is why
+          // the plan calls it out).
           //
           // `d3-geo` is imported by the heat field kernel, whose only consumer is the Plan tab's
           // heat strip. Without this rule it falls into `recharts`, and `recharts` is reached today
@@ -104,10 +116,13 @@ export default defineConfig(({ mode }) => {
           // downstream of `recharts` and reintroduce the same fetch by a longer route. The cost is
           // that recharts' own d3-array usage lands here too — measured at 3.43 KB raw / 1.33 KB
           // gzip off the recharts chunk, paid only by whoever loads either.
-          if (id.includes('d3-geo') || id.includes('d3-array')) return 'geo';
-          if (id.includes('recharts') || id.includes('d3-') || id.includes('victory-vendor')) return 'recharts';
-          if (id.includes('react-dom') || id.includes('/react/') || id.includes('scheduler')) return 'react';
-          return undefined;
+          { name: 'geo', test: /node_modules[\\/](d3-geo|d3-array)[\\/]/, priority: 15 },
+          {
+            name: 'recharts',
+            test: /node_modules[\\/](recharts|d3-[^\\/]+|victory-vendor)[\\/]/,
+            priority: 10,
+          },
+          ],
         },
       },
     },
