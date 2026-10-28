@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 
 /**
@@ -20,6 +21,7 @@ import PropTypes from 'prop-types';
  * @param {function} [props.onClose] offers a Close control that calls this
  * @param {function} [props.reload] defaults to reloading the page (overridable for tests: jsdom
  *        cannot stub {@code window.location.reload})
+ * @param {boolean} [props.open] when false, a failure renders nothing (default true)
  * @param {string} [props.id] DOM id for the inline variant (the Ask dock's, for {@code aria-controls})
  */
 export default class ChunkErrorBoundary extends React.Component {
@@ -27,6 +29,8 @@ export default class ChunkErrorBoundary extends React.Component {
     super(props);
     this.state = { failed: false };
     this.handleReload = this.handleReload.bind(this);
+    this.handleClose = this.handleClose.bind(this);
+    this.opener = null;
   }
 
   static getDerivedStateFromError() {
@@ -35,6 +39,17 @@ export default class ChunkErrorBoundary extends React.Component {
 
   componentDidCatch(error) {
     console.error('Lazy chunk failed to load', error);
+    // Where focus was when the surface failed (the control that opened it), for the overlay's Close.
+    this.opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+
+  handleClose() {
+    const { onClose } = this.props;
+    onClose?.();
+    const { opener } = this;
+    if (opener && opener !== document.body) {
+      requestAnimationFrame(() => { if (opener.isConnected) opener.focus({ preventScroll: true }); });
+    }
   }
 
   handleReload() {
@@ -46,9 +61,12 @@ export default class ChunkErrorBoundary extends React.Component {
   render() {
     const {
       children, label = 'This part of the app', variant = 'inline', onClose = undefined, id = undefined,
+      open = true,
     } = this.props;
     const { failed } = this.state;
     if (!failed) return children;
+    // A surface that stays mounted while closed (Ask's sheet) shows its failure only while it is open.
+    if (!open) return null;
 
     const body = (
       <div className="flex flex-col items-center gap-3 text-center p-6" data-testid="chunk-error">
@@ -65,7 +83,7 @@ export default class ChunkErrorBoundary extends React.Component {
           {onClose && (
             <button
               type="button"
-              onClick={onClose}
+              onClick={this.handleClose}
               data-testid="chunk-error-close"
               className="border border-plex-border text-plex-text-muted px-3 py-1 rounded"
             >
@@ -80,7 +98,9 @@ export default class ChunkErrorBoundary extends React.Component {
       return <div className="min-h-screen flex items-center justify-center">{body}</div>;
     }
     if (variant === 'overlay') {
-      return (
+      // Portalled to <body>, as BottomSheet is: the shell makes the app container `inert` while Ask's
+      // sheet is open, and an overlay left inside it could be neither clicked nor focused.
+      return createPortal(
         <div
           role="dialog"
           aria-modal="true"
@@ -89,7 +109,8 @@ export default class ChunkErrorBoundary extends React.Component {
         >
           <div className="app-scrim absolute inset-0" />
           <div className="relative bg-plex-surface border border-plex-border rounded-lg">{body}</div>
-        </div>
+        </div>,
+        document.body,
       );
     }
     return <aside id={id} className="wf-ask-dock" aria-label={label}>{body}</aside>;
@@ -103,4 +124,5 @@ ChunkErrorBoundary.propTypes = {
   onClose: PropTypes.func,
   reload: PropTypes.func,
   id: PropTypes.string,
+  open: PropTypes.bool,
 };

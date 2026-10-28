@@ -3030,7 +3030,7 @@ export default function WindowFirstShell({
           long as an entry exists, as it always has, so closing restores focus through the same instance.
           Its fallback is null: the sheet is an overlay, so nothing in the page moves while it loads. */}
       {askEntry !== null && (askSheetShown || askSheetLoaded) && (
-        <ChunkErrorBoundary variant="overlay" label="Ask PhotoCast" onClose={closeAskSheet}>
+        <ChunkErrorBoundary variant="overlay" label="Ask PhotoCast" open={askSheetShown} onClose={closeAskSheet}>
         <Suspense fallback={null}>
           <AskSheet
             open={askSheetShown}

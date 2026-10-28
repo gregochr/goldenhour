@@ -2,7 +2,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  cleanup, fireEvent, screen, waitFor,
+  act, cleanup, fireEvent, screen, waitFor,
 } from '@testing-library/react';
 import { resetViewport } from './askViewport.js';
 import { renderAskShell } from './askShellHarness.jsx';
@@ -14,6 +14,9 @@ import { ASK_DOCK_ID } from '../components/ask/askIds.js';
  * stays. The boundary's Close shuts the dock.
  */
 vi.mock('../components/ask/AskDock.jsx', () => {
+  throw new Error('Failed to fetch dynamically imported module');
+});
+vi.mock('../components/ask/AskSheet.jsx', () => {
   throw new Error('Failed to fetch dynamically imported module');
 });
 vi.mock('../api/almanacApi.js', () => ({
@@ -58,5 +61,26 @@ describe('a failed Ask dock chunk', () => {
 
     fireEvent.click(screen.getByTestId('chunk-error-close'));
     await waitFor(() => expect(screen.queryByTestId('chunk-error')).toBeNull());
+  });
+});
+
+describe('a failed Ask sheet chunk', () => {
+  it('shows its overlay outside the inert app, so Close and Reload can be reached', async () => {
+    renderAskShell({ width: 390 });
+    const bar = await screen.findByTestId('ask-bar');
+    act(() => { bar.focus(); });
+    fireEvent.click(bar);
+
+    const failure = await screen.findByTestId('chunk-error');
+    // The shell has made the app container inert for the sheet; the overlay must not be inside it.
+    expect(screen.getByTestId('window-first-shell').closest('body > *').hasAttribute('inert')).toBe(true);
+    expect(screen.getByTestId('chunk-error-close').closest('[inert]')).toBeNull();
+    expect(screen.getByTestId('chunk-error-reload').closest('[inert]')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Ask PhotoCast' })).toContainElement(failure);
+
+    fireEvent.click(screen.getByTestId('chunk-error-close'));
+    await waitFor(() => expect(screen.queryByTestId('chunk-error')).toBeNull());
+    expect(screen.getByTestId('window-first-shell').closest('body > *').hasAttribute('inert')).toBe(false);
+    await waitFor(() => expect(screen.getByTestId('ask-bar')).toHaveFocus());
   });
 });
