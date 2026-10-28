@@ -100,6 +100,34 @@ public class AuthAttemptLimiter {
     }
 
     /**
+     * Reports whether a key's counter has reached a limit, without counting anything. It uses
+     * {@code getIfPresent}, so it never creates or increments an entry: an unknown key is not spent.
+     *
+     * @param key    the counter's key
+     * @param limit  the count at which the key is spent
+     * @param window the window the key lives in
+     * @return true when the key's current count in the window is at least {@code limit}
+     */
+    public boolean isSpent(String key, int limit, Window window) {
+        Cache<String, AtomicInteger> cache = window == Window.HOUR ? hour : quarterHour;
+        AtomicInteger counter = cache.getIfPresent(key);
+        return counter != null && counter.get() >= limit;
+    }
+
+    /**
+     * Counts one failure against a key, creating its counter if absent. Shares the counter
+     * {@link #tryAcquire} uses for the same key. Incrementing the counter in place does not rewrite the
+     * cache entry, so the fixed window still runs from the key's first count.
+     *
+     * @param key    the counter's key
+     * @param window the window the key lives in
+     */
+    public void recordFailure(String key, Window window) {
+        Cache<String, AtomicInteger> cache = window == Window.HOUR ? hour : quarterHour;
+        cache.get(key, k -> new AtomicInteger()).incrementAndGet();
+    }
+
+    /**
      * Forgets every counter (tests).
      */
     public void clear() {

@@ -56,6 +56,12 @@ public class AuthenticationService {
     /** Fallback sign-in attempts admitted per account in a quarter hour. */
     static final int FALLBACK_USER_LIMIT = 5;
 
+    /** Limiter key prefix for the per-account failed-sign-in count, on every login path. */
+    static final String LOGIN_FAILURE_KEY_PREFIX = "login:failures:user:";
+
+    /** Failed sign-ins after which an account refuses further attempts for the rest of the window. */
+    static final int LOGIN_FAILURE_LIMIT = 10;
+
     /** Limiter key prefix for the per-account change-password budget. */
     static final String CHANGE_PASSWORD_USER_KEY_PREFIX = "change-password:user:";
 
@@ -166,15 +172,30 @@ public class AuthenticationService {
      * account resolves, the gate's identifier bucket has already counted the attempt and nothing more is
      * taken.
      *
+     * <p>On EVERY path, verified or fallback, an account that has had {@value #LOGIN_FAILURE_LIMIT}
+     * failed sign-ins in the quarter hour refuses the next attempt before any password is compared. A
+     * failure is a candidate whose password did not match; a match (even on a disabled account) and a
+     * successful sign-in never count, and an identifier that resolves to no account records nothing.
+     * The counter is in memory, so a restart clears a lockout.
+     *
      * @param identifier the login username, or the account's email address
      * @param password   the plain-text password
-     * @param fallback   true when the request is on the Turnstile fallback path
+     * @param fallback  true when the request is on the Turnstile fallback path
      * @return the issued tokens and user fields
      * @throws InvalidCredentialsException if the credentials are wrong or the account is disabled
-     * @throws TooManyAttemptsException    if the fallback's per-account budget is spent
+     * @throws TooManyAttemptsException    if an account has had ten failed sign-ins in the window, or the
+     *                                     fallback's per-account budget is spent
      */
     public AuthTokens login(String identifier, String password, boolean fallback) {
         List<AppUserEntity> candidates = loginCandidates(identifier);
+
+        for (AppUserEntity candidate : candidates) {
+            if (attemptLimiter.isSpent(LOGIN_FAILURE_KEY_PREFIX + candidate.getId(),
+                    LOGIN_FAILURE_LIMIT, AuthAttemptLimiter.Window.QUARTER_HOUR)) {
+                LOG.info("Login refused: failed-sign-in limit reached for user id {}", candidate.getId());
+                throw new TooManyAttemptsException("Too many failed sign-ins for the account");
+            }
+        }
 
         if (fallback) {
             for (AppUserEntity candidate : candidates) {
@@ -194,6 +215,7 @@ public class AuthenticationService {
 
         AppUserEntity user = null;
         boolean verifiedButDisabled = false;
+        List<AppUserEntity> failed = new ArrayList<>();
         for (AppUserEntity candidate : candidates) {
             if (passwordEncoder.matches(password, candidate.getPassword())) {
                 if (candidate.isEnabled()) {
@@ -201,13 +223,21 @@ public class AuthenticationService {
                     break;
                 }
                 verifiedButDisabled = true;
-            } else if (isNeverValidHash(candidate.getPassword())) {
-                // A stored value no password can match (a neutralised default credential, "!"-prefixed, or
-                // the empty marker of a pending registration) is refused without BCrypt's cost. Spend that
-                // cost here so this row's response time matches every other row's. A null (impossible in
-                // the NOT NULL column) is left alone.
-                passwordEncoder.matches(password, dummyHash());
+            } else {
+                failed.add(candidate);
+                if (isNeverValidHash(candidate.getPassword())) {
+                    // A stored value no password can match (a neutralised default credential,
+                    // "!"-prefixed, or the empty marker of a pending registration) is refused without
+                    // BCrypt's cost. Spend that cost here so this row's response time matches every
+                    // other row's. A null (impossible in the NOT NULL column) is left alone.
+                    passwordEncoder.matches(password, dummyHash());
+                }
             }
+        }
+
+        for (AppUserEntity candidate : failed) {
+            attemptLimiter.recordFailure(LOGIN_FAILURE_KEY_PREFIX + candidate.getId(),
+                    AuthAttemptLimiter.Window.QUARTER_HOUR);
         }
 
         if (user == null) {

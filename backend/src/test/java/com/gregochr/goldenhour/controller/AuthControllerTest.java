@@ -995,6 +995,23 @@ class AuthControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/auth/login returns 429 for a verified token when the account has ten failed "
+            + "sign-ins, without comparing the password")
+    void login_accountFailureLimitSpent_returns429() throws Exception {
+        when(attemptLimiter.isSpent("login:failures:user:1", 10, Window.QUARTER_HOUR)).thenReturn(true);
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"golden2026\","
+                                + "\"turnstileToken\":\"good-token\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error").exists());
+
+        verify(attemptLimiter, never()).recordFailure("login:failures:user:1", Window.QUARTER_HOUR);
+        verify(refreshTokenRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("POST /api/auth/login hands the gate the CF-Connecting-IP address, then X-Forwarded-For's first hop")
     void login_clientAddress_followsTheHeaderRule() throws Exception {
         known(adminUser);

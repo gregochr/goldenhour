@@ -8,7 +8,7 @@
 ### Auth (no JWT required)
 `POST /api/auth/login|refresh|register|resend-verification|verify-email|forgot-password|reset-password|set-password`
 
-> `/login`'s `username` field takes a username OR an email address (the wire name is unchanged so existing clients work).
+> `/login`'s `username` field takes a username OR an email address (the wire name is unchanged so existing clients work). `/login` also answers **429** when the account has had 10 failed sign-ins in 15 minutes (any path, checked before the password), besides the gate's and the fallback's own 429s.
 > `/forgot-password` `{email, turnstileToken?}` answers 200 `{"message": "If that email has an account, we've sent a reset
 > link."}` for every well-formed address (400 for a blank, malformed or failed-CAPTCHA one); `/reset-password` `{token,
 > password}` answers 200 with the `/login` body (the resetting device is signed in) or 400 with "This reset link is invalid" /
