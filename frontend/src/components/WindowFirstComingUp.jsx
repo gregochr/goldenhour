@@ -2,12 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import WindowComingUpEntry from './WindowComingUpEntry.jsx';
 import WindowComingUpSinceLine from './WindowComingUpSinceLine.jsx';
-import WindowComingUpFourDays from './WindowComingUpFourDays.jsx';
 import { buildChronology, chipCounts, FOOTER } from '../utils/comingUpFeed.js';
 import { CHIP_GLYPHS } from '../utils/comingUpGlyphs.js';
 import { deriveBadge, selectSinceEntry } from '../utils/comingUpArrivals.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
 import { comingUpOutsideFacts, entrySubject, outsideLineText } from '../utils/comingUpOutside.js';
+import { scrollToEntry } from '../utils/scrollToEntry.js';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 
 /** Served counts default to zero, matching a payload that has not arrived yet or a degraded
@@ -62,7 +62,6 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * @param {string}   props.status   `idle` | `loading` | `ready` | `error`
  * @param {?object}  props.events   the wrapped wire payload once it has arrived — see
  *                                  {@code ComingUpResponse}
- * @param {?Array}   props.hotTopics the live `briefing.hotTopics`, for the handoff row (D14)
  * @param {string}   props.todayStr the reader's today, `YYYY-MM-DD`
  * @param {function} props.onRetry  re-runs the fetch after a failure
  * @param {function} props.onGoToPlan switches to the Plan tab and moves focus there; takes an
@@ -78,18 +77,20 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  *                                     §11.24). Three-valued: null/absent is "not known yet" and
  *                                     withholds nothing; an array, even empty, is known
  * @param {function} props.onMarkSeen  clears the badge and every NEW flag (plan §6/P5)
- * @param {?Set<string>} [props.openableKeys] the `date:TYPE` keys of Plan's window cards — the
- *                                     windows a lane's tap can open (Plan renders only six)
- * @param {function} [props.onGoToPlanWindow] `(key, topicType)` — a lane's tap on a window Plan
- *                                     has a card for: switches to Plan and opens that popup
+ * @param {?{entryId: ?string, seq: number}} [props.focusRequest] a request from At a Glance's topic pills to
+ *                                     open the tab at one entry (glance-topic-strip-plan.md R4); `entryId` null
+ *                                     is the door, which asks for nothing in particular
+ * @param {function} [props.onFocusHandled] `(found: boolean)` — called exactly once per request, once it has
+ *                                     been honoured (`true`) or could not be (`false`: the entry is not in the
+ *                                     feed, or the feed is not ready), so the shell can fall back
  * @param {Array} [props.locations] the served enabled roster (`/api/locations`): a Lite reader on a shaped
  *                                     body gets the outside-your-sub-regions line from its coastal and
  *                                     dark-sky facts (S5b-2); unused on every other body
  */
 export default function WindowFirstComingUp({
-  id, labelledBy, hidden, status, events, hotTopics, todayStr, onRetry, onGoToPlan, onShowOnMap,
-  comingUpLastSeenDate, onMarkSeen, forecastDates = null, openableKeys = null,
-  onGoToPlanWindow = undefined, locations = undefined,
+  id, labelledBy, hidden, status, events, todayStr, onRetry, onGoToPlan, onShowOnMap,
+  comingUpLastSeenDate, onMarkSeen, forecastDates = null, locations = undefined,
+  focusRequest = null, onFocusHandled = undefined,
 }) {
   const [activeFilter, setActiveFilter] = useState('all');
   const { tideLocked, allowedLocationIds } = useWindowFirstBriefing();
@@ -103,17 +104,6 @@ export default function WindowFirstComingUp({
       events?.entries, todayStr, activeFilter, comingUpLastSeenDate, forecastDates,
     ),
     [events, todayStr, activeFilter, comingUpLastSeenDate, forecastDates],
-  );
-  // The ids the month list is RENDERING right now, under the ACTIVE chip — the lanes' jump button
-  // may target only these, so it can never scroll to a card the filter has hidden (plan §1.9).
-  // ⚠️ Empty unless `status === 'ready'`: the list renders only then, but `events` can be stale
-  // while a retry is `loading` (or after a failure), and ids from a list that is not on screen
-  // would draw a jump button whose target is not in the DOM.
-  const renderedEntryIds = useMemo(
-    () => (status === 'ready'
-      ? new Set(monthGroups.flatMap((group) => group.entries.map((entry) => entry.id)))
-      : new Set()),
-    [status, monthGroups],
   );
   // The one card that carries the Lite tide-light Pro door (tide-light-pro-plan.md F2, Q9): the FIRST
   // rendered entry (under the active chip, in month order) the server marked `lightRowsWithheld`. Decided
@@ -160,6 +150,8 @@ export default function WindowFirstComingUp({
   const panelRef = useRef(null);
   const retryRef = useRef(null);
   const retriedRef = useRef(false);
+  /** The last focus request this pane answered, so a re-run of the effect below never answers it twice. */
+  const handledFocusSeq = useRef(null);
   /** Marks the press, so the effect below knows the focus move is owed to a reader action. */
   const handleRetry = () => {
     retriedRef.current = true;
@@ -179,6 +171,41 @@ export default function WindowFirstComingUp({
     retriedRef.current = false;
     (retryRef.current || panelRef.current)?.focus();
   }, [status]);
+
+  /**
+   * Honours At a Glance's pill press (glance-topic-strip-plan.md R4): opens the tab at one entry, in two phases.
+   *
+   * <p><b>Phase one, during render.</b> The entry may be filtered out. On the render that first sees a request,
+   * when the entry is in the feed but not rendered under the active chip, the chip is reset to {@code all} (every
+   * entry renders there, and the reader pressed a topic, not a filter). It is the React-documented "adjust state
+   * on a prop change" shape, keyed on the request's {@code seq}, rather than a state write inside an effect.
+   */
+  const [seenFocusSeq, setSeenFocusSeq] = useState(null);
+  if (focusRequest && focusRequest.seq !== seenFocusSeq) {
+    setSeenFocusSeq(focusRequest.seq);
+    const wanted = focusRequest.entryId;
+    if (wanted != null && status === 'ready' && activeFilter !== 'all'
+        && !monthGroups.some((group) => group.entries.some((entry) => entry.id === wanted))
+        && events?.entries?.some((entry) => entry.id === wanted)) {
+      setActiveFilter('all');
+    }
+  }
+  /**
+   * <b>Phase two, an effect.</b> {@code scrollToEntry} scrolls, rings and focuses the card. It waits for the
+   * panel to be visible ({@code hidden}) because scrolling a hidden panel does nothing. A null entry, a feed that
+   * is not ready, an entry not rendered even under {@code all}, or a {@code scrollToEntry} that finds nothing,
+   * all fall back through {@code onFocusHandled(false)}; every path calls it exactly once, so the request cannot
+   * loop.
+   */
+  useEffect(() => {
+    if (!focusRequest || hidden) return;
+    if (handledFocusSeq.current === focusRequest.seq) return;
+    const { entryId, seq } = focusRequest;
+    handledFocusSeq.current = seq;
+    const rendered = entryId != null && status === 'ready'
+      && monthGroups.some((group) => group.entries.some((entry) => entry.id === entryId));
+    onFocusHandled?.(rendered ? scrollToEntry(entryId) : false);
+  }, [focusRequest, hidden, status, monthGroups, onFocusHandled]);
 
   return (
     <div
@@ -254,11 +281,10 @@ export default function WindowFirstComingUp({
           )}
 
           {/* ⚠️ SCOPED TO THE DATED LIST — "No dates", never a bare "Nothing coming up".
-              `totalEntries` counts `events.entries` alone, and the "Next four days" strip below (not
-              gated on `ready`, since it reads `hotTopics`) can still show weather-driven content
-              when the dated list has none. A broader sentence here therefore prints a denial
-              directly above live content — which is what the pre-copy-pass wording avoided with the
-              word "dated", and what a Codex review of #748 caught when the copy pass dropped it. */}
+              `totalEntries` counts `events.entries` alone, while weather-driven topics (which have no
+              row here) are shown on At a Glance's day headers, so a broader sentence would deny content
+              the app does show — which is what the pre-copy-pass wording avoided with the word "dated",
+              and what a Codex review of #748 caught when the copy pass dropped it. */}
           {status === 'ready' && totalEntries === 0 && (
             <p className="wf-cu-note" data-testid="coming-up-empty">
               {`No dates coming up in the next ${ALMANAC_DAYS} days.`}
@@ -323,24 +349,6 @@ export default function WindowFirstComingUp({
             ))}
           </div>
         )}
-
-        {/* The "Next four days" tiles (coming-up-glance-plan T1; they replaced the hot-topics-by-day
-            C1 lanes, which replaced the design's dashed `.hoff` handoff row, plan D14) sit after the
-            chips but — unlike the chips — are NOT gated on the almanac fetch: they read `hotTopics`,
-            a wholly separate data source. Gating them on `ready` would make the tab's own boundary
-            statement vanish during a slow or failed almanac load. Only a chip's jump needs the
-            feed, and `renderedEntryIds` is empty until it arrives, so no chip jumps until then. */}
-        <WindowComingUpFourDays
-          todayStr={todayStr}
-          hotTopics={hotTopics}
-          openableKeys={openableKeys}
-          entries={events?.entries}
-          renderedEntryIds={renderedEntryIds}
-          forecastDates={forecastDates}
-          onGoToPlan={onGoToPlan}
-          onGoToPlanWindow={onGoToPlanWindow}
-          onShowOnMap={onShowOnMap}
-        />
 
         {status === 'ready' && monthGroups.map((group, i) => (
           <div key={group.key}>
@@ -411,7 +419,6 @@ WindowFirstComingUp.propTypes = {
       interrupt: PropTypes.number,
     }),
   }),
-  hotTopics: PropTypes.array,
   todayStr: PropTypes.string,
   onRetry: PropTypes.func.isRequired,
   onGoToPlan: PropTypes.func.isRequired,
@@ -419,7 +426,10 @@ WindowFirstComingUp.propTypes = {
   comingUpLastSeenDate: PropTypes.string,
   forecastDates: PropTypes.arrayOf(PropTypes.string),
   onMarkSeen: PropTypes.func.isRequired,
-  openableKeys: PropTypes.instanceOf(Set),
-  onGoToPlanWindow: PropTypes.func,
   locations: PropTypes.array,
+  focusRequest: PropTypes.shape({
+    entryId: PropTypes.string,
+    seq: PropTypes.number.isRequired,
+  }),
+  onFocusHandled: PropTypes.func,
 };

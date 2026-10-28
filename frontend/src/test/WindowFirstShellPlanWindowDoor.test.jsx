@@ -6,7 +6,8 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { getAlmanac } from '../api/almanacApi.js';
 
 /**
- * The Plan window door (hot-topics-by-day-plan §3 C1) — a Coming up lane's tap-through, as the
+ * The Plan window door (hot-topics-by-day-plan §3 C1) — a topic pill's tap-through. The pills moved from
+ * Coming up to At a Glance's day headers (glance-topic-strip-plan.md R1(c)), but the route is the same, as the
  * shell wires it: {@code goToPlanWindow(key, topicType)} switches to Plan, focuses the Plan tab,
  * opens that window's popup and emphasises the tapped topic's row.
  *
@@ -174,10 +175,9 @@ afterEach(() => {
 // jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
 const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 
-/** Goes to Coming up and presses the lane button for one topic type. */
+/** Presses the day header's topic pill for one topic type (At a Glance is the default tab). */
 async function pressLane(type) {
-  await act(async () => { fireEvent.click(tab('Coming up')); });
-  const button = screen.getAllByTestId('coming-up-fourdays-chip')
+  const button = (await screen.findAllByTestId('wf-glance-topic'))
     .find((b) => b.getAttribute('data-topic') === type);
   expect(button).toBeDefined();
   await act(async () => { fireEvent.click(button); });
@@ -239,7 +239,7 @@ describe('WindowFirstShell — the Plan window door (a Coming up lane’s tap-th
     await pressLane('INVERSION');
 
     await screen.findByTestId('window-sheet');
-    // The lane drew it (the lanes are not scope-filtered); the popup, which is, does not have it.
+    // The pill drew it (the header is not scope-filtered); the popup, which is, does not have it.
     expect(topicRow('INVERSION')).toBeUndefined();
     expect(screen.getAllByTestId('wf-topic-row').some((row) => row.hasAttribute('data-emphasis')))
       .toBe(false);
@@ -276,7 +276,7 @@ describe('WindowFirstShell — the Plan window door (a Coming up lane’s tap-th
     expect(topicRow('DUST')).not.toHaveAttribute('data-emphasis');
   });
 
-  it('closing the popup returns focus to the Plan tab, not to the hidden lane button', async () => {
+  it('closing the popup returns focus to the Plan tab, not to the pressed pill', async () => {
     await renderShell();
     await pressLane('DUST');
     const dialog = await screen.findByTestId('window-sheet');
@@ -291,9 +291,9 @@ describe('WindowFirstShell — the Plan window door (a Coming up lane’s tap-th
     expect(tab('At a Glance')).toHaveFocus();
   });
 
-  it('hands the lanes the shell\'s todayStr — the first day column is today\'s date', async () => {
-    // `todayStr` comes from the briefing provider (Rewind-aware, via appNow); the lanes must read
-    // that value and not a clock of their own.
+  it('hands the strip the shell\'s todayStr — the first day column is today\'s date', async () => {
+    // `todayStr` comes from the briefing provider (Rewind-aware, via appNow); the pills must read that value and
+    // not a clock of their own, so a Dec 31 topic lands in the first column.
     await renderShell({
       todayStr: '2026-12-31',
       briefing: {
@@ -301,10 +301,21 @@ describe('WindowFirstShell — the Plan window door (a Coming up lane’s tap-th
         days: DAYS,
         hotTopics: [{ type: 'DUST', label: 'Saharan dust', date: '2026-12-31', eventType: 'SUNSET' }],
       },
+      heatStripCards: [
+        {
+          key: '2026-12-31:SUNSET', date: '2026-12-31', targetType: 'SUNSET', dow: 'Thu', sunrise: false,
+          label: 'Tonight Sunset', time: '16:01',
+        },
+        {
+          key: '2027-01-01:SUNRISE', date: '2027-01-01', targetType: 'SUNRISE', dow: 'Fri', sunrise: true,
+          label: 'Tomorrow sunrise', time: '08:10',
+        },
+      ],
     });
-    await act(async () => { fireEvent.click(tab('Coming up')); });
-    const days = screen.getAllByTestId('coming-up-fourdays-day');
-    expect(days[0]).toHaveTextContent('Thu31');
+    const pill = await screen.findByTestId('wf-glance-topic');
+    expect(pill.closest('[data-testid="wf-glance-topics"]')).toHaveStyle({ '--c': '1' });
+    const days = screen.getAllByTestId('wf-heat-day');
+    expect(days[0]).toHaveTextContent('Today31');
     expect(days[1]).toHaveTextContent('Fri1');
   });
 });

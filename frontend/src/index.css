@@ -1394,10 +1394,12 @@
    relying on natural flow, which would place correctly today, so columns stay honest if a future
    change ever skips a cell (D5). */
 .wf-hstrip.wf-hstrip-rows .wf-dhrow > *,
+.wf-hstrip.wf-hstrip-rows .wf-dtrow > *,
 .wf-hstrip.wf-hstrip-rows .wf-hcards > * {
   grid-column: var(--c);
 }
 .wf-hstrip.wf-hstrip-rows .wf-dhrow,
+.wf-hstrip.wf-hstrip-rows .wf-dtrow,
 .wf-hstrip.wf-hstrip-rows .wf-hcards {
   display: grid;
   /* ⚠️ `minmax(0, 1fr)`, load-bearing here for the same reason as the base grid above (D6) — a bare
@@ -1564,6 +1566,185 @@
 }
 .wf-hday.today .wf-hday-dn {
   color: var(--color-close-to-home);
+}
+/* The day header's topic pills (glance-topic-strip-plan.md; design handoff "Glance Topic Strip", option A):
+   each day's hot topics as full-column-width pills directly under its date chip. Desktop and tablet draw
+   them in `.wf-dtrow`, a NON-sticky row of the same grid as `.wf-dhrow` and `.wf-hcards` (same gap, so a
+   day stays one column) between the two. ⚠️ It must stay outside `.wf-dhrow`: that row is sticky and its
+   height is measured into `--wf-dh-h` for the rails' pin, so taller pills inside it would pin a much taller
+   band over the cards. The topics scroll away under the pinned date chips, which is intended. The phone
+   flows a full-width `.wf-dtcell` after each day's header instead (phone rules below).
+   `--c` on a PILL is the topic's colour, set from `utils/topicPalette.js` — never a literal here; on a
+   `.wf-dtcell` it is the grid column. Ink steps are the app's own tokens (`--color-plex-text-secondary` is the
+   handoff's `--ink-2`; its `--ink-3` is not used, the key takes secondary, as the strip's other labels do). */
+.wf-dtrow {
+  padding-top: 2px;
+}
+.wf-dtcell {
+  min-width: 0;
+}
+.wf-dt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wf-dt-pill {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in oklch, var(--c) 22%, transparent);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--c) 8%, transparent);
+  font: inherit;
+  text-align: left;
+  color: var(--color-plex-text);
+  cursor: pointer;
+}
+.wf-dt-pill:hover,
+.wf-dt-pill:focus-visible {
+  border-color: color-mix(in oklch, var(--c) 50%, transparent);
+}
+/* A topic carried on from the day before: transparent, dashed, lighter name. */
+.wf-dt-pill[data-continuation='true'] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-plex-text) 28%, transparent);
+  background: transparent;
+}
+.wf-dt-pill[data-continuation='true']:hover,
+.wf-dt-pill[data-continuation='true']:focus-visible {
+  border-color: color-mix(in oklch, var(--c) 50%, transparent);
+}
+.wf-dt-pill[data-continuation='true'] .wf-dt-name {
+  font-weight: 500;
+  color: var(--color-plex-text-secondary);
+}
+.wf-dt-pill:focus-visible,
+.wf-dt-door:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+.wf-dt-sw {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--c);
+}
+.wf-dt-name {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-dt-ns { display: none; }
+.wf-dt-tags {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.wf-dt-badge,
+.wf-dt-wx {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.wf-dt-badge {
+  /* Pulled toward the ink so every palette colour (BLUEBELL violet is ~3.95:1 raw) reaches 4.5:1 as text,
+     while still reading as the topic's colour. */
+  color: color-mix(in oklch, var(--c) 70%, var(--color-plex-text));
+}
+.wf-dt-wx {
+  padding: 0 4px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 3px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-dt-val {
+  grid-column: 2 / -1;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+.wf-dt-vs { display: none; }
+/* The key at the right end of the section head, and the door under the topic row. */
+.wf-dt-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+.wf-dt-key-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.wf-dt-key-solid {
+  width: 2px;
+  height: 12px;
+  background: var(--color-plex-text-secondary);
+}
+.wf-dt-key-dashed {
+  height: 12px;
+  border-left: 2px dotted var(--color-plex-text-secondary);
+}
+.wf-dt-door-row {
+  display: flex;
+  justify-content: flex-end;
+}
+.wf-hstrip > .wf-dt-door-row {
+  grid-column: 1 / -1;
+  grid-row: auto;
+}
+.wf-dt-door {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-tide);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wf-dt-door:hover { text-decoration: underline; }
+/* Forced colours drop background colours: a pill gets a real edge (a continuation stays dashed), the swatch a
+   border, and hover its own cue since the border colour is flattened. */
+@media (forced-colors: active) {
+  .wf-dt-pill { border-color: CanvasText; }
+  .wf-dt-pill[data-continuation='true'] { border-style: dashed; border-color: CanvasText; }
+  .wf-dt-sw { border: 1px solid CanvasText; }
+  .wf-dt-pill:focus-visible,
+  .wf-dt-door:focus-visible { outline: 2px solid Highlight; }
+  .wf-dt-pill:hover { outline: 1px solid Highlight; }
+}
+/* Phone only: the short names and values, no badge or WX boxes (the short value's " pk" / "full" carries the
+   cue), and the stack a full-width cell of the flowing grid directly under its day's header. Desktop and tablet
+   are untouched. */
+@media (max-width: 639px) {
+  .wf-hstrip > .wf-dtcell { grid-column: 1 / -1; }
+  .wf-dt-pill { min-height: 24px; }
+  .wf-dt-door { min-height: 24px; padding: 4px 0; }
+  .wf-dt-nl { display: none; }
+  .wf-dt-ns { display: inline; }
+  .wf-dt-tags { display: none; }
+  .wf-dt-vl { display: none; }
+  .wf-dt-vs { display: inline; }
 }
 /* An empty cell says why it is empty — the gap is information, not a hole. Two of them are empty
    by definition on an ordinary week (this morning has gone; the last evening is past the end of
@@ -10111,277 +10292,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   border-radius: 11px;
   background: var(--color-plex-panel);
   overflow: hidden;
-}
-/* The "Next four days" day tiles (coming-up-glance-plan T1; design docs/design/coming-up-glance/README
-   §2) — four equal columns, one per day, each listing that day's hot topics as chips. They replaced
-   the hot-topics-by-day C1 lanes (a row per topic) and, before those, the dashed handoff row (plan
-   D14); they still state Plan's boundary out loud. A block-level `<section>`, not a button, so it fills
-   the panel width; it funds its own side inset with a margin, since `.wf-cu` carries no padding.
-   `--c` is the topic's colour, set per chip from `utils/topicPalette.js` — never a literal here.
-   `--fd-ink-2` / `--fd-ink-3` are the README's 70% and 50% bone inks (no existing token is either).
-   The phone rules live in `@media (max-width: 639px)` only, so desktop and tablet are untouched. */
-.wf-cu-fd {
-  --fd-ink-2: rgba(242, 231, 211, 0.7);
-  --fd-ink-3: rgba(242, 231, 211, 0.55); /* README says 50%; raised for contrast, in this strip only */
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: 14px 14px 0;
-  padding: 12px 14px;
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.14);
-}
-.wf-cu-fd-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-.wf-cu-fd-title {
-  display: flex;
-  align-items: baseline;
-  min-width: 0;
-}
-.wf-cu-fd-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--fd-ink-2);
-  white-space: nowrap;
-}
-/* Desktop and tablet only — the phone has no room for it (see the phone block below). */
-.wf-cu-fd-count {
-  margin-left: 8px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 400;
-  color: var(--fd-ink-3);
-  white-space: nowrap;
-}
-.wf-cu-fd-plan {
-  padding: 0;
-  border: 0;
-  background: none;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--color-close-to-home);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.wf-cu-fd-plan:hover { text-decoration: underline; }
-.wf-cu-fd-empty {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-plex-text-secondary);
-}
-.wf-cu-fd-tiles {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-.wf-cu-fd-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 8px 10px 10px;
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 9px;
-  background: rgba(0, 0, 0, 0.2);
-}
-.wf-cu-fd-tile[data-today='true'] { border-color: var(--fd-ink-3); }
-.wf-cu-fd-dh {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  min-width: 0;
-}
-.wf-cu-fd-dow {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--fd-ink-3);
-}
-.wf-cu-fd-dnum {
-  font-family: var(--font-sans);
-  font-size: 19px;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--color-plex-text);
-}
-.wf-cu-fd-rel {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  text-align: right;
-  color: var(--fd-ink-3);
-  white-space: nowrap;
-}
-.wf-cu-fd-tile[data-today='true'] .wf-cu-fd-rel { color: var(--color-plex-text); }
-.wf-cu-fd-rel-s { display: none; }
-/* No `<ul>` at all for an empty day, so this list only ever has chips. */
-.wf-cu-fd-chips {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.wf-cu-fd-chip {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  width: 100%;
-  min-width: 0;
-  padding: 4px 7px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: color-mix(in oklch, var(--c) 13%, transparent);
-  font: inherit;
-  text-align: left;
-  color: var(--color-plex-text);
-  cursor: pointer;
-}
-.wf-cu-fd-chip:focus-visible,
-.wf-cu-fd-chip:hover {
-  border-color: var(--c);
-  background: color-mix(in oklch, var(--c) 20%, transparent);
-}
-/* A run's later days read as one thing with its first: transparent, dashed, lighter name. */
-.wf-cu-fd-chip[data-continuation='true'] {
-  border-style: dashed;
-  border-color: color-mix(in oklch, var(--c) 45%, transparent);
-  background: transparent;
-}
-.wf-cu-fd-chip[data-continuation='true']:hover,
-.wf-cu-fd-chip[data-continuation='true']:focus-visible {
-  border-color: var(--c);
-  background: color-mix(in oklch, var(--c) 20%, transparent);
-}
-.wf-cu-fd-chip[data-continuation='true'] .wf-cu-fd-name {
-  font-weight: 500;
-  color: var(--fd-ink-2);
-}
-.wf-cu-fd-chip:focus-visible,
-.wf-cu-fd-plan:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-}
-.wf-cu-fd-l1 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.wf-cu-fd-sw {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 2px;
-  background: var(--c);
-}
-.wf-cu-fd-name {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wf-cu-fd-ns { display: none; }
-.wf-cu-fd-badge {
-  flex: none;
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 8.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  /* Pulled toward the ink so every palette colour (BLUEBELL violet is ~3.95:1 raw) reaches 4.5:1
-     as text, while still reading as the topic's colour. */
-  color: color-mix(in oklch, var(--c) 70%, var(--color-plex-text));
-}
-.wf-cu-fd-wx {
-  flex: none;
-  margin-left: auto;
-  padding: 0 3px;
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: 8px;
-  text-transform: uppercase;
-  color: var(--fd-ink-2);
-}
-.wf-cu-fd-val {
-  padding-left: 13px;
-  overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  text-overflow: ellipsis;
-  color: var(--fd-ink-2);
-  white-space: nowrap;
-}
-.wf-cu-fd-vs { display: none; }
-/* Forced colours drop background colours: the swatch gets a border, a chip a real edge (a
-   continuation chip stays dashed against the solid default), and today a heavier one. */
-@media (forced-colors: active) {
-  .wf-cu-fd-chip { border-color: CanvasText; }
-  .wf-cu-fd-chip[data-continuation='true'] { border-style: dashed; border-color: CanvasText; }
-  .wf-cu-fd-sw { border: 1px solid CanvasText; }
-  .wf-cu-fd-tile[data-today='true'] { border-width: 2px; }
-  .wf-cu-fd-chip:focus-visible,
-  .wf-cu-fd-plan:focus-visible { outline: 2px solid Highlight; }
-  /* Forced colours flatten the hover background and border colour, so hover needs its own cue. */
-  .wf-cu-fd-chip:hover { outline: 1px solid Highlight; }
-}
-/* Phone only: five-pixel gutters, smaller type, the relative label stacked under the date, no
-   badge or WX boxes (the short value's " pk" / "full" carries the cue), and the phone names. Desktop
-   and tablet are untouched. */
-@media (max-width: 639px) {
-  .wf-cu-fd-count { display: none; }
-  .wf-cu-fd-tiles { gap: 5px; }
-  .wf-cu-fd-tile { padding: 6px 5px 7px; }
-  /* Weekday, date and relative label stack on three lines, flush left. The README's "8px" for the
-     relative label is the gap ABOVE it (its type is the mono 9px). */
-  .wf-cu-fd-dh { flex-direction: column; align-items: flex-start; gap: 1px; }
-  .wf-cu-fd-dnum { font-size: 16px; }
-  .wf-cu-fd-rel {
-    margin-left: 0;
-    margin-top: 8px;
-    font-size: 9px;
-    text-align: left;
-  }
-  .wf-cu-fd-rel-l { display: none; }
-  .wf-cu-fd-rel-s { display: inline; }
-  /* 24px tap targets on the phone (WCAG 2.5.8). */
-  .wf-cu-fd-chip { min-height: 24px; padding: 3px 5px; }
-  .wf-cu-fd-plan { min-height: 24px; padding: 4px 0; }
-  /* Known chipNames are six characters or fewer and never reach the ellipsis; it is the safety net
-     for an unknown type, whose fallback name is the full served label. */
-  .wf-cu-fd-name { flex: 1 1 auto; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; }
-  .wf-cu-fd-nl { display: none; }
-  .wf-cu-fd-ns { display: inline; }
-  .wf-cu-fd-badge,
-  .wf-cu-fd-wx { display: none; }
-  /* The value sits flush under the swatch (no indent, as the mock draws it), on one line, never
-     ellipsized: "+0.4 m pk" fits the ~52px content box. */
-  .wf-cu-fd-val {
-    padding-left: 0;
-    font-size: 8.5px;
-    overflow: visible;
-    text-overflow: clip;
-    white-space: nowrap;
-  }
-  .wf-cu-fd-vl { display: none; }
-  .wf-cu-fd-vs { display: inline; }
 }
 .wf-cu-head {
   display: flex;

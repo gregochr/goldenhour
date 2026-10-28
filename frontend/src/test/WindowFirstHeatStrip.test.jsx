@@ -391,11 +391,11 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     })).toBeInTheDocument();
   });
 
-  it('names every topic on the night in the accessible name', async () => {
+  it('leaves a plain topic out of the accessible name — the day header says it once, the card keeps only clocked ones', async () => {
     // `ratedCard()`'s default pool is one rated spot — below the minimum-sample gate, so the pool
     // clause keeps its "N locations within 45 min" lead (SC 2.5.3 — the visible label says as much)
-    // followed by the row's own compact "1/1 rated". The topics themselves are this test's own
-    // subject and are unaffected by the gate.
+    // followed by the row's own compact "1/1 rated". glance-topic-strip-plan.md R5: the spoken sentence loses
+    // exactly the clauses the visible labels lose, and both read one list.
     await renderStrip({
       cards: [ratedCard({
         badges: [
@@ -405,7 +405,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
       })],
     });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Aurora, King tide',
+      name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
     })).toBeInTheDocument();
   });
 
@@ -1394,9 +1394,9 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
     rarityRank: 3,
   };
 
-  it('names every topic on the night in full, rarest first', async () => {
-    // Nothing collapsed behind a `+2`: a night carrying three topics is the most interesting night
-    // of the week, so hiding two behind a count had it exactly backwards.
+  it('draws no plain topic label on the card — the day header carries each topic once', async () => {
+    // glance-topic-strip-plan.md: the card's plain topic-name labels moved to the header's pills. The line itself
+    // stays reserved (the next test), so a card's rows keep their baselines.
     await renderStrip({
       cards: [ratedCard({
         badges: [
@@ -1406,16 +1406,9 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
       })],
       hotTopics: [AURORA_TOPIC, TIDE_TOPIC],
     });
-    expect(screen.getAllByTestId('wf-heat-topic').map((t) => t.textContent))
-      .toEqual(['Aurora', 'King tide']);
-  });
-
-  it('colours each topic by its own channel', async () => {
-    await renderStrip({
-      cards: [ratedCard({ badges: [{ type: 'KING_TIDE', label: 'King tide', rarityRank: 3 }] })],
-      hotTopics: [TIDE_TOPIC],
-    });
-    expect(screen.getByTestId('wf-heat-topic')).toHaveAttribute('data-channel', 'tide');
+    expect(screen.queryAllByTestId('wf-heat-topic')).toHaveLength(0);
+    const pills = within(screen.getByTestId('wf-heat-dtrow')).getAllByTestId('wf-glance-topic');
+    expect(pills.map((pill) => pill.getAttribute('data-topic'))).toEqual(['AURORA', 'KING_TIDE']);
   });
 
   /**
@@ -1485,16 +1478,16 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
       expect(screen.getByTestId('wf-heat-topic')).not.toHaveClass('wf-hc-clocked-label');
     });
 
-    it('an UNCLOCKED chip keeps its plain single-node shape — no label wrapper, no clock node', async () => {
+    it('draws NO chip for an UNCLOCKED topic — only the header pills name it', async () => {
       await renderStrip({
         cards: [ratedCard({ badges: [{ type: 'KING_TIDE', label: 'King tide', rarityRank: 3 }] })],
         hotTopics: [TIDE_TOPIC],
       });
-      const chip = screen.getByTestId('wf-heat-topic');
-      expect(chip).not.toHaveClass('wf-hc-clocked');
+      expect(screen.queryByTestId('wf-heat-topic')).toBeNull();
       expect(screen.queryByTestId('wf-heat-topic-label')).toBeNull();
       expect(screen.queryByTestId('wf-heat-topic-clock')).toBeNull();
-      expect(chip).toHaveTextContent('King tide');
+      expect(within(screen.getByTestId('wf-heat-dtrow')).getByTestId('wf-glance-topic'))
+        .toHaveAttribute('data-topic', 'KING_TIDE');
     });
 
     it('prints the solar ECLIPSE badge\'s own eventTime too (§6 Q8 — identical reasoning)', async () => {
@@ -1510,9 +1503,10 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
       expect(screen.getByTestId('wf-heat-topic-clock')).toHaveTextContent('18:45');
     });
 
-    it('renders NO clock for a SUPERMOON badge carrying an eventTime', async () => {
+    it('draws NO chip and NO clock for a SUPERMOON badge carrying an eventTime', async () => {
       // A badge outside CLOCKED_TOPIC_TYPES never prints its eventTime as a chip clause, whatever
-      // the payload carries — only ECLIPSE and LUNAR_ECLIPSE are listed.
+      // the payload carries — only ECLIPSE and LUNAR_ECLIPSE are listed — and, unclocked, it has no card chip
+      // at all now: the header's pill says it.
       await renderStrip({
         cards: [ratedCard({
           badges: [{ type: 'SUPERMOON', label: 'Supermoon', eventTime: '21:30', rarityRank: 3 }],
@@ -1521,22 +1515,19 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
           type: 'SUPERMOON', label: 'Supermoon', date: TODAY, eventType: 'NIGHT', regions: [], rarityRank: 3,
         }],
       });
-      const chip = screen.getByTestId('wf-heat-topic');
-      expect(chip).not.toHaveClass('wf-hc-clocked');
+      expect(screen.queryByTestId('wf-heat-topic')).toBeNull();
       expect(screen.queryByTestId('wf-heat-topic-clock')).toBeNull();
-      expect(chip).toHaveTextContent('Supermoon');
-      expect(chip).not.toHaveTextContent('21:30');
+      expect(screen.getByTestId('wf-heat-topics')).not.toHaveTextContent('21:30');
     });
 
-    it('renders no clock when a CLOCKED_TOPIC_TYPES badge carries no eventTime', async () => {
+    it('draws NO chip when a CLOCKED_TOPIC_TYPES badge carries no eventTime — it has no instant of its own to add', async () => {
       await renderStrip({
         cards: [ratedCard({
           badges: [{ type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', rarityRank: 2 }],
         })],
         hotTopics: [LUNAR_ECLIPSE_TOPIC],
       });
-      const chip = screen.getByTestId('wf-heat-topic');
-      expect(chip).not.toHaveClass('wf-hc-clocked');
+      expect(screen.queryByTestId('wf-heat-topic')).toBeNull();
       expect(screen.queryByTestId('wf-heat-topic-clock')).toBeNull();
     });
 
@@ -1553,33 +1544,25 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
     });
   });
 
-  it('drops a region-scoped topic when the origin scopes its regions away', async () => {
-    // Planning from a region the king tide does not name drops it by itself — A8's whole point.
+  it('⚠️ the header pills are UNSCOPED, as the Coming up block they replace was — an away origin hides no topic there', async () => {
+    // The cards' own topic rows were scope-filtered; the header, like that block, is not (glance-topic-strip-plan.md
+    // R5: the design's stated data source, accepted and recorded in plan-tab.md). The scoped view lives on in the
+    // window popup and the location sheet.
     await renderStrip({
       cards: [ratedCard({ badges: [{ type: 'KING_TIDE', label: 'King tide', rarityRank: 3 }] })],
-      hotTopics: [TIDE_TOPIC],
+      hotTopics: [TIDE_TOPIC, AURORA_TOPIC],
       origin: { name: 'The Lake District', baseName: 'Keswick' },
       spots: [spot({ regionName: 'The Lake District', rid: 'The Lake District' })],
     });
     expect(screen.queryByTestId('wf-heat-topic')).toBeNull();
+    expect(screen.getAllByTestId('wf-glance-topic').map((pill) => pill.getAttribute('data-topic')))
+      .toEqual(['KING_TIDE', 'AURORA']);
   });
 
-  it('⚠️ KEEPS a whole-sky topic under the same away origin, populated regions and all', async () => {
-    // The live hazard A8 names. Aurora's served `regions` is Bortle coverage, so the intersection
-    // test that is right for a tide deletes aurora from every away plan — while every naive test
-    // passes, because a home-origin fixture never empties the intersection.
-    await renderStrip({
-      cards: [ratedCard({ badges: [{ type: 'AURORA', label: 'Aurora', rarityRank: 1 }] })],
-      hotTopics: [AURORA_TOPIC],
-      origin: { name: 'The Lake District', baseName: 'Keswick' },
-      spots: [spot({ regionName: 'The Lake District', rid: 'The Lake District' })],
-    });
-    expect(screen.getByTestId('wf-heat-topic')).toHaveTextContent('Aurora');
-  });
-
-  it('joins a NIGHT topic to the badge on the NEXT morning\'s card', async () => {
-    // The branch a `topic.date === card.date` equality loses: the aurora is dated today, and the
-    // card that must name it is tomorrow's sunrise.
+  it('puts a NIGHT topic under the NEXT morning\'s column too, by the same rule the cards used', async () => {
+    // The branch a `topic.date === card.date` equality loses: the aurora is dated today and runs through the
+    // night, so the header shows it on tomorrow's column, where the sunrise it reaches sits. (Today has no column in
+    // this tomorrow-only matrix, and nothing is drawn for it — R2.)
     await renderStrip({
       cards: [stripCard({
         key: '2026-08-05:SUNRISE',
@@ -1593,17 +1576,9 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
       })],
       hotTopics: [AURORA_TOPIC],
     });
-    expect(screen.getByTestId('wf-heat-topic')).toHaveTextContent('Aurora');
-  });
-
-  it('keeps a badge whose topic is missing from the payload entirely', async () => {
-    // The degrade: with no topic there is no scope information, so dropping it would be a filter
-    // applied on the strength of a missing join.
-    await renderStrip({
-      cards: [ratedCard({ badges: [{ type: 'KING_TIDE', label: 'King tide', rarityRank: 3 }] })],
-      hotTopics: [],
-    });
-    expect(screen.getByTestId('wf-heat-topic')).toHaveTextContent('King tide');
+    expect(screen.queryByTestId('wf-heat-topic')).toBeNull();
+    expect(within(screen.getByTestId('wf-glance-topics')).getByTestId('wf-glance-topic'))
+      .toHaveAttribute('data-topic', 'AURORA');
   });
 
   it('reserves the topics row even on a card with no topics', async () => {
@@ -1923,10 +1898,11 @@ describe('WindowFirstHeatStrip — the grid it lays out', () => {
     // `--r` are unaffected; only which index each card lands at changes.
     await renderStrip({ cards: WEEK });
     const cards = screen.getAllByTestId('wf-heat-card');
-    expect(cards[0]).toHaveStyle({ '--c': '2', '--r': '2' });
-    expect(cards[1]).toHaveStyle({ '--c': '3', '--r': '2' });
-    expect(cards[2]).toHaveStyle({ '--c': '1', '--r': '3' });
-    expect(cards[3]).toHaveStyle({ '--c': '2', '--r': '3' });
+    // Row 2 is the day header's topic pills (glance-topic-strip-plan.md R3), so the cards sit on rows 3 and 4.
+    expect(cards[0]).toHaveStyle({ '--c': '2', '--r': '3' });
+    expect(cards[1]).toHaveStyle({ '--c': '3', '--r': '3' });
+    expect(cards[2]).toHaveStyle({ '--c': '1', '--r': '4' });
+    expect(cards[3]).toHaveStyle({ '--c': '2', '--r': '4' });
   });
 
   it('heads each column with its weekday and date, once per day', async () => {
@@ -4493,5 +4469,187 @@ describe('WindowFirstHeatStrip — the verdict line count (thin-sample F3)', () 
     const sep = css.match(/\.wf-hc-thin-sep \{[^}]*\}/)[0];
     expect(sep).toContain('color: #857c70;');
     expect(sep).toContain('font-weight: 400;');
+  });
+});
+
+describe('WindowFirstHeatStrip — the day header\'s topic pills (glance-topic-strip-plan.md)', () => {
+  const D4 = '2026-08-04';
+  const D5 = '2026-08-05';
+  const D6 = '2026-08-06';
+  const D7 = '2026-08-07';
+  const COLUMNS = [
+    stripCard(),
+    stripCard({ key: `${D5}:SUNRISE`, date: D5, targetType: 'SUNRISE', sunrise: true, dow: 'Wed', time: '05:20' }),
+    stripCard({ key: `${D5}:SUNSET`, date: D5, targetType: 'SUNSET', dow: 'Wed', time: '21:09' }),
+    stripCard({ key: `${D6}:SUNRISE`, date: D6, targetType: 'SUNRISE', sunrise: true, dow: 'Thu', time: '05:22' }),
+    stripCard({ key: `${D7}:SUNRISE`, date: D7, targetType: 'SUNRISE', sunrise: true, dow: 'Fri', time: '05:24' }),
+  ];
+  const tide = (date) => ({
+    type: 'SPRING_TIDE',
+    label: 'Spring tide',
+    date,
+    eventType: null,
+    regions: [],
+    glance: { weather: false, value: '4.8 m · run starts', shortValue: '4.8m', badge: 'PEAK' },
+  });
+  const inversion = (date) => ({
+    type: 'INVERSION',
+    label: 'Cloud inversion',
+    date,
+    eventType: 'SUNRISE',
+    regions: [],
+    glance: { weather: true, value: 'dawn · 9/10', shortValue: '9/10' },
+  });
+
+  afterEach(() => {
+    useIsMobile.mockReturnValue(false);
+  });
+
+  it('desktop: the topic row sits between the sticky day row and the first card row, outside .wf-dhrow', async () => {
+    await renderStrip({ cards: COLUMNS, hotTopics: [tide(D4)] });
+    const kids = Array.from(screen.getByTestId('wf-heat-grid').children);
+    const dhrow = screen.getByTestId('wf-heat-dhrow');
+    const dtrow = screen.getByTestId('wf-heat-dtrow');
+    expect(kids.indexOf(dtrow)).toBe(kids.indexOf(dhrow) + 1);
+    // The door follows the row, then the first card row.
+    expect(kids[kids.indexOf(dtrow) + 2]).toHaveClass('wf-hrow');
+    expect(dhrow).not.toContainElement(dtrow);
+    expect(dhrow.querySelector('[data-testid="wf-glance-topic"]')).toBeNull();
+    expect(dtrow).not.toHaveClass('wf-dhrow');
+  });
+
+  it('keeps every column: a topic-free day is an empty cell, not a missing one', async () => {
+    await renderStrip({ cards: COLUMNS, hotTopics: [tide(D5)] });
+    const dtrow = screen.getByTestId('wf-heat-dtrow');
+    expect(dtrow.children).toHaveLength(4);
+    expect(Array.from(dtrow.children).map((c) => c.style.getPropertyValue('--c'))).toEqual(['1', '2', '3', '4']);
+    expect(Array.from(dtrow.children).map((c) => c.getAttribute('data-testid'))).toEqual([
+      'wf-glance-topics-empty', 'wf-glance-topics', 'wf-glance-topics-empty', 'wf-glance-topics-empty',
+    ]);
+    // No "list, 0 items" for an empty day.
+    expect(dtrow.querySelectorAll('ul')).toHaveLength(1);
+  });
+
+  it('draws neither the row, the door nor the key when the four days carry no topic', async () => {
+    await renderStrip({ cards: COLUMNS, hotTopics: [] });
+    expect(screen.queryByTestId('wf-heat-dtrow')).toBeNull();
+    expect(screen.queryByTestId('wf-glance-topics-door')).toBeNull();
+    expect(screen.queryByTestId('wf-glance-topic-key')).toBeNull();
+  });
+
+  it('puts the key at the end of the section head, and the door right after the topic row', async () => {
+    await renderStrip({ cards: COLUMNS, hotTopics: [tide(D4)] });
+    const head = screen.getByTestId('wf-heat-head');
+    expect(within(head).getByTestId('wf-glance-topic-key')).toHaveTextContent('startscontinues');
+    expect(head.lastElementChild).toBe(screen.getByTestId('wf-glance-topic-key'));
+    expect(screen.getByTestId('wf-glance-topics-door')).toHaveTextContent('Dated events in Coming up →');
+    expect(screen.getByTestId('wf-heat-dtrow').nextElementSibling)
+      .toBe(screen.getByTestId('wf-glance-topics-door-row'));
+  });
+
+  it('draws a topic that STARTS on a day solid, and one that CONTINUES from the day before dashed', async () => {
+    await renderStrip({ cards: COLUMNS, hotTopics: [tide(D4), tide(D5)] });
+    const pills = screen.getAllByTestId('wf-glance-topic');
+    expect(pills).toHaveLength(2);
+    expect(pills[0]).not.toHaveAttribute('data-continuation');
+    expect(pills[1]).toHaveAttribute('data-continuation', 'true');
+  });
+
+  it('R2: forces solid a continuation whose previous day is not a rendered column', async () => {
+    // The matrix starts tomorrow (today's windows have all gone), so Wednesday's spring tide "continues" from a
+    // Tuesday the reader cannot see: a dashed pill would point at a start that is not on screen.
+    await renderStrip({ cards: COLUMNS.slice(1), hotTopics: [tide(D4), tide(D5)] });
+    const pills = screen.getAllByTestId('wf-glance-topic');
+    expect(pills).toHaveLength(1);
+    expect(pills[0]).not.toHaveAttribute('data-continuation');
+  });
+
+  it('R2: a matrix day outside the four dates draws an empty cell', async () => {
+    await renderStrip({
+      cards: [...COLUMNS, stripCard({
+        key: '2026-08-09:SUNRISE', date: '2026-08-09', targetType: 'SUNRISE', sunrise: true, dow: 'Sun', time: '05:30',
+      })],
+      hotTopics: [tide('2026-08-09'), tide(D4)],
+    });
+    const cells = Array.from(screen.getByTestId('wf-heat-dtrow').children);
+    expect(cells).toHaveLength(5);
+    expect(cells[4]).toHaveAttribute('data-testid', 'wf-glance-topics-empty');
+    expect(screen.getAllByTestId('wf-glance-topic')).toHaveLength(1);
+  });
+
+  it('names each stack by its own day header (the date chip above it)', async () => {
+    await renderStrip({ cards: COLUMNS, hotTopics: [tide(D5)] });
+    const group = screen.getByRole('group');
+    const header = screen.getAllByTestId('wf-heat-day')[1];
+    expect(group.getAttribute('aria-labelledby')).toBe(header.id);
+    expect(group).toHaveAccessibleName('Wed5');
+  });
+
+  it('routes a press: a jump goes to Coming up at that entry', async () => {
+    const onOpenComingUp = vi.fn();
+    await renderStrip({
+      cards: COLUMNS,
+      hotTopics: [tide(D4)],
+      comingUpEntries: [{
+        id: 'spring-tide:run', type: 'spring-tide', startDate: D4, endDate: D6, coincidence: [], dayRanges: [],
+      }],
+      renderedEntryIds: new Set(['spring-tide:run']),
+      onOpenComingUp,
+    });
+    fireEvent.click(screen.getByTestId('wf-glance-topic'));
+    expect(onOpenComingUp).toHaveBeenCalledWith('spring-tide:run');
+  });
+
+  it('routes a press: a weather topic with a forecast opens the Map door, as the old block did', async () => {
+    const onShowOnMap = vi.fn();
+    const onOpenComingUp = vi.fn();
+    await renderStrip({
+      cards: COLUMNS, hotTopics: [inversion(D5)], onShowOnMap, onOpenComingUp, forecastDates: [D5],
+    });
+    fireEvent.click(screen.getByTestId('wf-glance-topic'));
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      kind: 'event', date: D5, eventType: 'SUNRISE', topicType: 'INVERSION',
+    });
+    expect(onOpenComingUp).not.toHaveBeenCalled();
+  });
+
+  it('routes a press: a topic with a window card opens that window with the topic emphasised', async () => {
+    const onGoToPlanWindow = vi.fn();
+    await renderStrip({
+      cards: COLUMNS,
+      hotTopics: [inversion(D5)],
+      onGoToPlanWindow,
+      openableKeys: new Set([`${D5}:SUNRISE`]),
+      forecastDates: [],
+      onShowOnMap: vi.fn(),
+    });
+    fireEvent.click(screen.getByTestId('wf-glance-topic'));
+    expect(onGoToPlanWindow).toHaveBeenCalledWith(`${D5}:SUNRISE`, 'INVERSION');
+  });
+
+  it('routes a press: otherwise Coming up with no entry; the door does the same', async () => {
+    const onOpenComingUp = vi.fn();
+    await renderStrip({ cards: COLUMNS, hotTopics: [tide(D4)], onOpenComingUp });
+    fireEvent.click(screen.getByTestId('wf-glance-topic'));
+    expect(onOpenComingUp).toHaveBeenLastCalledWith(null);
+    fireEvent.click(screen.getByTestId('wf-glance-topics-door'));
+    expect(onOpenComingUp).toHaveBeenCalledTimes(2);
+    expect(onOpenComingUp).toHaveBeenLastCalledWith(null);
+  });
+
+  it('phone: each stack is a cell directly under ITS OWN day header; topic-free days add nothing', async () => {
+    useIsMobile.mockReturnValue(true);
+    await renderStrip({ cards: COLUMNS, hotTopics: [tide(D5), tide(D6)] });
+    expect(screen.queryByTestId('wf-heat-dtrow')).toBeNull();
+    const kids = Array.from(screen.getByTestId('wf-heat-grid').children)
+      .map((el) => el.getAttribute('data-testid'));
+    expect(kids).toEqual([
+      'wf-heat-day', 'wf-heat-empty', 'wf-heat-card',
+      'wf-heat-day', 'wf-glance-topics', 'wf-heat-card', 'wf-heat-card',
+      'wf-heat-day', 'wf-glance-topics', 'wf-glance-topics-door-row', 'wf-heat-card', 'wf-heat-empty',
+      'wf-heat-day', 'wf-heat-card', 'wf-heat-empty',
+    ]);
+    // The placement the phone DOM carries at desktop width (matrix-axis plan D4) is the topics row.
+    expect(screen.getAllByTestId('wf-glance-topics')[0]).toHaveStyle({ '--r': '2' });
   });
 });

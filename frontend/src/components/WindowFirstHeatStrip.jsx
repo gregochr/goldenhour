@@ -1,5 +1,5 @@
 import React, {
-  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+  useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import {
@@ -23,6 +23,7 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
+import { buildFourDayTiles, glanceTopicsByColumn } from '../utils/fourDayTiles.js';
 import {
   buildSpread, formatSpreadCount, poolWithinReach, spokenPoolPhrase, spreadBandsSpoken,
   spreadBars, spreadCountLayout, spreadCountLayoutAcross, spreadQualifier, spreadRowState, spreadTitle, unratedBar,
@@ -36,6 +37,7 @@ import { DIRECTION_WORD, STATE_WORD } from '../utils/windowFirstRows.js';
 import { tideRun } from '../utils/windowFirstTideRun.js';
 import { stoodPhrase } from '../utils/mapStandDown.js';
 import TideWave from './map/TideWave.jsx';
+import WindowGlanceDayTopics, { GlanceTopicDoor, GlanceTopicKey } from './WindowGlanceDayTopics.jsx';
 import ProUpsellDoor, {
   BEST_BETS_UPSELL_BODY, BEST_BETS_UPSELL_HEADING, BEST_BETS_UPSELL_LABEL,
 } from './shared/ProUpsell.jsx';
@@ -111,6 +113,9 @@ const PICKS_QUALIFIER = Object.freeze({ text: 'your sub-regions', spoken: 'in yo
 
 /** The dashed outline's width on a thumbnail, in CSS px (handoff task 6: 1px where the Map's is heavier). */
 const THUMB_OUTLINE_WIDTH = 1;
+
+/** An unhandled door press: the strip is mounted without a Coming up route (tests, a lone render). */
+const noop = () => {};
 
 
 /** The planning-area threshold in whole hours, for the beyond line's own sentence. */
@@ -707,6 +712,8 @@ function areaLabel(regionName, tiny) {
  * @param {Function} [props.onOpenWindow] opens and reveals a window's card
  * @param {?object}  [props.origin]   the away origin, or null for home — framing and scope
  * @param {Function} [props.onSearchRegion] opens search pre-filled with a region name
+ * @param {Array}    [props.comingUpEntries] the served almanac entries, for a topic pill's jump
+ * @param {Function} [props.onOpenComingUp] `(entryId|null)` — opens Coming up (the pill's jump and the door)
  * @param {boolean}  [props.picksLocked] true for a reader without best bets (LITE): the key row carries one
  *                                    Pro upsell door. The picks themselves are already absent from {@code cards}
  *                                    (the context nulls them), so nothing here hides a chip.
@@ -718,6 +725,8 @@ export default function WindowFirstHeatStrip({
   cards, pointSets, unratedSets, stoodSets, spots, reachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
   origin = null, onSearchRegion, colourMode = null, homeCoords = null, highlightKeys = null,
   picksLocked = false, groundSets = null, picks = null,
+  comingUpEntries = null, renderedEntryIds = null, openableKeys = null, forecastDates = null,
+  onOpenComingUp = undefined, onShowOnMap = undefined, onGoToPlanWindow = undefined,
 }) {
   // A body the server SHAPED by the reader's sub-region picks (S5b-1): `picks` is handed in only then. Never the
   // role. `zeroPicks` is a shaped reader who holds no pick yet, whose every place is outside.
@@ -753,6 +762,45 @@ export default function WindowFirstHeatStrip({
   const matrix = useMemo(() => buildWindowMatrix(cards, todayStr), [cards, todayStr]);
   // Indexed once for the whole matrix rather than scanned per card — `buildTopicIndex` records why.
   const topicIndex = useMemo(() => buildTopicIndex(hotTopics), [hotTopics]);
+  // The day header's topic pills (glance-topic-strip-plan.md): the licensed `buildFourDayTiles` model over the
+  // SAME `hotTopics`, then re-keyed to this matrix's columns. UNSCOPED, as the Coming up block it replaces was,
+  // while the cards' own topic rows are scope-filtered — the design's stated source, and intended. No `onShowOnMap`
+  // means no Map door and no window route without `onGoToPlanWindow`, so a pill's spoken destination and its tap
+  // cannot disagree (the model builds only the routes the caller can honour).
+  const hasMapDoor = typeof onShowOnMap === 'function';
+  const glanceTopics = useMemo(() => {
+    const { days } = buildFourDayTiles({
+      todayStr,
+      hotTopics,
+      entries: comingUpEntries,
+      renderedEntryIds,
+      openableKeys: onGoToPlanWindow ? openableKeys : null,
+      forecastDates,
+      hasMapDoor,
+    });
+    const byDate = glanceTopicsByColumn(days, matrix.days.map((day) => day.date));
+    const lastTopicDate = matrix.days.map((day) => day.date)
+      .filter((date) => (byDate.get(date)?.length ?? 0) > 0).pop() ?? null;
+    return { byDate, lastTopicDate };
+  }, [
+    todayStr, hotTopics, comingUpEntries, renderedEntryIds, openableKeys, forecastDates, hasMapDoor,
+    onGoToPlanWindow, matrix,
+  ]);
+  const dayIdBase = useId();
+  /**
+   * What a pill's press does, first match wins — the old "Next four days" block's four routes (a topic with no
+   * almanac counterpart, such as aurora or any weather topic, has no Coming up row to open, so the handoff's
+   * "click opens Coming up" holds only where Coming up lists it): the Coming up entry; the Map door; this
+   * strip's own window popup with the topic emphasised; else Coming up itself.
+   */
+  const tapTopic = (chip) => {
+    if (chip.jump) onOpenComingUp?.(chip.jump.entryId);
+    else if (chip.mapDoor) onShowOnMap({
+      kind: 'event', date: chip.mapDoor.date, eventType: chip.mapDoor.eventType, topicType: chip.type,
+    });
+    else if (chip.target && onGoToPlanWindow) onGoToPlanWindow(chip.target, chip.type);
+    else onOpenComingUp?.(null);
+  };
   // The tide run across the WHOLE strip — which cards are live, and which of them is the one to
   // take (tide-plan-card-plan.md §3 C1 task 3). Computed once here, over the served, non-away
   // cards, rather than per card: `tideRun` itself ranks across the strip, so a per-card call would
@@ -832,7 +880,11 @@ export default function WindowFirstHeatStrip({
         // it with the strip-wide layout (spread-row-plan.md §4 #15).
         countLayout: state.bars ? spreadCountLayout(bars, unrated) : null,
         best: bestReachLine(card),
-        topics: windowTopics(card.key, card.badges, topicIndex, scopeNames),
+        // ⚠️ ONLY the clocked topics (an eclipse: `chipClock(badge)` non-null). A plain topic name is now said once
+        // per day in the header's pills (glance-topic-strip-plan.md), so the card no longer repeats it; a clocked
+        // one stays because its instant is this window's own fact, which the day header cannot carry. The visible
+        // chips and the spoken sentence both read THIS list, so they lose exactly the same clauses.
+        topics: windowTopics(card.key, card.badges, topicIndex, scopeNames).filter(({ badge }) => chipClock(badge)),
         tideChip,
       });
     }
@@ -1418,10 +1470,7 @@ export default function WindowFirstHeatStrip({
       // A clocked topic (lunar-eclipse-plan.md §2.6) states its own instant here too — the chip's
       // divider is `aria-hidden`, so "Lunar eclipse at 05:13" is this sentence's only route to a
       // screen reader, built from the SAME `chipClock` read the visible chip renders from.
-      .concat(card.away ? [] : facts.topics.map(({ badge }) => {
-        const clock = chipClock(badge);
-        return clock ? `${badge.label} at ${clock}` : badge.label;
-      }).filter(Boolean))
+      .concat(card.away ? [] : facts.topics.map(({ badge }) => `${badge.label} at ${chipClock(badge)}`))
       .concat(card.pickKind === 'best' ? ['best bet'] : [])
       .concat(card.pickKind === 'also' ? ['also good'] : [])
       // Said last, after the forecast's own claims, so it reads as what it is: Ask's pick, not the
@@ -1718,7 +1767,7 @@ export default function WindowFirstHeatStrip({
                 {facts.topics.map(({ badge }) => {
                   // The clocked chip (lunar-eclipse-plan.md §2.6) — a badge whose own clock is a
                   // DIFFERENT instant from the window's (both eclipse types) prints it after a
-                  // divider in the tide chip's emphasised shape. Every other badge is unchanged.
+                  // divider in the tide chip's emphasised shape. `facts.topics` holds only these.
                   //
                   // ⚠️ The clock is a SEPARATE, non-shrinking flex item from the label, never a
                   // second text node inside the same ellipsis-clipped span. `.wf-hc-tw`'s base
@@ -1734,19 +1783,15 @@ export default function WindowFirstHeatStrip({
                       key={`${badge.type}:${badge.label}`}
                       data-testid="wf-heat-topic"
                       data-channel={badgeChannel(badge.type)}
-                      className={`wf-hc-tw${clock ? ' wf-hc-clocked' : ''}`}
+                      className="wf-hc-tw wf-hc-clocked"
                       title={badge.detail ? `${badge.label} — ${badge.detail}` : badge.label}
                     >
-                      {clock ? (
-                        <span data-testid="wf-heat-topic-label" className="wf-hc-clocked-label">
-                          {badge.label}
-                        </span>
-                      ) : badge.label}
-                      {clock && (
-                        <em data-testid="wf-heat-topic-clock" className="wf-hc-clocked-time">
-                          {clock}
-                        </em>
-                      )}
+                      <span data-testid="wf-heat-topic-label" className="wf-hc-clocked-label">
+                        {badge.label}
+                      </span>
+                      <em data-testid="wf-heat-topic-clock" className="wf-hc-clocked-time">
+                        {clock}
+                      </em>
                     </span>
                   );
                 })}
@@ -1866,6 +1911,7 @@ export default function WindowFirstHeatStrip({
   const renderDayHeader = (day, column) => (
     <div
       key={day.date}
+      id={`${dayIdBase}-${day.date}`}
       data-testid="wf-heat-day"
       data-today={day.today ? 'true' : undefined}
       className={`wf-hday${day.today ? ' today' : ''}`}
@@ -1888,6 +1934,26 @@ export default function WindowFirstHeatStrip({
       </span>
       <span className="wf-hday-rule" aria-hidden="true" />
     </div>
+  );
+
+  /**
+   * One day's topic pills, in the column of that day's header.
+   *
+   * @param {object} day the matrix's day descriptor
+   * @param {number} column the grid column, 1-based
+   * @param {boolean} phone the phone's flowing grid, where a topic-free day draws nothing
+   */
+  const renderTopics = (day, column, phone) => (
+    <WindowGlanceDayTopics
+      key={`${day.date}:topics`}
+      date={day.date}
+      column={column}
+      row={MATRIX_ROW.topics}
+      chips={glanceTopics.byDate.get(day.date) ?? []}
+      labelledBy={`${dayIdBase}-${day.date}`}
+      phone={phone}
+      onTap={tapTopic}
+    />
   );
 
   /**
@@ -1920,6 +1986,7 @@ export default function WindowFirstHeatStrip({
             Tailwind's preflight resets heading size and weight to inherited, so nothing moves. */}
         <h2 className="wf-hstrip-k">The days ahead</h2>
         <span className="wf-hstrip-rule" aria-hidden="true" />
+        {glanceTopics.lastTopicDate && <GlanceTopicKey />}
       </div>
 
       {/* ⚠️ Two structures from one matrix, never both mounted at once (matrix-axis plan D3). A
@@ -1941,6 +2008,11 @@ export default function WindowFirstHeatStrip({
             return (
               <React.Fragment key={day.date}>
                 {renderDayHeader(day, column)}
+                {/* The topic stack flows straight after its own day's header, spanning the row (the phone grid
+                    has no sticky header to protect, so this is the cleanest place; the stack is NEVER inside
+                    `renderDayHeader`, which the sticky, measured desktop `.wf-dhrow` shares). */}
+                {renderTopics(day, column, true)}
+                {day.date === glanceTopics.lastTopicDate && <GlanceTopicDoor onOpen={onOpenComingUp ?? noop} />}
                 {day.am
                   ? renderCard(day.am, column, MATRIX_ROW.sunrise, day.solo)
                   : renderEmpty(day.amEmpty, column, MATRIX_ROW.sunrise, `${day.date}:am`)}
@@ -1961,6 +2033,16 @@ export default function WindowFirstHeatStrip({
           <div ref={setDhrowNode} data-testid="wf-heat-dhrow" className="wf-dhrow">
             {matrix.days.map((day, index) => renderDayHeader(day, index + 1))}
           </div>
+          {/* A NON-sticky row between the pinned date chips and the cards: inside `.wf-dhrow` the taller pills
+              would pin a taller band over the cards (see `.wf-dtrow`). Every column keeps its cell. */}
+          {glanceTopics.lastTopicDate && (
+            <>
+              <div data-testid="wf-heat-dtrow" className="wf-dtrow">
+                {matrix.days.map((day, index) => renderTopics(day, index + 1, false))}
+              </div>
+              <GlanceTopicDoor onOpen={onOpenComingUp ?? noop} />
+            </>
+          )}
           <div className="wf-hrow">
             {renderRail(true)}
             <div data-testid="wf-heat-cards" className="wf-hcards">
@@ -2188,6 +2270,22 @@ export default function WindowFirstHeatStrip({
 }
 
 WindowFirstHeatStrip.propTypes = {
+  /** The served almanac entries, for a topic pill's jump into Coming up. */
+  comingUpEntries: PropTypes.array,
+  /** Ids of the entries Coming up lists under its All filter; a pill never jumps to any other. */
+  renderedEntryIds: PropTypes.oneOfType([
+    PropTypes.instanceOf(Set), PropTypes.arrayOf(PropTypes.string),
+  ]),
+  /** The `date:TYPE` keys of the windows the Plan matrix has a card for — the only windows a pill can open. */
+  openableKeys: PropTypes.instanceOf(Set),
+  /** The dates the reader holds a colour forecast for; null is "not known", an array (even empty) is known. */
+  forecastDates: PropTypes.arrayOf(PropTypes.string),
+  /** `(entryId|null)` — opens Coming up, at that entry when one is named. Also the topic door's route. */
+  onOpenComingUp: PropTypes.func,
+  /** `({kind:'event', date, eventType, topicType})` — the Map door of a weather pill. Absent: no Map door. */
+  onShowOnMap: PropTypes.func,
+  /** `(windowKey, topicType)` — opens that window's popup with the topic emphasised. */
+  onGoToPlanWindow: PropTypes.func,
   /** True for a reader without best bets: draws the key row's one Pro door. */
   picksLocked: PropTypes.bool,
   /** The active scoreRamp mode — a repaint key only; see the paint callback's note. */

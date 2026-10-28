@@ -138,7 +138,7 @@ const RETURN_LABEL = { plan: <GlanceLabel />, 'coming-up': 'Coming up', operatio
  * by text, which merges into that text when a DOM is re-parsed. The rule predicts it.) This note
  * also used to say a pseudo-element could not do the job and that accname
  * trims each element's whitespace — neither holds in a browser: generated content IS in the name,
- * and only jsdom's polyfill trims. `WindowComingUpFourDays`'s class doc has the rule.
+ * and only jsdom's polyfill trims. `WindowGlanceDayTopics`'s class doc has the rule.
  *
  * @param {object} props
  * @param {{region: ?string, minRating: ?number, limitMinutes: ?number}} props.carried the door's

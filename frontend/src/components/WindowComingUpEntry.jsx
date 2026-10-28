@@ -330,7 +330,7 @@ DayChips.propTypes = {
  * threshold line, which is why a screen-reader user got a one-line reading of "See the plan for 12
  * Sept →" for a full feature card and nothing else — the richer content ended up reachable only on
  * the entries that are NOT clickable. Leaving the name to compute from content is the fix (the same
- * approach the strip's "At a Glance" header button in {@code WindowComingUpFourDays} uses; its chips are built from content too), which is why the
+ * approach the At a Glance day header's topic pills in {@code WindowGlanceDayTopics} use; they are built from content too), which is why the
  * title-row spans below are interleaved with bare {@code {' '}} text-node siblings: JSX drops
  * whitespace-only text that contains a line break rather than collapsing it to a space, so they
  * are what keeps the phrases apart in that one computed name.
@@ -346,7 +346,7 @@ DayChips.propTypes = {
  * again 2026-09-11 across every state this component's tests render, by Playwright's
  * accessible-name algorithm over Chromium's, WebKit's and Firefox's layout; Chromium's native
  * accessibility tree agreed on 2026-09-05 and again on 2026-09-14. The rule, the method and why
- * the suite reads it differently are in {@code WindowComingUpFourDays}'s class doc.
+ * the suite reads it differently are in {@code WindowGlanceDayTopics}'s class doc.
  *
  * <p><b>⚠️ One separator inside the card IS load-bearing, and it is not in this file.</b>
  * {@code ComingUpTideSparkline}'s label sets a {@code <b>} and a {@code <span>} side by side as
