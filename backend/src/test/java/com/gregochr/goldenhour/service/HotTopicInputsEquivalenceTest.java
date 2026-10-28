@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
@@ -85,7 +86,7 @@ class HotTopicInputsEquivalenceTest {
         final HotTopicAggregator aggregator;
         final List<HotTopicStrategy> strategies;
 
-        World() {
+        World(LocalDate from, LocalDate to) {
             LocationEntity coast = location("Bamburgh", 55.6, -1.7, "Northumberland", 1L);
             LocationEntity fell = location("Great Gable", 54.5, -3.2, "Lake District", 2L);
             LocationEntity wood = location("Hardcastle Crags", 53.7, -2.0, "Pennines", 3L);
@@ -94,26 +95,29 @@ class HotTopicInputsEquivalenceTest {
             when(locations.findByBortleClassIsNotNullAndEnabledTrue()).thenReturn(List.of(fell));
             when(locations.findBluebellLocations()).thenReturn(List.of(wood));
 
-            when(scores.findComponentsByType(Mockito.anyLong(), any(), any())).thenReturn(List.of());
-            when(atmosphere.findInDateRange(any(), any())).thenAnswer(inv -> {
-                LocalDate from = inv.getArgument(0);
-                return List.of(
-                        slot(fell, from, TargetType.SUNRISE, a -> {
-                            a.setInversionScore(9.0);
-                            a.setInversionScored(true);
-                            a.setAerosolOpticalDepth(new BigDecimal("0.9"));
-                            a.setDust(new BigDecimal("150"));
-                            a.setSnowDepthMetres(0.2);
-                            a.setFreezingLevelMetres(300.0);
-                        }),
-                        slot(coast, from, TargetType.SUNSET, a -> a.setSurgeRiskLevel("HIGH")));
-            });
+            for (ForecastType type : List.of(ForecastType.INVERSION, ForecastType.BLUEBELL, ForecastType.MIST)) {
+                when(scores.findComponentsByType(type.getId(), from, to)).thenReturn(List.of());
+            }
+            List<SlotAtmosphereEntity> rows = new ArrayList<>();
+            for (LocalDate day = from; !day.isAfter(to); day = day.plusDays(1)) {
+                rows.add(slot(fell, day, TargetType.SUNRISE, a -> {
+                    a.setInversionScore(9.0);
+                    a.setInversionScored(true);
+                    a.setAerosolOpticalDepth(new BigDecimal("0.9"));
+                    a.setDust(new BigDecimal("150"));
+                    a.setSnowDepthMetres(0.2);
+                    a.setFreezingLevelMetres(300.0);
+                }));
+                rows.add(slot(coast, day, TargetType.SUNSET, a -> a.setSurgeRiskLevel("HIGH")));
+            }
+            when(atmosphere.findInDateRange(from, to)).thenReturn(rows);
 
             Clock clock = Clock.fixed(Instant.parse("2026-08-10T05:00:00Z"), ZoneOffset.UTC);
             SolarService solar = new SolarService();
             SolarEventFreshness freshness = new SolarEventFreshness(solar, clock);
 
             StormSurgeFactsBuilder surgeFacts = mock(StormSurgeFactsBuilder.class);
+            // any(): attach is a passthrough; its arguments are irrelevant to the query bounds under test.
             when(surgeFacts.attach(any(), any())).thenAnswer(inv -> inv.getArgument(0));
 
             AuroraStateCache auroraState = mock(AuroraStateCache.class);
@@ -127,9 +131,11 @@ class HotTopicInputsEquivalenceTest {
                     AUGUST_FROM.plusDays(1).atTime(4, 30).toInstant(ZoneOffset.UTC)));
             BriefingService briefing = mock(BriefingService.class);
             LunarPhaseService lunar = mock(LunarPhaseService.class);
+            // any(): the moon is stubbed constant on every date; no query bound depends on it.
             when(lunar.isFullMoon(any())).thenReturn(false);
             when(lunar.getIlluminationFraction(any())).thenReturn(0.05);
             LunarEclipseCalculator lunarCalculator = mock(LunarEclipseCalculator.class);
+            // any(): the sight is a constant for every eclipse and place; no query bound depends on it.
             when(lunarCalculator.sight(any(), Mockito.anyDouble(), Mockito.anyDouble()))
                     .thenReturn(new LunarEclipseSight(40, 200, "SSW", null, null, false, false,
                             LocalDateTime.of(2026, 8, 28, 3, 33), LocalDateTime.of(2026, 8, 28, 4, 40), true));
@@ -200,6 +206,15 @@ class HotTopicInputsEquivalenceTest {
             return calls(scores, "findComponentsByType") + calls(atmosphere, "findInDateRange");
         }
 
+        /** Each of the four slot queries ran exactly once, with this exact id (where typed) and range. */
+        void verifySlotReadsOnce(LocalDate from, LocalDate to) {
+            for (ForecastType type : List.of(ForecastType.INVERSION, ForecastType.BLUEBELL, ForecastType.MIST)) {
+                Mockito.verify(scores, Mockito.times(1)).findComponentsByType(type.getId(), from, to);
+            }
+            Mockito.verify(atmosphere, Mockito.times(1)).findInDateRange(from, to);
+            Mockito.verifyNoMoreInteractions(scores, atmosphere);
+        }
+
         int rosterStatements() {
             return calls(locations, READ_ROSTER_ENABLED) + calls(locations, READ_ROSTER_COASTAL)
                     + calls(locations, READ_ROSTER_DARK_SKY) + calls(locations, READ_ROSTER_BLUEBELL);
@@ -233,9 +248,9 @@ class HotTopicInputsEquivalenceTest {
     @Test
     @DisplayName("august window — live branch output is identical, and slot signals are read once, not seven times")
     void augustWindow_liveBranch_identicalAndReadOnce() {
-        World oldWorld = new World();
+        World oldWorld = new World(AUGUST_FROM, AUGUST_TO);
         List<HotTopic> before = oldWorld.oldWayLive(AUGUST_FROM, AUGUST_TO);
-        World newWorld = new World();
+        World newWorld = new World(AUGUST_FROM, AUGUST_TO);
         List<HotTopic> after = newWorld.aggregator.getHotTopics(AUGUST_FROM, AUGUST_TO);
 
         System.out.printf("hot-topic statements AUGUST: slot before=%d after=%d, roster before=%d after=%d%n",
@@ -247,6 +262,7 @@ class HotTopicInputsEquivalenceTest {
                 .contains("ECLIPSE", "AURORA", "INVERSION", "DUST", "STORM_SURGE");
         assertThat(oldWorld.slotStatements()).isGreaterThan(newWorld.slotStatements());
         assertThat(newWorld.slotStatements()).isEqualTo(4);
+        newWorld.verifySlotReadsOnce(AUGUST_FROM, AUGUST_TO);
         assertThat(newWorld.calls(newWorld.locations, READ_ROSTER_ENABLED)).isEqualTo(1);
         assertThat(newWorld.calls(newWorld.locations, READ_ROSTER_COASTAL)).isLessThanOrEqualTo(1);
         assertThat(newWorld.calls(newWorld.locations, READ_ROSTER_DARK_SKY)).isEqualTo(1);
@@ -257,9 +273,9 @@ class HotTopicInputsEquivalenceTest {
     @Test
     @DisplayName("equinox window — live branch output is identical (the enabled roster's order is pinned)")
     void equinoxWindow_liveBranch_identical() {
-        World oldWorld = new World();
+        World oldWorld = new World(EQUINOX_FROM, EQUINOX_TO);
         List<HotTopic> before = oldWorld.oldWayLive(EQUINOX_FROM, EQUINOX_TO);
-        World newWorld = new World();
+        World newWorld = new World(EQUINOX_FROM, EQUINOX_TO);
         List<HotTopic> after = newWorld.aggregator.getHotTopics(EQUINOX_FROM, EQUINOX_TO);
 
         System.out.printf("hot-topic statements EQUINOX: slot before=%d after=%d, roster before=%d after=%d%n",
@@ -269,19 +285,20 @@ class HotTopicInputsEquivalenceTest {
         assertThat(after).isNotEmpty().isEqualTo(before);
         assertThat(after).extracting(HotTopic::type).contains("EQUINOX");
         assertThat(newWorld.slotStatements()).isEqualTo(4);
+        newWorld.verifySlotReadsOnce(EQUINOX_FROM, EQUINOX_TO);
         assertThat(newWorld.rosterStatements()).isLessThanOrEqualTo(4);
     }
 
     @Test
     @DisplayName("simulation branch — output is identical and the enricher's four rosters are read once each")
     void simulationBranch_identicalAndRostersReadOnce() {
-        World oldWorld = new World();
+        World oldWorld = new World(AUGUST_FROM, AUGUST_TO);
         oldWorld.simulation.setEnabled(true);
         oldWorld.simulation.setTypeActive("SUPERMOON", true);
         oldWorld.simulation.setTypeActive("INVERSION", true);
         List<HotTopic> before = oldWorld.oldWaySimulated(AUGUST_FROM, AUGUST_TO);
 
-        World newWorld = new World();
+        World newWorld = new World(AUGUST_FROM, AUGUST_TO);
         newWorld.simulation.setEnabled(true);
         newWorld.simulation.setTypeActive("SUPERMOON", true);
         newWorld.simulation.setTypeActive("INVERSION", true);
@@ -296,7 +313,7 @@ class HotTopicInputsEquivalenceTest {
     @Test
     @DisplayName("travel days — the filter asks the travel-day service once per distinct date")
     void travelFilter_asksOncePerDate() {
-        World world = new World();
+        World world = new World(AUGUST_FROM, AUGUST_TO);
         world.aggregator.getHotTopics(AUGUST_FROM, AUGUST_TO);
 
         Map<Object, Long> perDate = new java.util.HashMap<>();
