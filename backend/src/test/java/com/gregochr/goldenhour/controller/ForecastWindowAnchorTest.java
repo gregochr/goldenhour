@@ -3,18 +3,13 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.service.UserSubRegionService;
 import com.gregochr.goldenhour.service.LitePickShaper;
 import com.gregochr.goldenhour.config.SubRegionProperties;
-import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.EvaluationViewService;
-import com.gregochr.goldenhour.service.FailedSlotRetryService;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
@@ -36,7 +31,6 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
@@ -75,12 +69,6 @@ class ForecastWindowAnchorTest {
     private LocationService locationService;
 
     @Mock
-    private ForecastCommandFactory commandFactory;
-
-    @Mock
-    private ForecastCommandExecutor commandExecutor;
-
-    @Mock
     private ScheduledForecastService scheduledForecastService;
 
     @Mock
@@ -90,13 +78,7 @@ class ForecastWindowAnchorTest {
     private EvaluationViewService evaluationViewService;
 
     @Mock
-    private JobRunService jobRunService;
-
-    @Mock
     private RunProgressTracker progressTracker;
-
-    @Mock
-    private FailedSlotRetryService retryService;
 
     @Mock
     private com.gregochr.goldenhour.service.AsOfEventResolver asOfEventResolver;
@@ -116,10 +98,10 @@ class ForecastWindowAnchorTest {
 
     @BeforeEach
     void setUp() {
-        forecastController = new ForecastController(repository, locationService, commandFactory,
-                commandExecutor, scheduledForecastService, dtoMapper, evaluationViewService,
-                jobRunService, progressTracker, Runnable::run, LATE_BST_EVENING,
-                retryService, asOfEventResolver, solarEventFreshness,
+        forecastController = new ForecastController(repository, locationService,
+                scheduledForecastService, dtoMapper, evaluationViewService,
+                progressTracker, Runnable::run, LATE_BST_EVENING,
+                asOfEventResolver, solarEventFreshness,
                 new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()));
         briefingEvaluationController = new BriefingEvaluationController(
                 briefingEvaluationService, evaluationViewService, LATE_BST_EVENING,
@@ -167,28 +149,5 @@ class ForecastWindowAnchorTest {
         // share two constants; sharing the anchor is the other half of that agreement.
         assertThat(from.getValue()).isEqualTo(EXPECTED_FROM);
         assertThat(to.getValue()).isEqualTo(EXPECTED_TO);
-    }
-
-    @Test
-    @DisplayName("POST /api/forecast/run with no dates runs the UK's today, whose events are still to come")
-    void defaultRunDateIsUkToday() {
-        JobRunEntity jobRun = new JobRunEntity();
-        jobRun.setId(7L);
-        when(locationService.findAllEnabled()).thenReturn(List.of(durham()));
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), any(), any()))
-                .thenReturn(jobRun);
-
-        forecastController.runForecast(null, null, null);
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<LocalDate>> dates = ArgumentCaptor.forClass(List.class);
-        verify(commandFactory).create(eq(RunType.SHORT_TERM), eq(true), anyList(),
-                dates.capture(), eq(Set.of()));
-
-        // The UTC anchor sent UK-yesterday, every event on which was hours past. The executor's
-        // already-past gate used to absorb that; now that the gate guards the UK's today instead,
-        // the wasted day would have become an evaluated one.
-        assertThat(dates.getValue()).containsExactly(UK_TODAY);
-        assertThat(dates.getValue()).doesNotContain(UK_YESTERDAY);
     }
 }

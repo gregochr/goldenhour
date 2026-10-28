@@ -76,34 +76,8 @@ export async function enrichBortle() {
 }
 
 /**
- * Runs one aurora polling cycle now — the same cycle the schedule runs.
- * ADMIN only. Rejects with a 409 while a cycle is already running.
- *
- * @returns {Promise<object>} { status, dark, level, action, trigger, held } — the level
- *   the cycle derived, the state machine's action, the signal the level came from, and
- *   whether a night poll held the active alert rather than end it on an estimate
- *   (`level` and `trigger` are null only if reading NOAA threw; an outage usually
- *   reads as the last data cached, or as quiet)
- */
-export async function triggerAuroraRun() {
-  const response = await apiClient.post(`${BASE_URL}/admin/run`);
-  return response.data;
-}
-
-/**
- * Resets the aurora state machine to IDLE and clears all cached scores.
- * ADMIN only.
- *
- * @returns {Promise<object>} { status }
- */
-export async function resetAuroraState() {
-  const response = await apiClient.post(`${BASE_URL}/admin/reset`);
-  return response.data;
-}
-
-/**
  * Activates aurora simulation mode with the provided fake NOAA space weather values.
- * No Claude API calls are made — the admin must run a manual Forecast Run separately.
+ * No Claude API calls are made.
  * ADMIN only.
  *
  * @param {object} request

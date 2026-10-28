@@ -137,18 +137,34 @@ class ModelSelectionServiceTest {
     }
 
     @Test
+    @DisplayName("isConfigurable() is true for the live model-bearing run types, including BLUEBELL_GLOSS")
+    void isConfigurable_liveRunTypes_true() {
+        assertThat(ModelSelectionService.isConfigurable(RunType.BRIEFING_BEST_BET)).isTrue();
+        assertThat(ModelSelectionService.isConfigurable(RunType.BRIEFING_GLOSS)).isTrue();
+        assertThat(ModelSelectionService.isConfigurable(RunType.AURORA_EVALUATION)).isTrue();
+        assertThat(ModelSelectionService.isConfigurable(RunType.AURORA_GLOSS)).isTrue();
+        assertThat(ModelSelectionService.isConfigurable(RunType.BLUEBELL_GLOSS)).isTrue();
+        assertThat(ModelSelectionService.isConfigurable(RunType.BATCH_NEAR_TERM)).isTrue();
+        assertThat(ModelSelectionService.isConfigurable(RunType.BATCH_FAR_TERM)).isTrue();
+    }
+
+    @Test
+    @DisplayName("isConfigurable() is false for the retired term run types and for non-model run types")
+    void isConfigurable_retiredAndOtherRunTypes_false() {
+        assertThat(ModelSelectionService.isConfigurable(RunType.VERY_SHORT_TERM)).isFalse();
+        assertThat(ModelSelectionService.isConfigurable(RunType.SHORT_TERM)).isFalse();
+        assertThat(ModelSelectionService.isConfigurable(RunType.LONG_TERM)).isFalse();
+        assertThat(ModelSelectionService.isConfigurable(RunType.WEATHER)).isFalse();
+        assertThat(ModelSelectionService.isConfigurable(RunType.TIDE)).isFalse();
+    }
+
+    @Test
     @DisplayName("getAllConfigs() returns a model for each configurable run type")
     void getAllConfigs_returnsAllTypes() {
-        when(modelSelectionRepository.findByRunType(RunType.VERY_SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.BLUEBELL_GLOSS))
                 .thenReturn(Optional.of(ModelSelectionEntity.builder()
-                        .runType(RunType.VERY_SHORT_TERM)
+                        .runType(RunType.BLUEBELL_GLOSS)
                         .activeModel(EvaluationModel.OPUS).build()));
-        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM))
-                .thenReturn(Optional.of(ModelSelectionEntity.builder()
-                        .runType(RunType.SHORT_TERM)
-                        .activeModel(EvaluationModel.SONNET).build()));
-        when(modelSelectionRepository.findByRunType(RunType.LONG_TERM))
-                .thenReturn(Optional.empty()); // defaults to HAIKU
         when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
                 .thenReturn(Optional.empty()); // defaults to HAIKU
         when(modelSelectionRepository.findByRunType(RunType.BRIEFING_GLOSS))
@@ -170,10 +186,10 @@ class ModelSelectionServiceTest {
 
         Map<RunType, EvaluationModel> configs = modelSelectionService.getAllConfigs();
 
-        assertThat(configs).hasSize(9);
-        assertThat(configs.get(RunType.VERY_SHORT_TERM)).isEqualTo(EvaluationModel.OPUS);
-        assertThat(configs.get(RunType.SHORT_TERM)).isEqualTo(EvaluationModel.SONNET);
-        assertThat(configs.get(RunType.LONG_TERM)).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(configs).hasSize(7);
+        assertThat(configs).doesNotContainKeys(
+                RunType.VERY_SHORT_TERM, RunType.SHORT_TERM, RunType.LONG_TERM);
+        assertThat(configs.get(RunType.BLUEBELL_GLOSS)).isEqualTo(EvaluationModel.OPUS);
         assertThat(configs.get(RunType.BRIEFING_BEST_BET)).isEqualTo(EvaluationModel.HAIKU);
         assertThat(configs.get(RunType.BRIEFING_GLOSS)).isEqualTo(EvaluationModel.HAIKU);
         assertThat(configs.get(RunType.AURORA_EVALUATION)).isEqualTo(EvaluationModel.SONNET);
@@ -452,9 +468,7 @@ class ModelSelectionServiceTest {
     @Test
     @DisplayName("getAllExtendedThinkingConfigs returns false for all run types by default")
     void getAllExtendedThinkingConfigs_allFalseByDefault() {
-        when(modelSelectionRepository.findByRunType(RunType.VERY_SHORT_TERM)).thenReturn(Optional.empty());
-        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM)).thenReturn(Optional.empty());
-        when(modelSelectionRepository.findByRunType(RunType.LONG_TERM)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.BLUEBELL_GLOSS)).thenReturn(Optional.empty());
         when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET)).thenReturn(Optional.empty());
         when(modelSelectionRepository.findByRunType(RunType.BRIEFING_GLOSS)).thenReturn(Optional.empty());
         when(modelSelectionRepository.findByRunType(RunType.AURORA_EVALUATION)).thenReturn(Optional.empty());
@@ -464,16 +478,14 @@ class ModelSelectionServiceTest {
 
         var result = modelSelectionService.getAllExtendedThinkingConfigs();
 
-        assertThat(result).hasSize(9);
+        assertThat(result).hasSize(7);
         assertThat(result).allSatisfy((runType, flag) -> assertThat(flag).isFalse());
     }
 
     @Test
     @DisplayName("getAllExtendedThinkingConfigs returns true for BRIEFING_BEST_BET when set")
     void getAllExtendedThinkingConfigs_briefingEnabled_returnsTrue() {
-        when(modelSelectionRepository.findByRunType(RunType.VERY_SHORT_TERM)).thenReturn(Optional.empty());
-        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM)).thenReturn(Optional.empty());
-        when(modelSelectionRepository.findByRunType(RunType.LONG_TERM)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.BLUEBELL_GLOSS)).thenReturn(Optional.empty());
         when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
                 .thenReturn(Optional.of(ModelSelectionEntity.builder()
                         .runType(RunType.BRIEFING_BEST_BET)
@@ -489,7 +501,7 @@ class ModelSelectionServiceTest {
         var result = modelSelectionService.getAllExtendedThinkingConfigs();
 
         assertThat(result.get(RunType.BRIEFING_BEST_BET)).isTrue();
-        assertThat(result.get(RunType.VERY_SHORT_TERM)).isFalse();
+        assertThat(result.get(RunType.BLUEBELL_GLOSS)).isFalse();
         assertThat(result.get(RunType.AURORA_EVALUATION)).isFalse();
     }
 

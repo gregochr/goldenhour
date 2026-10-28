@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
-import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
+import { refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
 import { enrichBortle } from '../api/auroraApi';
 import { getRegions, submitScheduledBatch, submitJfdiBatch } from '../api/batchApi';
-import { runBriefing, getDailyBriefing } from '../api/briefingApi.js';
-import { getAvailableModels } from '../api/modelsApi';
+import { runBriefing } from '../api/briefingApi.js';
 import { useAuth } from '../context/AuthContext';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import MetricsSummary from './MetricsSummary';
@@ -17,78 +16,9 @@ import RunProgressPanel from './RunProgressPanel';
 import AuroraForecastModal from './AuroraForecastModal';
 import AuroraSimulateModal from './AuroraSimulateModal';
 import { isSkyPromptCandidate } from '../utils/locationTypes.js';
-import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
-import { latestSolarEventTimes, hasEventPassed } from '../utils/solarEventTimes.js';
+import { ukDateStr } from '../utils/mapDates.js';
 import { parseUtcInstant } from '../utils/conversions.js';
 import { apiErrorMessage } from '../utils/apiError.js';
-import { retryStartedNote } from '../utils/runOutcome.js';
-
-/**
- * Human-readable labels for optimisation strategies shown in the run confirmation dialog — the two
- * that can act on a run started here (V153 retired six that could not act since v2.7.2). Labels match
- * the Run Config screen's; an unknown type falls back to its raw name below.
- */
-const STRATEGY_LABELS = {
-  SENTINEL_SAMPLING: 'Sentinel Sampling',
-  TIDE_ALIGNMENT: 'Tide Triage',
-};
-
-/** The two solar events a colour run evaluates, in the order the dialog lists them. */
-const SLOT_EVENT_TYPES = ['SUNRISE', 'SUNSET'];
-
-/**
- * Builds the list of (date, targetType) slots for a given run type.
- *
- * <p><b>Every date here is a UK civil date.</b> These are not labels: the un-ticked ones travel to
- * {@code POST /api/forecast/run/*} as {@code excludedSlots} and are matched against dates the
- * backend derived from {@code ForecastHorizon.today}, which is {@code Europe/London}. Deriving them
- * from UTC — as this did — meant that between 00:00 and 01:00 UK under BST the dialog offered the
- * previous UK day, so an admin skipping "today's" sunrise excluded a slot the run was never going
- * to reach and the one they meant to skip ran anyway.
- *
- * <p><b>"Already past" is not decided here, and is no longer a wall-clock hour anywhere.</b> It
- * used to be {@code hour >= 12} for sunrise and {@code hour >= 22} for sunset, and no such constant
- * can be correct: measured over the GB bounding box around the 2026 solstice, sunset reaches 23:06
- * UK on Lewis, and there is no hour above 23. It is now an instant test against the latest real
- * event time across the roster ({@link hasEventPassed}), <em>derived at render</em> — because those
- * times arrive from a fetch and this dialog can be opened before they land. Baked in here, an admin
- * quick enough to click Run before the briefing responded would get a dialog that never marked
- * anything past, permanently, with no way to tell.
- *
- * <p>That also removes the term that made a wrong "past" dangerous. A past slot stays
- * {@code selected} underneath and merely renders disabled and unticked, so {@code !s.selected}
- * alone cannot carry it into {@code excludedSlots} — where before, a slot wrongly marked past was
- * both undeselectable and silently dropped from the exclusions.
- *
- * @param {'VERY_SHORT_TERM'|'SHORT_TERM'} runType
- * @param {Date} [now] - the instant to read; injectable so tests can pin it
- * @returns {Array<{date: string, targetType: string, selected: boolean}>}
- */
-function computeSlots(runType, now = new Date()) {
-  const days = runType === 'VERY_SHORT_TERM' ? 2 : 3;
-  const slots = [];
-  for (let i = 0; i < days; i++) {
-    const date = ukDateStrOffset(i, now);
-    for (const targetType of SLOT_EVENT_TYPES) {
-      slots.push({ date, targetType, selected: true });
-    }
-  }
-  return slots;
-}
-
-/**
- * Formats a slot date for display, e.g. "Today", "Tomorrow", or "Wed 25 Mar".
- *
- * <p>The relative words key off the index rather than the date, which is only correct because
- * {@link computeSlots} builds index 0 as the UK today. On the UTC basis it replaced, this label
- * read "Today" over yesterday's date for the hour after UK midnight through BST.
- */
-function formatSlotDate(dateStr, index) {
-  if (index === 0) return 'Today';
-  if (index === 1) return 'Tomorrow';
-  const d = new Date(dateStr + 'T12:00:00Z');
-  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
-}
 
 /**
  * Returns true if the location may go to the SKY prompt.
@@ -106,9 +36,8 @@ function hasColourTypes(loc) {
  * Returns true if the location is pure-wildlife only (WILDLIFE but no colour types).
  *
  * <p>⚠️ NOT `locationTypes.isWildlifeOnly`, and the two names mean DIFFERENT sets. This is the
- * backend `ForecastCommandExecutor.isPureWildlife` rule (a WILDLIFE+WOODLAND or WILDLIFE+BLUEBELL
- * place counts, because no colour type is present), which decides which places the admin run
- * screens treat as no-Claude. `isWildlifeOnly` is the narrower `LocationEntity.isWildlifeOnly()`
+ * backend pure-wildlife rule (a WILDLIFE+WOODLAND or WILDLIFE+BLUEBELL
+ * place counts, because no colour type is present). `isWildlifeOnly` is the narrower `LocationEntity.isWildlifeOnly()`
  * (WILDLIFE is the ONLY type), which decides who gets a comfort forecast.
  */
 function isPureWildlife(loc) {
@@ -126,7 +55,7 @@ function isCoastal(loc) {
  * Filters enabled locations by run type and groups them by region.
  *
  * @param {Array} locations - All locations from the API.
- * @param {string} runType - VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, or TIDE.
+ * @param {string} runType - WEATHER or TIDE (anything else lists the colour-type locations).
  * @returns {{ groups: Array<{region: string, locations: string[]}>, total: number }}
  */
 function getLocationSummary(locations, runType) {
@@ -158,53 +87,22 @@ function getLocationSummary(locations, runType) {
 
 /**
  * Renders the location summary grouped by region inside a confirmation dialog.
- * When selectedRegions and onToggle are provided, renders interactive checkboxes.
  */
-function LocationSummary({ groups, total, selectedRegions, onToggle }) {
+function LocationSummary({ groups, total }) {
   if (total === 0) {
     return <p className="text-xs text-plex-text-muted italic">No matching locations found.</p>;
   }
-  const interactive = !!(selectedRegions && onToggle);
-  const allSelected = interactive && groups.every((g) => selectedRegions.has(g.region));
-  const selectedTotal = interactive
-    ? groups.filter((g) => selectedRegions.has(g.region)).reduce((sum, g) => sum + g.locations.length, 0)
-    : total;
 
   return (
     <div className="max-h-48 overflow-y-auto text-xs space-y-2">
-      {interactive && (
-        <label className="flex items-center gap-2 text-plex-text font-medium cursor-pointer" data-testid="region-toggle-all">
-          <input
-            type="checkbox"
-            checked={allSelected}
-            onChange={() => onToggle('__all__')}
-            className="accent-blue-400"
-          />
-          All regions ({total})
-        </label>
-      )}
       {groups.map((g) => (
         <div key={g.region}>
-          {interactive ? (
-            <label className="flex items-center gap-2 text-plex-text font-medium cursor-pointer" data-testid={`region-toggle-${g.region}`}>
-              <input
-                type="checkbox"
-                checked={selectedRegions.has(g.region)}
-                onChange={() => onToggle(g.region)}
-                className="accent-blue-400"
-              />
-              {g.region} ({g.locations.length})
-            </label>
-          ) : (
-            <p className="text-plex-text font-medium">{g.region} ({g.locations.length})</p>
-          )}
-          {(!interactive || selectedRegions.has(g.region)) && (
-            <p className="text-plex-text-muted ml-2">{g.locations.join(', ')}</p>
-          )}
+          <p className="text-plex-text font-medium">{g.region} ({g.locations.length})</p>
+          <p className="text-plex-text-muted ml-2">{g.locations.join(', ')}</p>
         </div>
       ))}
       <p className="text-plex-text-secondary font-medium pt-1 border-t border-plex-border">
-        {selectedTotal}{interactive && selectedTotal !== total ? ` of ${total}` : ''} location{selectedTotal !== 1 ? 's' : ''} total
+        {total} location{total !== 1 ? 's' : ''} total
       </p>
     </div>
   );
@@ -216,8 +114,6 @@ LocationSummary.propTypes = {
     locations: PropTypes.arrayOf(PropTypes.string).isRequired,
   })).isRequired,
   total: PropTypes.number.isRequired,
-  selectedRegions: PropTypes.instanceOf(Set),
-  onToggle: PropTypes.func,
 };
 
 /**
@@ -228,9 +124,7 @@ LocationSummary.propTypes = {
  * - Pageable job runs grid with filtering
  * - Per-run API call details
  */
-const JobRunsMetricsView = ({
-  activeRunId, onActiveRunChange, onActiveRunClear, retryNote, onRetryNoteChange,
-}) => {
+const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }) => {
   const { isAdmin } = useAuth();
   const [runs, setRuns] = useState([]);
   const [allApiCalls, setAllApiCalls] = useState([]);
@@ -239,9 +133,6 @@ const JobRunsMetricsView = ({
   const [page, setPage] = useState(0);
   const [runTypeFilter, setRunTypeFilter] = useState(undefined);
   const [hasMore, setHasMore] = useState(true);
-  const [runningVeryShortTerm, setRunningVeryShortTerm] = useState(false);
-  const [runningShortTerm, setRunningShortTerm] = useState(false);
-  const [runningLongTerm, setRunningLongTerm] = useState(false);
   const [runningTide, setRunningTide] = useState(false);
   const [runningBackfill, setRunningBackfill] = useState(false);
   const [runningLightPollution, setRunningLightPollution] = useState(false);
@@ -250,33 +141,21 @@ const JobRunsMetricsView = ({
   const [showSimulateModal, setShowSimulateModal] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
   const [runStatus, setRunStatus] = useState(null);
-  const { config: confirmDialog, openDialog, closeDialog, setConfig: setConfirmDialog } = useConfirmDialog();
+  const { config: confirmDialog, openDialog, closeDialog } = useConfirmDialog();
   const [allLocations, setAllLocations] = useState([]);
-  const [solarEventTimes, setSolarEventTimes] = useState(null);
   const [dateRange, setDateRange] = useState('7d');
   const [showBriefingRuns, setShowBriefingRuns] = useState(false);
   const [showBatchRuns, setShowBatchRuns] = useState(true);
-  const [strategies, setStrategies] = useState({});
   const [batchRegions, setBatchRegions] = useState([]);
   const [runningScheduledBatch, setRunningScheduledBatch] = useState(false);
   const [runningJfdiBatch, setRunningJfdiBatch] = useState(false);
   const [batchDialog, setBatchDialog] = useState(null);
   const PAGE_SIZE = 20;
 
-  // Load locations, optimisation strategies, batch regions and solar event times once
+  // Load locations and batch regions once
   useEffect(() => {
     fetchLocations().then(setAllLocations).catch(() => {});
-    getAvailableModels()
-      .then((data) => setStrategies(data.optimisationStrategies || {}))
-      .catch(() => {});
     getRegions().then(setBatchRegions).catch(() => {});
-    // Solely so the run dialog can say whether a slot's event has already happened. The failure
-    // path is deliberately silent and empty rather than retried or surfaced: with no times the
-    // dialog marks nothing past, which is the safe direction — every slot stays selectable and the
-    // backend's own already-past gate skips whatever is genuinely over.
-    getDailyBriefing()
-      .then((briefing) => setSolarEventTimes(latestSolarEventTimes(briefing)))
-      .catch(() => {});
   }, []);
 
   const loadJobRuns = useCallback(async (pageNum) => {
@@ -327,19 +206,6 @@ const JobRunsMetricsView = ({
   // Dismissing a kept panel removes the thing that held focus, so focus goes to the heading of the
   // section that started the run; the run buttons it came from are many, and any one would be a
   // guess. Only a Dismiss moves focus: a clean run clearing itself leaves it where it was.
-  const [promotedRunId, setPromotedRunId] = useState(null);
-  // A retry the server accepted becomes THE active run: the panel for it follows it by id like any
-  // run, survives a tab switch (the id lives in ManageView, and so does the note of what the retry was
-  // given, `retryNote`), and if it ends with failures is kept with its own Retry and Dismiss. The list
-  // reloads so the grid shows the run that just started. The note is shown only on the run it names.
-  const handleRetryStarted = (retryRunId, result) => {
-    if (retryRunId) {
-      setPromotedRunId(retryRunId);
-      onRetryNoteChange?.({ runId: retryRunId, text: retryStartedNote(result) });
-      onActiveRunChange(retryRunId);
-    }
-    loadJobRuns(0);
-  };
   const runsHeadingRef = useRef(null);
   const focusRunsHeading = useRef(false);
   const handleDismissRun = () => {
@@ -353,90 +219,7 @@ const JobRunsMetricsView = ({
     }
   }, [activeRunId]);
 
-  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide || runningBackfill || runningLightPollution || runningBriefing || runningScheduledBatch || runningJfdiBatch;
-
-  const buildConfirmDialog = (runType, title, message, confirmLabel, runFn, setRunning) => {
-    const summary = getLocationSummary(allLocations, runType);
-    const activeStrategies = (strategies[runType] || [])
-      .filter((s) => s.enabled)
-      .map((s) => ({
-        label: STRATEGY_LABELS[s.strategyType] || s.strategyType,
-        param: s.paramValue,
-        type: s.strategyType,
-      }));
-    const slots = (runType === 'VERY_SHORT_TERM' || runType === 'SHORT_TERM')
-      ? computeSlots(runType)
-      : null;
-    // Drive-time-based location exclusion is disabled — per-user drive times
-    // are not available in the admin run dialog context.
-    const hasDriveTimes = false;
-    openDialog({
-      title,
-      message,
-      confirmLabel,
-      destructive: false,
-      locationSummary: summary,
-      selectedRegions: new Set(summary.groups.map((g) => g.region)),
-      activeStrategies,
-      slots,
-      runFn,
-      setRunning,
-      hasDriveTimes,
-      driveTimeThreshold: 0,
-      onConfirm: async (resolvedSlots, threshold, selectedRegions, locationSummary) => {
-        // The slot list is a snapshot taken when the dialog opened, and the dialog can sit open
-        // indefinitely. Confirm it across UK midnight and it would send the previous UK day's
-        // dates against a run whose range the backend derives from the NEW day — the same wrong
-        // value on the wire this function was fixed for, reached by dwell time instead of by BST.
-        //
-        // Rebuilt rather than remapped, because there is no honest remapping: the rows are
-        // labelled relative ("Today") AND absolute ("Sun 16 Aug"), so an admin who un-ticked one
-        // may have meant either the day or the date, and guessing is how a wrong exclusion goes
-        // out. Index 0 is the UK today by construction, so its date IS the staleness test — no
-        // second stored field to fall out of step with the slots themselves.
-        // `new Date()` explicitly: Operations reads the REAL clock, never an admin's rewind
-        // (`utils/rewind.js`), which `ukDateStr`'s default would otherwise follow.
-        if (resolvedSlots?.length && resolvedSlots[0].date !== ukDateStr(new Date())) {
-          setConfirmDialog((prev) => ({
-            ...prev,
-            slots: computeSlots(runType),
-            datesRolled: true,
-          }));
-          return;
-        }
-        closeDialog();
-        setRunning(true);
-        setRunStatus(null);
-        try {
-          const excluded = resolvedSlots
-            ? resolvedSlots.filter((s) => !s.selected).map(({ date, targetType }) => ({ date, targetType }))
-            : [];
-          const excludedLocations = [];
-          if (selectedRegions && locationSummary) {
-            for (const g of locationSummary.groups) {
-              if (!selectedRegions.has(g.region)) {
-                excludedLocations.push(...g.locations);
-              }
-            }
-          }
-          const result = await runFn(excluded, excludedLocations);
-          setRunStatus({ type: 'success', message: result.status || 'Run started.' });
-          if (result.jobRunId) {
-            onActiveRunChange(result.jobRunId);
-          }
-        } catch (err) {
-          // 409: the run is refused because one is already going — today only the tide refresh
-          // answers this way (from any route: schedule, Run Now, or an earlier press here).
-          const msg = err?.response?.status === 409
-            ? `${title}: a run is already in progress. Wait for it to complete.`
-            : `${title} failed. Check the logs.`;
-          setRunStatus({ type: 'error', message: msg });
-        } finally {
-          setRunning(false);
-        }
-      },
-    });
-  };
+  const anyRunning = runningTide || runningBackfill || runningLightPollution || runningBriefing || runningScheduledBatch || runningJfdiBatch;
 
   const handleEnrichLightPollution = async () => {
     setRunningLightPollution(true);
@@ -479,41 +262,36 @@ const JobRunsMetricsView = ({
     }
   };
 
-  const handleRunVeryShortTerm = () => buildConfirmDialog(
-    'VERY_SHORT_TERM',
-    'Run Very-Short-Term Forecast',
-    'Run very-short-term forecast (T, T+1)?',
-    'Run',
-    runVeryShortTermForecast,
-    setRunningVeryShortTerm,
-  );
-
-  const handleRunShortTerm = () => buildConfirmDialog(
-    'SHORT_TERM',
-    'Run Short-Term Forecast',
-    'Run short-term forecast (T, T+1, T+2)?',
-    'Run',
-    runShortTermForecast,
-    setRunningShortTerm,
-  );
-
-  const handleRunLongTerm = () => buildConfirmDialog(
-    'LONG_TERM',
-    'Run Long-Term Forecast',
-    'Run long-term forecast (T+3 through T+5)? This will trigger API calls to Open-Meteo and Claude (may incur costs).',
-    'Run',
-    runLongTermForecast,
-    setRunningLongTerm,
-  );
-
-  const handleRefreshTide = () => buildConfirmDialog(
-    'TIDE',
-    'Refresh Tide Data',
-    'Refresh tide data for all coastal locations? This will call the WorldTides API.',
-    'Refresh',
-    refreshTideData,
-    setRunningTide,
-  );
+  const handleRefreshTide = () => {
+    openDialog({
+      title: 'Refresh Tide Data',
+      message: 'Refresh tide data for all coastal locations? This will call the WorldTides API.',
+      confirmLabel: 'Refresh',
+      destructive: false,
+      locationSummary: getLocationSummary(allLocations, 'TIDE'),
+      onConfirm: async () => {
+        closeDialog();
+        setRunningTide(true);
+        setRunStatus(null);
+        try {
+          const result = await refreshTideData();
+          setRunStatus({ type: 'success', message: result.status || 'Run started.' });
+          if (result.jobRunId) {
+            onActiveRunChange(result.jobRunId);
+          }
+        } catch (err) {
+          // 409: the refresh is refused because one is already going (from any route: schedule,
+          // Run Now, or an earlier press here).
+          const msg = err?.response?.status === 409
+            ? 'Refresh Tide Data: a run is already in progress. Wait for it to complete.'
+            : 'Refresh Tide Data failed. Check the logs.';
+          setRunStatus({ type: 'error', message: msg });
+        } finally {
+          setRunningTide(false);
+        }
+      },
+    });
+  };
 
   const handleBackfillTide = () => {
     const seascapeCoastal = allLocations
@@ -693,30 +471,6 @@ const JobRunsMetricsView = ({
             </h3>
             <div className="flex flex-wrap gap-2">
               <button
-                className="btn-primary text-sm"
-                onClick={handleRunVeryShortTerm}
-                disabled={anyRunning}
-                data-testid="run-very-short-term-btn"
-              >
-                {runningVeryShortTerm ? '\u27F3 Running\u2026' : '\u27F3 Very Short-Term (T, T+1)'}
-              </button>
-              <button
-                className="btn-primary text-sm"
-                onClick={handleRunShortTerm}
-                disabled={anyRunning}
-                data-testid="run-short-term-btn"
-              >
-                {runningShortTerm ? '\u27F3 Running\u2026' : '\u27F3 Short-Term (T, T+1, T+2)'}
-              </button>
-              <button
-                className="btn-primary text-sm"
-                onClick={handleRunLongTerm}
-                disabled={anyRunning}
-                data-testid="run-long-term-btn"
-              >
-                {runningLongTerm ? '\u27F3 Running\u2026' : '\u27F3 Long-Term (T+3 \u2013 T+5)'}
-              </button>
-              <button
                 className="text-sm px-3 py-1.5 font-medium rounded border border-indigo-500/50 bg-indigo-900/30 text-indigo-300 hover:bg-indigo-800/40 transition-colors disabled:opacity-50"
                 onClick={() => setShowAuroraModal(true)}
                 disabled={anyRunning}
@@ -813,7 +567,7 @@ const JobRunsMetricsView = ({
       {/* Live run progress */}
       {activeRunId && (
         <RunProgressPanel
-          // key: starting another run (or promoting a retry) while a finished one is kept must
+          // key: starting another run while a finished one is kept must
           // replace the panel, not hand a new run id to a panel still holding the old run's tasks,
           // summary and failure line.
           key={activeRunId}
@@ -821,9 +575,6 @@ const JobRunsMetricsView = ({
           onComplete={() => loadJobRuns(0)}
           onAutoClear={onActiveRunClear}
           onDismiss={handleDismissRun}
-          onRetryStarted={handleRetryStarted}
-          focusOnMount={promotedRunId === activeRunId}
-          startedNote={(retryNote?.runId === activeRunId && retryNote.text) || undefined}
         />
       )}
 
@@ -843,15 +594,10 @@ const JobRunsMetricsView = ({
           data-testid="run-type-filter-select"
         >
           <option value="">All Run Types</option>
-          <option value="VERY_SHORT_TERM">Very Short-Term</option>
-          <option value="SHORT_TERM">Short-Term</option>
-          <option value="LONG_TERM">Long-Term</option>
           <option value="WEATHER">Weather</option>
           <option value="TIDE">Tide</option>
           <option value="BRIEFING">Briefing</option>
-          <option value="SCHEDULED_BATCH">Batch (legacy)</option>
-          <option value="BATCH_NEAR_TERM">Batch Near-Term</option>
-          <option value="BATCH_FAR_TERM">Batch Far-Term</option>
+          <option value="SCHEDULED_BATCH">Batch</option>
         </select>
         <div className="flex flex-wrap gap-4 mt-2">
           <label className="flex items-center gap-2 text-sm text-plex-text-secondary cursor-pointer">
@@ -897,152 +643,14 @@ const JobRunsMetricsView = ({
           title={confirmDialog.title}
           message={confirmDialog.message}
           confirmLabel={confirmDialog.confirmLabel}
-          onConfirm={() => confirmDialog.onConfirm(confirmDialog.slots, confirmDialog.driveTimeThreshold || 0, confirmDialog.selectedRegions, confirmDialog.locationSummary)}
+          onConfirm={confirmDialog.onConfirm}
           onCancel={closeDialog}
           destructive={confirmDialog.destructive}
         >
-          {/* Slot selector — VST and ST only */}
-          {confirmDialog.slots && (() => {
-            const slots = confirmDialog.slots;
-            const uniqueDates = [...new Set(slots.map((s) => s.date))];
-            return (
-              <div data-testid="confirm-dialog-slots">
-                <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Slots to evaluate</p>
-                {confirmDialog.datesRolled && (
-                  <p className="mb-2 text-xs text-amber-400" data-testid="slot-dates-rolled-warning">
-                    ⚠️ It is past midnight in the UK, so these slots have been rebuilt for the new
-                    day. Nothing has been submitted — check them and press {confirmDialog.confirmLabel} again.
-                  </p>
-                )}
-                <div className="flex flex-col gap-1.5">
-                  {uniqueDates.map((date, di) => (
-                    // Grouped and named by its date, because the two checkboxes inside carry the
-                    // same accessible names on every row ("🌅 Sunrise", "🌇 Sunset"). Without this
-                    // a screen-reader user tabbing the dialog hears six identically-named
-                    // checkboxes with nothing saying which day any of them belongs to — on the one
-                    // control that decides which days get evaluated at full Claude cost. The date
-                    // was already on screen, just not programmatically attached to anything.
-                    //
-                    // `role="group"` + `aria-labelledby` rather than `<fieldset>`/`<legend>`: the
-                    // native pair is the better semantic, but it brings default borders and margins
-                    // and does not sit in a flex row without a reset, and this file is Tailwind-only.
-                    <div
-                      key={date}
-                      role="group"
-                      aria-labelledby={`slot-row-${date}`}
-                      className="flex items-center gap-3"
-                    >
-                      <span id={`slot-row-${date}`} className="text-xs text-plex-text-muted w-20 shrink-0">{formatSlotDate(date, di)}</span>
-                      {slots.filter((s) => s.date === date).map((slot) => {
-                        const id = `slot-${slot.date}-${slot.targetType}`;
-                        // Derived here rather than stored on the slot, so a briefing that lands
-                        // after the dialog opened still marks the past slots.
-                        const isPast = hasEventPassed(solarEventTimes, slot.date, slot.targetType, new Date());
-                        return (
-                          <label
-                            key={id}
-                            htmlFor={id}
-                            className={`flex items-center gap-1.5 text-xs cursor-pointer select-none ${isPast ? 'opacity-40 cursor-not-allowed' : 'text-plex-text'}`}
-                          >
-                            <input
-                              id={id}
-                              type="checkbox"
-                              checked={slot.selected && !isPast}
-                              disabled={isPast}
-                              data-testid={id}
-                              onChange={() => {
-                                if (isPast) return;
-                                setConfirmDialog((prev) => ({
-                                  ...prev,
-                                  slots: prev.slots.map((s) =>
-                                    s.date === slot.date && s.targetType === slot.targetType
-                                      ? { ...s, selected: !s.selected }
-                                      : s,
-                                  ),
-                                }));
-                              }}
-                              className="accent-blue-400"
-                            />
-                            {slot.targetType === 'SUNRISE' ? '🌅 Sunrise' : '🌇 Sunset'}
-                            {isPast && <span className="text-plex-text-muted italic">(past)</span>}
-                          </label>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Drive time threshold — only for VST/ST with cached drive times */}
-          {confirmDialog.hasDriveTimes && confirmDialog.slots && (() => {
-            const threshold = confirmDialog.driveTimeThreshold || 0;
-            const excludedCount = threshold > 0
-              ? allLocations.filter(() => false).length
-              : 0;
-            return (
-              <div data-testid="confirm-dialog-drive-time">
-                <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-1.5">Drive time limit</p>
-                <div className="flex items-center gap-3">
-                  <select
-                    value={threshold}
-                    onChange={(e) => setConfirmDialog((prev) => ({ ...prev, driveTimeThreshold: parseInt(e.target.value, 10) }))}
-                    className="text-xs px-2 py-1 bg-plex-surface-light border border-plex-border rounded text-plex-text"
-                    data-testid="drive-time-threshold-select"
-                  >
-                    <option value={0}>All distances</option>
-                    <option value={30}>Within 30 min</option>
-                    <option value={45}>Within 45 min</option>
-                    <option value={60}>Within 60 min</option>
-                    <option value={90}>Within 90 min</option>
-                    <option value={120}>Within 2 hours</option>
-                  </select>
-                  {excludedCount > 0 && (
-                    <span className="text-xs text-amber-400">
-                      {excludedCount} location{excludedCount !== 1 ? 's' : ''} excluded
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-
-          {confirmDialog.activeStrategies?.length > 0 && (
-            <div data-testid="confirm-dialog-strategies">
-              <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-1.5">Active optimisations</p>
-              <div className="flex flex-wrap gap-1.5">
-                {confirmDialog.activeStrategies.map((s) => (
-                  <span
-                    key={s.type}
-                    className="inline-block text-xs px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-700/40"
-                  >
-                    {s.label}{s.param != null ? ` (${s.param})` : ''}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
           {confirmDialog.locationSummary && (
             <LocationSummary
               groups={confirmDialog.locationSummary.groups}
               total={confirmDialog.locationSummary.total}
-              selectedRegions={confirmDialog.selectedRegions}
-              onToggle={(region) => {
-                setConfirmDialog((prev) => {
-                  const next = new Set(prev.selectedRegions);
-                  if (region === '__all__') {
-                    if (next.size === prev.locationSummary.groups.length) {
-                      next.clear();
-                    } else {
-                      for (const g of prev.locationSummary.groups) next.add(g.region);
-                    }
-                  } else {
-                    next.has(region) ? next.delete(region) : next.add(region);
-                  }
-                  return { ...prev, selectedRegions: next };
-                });
-              }}
             />
           )}
         </ConfirmDialog>
@@ -1123,8 +731,6 @@ JobRunsMetricsView.propTypes = {
   activeRunId: PropTypes.number,
   onActiveRunChange: PropTypes.func.isRequired,
   onActiveRunClear: PropTypes.func.isRequired,
-  retryNote: PropTypes.shape({ runId: PropTypes.number, text: PropTypes.string }),
-  onRetryNoteChange: PropTypes.func,
 };
 
 export default JobRunsMetricsView;

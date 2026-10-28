@@ -51,7 +51,6 @@ vi.mock('../api/askApi.js', async (importOriginal) => ({
   ask: vi.fn(),
   getAskSettings: vi.fn(),
 }));
-vi.mock('../api/runProgressApi.js', () => ({ subscribeToRunNotifications: vi.fn() }));
 vi.mock('../api/lightApi.js', () => ({ getTodaysLight: vi.fn() }));
 vi.mock('../api/authApi.js', () => ({
   login: vi.fn(),
@@ -92,7 +91,6 @@ import { getAuroraStatus } from '../api/auroraApi.js';
 import { getNlcSighting } from '../api/nlcApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
-import { subscribeToRunNotifications } from '../api/runProgressApi.js';
 import { getTodaysLight } from '../api/lightApi.js';
 import { ask, getAskSettings, getReady } from '../api/askApi.js';
 
@@ -155,7 +153,6 @@ describe('App — where Ask PhotoCast is mounted', () => {
     getNlcSighting.mockResolvedValue(null);
     getAstroConditions.mockResolvedValue(null);
     getAlmanac.mockResolvedValue({ entries: [], bands: null });
-    subscribeToRunNotifications.mockReturnValue(() => {});
     getTodaysLight.mockResolvedValue(null);
     getAskSettings.mockResolvedValue(settings());
     getReady.mockResolvedValue({ scope: 'all', questions: [] });

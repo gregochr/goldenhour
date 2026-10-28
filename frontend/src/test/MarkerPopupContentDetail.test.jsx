@@ -4,14 +4,13 @@ import { render, screen, waitFor } from '@testing-library/react';
 import MarkerPopupContent from '../components/MarkerPopupContent.jsx';
 import { getForecastDetail, clearForecastDetailCache } from '../api/forecastApi.js';
 
-// Mock only the detail fetch (and the unrelated runForecast the component imports);
+// Mock only the detail fetch;
 // the cache helpers (peek/cache/clear) stay real so the caching precedence is exercised.
 vi.mock('../api/forecastApi.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
     getForecastDetail: vi.fn(),
-    runForecast: vi.fn(),
   };
 });
 

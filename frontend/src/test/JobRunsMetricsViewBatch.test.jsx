@@ -16,9 +16,6 @@ vi.mock('../api/metricsApi', () => ({
 }));
 
 vi.mock('../api/forecastApi', () => ({
-  runVeryShortTermForecast: vi.fn(),
-  runShortTermForecast: vi.fn(),
-  runLongTermForecast: vi.fn(),
   refreshTideData: vi.fn(),
   backfillTideData: vi.fn(),
   fetchLocations: vi.fn(),
@@ -30,14 +27,6 @@ vi.mock('../api/auroraApi', () => ({
 
 vi.mock('../api/briefingApi.js', () => ({
   runBriefing: vi.fn(),
-  // Mocked but never asserted here: the run dialog reads it only to decide whether a slot's solar
-  // event has already happened. Resolving to null is the "no times known" path, under which the
-  // dialog marks nothing past — which is what this file's batch assertions assume.
-  getDailyBriefing: vi.fn().mockResolvedValue(null),
-}));
-
-vi.mock('../api/modelsApi', () => ({
-  getAvailableModels: vi.fn(),
 }));
 
 vi.mock('../context/AuthContext.jsx', () => ({
@@ -52,7 +41,6 @@ import { getRegions, submitScheduledBatch, submitJfdiBatch } from '../api/batchA
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import { fetchLocations, refreshTideData } from '../api/forecastApi';
 import { runBriefing } from '../api/briefingApi.js';
-import { getAvailableModels } from '../api/modelsApi';
 
 const MOCK_REGIONS = [
   { id: 1, name: 'Cumbria', locationCount: 5 },
@@ -67,7 +55,6 @@ function setupDefaultMocks() {
   getJobRuns.mockResolvedValue({ data: { content: [] } });
   getApiCalls.mockResolvedValue({ data: [] });
   fetchLocations.mockResolvedValue([]);
-  getAvailableModels.mockResolvedValue({ optimisationStrategies: {} });
 }
 
 /**
@@ -535,5 +522,46 @@ describe('Refused briefing and tide runs', () => {
 
     expect(await screen.findByText('Refresh Tide Data failed. Check the logs.')).toBeInTheDocument();
     expect(screen.queryByText(/already in progress/)).toBeNull();
+  });
+});
+
+describe('Retired manual forecast runs', () => {
+  it('has no Very Short-Term, Short-Term or Long-Term run buttons', async () => {
+    renderView();
+    await screen.findByTestId('run-scheduled-batch-btn');
+
+    expect(screen.queryByTestId('run-very-short-term-btn')).toBeNull();
+    expect(screen.queryByTestId('run-short-term-btn')).toBeNull();
+    expect(screen.queryByTestId('run-long-term-btn')).toBeNull();
+  });
+
+  it('offers only run types that job_run rows are written with, and labels SCHEDULED_BATCH "Batch"', async () => {
+    renderView();
+    const select = await screen.findByTestId('run-type-filter-select');
+    const values = within(select).getAllByRole('option').map((o) => o.getAttribute('value'));
+
+    expect(values).toEqual(['', 'WEATHER', 'TIDE', 'BRIEFING', 'SCHEDULED_BATCH']);
+    expect(within(select).getByRole('option', { name: 'Batch' })).toHaveValue('SCHEDULED_BATCH');
+  });
+
+  it('lists the coastal locations in the tide refresh confirm, read-only, with no region checkboxes or slot picker', async () => {
+    fetchLocations.mockResolvedValue([
+      { id: 1, name: 'Bamburgh', enabled: true, locationType: ['SEASCAPE'], tideType: ['HIGH'], region: { name: 'Northumberland' } },
+      { id: 2, name: 'Durham', enabled: true, locationType: ['LANDSCAPE'], tideType: [], region: { name: 'Durham' } },
+    ]);
+    renderView();
+    // The locations arrive with a mount fetch; wait for them before opening the dialog.
+    await waitFor(() => expect(fetchLocations).toHaveBeenCalled());
+    await act(async () => {});
+    fireEvent.click(await screen.findByRole('button', { name: '⟳ Refresh Tide Data' }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('Bamburgh')).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Durham/)).toBeNull();
+    expect(within(dialog).getByText('1 location total')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
+    expect(within(dialog).queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByTestId('confirm-dialog-slots')).toBeNull();
+    expect(screen.queryByTestId('confirm-dialog-strategies')).toBeNull();
   });
 });

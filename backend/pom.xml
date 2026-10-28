@@ -596,7 +596,6 @@
                                 <exclude>com/gregochr/goldenhour/config/OrsProperties.class</exclude>
                                 <!-- Pure request/response records — no business logic -->
                                 <exclude>com/gregochr/goldenhour/model/DriveTimesRequest.class</exclude>
-                                <exclude>com/gregochr/goldenhour/model/ForecastRunRequest$SlotFilter.class</exclude>
                                 <!-- Data-transfer records with no testable logic -->
                                 <exclude>com/gregochr/goldenhour/service/ForecastCommand.class</exclude>
                                 <!-- UriBuilder lambda unreachable via Mockito stubs; logic tested via toBortleClass -->

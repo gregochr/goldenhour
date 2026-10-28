@@ -6,68 +6,37 @@ import ModelSelectionView from '../components/ModelSelectionView.jsx';
 vi.mock('../api/modelsApi', () => ({
   getAvailableModels: vi.fn(),
   setActiveModel: vi.fn(),
-  updateOptimisationStrategy: vi.fn(),
-}));
-
-vi.mock('../api/forecastApi', () => ({
-  fetchLocations: vi.fn(),
+  setExtendedThinking: vi.fn(),
 }));
 
 vi.mock('../context/AuthContext.jsx', () => ({
   useAuth: vi.fn(),
 }));
 
-import { getAvailableModels, setActiveModel, updateOptimisationStrategy } from '../api/modelsApi';
-import { fetchLocations } from '../api/forecastApi';
+import { getAvailableModels, setActiveModel, setExtendedThinking } from '../api/modelsApi';
 import { useAuth } from '../context/AuthContext.jsx';
-
-const MOCK_LOCATIONS = [
-  { id: 1, name: 'Durham', enabled: true, locationType: ['LANDSCAPE'] },
-  { id: 2, name: 'Bamburgh', enabled: true, locationType: ['SEASCAPE'] },
-  { id: 3, name: 'Farne Islands', enabled: true, locationType: ['WILDLIFE'] },
-  { id: 4, name: 'Disabled', enabled: false, locationType: ['LANDSCAPE'] },
-];
 
 const MOCK_DATA = {
   available: ['HAIKU', 'SONNET', 'OPUS'],
   configs: {
-    VERY_SHORT_TERM: 'HAIKU',
-    SHORT_TERM: 'HAIKU',
-    LONG_TERM: 'HAIKU',
     BRIEFING_BEST_BET: 'HAIKU',
     AURORA_EVALUATION: 'HAIKU',
     BATCH_NEAR_TERM: 'SONNET',
     BATCH_FAR_TERM: 'HAIKU',
   },
-  // The two strategies that survived V153. Laid out so each test has what it needs: both OFF on
-  // the default tab (so toggling produces an "enabled" message), both ON with an UNSET sentinel
-  // parameter on SHORT_TERM (so the parameter fallback is visible), and a stored parameter plus a
-  // mixed ON/OFF pair on LONG_TERM.
-  optimisationStrategies: {
-    VERY_SHORT_TERM: [
-      { strategyType: 'SENTINEL_SAMPLING', enabled: false, paramValue: 2 },
-      { strategyType: 'TIDE_ALIGNMENT', enabled: false, paramValue: null },
-    ],
-    SHORT_TERM: [
-      { strategyType: 'SENTINEL_SAMPLING', enabled: true, paramValue: null },
-      { strategyType: 'TIDE_ALIGNMENT', enabled: true, paramValue: null },
-    ],
-    LONG_TERM: [
-      { strategyType: 'SENTINEL_SAMPLING', enabled: true, paramValue: 4 },
-      { strategyType: 'TIDE_ALIGNMENT', enabled: false, paramValue: null },
-    ],
-  },
 };
+
+const ET_ENABLED = 'Extended thinking enabled for Briefing';
+const SWITCHED = 'Briefing model switched to Sonnet 4.6';
 
 describe('ModelSelectionView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // clearAllMocks leaves mockResolvedValueOnce queues in place, so a test that fails mid-way
     // would hand its unconsumed responses to the next test's first toggle.
-    updateOptimisationStrategy.mockReset();
+    setExtendedThinking.mockReset();
     useAuth.mockReturnValue({ isAdmin: true });
     getAvailableModels.mockResolvedValue(MOCK_DATA);
-    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
   });
 
   describe('the transient success banner', () => {
@@ -88,17 +57,13 @@ describe('ModelSelectionView', () => {
     it('holds the banner until the dismiss delay elapses, then clears it', async () => {
       vi.useFakeTimers();
       try {
-        updateOptimisationStrategy.mockResolvedValue({
-          strategyType: 'TIDE_ALIGNMENT',
-          enabled: true,
-          paramValue: null,
-        });
+        setExtendedThinking.mockResolvedValue({ runType: 'BRIEFING_BEST_BET', extendedThinking: true });
         render(<ModelSelectionView />);
         await pump();
 
-        fireEvent.click(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT'));
+        fireEvent.click(screen.getByTestId('toggle-extended-thinking'));
         await pump();
-        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
+        expect(screen.getByText(ET_ENABLED)).toBeInTheDocument();
 
         // Just short of the delay it must still be up: without this the constant is pinned only
         // from above, and shortening it (3000 → 500) would flash the message past unnoticed with
@@ -106,12 +71,12 @@ describe('ModelSelectionView', () => {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(2999);
         });
-        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
+        expect(screen.getByText(ET_ENABLED)).toBeInTheDocument();
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(1);
         });
-        expect(screen.queryByText('Tide Triage enabled')).not.toBeInTheDocument();
+        expect(screen.queryByText(ET_ENABLED)).not.toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }
@@ -127,83 +92,33 @@ describe('ModelSelectionView', () => {
     it('gives a newer message its full window rather than inheriting the older deadline', async () => {
       vi.useFakeTimers();
       try {
-        updateOptimisationStrategy
-          .mockResolvedValueOnce({ strategyType: 'TIDE_ALIGNMENT', enabled: true, paramValue: null })
-          .mockResolvedValueOnce({ strategyType: 'SENTINEL_SAMPLING', enabled: true, paramValue: 2 });
+        setExtendedThinking.mockResolvedValue({ runType: 'BRIEFING_BEST_BET', extendedThinking: true });
+        setActiveModel.mockResolvedValue({ runType: 'BRIEFING_BEST_BET', active: 'SONNET' });
         render(<ModelSelectionView />);
         await pump();
 
-        fireEvent.click(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT'));
+        fireEvent.click(screen.getByTestId('toggle-extended-thinking'));
         await pump();
-        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
+        expect(screen.getByText(ET_ENABLED)).toBeInTheDocument();
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(2000);
         });
-        fireEvent.click(screen.getByTestId('strategy-toggle-SENTINEL_SAMPLING'));
+        fireEvent.click(screen.getByTestId('switch-BRIEFING_BEST_BET-SONNET'));
         await pump();
-        expect(screen.getByText('Sentinel Sampling enabled')).toBeInTheDocument();
+        expect(screen.getByText(SWITCHED)).toBeInTheDocument();
 
         // 3.5s in: the first message's deadline has passed, the second's has not.
         await act(async () => {
           await vi.advanceTimersByTimeAsync(1500);
         });
-        expect(screen.getByText('Sentinel Sampling enabled')).toBeInTheDocument();
+        expect(screen.getByText(SWITCHED)).toBeInTheDocument();
 
         // 5s in: now the second message's own window has elapsed.
         await act(async () => {
           await vi.advanceTimersByTimeAsync(1500);
         });
-        expect(screen.queryByText('Sentinel Sampling enabled')).not.toBeInTheDocument();
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    /**
-     * ⚠️ The case that makes each handler's `setSuccess(null)` load-bearing. The effect re-runs
-     * only when `success` CHANGES, and the strategy message does not name its run type — so
-     * enabling the same strategy on a second config tab produces the identical string. Without the
-     * null committed between them the second `setSuccess` is a no-op, the effect never re-runs, and
-     * the second message dies on the FIRST one's timer. The config tab switch does not touch
-     * `success` (it only calls `setActiveTab`), so the banner genuinely survives into the second
-     * toggle and this measures the null, not the tab change.
-     */
-    it('gives a repeated identical message a fresh window', async () => {
-      vi.useFakeTimers();
-      try {
-        updateOptimisationStrategy.mockResolvedValue({
-          strategyType: 'TIDE_ALIGNMENT',
-          enabled: true,
-          paramValue: null,
-        });
-        render(<ModelSelectionView />);
-        await pump();
-
-        fireEvent.click(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT'));
-        await pump();
-        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
-
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(2000);
-        });
-        fireEvent.click(screen.getByTestId('config-tab-LONG_TERM'));
-        fireEvent.click(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT'));
-        await pump();
-        expect(updateOptimisationStrategy).toHaveBeenLastCalledWith(
-          'LONG_TERM', 'TIDE_ALIGNMENT', true, null
-        );
-
-        // 3.5s in: past the first message's deadline, inside the repeat's own window.
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(1500);
-        });
-        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
-
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(1500);
-        });
-        expect(screen.queryByText('Tide Triage enabled')).not.toBeInTheDocument();
+        expect(screen.queryByText(SWITCHED)).not.toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }
@@ -224,12 +139,8 @@ describe('ModelSelectionView', () => {
       let unmounted = false;
       let releaseRequest;
 
-      updateOptimisationStrategy.mockReturnValue(new Promise((resolve) => {
-        releaseRequest = () => resolve({
-          strategyType: 'TIDE_ALIGNMENT',
-          enabled: true,
-          paramValue: null,
-        });
+      setExtendedThinking.mockReturnValue(new Promise((resolve) => {
+        releaseRequest = () => resolve({ runType: 'BRIEFING_BEST_BET', extendedThinking: true });
       }));
 
       const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => {
@@ -240,10 +151,10 @@ describe('ModelSelectionView', () => {
 
       try {
         const { unmount } = render(<ModelSelectionView />);
-        fireEvent.click(await screen.findByTestId('strategy-toggle-TIDE_ALIGNMENT'));
+        fireEvent.click(await screen.findByTestId('toggle-extended-thinking'));
         // The request must genuinely be in flight, or a toggle that never reached the handler
         // would leave nothing to arm and pass this test for the wrong reason.
-        expect(updateOptimisationStrategy).toHaveBeenCalledTimes(1);
+        expect(setExtendedThinking).toHaveBeenCalledTimes(1);
         unmount();
         unmounted = true;
 
@@ -313,17 +224,13 @@ describe('ModelSelectionView', () => {
       });
 
       try {
-        updateOptimisationStrategy.mockResolvedValue({
-          strategyType: 'TIDE_ALIGNMENT',
-          enabled: true,
-          paramValue: null,
-        });
+        setExtendedThinking.mockResolvedValue({ runType: 'BRIEFING_BEST_BET', extendedThinking: true });
         const { unmount } = render(<ModelSelectionView />);
         await pump();
 
-        fireEvent.click(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT'));
+        fireEvent.click(screen.getByTestId('toggle-extended-thinking'));
         await pump();
-        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
+        expect(screen.getByText(ET_ENABLED)).toBeInTheDocument();
         expect(scheduled.length).toBeGreaterThan(0);
 
         const clearedBeforeUnmount = cleared.length;
@@ -342,165 +249,41 @@ describe('ModelSelectionView', () => {
     });
   });
 
-  it('renders model cards and strategy toggles', async () => {
+  it('renders model cards and the cost estimate for the default Briefing tab', async () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
       expect(screen.getByText('Run Configuration')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Cost Optimisation')).toBeInTheDocument();
+    expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toHaveClass('text-plex-gold');
     expect(screen.getByTestId('cost-estimate-table')).toBeInTheDocument();
-    // 2 enabled non-wildlife locations × 2 days × 2 targets = 8 calls
-    expect(screen.getByText(/8 Claude calls per run/)).toBeInTheDocument();
+    expect(screen.getByText(/12 Claude calls per run/)).toBeInTheDocument();
   });
 
-  it('renders config tabs', async () => {
+  it('renders config tabs, and none for the retired term run types', async () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('config-tab-VERY_SHORT_TERM')).toBeInTheDocument();
+      expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId('config-tab-SHORT_TERM')).toBeInTheDocument();
-    expect(screen.getByTestId('config-tab-LONG_TERM')).toBeInTheDocument();
-    expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toBeInTheDocument();
     expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toBeInTheDocument();
+    expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toBeInTheDocument();
+    expect(screen.getByTestId('config-tab-BATCH_FAR_TERM')).toBeInTheDocument();
+    expect(screen.queryByTestId('config-tab-VERY_SHORT_TERM')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('config-tab-SHORT_TERM')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('config-tab-LONG_TERM')).not.toBeInTheDocument();
   });
 
-  it('shows a toggle for each of the two strategies that can act', async () => {
+  it('offers no optimisation strategy controls', async () => {
     render(<ModelSelectionView />);
 
-    expect(await screen.findByTestId('strategy-toggle-SENTINEL_SAMPLING')).toBeInTheDocument();
-    expect(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT')).toBeInTheDocument();
-  });
+    await screen.findByTestId('config-tab-BRIEFING_BEST_BET');
 
-  /**
-   * During rollout the frontend can meet a backend, or a row, that still names a retired type. The
-   * panel must render nothing for it rather than an unlabelled row with a toggle that does nothing.
-   */
-  it('renders nothing for a strategy type it does not know', async () => {
-    getAvailableModels.mockResolvedValue({
-      ...MOCK_DATA,
-      optimisationStrategies: {
-        ...MOCK_DATA.optimisationStrategies,
-        VERY_SHORT_TERM: [
-          ...MOCK_DATA.optimisationStrategies.VERY_SHORT_TERM,
-          { strategyType: 'EVALUATE_ALL', enabled: true, paramValue: null },
-        ],
-      },
-    });
-    render(<ModelSelectionView />);
-
-    await screen.findByTestId('strategy-toggle-TIDE_ALIGNMENT');
-    expect(screen.queryByTestId('strategy-row-EVALUATE_ALL')).not.toBeInTheDocument();
-  });
-
-  it("reports each toggle's stored state through aria-pressed, and shows ON or OFF", async () => {
-    render(<ModelSelectionView />);
-
-    fireEvent.click(await screen.findByTestId('config-tab-LONG_TERM'));
-
-    const sentinel = screen.getByRole('button', { name: 'Sentinel Sampling' });
-    const tide = screen.getByRole('button', { name: 'Tide Triage' });
-    expect(sentinel).toHaveAttribute('aria-pressed', 'true');
-    expect(sentinel).toHaveTextContent('ON');
-    expect(tide).toHaveAttribute('aria-pressed', 'false');
-    expect(tide).toHaveTextContent('OFF');
-  });
-
-  /**
-   * The panel is headed "Cost Optimisation", which on its own implies it steers every run. It does
-   * not: both strategies reach only runs started by hand, and the scheduled batches read neither.
-   * The note names the real controls — an earlier cut said "runs started from Operations", which
-   * both included batch buttons that ignore these and left out Run Forecast on a map location,
-   * which uses them.
-   */
-  it('names the hand-started runs these apply to, and the batches they do not', async () => {
-    render(<ModelSelectionView />);
-
-    const note = await screen.findByTestId('strategy-scope-note');
-    expect(note).toHaveTextContent('Applies only to forecast runs started by hand');
-    expect(note).toHaveTextContent('Run Forecast on a map location');
-    expect(note).toHaveTextContent('Scheduled batches, overnight and intraday, ignore these');
-    expect(note).not.toHaveTextContent('Operations');
-  });
-
-  /**
-   * A screen reader used to hear only "ON, button" or "OFF, button" — nothing saying which strategy,
-   * and nothing of the scope caveat. Each toggle now carries its strategy's name, its state, and the
-   * scope note as its description.
-   */
-  it("gives each toggle its strategy's name and the scope note as its description", async () => {
-    render(<ModelSelectionView />);
-
-    const tide = await screen.findByRole('button', { name: 'Tide Triage' });
-    expect(tide).toHaveAccessibleDescription(/Applies only to forecast runs started by hand/);
-    expect(screen.getByRole('button', { name: 'Sentinel Sampling' }))
-      .toHaveAccessibleDescription(/Scheduled batches, overnight and intraday, ignore these/);
-  });
-
-  /**
-   * The tide strategy was labelled "Weather/Tide Triage", described as applying four checks, and said
-   * to give a slot "a canned 1★ result". Weather triage runs whether it is on or off, the switch only
-   * adds the tide check, and a tide-triaged slot is stood down with no rating at all.
-   */
-  it('labels the tide strategy as tide-only and describes what it really does', async () => {
-    render(<ModelSelectionView />);
-
-    const row = await screen.findByTestId('strategy-row-TIDE_ALIGNMENT');
-    expect(row).toHaveTextContent('Tide Triage');
-    expect(row).not.toHaveTextContent('Weather/Tide');
-
-    fireEvent.click(within(row).getByRole('button', { name: 'More info' }));
-    const help = await screen.findByTestId('infotip-popover');
-    expect(help).toHaveTextContent('Weather triage (cloud, rain, visibility) runs whether this is on or off');
-    expect(help).toHaveTextContent('stood down without a Claude call');
-    expect(help).not.toHaveTextContent('Four checks');
-    expect(help).not.toHaveTextContent('1★');
-  });
-
-  it('calls the API when a strategy is toggled', async () => {
-    updateOptimisationStrategy.mockResolvedValue({
-      strategyType: 'TIDE_ALIGNMENT',
-      enabled: true,
-      paramValue: null,
-    });
-    render(<ModelSelectionView />);
-
-    fireEvent.click(await screen.findByTestId('strategy-toggle-TIDE_ALIGNMENT'));
-
-    await waitFor(() => {
-      expect(updateOptimisationStrategy).toHaveBeenCalledWith(
-        'VERY_SHORT_TERM', 'TIDE_ALIGNMENT', true, null
-      );
-    });
-  });
-
-  it('shows the sentinel threshold buttons, highlighting the stored value', async () => {
-    render(<ModelSelectionView />);
-
-    fireEvent.click(await screen.findByTestId('config-tab-LONG_TERM'));
-
-    for (let i = 1; i <= 5; i++) {
-      expect(screen.getByTestId(`param-SENTINEL_SAMPLING-${i}`)).toBeInTheDocument();
-    }
-    expect(screen.getByTestId('param-SENTINEL_SAMPLING-4')).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('param-SENTINEL_SAMPLING-3')).toHaveAttribute('aria-pressed', 'false');
-  });
-
-  /**
-   * With no stored value the buttons used to fall back to 3 — Skip Low-Rated's default. The
-   * sentinel's is 2 (the backend's DEFAULT_SENTINEL_RATING_THRESHOLD), so the panel highlighted a
-   * threshold the run was not using.
-   */
-  it("falls back to the sentinel's own default of 2 when no threshold is stored", async () => {
-    render(<ModelSelectionView />);
-
-    fireEvent.click(await screen.findByTestId('config-tab-SHORT_TERM'));
-
-    expect(screen.getByTestId('param-SENTINEL_SAMPLING-2')).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('param-SENTINEL_SAMPLING-3')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByText('Cost Optimisation')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('strategy-toggle-SENTINEL_SAMPLING')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('strategy-toggle-TIDE_ALIGNMENT')).not.toBeInTheDocument();
   });
 
   it('shows error on API failure', async () => {
@@ -511,19 +294,6 @@ describe('ModelSelectionView', () => {
     await waitFor(() => {
       expect(screen.getByText('Error loading models')).toBeInTheDocument();
     });
-  });
-
-  it("shows the server's error sentence when a strategy change is refused", async () => {
-    updateOptimisationStrategy.mockRejectedValue(Object.assign(
-      new Error('Request failed with status code 400'),
-      { response: { status: 400, data: { error: 'Unknown optimisation strategy: TIDE_ALIGNMENT' } } },
-    ));
-    render(<ModelSelectionView />);
-
-    fireEvent.click(await screen.findByTestId('strategy-toggle-TIDE_ALIGNMENT'));
-
-    expect(await screen.findByText('Unknown optimisation strategy: TIDE_ALIGNMENT')).toBeInTheDocument();
-    expect(screen.queryByText(/Request failed with status code 400/)).toBeNull();
   });
 
   it('shows loading state initially', () => {
@@ -853,7 +623,7 @@ describe('ModelSelectionView', () => {
       expect(screen.getByText('Run Configuration')).toBeInTheDocument();
     });
 
-    // Default tab is VERY_SHORT_TERM
+    // Default tab is BRIEFING_BEST_BET
     expect(screen.queryByTestId('batch-cost-table')).not.toBeInTheDocument();
   });
 

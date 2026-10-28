@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.Map;
 
@@ -24,13 +25,22 @@ public class ModelSelectionService {
 
     /** The run types that support model configuration. */
     private static final RunType[] CONFIGURABLE_RUN_TYPES = {
-        RunType.VERY_SHORT_TERM, RunType.SHORT_TERM, RunType.LONG_TERM,
         RunType.BRIEFING_BEST_BET, RunType.BRIEFING_GLOSS,
-        RunType.AURORA_EVALUATION, RunType.AURORA_GLOSS,
+        RunType.AURORA_EVALUATION, RunType.AURORA_GLOSS, RunType.BLUEBELL_GLOSS,
         RunType.BATCH_NEAR_TERM, RunType.BATCH_FAR_TERM
     };
 
     private final ModelSelectionRepository modelSelectionRepository;
+
+    /**
+     * Whether a run type is one the Run Config screen manages ({@code CONFIGURABLE_RUN_TYPES}).
+     *
+     * @param runType the run type to test
+     * @return {@code true} when a model can be chosen for it through the API
+     */
+    public static boolean isConfigurable(RunType runType) {
+        return Arrays.asList(CONFIGURABLE_RUN_TYPES).contains(runType);
+    }
 
     /**
      * Get the active model for a specific run type.

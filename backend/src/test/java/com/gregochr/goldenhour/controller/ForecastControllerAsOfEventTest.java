@@ -20,10 +20,6 @@ import com.gregochr.goldenhour.service.AsOfEventResolver;
 import com.gregochr.goldenhour.service.AsOfEventResolver.AsOfEvent;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.EvaluationViewService;
-import com.gregochr.goldenhour.service.FailedSlotRetryService;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
-import com.gregochr.goldenhour.service.ForecastCommandFactory;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
@@ -100,21 +96,13 @@ class ForecastControllerAsOfEventTest {
     @Mock
     private LocationService locationService;
     @Mock
-    private ForecastCommandFactory commandFactory;
-    @Mock
-    private ForecastCommandExecutor commandExecutor;
-    @Mock
     private ScheduledForecastService scheduledForecastService;
     @Mock
     private ForecastDtoMapper dtoMapper;
     @Mock
     private EvaluationViewService evaluationViewService;
     @Mock
-    private JobRunService jobRunService;
-    @Mock
     private RunProgressTracker progressTracker;
-    @Mock
-    private FailedSlotRetryService retryService;
     @Mock
     private SolarEventFreshness solarEventFreshness;
 
@@ -137,9 +125,9 @@ class ForecastControllerAsOfEventTest {
     }
 
     private ForecastController controller(AsOfEventResolver resolver) {
-        return new ForecastController(repository, locationService, commandFactory, commandExecutor,
-                scheduledForecastService, dtoMapper, evaluationViewService, jobRunService,
-                progressTracker, Runnable::run, NOW, retryService, resolver, solarEventFreshness,
+        return new ForecastController(repository, locationService,
+                scheduledForecastService, dtoMapper, evaluationViewService,
+                progressTracker, Runnable::run, NOW, resolver, solarEventFreshness,
                 new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()));
     }
 
@@ -550,8 +538,7 @@ class ForecastControllerAsOfEventTest {
             verify(repository).findLatestRunPerSlotByLocationIds(anyCollection(), eq(YESTERDAY), eq(YESTERDAY));
             verify(resolver).resolveAll(anyCollection(), eq(YESTERDAY), eq(TargetType.SUNRISE), any());
             verify(resolver).resolveAll(anyCollection(), eq(YESTERDAY), eq(TargetType.SUNSET), any());
-            verifyNoInteractions(commandFactory, commandExecutor, scheduledForecastService, jobRunService,
-                    progressTracker, retryService);
+            verifyNoInteractions(scheduledForecastService, progressTracker);
         }
 
         @Test

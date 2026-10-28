@@ -156,20 +156,6 @@ export const LIGHT_POLLUTION_ONE_FAILURE = [
 /** What the server sends for that run: not retryable, because its failed tasks are not forecast slots. */
 export const LIGHT_POLLUTION_COMPLETE_OPTIONS = { retryable: false, retryBlockedReason: 'LIGHT_POLLUTION' };
 
-/** The server's 202 for a retry that was given two slots and left one failed slot out. */
-export const RETRY_ACCEPTED = {
-  status: 'Retry run started',
-  runType: 'VERY_SHORT_TERM',
-  jobRunId: 6,
-  slots: 2,
-  skipped: [{
-    locationName: 'West Fell',
-    date: '2026-10-03',
-    targetType: 'SUNRISE',
-    reason: 'The place is disabled or no longer exists.',
-  }],
-};
-
 /** A run with one rated place and two that failed to fetch weather. */
 export const TWO_FAILURES = [
   task('hill|a', 'Test Hill', 'COMPLETE'),

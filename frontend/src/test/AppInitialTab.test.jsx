@@ -40,7 +40,6 @@ vi.mock('../api/auroraApi.js', () => ({
 vi.mock('../api/nlcApi.js', () => ({ getNlcSighting: vi.fn() }));
 vi.mock('../api/astroApi.js', () => ({ getAstroConditions: vi.fn() }));
 vi.mock('../api/almanacApi.js', () => ({ getAlmanac: vi.fn(), ALMANAC_DAYS: 90 }));
-vi.mock('../api/runProgressApi.js', () => ({ subscribeToRunNotifications: vi.fn() }));
 vi.mock('../api/lightApi.js', () => ({ getTodaysLight: vi.fn() }));
 vi.mock('../api/authApi.js', () => ({
   login: vi.fn(),
@@ -73,7 +72,6 @@ import { getAuroraStatus } from '../api/auroraApi.js';
 import { getNlcSighting } from '../api/nlcApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
-import { subscribeToRunNotifications } from '../api/runProgressApi.js';
 import { getTodaysLight } from '../api/lightApi.js';
 import { resolveInitialTab } from '../utils/initialTab.js';
 
@@ -107,7 +105,6 @@ beforeEach(() => {
   getNlcSighting.mockReset().mockResolvedValue(null);
   getAstroConditions.mockReset().mockResolvedValue(null);
   getAlmanac.mockReset().mockResolvedValue({ entries: [] });
-  subscribeToRunNotifications.mockReset().mockReturnValue(() => {});
   getTodaysLight.mockReset().mockResolvedValue(null);
   resolveInitialTab.mockClear();
   window.requestIdleCallback = () => 1;

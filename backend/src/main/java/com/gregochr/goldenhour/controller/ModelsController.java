@@ -2,9 +2,7 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
-import com.gregochr.goldenhour.model.OptimisationStrategyUpdateRequest;
 import com.gregochr.goldenhour.service.ModelSelectionService;
-import com.gregochr.goldenhour.service.OptimisationStrategyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -20,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * API endpoints for per-run-type model selection, availability, and optimisation strategies.
+ * API endpoints for per-run-type model selection and availability.
  */
 @RestController
 @RequestMapping("/api/models")
@@ -29,13 +27,11 @@ import java.util.Map;
 public class ModelsController {
 
     private final ModelSelectionService modelSelectionService;
-    private final OptimisationStrategyService optimisationStrategyService;
 
     /**
-     * Get available evaluation models, per-run-type active models, extended-thinking flags,
-     * and optimisation strategies.
+     * Get available evaluation models, per-run-type active models, and extended-thinking flags.
      *
-     * @return response containing available models, configs, extended-thinking config, and strategies
+     * @return response containing available models, configs, and extended-thinking config
      */
     @GetMapping
     public ResponseEntity<Map<String, Object>> getAvailableModels() {
@@ -49,18 +45,21 @@ public class ModelsController {
         return ResponseEntity.ok(Map.of(
                 "available", availableWithVersions,
                 "configs", modelSelectionService.getAllConfigs(),
-                "extendedThinkingConfigs", modelSelectionService.getAllExtendedThinkingConfigs(),
-                "optimisationStrategies", optimisationStrategyService.getAllConfigs()
+                "extendedThinkingConfigs", modelSelectionService.getAllExtendedThinkingConfigs()
         ));
     }
 
     /**
      * Set the active evaluation model for a specific run type (ADMIN only).
      *
-     * <p>Accepts either "runType" or legacy "configType" in the request body.
+     * <p>Accepts either "runType" or legacy "configType" in the request body. A run type that is
+     * not one of {@link ModelSelectionService#isConfigurable the configurable run types} is refused
+     * with 400, so a retired run type cannot be given a model row through this endpoint.
      *
      * @param request body containing "runType" (or "configType") and "model" fields
      * @return response containing the updated run type and model
+     * @throws IllegalArgumentException if the model or run type is unknown, or the run type is not
+     *                                  configurable (mapped to 400)
      */
     @PutMapping("/active")
     @PreAuthorize("hasRole('ADMIN')")
@@ -72,6 +71,9 @@ public class ModelsController {
                 request.get("configType"));
         EvaluationModel model = EvaluationModel.valueOf(modelName.toUpperCase());
         RunType runType = RunType.valueOf(runTypeName.toUpperCase());
+        if (!ModelSelectionService.isConfigurable(runType)) {
+            throw new IllegalArgumentException("Run type " + runType + " has no configurable model");
+        }
         EvaluationModel active = modelSelectionService.setActiveModel(runType, model);
         return ResponseEntity.ok(Map.of("runType", runType, "active", active));
     }
@@ -96,26 +98,5 @@ public class ModelsController {
         RunType runType = RunType.valueOf(runTypeName.toUpperCase());
         boolean result = modelSelectionService.setExtendedThinking(runType, enabled);
         return ResponseEntity.ok(Map.of("runType", runType, "extendedThinking", result));
-    }
-
-    /**
-     * Toggle an optimisation strategy for a specific run type (ADMIN only).
-     *
-     * @param request the strategy update request
-     * @return response with the updated strategy state
-     */
-    @PutMapping("/optimisation")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> updateOptimisationStrategy(
-            @RequestBody OptimisationStrategyUpdateRequest request) {
-        var updated = optimisationStrategyService.updateStrategy(
-                request.runType(), request.strategyType(),
-                request.enabled(), request.paramValue());
-        return ResponseEntity.ok(Map.of(
-                "runType", updated.getRunType(),
-                "strategyType", updated.getStrategyType(),
-                "enabled", updated.isEnabled(),
-                "paramValue", updated.getParamValue() != null ? updated.getParamValue() : ""
-        ));
     }
 }

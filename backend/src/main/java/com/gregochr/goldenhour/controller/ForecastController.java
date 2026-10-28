@@ -1,26 +1,19 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
-import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.model.ForecastListDto;
-import com.gregochr.goldenhour.model.ForecastRunRequest;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.AsOfEventResolver;
 import com.gregochr.goldenhour.service.AsOfEventResolver.AsOfEvent;
 import com.gregochr.goldenhour.service.EvaluationViewService;
-import com.gregochr.goldenhour.service.FailedSlotRetryService;
-import com.gregochr.goldenhour.service.ForecastCommand;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LitePickShaper;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.PickScope;
@@ -41,7 +34,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -69,7 +61,7 @@ import java.util.stream.Collectors;
  * REST controller for forecast evaluation data.
  *
  * <p>Exposes endpoints to retrieve stored forecasts, query historical data,
- * and trigger on-demand forecast runs. GET endpoints return {@link ForecastEvaluationDto}
+ * and trigger the tide refresh and backfill. GET endpoints return {@link ForecastEvaluationDto}
  * with role-based shaping (LITE users receive neither the Fiery Sky and Golden Hour scores nor the
  * per-location written why; PRO/ADMIN receive the enhanced directional scores and prose).
  */
@@ -82,16 +74,12 @@ public class ForecastController {
 
     private final ForecastEvaluationRepository repository;
     private final LocationService locationService;
-    private final ForecastCommandFactory commandFactory;
-    private final ForecastCommandExecutor commandExecutor;
     private final ScheduledForecastService scheduledForecastService;
     private final ForecastDtoMapper dtoMapper;
     private final EvaluationViewService evaluationViewService;
-    private final JobRunService jobRunService;
     private final RunProgressTracker progressTracker;
     private final Executor forecastExecutor;
     private final Clock clock;
-    private final FailedSlotRetryService retryService;
     private final AsOfEventResolver asOfEventResolver;
     private final SolarEventFreshness solarEventFreshness;
     private final LitePickShaper litePickShaper;
@@ -101,42 +89,32 @@ public class ForecastController {
      *
      * @param repository                the forecast evaluation repository
      * @param locationService           the service for persisted locations
-     * @param commandFactory            builds forecast commands from run types
-     * @param commandExecutor           executes forecast commands
      * @param scheduledForecastService  the scheduled forecast service (for tide refresh)
      * @param dtoMapper                 maps entities to role-aware DTOs
      * @param evaluationViewService     canonical merge layer for cached + forecast evaluations
-     * @param jobRunService             the service for creating job run entities
      * @param progressTracker           tracks live run progress for SSE broadcasting
      * @param forecastExecutor          the executor used for async forecast runs
      * @param clock                     supplies "today" on the UK civil calendar, via
      *                                  {@link ForecastHorizon}
-     * @param retryService              starts "Retry failed" runs for exactly the slots that failed
      * @param asOfEventResolver         what the reader had been shown for a passed slot at its event
      * @param solarEventFreshness       each place's own sunrise or sunset, for "has this slot passed"
      * @param litePickShaper            strips ratings outside a Lite reader's sub-region picks
      */
     public ForecastController(ForecastEvaluationRepository repository,
-            LocationService locationService, ForecastCommandFactory commandFactory,
-            ForecastCommandExecutor commandExecutor,
+            LocationService locationService,
             ScheduledForecastService scheduledForecastService,
             ForecastDtoMapper dtoMapper, EvaluationViewService evaluationViewService,
-            JobRunService jobRunService,
             RunProgressTracker progressTracker, Executor forecastExecutor,
-            Clock clock, FailedSlotRetryService retryService, AsOfEventResolver asOfEventResolver,
+            Clock clock, AsOfEventResolver asOfEventResolver,
             SolarEventFreshness solarEventFreshness, LitePickShaper litePickShaper) {
         this.repository = repository;
         this.locationService = locationService;
-        this.commandFactory = commandFactory;
-        this.commandExecutor = commandExecutor;
         this.scheduledForecastService = scheduledForecastService;
         this.dtoMapper = dtoMapper;
         this.evaluationViewService = evaluationViewService;
-        this.jobRunService = jobRunService;
         this.progressTracker = progressTracker;
         this.forecastExecutor = forecastExecutor;
         this.clock = clock;
-        this.retryService = retryService;
         this.asOfEventResolver = asOfEventResolver;
         this.solarEventFreshness = solarEventFreshness;
         this.litePickShaper = litePickShaper;
@@ -536,172 +514,6 @@ public class ForecastController {
     }
 
     /**
-     * Triggers an on-demand forecast run using the currently active model. Restricted to ADMIN only.
-     *
-     * <p>Runs the active evaluation model (HAIKU or SONNET) for each location/date combination.
-     * This is a recovery mechanism for when scheduled jobs fail.
-     *
-     * <p>If the request body is absent or its fields are {@code null}, defaults apply:
-     * {@code dates} defaults to today only; {@code location} defaults to all enabled <em>sky</em>
-     * locations (those {@code LocationEntity.hasColourTypes()} admits — hides and woods have no
-     * sunrise or sunset forecast to run), and {@code maxLocations} caps that sky list.
-     *
-     * @param request optional run parameters (dates and/or location)
-     * @param maxDays maximum number of days to forecast (optional; if null, uses all dates)
-     * @param maxLocations maximum number of sky locations to process (optional; if null, uses all)
-     * @return 202 Accepted with status message
-     * @throws IllegalArgumentException if the specified location name is not configured or is not
-     *                                  a sky location, if no sky location is enabled, or if any
-     *                                  date string is not a valid ISO date
-     */
-    @PostMapping("/run")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> runForecast(
-            @RequestBody(required = false) ForecastRunRequest request,
-            @RequestParam(required = false) Integer maxDays,
-            @RequestParam(required = false) Integer maxLocations) {
-        // Build dates list with optional limit
-        List<LocalDate> allDates = (request != null
-                && request.dates() != null
-                && !request.dates().isEmpty())
-                ? request.dates().stream().map(LocalDate::parse).toList()
-                // "Today" here has to be the UK's, and not only for the reason ForecastHorizon
-                // gives: ForecastCommandExecutor's already-past gate is scoped to its own notion
-                // of today, so a UTC date handed to it late on a BST evening would name a UK day
-                // the gate no longer guards — and every event on it is already over.
-                : List.of(ForecastHorizon.today(clock));
-        final List<LocalDate> dates = (maxDays != null && maxDays > 0)
-                ? allDates.stream().limit(maxDays).toList()
-                : allDates;
-
-        // Build locations list with optional limit
-        List<LocationEntity> allLocations;
-        if (request != null && request.location() != null) {
-            allLocations = locationService.findAllEnabled().stream()
-                    .filter(l -> l.getName().equals(request.location()))
-                    .toList();
-            if (allLocations.isEmpty()) {
-                throw new IllegalArgumentException(
-                        "No configured location named '" + request.location() + "'");
-            }
-            // The executor drops non-sky places from a run silently, which is right for "all
-            // locations" but would turn a request that names ONE of them into a 202 for a run
-            // that evaluates nothing (and a job_run row to match). Refuse it here, as 400 — the
-            // same convention as the unknown-name refusal just above.
-            LocationEntity named = allLocations.get(0);
-            if (!named.hasColourTypes()) {
-                throw new IllegalArgumentException("'" + named.getName() + "' is not a sky location: "
-                        + "it has no sunrise or sunset forecast");
-            }
-        } else {
-            // Offer only sky subjects, BEFORE maxLocations truncates: capped on the whole roster,
-            // "run 10" would count hides and woods that ForecastCommandExecutor (the one
-            // enforcement point, which filters again) then drops, evaluating fewer than 10.
-            allLocations = locationService.findAllEnabled().stream()
-                    .filter(LocationEntity::hasColourTypes)
-                    .toList();
-        }
-        final List<LocationEntity> locations = (maxLocations != null && maxLocations > 0)
-                ? allLocations.stream().limit(maxLocations).toList()
-                : allLocations;
-        // A run that can evaluate nothing must not exist: no sky location is enabled. Refused as
-        // 400 {error}, the same IllegalArgumentException path as the unknown and non-sky names
-        // above, so no job_run row is created and the executor is never called.
-        if (locations.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "No enabled sky locations: there is nothing to run");
-        }
-
-        // Build excluded slots from targetType (only evaluate the requested event type)
-        Set<String> excludedSlots = Set.of();
-        if (request != null && request.targetType() != null) {
-            TargetType opposite = request.targetType() == TargetType.SUNRISE
-                    ? TargetType.SUNSET : TargetType.SUNRISE;
-            excludedSlots = dates.stream()
-                    .map(d -> d + "|" + opposite.name())
-                    .collect(Collectors.toUnmodifiableSet());
-        }
-
-        LOG.info("POST /api/forecast/run — dates={}, location={}, targetType={}, maxDays={}, maxLocations={}",
-                dates.size(), request != null ? request.location() : "all",
-                request != null ? request.targetType() : "all",
-                maxDays, maxLocations);
-
-        ForecastCommand cmd = commandFactory.create(
-                RunType.SHORT_TERM, true, locations, dates, excludedSlots);
-        JobRunEntity jobRun = jobRunService.startRun(RunType.SHORT_TERM, true, null, null);
-        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(buildRunResponse("Forecast run started", "SHORT_TERM", jobRun.getId()));
-    }
-
-    /**
-     * Triggers an on-demand run of very-short-term forecasts (today, T+1). Restricted to ADMIN only.
-     *
-     * <p>Uses the model configured under {@code VERY_SHORT_TERM}.
-     * An optional body may carry {@code excludedSlots} and/or {@code excludedLocations}.
-     *
-     * @param request optional slot and location exclusions
-     * @return 202 Accepted with status message
-     */
-    @PostMapping("/run/very-short-term")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> runVeryShortTermForecast(
-            @RequestBody(required = false) ForecastRunRequest request) {
-        LOG.info("POST /api/forecast/run/very-short-term triggered by admin");
-        Set<String> excludedSlots = toExcludedSlotKeys(request);
-        Set<String> excludedLocations = toExcludedLocationNames(request);
-        ForecastCommand cmd = commandFactory.create(RunType.VERY_SHORT_TERM, true, null, null,
-                excludedSlots, excludedLocations);
-        JobRunEntity jobRun = jobRunService.startRun(RunType.VERY_SHORT_TERM, true, null, null);
-        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(buildRunResponse("Forecast run started", "VERY_SHORT_TERM", jobRun.getId()));
-    }
-
-    /**
-     * Triggers an on-demand run of short-term forecasts (today, T+1, T+2). Restricted to ADMIN only.
-     *
-     * <p>Uses the model configured under {@code SHORT_TERM}.
-     * An optional body may carry {@code excludedSlots} and/or {@code excludedLocations}.
-     *
-     * @param request optional slot and location exclusions
-     * @return 202 Accepted with status message
-     */
-    @PostMapping("/run/short-term")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> runShortTermForecast(
-            @RequestBody(required = false) ForecastRunRequest request) {
-        LOG.info("POST /api/forecast/run/short-term triggered by admin");
-        Set<String> excludedSlots = toExcludedSlotKeys(request);
-        Set<String> excludedLocations = toExcludedLocationNames(request);
-        ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, true, null, null,
-                excludedSlots, excludedLocations);
-        JobRunEntity jobRun = jobRunService.startRun(RunType.SHORT_TERM, true, null, null);
-        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(buildRunResponse("Forecast run started", "SHORT_TERM", jobRun.getId()));
-    }
-
-    /**
-     * Triggers an on-demand run of long-term forecasts (T+3 through T+5). Restricted to ADMIN only.
-     *
-     * <p>Uses the model configured under {@code LONG_TERM}.
-     *
-     * @return 202 Accepted with status message
-     */
-    @PostMapping("/run/long-term")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> runLongTermForecast() {
-        LOG.info("POST /api/forecast/run/long-term triggered by admin");
-        ForecastCommand cmd = commandFactory.create(RunType.LONG_TERM, true);
-        JobRunEntity jobRun = jobRunService.startRun(RunType.LONG_TERM, true, null, null);
-        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(buildRunResponse("Forecast run started", "LONG_TERM", jobRun.getId()));
-    }
-
-    /**
      * Triggers a manual refresh of tide extreme data for all coastal locations.
      * Restricted to ADMIN only.
      *
@@ -804,77 +616,6 @@ public class ForecastController {
     @GetMapping(value = "/run/notifications", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter getRunNotifications() {
         return progressTracker.subscribeNotifications();
-    }
-
-    /**
-     * Retries the failed tasks of a previous run: a new run that re-evaluates exactly the slots
-     * (location, date, sunrise/sunset) that are FAILED in the original run's progress, under the
-     * original run's type. ADMIN only. See {@link FailedSlotRetryService} for what "the original
-     * run's type" can and cannot mean.
-     *
-     * <p>Answers 202 with {@code {status, runType, jobRunId, slots, skipped}} — {@code slots} is how
-     * many slots the new run was given and {@code skipped} lists the failed slots left out (place
-     * disabled, removed or no longer a sky location) with a reason each; 404 with no body when there
-     * is nothing to retry (unknown or evicted run, no failures, or no failed slot that can still be
-     * run); and 409 with {@code {error}} when the run cannot be retried now (still going, already
-     * retried as another run, stopped on a rejected API key, or a light-pollution run), in which case
-     * nothing is started.
-     *
-     * @param runId the job run ID whose failed tasks to retry
-     * @return 202 Accepted with the new job run ID, 404 when there is nothing to retry, or 409
-     */
-    @PostMapping("/run/{runId}/retry-failed")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> retryFailed(@PathVariable long runId) {
-        FailedSlotRetryService.Outcome outcome = retryService.retry(runId);
-        return switch (outcome) {
-            case FailedSlotRetryService.NothingToRetry ignored -> ResponseEntity.notFound().build();
-            case FailedSlotRetryService.Refused refused -> ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("error", refused.message()));
-            case FailedSlotRetryService.Started started -> {
-                LOG.info("POST /api/forecast/run/{}/retry-failed — run {} started with {} slot(s)",
-                        runId, started.jobRunId(), started.slots());
-                Map<String, Object> body = buildRunResponse("Retry run started",
-                        started.runType().name(), started.jobRunId());
-                body.put("slots", started.slots());
-                body.put("skipped", started.skipped());
-                yield ResponseEntity.status(HttpStatus.ACCEPTED).body(body);
-            }
-        };
-    }
-
-    /**
-     * Converts a request's {@code excludedSlots} list into a set of "date|TARGETTYPE" keys
-     * for use in {@link ForecastCommand}. Returns an empty set when the request or its
-     * excluded slots are null.
-     */
-    private Set<String> toExcludedSlotKeys(ForecastRunRequest request) {
-        if (request == null || request.excludedSlots() == null) {
-            return Set.of();
-        }
-        return request.excludedSlots().stream()
-                .map(s -> s.date() + "|" + s.targetType())
-                .collect(Collectors.toUnmodifiableSet());
-    }
-
-    /**
-     * Converts a request's {@code excludedLocations} list into an immutable set of location names
-     * for use in {@link ForecastCommand}. Returns an empty set when the request or its
-     * excluded locations are null.
-     */
-    private Set<String> toExcludedLocationNames(ForecastRunRequest request) {
-        if (request == null || request.excludedLocations() == null) {
-            return Set.of();
-        }
-        return Set.copyOf(request.excludedLocations());
-    }
-
-    private Map<String, Object> buildRunResponse(String status, String runType, Long jobRunId) {
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("status", status);
-        response.put("runType", runType);
-        response.put("jobRunId", jobRunId);
-        return response;
     }
 
     private boolean isLiteUser(Authentication auth) {

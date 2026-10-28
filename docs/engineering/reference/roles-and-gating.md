@@ -46,7 +46,7 @@ See `docs/product/` for detailed reference documents.
 
 Every new UI feature must be assessed for role gating.
 
-- **Admin-only** (Operations tab, health widget, Run Forecast): hidden entirely
+- **Admin-only** (Operations tab, health widget): hidden entirely
 - **PRO/ADMIN** (all other premium features): visible to LITE users, with a "Pro" pill. A Pro feature's locked surface **opens a worded upsell** (owner Q13, 2026-10-24: a live trigger with the pill inside it, a non-modal popover or inline section, no link, no "upgrade" text); the tide teaser and Ask PhotoCast do
   - The greyed lock (`opacity: 0.45`, `pointer-events: none`, `disabled` on interactive elements) is only for controls too small to carry an upsell
   - Upsell text: "Pro" pill badge (inline) or "Upgrade to Pro" (standalone) — ⚠️ text only, never a link: `/upgrade` is not a route and the tests that pin it (`UserSettingsModal.test.jsx`, `MarkerPopupContent.test.jsx`) give the App Store's rule against pointing at a web purchase as the reason; the auth screens' `ProTag` is text in a `<span>`

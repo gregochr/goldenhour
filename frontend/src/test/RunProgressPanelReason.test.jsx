@@ -11,7 +11,6 @@ import {
 
 vi.mock('../api/runProgressApi', () => ({
   subscribeToRunProgress: vi.fn(),
-  retryFailed: vi.fn(),
 }));
 
 import { subscribeToRunProgress } from '../api/runProgressApi';
@@ -42,14 +41,14 @@ describe('RunProgressPanel run-level reason', () => {
     subscribeToRunProgress.mockImplementation(feed.subscribe);
   });
 
-  it('shows the reason as one alert line in a kept run with failed places, beside Retry and Dismiss', async () => {
+  it('shows the reason as one alert line in a kept run with failed places, beside Dismiss', async () => {
     const handlers = renderPanel();
 
     await playRun(5, TWO_FAILURES, { reason: OPEN_METEO });
 
     expect(screen.getByRole('alert')).toHaveTextContent(OPEN_METEO);
     expect(screen.getAllByRole('alert')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'Retry 2 failed' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Retry/ })).toBeNull();
     expect(screen.getByRole('button', { name: 'Dismiss run progress' })).toBeInTheDocument();
     expect(handlers.onAutoClear).not.toHaveBeenCalled();
   });
@@ -70,7 +69,7 @@ describe('RunProgressPanel run-level reason', () => {
     await playRun(5, TWO_FAILURES);
 
     expect(screen.queryByTestId('run-progress-reason')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Retry 2 failed' })).toBeInTheDocument();
+    expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Completed with failures)');
   });
 
   describe('a run that failed before it had any task (total 0, failed 0, status FAILED)', () => {
@@ -176,7 +175,7 @@ describe('RunProgressPanel run-level reason', () => {
       expect(screen.getByText(/2\/2/)).toBeInTheDocument();
     });
 
-    it('reads "(Completed with failures)" for a PARTIAL run with no reason, the banner\'s own rule', async () => {
+    it('reads "(Completed with failures)" for a PARTIAL run with no reason, the shared rule', async () => {
       renderPanel();
 
       await playRun(5, TWO_FAILURES);
