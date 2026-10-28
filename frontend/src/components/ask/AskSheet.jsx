@@ -7,8 +7,7 @@ import AskInputRow from './AskInputRow.jsx';
 import { useAsk } from '../../context/AskContext.jsx';
 import { planActionsShape } from './askShapes.js';
 
-/** The sheet's accessible name — also how the shell recognises it among the dialogs outside its root. */
-export const ASK_SHEET_LABEL = 'Ask PhotoCast';
+import { ASK_SHEET_LABEL } from './askIds.js';
 
 /**
  * Ask PhotoCast's sheet — the answer surface below 1024px (plan §2.6): a {@link BottomSheet} in its

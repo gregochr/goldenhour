@@ -11,10 +11,9 @@ import WindowFirstComingUp from './WindowFirstComingUp.jsx';
 import WindowPickDialog from './WindowPickDialog.jsx';
 import WindowSpotSheet from './WindowSpotSheet.jsx';
 import AskBar from './ask/AskBar.jsx';
-import AskDock, { ASK_DOCK_ID } from './ask/AskDock.jsx';
+import { ASK_DOCK_ID, ASK_SHEET_LABEL } from './ask/askIds.js';
 import AskField from './ask/AskField.jsx';
 import AskUpsellPopover from './ask/AskUpsell.jsx';
-import AskSheet, { ASK_SHEET_LABEL } from './ask/AskSheet.jsx';
 import { useAsk } from '../context/AskContext.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useSubRegionStatus } from '../context/SubRegionStatusContext.jsx';
@@ -94,6 +93,43 @@ const WindowSheetDialog = lazy(() => import('./WindowSheetDialog.jsx'));
  * place never downloads them.
  */
 const LocationFourDaySheet = lazy(() => import('./LocationFourDaySheet.jsx'));
+
+/**
+ * Ask PhotoCast's dock and sheet, lazily (performance plan P2d). Both draw only once a reader opens
+ * them, and they are what pull in the whole conversation (`AskConversation` and its cards), so a
+ * reader who never asks never downloads it. The shell reads their identifiers from {@code askIds.js}
+ * so those two constants do not drag the components in. {@code AskContext}, the entry fields, the bar
+ * and the upsell popover stay eager: they are the way in, and small.
+ */
+const AskDock = lazy(() => import('./ask/AskDock.jsx'));
+const AskSheet = lazy(() => import('./ask/AskSheet.jsx'));
+
+/**
+ * The dock's stand-in while its chunk loads: the same `aside` box (same band width, same sticky
+ * or stretch rule), empty, inert and hidden from assistive tech, so the page beside it does not jump
+ * when the real dock replaces it.
+ *
+ * @param {object} props
+ * @param {'desktop'|'wide'} props.band
+ * @param {boolean} props.sticky
+ */
+function AskDockFallback({ band, sticky }) {
+  return (
+    <aside
+      aria-hidden="true"
+      inert
+      data-testid="ask-dock-fallback"
+      data-band={band}
+      data-sticky={sticky ? '' : undefined}
+      className="wf-ask-dock"
+    />
+  );
+}
+
+AskDockFallback.propTypes = {
+  band: PropTypes.oneOf(['desktop', 'wide']).isRequired,
+  sticky: PropTypes.bool.isRequired,
+};
 
 /**
  * Warms the three dialog chunks that can be STACKED, once the popup is open.
@@ -452,6 +488,8 @@ export default function WindowFirstShell({
    * {@code AskContext}, which holds the conversation and nothing about a surface.
    */
   const [askSheetOpen, setAskSheetOpen] = useState(false);
+  /** Whether the sheet has been opened since its entry last appeared: gates mounting the lazy chunk. */
+  const [askSheetLoaded, setAskSheetLoaded] = useState(false);
   /**
    * Whether Ask PhotoCast's DOCK is open (F2) — its own state, deliberately not a value of
    * {@code askSheetOpen}/{@code askEntry}. {@code askSheetShown} drives the app container's {@code inert}, and
@@ -1526,6 +1564,10 @@ export default function WindowFirstShell({
   // above uses, so no commit holds both states. The conversation is untouched.
   if (askSheetOpen && askEntry === null) setAskSheetOpen(false);
   const askSheetShown = askSheetOpen && askEntry !== null;
+  // Latched the render the sheet first shows (the same during-render shape as the two lines above), so
+  // the lazy sheet stays mounted once fetched and a close is not an unmount.
+  if (askSheetShown && !askSheetLoaded) setAskSheetLoaded(true);
+  if (askEntry === null && askSheetLoaded) setAskSheetLoaded(false);
   // The dock's twin: Operations, a window narrowed below 1024px and Ask switched off all take away what
   // the dock hangs from, and a state left true would bring it back unasked the next time one exists.
   // A tab switch between Plan, Coming up and Map is NOT one of them — see `askDockOpen`.
@@ -2932,6 +2974,7 @@ export default function WindowFirstShell({
           frame's own height and the map pane's `ResizeObserver` tells Leaflet about its new width;
           on Plan and Coming up it sticks to the viewport with the input row at its foot. */}
       {askDockShown && (
+        <Suspense fallback={<AskDockFallback band={askSurface} sticky={effectiveTab !== 'map'} />}>
         <AskDock
           band={askSurface}
           sticky={effectiveTab !== 'map'}
@@ -2945,6 +2988,7 @@ export default function WindowFirstShell({
           pickActions={askPickActions}
           planActions={askPlanActions}
         />
+        </Suspense>
       )}
 
       {/* Ask PhotoCast. The phone's bar is `position: fixed` and sits BELOW every `Modal` (z-50) and
@@ -2975,16 +3019,21 @@ export default function WindowFirstShell({
           foreignOpen={isForeignDialogOpen}
         />
       )}
-      {askEntry !== null && (
-        <AskSheet
-          open={askSheetShown}
-          onClose={closeAskSheet}
-          view={askViewSpec.view}
-          viewLabel={askViewSpec.label}
-          pickActions={askPickActions}
-          planActions={askPlanActions}
-          restoreFallback={askRestoreFallback}
-        />
+      {/* The sheet's chunk is fetched the first time it opens; after that it stays mounted (closed) for as
+          long as an entry exists, as it always has, so closing restores focus through the same instance.
+          Its fallback is null: the sheet is an overlay, so nothing in the page moves while it loads. */}
+      {askEntry !== null && (askSheetShown || askSheetLoaded) && (
+        <Suspense fallback={null}>
+          <AskSheet
+            open={askSheetShown}
+            onClose={closeAskSheet}
+            view={askViewSpec.view}
+            viewLabel={askViewSpec.label}
+            pickActions={askPickActions}
+            planActions={askPlanActions}
+            restoreFallback={askRestoreFallback}
+          />
+        </Suspense>
       )}
 
       {/* The window popup — the plan's drill-down, over the plan rather than inside it.

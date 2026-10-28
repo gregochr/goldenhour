@@ -253,6 +253,7 @@ describe('the auth screens use status tokens, not raw colours', () => {
   it('the set of scanned sources includes the shared components and the forgot and reset pages', () => {
     expect(sources.filter((s) => s.includes('/auth/')).sort()).toEqual([
       '../components/auth/AuthHeading.jsx',
+      '../components/auth/AuthPages.jsx',
       '../components/auth/AuthShell.jsx',
       '../components/auth/ForgotPasswordPage.jsx',
       '../components/auth/PasswordChecklist.jsx',

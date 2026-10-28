@@ -2,16 +2,10 @@ import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useStat
 import PropTypes from 'prop-types';
 import { computeAutoSelection, colourForecastDates } from './utils/conversions.js';
 import { normalizeMapTrigger, doorFromTrigger } from './utils/mapDoor.js';
-import LoginPage from './components/LoginPage.jsx';
-import RegisterPage from './components/RegisterPage.jsx';
-import ChangePasswordPage from './components/ChangePasswordPage.jsx';
-import ForgotPasswordPage from './components/auth/ForgotPasswordPage.jsx';
-import ResetPasswordPage from './components/auth/ResetPasswordPage.jsx';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import AuroraBannerRoot from './components/AuroraBannerRoot.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
-import UserSettingsModal from './components/UserSettingsModal.jsx';
 import PostcodePromptOverlay from './components/auth/PostcodePromptOverlay.jsx';
 import SubRegionSignInPrompt from './components/subregions/SubRegionSignInPrompt.jsx';
 import { markPostcodePromptDismissed } from './api/settingsApi.js';
@@ -50,6 +44,40 @@ import { takeInviteToken } from './utils/inviteLinkToken.js';
 // earlier.
 const WindowFirstMapPane = lazy(() => import('./components/WindowFirstMapPane.jsx'));
 const ManageView = lazy(() => import('./components/ManageView.jsx'));
+
+// Sign-in and the other auth pages, as ONE route chunk (`components/auth/AuthPages.jsx` re-exports all
+// five; five `lazy()` calls on one module fetch it once). A signed-in reader never loads it, except
+// the forced password change. `PostcodeCapture` is NOT among them: `PostcodePromptOverlay` imports it
+// statically for every signed-in reader.
+const authPages = () => import('./components/auth/AuthPages.jsx');
+const LoginPage = lazy(() => authPages().then((m) => ({ default: m.LoginPage })));
+const RegisterPage = lazy(() => authPages().then((m) => ({ default: m.RegisterPage })));
+const ChangePasswordPage = lazy(() => authPages().then((m) => ({ default: m.ChangePasswordPage })));
+const ForgotPasswordPage = lazy(() => authPages().then((m) => ({ default: m.ForgotPasswordPage })));
+const ResetPasswordPage = lazy(() => authPages().then((m) => ({ default: m.ResetPasswordPage })));
+
+// The settings dialog, fetched the first time it opens. It carries the sub-region picker with it.
+// The fallback is null: the dialog is an overlay, so nothing on the page moves while it loads, and
+// `settingsOpen` has already told the shell to take its own dialogs down, so the dialog rules hold
+// whether or not the chunk has arrived.
+const UserSettingsModal = lazy(() => import('./components/UserSettingsModal.jsx'));
+
+/** Page-sized stand-in for an auth page while its chunk loads: same full-height box, no content. */
+function AuthFallback() {
+  return <div className="min-h-screen" data-testid="auth-fallback" />;
+}
+
+/**
+ * Suspense boundary for a lazily loaded auth page.
+ *
+ * @param {object} props
+ * @param {React.ReactNode} props.children the lazy page
+ */
+function AuthSuspense({ children }) {
+  return <Suspense fallback={<AuthFallback />}>{children}</Suspense>;
+}
+
+AuthSuspense.propTypes = { children: PropTypes.node.isRequired };
 
 /** Lightweight fallback shown while a lazily-loaded view chunk is fetched. */
 function ViewFallback() {
@@ -117,21 +145,23 @@ function AuthGate() {
 
   if (resetToken) {
     return (
-      <ResetPasswordPage
-        token={resetToken}
-        onDone={() => setResetToken(null)}
-        onRequestNewLink={() => {
-          setResetToken(null);
-          setShowForgot(true);
-        }}
-      />
+      <AuthSuspense>
+        <ResetPasswordPage
+          token={resetToken}
+          onDone={() => setResetToken(null)}
+          onRequestNewLink={() => {
+            setResetToken(null);
+            setShowForgot(true);
+          }}
+        />
+      </AuthSuspense>
     );
   }
 
   // Also ahead of the token test: "Request a new link" on a dead link must reach this page for a
   // reader who is signed in on this browser too. Its "Back to sign in" then lands them in the app.
   if (showForgot) {
-    return <ForgotPasswordPage onBackToLogin={() => setShowForgot(false)} />;
+    return <AuthSuspense><ForgotPasswordPage onBackToLogin={() => setShowForgot(false)} /></AuthSuspense>;
   }
 
   // `registrationPending` keeps registration on screen after `completeRegistration` has stored the
@@ -144,36 +174,42 @@ function AuthGate() {
     // If there's a verification token in the URL, show RegisterPage in verify mode
     if (verifyToken || registrationPending) {
       return (
-        <RegisterPage
-          verifyToken={verifyToken}
-          onBackToLogin={() => {
-            window.history.replaceState({}, '', '/');
-            setVerifyToken(null);
-            setShowRegister(false);
-          }}
-        />
+        <AuthSuspense>
+          <RegisterPage
+            verifyToken={verifyToken}
+            onBackToLogin={() => {
+              window.history.replaceState({}, '', '/');
+              setVerifyToken(null);
+              setShowRegister(false);
+            }}
+          />
+        </AuthSuspense>
       );
     }
     if (showRegister || inviteToken) {
       return (
-        <RegisterPage
-          inviteToken={inviteToken}
-          onBackToLogin={() => {
-            setInviteToken(null);
-            setShowRegister(false);
-          }}
-        />
+        <AuthSuspense>
+          <RegisterPage
+            inviteToken={inviteToken}
+            onBackToLogin={() => {
+              setInviteToken(null);
+              setShowRegister(false);
+            }}
+          />
+        </AuthSuspense>
       );
     }
     return (
-      <LoginPage
-        onRegister={() => setShowRegister(true)}
-        onForgotPassword={() => setShowForgot(true)}
-      />
+      <AuthSuspense>
+        <LoginPage
+          onRegister={() => setShowRegister(true)}
+          onForgotPassword={() => setShowForgot(true)}
+        />
+      </AuthSuspense>
     );
   }
   if (mustChangePassword) {
-    return <ChangePasswordPage />;
+    return <AuthSuspense><ChangePasswordPage /></AuthSuspense>;
   }
   return <RewindGate />;
 }
@@ -1059,6 +1095,7 @@ function AppInner() {
       )}
 
       {settingsOpen && (
+        <Suspense fallback={null}>
         <UserSettingsModal
           focusField={settingsFocus}
           restoreFocusFallback={settingsReturnFocus}
@@ -1082,6 +1119,7 @@ function AppInner() {
           onSignOut={logout}
           onSubRegionsSaved={handleSubRegionsSaved}
         />
+        </Suspense>
       )}
 
       {/* The zero-picks prompt (sub-regions-plan §4.1): a Lite reader with enforcement on and no picks.
