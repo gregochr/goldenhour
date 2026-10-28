@@ -213,6 +213,10 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm run build
 
+      - name: Entry closure (Leaflet stays off the first load)
+        if: needs.changes.outputs.docs_only != 'true'
+        run: cd frontend && npm run check:entry
+
       # ⚠️ Nothing else checks nginx.conf's syntax before production. deploy.yml writes the file from
       # the release tag onto the host and recreates the frontend container (`restart: always`), so a
       # stray brace takes app.photocast.online down until a rollback — and neither this machine nor
