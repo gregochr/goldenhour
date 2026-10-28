@@ -1,7 +1,7 @@
 # Synchronous forecast engine retirement: the three term run types, manual runs, optimisation strategies
 
-**Status: PLAN WRITTEN AND REVIEWED 2026-10-28 (§10). All owner decisions are made (§8). No phase is
-built.** Written against `main` at `ff2e0a2d` (v2.34.1).
+**Status: PLAN WRITTEN AND REVIEWED 2026-10-28 (§10). All owner decisions are made (§8). Phases 1–2
+merged, Phase 3 in review (PR #1484), Phase 4 built and held for the release.** Written against `main` at `ff2e0a2d` (v2.34.1).
 
 Owner decision (2026-10-28): remove the whole synchronous forecast engine. That includes the map
 popup's admin "Run Forecast" button and the run types `VERY_SHORT_TERM`, `SHORT_TERM` and
@@ -15,6 +15,7 @@ popup's admin "Run Forecast" button and the run types `VERY_SHORT_TERM`, `SHORT_
 | 1 | `chore/sync-engine-retirement-phase-1` | `7988dd4e` | 2026-10-28 | `OptimisationStrategyUpdateRequest` pulled forward from Phase 2; unmapped paths now answer 404 (`NoResourceFoundException` handler). |
 | 2 | `chore/sync-engine-retirement-phase-2` | *(fill after merge)* | 2026-10-28 | Engine, optimisation strategies and notification channels deleted. Phase 3 note: `RunType.defaultDateRange` still has VERY_SHORT_TERM/SHORT_TERM/LONG_TERM arms and `ModelSelectionServiceTest`/`RunCompletion` tests still use those constants as fixtures; `EvaluationFailedException` and `RunProgress.stop`/`RetryBlock` are now unused by main (left in place). |
 | 3 | `chore/sync-engine-retirement-phase-3` | *(fill after merge)* | 2026-10-28 | Term constants, `defaultDateRange` and Prompt Test (option B) deleted; V196 clears the rows and drops `optimisation_strategy`; `LocalH2TermRunTypeCleanup` for local H2. Also deleted the dead retry plumbing: `RunProgress.stop`/`isStopped`, `RetryBlock`, retry lock and `recordRetry`, and the `retryable`/`retryBlockedReason` run-complete fields. Kept: `EvaluationFailedException` (live caller in `EvaluationFailure`). `WildlifeComfortRefreshJob` inlines its six-day range. The Aurora comments named in section 5 were still accurate (`JobRunsMetricsView` still reads aurora status), so unchanged. |
+| 4 | `chore/sync-engine-retirement-phase-4` | *(fill after merge)* | 2026-10-28 | V197 drops `prompt_test_result` then `prompt_test_run`. Merge only after the owner releases a version containing Phase 3. |
 
 ---
 

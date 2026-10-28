@@ -130,8 +130,8 @@ class RetireTermRunTypesMigrationTest {
                     + "WHERE table_name = 'optimisation_strategy'")).isEqualTo(1);
         }
 
-        // 2. Apply to latest. Nothing after V196 exists today; if one is added this still holds.
-        flywayTo(null).migrate();
+        // 2. Apply V196 only: V197 drops the Prompt Test tables this test still queries afterwards.
+        flywayTo("196").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(count(st, "SELECT count(*) FROM job_run WHERE run_type IN ('VERY_SHORT_TERM',"
@@ -150,7 +150,7 @@ class RetireTermRunTypesMigrationTest {
             assertThat(count(st, "SELECT count(*) FROM model_selection WHERE run_type = 'BATCH_NEAR_TERM'"))
                     .isEqualTo(1);
 
-            // Prompt Test rows are gone, the tables stay (Phase 4 drops them).
+            // Prompt Test rows are gone, the tables stay (V197 drops them).
             assertThat(count(st, "SELECT count(*) FROM prompt_test_result")).isZero();
             assertThat(count(st, "SELECT count(*) FROM prompt_test_run")).isZero();
 
