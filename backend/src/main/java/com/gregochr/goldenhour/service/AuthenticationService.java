@@ -173,28 +173,36 @@ public class AuthenticationService {
      * taken.
      *
      * <p>On EVERY path, verified or fallback, an account that has had {@value #LOGIN_FAILURE_LIMIT}
-     * failed sign-ins in the quarter hour refuses the next attempt before any password is compared. A
-     * failure is a candidate whose password did not match; a match (even on a disabled account) and a
-     * successful sign-in never count, and an identifier that resolves to no account records nothing.
-     * The counter is in memory, so a restart clears a lockout.
+     * failed sign-ins in the quarter hour is skipped before any password is compared: the other candidate
+     * of a two-candidate identifier is still tried, and the request is refused with 429 only when EVERY
+     * resolved candidate is locked. If the unlocked candidate then fails, the answer is the generic 401,
+     * which does not reveal the locked one. Failures are recorded only when the whole sign-in fails
+     * (including the verified-but-disabled case): one per candidate that was compared and did not match.
+     * A successful sign-in through any candidate records nothing, and an identifier that resolves to no
+     * account records nothing. The counter is in memory, so a restart clears a lockout.
      *
      * @param identifier the login username, or the account's email address
      * @param password   the plain-text password
      * @param fallback  true when the request is on the Turnstile fallback path
      * @return the issued tokens and user fields
      * @throws InvalidCredentialsException if the credentials are wrong or the account is disabled
-     * @throws TooManyAttemptsException    if an account has had ten failed sign-ins in the window, or the
+     * @throws TooManyAttemptsException    if every resolved account has had ten failed sign-ins in the window, or the
      *                                     fallback's per-account budget is spent
      */
     public AuthTokens login(String identifier, String password, boolean fallback) {
         List<AppUserEntity> candidates = loginCandidates(identifier);
 
+        List<AppUserEntity> unlocked = new ArrayList<>();
         for (AppUserEntity candidate : candidates) {
             if (attemptLimiter.isSpent(LOGIN_FAILURE_KEY_PREFIX + candidate.getId(),
                     LOGIN_FAILURE_LIMIT, AuthAttemptLimiter.Window.QUARTER_HOUR)) {
-                LOG.info("Login refused: failed-sign-in limit reached for user id {}", candidate.getId());
-                throw new TooManyAttemptsException("Too many failed sign-ins for the account");
+                LOG.info("Login: skipping user id {}: failed-sign-in limit reached", candidate.getId());
+            } else {
+                unlocked.add(candidate);
             }
+        }
+        if (!candidates.isEmpty() && unlocked.isEmpty()) {
+            throw new TooManyAttemptsException("Too many failed sign-ins for the account");
         }
 
         if (fallback) {
@@ -216,7 +224,7 @@ public class AuthenticationService {
         AppUserEntity user = null;
         boolean verifiedButDisabled = false;
         List<AppUserEntity> failed = new ArrayList<>();
-        for (AppUserEntity candidate : candidates) {
+        for (AppUserEntity candidate : unlocked) {
             if (passwordEncoder.matches(password, candidate.getPassword())) {
                 if (candidate.isEnabled()) {
                     user = candidate;
@@ -235,12 +243,11 @@ public class AuthenticationService {
             }
         }
 
-        for (AppUserEntity candidate : failed) {
-            attemptLimiter.recordFailure(LOGIN_FAILURE_KEY_PREFIX + candidate.getId(),
-                    AuthAttemptLimiter.Window.QUARTER_HOUR);
-        }
-
         if (user == null) {
+            for (AppUserEntity candidate : failed) {
+                attemptLimiter.recordFailure(LOGIN_FAILURE_KEY_PREFIX + candidate.getId(),
+                        AuthAttemptLimiter.Window.QUARTER_HOUR);
+            }
             if (verifiedButDisabled) {
                 LOG.warn("Login failed: identifier='{}' — account disabled", LogSanitizer.sanitize(identifier));
                 throw new InvalidCredentialsException("Account is disabled");

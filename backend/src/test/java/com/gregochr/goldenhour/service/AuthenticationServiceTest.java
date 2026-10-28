@@ -523,21 +523,95 @@ class AuthenticationServiceTest {
             order.verify(passwordEncoder).matches("reader-pw", "reader-hash");
         }
 
-        @Test
-        @DisplayName("two candidates, the first fails and the second matches: only the first's failure is recorded")
-        void twoCandidates_onlyTheFailedOneIsRecorded() {
-            AppUserEntity namedLikeAnAddress = AppUserEntity.builder().id(3L).username(ADDRESS)
+        private AppUserEntity namedLikeAnAddress() {
+            AppUserEntity named = AppUserEntity.builder().id(3L).username(ADDRESS)
                     .password("named-hash").role(UserRole.LITE_USER).enabled(true).build();
-            when(userRepository.findByUsername(ADDRESS)).thenReturn(Optional.of(namedLikeAnAddress));
+            when(userRepository.findByUsername(ADDRESS)).thenReturn(Optional.of(named));
             when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
+            return named;
+        }
+
+        @Test
+        @DisplayName("two candidates, neither spent, the first fails and the second matches: success, "
+                + "nothing recorded")
+        void twoCandidates_secondMatches_recordsNothing() {
+            namedLikeAnAddress();
             when(passwordEncoder.matches("reader-pw", "named-hash")).thenReturn(false);
             when(passwordEncoder.matches("reader-pw", "reader-hash")).thenReturn(true);
             issuing(reader);
 
             service.login(ADDRESS, "reader-pw");
 
-            verify(attemptLimiter).recordFailure("login:failures:user:3", AuthAttemptLimiter.Window.QUARTER_HOUR);
+            verify(attemptLimiter, never()).recordFailure("login:failures:user:3",
+                    AuthAttemptLimiter.Window.QUARTER_HOUR);
             verify(attemptLimiter, never()).recordFailure("login:failures:user:7",
+                    AuthAttemptLimiter.Window.QUARTER_HOUR);
+        }
+
+        @Test
+        @DisplayName("one candidate spent, the other not: the spent one is never compared and the other signs in")
+        void oneSpent_otherSignsIn() {
+            namedLikeAnAddress();
+            when(attemptLimiter.isSpent("login:failures:user:3", 10, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                    .thenReturn(true);
+            when(passwordEncoder.matches("reader-pw", "reader-hash")).thenReturn(true);
+            issuing(reader);
+
+            AuthTokens tokens = service.login(ADDRESS, "reader-pw");
+
+            assertThat(tokens.username()).isEqualTo("reader");
+            verify(passwordEncoder, never()).matches("reader-pw", "named-hash");
+            verify(attemptLimiter, never()).recordFailure("login:failures:user:3",
+                    AuthAttemptLimiter.Window.QUARTER_HOUR);
+            verify(attemptLimiter, never()).recordFailure("login:failures:user:7",
+                    AuthAttemptLimiter.Window.QUARTER_HOUR);
+        }
+
+        @Test
+        @DisplayName("both candidates spent: 429 and the encoder is never touched")
+        void bothSpent_throwsWithoutTouchingTheEncoder() {
+            namedLikeAnAddress();
+            when(attemptLimiter.isSpent("login:failures:user:3", 10, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                    .thenReturn(true);
+            when(attemptLimiter.isSpent("login:failures:user:7", 10, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                    .thenReturn(true);
+
+            assertThatThrownBy(() -> service.login(ADDRESS, "reader-pw"))
+                    .isInstanceOf(TooManyAttemptsException.class);
+
+            verifyNoInteractions(passwordEncoder);
+        }
+
+        @Test
+        @DisplayName("two candidates both fail: a failure is recorded for both")
+        void bothFail_recordsBoth() {
+            namedLikeAnAddress();
+            when(passwordEncoder.matches("wrong", "named-hash")).thenReturn(false);
+            when(passwordEncoder.matches("wrong", "reader-hash")).thenReturn(false);
+
+            assertThatThrownBy(() -> service.login(ADDRESS, "wrong"))
+                    .isInstanceOf(InvalidCredentialsException.class)
+                    .hasMessage("Invalid username or password");
+
+            verify(attemptLimiter).recordFailure("login:failures:user:3", AuthAttemptLimiter.Window.QUARTER_HOUR);
+            verify(attemptLimiter).recordFailure("login:failures:user:7", AuthAttemptLimiter.Window.QUARTER_HOUR);
+        }
+
+        @Test
+        @DisplayName("one spent and a wrong password for the other: the generic 401, a failure for the "
+                + "unlocked one only")
+        void oneSpent_wrongPassword_genericFailureRecordsUnlockedOnly() {
+            namedLikeAnAddress();
+            when(attemptLimiter.isSpent("login:failures:user:3", 10, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                    .thenReturn(true);
+            when(passwordEncoder.matches("wrong", "reader-hash")).thenReturn(false);
+
+            assertThatThrownBy(() -> service.login(ADDRESS, "wrong"))
+                    .isInstanceOf(InvalidCredentialsException.class)
+                    .hasMessage("Invalid username or password");
+
+            verify(attemptLimiter).recordFailure("login:failures:user:7", AuthAttemptLimiter.Window.QUARTER_HOUR);
+            verify(attemptLimiter, never()).recordFailure("login:failures:user:3",
                     AuthAttemptLimiter.Window.QUARTER_HOUR);
         }
 

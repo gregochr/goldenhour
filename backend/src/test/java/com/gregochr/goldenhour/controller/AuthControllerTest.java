@@ -1008,7 +1008,7 @@ class AuthControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.error").exists());
 
         verify(attemptLimiter, never()).recordFailure("login:failures:user:1", Window.QUARTER_HOUR);
-        verify(refreshTokenRepository, never()).save(any());
+        verifyNoInteractions(refreshTokenRepository);
     }
 
     @Test
