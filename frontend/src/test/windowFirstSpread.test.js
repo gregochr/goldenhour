@@ -5,7 +5,7 @@ import {
   buildSpread, formatSpreadCount, hasSpreadSample, poolPhrase, poolWithinReach, spokenPoolPhrase,
   spreadBandsSpoken, spreadBars, spreadColumnWidthPx, spreadCountLayout,
   spreadCountLayoutAcross,
-  spreadQualifier, spreadRowState, spreadTitle, unratedBar, unratedPhrase,
+  spreadQualifier, spreadRowState, spreadTitle, stoodSpreadTitle, unratedBar, unratedPhrase,
 } from '../utils/windowFirstSpread.js';
 import { REACH_TIERS } from '../utils/reachLens.js';
 
@@ -649,5 +649,18 @@ describe('spreadCountLayoutAcross — neighbours in a row share one column width
   it('lets cards that draw no bars (null) contribute nothing', () => {
     expect(spreadCountLayoutAcross([null, layout(2), undefined])).toEqual({ chars: 2, widthPx: 10.4, small: false });
     expect(spreadCountLayoutAcross([null, null])).toEqual({ chars: 1, widthPx: 9, small: false });
+  });
+});
+
+describe('stoodSpreadTitle — the tooltip over a pool the weather ruled out', () => {
+  it('keeps spreadTitle\'s lead and swaps the reason, with and without the reach claim', () => {
+    const spread = buildSpread([{ rating: null }, { rating: null }]);
+    expect(stoodSpreadTitle(spread, true)).toBe('2 locations within reach — stood down by the weather.');
+    expect(stoodSpreadTitle(spread, false)).toBe('2 locations — stood down by the weather.');
+    expect(stoodSpreadTitle(spread, true).split(' — ')[0]).toBe(spreadTitle(spread, true).split(' — ')[0]);
+  });
+
+  it('says one location in the singular', () => {
+    expect(stoodSpreadTitle(buildSpread([{ rating: null }]), false)).toBe('1 location — stood down by the weather.');
   });
 });

@@ -380,6 +380,19 @@ export function spreadTitle(spread, withinReach) {
   return `${lead} — ${bands}${unratedPhrase(spread)}`;
 }
 
+/**
+ * The Spread tooltip for a pool the weather ruled out entirely: {@link spreadTitle}'s "N locations
+ * within reach — none rated yet." with the reason in place of "none rated yet". Same lead (through
+ * {@link poolPhrase}), so the two cannot name different pools; the caller picks which to show.
+ *
+ * @param {object} spread       the result of {@link buildSpread}
+ * @param {boolean} withinReach whether the pool's drives are all measured — {@link poolWithinReach}
+ * @returns {string} the tooltip
+ */
+export function stoodSpreadTitle(spread, withinReach) {
+  return `${poolPhrase(spread?.total ?? 0, withinReach)} — stood down by the weather.`;
+}
+
 /** The narrowest a count column is drawn, in px — one character of count, and the gap's floor. */
 export const SPREAD_COLUMN_MIN_PX = 9;
 /** The widest a count column is drawn, in px — a four-character count (`1.2k`) at the smaller type fits it. */
