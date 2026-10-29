@@ -14,7 +14,9 @@ import {
   withStandDownLabels, NO_BIG_SEAS_CHIPS,
   REGION_TINY_FRAME_WIDTH,
 } from '../../utils/mapLabels.js';
-import BigSeasChip, { BigSeasTipLines } from './BigSeasChip.jsx';
+import MapChipTooltip from './MapChipTooltip.jsx';
+import useChipTipPosition from '../../hooks/useChipTipPosition.js';
+import BigSeasChip,{ BigSeasTipLines } from './BigSeasChip.jsx';
 import { badgeAccessibleClause } from '../../utils/outcomeRatingJoin.js';
 import RatedBadge from './RatedBadge.jsx';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
@@ -206,13 +208,6 @@ function forcedDot(x, y, frameWidth, frameHeight) {
 }
 
 /**
- * The tooltip's own CSS `max-width` (`.wf-maplab-tip` in index.css) — the fallback used to clamp
- * its position before the node has rendered once and so cannot yet report a real
- * {@code offsetWidth}. See {@code positionTip}'s own note.
- */
-const TOOLTIP_WIDTH_FALLBACK = 240;
-
-/**
  * The Map tab's HTML label layer (map-tab-v2-plan.md §3 P8,
  * `docs/design/map-tab-v2/README.md` §6 "Labels — placement and density") — home marker, reach
  * ring labels, region names and location chips, placed by one greedy pass in priority order and
@@ -337,7 +332,6 @@ export default function MapLabels({
   const [hoverName, setHoverName] = useState(null);
   /** The hovered big-seas chip's location id (its own card, same rule as {@code hoverName}). */
   const [hoverSeasId, setHoverSeasId] = useState(null);
-  const [tipPos, setTipPos] = useState({ x: 0, y: 0 });
 
   const rootRef = useRef(null);
   /**
@@ -367,7 +361,7 @@ export default function MapLabels({
   const regionRefs = useRef(new Map());
   const chipRefs = useRef(new Map());
   const seasRefs = useRef(new Map());
-  const tipRef = useRef(null);
+  const { attach: attachTip, place: placeTip, move: moveTipPos } = useChipTipPosition(map);
 
   /**
    * One measure-and-paint pass: projects the current window's candidates and stores them as
@@ -676,33 +670,9 @@ export default function MapLabels({
     return { left: `${box.x}px`, top: `${box.y}px` };
   };
 
-  const positionTip = useCallback((event) => {
-    // ⚠️ The MAP CONTAINER's rect, never `rootRef` (PR #733 review — a confirmed regression from
-    // the review round that added this clamp). `.wf-maplab-layer` is `position: absolute; left: 0;
-    // top: 0` with no `inset`/width/height of its own, and every one of its children is ALSO
-    // absolutely positioned — so it never acquires any intrinsic size from its content, and
-    // `getBoundingClientRect()` on it reports `width: 0, height: 0` in a real browser, not merely
-    // as a jsdom artefact. `wrapRect.width - tipWidth - 8` was therefore always a large negative
-    // number, and `Math.min(rawX, that)` always picked it — every tooltip landed off-map to the
-    // left, unconditionally. `map.getContainer()` is the one DOM node in this chain the app itself
-    // sizes (`MapView`'s `style={{height:'100%',width:'100%'}}`), and its top-left corner is the
-    // same point the label layer is glued to (`L.DomUtil.setPosition`), so switching the READING
-    // to it changes nothing about where `left`/`top` land, only that `width`/`height` are now real.
-    const wrapRect = map?.getContainer?.()?.getBoundingClientRect();
-    if (!wrapRect) return;
-    // The bundle's own `bindTip` rule (`map-tab-v2.js`): offset off the cursor, then clamp so the
-    // card never runs past the frame's own edges. The tooltip's WIDTH is only knowable once it has
-    // rendered at least once (`tipRef`); before that, `TOOLTIP_WIDTH_FALLBACK` — this CSS class's
-    // own `max-width` — is a safe over-estimate for the clamp, since clamping against a width that
-    // is too generous can only pull the card further from the edge than strictly necessary, never
-    // let it overhang.
-    const tipWidth = tipRef.current?.offsetWidth || TOOLTIP_WIDTH_FALLBACK;
-    const rawX = event.clientX - wrapRect.left + 13;
-    setTipPos({
-      x: Math.min(rawX, wrapRect.width - tipWidth - 8),
-      y: Math.max(6, event.clientY - wrapRect.top - 10),
-    });
-  }, [map]);
+  // The tooltip is positioned by `useChipTipPosition` (a ref + CSS transform, rAF-throttled), never
+  // by state: a pointer move must not render this layer (performance review F21). That hook keeps
+  // the PR #733 rule: it measures `map.getContainer()`, never `rootRef`, whose box is zero-sized.
   // ⚠️ Only a real mouse hovers. A tap on a touch screen makes the browser emit compatibility mouse
   // events (iOS Safari and Android Chrome alike) with no matching leave until the next tap elsewhere,
   // so a mouse-event tooltip opened by a tap stuck on top of the callout the same tap opened. Pointer
@@ -711,17 +681,17 @@ export default function MapLabels({
     if (event.pointerType !== 'mouse') return;
     setHoverSeasId(null);
     setHoverName(name);
-    positionTip(event);
-  }, [positionTip]);
+    placeTip(event);
+  }, [placeTip]);
   const showSeasTip = useCallback((locationId, event) => {
     if (event.pointerType !== 'mouse') return;
     setHoverName(null);
     setHoverSeasId(locationId);
-    positionTip(event);
-  }, [positionTip]);
+    placeTip(event);
+  }, [placeTip]);
   const moveTip = useCallback((event) => {
-    if (event.pointerType === 'mouse') positionTip(event);
-  }, [positionTip]);
+    if (event.pointerType === 'mouse') moveTipPos(event);
+  }, [moveTipPos]);
   const hideTip = useCallback(() => {
     setHoverName(null);
     setHoverSeasId(null);
@@ -1013,13 +983,8 @@ export default function MapLabels({
   // and the chrome siblings into — puts the tooltip in that outer stacking context instead, where
   // 1400 actually outranks every chip beneath it.
   const chromeRoot = map?.getContainer?.()?.parentElement ?? null;
-  const tooltip = hover && chromeRoot && createPortal(
-    <div
-      ref={tipRef}
-      className="wf-maplab-tip"
-      data-testid="map-label-tip"
-      style={{ left: `${tipPos.x}px`, top: `${tipPos.y}px` }}
-    >
+  const tooltip = hover && chromeRoot && (
+    <MapChipTooltip container={chromeRoot} attach={attachTip}>
       <div className="wf-maplab-tip-n">{hover.name}</div>
       <div className="wf-maplab-tip-s">
         {hover.gated === true
@@ -1050,21 +1015,13 @@ export default function MapLabels({
           {`${tideTierHeading(hover.tideTier, hover.tideAssessed)} — ${hover.tideFitPhrase}`}
         </div>
       )}
-    </div>,
-    chromeRoot,
+    </MapChipTooltip>
   );
 
-  const seasTooltip = hoverSeas && chromeRoot && createPortal(
-    <div
-      ref={tipRef}
-      className="wf-maplab-tip"
-      data-testid="map-label-tip"
-      data-kind="big-seas"
-      style={{ left: `${tipPos.x}px`, top: `${tipPos.y}px` }}
-    >
+  const seasTooltip = hoverSeas && chromeRoot && (
+    <MapChipTooltip container={chromeRoot} attach={attachTip} kind="big-seas">
       <BigSeasTipLines item={hoverSeas} />
-    </div>,
-    chromeRoot,
+    </MapChipTooltip>
   );
 
   return (

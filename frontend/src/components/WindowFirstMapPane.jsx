@@ -20,7 +20,7 @@ import {
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 import { buildRegionBestIndex } from '../utils/regionsJump.js';
 import { buildRegionVerdictIndex, buildShapedLeadIndex } from '../utils/mapVerdict.js';
-import { foreignModalOver } from '../utils/mapForeignModal.js';
+import { foreignModalOver, mutationsMayChangeForeignModal } from '../utils/mapForeignModal.js';
 import { buildWindowTideIndex } from '../utils/mapTideFit.js';
 import { buildPastSolarWindows, pastWindowBest } from '../utils/mapEvents.js';
 import {
@@ -102,10 +102,17 @@ function isPageInFront() {
  * (`Modal.jsx`), so a dialog stacking over — or coming out from under — another has to be seen too.
  * Module-level, so `useSyncExternalStore` sees one stable subscribe and never resubscribes on a
  * render, exactly like {@link subscribePagePresence} above.
+ *
+ * <p>The subtree stays (`Modal` renders inline in `#root`; the `stacked` toggle needs `attributes`
+ * with `subtree`), but the callback filters (performance review F22): Leaflet's tile and pane churn,
+ * and any child-list change that neither adds nor removes a dialog, never reaches
+ * {@code onChange}, so React never re-asks {@link foreignModalOver} for them.
  */
 function subscribeForeignModalDom(onChange) {
   if (typeof MutationObserver === 'undefined') return () => {};
-  const observer = new MutationObserver(onChange);
+  const observer = new MutationObserver((records) => {
+    if (mutationsMayChangeForeignModal(records)) onChange();
+  });
   observer.observe(document.body, {
     childList: true, subtree: true, attributes: true, attributeFilter: ['aria-modal'],
   });
