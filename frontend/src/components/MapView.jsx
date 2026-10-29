@@ -27,7 +27,7 @@ import {
   isNightOver, isStillCurrent, resolveAuroraNight, ukDateStr, ukDateStrOffset,
 } from '../utils/mapDates.js';
 import { auroraTabOffered } from '../utils/auroraTab.js';
-import { appNow } from '../utils/rewind.js';
+import { appNow, getRewindTo } from '../utils/rewind.js';
 import {
   LOCATION_TYPE_META, DISPLAY_TYPES, isWildlifeOnly,
 } from '../utils/locationTypes.js';
@@ -365,8 +365,6 @@ const TOPIC_ANNOUNCE_MS = 6000;
 const HW_DEADLINE_SLICE_MS = 30000;
 /** The pastness tick fires this long after the boundary, so the strict elapsed tests are true by then. */
 const PAST_TICK_EPSILON_MS = 50;
-/** The longest the pastness timer waits before re-checking (a far boundary re-arms daily). */
-const PAST_TICK_MAX_MS = 24 * 60 * 60 * 1000;
 /** Stable empty list: no Ask answer on screen. A fresh `[]` per render would defeat `MapView`'s memo. */
 const NO_ASK_PICKS = [];
 /**
@@ -3609,18 +3607,39 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const mapTomorrowStr = ukDateStrOffset(1);
   const heatTideByWindow = heat?.tideByWindow;
   useEffect(() => {
-    const arm = () => {
-      const nowMs = appNow().getTime();
-      const at = nextClockBoundary({
-        tideByWindow: heatTideByWindow, pastSolarWindows, bigSeas, nowMs, afterglowMs: AFTERGLOW_MS,
-      });
-      if (at == null) return null;
-      // Clamped so a far boundary re-checks daily and a near one never spins; the tick is idempotent.
-      const delay = Math.min(Math.max(at - nowMs + PAST_TICK_EPSILON_MS, 0), PAST_TICK_MAX_MS);
-      return setTimeout(() => setPastTick((n) => n + 1), delay);
+    // Rewind freezes the clock (and a change of it remounts the tree), so no boundary can pass.
+    if (getRewindTo() != null) return undefined;
+    const at = nextClockBoundary({
+      tideByWindow: heatTideByWindow, pastSolarWindows, bigSeas, nowMs: appNow().getTime(),
+      afterglowMs: AFTERGLOW_MS,
+    });
+    if (at == null) return undefined;
+    // ⚠️ A WALL-CLOCK deadline, so never one long `setTimeout` (a hidden tab throttles and a sleeping machine
+    // suspends timers): it wakes in short slices, re-reads the clock each time, and bumps `pastTick` only
+    // once the boundary has really passed, so the memos still hold between boundaries. It also re-checks at
+    // once when the tab becomes visible. Same shape as the High-water deadline timer below.
+    const due = at + PAST_TICK_EPSILON_MS;
+    let timer = null;
+    const check = () => {
+      timer = null;
+      const remaining = due - appNow().getTime();
+      if (remaining <= 0) {
+        setPastTick((n) => n + 1);
+        return;
+      }
+      timer = setTimeout(check, Math.min(remaining, HW_DEADLINE_SLICE_MS));
     };
-    const timer = arm();
-    return () => { if (timer != null) clearTimeout(timer); };
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (timer != null) clearTimeout(timer);
+      check();
+    };
+    timer = setTimeout(check, Math.min(Math.max(due - appNow().getTime(), 0), HW_DEADLINE_SLICE_MS));
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      if (timer != null) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [heatTideByWindow, pastSolarWindows, bigSeas, pastTick]);
   const nightOnScreen = useMemo(
     () => ((isAstroMode || isAuroraMode) ? { eventType, date: nightDate } : null),
@@ -3652,7 +3671,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     isLite: role === 'LITE_USER',
     formatTimeUk: formatEventTimeUk,
     bigSeas,
-  // `hwExpiryTick` and `pastTick` are the clock (see above); neither is read inside the body.
+  // `hwExpiryTick` and `pastTick` are the clock (see above); neither is read inside the body, which is the
+  // one thing this directive excuses. It is line-level, on the deps array's opening bracket (where the rule
+  // reports the pair); the rule reports a missing dependency there too, so keep this list matched to the body.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [heat?.windows, heat?.tideByWindow, forecastDates, pastSolarWindows, mapTodayStr, mapTomorrowStr,
     auroraNight, nightOnScreen, astroAvailableDates, astroConditionsByDate, eventAuroraDates,
@@ -4440,7 +4461,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // P4d: what `handleTideBounds` compares a new report against. Refreshed after every render that changed a
   // pool or took a bounds bump, so the stored signature is always the one the screen is showing (a pool
   // change with the viewport still must update it, or a later pan could be judged against a stale answer).
-  useEffect(() => {
+  // A LAYOUT effect, on purpose: `HeatBoundsController`'s synchronous refit fires `moveend` from a child's
+  // PASSIVE effect in the same commit as a pool change (a scope switch), and layout effects all run before
+  // any passive one, so the report is judged against this commit's pools, never the previous ones.
+  useLayoutEffect(() => {
     tidePoolsRef.current = { gatePool: tideGatePool, stripPool: labelSpots };
     tideRenderedSigRef.current = tideBoundsVersion > 0
       ? tideViewSignature(tideBoundsRef.current, tideGatePool, labelSpots) : null;

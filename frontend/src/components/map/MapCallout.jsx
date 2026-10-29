@@ -17,10 +17,11 @@ import { subjectWordsOf, isWildlifeOnly } from '../../utils/locationTypes.js';
 import {
   comfortDayOf, comfortLines, comfortSummary, rowsFromNow,
 } from '../../utils/hourlyComfort.js';
-import { formatDateLabel } from '../../utils/conversions.js';
+import { formatDateLabel, parseUtcInstant } from '../../utils/conversions.js';
+import { useClockBoundary } from '../../hooks/useClockBoundary.js';
 import { ukDateStr } from '../../utils/mapDates.js';
 import { appNow, getRewindTo } from '../../utils/rewind.js';
-import { isEventTimePast } from '../../utils/briefingDisplay.js';
+import { isEventTimePast, AFTERGLOW_MS } from '../../utils/briefingDisplay.js';
 import { rowKey } from '../../hooks/useOutcomeRatings.js';
 import { useSlotRatings } from '../../hooks/useSlotRatings.js';
 import OutcomeRatingBlock, { ratingView, showsSeenChips } from './OutcomeRatingBlock.jsx';
@@ -489,6 +490,11 @@ export default function MapCallout({
   const placeEventTime = event?.kind === 'solar'
     ? (location?.forecastsByDate?.get?.(event.date)?.[slotKey]?.solarEventTime ?? null)
     : null;
+  // The gate below asks `isEventTimePast(placeEventTime)` at render; nothing else re-renders the callout
+  // at the afterglow boundary, so the callout re-renders itself there (P4e: the map no longer re-renders
+  // on every pan, and its event memos no longer re-run per render, so this cannot lean on either).
+  const placeEventMs = parseUtcInstant(placeEventTime)?.getTime();
+  useClockBoundary(placeEventMs == null ? null : placeEventMs + AFTERGLOW_MS);
   const ratingKey = event?.kind === 'solar' && location?.id != null
     ? rowKey(location.id, event.date, event.eventType) : null;
   const ratingRoleKnown = userRole === 'ADMIN' || userRole === 'PRO_USER' || userRole === 'LITE_USER';

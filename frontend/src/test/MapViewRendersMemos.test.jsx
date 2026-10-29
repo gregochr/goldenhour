@@ -16,6 +16,7 @@ import {
 } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
+import { setRewind } from '../utils/rewind.js';
 import { tideIndexOf } from './tideFactsFixture.js';
 
 vi.mock('leaflet', () => {
@@ -303,6 +304,20 @@ describe('P4d: a pan that changes nothing derived does not re-render MapView', (
     expect(screen.getByTestId('probe-spot')).toHaveAttribute('data-tide', 'match');
   });
 
+  it('a pool change and a synchronous refit report in the same commit is judged against the NEW pools', async () => {
+    // The scope switch: the pool changes AND the map refits (a `moveend` from a child passive effect,
+    // which the mock reproduces by re-reporting `getBounds()` on every render). The old viewport covered
+    // the place; the refit one does not, and the place has moved out of it as the pool changed.
+    const NORTH_ONLY = { pad: () => ({ contains: ([lat]) => lat >= 55 }) };
+    const result = await renderMap({ mapTideMode: 'auto' });
+    expect(screen.getByTestId('wf-map-peek-btn-tide')).toBeInTheDocument();
+    mockMapBounds = NORTH_ONLY;
+    const moved = [{ ...makeLocation(), lat: 50 }];
+    await rerenderMap(result, { mapTideMode: 'auto', locations: moved });
+    expect(screen.queryByTestId('wf-map-peek-btn-tide')).not.toBeInTheDocument();
+    expect(screen.getByTestId('probe-spot')).not.toHaveAttribute('data-tide');
+  });
+
   it('the peek seed still fires on the first report: no pulse then, one on a later false to true', async () => {
     await renderMap({ mapTideMode: 'auto' });
     expect(screen.getByTestId('wf-map-peek-btn-tide').className).not.toContain('wf-map-peek-btn-pulse');
@@ -389,18 +404,67 @@ describe('P4e: the event memos hit, and time is an input', () => {
       expect(Object.is(latest(counters.events), before)).toBe(true);
     });
 
-    it('arms one timer for the boundary (plus the epsilon) and clears it on unmount', async () => {
+    it('a 24-minute gap is waited out in 30-second slices (no bump), the last one landing on the boundary', async () => {
       useClock(`${TODAY}T08:30:00Z`);
       const setSpy = vi.spyOn(globalThis, 'setTimeout');
-      const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
+      await renderMap(propsNoSunrise());
+      const before = latest(counters.events);
+      const slice = setSpy.mock.calls.filter((c) => c[1] === 30000);
+      expect(slice.length).toBeGreaterThan(0);
+      await act(async () => { vi.advanceTimersByTime(20 * 60 * 1000); });
+      await reportBounds(AWAY_BOUNDS);
+      expect(Object.is(latest(counters.events), before)).toBe(true);
+      // The final slice is the remainder, not a full 30 s: the flip lands on boundary + 50 ms.
+      await act(async () => { vi.advanceTimersByTime(4 * 60 * 1000 - 1000); });
+      expect(sunriseRow()?.past).not.toBe(true);
+      await act(async () => { vi.advanceTimersByTime(1100); });
+      expect(sunriseRow()?.past).toBe(true);
+    });
+
+    it('a simulated sleep (clock jumps past the boundary, no timer fired) flips on the next slice', async () => {
+      useClock(`${TODAY}T08:30:00Z`);
+      await renderMap(propsNoSunrise());
+      expect(sunriseRow()?.past).not.toBe(true);
+      vi.setSystemTime(new Date(`${TODAY}T09:30:00Z`));
+      await act(async () => { vi.advanceTimersByTime(30000); });
+      expect(sunriseRow()?.past).toBe(true);
+    });
+
+    it('a tab becoming visible after the boundary flips at once', async () => {
+      useClock(`${TODAY}T08:30:00Z`);
+      await renderMap(propsNoSunrise());
+      vi.setSystemTime(new Date(`${TODAY}T09:30:00Z`));
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+      try {
+        await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+        expect(sunriseRow()?.past).toBe(true);
+      } finally {
+        delete document.visibilityState;
+      }
+    });
+
+    it('clears its timers on unmount', async () => {
+      useClock(`${TODAY}T08:30:00Z`);
+      const idle = vi.getTimerCount();
       const result = await renderMap(propsNoSunrise());
-      const wanted = Date.parse(BOUNDARY) - Date.now() + 50;
-      const armed = setSpy.mock.calls
-        .map((call, i) => ({ delay: call[1], id: setSpy.mock.results[i].value }))
-        .filter((c) => c.delay === wanted);
-      expect(armed.length).toBeGreaterThan(0);
       result.unmount();
-      for (const { id } of armed) expect(clearSpy).toHaveBeenCalledWith(id);
+      await act(async () => { vi.advanceTimersByTime(60 * 60 * 1000); });
+      expect(vi.getTimerCount()).toBeLessThanOrEqual(idle);
+    });
+
+    it('arms no pastness timer while a Rewind is set', async () => {
+      useClock(`${TODAY}T08:30:00Z`);
+      setRewind(`${TODAY}T08:30:00Z`);
+      try {
+        const setSpy = vi.spyOn(globalThis, 'setTimeout');
+        await renderMap(propsNoSunrise());
+        await act(async () => { vi.advanceTimersByTime(60 * 60 * 1000); });
+        // The frozen clock never reaches the 08:54 boundary, so the row never flips.
+        expect(sunriseRow()?.past).not.toBe(true);
+        expect(setSpy.mock.calls.some((c) => c[1] === 30000)).toBe(false);
+      } finally {
+        setRewind(null);
+      }
     });
   });
 });

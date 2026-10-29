@@ -226,6 +226,21 @@ describe('MapCallout — the rating block\'s mount condition', () => {
   });
 });
 
+describe('MapCallout — the gate opens at the place\'s own afterglow boundary with no other render (P4e)', () => {
+  it('absent just before, mounted just after, from the callout\'s own timer alone', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(NOW);
+    const event = { ...PAST_EVENT, id: `solar:${TODAY}:SUNSET`, date: TODAY };
+    // 09:45 plus the 30-minute afterglow: the gate opens at 10:15:00.
+    await mount({ location: { ...LOCATION, forecastsByDate: rowFor(TODAY, `${TODAY}T09:45:00`) }, event });
+    expect(block()).not.toBeInTheDocument();
+    await act(async () => { vi.advanceTimersByTime(14 * 60 * 1000); });
+    expect(block()).not.toBeInTheDocument();
+    await act(async () => { vi.advanceTimersByTime(60 * 1000 + 100); });
+    expect(block()).toBeInTheDocument();
+  });
+});
+
 describe('MapCallout — placePassed is THIS place\'s own row, not the window\'s', () => {
   it('a place whose own event time has passed mounts', async () => {
     await mount({ location: { ...LOCATION, forecastsByDate: rowFor(YESTERDAY, `${YESTERDAY}T20:10:00`) } });
