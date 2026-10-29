@@ -44,6 +44,23 @@ export function coastalInView(spots, bounds) {
 }
 
 /**
+ * Everything a viewport can change in the tide cues and the tide strip, as one comparable string
+ * (performance-review-2026-10 P4d): whether the cue gate's pool holds a coastal place in view, and which
+ * strip-pool places are in view. Two viewports with the same signature give the same
+ * {@code coastalInView} answer for both pools, so a pan that keeps it needs no render.
+ *
+ * @param {?{pad: function(number): object}} bounds a Leaflet {@code LatLngBounds}
+ * @param {Array<{lat: number, lng: number, coastal: boolean}>} gatePool the cue gate's pool
+ * @param {Array<object>} stripPool the strip's pool ({@code labelSpots})
+ * @returns {string}
+ */
+export function tideViewSignature(bounds, gatePool, stripPool) {
+  const gate = coastalInView(gatePool, bounds).length > 0 ? '1' : '0';
+  const named = coastalInView(stripPool, bounds).map((s) => s.id ?? s.name).join('\u0000');
+  return `${gate}|${named}`;
+}
+
+/**
  * Every served window's {@code BriefingWindowTide}, keyed {@code "date:TARGETTYPE"} — over ALL of
  * the briefing's event summaries, not just the six the Plan tab renders.
  *

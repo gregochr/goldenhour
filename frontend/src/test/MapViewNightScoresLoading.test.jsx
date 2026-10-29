@@ -1159,9 +1159,10 @@ describe.each(KINDS)('a failed $name night request is asked again', (kind) => {
       await stepTo(result, NIGHT_A, kind.eventType);
       result.unmount();
       // One pair per night asked about — A, then B, then A again — each added AND removed.
+      // (P4e: MapView's pastness timer also listens for visibilitychange, so that count is a floor.)
       expect(handlers(winAdd, 'focus')).toHaveLength(3);
       expect(new Set(handlers(winRemove, 'focus'))).toEqual(new Set(handlers(winAdd, 'focus')));
-      expect(handlers(docAdd, 'visibilitychange')).toHaveLength(3);
+      expect(handlers(docAdd, 'visibilitychange').length).toBeGreaterThanOrEqual(3);
       expect(new Set(handlers(docRemove, 'visibilitychange')))
         .toEqual(new Set(handlers(docAdd, 'visibilitychange')));
     } finally {

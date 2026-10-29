@@ -18,6 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   tierOf, nextAlignedRow, stripModel, wantPhrase, siblingEventTime, tideAccessibleClause, tideTierHeading,
+  tideViewSignature,
   coastalInView, buildWindowTideIndex,
 } from '../utils/mapTideFit.js';
 import { windowKey } from '../utils/windowKeys.js';
@@ -760,5 +761,29 @@ describe('tideTierHeading — the honest miss heading (window-tide-facts-plan §
 
   it('no tier, no heading', () => {
     expect(tideTierHeading(null, false)).toBeNull();
+  });
+});
+
+describe('tideViewSignature (P4d)', () => {
+  const inside = { pad: () => ({ contains: () => true }) };
+  const outside = { pad: () => ({ contains: () => false }) };
+  const pool = [
+    { id: 1, name: 'A', lat: 1, lng: 1, coastal: true },
+    { id: 2, name: 'B', lat: 2, lng: 2, coastal: false },
+  ];
+
+  it('is equal for two viewports with the same answers and differs when they change', () => {
+    expect(tideViewSignature(inside, pool, pool)).toBe(tideViewSignature({ ...inside }, pool, pool));
+    expect(tideViewSignature(inside, pool, pool)).not.toBe(tideViewSignature(outside, pool, pool));
+  });
+
+  it('names which strip places are in view, not just whether any is', () => {
+    const half = { pad: () => ({ contains: ([lat]) => lat === 1 }) };
+    const other = [{ id: 3, name: 'C', lat: 1, lng: 1, coastal: true }, ...pool.slice(1)];
+    expect(tideViewSignature(half, pool, pool)).not.toBe(tideViewSignature(half, pool, other));
+  });
+
+  it('null bounds read as nothing in view', () => {
+    expect(tideViewSignature(null, pool, pool)).toBe('0|');
   });
 });
