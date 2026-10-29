@@ -220,9 +220,52 @@ for a valley-floor point below each (picked by hand):
 - Check whether the archive API (`archive-api.open-meteo.com`, already used by `OpenMeteoArchiveClient`)
   serves ERA5 pressure-level temperatures; that decides whether the automatic check below is possible.
 
+- **The `elevation=` request parameter.** For two or three sites, fetch the same point with and without
+  `elevation=<valley floor>` and record how `temperature_2m` changes. This tells us whether the parameter
+  gives a usable valley-floor surface temperature from the same coordinates (owner idea, 2026-10-29).
+- **The automatic valley-floor estimate** (Phase 1-pre below): for each eligible site, the lowest of a grid
+  of Open-Meteo elevation points within about 2 km, checked by eye against the map. Wrong answers to look
+  for: a neighbouring valley, a lake surface, a site on a broad plateau with no valley below.
+- **Why the returned elevation moved.** Stainton came back as 235 m in one fetch and 214 m in the next for
+  the same coordinates (§8). Find out why before any design depends on that field.
+
 This container cannot reach Open-Meteo or most of the web (proxy), so the owner runs these requests or a
 session with network access does. Results go in §8. **The answer to "is the surface the fell?" decides the
 shape of 1b**, so 1b is not designed in detail until 1a is in.
+
+### Phase 1-pre: location heights (owner idea, 2026-10-29; its own PR, before 1b)
+
+Three heights, kept apart:
+
+1. **The viewpoint's height is already a static, automatic property.** `locations.elevation_m` is filled on
+   add by `LocationEnrichmentService.fetchElevation` (Open-Meteo's elevation API, a 90 m Copernicus DEM)
+   and shown in the add dialog; the inversion score reads this stored value, not the forecast response's.
+   The gaps:
+   - it is fetched only at add time, and **cannot be edited afterwards** (`UpdateLocationRequest` has no
+     elevation field; the inline editor has no box);
+   - **older locations are often null** (valley-mist M0 found 18 of 125 candidates with a value);
+   - a 90 m DEM cell averages a summit with its slopes and can read tens of metres low.
+
+   **OS maps were considered and rejected for now.** OS Terrain 50 is free (OGL) but a bulk download,
+   not a lookup API; the OS Data Hub APIs need an account key. The accuracy is not needed: pressure levels
+   are about 220 m apart, so ±20–30 m does not change a result. Fixes:
+   - a one-off backfill of null `elevation_m` from the same API;
+   - an editable elevation field in the location editor, so a summit can be corrected by hand from the OS
+     map, as the V86 values were.
+2. **The height the forecast's 2 m temperature refers to is set, not stored.** Open-Meteo chooses it
+   unless told, hence 235 m vs 214 m. Pass `elevation=` on the request so the surface-versus-aloft
+   comparison is deterministic (which height to pass is decided by 3 and by 1a).
+3. **The valley-floor height is a new static property, auto-suggested.** It is what the inversion
+   comparison needs: fog forms in the valley below the viewpoint. Open-Meteo's elevation API takes up to
+   100 coordinates per call, so on add or edit one call can sample a grid within about 2 km and suggest
+   the lowest point; the editor shows "Valley floor ≈ 120 m (suggested)" and the admin confirms or
+   corrects it. A nullable column, written by the editor only, never inferred silently at forecast time.
+
+Scope of this PR: the backfill, the editable elevation, the suggested and confirmed valley-floor field
+(migration, entity, `AddLocationRequest`/`UpdateLocationRequest`, enrichment, editor UI), tests. **It
+touches the UI**, so it gets the CLAUDE.md adversarial review cadence (about six lenses), the frontend's
+four commands, and role gating (admin-only, like the rest of location management). It changes no score;
+1b decides how the valley floor is used.
 
 ### Phase 1b: the warm layer at the right height, in shadow mode
 
@@ -337,7 +380,8 @@ Switch-over (shadow → live) is an owner decision on that evidence.
 ## 7. Decisions for the owner
 
 1. **Surface reference** (after 1a): a valley-floor point per site, or `elevation=` re-request, or accept
-   the fell-top reference. Each extra sample costs Open-Meteo load.
+   the fell-top reference. Each extra sample costs Open-Meteo load. The owner's lean (2026-10-29): a
+   valley-floor height per site, auto-suggested in the location editor and confirmed by hand (Phase 1-pre).
 2. **Option B** (Phase 2): may a clear, calm, moist night stand in for the low-cloud deck? Recommended:
    yes, inversion's own reading.
 3. **`overlooks_water`**: keep, or add a hand-set `overlooks_valley` flag? Recommended: the new flag.
