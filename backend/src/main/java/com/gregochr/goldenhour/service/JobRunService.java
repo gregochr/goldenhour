@@ -603,12 +603,8 @@ public class JobRunService {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         long durationMs = ChronoUnit.MILLIS.between(jobRun.getStartedAt(), now);
 
-        // Calculate total cost from all API calls
-        List<ApiCallLogEntity> apiCalls = apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(jobRun.getId());
-        long totalCostMicroDollars = apiCalls.stream()
-                .map(ApiCallLogEntity::getCostMicroDollars)
-                .filter(c -> c != null)
-                .reduce(0L, Long::sum);
+        // Total cost of all API calls, summed in SQL so the rows (and their text bodies) are not loaded
+        long totalCostMicroDollars = apiCallLogRepository.sumCostMicroDollarsByJobRunId(jobRun.getId());
 
         // Set date range if dates are provided
         if (dates != null && !dates.isEmpty()) {

@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -9,6 +8,7 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BatchSummary;
+import com.gregochr.goldenhour.model.BatchSummaryCall;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
@@ -78,10 +78,10 @@ public class BatchSummaryDeriver {
             return Optional.empty();
         }
 
-        List<ApiCallLogEntity> calls = apiCallLogRepository
-                .findByJobRunIdOrderByCalledAtAsc(jobRun.getId()).stream()
-                .filter(c -> c.getService() == ServiceName.ANTHROPIC)
-                .filter(c -> c.getTargetDate() != null)
+        List<BatchSummaryCall> calls = apiCallLogRepository
+                .findBatchSummaryCallsByJobRunId(jobRun.getId()).stream()
+                .filter(c -> c.service() == ServiceName.ANTHROPIC)
+                .filter(c -> c.targetDate() != null)
                 .toList();
 
         if (calls.isEmpty()) {
@@ -95,12 +95,12 @@ public class BatchSummaryDeriver {
                 : ForecastHorizon.civilDate(Instant.now());
 
         TreeSet<Integer> daysAhead = calls.stream()
-                .map(c -> (int) ChronoUnit.DAYS.between(runStartDate, c.getTargetDate()))
+                .map(c -> (int) ChronoUnit.DAYS.between(runStartDate, c.targetDate()))
                 .collect(Collectors.toCollection(TreeSet::new));
         String horizonRange = HorizonRangeFormatter.format(daysAhead);
 
         List<String> eventTypes = calls.stream()
-                .map(ApiCallLogEntity::getTargetType)
+                .map(BatchSummaryCall::targetType)
                 .filter(t -> t != null)
                 .map(TargetType::name)
                 .distinct()
@@ -108,7 +108,7 @@ public class BatchSummaryDeriver {
                 .toList();
 
         EvaluationModel model = calls.stream()
-                .map(ApiCallLogEntity::getEvaluationModel)
+                .map(BatchSummaryCall::evaluationModel)
                 .filter(m -> m != null)
                 .findFirst()
                 .orElse(null);
@@ -116,7 +116,7 @@ public class BatchSummaryDeriver {
         Boolean extendedThinking = model != null ? model.isExtendedThinking() : null;
 
         int locationCount = (int) calls.stream()
-                .map(ApiCallLogEntity::getCustomId)
+                .map(BatchSummaryCall::customId)
                 .filter(id -> id != null && !id.isBlank())
                 .distinct()
                 .count();
@@ -132,10 +132,10 @@ public class BatchSummaryDeriver {
                 extendedThinking));
     }
 
-    private int computeRegionCount(List<ApiCallLogEntity> calls) {
+    private int computeRegionCount(List<BatchSummaryCall> calls) {
         Set<Long> locationIds = new HashSet<>();
-        for (ApiCallLogEntity call : calls) {
-            String customId = call.getCustomId();
+        for (BatchSummaryCall call : calls) {
+            String customId = call.customId();
             if (customId == null || customId.isBlank()) {
                 continue;
             }

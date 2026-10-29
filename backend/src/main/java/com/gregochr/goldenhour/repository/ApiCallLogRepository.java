@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BatchCallOutcome;
+import com.gregochr.goldenhour.model.BatchSummaryCall;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -106,4 +107,26 @@ public interface ApiCallLogRepository extends JpaRepository<ApiCallLogEntity, Lo
             + "(SELECT j.id FROM JobRunEntity j WHERE j.runType = :runType AND j.startedAt >= :since)")
     long sumCostMicroDollarsByRunTypeStartedSince(@Param("runType") RunType runType,
             @Param("since") LocalDateTime since);
+
+    /**
+     * Sums the recorded cost of every call logged against one job run, in the database, so
+     * completing a run never loads the rows (and their large text columns). Null costs are ignored.
+     *
+     * @param jobRunId the job run id
+     * @return the total in micro-dollars; zero when nothing was logged
+     */
+    @Query("SELECT COALESCE(SUM(c.costMicroDollars), 0) FROM ApiCallLogEntity c WHERE c.jobRunId = :id")
+    long sumCostMicroDollarsByJobRunId(@Param("id") Long jobRunId);
+
+    /**
+     * Returns the columns {@code BatchSummaryDeriver} reads for one job run, oldest call first,
+     * without the request and response body columns.
+     *
+     * @param jobRunId the job run id
+     * @return one {@link BatchSummaryCall} per logged call
+     */
+    @Query("SELECT new com.gregochr.goldenhour.model.BatchSummaryCall("
+            + "c.service, c.targetDate, c.targetType, c.evaluationModel, c.customId) "
+            + "FROM ApiCallLogEntity c WHERE c.jobRunId = :id ORDER BY c.calledAt ASC")
+    List<BatchSummaryCall> findBatchSummaryCallsByJobRunId(@Param("id") Long jobRunId);
 }
