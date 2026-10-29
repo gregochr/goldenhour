@@ -912,7 +912,7 @@ function AppInner() {
           />
           <div className="mt-2">
             {/* Inert: the window-first Plan has no Map tab to switch to and no route to give it. */}
-            <NlcSightingBanner />
+            <NlcSightingBanner eligible={role === 'PRO_USER' || role === 'ADMIN'} />
           </div>
         </div>
 

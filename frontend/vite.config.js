@@ -1,6 +1,9 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { filterManifest, requiredPrecache } from './scripts/precacheClosure.mjs';
 
 // `loadEnv`, not bare `process.env`. Vite's .env files populate `import.meta.env` for CLIENT
 // code; this config runs in Node, where `process.env` holds only what the shell exported. So a
@@ -11,9 +14,18 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const apiTarget = env.VITE_API_TARGET || 'http://localhost:8082';
+  let outDir = resolve(process.cwd(), 'dist'); // replaced by configResolved above
   return {
   plugins: [
     react(),
+    // Captures the RESOLVED output directory for the precache transform below (a custom
+    // `build.outDir` or `--outDir` would otherwise be missed).
+    {
+      name: 'precache-out-dir',
+      configResolved(config) {
+        outDir = resolve(config.root, config.build.outDir);
+      },
+    },
     // Service worker that precaches the app shell so a refresh paints from disk instead of
     // waiting on the network. Deliberately scoped:
     //  - PRECACHE only the critical shell (html, css, fonts, entry + react chunks). The heavy
@@ -54,12 +66,31 @@ export default defineConfig(({ mode }) => {
         ],
       },
       workbox: {
-        globPatterns: [
-          '**/*.{css,html,woff2}',
-          'assets/index-*.js',
-          'assets/AuthPages-*.js',
-          'assets/react-*.js',
-          'assets/rolldown-runtime-*.js',
+        // Every built script is a candidate; `manifestTransforms` keeps only what a cold start and
+        // an offline sign-in need: the chunks `dist/index.html` references, AuthPages, and the whole
+        // STATIC import closure of both (`scripts/precacheClosure.mjs`). AuthPages is lazy, so
+        // without its closure (PasswordInput ...) an offline reload to sign-in hits the chunk error
+        // boundary. The old `rolldown-runtime-*` glob matched nothing (Rolldown inlines its
+        // runtime) and is gone. Workbox runs after the bundle is written, so dist/index.html exists;
+        // if it does not, the build fails rather than precaching a shell that cannot paint.
+        globPatterns: ['**/*.{css,html,woff2}', 'assets/*.js'],
+        manifestTransforms: [
+          async (entries) => {
+            const htmlPath = resolve(outDir, 'index.html');
+            if (!existsSync(htmlPath)) {
+              throw new Error(`precache: ${htmlPath} not found; cannot derive the entry closure`);
+            }
+            const readChunk = (url) => {
+              const file = resolve(outDir, url);
+              return existsSync(file) ? readFileSync(file, 'utf8') : null;
+            };
+            const required = requiredPrecache(
+              readFileSync(htmlPath, 'utf8'),
+              entries.map((entry) => entry.url),
+              readChunk,
+            );
+            return filterManifest(entries, required);
+          },
         ],
         navigateFallback: '/index.html',
         // API and actuator requests must never be answered with the SPA shell.

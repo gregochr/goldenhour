@@ -12,7 +12,7 @@ import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getReach, getSettings } from '../api/settingsApi.js';
 import { fetchRegions, fetchRegionDriveTimes } from '../api/regionApi.js';
-import { storageKey, writeSwrCache } from '../utils/swrCache.js';
+import { clearSwrCache, storageKey, writeSwrCache } from '../utils/swrCache.js';
 import { setRewind } from '../utils/rewind.js';
 import { PLAN_RATING_KEY } from '../utils/ratingLens.js';
 import { PLAN_REACH_KEY } from '../utils/reachLens.js';
@@ -1390,6 +1390,81 @@ describe('WindowFirstBriefingProvider', () => {
       expect(fetchRegionDriveTimes).toHaveBeenCalledTimes(1);
       await waitFor(() => expect(screen.getByTestId('origin-regions'))
         .toHaveTextContent('The Lake District|The North Yorkshire Coast'));
+    });
+
+    const ORIGIN_KEY = 'regionOrigin:shared';
+    const OLD_PAIR = {
+      regions: [{ id: 9, name: 'Old Region', enabled: true }],
+      matrix: { 9: { 1: 5 } },
+    };
+    const names = () => screen.getByTestId('origin-regions').textContent;
+
+    it('caches the shared regions and matrix as one pair, and paints from it before the network answers', async () => {
+      await withScores();
+      await waitFor(() => expect(names()).toContain('The Lake District'));
+      const stored = JSON.parse(localStorage.getItem(storageKey(ORIGIN_KEY))).value;
+      expect(stored.regions).toHaveLength(2);
+      expect(stored.matrix).toEqual({ 3: { 7: 12 } });
+
+      cleanup();
+      fetchRegions.mockReset().mockReturnValue(new Promise(() => {}));
+      fetchRegionDriveTimes.mockReset().mockReturnValue(new Promise(() => {}));
+      renderProvider();
+      // Both requests still pending: this text can only have come from the cache.
+      expect(names()).toBe('The Lake District|The North Yorkshire Coast');
+    });
+
+    it('a network answer replaces the cached paint and the cached pair', async () => {
+      writeSwrCache(ORIGIN_KEY, OLD_PAIR);
+      fetchRegionDriveTimes.mockResolvedValue({ 3: { 7: 12 } });
+      renderProvider();
+      expect(names()).toBe('Old Region'); // painted from the cache first
+      await waitFor(() => expect(names()).toBe('The Lake District|The North Yorkshire Coast'));
+      expect(JSON.parse(localStorage.getItem(storageKey(ORIGIN_KEY))).value.matrix)
+        .toEqual({ 3: { 7: 12 } });
+    });
+
+    it('regions succeed while the matrix fails: the cached pair is kept as a pair', async () => {
+      writeSwrCache(ORIGIN_KEY, OLD_PAIR);
+      const before = localStorage.getItem(storageKey(ORIGIN_KEY));
+      fetchRegionDriveTimes.mockRejectedValue(new Error('boom'));
+      renderProvider();
+      await waitFor(() => expect(fetchRegions).toHaveBeenCalled());
+      await act(async () => {});
+      expect(names()).toBe('Old Region'); // the fresh regions were NOT mixed with the old matrix
+      expect(localStorage.getItem(storageKey(ORIGIN_KEY))).toBe(before);
+    });
+
+    it('a rejected fetch keeps the cache', async () => {
+      writeSwrCache(ORIGIN_KEY, OLD_PAIR);
+      fetchRegions.mockRejectedValue(new Error('down'));
+      fetchRegionDriveTimes.mockRejectedValue(new Error('down'));
+      renderProvider();
+      await act(async () => {});
+      expect(names()).toBe('Old Region');
+      expect(JSON.parse(localStorage.getItem(storageKey(ORIGIN_KEY))).value).toEqual(OLD_PAIR);
+    });
+
+    it('the logout sweep clears the cached pair', async () => {
+      await withScores();
+      await waitFor(() => expect(localStorage.getItem(storageKey(ORIGIN_KEY))).not.toBeNull());
+      clearSwrCache();
+      expect(localStorage.getItem(storageKey(ORIGIN_KEY))).toBeNull();
+    });
+
+    it('survives a refused cache write: the fetched regions still reach the origin', async () => {
+      const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await withScores();
+        await waitFor(() => expect(screen.getByTestId('origin-regions'))
+          .toHaveTextContent('The Lake District'));
+      } finally {
+        setItem.mockRestore();
+        warn.mockRestore();
+      }
     });
 
     it('starts at home, with the reader\'s own reach map', async () => {
