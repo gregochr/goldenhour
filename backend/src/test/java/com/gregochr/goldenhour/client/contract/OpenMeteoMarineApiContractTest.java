@@ -15,6 +15,7 @@ import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
@@ -154,5 +155,26 @@ class OpenMeteoMarineApiContractTest {
         } catch (IOException e) {
             return fail("Could not read contract fixture: " + path, e);
         }
+    }
+
+    @Test
+    @DisplayName("GET /v1/marine batch sends comma-separated latitude/longitude and parses a JSON array in order")
+    void marineBatchSendsCommaSeparatedCoordinatesAndParsesArray() {
+        server.expect(requestTo(containsString(BASE_URL + "/v1/marine?")))
+                .andExpect(method(HttpMethod.GET))
+                // The comma is percent-encoded on the wire; Open-Meteo decodes it as a list separator.
+                .andExpect(queryParam("latitude", "55.6089%2C54.9"))
+                .andExpect(queryParam("longitude", "-1.7099%2C-1.35"))
+                .andExpect(queryParam("timezone", "UTC"))
+                .andExpect(queryParam("forecast_days", "7"))
+                .andExpect(requestTo(containsString("hourly=wave_height")))
+                .andRespond(withSuccess("[" + fixture + "," + fixture + "]", MediaType.APPLICATION_JSON));
+
+        List<OpenMeteoMarineResponse> responses =
+                api.getMarineBatch("55.6089,54.9", "-1.7099,-1.35", HOURLY_PARAMS, "UTC", FORECAST_DAYS);
+
+        server.verify();
+        assertThat(responses).hasSize(2);
+        assertThat(responses.get(1).getHourly().getWaveHeight()).containsExactly(1.24, 1.31);
     }
 }

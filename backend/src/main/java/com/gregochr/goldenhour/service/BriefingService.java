@@ -640,8 +640,10 @@ public class BriefingService {
         // Fetch + persist coastal sea-state (waves) for the enriched king/spring/surge pills.
         // Isolated like the NLC refresh below — an optional enrichment source must never abort the
         // briefing cycle (a transient DB or solar error would otherwise leave the job run dangling).
+        // The tide snapshot is built first so the high-water refresh reads from it, not per location.
+        TideExtremeSnapshot tideSnapshot = slotBuilder.snapshotFor(colourLocations, dates);
         try {
-            marineWaveRefreshService.refresh(colourLocations, dates, jobRun.getId());
+            marineWaveRefreshService.refresh(colourLocations, dates, jobRun.getId(), tideSnapshot);
         } catch (Exception e) {
             LOG.warn("Marine wave refresh failed — sea-state facts may be absent: {}", e.getMessage());
         }
@@ -649,7 +651,6 @@ public class BriefingService {
         // Build slots for each location × date × event type (filtered by solar event preference)
         List<BriefingSlot> allSlots = new ArrayList<>();
         long slotLoopStart = System.nanoTime();
-        TideExtremeSnapshot tideSnapshot = slotBuilder.snapshotFor(colourLocations, dates);
         for (BriefingSlotBuilder.LocationWeather lw : locationWeathers) {
             if (lw.forecast() == null) {
                 failed++;

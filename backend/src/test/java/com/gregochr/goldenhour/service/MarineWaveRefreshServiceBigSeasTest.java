@@ -33,7 +33,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -68,6 +68,7 @@ class MarineWaveRefreshServiceBigSeasTest {
     private static final double LAT = 54.92;
     private static final double LON = -1.35;
     private static final long STRUCTURE_ID = 7L;
+    private static final MarineClient.Point POINT = new MarineClient.Point(LAT, LON);
 
     @Mock
     private MarineClient marineClient;
@@ -132,7 +133,7 @@ class MarineWaveRefreshServiceBigSeasTest {
         service = new MarineWaveRefreshService(marineClient, marineWaveRepository, solarService,
                 tideExtremeRepository, highWaterWriter, jobRunService, Clock.fixed(NOW, ZoneOffset.UTC), thirty);
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
         stubDaylight(DAY, DAWN, DUSK);
         LocalDateTime noon = LocalDateTime.of(2026, 12, 10, 12, 0);
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
@@ -153,7 +154,7 @@ class MarineWaveRefreshServiceBigSeasTest {
             + "the peak, the HW and the stamp")
     void daylightClip_bothEnds() {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
         stubDaylight(DAY, DAWN, DUSK);
         LocalDateTime early = LocalDateTime.of(2026, 12, 10, 7, 30);
         LocalDateTime noon = LocalDateTime.of(2026, 12, 10, 12, 0);
@@ -196,7 +197,7 @@ class MarineWaveRefreshServiceBigSeasTest {
             + "ends exactly at dawn")
     void nightHighWater_excluded() {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
         stubDaylight(DAY, DAWN, DUSK);
         // 22:00 window is 20:30-23:30, wholly after dusk. 05:30 window is 04:00-07:00, ending exactly at dawn.
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
@@ -213,7 +214,7 @@ class MarineWaveRefreshServiceBigSeasTest {
     @DisplayName("a night HW whose window reaches daylight is kept and clipped to dawn")
     void nightHighWater_reachingDawn_clipped() {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
         stubDaylight(DAY, DAWN, DUSK);
         LocalDateTime hwTime = LocalDateTime.of(2026, 12, 10, 6, 30);
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
@@ -244,7 +245,7 @@ class MarineWaveRefreshServiceBigSeasTest {
         assertThat(ForecastHorizon.ukDayStartUtc(sunday.plusDays(1))).isEqualTo(to);
 
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
         LocalDateTime saturdayDawn = LocalDateTime.of(2026, 10, 24, 5, 50);
         LocalDateTime sundayDawn = LocalDateTime.of(2026, 10, 25, 6, 42);
         stubDaylight(saturday, saturdayDawn, LocalDateTime.of(2026, 10, 24, 16, 55));
@@ -278,7 +279,7 @@ class MarineWaveRefreshServiceBigSeasTest {
         LocalDateTime from = LocalDateTime.of(2026, 10, 24, 23, 0);
         LocalDateTime to = LocalDateTime.of(2026, 10, 26, 0, 0);
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), from, to)).thenReturn(List.of());
 
         service.refresh(List.of(roker), List.of(sunday), JOB_RUN_ID);
@@ -291,7 +292,7 @@ class MarineWaveRefreshServiceBigSeasTest {
     void nonStructureCoastal_noHighWaterWork() {
         LocationEntity bamburgh = LocationEntity.builder().id(1L).name("Bamburgh").lat(LAT).lon(LON)
                 .tideType(Set.of(TideType.HIGH)).build();
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
 
         service.refresh(List.of(bamburgh), List.of(DAY), JOB_RUN_ID);
 
@@ -302,7 +303,7 @@ class MarineWaveRefreshServiceBigSeasTest {
     @DisplayName("stale rows go: with no high water left in range the writer still runs with an empty list")
     void noHighWatersLeft_staleRowsCleared() {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
                 .thenReturn(List.of());
 
@@ -315,7 +316,7 @@ class MarineWaveRefreshServiceBigSeasTest {
     @DisplayName("a failed marine fetch CLEARS the structure's rows, never keeps them, and reads no tides")
     void failedFetch_clears() {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
-        when(marineClient.fetchMarine(LAT, LON)).thenThrow(new RuntimeException("boom"));
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenThrow(new RuntimeException("boom"));
 
         service.refresh(List.of(roker), List.of(DAY), JOB_RUN_ID);
 
@@ -327,7 +328,7 @@ class MarineWaveRefreshServiceBigSeasTest {
     @DisplayName("a land cell (no peak) clears the rows and writes none")
     void landCell_clears() {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
         stubDaylight(DAY, DAWN, DUSK);
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
                 .thenReturn(List.of(hw(STRUCTURE_ID, LocalDateTime.of(2026, 12, 10, 12, 0))));
@@ -345,24 +346,27 @@ class MarineWaveRefreshServiceBigSeasTest {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
         LocalDateTime sunrise = LocalDateTime.of(2026, 12, 10, 7, 50);
         LocalDateTime sunset = LocalDateTime.of(2026, 12, 10, 15, 40);
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
         when(solarService.sunriseUtc(LAT, LON, DAY)).thenReturn(sunrise);
         when(solarService.sunsetUtc(LAT, LON, DAY)).thenReturn(sunset);
         when(marineClient.sampleAt(response, sunrise)).thenReturn(Optional.of(new MarineWaveSample(2.2, 1.0, 40)));
         when(marineClient.sampleAt(response, sunset)).thenReturn(Optional.empty());
-        when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
-                STRUCTURE_ID, DAY, TargetType.SUNRISE)).thenReturn(Optional.empty());
+        when(marineWaveRepository.findByLocation_IdInAndEvaluationDateIn(List.of(STRUCTURE_ID), List.of(DAY)))
+                .thenReturn(List.of());
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
                 .thenReturn(List.of());
 
         service.refresh(List.of(roker), List.of(DAY), JOB_RUN_ID);
 
-        ArgumentCaptor<MarineWaveEntity> captor = ArgumentCaptor.forClass(MarineWaveEntity.class);
-        verify(marineWaveRepository).save(captor.capture());
-        assertThat(captor.getValue().getEventType()).isEqualTo(TargetType.SUNRISE);
-        assertThat(captor.getValue().getSignificantWaveHeightMetres()).isEqualTo(2.2);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MarineWaveEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(marineWaveRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+        assertThat(captor.getValue().getFirst().getEventType()).isEqualTo(TargetType.SUNRISE);
+        assertThat(captor.getValue().getFirst().getSignificantWaveHeightMetres()).isEqualTo(2.2);
         verify(jobRunService).logApiCall(eq(JOB_RUN_ID), eq(ServiceName.OPEN_METEO_MARINE), eq("GET"),
-                eq("briefing-marine(Roker)"), isNull(), anyLong(), eq(200), isNull(), eq(true), isNull());
+                eq("briefing-marine(batch 1/1, 1 locations)"), isNull(), anyLong(), eq(200), isNull(), eq(true),
+                isNull());
     }
 
     @Test
@@ -370,7 +374,7 @@ class MarineWaveRefreshServiceBigSeasTest {
     void writerFailure_isolated() {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
         LocationEntity amble = structure(8L, "Amble");
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT, POINT))).thenReturn(List.of(response, response));
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
                 .thenReturn(List.of());
         when(tideExtremeRepository.findHighWatersInWindow(List.of(8L), DAY_START, DAY_END))
@@ -387,7 +391,7 @@ class MarineWaveRefreshServiceBigSeasTest {
     @DisplayName("a failure while reading or windowing clears the location's rows, best effort")
     void readFailure_clearsRows() {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
                 .thenThrow(new IllegalStateException("db down"));
 
@@ -402,7 +406,7 @@ class MarineWaveRefreshServiceBigSeasTest {
         LocalDate twelfth = LocalDate.of(2026, 12, 12);
         LocalDateTime to = LocalDateTime.of(2026, 12, 13, 0, 0);
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, to))
                 .thenReturn(List.of(hw(STRUCTURE_ID, LocalDateTime.of(2026, 12, 11, 12, 0))));
 
@@ -417,39 +421,53 @@ class MarineWaveRefreshServiceBigSeasTest {
     void eventGrainFailure_stillRefreshesHighWaters() {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
         LocalDateTime sunrise = LocalDateTime.of(2026, 12, 10, 7, 50);
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
         when(solarService.sunriseUtc(LAT, LON, DAY)).thenReturn(sunrise);
         when(marineClient.sampleAt(response, sunrise)).thenReturn(Optional.of(new MarineWaveSample(2.2, 1.0, 40)));
-        when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
-                STRUCTURE_ID, DAY, TargetType.SUNRISE)).thenReturn(Optional.empty());
-        when(marineWaveRepository.save(any(MarineWaveEntity.class))).thenThrow(new IllegalStateException("db down"));
+        when(marineWaveRepository.findByLocation_IdInAndEvaluationDateIn(List.of(STRUCTURE_ID), List.of(DAY)))
+                .thenReturn(List.of());
+        when(marineWaveRepository.saveAll(argThat(this::isExpectedSunriseRow)))
+                .thenThrow(new IllegalStateException("db down"));
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
                 .thenReturn(List.of());
 
         service.refresh(List.of(roker), List.of(DAY), JOB_RUN_ID);
 
+        verify(marineWaveRepository).saveAll(argThat(this::isExpectedSunriseRow));
         assertThat(writtenRows(STRUCTURE_ID, DAY_START, DAY_END)).isEmpty();
     }
 
+    /** True only for exactly the one Roker sunrise row the stubbed sample produces. */
+    private boolean isExpectedSunriseRow(List<MarineWaveEntity> rows) {
+        if (rows == null || rows.size() != 1) {
+            return false;
+        }
+        MarineWaveEntity row = rows.getFirst();
+        return row.getLocation() != null && row.getLocation().getId() == STRUCTURE_ID
+                && DAY.equals(row.getEvaluationDate()) && row.getEventType() == TargetType.SUNRISE
+                && Double.valueOf(2.2).equals(row.getSignificantWaveHeightMetres())
+                && Double.valueOf(1.0).equals(row.getSwellWaveHeightMetres())
+                && Integer.valueOf(40).equals(row.getWaveDirectionDegrees());
+    }
+
     @Test
-    @DisplayName("an event-grain failure for one location does not stop the next location being refreshed")
+    @DisplayName("an event-grain sampling failure for one location keeps the next location's rows and "
+            + "still refreshes both high-water sets")
     void eventGrainFailure_nextLocationStillRefreshed() {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
         LocationEntity amble = structure(8L, "Amble");
         LocalDateTime sunrise = LocalDateTime.of(2026, 12, 10, 7, 50);
         LocalDateTime sunset = LocalDateTime.of(2026, 12, 10, 15, 40);
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT, POINT))).thenReturn(List.of(response, response));
         when(solarService.sunriseUtc(LAT, LON, DAY)).thenReturn(sunrise);
         when(solarService.sunsetUtc(LAT, LON, DAY)).thenReturn(sunset);
-        when(marineClient.sampleAt(response, sunrise)).thenReturn(Optional.of(new MarineWaveSample(2.2, 1.0, 40)));
+        // The first location's sampling throws; the second's succeeds.
+        when(marineClient.sampleAt(response, sunrise))
+                .thenThrow(new IllegalStateException("solar broke"))
+                .thenReturn(Optional.of(new MarineWaveSample(2.2, 1.0, 40)));
         when(marineClient.sampleAt(response, sunset)).thenReturn(Optional.empty());
-        when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
-                STRUCTURE_ID, DAY, TargetType.SUNRISE)).thenReturn(Optional.empty());
-        when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
-                8L, DAY, TargetType.SUNRISE)).thenReturn(Optional.empty());
-        // The first location's save throws; the second's succeeds.
-        when(marineWaveRepository.save(any(MarineWaveEntity.class)))
-                .thenThrow(new IllegalStateException("db down")).thenReturn(null);
+        when(marineWaveRepository.findByLocation_IdInAndEvaluationDateIn(
+                List.of(STRUCTURE_ID, 8L), List.of(DAY))).thenReturn(List.of());
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
                 .thenReturn(List.of());
         when(tideExtremeRepository.findHighWatersInWindow(List.of(8L), DAY_START, DAY_END))
@@ -459,14 +477,18 @@ class MarineWaveRefreshServiceBigSeasTest {
 
         verify(highWaterWriter).replace(STRUCTURE_ID, DAY_START, DAY_END, List.of());
         verify(highWaterWriter).replace(8L, DAY_START, DAY_END, List.of());
-        verify(marineWaveRepository, times(2)).save(any(MarineWaveEntity.class));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MarineWaveEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(marineWaveRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+        assertThat(captor.getValue().getFirst().getLocation()).isSameAs(amble);
     }
 
     @Test
     @DisplayName("no dates, no high-water work")
     void noDates_nothingToDo() {
         LocationEntity roker = structure(STRUCTURE_ID, "Roker");
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(POINT))).thenReturn(List.of(response));
 
         service.refresh(List.of(roker), List.of(), JOB_RUN_ID);
 
