@@ -411,4 +411,44 @@ class AskPromptBuilderTest {
                 java.util.List.of())).isEqualTo(plain);
         assertThat(plain).doesNotContain("The question is about these windows");
     }
+
+    // -- the two system blocks (prompt caching) ---------------------------------------------
+
+    @Test
+    @DisplayName("the static block is the rules and the with-user or user-less text only: identical across "
+            + "dates, scopes, windows and threads, so it is cacheable across questions")
+    void staticBlockIsIdenticalAcrossQuestions() {
+        for (boolean hasUser : new boolean[] {true, false}) {
+            AskPromptBuilder.SystemPrompt first = builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null,
+                    null, hasUser, false, List.of());
+            AskPromptBuilder.SystemPrompt second = builder.systemPromptBlocks(MONDAY.plusDays(3),
+                    TestScopes.of("Northumberland"), null, AskNightFixtures.astroNight(MONDAY), MONDAY, hasUser,
+                    true, List.of("2026-10-08_sunset"));
+
+            assertThat(second.staticPart()).isEqualTo(first.staticPart());
+            assertThat(second.dynamicPart()).isNotEqualTo(first.dynamicPart());
+            assertThat(first.staticPart()).doesNotContain("Today is ");
+            assertThat(first.dynamicPart()).startsWith("Today is ");
+        }
+        assertThat(builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null, true, false, List.of())
+                .staticPart()).isNotEqualTo(builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null,
+                        false, false, List.of()).staticPart());
+    }
+
+    @Test
+    @DisplayName("the two blocks joined are exactly the single prompt, whichever overload builds it")
+    void blocksJoinToTheSinglePrompt() {
+        for (boolean hasUser : new boolean[] {true, false}) {
+            for (boolean hasThread : new boolean[] {true, false}) {
+                String single = builder.systemPrompt(MONDAY, TestScopes.of("Northumberland"), null, null, null,
+                        hasUser, hasThread, List.of("2026-10-05_sunset"));
+                AskPromptBuilder.SystemPrompt blocks = builder.systemPromptBlocks(MONDAY,
+                        TestScopes.of("Northumberland"), null, null, null, hasUser, hasThread,
+                        List.of("2026-10-05_sunset"));
+
+                assertThat(blocks.staticPart() + blocks.dynamicPart()).isEqualTo(single);
+                assertThat(blocks.text()).isEqualTo(single);
+            }
+        }
+    }
 }

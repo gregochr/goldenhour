@@ -224,6 +224,73 @@ class ClaudeAskEngineWireTest {
         assertThat(messages.get(4).get("content")).as("an earlier tool-result turn is untouched").hasSize(1);
     }
 
+    /** How many cache_control objects a request body holds anywhere. */
+    private static int breakpoints(JsonNode node) {
+        int count = node.has("cache_control") ? 1 : 0;
+        for (JsonNode child : node) {
+            count += breakpoints(child);
+        }
+        return count;
+    }
+
+    @Test
+    @DisplayName("prompt caching: system block 1 (static) carries a breakpoint and block 2 (tail) none; each turn only "
+            + "the latest tool-result message is marked, never more than 4 breakpoints, and the tools carry none")
+    void breakpointsOnEveryTurn() throws Exception {
+        stubExplorerThen("[{\"type\":\"tool_use\",\"id\":\"toolu_s\",\"name\":\"submit_answer\","
+                + "\"input\":{\"answerable\":true,\"summary\":\"Bamburgh is clear.\",\"picks\":[{"
+                + "\"locationId\":1,\"windowId\":\"" + WINDOW + "\",\"why\":\"Clear.\"}]}}]", "tool_use");
+
+        assertThat(runTyped().outcome().turns()).isEqualTo(4);
+
+        List<LoggedRequest> requests = WIRE_MOCK.findAll(postRequestedFor(urlPathEqualTo(PATH)));
+        assertThat(requests).hasSize(4);
+        for (int turn = 0; turn < 4; turn++) {
+            JsonNode body = json.readTree(requests.get(turn).getBodyAsString());
+            JsonNode system = body.get("system");
+            assertThat(system).as("turn %d system blocks", turn + 1).hasSize(2);
+            assertThat(system.get(0).get("cache_control").get("type").asText()).isEqualTo("ephemeral");
+            assertThat(system.get(1).has("cache_control")).isFalse();
+            assertThat(breakpoints(body.get("tools"))).as("tools carry none").isZero();
+            JsonNode messages = body.get("messages");
+            int marked = 0;
+            for (int m = 0; m < messages.size(); m++) {
+                int here = breakpoints(messages.get(m));
+                marked += here;
+                boolean latestToolResult = turn > 0 && m == messages.size() - 1;
+                assertThat(here).as("turn %d message %d", turn + 1, m).isEqualTo(latestToolResult ? 1 : 0);
+            }
+            assertThat(marked).isEqualTo(turn == 0 ? 0 : 1);
+            assertThat(breakpoints(body)).as("turn %d total", turn + 1).isLessThanOrEqualTo(4)
+                    .isEqualTo(turn == 0 ? 1 : 2);
+            if (turn > 0 && turn < 3) {
+                JsonNode block = messages.get(messages.size() - 1).get("content").get(0);
+                assertThat(block.get("type").asText()).isEqualTo("tool_result");
+                assertThat(block.get("cache_control").get("type").asText()).isEqualTo("ephemeral");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("prompt caching: two different questions send a byte-identical first system block and tools")
+    void staticBlockIsSharedAcrossQuestions() throws Exception {
+        stubExplorerThen("[{\"type\":\"tool_use\",\"id\":\"toolu_s\",\"name\":\"submit_answer\","
+                + "\"input\":{\"answerable\":false,\"summary\":\"None.\",\"missing\":\"x\"}}]", "tool_use");
+
+        engine.run(new AskQuestion("Clear skies on the coast?", "clear skies on the coast", null, AskScope.ALL,
+                "map"), snapshot(), new AskUserContext(7L, UserRole.PRO_USER, true), AskRunOptions.none());
+        engine.run(new AskQuestion("Anywhere dramatic in Northumberland?", "anywhere dramatic", null,
+                TestScopes.of("Northumberland"), "map"), snapshot(),
+                new AskUserContext(7L, UserRole.PRO_USER, true), AskRunOptions.none());
+
+        List<LoggedRequest> requests = WIRE_MOCK.findAll(postRequestedFor(urlPathEqualTo(PATH)));
+        JsonNode a = json.readTree(requests.get(0).getBodyAsString());
+        JsonNode b = json.readTree(requests.get(requests.size() - 1).getBodyAsString());
+        assertThat(b.get("system").get(0)).isEqualTo(a.get("system").get(0));
+        assertThat(b.get("tools")).isEqualTo(a.get("tools"));
+        assertThat(b.get("system").get(1)).isNotEqualTo(a.get("system").get(1));
+    }
+
     @Test
     @DisplayName("a model that answers the forced last turn with answerable:false is an honest CANT, not a failure")
     void forcedLastTurnMayDeclineHonestly() {
