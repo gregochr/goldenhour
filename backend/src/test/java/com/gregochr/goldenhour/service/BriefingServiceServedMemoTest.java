@@ -241,6 +241,7 @@ class BriefingServiceServedMemoTest {
                     List.of(bet), null, null, false, false, 0, "Opus", List.of(), List.of(),
                     com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS, true);
         });
+        assemblies.set(0); // re-stubbing above ran the previous stub's answer once
         LitePickShaper litePickShaper = mock(LitePickShaper.class);
         when(litePickShaper.scopeFor(any())).thenReturn(PickScope.unrestricted());
         when(litePickShaper.shapeBriefing(any(), any())).thenAnswer(inv -> inv.getArgument(0));
