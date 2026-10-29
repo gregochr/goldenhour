@@ -51,6 +51,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -193,7 +194,7 @@ class BatchResultProcessorTest {
         stubBatchService();
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
         LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
-        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+        when(locationRepository.findAll()).thenReturn(List.of(location));
 
         MessageBatchIndividualResponse response = succeededResponse(
                 "fc-42-2026-04-07-SUNRISE", "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}");
@@ -233,7 +234,7 @@ class BatchResultProcessorTest {
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
         batch.setPipelineRunId(7L);
         LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
-        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+        when(locationRepository.findAll()).thenReturn(List.of(location));
 
         Instant cycleTriggerTime = Instant.parse("2026-03-30T01:05:00Z");
         PipelineRunEntity pipelineRun = new PipelineRunEntity(CycleType.NIGHTLY, cycleTriggerTime);
@@ -281,7 +282,7 @@ class BatchResultProcessorTest {
         retryBatch.setPipelineRunId(7L);
         retryBatch.setRetry(true);
         LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
-        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+        when(locationRepository.findAll()).thenReturn(List.of(location));
 
         Instant cycleTriggerTime = Instant.parse("2026-03-30T01:05:00Z");
         PipelineRunEntity pipelineRun = new PipelineRunEntity(CycleType.NIGHTLY, cycleTriggerTime);
@@ -318,7 +319,7 @@ class BatchResultProcessorTest {
         stubBatchService();
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST); // pipelineRunId stays null
         LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
-        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+        when(locationRepository.findAll()).thenReturn(List.of(location));
 
         MessageBatchIndividualResponse response = succeededResponse(
                 "fc-42-2026-04-07-SUNRISE", "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}");
@@ -351,7 +352,7 @@ class BatchResultProcessorTest {
         stubBatchService();
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
         LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
-        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+        when(locationRepository.findAll()).thenReturn(List.of(location));
 
         MessageBatchIndividualResponse response = succeededResponse(
                 "fc-42-2026-04-07-SUNRISE", "garbage-not-json");
@@ -512,7 +513,7 @@ class BatchResultProcessorTest {
     void forecast_locationNotFound_logsInlineFailure() {
         stubBatchService();
         ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 1, 77L);
-        when(locationRepository.findById(99L)).thenReturn(Optional.empty());
+        when(locationRepository.findAll()).thenReturn(List.of());
 
         MessageBatchIndividualResponse response = succeededResponse(
                 "fc-99-2026-04-07-SUNRISE", "{\"rating\":4}");
@@ -588,8 +589,7 @@ class BatchResultProcessorTest {
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
         LocationEntity loc1 = buildLocationWithRegion(10L, "Castlerigg", "Lake District");
         LocationEntity loc2 = buildLocationWithRegion(20L, "Bamburgh", "North East");
-        when(locationRepository.findById(10L)).thenReturn(Optional.of(loc1));
-        when(locationRepository.findById(20L)).thenReturn(Optional.of(loc2));
+        when(locationRepository.findAll()).thenReturn(List.of(loc1, loc2));
 
         MessageBatchIndividualResponse r1 = succeededResponse(
                 "fc-10-2026-04-07-SUNRISE", "{\"rating\":4}");
@@ -617,6 +617,66 @@ class BatchResultProcessorTest {
                 eq("Lake District|2026-04-07|SUNRISE"), eq(List.of(res1)));
         verify(forecastResultHandler).mergeCacheKey(
                 eq("North East|2026-04-07|SUNRISE"), eq(List.of(res2)));
+        // P5e: locations are read once for the whole run, not once per result.
+        verify(locationRepository, times(1)).findAll();
+        // never(): any id must stay out of the per-result path, so the matcher is deliberately broad.
+        verify(locationRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("FORECAST: mixed batch (repeat location, unknown location) → one findAll, "
+            + "known results processed, unknown id logged as lookup_error")
+    void forecast_mixedKnownAndMissingLocations_oneReadSameOutcomes() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 4, 78L);
+        LocationEntity loc1 = buildLocationWithRegion(10L, "Castlerigg", "Lake District");
+        LocationEntity loc2 = buildLocationWithRegion(20L, "Bamburgh", "North East");
+        when(locationRepository.findAll()).thenReturn(List.of(loc1, loc2));
+
+        MessageBatchIndividualResponse r1 = succeededResponse(
+                "fc-10-2026-04-07-SUNRISE", "{\"rating\":4}");
+        MessageBatchIndividualResponse r2 = succeededResponse(
+                "fc-99-2026-04-07-SUNRISE", "{\"rating\":3}");
+        MessageBatchIndividualResponse r3 = succeededResponse(
+                "fc-20-2026-04-07-SUNRISE", "{\"rating\":5}");
+        MessageBatchIndividualResponse r4 = succeededResponse(
+                "fc-10-2026-04-07-SUNSET", "{\"rating\":2}");
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(r1, r2, r3, r4));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        BriefingEvaluationResult res1 = new BriefingEvaluationResult("Castlerigg", 4, 70, 65, "X");
+        BriefingEvaluationResult res2 = new BriefingEvaluationResult("Bamburgh", 5, 80, 75, "Y");
+        BriefingEvaluationResult res3 = new BriefingEvaluationResult("Castlerigg", 2, 40, 35, "Z");
+        // loc1 is processed twice (SUNRISE then SUNSET), so the stub answers in call order.
+        when(forecastResultHandler.parseBatchResponse(
+                eq(loc1), any(), any(), any()))
+                .thenReturn(Optional.of(new BatchSuccess(
+                        "Lake District|2026-04-07|SUNRISE", res1)))
+                .thenReturn(Optional.of(new BatchSuccess(
+                        "Lake District|2026-04-07|SUNSET", res3)));
+        when(forecastResultHandler.parseBatchResponse(
+                eq(loc2), any(), any(), any()))
+                .thenReturn(Optional.of(new BatchSuccess(
+                        "North East|2026-04-07|SUNRISE", res2)));
+
+        processor.processResults(batch);
+
+        verify(locationRepository, times(1)).findAll();
+        // never(): any id must stay out of the per-result path, so the matcher is deliberately broad.
+        verify(locationRepository, never()).findById(any());
+        verify(forecastResultHandler).mergeCacheKey(
+                eq("Lake District|2026-04-07|SUNRISE"), eq(List.of(res1)));
+        verify(forecastResultHandler).mergeCacheKey(
+                eq("North East|2026-04-07|SUNRISE"), eq(List.of(res2)));
+        verify(forecastResultHandler).mergeCacheKey(
+                eq("Lake District|2026-04-07|SUNSET"), eq(List.of(res3)));
+        verify(jobRunService).logBatchResult(
+                eq(78L), eq("msgbatch_fail"), eq("fc-99-2026-04-07-SUNRISE"),
+                eq(false),
+                eq("lookup_error"), eq("location 99 not found"),
+                any(), any(), any(), any(), eq(null), eq(null));
     }
 
     @Test
@@ -627,7 +687,7 @@ class BatchResultProcessorTest {
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
         batch.setRetry(true);
         LocationEntity loc = buildLocationWithRegion(10L, "Craster", "North East");
-        when(locationRepository.findById(10L)).thenReturn(Optional.of(loc));
+        when(locationRepository.findAll()).thenReturn(List.of(loc));
 
         MessageBatchIndividualResponse r1 = succeededResponse(
                 "fc-10-2026-04-07-SUNRISE", "{\"rating\":5}");
@@ -1181,7 +1241,7 @@ class BatchResultProcessorTest {
         stubBatchService();
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
         LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
-        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+        when(locationRepository.findAll()).thenReturn(List.of(location));
 
         MessageBatchIndividualResponse response = succeededResponse(
                 "fc-42-2026-04-07-SUNRISE",
@@ -1249,7 +1309,7 @@ class BatchResultProcessorTest {
         stubBatchService();
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
         LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
-        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+        when(locationRepository.findAll()).thenReturn(List.of(location));
         MessageBatchIndividualResponse response = succeededResponse(
                 "fc-42-2026-04-07-SUNRISE", "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65}");
         withApiDiagnostics(response);
