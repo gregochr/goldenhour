@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
@@ -31,6 +32,7 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
+import com.gregochr.goldenhour.service.TideExtremeSnapshot;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.WeatherTriageEvaluator;
 import com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter;
@@ -104,6 +106,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private WeatherTriageEvaluator weatherTriageEvaluator;
     @Mock private SlotAtmosphereWriter slotAtmosphereWriter;
+    @Mock private TideExtremeSnapshot tideSnapshot;
 
     private static final SeasonalWindow BLUEBELL_SEASON =
             new SeasonalWindow(MonthDay.of(4, 10), MonthDay.of(5, 20), "BLUEBELL");
@@ -184,7 +187,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         lenient().when(augmentor.augmentWithCloudApproach(any(), anyDouble(), anyDouble(),
                 anyInt(), any(), any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithTideData(
-                any(), any(), any(), any(), anyDouble(), anyDouble(), any()))
+                any(), any(), any(), any(), anyDouble(), anyDouble(), any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithLocationOrientation(any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
@@ -306,6 +309,50 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
 
         assertThat(result.inland()).isEmpty();
         assertThat(result.coastal()).isEmpty();
+        verify(slotAtmosphereWriter, times(1))
+                .write(location, today, TargetType.SUNRISE, sharedWeatherData);
+    }
+
+    @Test
+    @DisplayName("one tide snapshot is loaded for the collection's locations and dates, and every "
+            + "candidate's tide derivation reads from it")
+    void coastalCandidate_tideSnapshotLoadedOnceAndThreadedToTheAugmentor() {
+        LocationEntity location = buildLocation("Durham UK");
+        location.setTideType(Set.of(TideType.HIGH));
+        LocalDate today = com.gregochr.goldenhour.util.ForecastHorizon.today(CLOCK);
+        when(briefingService.getCachedBriefing()).thenReturn(briefingWithSlot(today, "Durham UK"));
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+        when(weatherTriageEvaluator.evaluate(sharedWeatherData))
+                .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
+        when(augmentor.tideSnapshotFor(List.of(location), List.of(today))).thenReturn(tideSnapshot);
+
+        collector.collectRegionFilteredBatches(null);
+
+        verify(augmentor, times(1)).tideSnapshotFor(List.of(location), List.of(today));
+        verify(augmentor, times(1)).augmentWithTideData(sharedWeatherData, 42L,
+                LocalDateTime.of(2026, 1, 1, 5, 30), Set.of(TideType.HIGH), DURHAM_LAT, DURHAM_LON,
+                TargetType.SUNRISE, tideSnapshot);
+    }
+
+    @Test
+    @DisplayName("when the snapshot cannot be loaded the candidate falls back to the live tide "
+            + "read: a null snapshot reaches the augmentor and nothing is dropped")
+    void snapshotLoadFails_candidateFallsBackToLiveTideRead() {
+        LocationEntity location = buildLocation("Durham UK");
+        location.setTideType(Set.of(TideType.HIGH));
+        LocalDate today = com.gregochr.goldenhour.util.ForecastHorizon.today(CLOCK);
+        when(briefingService.getCachedBriefing()).thenReturn(briefingWithSlot(today, "Durham UK"));
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+        when(weatherTriageEvaluator.evaluate(sharedWeatherData))
+                .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
+        when(augmentor.tideSnapshotFor(List.of(location), List.of(today)))
+                .thenThrow(new IllegalStateException("db down"));
+
+        collector.collectRegionFilteredBatches(null);
+
+        verify(augmentor, times(1)).augmentWithTideData(sharedWeatherData, 42L,
+                LocalDateTime.of(2026, 1, 1, 5, 30), Set.of(TideType.HIGH), DURHAM_LAT, DURHAM_LON,
+                TargetType.SUNRISE, null);
         verify(slotAtmosphereWriter, times(1))
                 .write(location, today, TargetType.SUNRISE, sharedWeatherData);
     }
