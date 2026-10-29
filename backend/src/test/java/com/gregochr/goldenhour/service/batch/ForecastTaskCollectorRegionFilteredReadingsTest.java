@@ -322,10 +322,8 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         LocalDate today = com.gregochr.goldenhour.util.ForecastHorizon.today(CLOCK);
         when(briefingService.getCachedBriefing()).thenReturn(briefingWithSlot(today, "Durham UK"));
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
-        when(weatherTriageEvaluator.evaluate(any()))
+        when(weatherTriageEvaluator.evaluate(sharedWeatherData))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
-        when(forecastEvaluationRepository.save(any()))
-                .thenReturn(ForecastEvaluationEntity.builder().id(10L).build());
         when(augmentor.tideSnapshotFor(List.of(location), List.of(today))).thenReturn(tideSnapshot);
 
         collector.collectRegionFilteredBatches(null);
@@ -345,10 +343,8 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         LocalDate today = com.gregochr.goldenhour.util.ForecastHorizon.today(CLOCK);
         when(briefingService.getCachedBriefing()).thenReturn(briefingWithSlot(today, "Durham UK"));
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
-        when(weatherTriageEvaluator.evaluate(any()))
+        when(weatherTriageEvaluator.evaluate(sharedWeatherData))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
-        when(forecastEvaluationRepository.save(any()))
-                .thenReturn(ForecastEvaluationEntity.builder().id(10L).build());
         when(augmentor.tideSnapshotFor(List.of(location), List.of(today)))
                 .thenThrow(new IllegalStateException("db down"));
 

@@ -35,14 +35,11 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Proves the collection-scoped {@link TideExtremeSnapshot} (finding F26) changes how many queries
@@ -99,63 +96,6 @@ class TriageTideSnapshotEquivalenceTest {
                 null, null, null,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"));
 
-        // Fakes of the repository and calendar: broad matchers are deliberate here.
-        // Stats: an average high of 3.0 m puts the spring threshold at 3.75 m, and a 3.1 to 5.0 m
-        // sample gives a P95 near 4.9 m, so the fixture's highs (3.5 to 5.1 m) land in every band:
-        // none, above the spring threshold only, and above P95.
-        lenient().when(repo.findHeightStatsByLocationIdAndTypeBefore(anyLong(),
-                eq(TideExtremeType.HIGH), any()))
-                .thenAnswer(inv -> new Object[] {BigDecimal.valueOf(3.0), BigDecimal.valueOf(5.1),
-                    BigDecimal.valueOf(2.0), 100L});
-        lenient().when(repo.findHeightStatsByLocationIdAndTypeBefore(anyLong(),
-                eq(TideExtremeType.LOW), any()))
-                .thenAnswer(inv -> new Object[] {BigDecimal.valueOf(0.6), BigDecimal.valueOf(1.0),
-                    BigDecimal.valueOf(0.2), 100L});
-        lenient().when(repo.findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(anyLong(),
-                eq(TideExtremeType.HIGH), any()))
-                .thenAnswer(inv -> {
-                    List<BigDecimal> heights = new ArrayList<>();
-                    for (int i = 0; i < 20; i++) {
-                        heights.add(BigDecimal.valueOf(3.1 + i * 0.1));
-                    }
-                    return heights;
-                });
-
-        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any()))
-                .thenAnswer(inv -> sun(inv.getArgument(2), true));
-        lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
-                .thenAnswer(inv -> sun(inv.getArgument(2), false));
-        lenient().when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
-                .thenAnswer(inv -> {
-                    LocalDateTime t = sun(inv.getArgument(2), inv.getArgument(3));
-                    return new SolarService.SolarWindow(t.minusMinutes(45), t.plusMinutes(45),
-                            t.minusMinutes(45), t.plusMinutes(45));
-                });
-        // Lunar days cycle KING, SPRING, REGULAR so every classification is exercised.
-        lenient().when(lunarPhaseService.classifyTide(any())).thenAnswer(inv -> {
-            int day = ((LocalDate) inv.getArgument(0)).getDayOfMonth();
-            return switch (day % 3) {
-                case 0 -> LunarTideType.KING_TIDE;
-                case 1 -> LunarTideType.SPRING_TIDE;
-                default -> LunarTideType.REGULAR_TIDE;
-            };
-        });
-        lenient().when(lunarPhaseService.getMoonPhase(any())).thenReturn("FULL_MOON");
-        lenient().when(lunarPhaseService.isMoonAtPerigee(any())).thenReturn(true);
-
-        // Both repository methods implement the inclusive BETWEEN, ascending, as the real ones do.
-        lenient().when(repo.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(any(), any(), any()))
-                .thenAnswer(inv -> between(inv.getArgument(0), inv.getArgument(1), inv.getArgument(2)));
-        lenient().when(repo.findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc(any(), any(), any()))
-                .thenAnswer(inv -> {
-                    List<TideExtremeEntity> all = new ArrayList<>();
-                    for (Object id : (java.util.Collection<?>) inv.getArgument(0)) {
-                        all.addAll(between((Long) id, inv.getArgument(1), inv.getArgument(2)));
-                    }
-                    all.sort(Comparator.comparing(TideExtremeEntity::getEventTime));
-                    return all;
-                });
-
         locations = List.of(
                 location(A_HIGH, Set.of(TideType.HIGH)),
                 location(B_LOW, Set.of(TideType.LOW)),
@@ -177,6 +117,93 @@ class TriageTideSnapshotEquivalenceTest {
                 extreme(E_EDGE, sun(FIRST.plusDays(2), false).minusDays(2), TideExtremeType.LOW, 0.4),
                 extreme(E_EDGE, sun(FIRST.plusDays(2), false).plusDays(2), TideExtremeType.HIGH, 4.0)));
         store.put(F_NO_ROWS, List.of());
+    }
+
+    private static boolean coastal(LocationEntity loc) {
+        return !loc.getTideType().isEmpty();
+    }
+
+    private static List<Long> coastalIds(List<LocationEntity> locs) {
+        return locs.stream().filter(TriageTideSnapshotEquivalenceTest::coastal)
+                .map(LocationEntity::getId).toList();
+    }
+
+    /** The golden/blue window for each exact (coordinates, date, event) the derivation asks for. */
+    private void stubSolar(List<LocationEntity> locs, List<LocalDate> dates, List<TargetType> events) {
+        for (LocationEntity loc : locs.stream().filter(TriageTideSnapshotEquivalenceTest::coastal).toList()) {
+            for (LocalDate date : dates) {
+                for (TargetType type : events) {
+                    boolean sunrise = type == TargetType.SUNRISE;
+                    LocalDateTime t = sun(date, sunrise);
+                    when(solarService.goldenBlueWindow(loc.getLat(), loc.getLon(), date, sunrise))
+                            .thenReturn(new SolarService.SolarWindow(t.minusMinutes(45),
+                                    t.plusMinutes(45), t.minusMinutes(45), t.plusMinutes(45)));
+                }
+            }
+        }
+    }
+
+    /** Lunar days cycle KING, SPRING, REGULAR so every classification is exercised. */
+    private void stubLunar(List<LocalDate> dates) {
+        for (LocalDate date : dates) {
+            LunarTideType type = switch (date.getDayOfMonth() % 3) {
+                case 0 -> LunarTideType.KING_TIDE;
+                case 1 -> LunarTideType.SPRING_TIDE;
+                default -> LunarTideType.REGULAR_TIDE;
+            };
+            when(lunarPhaseService.classifyTide(date)).thenReturn(type);
+            when(lunarPhaseService.getMoonPhase(date)).thenReturn("FULL_MOON");
+            when(lunarPhaseService.isMoonAtPerigee(date)).thenReturn(true);
+        }
+    }
+
+    /**
+     * Historical stats for the given locations: an average high of 3.0 m puts the spring threshold
+     * at 3.75 m, and a 3.1 to 5.0 m sample gives a P95 near 4.9 m, so the fixture's highs (3.5 to
+     * 5.1 m) land in every band: none, above the spring threshold only, and above P95.
+     */
+    private void stubStats(List<Long> ids) {
+        LocalDateTime cutoff = LocalDate.now(java.time.ZoneOffset.UTC).atStartOfDay();
+        List<BigDecimal> heights = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            heights.add(BigDecimal.valueOf(3.1 + i * 0.1));
+        }
+        for (long id : ids) {
+            when(repo.findHeightStatsByLocationIdAndTypeBefore(id, TideExtremeType.HIGH, cutoff))
+                    .thenReturn(new Object[] {BigDecimal.valueOf(3.0), BigDecimal.valueOf(5.1),
+                        BigDecimal.valueOf(2.0), 100L});
+            when(repo.findHeightStatsByLocationIdAndTypeBefore(id, TideExtremeType.LOW, cutoff))
+                    .thenReturn(new Object[] {BigDecimal.valueOf(0.6), BigDecimal.valueOf(1.0),
+                        BigDecimal.valueOf(0.2), 100L});
+            when(repo.findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(id, TideExtremeType.HIGH,
+                    cutoff)).thenReturn(heights);
+        }
+    }
+
+    /**
+     * The per-location query, one stub per exact location id. The time bounds are matched by type
+     * only and answered from them with the inclusive BETWEEN the real query implements, so the
+     * answer depends on the arguments the code actually passes.
+     */
+    private void stubPerLocationQuery(List<Long> ids) {
+        for (long id : ids) {
+            when(repo.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(eq(id),
+                    any(LocalDateTime.class), any(LocalDateTime.class)))
+                    .thenAnswer(inv -> between(id, inv.getArgument(1), inv.getArgument(2)));
+        }
+    }
+
+    /** The multi-location query for exactly these ids over exactly this window. */
+    private void stubSnapshotQuery(Set<Long> ids, TideExtremeSnapshot.Window window) {
+        when(repo.findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc(ids, window.from(), window.to()))
+                .thenAnswer(inv -> {
+                    List<TideExtremeEntity> all = new ArrayList<>();
+                    for (long id : ids) {
+                        all.addAll(between(id, window.from(), window.to()));
+                    }
+                    all.sort(Comparator.comparing(TideExtremeEntity::getEventTime));
+                    return all;
+                });
     }
 
     private static LocalDateTime sun(LocalDate date, boolean sunrise) {
@@ -252,6 +279,12 @@ class TriageTideSnapshotEquivalenceTest {
     @DisplayName("every candidate's tide facts are identical from the snapshot and from the "
             + "per-candidate query, across spring, king, regular, edge, empty and inland")
     void snapshotPath_derivesEveryCandidateIdenticallyToTheQueryPath() {
+        stubSolar(locations, DATES, EVENTS);
+        stubLunar(DATES);
+        stubStats(List.of(A_HIGH, B_LOW, C_MID, D_HIGH_LOW, E_EDGE));
+        stubPerLocationQuery(coastalIds(locations));
+        stubSnapshotQuery(Set.copyOf(coastalIds(locations)), TideExtremeSnapshot.windowFor(DATES));
+
         Map<String, AtmosphericData> live = deriveAll(null);
         TideExtremeSnapshot snapshot = augmentor.tideSnapshotFor(locations, DATES);
         Map<String, AtmosphericData> fromSnapshot = deriveAll(snapshot);
@@ -285,12 +318,18 @@ class TriageTideSnapshotEquivalenceTest {
     @DisplayName("the snapshot path issues one multi-location read for the whole collection and "
             + "no per-candidate extremes query")
     void snapshotPath_loadsOnceAndNeverQueriesPerCandidate() {
+        Set<Long> ids = Set.copyOf(coastalIds(locations));
+        TideExtremeSnapshot.Window window = TideExtremeSnapshot.windowFor(DATES);
+        stubSolar(locations, DATES, EVENTS);
+        stubLunar(DATES);
+        stubStats(List.of(A_HIGH, B_LOW, C_MID, D_HIGH_LOW, E_EDGE));
+        stubSnapshotQuery(ids, window);
+
         TideExtremeSnapshot snapshot = augmentor.tideSnapshotFor(locations, DATES);
         deriveAll(snapshot);
 
-        TideExtremeSnapshot.Window window = TideExtremeSnapshot.windowFor(DATES);
         verify(repo, times(1)).findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc(
-                Set.of(A_HIGH, B_LOW, C_MID, D_HIGH_LOW, E_EDGE, F_NO_ROWS), window.from(), window.to());
+                ids, window.from(), window.to());
         // Every candidate's range lies inside the loaded window, so the live fallback must not run.
         // any() is only the matcher for the never() verification.
         verify(repo, never()).findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(any(), any(), any());
@@ -301,12 +340,19 @@ class TriageTideSnapshotEquivalenceTest {
     void noSnapshot_fallsBackToThePerCandidateQuery() {
         LocationEntity loc = locations.getFirst();
         LocalDateTime eventTime = sun(FIRST, false);
+        stubSolar(List.of(loc), List.of(FIRST), List.of(TargetType.SUNSET));
+        stubLunar(List.of(FIRST));
+        stubStats(List.of(A_HIGH));
+        when(repo.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                A_HIGH, eventTime.minusDays(2), eventTime.plusDays(2)))
+                .thenReturn(between(A_HIGH, eventTime.minusDays(2), eventTime.plusDays(2)));
 
         augmentor.augmentWithTideData(TestAtmosphericData.defaults(), loc.getId(), eventTime,
                 loc.getTideType(), loc.getLat(), loc.getLon(), TargetType.SUNSET);
 
         verify(repo, times(1)).findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
                 A_HIGH, eventTime.minusDays(2), eventTime.plusDays(2));
+        // any() is only the matcher for the never() verification.
         verify(repo, never()).findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc(any(), any(), any());
     }
 
@@ -314,9 +360,13 @@ class TriageTideSnapshotEquivalenceTest {
     @DisplayName("a candidate outside the loaded window falls back to the live query, never to a "
             + "silent empty")
     void candidateOutsideWindow_fallsBackToLiveQuery() {
-        TideExtremeSnapshot snapshot = augmentor.tideSnapshotFor(locations, List.of(FIRST));
         LocationEntity loc = locations.getFirst();
         LocalDateTime farEvent = sun(FIRST.plusDays(20), false);
+        stubSnapshotQuery(Set.of(A_HIGH), TideExtremeSnapshot.windowFor(List.of(FIRST)));
+        stubSolar(List.of(loc), List.of(FIRST.plusDays(20)), List.of(TargetType.SUNSET));
+        when(repo.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                A_HIGH, farEvent.minusDays(2), farEvent.plusDays(2))).thenReturn(List.of());
+        TideExtremeSnapshot snapshot = augmentor.tideSnapshotFor(List.of(loc), List.of(FIRST));
 
         augmentor.augmentWithTideData(TestAtmosphericData.defaults(), loc.getId(), farEvent,
                 loc.getTideType(), loc.getLat(), loc.getLon(), TargetType.SUNSET, snapshot);
@@ -331,6 +381,7 @@ class TriageTideSnapshotEquivalenceTest {
         augmentor.tideSnapshotFor(List.of(locations.getLast()), DATES);
         augmentor.tideSnapshotFor(locations, Collections.emptyList());
 
+        // any() is only the matcher for the never() verification.
         verify(repo, never()).findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc(any(), any(), any());
     }
 
@@ -341,12 +392,14 @@ class TriageTideSnapshotEquivalenceTest {
         List<Long> ids = new ArrayList<>();
         ids.add(A_HIGH);
         ids.add(null);
+        TideExtremeSnapshot.Window window = TideExtremeSnapshot.windowFor(
+                List.of(FIRST, FIRST.plusDays(1), FIRST.plusDays(3)));
+        stubSnapshotQuery(Set.of(A_HIGH), window);
 
         tideService.snapshotFor(ids, shuffled);
 
-        TideExtremeSnapshot.Window window = TideExtremeSnapshot.windowFor(
-                List.of(FIRST, FIRST.plusDays(1), FIRST.plusDays(3)));
         verify(repo, times(1)).findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc(
                 Set.of(A_HIGH), window.from(), window.to());
     }
 }
+
