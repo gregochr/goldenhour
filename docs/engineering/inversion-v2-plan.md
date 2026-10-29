@@ -375,6 +375,12 @@ Switch-over (shadow → live) is an owner decision on that evidence.
     matches. The owner fetched both (Open-Meteo forecast API, `past_days=1`, 2026-10-29; pasted
     in the session, not yet saved as a file): east 54.648, −2.687, returned elevation 133 m; west
     54.648, −2.811, returned elevation 235 m.
+    - **Same-morning contrast: Keswick, 09:22 GMT, no mist** ("it's clear"; the owner, driving west on
+      the A66, about 20 km on). Caveat: 09:22 is 2 h 10 min after sunrise, so it cannot tell "never
+      formed" from "already burned off". Worth fetching the Keswick grid point (about 54.600, −3.135)
+      for the same hours: if its night was cloudier or windier than Stainton's, the pair is a real
+      discrimination case (the score should rank Stainton above Keswick); if the set-ups match, it is
+      a burn-off timing note and nothing more.
     - **What `ValleyMistCalculator` would say (hand-computed, 08:00 slot, night side 05:00–08:00):**
       east clear 0 (mean total cloud 67.5%) + calm 1.42 (min 2.1 m/s) + moisture 4.0 (min gap 0.3 °C)
       + cooling 0 + wet 0 + confirmation 0.25 (6,880 m) = **5.67, POSSIBLE**; west 0 + 1.50 + 4.0 + 0 +
