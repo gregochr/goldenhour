@@ -340,19 +340,68 @@ describe('P4e: the event memos hit, and time is an input', () => {
     expect(Object.is(latest(counters.verdicts), verdicts1)).toBe(true);
   });
 
-  it('a tick (the app clock moving on) rebuilds the rows from the same props', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date(`${TODAY}T07:00:00Z`));
-    const heat = heatProp();
-    await renderMap({ heat });
-    const before = latest(counters.events);
-    vi.setSystemTime(new Date(`${TODAY}T07:00:05Z`));
-    // Same props (a memoised MapView would not even re-render), so a pan that changes an answer
-    // is the render that notices the second has moved.
-    await reportBounds(AWAY_BOUNDS);
-    const after = latest(counters.events);
-    expect(Object.is(after, before)).toBe(false);
-    expect(after.map((r) => r.id)).toEqual(before.map((r) => r.id));
+  describe('the pastness tick', () => {
+    // The 08:24 sunrise is over by the afterglow rule at 08:54:00. No served sunrise window; a past
+    // window entry for it, so the row exists only once the elapsed test is true.
+    const BOUNDARY = `${TODAY}T08:54:00Z`;
+    const PAST = [{ date: TODAY, targetType: 'SUNRISE', earliestEventTime: `${TODAY}T08:24:00` }];
+    const DATES = [TODAY];
+
+    function propsNoSunrise() {
+      const heat = heatProp();
+      heat.windows = heat.windows.filter((w) => w.targetType === 'SUNSET');
+      return { heat, pastSolarWindows: PAST, forecastDates: DATES };
+    }
+
+    function sunriseRow() {
+      return latest(counters.events).find((r) => r.eventType === 'SUNRISE' && r.date === TODAY);
+    }
+
+    function useClock(iso) {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      vi.setSystemTime(new Date(iso));
+    }
+
+    it('rows flip to past exactly when the timer fires: same object just before, rebuilt just after', async () => {
+      useClock(`${TODAY}T08:30:00Z`);
+      const props = propsNoSunrise();
+      await renderMap(props);
+      const before = latest(counters.events);
+      expect(sunriseRow()?.past).not.toBe(true);
+
+      await act(async () => { vi.advanceTimersByTime(Date.parse(BOUNDARY) - Date.now() - 1000); });
+      await reportBounds(AWAY_BOUNDS); // a render with identical inputs
+      expect(Object.is(latest(counters.events), before)).toBe(true);
+      expect(sunriseRow()?.past).not.toBe(true);
+
+      await act(async () => { vi.advanceTimersByTime(1000 + 100); });
+      expect(Object.is(latest(counters.events), before)).toBe(false);
+      expect(sunriseRow()?.past).toBe(true);
+    });
+
+    it('renders between boundaries keep Object.is however much time passes', async () => {
+      useClock(`${TODAY}T08:30:00Z`);
+      await renderMap(propsNoSunrise());
+      const before = latest(counters.events);
+      await act(async () => { vi.advanceTimersByTime(10 * 60 * 1000); });
+      await reportBounds(AWAY_BOUNDS);
+      await reportBounds(IN_VIEW_BOUNDS);
+      expect(Object.is(latest(counters.events), before)).toBe(true);
+    });
+
+    it('arms one timer for the boundary (plus the epsilon) and clears it on unmount', async () => {
+      useClock(`${TODAY}T08:30:00Z`);
+      const setSpy = vi.spyOn(globalThis, 'setTimeout');
+      const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
+      const result = await renderMap(propsNoSunrise());
+      const wanted = Date.parse(BOUNDARY) - Date.now() + 50;
+      const armed = setSpy.mock.calls
+        .map((call, i) => ({ delay: call[1], id: setSpy.mock.results[i].value }))
+        .filter((c) => c.delay === wanted);
+      expect(armed.length).toBeGreaterThan(0);
+      result.unmount();
+      for (const { id } of armed) expect(clearSpy).toHaveBeenCalledWith(id);
+    });
   });
 });
 

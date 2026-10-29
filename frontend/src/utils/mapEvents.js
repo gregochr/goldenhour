@@ -1,6 +1,6 @@
 import { dayLabelFor, eventWord, pastDayLabel } from './windowFirstCards.js';
 import { resolveConfidence, daysOut } from './confidenceUtils.js';
-import { isNightOver } from './mapDates.js';
+import { isNightOver, ukDateStr } from './mapDates.js';
 import { parseUtcInstant } from './conversions.js';
 import { windowKey } from './windowKeys.js';
 import { appNow } from './rewind.js';
@@ -1046,4 +1046,63 @@ export function isForwardableRow(row, { todayStr, currentNightDate = null }) {
  */
 export function findEvIndex(events, eventType, date) {
   return events.findIndex((e) => e.eventType === eventType && e.date === date);
+}
+
+/** The first instant after {@code nowMs} whose UK civil date differs (bisection; the date is monotonic). */
+function nextUkMidnightMs(nowMs) {
+  const today = ukDateStr(new Date(nowMs));
+  let lo = nowMs;
+  let hi = nowMs + 26 * 60 * 60 * 1000;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (ukDateStr(new Date(mid)) === today) lo = mid; else hi = mid;
+  }
+  return hi;
+}
+
+/**
+ * The next instant, strictly after {@code nowMs}, at which {@link buildMapEvents} would answer
+ * differently with nothing else changed (performance-review-2026-10 P4e), or null when none is known.
+ *
+ * <p>The builder reads the clock in exactly three ways, and each contributes its flip instant:
+ * <ul>
+ *   <li>{@code isEventTimePast} on a lent tide's {@code eventTime} and on a past window's
+ *       {@code earliestEventTime}: true once the UTC-naive instant plus the afterglow is strictly behind
+ *       the clock, so it flips at {@code instant + afterglowMs} (the caller adds its own epsilon);</li>
+ *   <li>{@code bigSeasWindowAhead}: a day's {@code windowEnd} stops being ahead at {@code windowEnd};</li>
+ *   <li>{@code todayStr}, the UK civil date: the next UK midnight.</li>
+ * </ul>
+ * A pure scan; it reads no clock.
+ *
+ * @param {object} args
+ * @param {?Map<string, {eventTime: ?string}>} args.tideByWindow
+ * @param {Array<{earliestEventTime: ?string}>} args.pastSolarWindows
+ * @param {Array<{windowEnd: ?string}>} args.bigSeas
+ * @param {number} args.nowMs the app clock, epoch ms
+ * @param {number} args.afterglowMs the elapsed-test allowance ({@code briefingDisplay.AFTERGLOW_MS})
+ * @returns {?number} epoch ms
+ */
+export function nextClockBoundary({
+  tideByWindow = null, pastSolarWindows = [], bigSeas = [], nowMs, afterglowMs,
+}) {
+  let next = null;
+  const consider = (ms) => {
+    if (Number.isFinite(ms) && ms > nowMs && (next == null || ms < next)) next = ms;
+  };
+  if (tideByWindow instanceof Map) {
+    for (const entry of tideByWindow.values()) {
+      const at = parseUtcInstant(entry?.eventTime);
+      if (at) consider(at.getTime() + afterglowMs);
+    }
+  }
+  for (const w of Array.isArray(pastSolarWindows) ? pastSolarWindows : []) {
+    const at = parseUtcInstant(w?.earliestEventTime);
+    if (at) consider(at.getTime() + afterglowMs);
+  }
+  for (const day of Array.isArray(bigSeas) ? bigSeas : []) {
+    const end = parseUtcInstant(day?.windowEnd);
+    if (end) consider(end.getTime());
+  }
+  consider(nextUkMidnightMs(nowMs));
+  return next;
 }

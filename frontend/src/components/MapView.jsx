@@ -65,7 +65,7 @@ import { fadeAt, LAND_CLIP_MAX_ZOOM } from '../utils/heatHandover.js';
 import {
   buildMapEvents, findEvIndex, isForwardableRow, isPastSolarWindow, nightPreviewDates, solarHorizonDates,
   solarRowPredicate, isNightKind, isHighWaterRow, nightLabel,
-  EVENT_KIND, HIGH_WATER,
+  EVENT_KIND, HIGH_WATER, nextClockBoundary,
 } from '../utils/mapEvents.js';
 import { myRatingOf } from '../utils/outcomeRatingJoin.js';
 import { dowDayLabel, pastDayLabel } from '../utils/windowFirstCards.js';
@@ -85,7 +85,7 @@ import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
 import { landingRows, landingHeader, betterNextWindow } from '../utils/mapLanding.js';
 import { NIGHT_RETRY_LINE, isCoastalTidalLocation } from '../utils/mapCallout.js';
-import { isEventTimePast } from '../utils/briefingDisplay.js';
+import { isEventTimePast, AFTERGLOW_MS } from '../utils/briefingDisplay.js';
 import {
   tierOf, stripModel, siblingEventTime, coastalInView, tideViewSignature,
 } from '../utils/mapTideFit.js';
@@ -363,6 +363,10 @@ const TOPIC_ANNOUNCE_MS = 6000;
  * deadline must not rest on one long `setTimeout`: a hidden tab throttles and can suspend it.
  */
 const HW_DEADLINE_SLICE_MS = 30000;
+/** The pastness tick fires this long after the boundary, so the strict elapsed tests are true by then. */
+const PAST_TICK_EPSILON_MS = 50;
+/** The longest the pastness timer waits before re-checking (a far boundary re-arms daily). */
+const PAST_TICK_MAX_MS = 24 * 60 * 60 * 1000;
 /** Stable empty list: no Ask answer on screen. A fresh `[]` per render would defeat `MapView`'s memo. */
 const NO_ASK_PICKS = [];
 /**
@@ -1795,6 +1799,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // The High-water deadline timer's render key (further down) so `servedMapEvents` rebuilds when that
   // row's window ends; declared here because the memo that reads it sits above the timer.
   const [hwExpiryTick, setHwExpiryTick] = useState(0);
+  // The pastness tick (see `servedMapEvents`): bumped when the app clock crosses a boundary the event list reads.
+  const [pastTick, setPastTick] = useState(0);
   const { status: auroraStatus, liteAlert } = useAuroraStatus();
   // The night aurora results are keyed to — from the backend, which owns the dusk/dawn rule.
   // Falls back to the local calendar date when status is absent (LITE, failed fetch, or a backend
@@ -3594,14 +3600,28 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    *
    * <p>Memoised on its real inputs (performance-review-2026-10 P4e, F20), so every memo downstream
    * of it can hit. ⚠️ <b>Time is an input.</b> {@code buildMapEvents} reads the app clock
-   * ({@code now = appNow()}, and {@code isEventTimePast} per row), so two values stand in for it:
-   * {@code hwExpiryTick}, which the High-water deadline timer bumps to rebuild the list when that row's
-   * window ends, and {@code pastClock}, the app clock in whole seconds. A render is the only moment the
-   * old plain expression ever noticed a window had elapsed, so a row still retires on the first render
-   * after its boundary; whole seconds, not minutes, so the memo never holds a row past it perceptibly.
+   * ({@code now = appNow()}, and {@code isEventTimePast} per row), so two ticks stand in for it:
+   * {@code hwExpiryTick}, which the High-water deadline timer bumps when that row's window ends, and
+   * {@code pastTick}, bumped by the effect below at the next instant the builder's answer can change
+   * ({@code mapEvents.nextClockBoundary}: an afterglow expiry, a Big seas window end, UK midnight).
+   * Between boundaries the memos hold, however many renders happen.
    */
   const mapTomorrowStr = ukDateStrOffset(1);
-  const pastClock = Math.floor(appNow().getTime() / 1000);
+  const heatTideByWindow = heat?.tideByWindow;
+  useEffect(() => {
+    const arm = () => {
+      const nowMs = appNow().getTime();
+      const at = nextClockBoundary({
+        tideByWindow: heatTideByWindow, pastSolarWindows, bigSeas, nowMs, afterglowMs: AFTERGLOW_MS,
+      });
+      if (at == null) return null;
+      // Clamped so a far boundary re-checks daily and a near one never spins; the tick is idempotent.
+      const delay = Math.min(Math.max(at - nowMs + PAST_TICK_EPSILON_MS, 0), PAST_TICK_MAX_MS);
+      return setTimeout(() => setPastTick((n) => n + 1), delay);
+    };
+    const timer = arm();
+    return () => { if (timer != null) clearTimeout(timer); };
+  }, [heatTideByWindow, pastSolarWindows, bigSeas, pastTick]);
   const nightOnScreen = useMemo(
     () => ((isAstroMode || isAuroraMode) ? { eventType, date: nightDate } : null),
     [isAstroMode, isAuroraMode, eventType, nightDate],
@@ -3632,11 +3652,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     isLite: role === 'LITE_USER',
     formatTimeUk: formatEventTimeUk,
     bigSeas,
-  // `hwExpiryTick` and `pastClock` are the clock (see above); neither is read inside the body.
+  // `hwExpiryTick` and `pastTick` are the clock (see above); neither is read inside the body.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [heat?.windows, heat?.tideByWindow, forecastDates, pastSolarWindows, mapTodayStr, mapTomorrowStr,
     auroraNight, nightOnScreen, astroAvailableDates, astroConditionsByDate, eventAuroraDates,
-    auroraNightRows, role, bigSeas, hwExpiryTick, pastClock]);
+    auroraNightRows, role, bigSeas, hwExpiryTick, pastTick]);
   /**
    * The Lite aurora Pro door: the soonest served night, labelled the way the Pro row for it is. D-14's rule
    * (`isNightOffered`): while the served current night has not ended every served night stays (last night
