@@ -144,3 +144,31 @@ describe('useHealthStatus session probe', () => {
     expect(getSettings).not.toHaveBeenCalled();
   });
 });
+
+describe('useHealthStatus tick identity', () => {
+  beforeEach(() => {
+    streams = [];
+    createEventSource.mockImplementation((path, params, handlers, options) => {
+      const stream = { path, params, handlers, options, cleanup: vi.fn() };
+      streams.push(stream);
+      return stream.cleanup;
+    });
+    useAuth.mockReturnValue({ token: 'tok-1' });
+  });
+
+  it('a tick that changes only the probe time moves checkedAt and keeps every other field', () => {
+    const { result } = renderHook(() => useHealthStatus(true));
+    statusEvent(lastStream());
+    const first = result.current;
+    expect(first.checkedAt).toBeInstanceOf(Date);
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 30000);
+    statusEvent(lastStream());
+    vi.useRealTimers();
+
+    expect(result.current.checkedAt.getTime()).toBeGreaterThan(first.checkedAt.getTime());
+    expect(result.current.degraded).toBe(first.degraded);
+    expect(result.current.status).toBe('UP');
+  });
+});

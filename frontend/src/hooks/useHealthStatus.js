@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import createEventSource from '../utils/createEventSource.js';
 import { getSettings } from '../api/settingsApi.js';
@@ -20,6 +20,25 @@ const DOWN_GRACE_MS = 12000;
 const TOKEN_KEY = 'goldenhour_token';
 
 /**
+ * Whether two health values say the same thing: every field except {@code checkedAt}, which is the
+ * browser's own probe time and changes on every tick. Fields are plain JSON (strings, arrays,
+ * small objects), so a structural compare is exact.
+ *
+ * @param {object} a previous health value
+ * @param {object} b next health value
+ * @returns {boolean} true when only {@code checkedAt} (or nothing) differs
+ */
+export function sameHealth(a, b) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    if (key === 'checkedAt') continue;
+    if (a[key] === b[key]) continue;
+    if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) return false;
+  }
+  return true;
+}
+
+/**
  * Connects to the SSE status stream and pushes health updates into state.
  * On connection error the status is only marked DOWN after a short grace period,
  * and the connection reconnects immediately when the tab becomes visible again —
@@ -30,10 +49,14 @@ const TOKEN_KEY = 'goldenhour_token';
 export function useHealthStatus(enabled = true) {
   const { token } = useAuth();
   const [health, setHealth] = useState({
-    status: null, degraded: [], checkedAt: null,
+    status: null, degraded: [],
     build: null, session: null, database: null, services: null,
     appVersion: null, startedAt: null,
   });
+
+  // Kept apart from `health` so a tick that changes only the probe time does not replace the
+  // compared state; the returned value still carries it for the one consumer that shows it.
+  const [checkedAt, setCheckedAt] = useState(null);
 
   useEffect(() => {
     if (!token || !enabled) return;
@@ -55,17 +78,20 @@ export function useHealthStatus(enabled = true) {
         status: (data) => {
           clearDownTimer();
           probed = false;
-          setHealth({
+          const next = {
             status: data.status,
             degraded: data.degraded || [],
-            checkedAt: new Date(),
             build: data.build || null,
             session: data.session || null,
             database: data.database || null,
             services: data.services || null,
             appVersion: data.appVersion || null,
             startedAt: data.startedAt || null,
-          });
+          };
+          // A tick that changes nothing but the probe time keeps the previous `health` object, so
+          // only `checkedAt` moves (see HealthStatusContext for who re-renders on which).
+          setHealth((prev) => (sameHealth(prev, next) ? prev : next));
+          setCheckedAt(new Date());
         },
       },
       {
@@ -89,11 +115,11 @@ export function useHealthStatus(enabled = true) {
           }
           downTimer = setTimeout(() => {
             downTimer = null;
-            setHealth((prev) => ({
-              ...prev,
-              status: 'DOWN',
-              checkedAt: new Date(),
-            }));
+            setHealth((prev) => {
+              const next = { ...prev, status: 'DOWN' };
+              return sameHealth(prev, next) ? prev : next;
+            });
+            setCheckedAt(new Date());
           }, DOWN_GRACE_MS);
         },
       },
@@ -105,5 +131,5 @@ export function useHealthStatus(enabled = true) {
     };
   }, [token, enabled]);
 
-  return health;
+  return useMemo(() => ({ ...health, checkedAt }), [health, checkedAt]);
 }
