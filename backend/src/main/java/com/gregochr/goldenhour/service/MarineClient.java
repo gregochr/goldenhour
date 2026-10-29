@@ -14,8 +14,10 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Resilient wrapper around the Open-Meteo Marine Weather API, plus the sea-state selection helper.
@@ -28,6 +30,17 @@ import java.util.Optional;
  */
 @Service
 public class MarineClient {
+
+    /** Coordinates per batched request; callers chunk to this so one failure costs one chunk. */
+    public static final int BATCH_COORD_LIMIT = 20;
+
+    /**
+     * One coordinate of a batched marine request.
+     *
+     * @param lat latitude in decimal degrees
+     * @param lon longitude in decimal degrees
+     */
+    public record Point(double lat, double lon) { }
 
     private static final String HOURLY_PARAMS =
             "wave_height,swell_wave_height,wave_direction,wave_period,swell_wave_period";
@@ -61,6 +74,38 @@ public class MarineClient {
     @RateLimiter(name = "open-meteo")
     public OpenMeteoMarineResponse fetchMarine(double lat, double lon) {
         return marineApi.getMarine(lat, lon, HOURLY_PARAMS, TIMEZONE, FORECAST_DAYS);
+    }
+
+    /**
+     * Fetches the 7-day hourly sea-state series for several locations in one request.
+     *
+     * <p>The caller chunks at {@link #BATCH_COORD_LIMIT}. A single coordinate goes through the
+     * single-point exchange because Open-Meteo answers one point with a bare object, not an array.
+     * A response whose length differs from the request is rejected, since a shifted list would pin
+     * one location's waves to another.
+     *
+     * @param coords the points to fetch, at most {@link #BATCH_COORD_LIMIT}
+     * @return one response per coordinate, in request order (an element may be null)
+     */
+    @Retry(name = "open-meteo-briefing")
+    @CircuitBreaker(name = "open-meteo-briefing")
+    @RateLimiter(name = "open-meteo")
+    public List<OpenMeteoMarineResponse> fetchMarineBatch(List<Point> coords) {
+        if (coords.size() == 1) {
+            Point only = coords.getFirst();
+            return Collections.singletonList(
+                    marineApi.getMarine(only.lat(), only.lon(), HOURLY_PARAMS, TIMEZONE, FORECAST_DAYS));
+        }
+        String latitudes = coords.stream().map(c -> String.valueOf(c.lat())).collect(Collectors.joining(","));
+        String longitudes = coords.stream().map(c -> String.valueOf(c.lon())).collect(Collectors.joining(","));
+        List<OpenMeteoMarineResponse> responses =
+                marineApi.getMarineBatch(latitudes, longitudes, HOURLY_PARAMS, TIMEZONE, FORECAST_DAYS);
+        if (responses == null || responses.size() != coords.size()) {
+            throw new IllegalStateException("Marine batch returned "
+                    + (responses == null ? "no body" : responses.size() + " responses")
+                    + " for " + coords.size() + " coordinates");
+        }
+        return responses;
     }
 
     /**

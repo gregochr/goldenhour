@@ -190,6 +190,12 @@ public class BatchResultProcessor {
 
         try (var streamResp = anthropicClient.messages().batches()
                 .resultsStreaming(batch.getAnthropicBatchId())) {
+            // Results are streamed and iterated once, so their location ids cannot be collected
+            // first: one findAll() (a few hundred rows) replaces a findById per result.
+            Map<Long, LocationEntity> locationsById = new HashMap<>();
+            for (LocationEntity loaded : locationRepository.findAll()) {
+                locationsById.put(loaded.getId(), loaded);
+            }
             for (MessageBatchIndividualResponse response : (Iterable<MessageBatchIndividualResponse>)
                     streamResp.stream()::iterator) {
                 String customId = response.customId();
@@ -340,8 +346,7 @@ public class BatchResultProcessor {
                             "Unhandled parsed custom id: " + parsed);
                 }
 
-                LocationEntity location = locationRepository.findById(identity.locationId())
-                        .orElse(null);
+                LocationEntity location = locationsById.get(identity.locationId());
                 if (location == null) {
                     LOG.warn("Forecast batch: location {} not found for customId '{}', skipping",
                             identity.locationId(), customId);

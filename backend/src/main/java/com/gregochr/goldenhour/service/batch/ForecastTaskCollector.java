@@ -24,6 +24,7 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
+import com.gregochr.goldenhour.service.TideExtremeSnapshot;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import com.gregochr.goldenhour.util.ForecastHorizon;
@@ -364,6 +365,8 @@ public class ForecastTaskCollector {
                         + "({} force-eval headline candidates, cap {})",
                 candidates.size(), forceEvalKeys.size(), forceEvalCap);
 
+        TideExtremeSnapshot tideSnapshot = loadTideSnapshot(candidates);
+
         for (ForecastCandidate candidate : candidates) {
             // One horizon per candidate, used by the eligibility policy and by every
             // disposition row it produces. It was two values — this one and
@@ -375,10 +378,8 @@ public class ForecastTaskCollector {
             // sharing the variable makes them one value rather than two that agree.
             int daysAhead = ForecastHorizon.daysAhead(candidate.date(), clock);
             try {
-                ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
-                        candidate.location(), candidate.date(), candidate.targetType(),
-                        candidate.location().getTideType(), nearTermModel, null,
-                        prefetchedWeather, cloudCache);
+                ForecastPreEvalResult preEval = triageCandidate(candidate, nearTermModel,
+                        prefetchedWeather, cloudCache, tideSnapshot);
                 // Record conditions for every place this cycle fetched weather for — no longer a
                 // call made here. `ForecastService.fetchWeatherAndTriage` above now makes this
                 // write itself, immediately after assembling the atmospheric data and before its
@@ -816,6 +817,8 @@ public class ForecastTaskCollector {
         List<EvaluationTask.Forecast> coastal = new ArrayList<>();
         Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
 
+        TideExtremeSnapshot tideSnapshot = loadTideSnapshot(candidates);
+
         for (ForecastCandidate candidate : candidates) {
             try {
                 // fetchWeatherAndTriage records this candidate's atmospheric readings itself
@@ -826,10 +829,8 @@ public class ForecastTaskCollector {
                 // method used to, fetches its weather (the prefetch above already covers it)
                 // and then records nothing for it, while the scheduled loop, which decides the
                 // woodland lane strictly AFTER this same call, does.
-                ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
-                        candidate.location(), candidate.date(), candidate.targetType(),
-                        candidate.location().getTideType(), model, null,
-                        prefetchedWeather, cloudCache);
+                ForecastPreEvalResult preEval = triageCandidate(candidate, model,
+                        prefetchedWeather, cloudCache, tideSnapshot);
 
                 // Canopy sites never belong in the sky lane, and this path has no woodland
                 // bucket to route them to (unlike the scheduled loop's own `woodland` list) —
@@ -879,6 +880,41 @@ public class ForecastTaskCollector {
         }
 
         return new RegionFilteredBatchTasks(inland, coastal);
+    }
+
+    /**
+     * Loads one tide snapshot for this collection's coastal candidates over their dates, so the
+     * per-candidate tide derivation reads from memory instead of one query per candidate (and
+     * more). A failed load returns {@code null}, which leaves every candidate on the live query.
+     */
+    private TideExtremeSnapshot loadTideSnapshot(List<ForecastCandidate> candidates) {
+        try {
+            return forecastService.tideSnapshotFor(
+                    candidates.stream().map(ForecastCandidate::location).toList(),
+                    candidates.stream().map(ForecastCandidate::date).distinct().toList());
+        } catch (Exception e) {
+            LOG.warn("Forecast batch: tide snapshot load failed — candidates use live tide reads: {}",
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Fetches and triages one candidate, passing the collection's tide snapshot when there is one.
+     * With no snapshot it calls the eight-argument form, exactly as before.
+     */
+    private ForecastPreEvalResult triageCandidate(ForecastCandidate candidate,
+            EvaluationModel model, Map<String, WeatherExtractionResult> prefetchedWeather,
+            CloudPointCache cloudCache, TideExtremeSnapshot tideSnapshot) {
+        if (tideSnapshot == null) {
+            return forecastService.fetchWeatherAndTriage(
+                    candidate.location(), candidate.date(), candidate.targetType(),
+                    candidate.location().getTideType(), model, null, prefetchedWeather, cloudCache);
+        }
+        return forecastService.fetchWeatherAndTriage(
+                candidate.location(), candidate.date(), candidate.targetType(),
+                candidate.location().getTideType(), model, null, prefetchedWeather, cloudCache,
+                tideSnapshot);
     }
 
     /**

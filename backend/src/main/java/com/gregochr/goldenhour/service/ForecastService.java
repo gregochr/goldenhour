@@ -166,6 +166,43 @@ public class ForecastService {
             EvaluationModel model, JobRunEntity jobRun,
             Map<String, WeatherExtractionResult> prefetchedWeather,
             CloudPointCache cloudCache) {
+        return fetchWeatherAndTriage(location, date, targetType, tideTypes, model, jobRun,
+                prefetchedWeather, cloudCache, null);
+    }
+
+    /**
+     * Loads one tide snapshot for a batch of candidates, to pass to the nine-argument
+     * {@code fetchWeatherAndTriage} so their tide facts come from memory, not one read each.
+     *
+     * @param locations the candidates' locations (inland ones are skipped)
+     * @param dates     the candidates' dates
+     * @return the snapshot
+     */
+    public TideExtremeSnapshot tideSnapshotFor(java.util.Collection<LocationEntity> locations,
+            java.util.Collection<LocalDate> dates) {
+        return augmentor.tideSnapshotFor(locations, dates);
+    }
+
+    /**
+     * As the eight-argument form, reading tide extremes from a collection-scoped snapshot when
+     * one is given; {@code null} keeps the live per-candidate query, so other callers are unchanged.
+     *
+     * @param location          the location entity
+     * @param date              the target date
+     * @param targetType        SUNRISE or SUNSET
+     * @param tideTypes         tide preferences for the location
+     * @param model             evaluation model to use
+     * @param jobRun            parent job run for metrics
+     * @param prefetchedWeather pre-fetched weather keyed by coord key, or null
+     * @param cloudCache        pre-fetched cloud point cache, or null
+     * @param tideSnapshot      the collection's tide snapshot, or null
+     * @return the pre-evaluation result
+     */
+    public ForecastPreEvalResult fetchWeatherAndTriage(LocationEntity location,
+            LocalDate date, TargetType targetType, Set<TideType> tideTypes,
+            EvaluationModel model, JobRunEntity jobRun,
+            Map<String, WeatherExtractionResult> prefetchedWeather,
+            CloudPointCache cloudCache, TideExtremeSnapshot tideSnapshot) {
         String locationName = location.getName();
         double lat = location.getLat();
         double lon = location.getLon();
@@ -236,7 +273,7 @@ public class ForecastService {
                     LocationTaskState.FETCHING_TIDES);
         }
         AtmosphericData withTide = augmentor.augmentWithTideData(
-                withApproach, locationId, eventTime, tideTypes, lat, lon, targetType);
+                withApproach, locationId, eventTime, tideTypes, lat, lon, targetType, tideSnapshot);
         AtmosphericData withOrientation = augmentor.augmentWithLocationOrientation(
                 withTide, location.getSolarEventType());
         AtmosphericData withSurge = augmentor.augmentWithStormSurge(

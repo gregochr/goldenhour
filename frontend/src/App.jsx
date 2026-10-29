@@ -5,7 +5,6 @@ import { normalizeMapTrigger, doorFromTrigger } from './utils/mapDoor.js';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import AuroraBannerRoot from './components/AuroraBannerRoot.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
-import HealthIndicator from './components/HealthIndicator.jsx';
 import PostcodePromptOverlay from './components/auth/PostcodePromptOverlay.jsx';
 import SubRegionSignInPrompt from './components/subregions/SubRegionSignInPrompt.jsx';
 import { markPostcodePromptDismissed } from './api/settingsApi.js';
@@ -15,7 +14,8 @@ import { useAuroraStatus } from './hooks/useAuroraStatus.js';
 import { ukDateStr, ukDateStrOffset, resolveAuroraNight, resolveMapDate } from './utils/mapDates.js';
 import { auroraTabOffered } from './utils/auroraTab.js';
 import { useForecasts } from './hooks/useForecasts.js';
-import { useHealthStatus } from './hooks/useHealthStatus.js';
+import { HealthStatusProvider, useHealthIsDown } from './context/HealthStatusContext.jsx';
+import HealthStatusPill from './components/HealthStatusPill.jsx';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
 import useReaderSettings from './hooks/useReaderSettings.js';
@@ -261,7 +261,9 @@ function RewindGate() {
   useEffect(() => { clearForecastDetailCache(); }, [rewind?.to]);
   return (
     <AuroraStatusProvider key={rewind?.to ?? 'live'}>
-      <AppInner />
+      <HealthStatusProvider>
+        <AppInner />
+      </HealthStatusProvider>
     </AuroraStatusProvider>
   );
 }
@@ -347,11 +349,9 @@ function AppInner() {
   const streamsReady = useAfterFirstPaint();
   // The settings dialog's chunk, fetched once the page is idle so opening it is usually instant.
   useEffect(() => { if (streamsReady) warmSettingsModal(); }, [streamsReady]);
-  const {
-    status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt,
-    build: healthBuild, services: healthServices, database: healthDatabase,
-    session: healthSession, appVersion: healthAppVersion, startedAt: healthStartedAt,
-  } = useHealthStatus(streamsReady);
+  // Only the boolean: the health value itself (with its per-tick `checkedAt`) lives in the provider
+  // and the pill, so a health tick does not re-render this component.
+  const isDown = useHealthIsDown();
 
   /** Monotonic counter so repeat taps on the same location re-trigger the handoff. */
   // Nonce -1 is reserved for the rewind seed `mapTabHandoff` below is initialised with, so the
@@ -843,7 +843,6 @@ function AppInner() {
     setTabRequest({ id: 'operations', nonce: tabRequestNonce.current });
   };
 
-  const isDown = healthStatus === 'DOWN';
   /**
    * Whether the settings dialog is open — the one condition it mounts on below, and what the Plan
    * shell is told. The dialog is a sibling of the shell here, so the shell cannot see it arrive;
@@ -1019,19 +1018,9 @@ function AppInner() {
               // The same admin gate the Operations pane uses, and for the same reason: the role
               // stays here, and the shell renders whatever node it is handed. Withheld for a
               // pilot user, who has no use for a build id or a WorldTides latency. The pill is
-              // fed by `useHealthStatus` above.
+              // fed by `HealthStatusProvider`.
               healthPill={isAdmin ? (
-                <HealthIndicator
-                  status={healthStatus}
-                  degraded={healthDegraded}
-                  checkedAt={healthCheckedAt}
-                  build={healthBuild}
-                  services={healthServices}
-                  database={healthDatabase}
-                  session={healthSession}
-                  appVersion={healthAppVersion}
-                  startedAt={healthStartedAt}
-                />
+                <HealthStatusPill />
               ) : null}
               onEvaluationScoresChange={handleEvaluationScoresChange}
               onSeasonalFeaturesChange={handleSeasonalFeaturesChange}

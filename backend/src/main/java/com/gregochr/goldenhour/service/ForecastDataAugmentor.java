@@ -140,9 +140,50 @@ public class ForecastDataAugmentor {
     public AtmosphericData augmentWithTideData(AtmosphericData base, Long locationId,
             LocalDateTime eventTime, Set<TideType> tideTypes,
             double lat, double lon, TargetType targetType) {
-        return buildTideSnapshot(locationId, eventTime, tideTypes, lat, lon, targetType)
+        return augmentWithTideData(base, locationId, eventTime, tideTypes, lat, lon, targetType,
+                null);
+    }
+
+    /**
+     * As {@link #augmentWithTideData(AtmosphericData, Long, LocalDateTime, Set, double, double,
+     * TargetType)}, reading the stored extremes from a collection-scoped snapshot when one is
+     * given. Derives the identical tide facts; only the number of queries differs.
+     *
+     * @param base       atmospheric data without tide fields
+     * @param locationId the location primary key, or {@code null} if inland
+     * @param eventTime  UTC time of the solar event
+     * @param tideTypes  tide preferences for this location (empty if inland)
+     * @param lat        observer latitude
+     * @param lon        observer longitude
+     * @param targetType SUNRISE or SUNSET
+     * @param snapshot   the collection's tide snapshot, or {@code null} to query per call
+     * @return a new {@link AtmosphericData} with tide fields populated where applicable
+     */
+    public AtmosphericData augmentWithTideData(AtmosphericData base, Long locationId,
+            LocalDateTime eventTime, Set<TideType> tideTypes,
+            double lat, double lon, TargetType targetType, TideExtremeSnapshot snapshot) {
+        return buildTideSnapshot(locationId, eventTime, tideTypes, lat, lon, targetType, snapshot)
                 .map(base::withTide)
                 .orElse(base);
+    }
+
+    /**
+     * Loads one tide snapshot for the coastal locations among the given ones over the dates'
+     * window, so a batch of {@link #augmentWithTideData} calls reads from memory.
+     *
+     * @param locations the candidates' locations (inland ones are skipped)
+     * @param dates     the candidates' dates, any order
+     * @return the snapshot
+     */
+    public TideExtremeSnapshot tideSnapshotFor(java.util.Collection<LocationEntity> locations,
+            java.util.Collection<java.time.LocalDate> dates) {
+        List<Long> ids = locations.stream()
+                .filter(l -> l.getTideType() != null && !l.getTideType().isEmpty())
+                .map(LocationEntity::getId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        return tideService.snapshotFor(ids, dates);
     }
 
     /**
@@ -200,8 +241,10 @@ public class ForecastDataAugmentor {
      * {@link #deriveTideContext} (the combine seam) so the snapshot is constructed in one place.
      */
     private Optional<TideSnapshot> buildTideSnapshot(Long locationId, LocalDateTime eventTime,
-            Set<TideType> tideTypes, double lat, double lon, TargetType targetType) {
-        return tideFactDeriver.derive(locationId, eventTime, tideTypes, lat, lon, targetType)
+            Set<TideType> tideTypes, double lat, double lon, TargetType targetType,
+            TideExtremeSnapshot extremes) {
+        return tideFactDeriver.derive(locationId, eventTime, tideTypes, lat, lon, targetType,
+                        extremes)
                 .map(this::toSnapshot);
     }
 

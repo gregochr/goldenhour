@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,4 +47,15 @@ public interface MarineWaveRepository extends JpaRepository<MarineWaveEntity, Lo
      */
     List<MarineWaveEntity> findByLocation_IdAndEvaluationDateBetween(
             Long locationId, LocalDate fromDate, LocalDate toDate);
+
+    /**
+     * Returns the existing samples for a set of locations and dates in one read, the briefing
+     * marine refresh's upsert lookup (replacing one lookup per location, date and event).
+     *
+     * @param locationIds the location primary keys
+     * @param dates       the calendar dates
+     * @return the matching samples, possibly empty
+     */
+    List<MarineWaveEntity> findByLocation_IdInAndEvaluationDateIn(
+            Collection<Long> locationIds, Collection<LocalDate> dates);
 }

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.batch;
 
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
@@ -16,6 +17,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -69,27 +71,54 @@ public final class BatchWeatherPrefetcher {
     }
 
     /**
-     * Bulk-pre-fetches Open-Meteo weather for every unique coordinate in the candidate
-     * set, returning a coord-key → result map (never {@code null}).
+     * Bulk-pre-fetches Open-Meteo weather once per distinct grid cell (plus once per cell-less
+     * coordinate) in the candidate set, returning a coord-key → result map (never {@code null}).
+     *
+     * <p>Open-Meteo snaps every coordinate to its ~2 km grid point, so locations sharing a stored
+     * grid cell are fetched once and the result is fanned out to the coordinate key of every
+     * location in that cell, which is what {@link #prefetchBatchCloudPoints} and the downstream
+     * lookups key on. A location without a known grid cell keeps its own fetch.
+     *
+     * <p><strong>Declared input change:</strong> Open-Meteo downscales temperature by a point's
+     * elevation, so two coordinates in one cell could previously differ slightly. This adopts the
+     * same one-fetch-per-cell assumption {@code BriefingWeatherLoader} already makes.
      *
      * @param candidates the candidate set
      * @return coord-key → prefetched weather result, empty if the fetch returned nothing
      */
     public Map<String, WeatherExtractionResult> prefetchBatchWeather(
             List<ForecastCandidate> candidates) {
-        Map<String, double[]> uniqueCoords = new LinkedHashMap<>();
+        // group key -> representative coordinates / representative coord key / every coord key in group
+        Map<String, double[]> fetchCoords = new LinkedHashMap<>();
+        Map<String, String> representativeKey = new LinkedHashMap<>();
+        Map<String, Set<String>> groupCoordKeys = new LinkedHashMap<>();
         for (ForecastCandidate c : candidates) {
-            String key = OpenMeteoService.coordKey(c.location().getLat(),
-                    c.location().getLon());
-            uniqueCoords.putIfAbsent(key,
-                    new double[]{c.location().getLat(), c.location().getLon()});
+            LocationEntity loc = c.location();
+            String coordKey = OpenMeteoService.coordKey(loc.getLat(), loc.getLon());
+            String groupKey = loc.hasGridCell() ? "cell:" + loc.gridCellKey() : "coord:" + coordKey;
+            if (fetchCoords.putIfAbsent(groupKey, new double[]{loc.getLat(), loc.getLon()}) == null) {
+                representativeKey.put(groupKey, coordKey);
+            }
+            groupCoordKeys.computeIfAbsent(groupKey, k -> new LinkedHashSet<>()).add(coordKey);
         }
-        LOG.info("Forecast batch: weather pre-fetch for {} unique location(s) (from {} tasks)",
-                uniqueCoords.size(), candidates.size());
-        Map<String, WeatherExtractionResult> result =
-                openMeteoService.prefetchWeatherBatchResilient(
-                        new ArrayList<>(uniqueCoords.values()));
-        return result != null ? result : Map.of();
+        LOG.info("Forecast batch: weather pre-fetch for {} distinct grid cell(s)/location(s) (from {} tasks)",
+                fetchCoords.size(), candidates.size());
+        Map<String, WeatherExtractionResult> fetched =
+                openMeteoService.prefetchWeatherBatchResilient(new ArrayList<>(fetchCoords.values()));
+        if (fetched == null || fetched.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, WeatherExtractionResult> result = new LinkedHashMap<>(fetched);
+        for (Map.Entry<String, Set<String>> group : groupCoordKeys.entrySet()) {
+            WeatherExtractionResult shared = fetched.get(representativeKey.get(group.getKey()));
+            if (shared == null) {
+                continue;
+            }
+            for (String coordKey : group.getValue()) {
+                result.putIfAbsent(coordKey, shared);
+            }
+        }
+        return result;
     }
 
     /**
