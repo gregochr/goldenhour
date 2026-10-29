@@ -57,11 +57,8 @@ export function useNlcSighting(enabled = true) {
   const appliedRef = useRef(0);
 
   useEffect(() => {
-    if (!enabled) {
-      setSighting(null);
-      setLoading(false);
-      return undefined;
-    }
+    // Nothing to do for a reader the endpoint refuses; the returned value is derived below.
+    if (!enabled) return undefined;
     async function fetchSighting() {
       requestedRef.current += 1;
       const request = requestedRef.current;
@@ -91,5 +88,5 @@ export function useNlcSighting(enabled = true) {
     };
   }, [enabled]);
 
-  return { sighting: enabled ? sighting : null, loading };
+  return { sighting: enabled ? sighting : null, loading: enabled ? loading : false };
 }
