@@ -512,9 +512,27 @@ P1 and P2 touch disjoint files and may be built in parallel worktrees; each stil
 
 | phase | branch | PR | date | before → after |
 |---|---|---|---|---|
-| plan | `claude/app-performance-review-d46a33` | | 2026-10-28 | |
-| P6a | `perf/p6a-indexes` | | 2026-10-28 | five indexes (V197); I5 skipped |
-| P1b | `perf/p1b-served-briefing-memo` | | 2026-10-28 | `/api/briefing` on a memo hit: 0 statements (assembler not called); a miss assembles as before. 30 s memo, keyed by cache identity, UK date and `ServedBriefingEpoch` |
+| plan + P6a | `perf/p6a-indexes` | #1487 | 2026-10-28 | five indexes (V197); I5 skipped |
+| P2a | `perf/p2a-chunk-groups` | #1485 | 2026-10-28 | entry closure 286.75 → 236.33 KB gzip; `check:entry` gate in CI |
+| P2b+c | `perf/p2bc-parallel-fetch-preload` | #1489 | 2026-10-28 | briefing and scores fetched in parallel; opening tab's chunk preloaded from `main.jsx` |
+| P1a | `perf/p1a-hot-topic-inputs` | #1490 | 2026-10-28 | per serve: slot-signal statements 28 → 4, roster statements 9 → 4 (`HotTopicInputs`) |
+| P2d | `perf/p2d-lazy-entry` | #1491 | 2026-10-28 | entry closure → ~219.4 KB gzip; auth pages, settings and Ask UI lazy behind `ChunkErrorBoundary` |
+| P1c–e | `perf/p1cde-seas-aurora-drivetimes` | #1492 | 2026-10-29 | one marine range read per rollup; aurora status single-flight from cache; drive-time matrix memo with after-commit invalidation |
+| P5b | `perf/p5b-gloss-reuse` | #1497 | 2026-10-29 | identical region input reuses its gloss (0 Haiku calls); cold after restart |
+| P5a | `perf/p5a-ask-prompt-caching` | #1498 | 2026-10-29 | Ask: static prompt + tools cached, rolling breakpoint on latest tool result; static prefix ≈3.5–3.8k tokens (below Haiku's 4,096 minimum — check `cache_read_input_tokens` after deploy) |
+| P2e+f | `perf/p2ef-precache-startup-requests` | #1499 | 2026-10-29 | precache 23 → 39 entries (whole entry closure + AuthPages static closure); NLC poll off for Lite; regions + drive-time matrix cached as one SWR pair |
+| P1b | `perf/p1b-served-briefing-memo` | #1500 | 2026-10-29 | `/api/briefing` on a memo hit: 0 statements (assembler not called); a miss assembles as before. 30 s memo, keyed by cache identity, UK date and `ServedBriefingEpoch`; misses single-flight; Ask's snapshot memo keyed on the served object |
+| P5f+g | `perf/p5fg-cost-sum-grid-prefetch` | #1501 | 2026-10-29 | run cost summed in SQL; batch summary reads a 5-column projection; batch weather fetched once per grid cell |
+| P5c | `perf/p5c-marine-batch` | #1502 | 2026-10-29 | marine refresh 20 coordinates per request, one bulk read + `saveAll`; high waters from the build's tide snapshot |
+| P5d | `perf/p5d-triage-tide-snapshot` | #1503 | 2026-10-29 | one tide-extreme snapshot per triage pass instead of a query per candidate |
+| P5e | `perf/p5e-batch-locations-one-read` | #1504 | 2026-10-29 | batch result locations: one `findAll` per run instead of `findById` per result |
+| P3c | `perf/p3c-health-off-app-tree` | #1505 | 2026-10-29 | a `checkedAt`-only health tick no longer re-renders `AppInner` |
+| P3a+b | `perf/p3ab-visible-poll-same-object` | #1506 | 2026-10-29 | polls pause while hidden, 60 s refocus gap; unchanged replies keep the identical object (no consumer re-render) |
+| P3d | `perf/p3d-one-viewline-source` | #1507 | 2026-10-29 | one viewline poll for map + banner (was two); overlay positions memoised |
+| P4f | `perf/p4f-chip-tooltip-observer` | #1508 | 2026-10-29 | `MapLabels` no commit on `pointermove`; modal observer ignores Leaflet churn |
+| P4d+e | `perf/p4de-mapview-renders-memos` | #1509 | 2026-10-29 | a pan that changes no derived answer does not re-render `MapView`; event memos hit between clock boundaries |
+| P4a–c | — | — | — | **not run**: P4a's browser measurement needs a local backend with data, and starting it can trigger scheduled briefing builds that bill Anthropic. P4b/P4c stay gated on that measurement |
+| P6b | — | — | — | **owner**: `docker-compose.yml` heap percentage (D5) and removing `-Djdk.tracePinnedThreads` are production config |
 
 ## 11. What the review changed (draft 1 → draft 2)
 
