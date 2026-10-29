@@ -84,6 +84,39 @@ describe('one shared viewline poll (P3d)', () => {
     expect(screen.getByTestId(`consumer-${other}`)).toHaveTextContent('none');
   });
 
+  it('never requests anything when the role is null', async () => {
+    mockRole = null;
+    render(<Harness initial={{ banner: true, map: true }} />);
+    await settle();
+    await tick(POLL_MS);
+    expect(getAuroraViewline).not.toHaveBeenCalled();
+    expect(getAuroraForecastViewline).not.toHaveBeenCalled();
+  });
+
+  it('under StrictMode, one consumer makes one request and the count settles', async () => {
+    render(<React.StrictMode><Harness initial={{ map: true }} /></React.StrictMode>);
+    await settle();
+    expect(getAuroraViewline).toHaveBeenCalledTimes(1);
+    expect(getAuroraForecastViewline).toHaveBeenCalledTimes(1);
+    await change({ map: false });
+    getAuroraViewline.mockClear();
+    await tick(POLL_MS * 2);
+    expect(getAuroraViewline).not.toHaveBeenCalled();
+  });
+
+  it('with includeForecast false under the provider, a forecast-only line is not offered to that caller', async () => {
+    getAuroraViewline.mockResolvedValue({ points: [], active: false });
+    getAuroraForecastViewline.mockResolvedValue(LIVE);
+    function NoForecast() {
+      const { viewline, source } = useAuroraViewline(true, { includeForecast: false });
+      return <div data-testid="nf">{viewline ? `line:${source}` : 'none'}</div>;
+    }
+    render(<AuroraViewlineProvider><NoForecast /><Consumer id="map" wants /></AuroraViewlineProvider>);
+    await settle();
+    expect(screen.getByTestId('nf')).toHaveTextContent('none');
+    expect(screen.getByTestId('consumer-map')).toHaveTextContent('line');
+  });
+
   it('makes no request when neither consumer wants it', async () => {
     render(<Harness />);
     await settle();

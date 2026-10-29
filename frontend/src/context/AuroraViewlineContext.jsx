@@ -3,6 +3,9 @@ import PropTypes from 'prop-types';
 import { useAuth } from './AuthContext.jsx';
 import { useViewlinePoll } from '../hooks/useViewlinePoll.js';
 
+/** The roles allowed the viewline endpoints (Pro and Admin). */
+const POLLING_ROLES = new Set(['PRO_USER', 'ADMIN']);
+
 /** The shared viewline, or null outside a provider ({@code useAuroraViewline} then polls for itself). */
 export const AuroraViewlineContext = createContext(null);
 
@@ -17,7 +20,7 @@ export const AuroraViewlineContext = createContext(null);
  * published per-consumer "wants" flag would need an identity for each consumer and a stale flag would
  * outlive an unmount; a release function returned by the same effect that registered cannot leak.
  *
- * <p>It never polls for a LITE reader, whatever a consumer asks (Lite has no viewline; the banner
+ * <p>It polls only for PRO_USER and ADMIN (an allow-list), so never for a LITE reader, whatever a consumer asks (Lite has no viewline; the banner
  * makes no viewline request). Rewind re-keys the provider above it, so a rewound session starts clean.
  *
  * @param {{children: React.ReactNode}} props
@@ -31,7 +34,8 @@ export function AuroraViewlineProvider({ children }) {
     return () => setWanted((n) => n - 1);
   }, []);
 
-  const { viewline, source } = useViewlinePoll(wanted > 0 && role !== 'LITE_USER');
+  // An allow-list: a null or unknown role, and Lite, never poll.
+  const { viewline, source } = useViewlinePoll(wanted > 0 && POLLING_ROLES.has(role));
 
   const value = useMemo(() => ({ register, viewline, source }), [register, viewline, source]);
   return <AuroraViewlineContext.Provider value={value}>{children}</AuroraViewlineContext.Provider>;
