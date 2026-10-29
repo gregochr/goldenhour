@@ -32,6 +32,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -50,7 +51,7 @@ class MarineWaveRefreshServiceTest {
     private static final LocalDateTime SUNRISE = LocalDateTime.of(2026, 6, 17, 4, 40);
     private static final LocalDateTime SUNSET = LocalDateTime.of(2026, 6, 17, 21, 40);
     private static final Long JOB_RUN_ID = 42L;
-    private static final String MARINE_LABEL = "briefing-marine(Bamburgh)";
+    private static final String MARINE_LABEL = "briefing-marine(batch 1/1, 1 locations)";
     private static final Instant NOW = Instant.parse("2026-06-17T03:00:00Z");
     private static final double LAT = 55.6;
     private static final double LON = -1.7;
@@ -97,21 +98,24 @@ class MarineWaveRefreshServiceTest {
     @DisplayName("persists the sampled sea-state at the sunrise event hour, and logs the marine call")
     void refresh_coastal_persistsSample() {
         OpenMeteoMarineResponse response = new OpenMeteoMarineResponse();
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(new MarineClient.Point(LAT, LON))))
+                .thenReturn(List.of(response));
         when(solarService.sunriseUtc(LAT, LON, DATE)).thenReturn(SUNRISE);
         when(solarService.sunsetUtc(LAT, LON, DATE)).thenReturn(SUNSET);
         when(marineClient.sampleAt(response, SUNRISE))
                 .thenReturn(Optional.of(new MarineWaveSample(4.2, 1.1, 250)));
         // No sunset sample — the sunset upsert must be skipped, so only one row is saved.
         when(marineClient.sampleAt(response, SUNSET)).thenReturn(Optional.empty());
-        when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
-                1L, DATE, TargetType.SUNRISE)).thenReturn(Optional.empty());
+        when(marineWaveRepository.findByLocation_IdInAndEvaluationDateIn(List.of(1L), List.of(DATE)))
+                .thenReturn(List.of());
 
         service.refresh(List.of(coastal()), List.of(DATE), JOB_RUN_ID);
 
-        ArgumentCaptor<MarineWaveEntity> captor = ArgumentCaptor.forClass(MarineWaveEntity.class);
-        verify(marineWaveRepository).save(captor.capture());
-        MarineWaveEntity saved = captor.getValue();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MarineWaveEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(marineWaveRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+        MarineWaveEntity saved = captor.getValue().getFirst();
         assertThat(saved.getEvaluationDate()).isEqualTo(DATE);
         assertThat(saved.getEventType()).isEqualTo(TargetType.SUNRISE);
         assertThat(saved.getSignificantWaveHeightMetres()).isEqualTo(4.2);
@@ -134,7 +138,8 @@ class MarineWaveRefreshServiceTest {
     @Test
     @DisplayName("a marine fetch failure is logged and does not persist or abort the refresh")
     void refresh_fetchFailure_isolated() {
-        when(marineClient.fetchMarine(LAT, LON)).thenThrow(new RuntimeException("boom"));
+        when(marineClient.fetchMarineBatch(List.of(new MarineClient.Point(LAT, LON)))).thenThrow(
+                new RuntimeException("boom"));
 
         service.refresh(List.of(coastal()), List.of(DATE), JOB_RUN_ID);
 
@@ -147,7 +152,8 @@ class MarineWaveRefreshServiceTest {
     @DisplayName("saves nothing when the grid cell returns no wave sample for the event hour")
     void refresh_noSample_noSave() {
         OpenMeteoMarineResponse response = new OpenMeteoMarineResponse();
-        when(marineClient.fetchMarine(LAT, LON)).thenReturn(response);
+        when(marineClient.fetchMarineBatch(List.of(new MarineClient.Point(LAT, LON))))
+                .thenReturn(List.of(response));
         when(solarService.sunriseUtc(LAT, LON, DATE)).thenReturn(SUNRISE);
         when(solarService.sunsetUtc(LAT, LON, DATE)).thenReturn(SUNSET);
         when(marineClient.sampleAt(response, SUNRISE)).thenReturn(Optional.empty());
@@ -155,6 +161,8 @@ class MarineWaveRefreshServiceTest {
 
         service.refresh(List.of(coastal()), List.of(DATE), JOB_RUN_ID);
 
-        verifyNoInteractions(marineWaveRepository, tideExtremeRepository, highWaterWriter);
+        verify(marineWaveRepository).findByLocation_IdInAndEvaluationDateIn(List.of(1L), List.of(DATE));
+        verifyNoMoreInteractions(marineWaveRepository);
+        verifyNoInteractions(tideExtremeRepository, highWaterWriter);
     }
 }

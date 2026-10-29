@@ -14,7 +14,9 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link MarineClient#sampleAt} — selecting the significant wave height at the event
@@ -236,5 +238,64 @@ class MarineClientTest {
         assertThat(client.peakInWindow(response(List.of(), List.of(), List.of(), List.of()), from, to)).isEmpty();
         assertThat(client.peakInWindow(
                 response(List.of("not-a-time"), List.of(4.0), List.of(1.0), List.of(10)), from, to)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("fetchMarineBatch sends one comma-joined request for two or more points, in order")
+    void fetchMarineBatch_multiplePoints_oneRequest() {
+        OpenMeteoMarineApi api = mock(OpenMeteoMarineApi.class);
+        OpenMeteoMarineResponse first = new OpenMeteoMarineResponse();
+        OpenMeteoMarineResponse second = new OpenMeteoMarineResponse();
+        when(api.getMarineBatch("55.6,54.9", "-1.7,-1.35",
+                "wave_height,swell_wave_height,wave_direction,wave_period,swell_wave_period", "UTC", 7))
+                .thenReturn(List.of(first, second));
+
+        List<OpenMeteoMarineResponse> result = new MarineClient(api).fetchMarineBatch(
+                List.of(new MarineClient.Point(55.6, -1.7), new MarineClient.Point(54.9, -1.35)));
+
+        assertThat(result).containsExactly(first, second);
+    }
+
+    @Test
+    @DisplayName("fetchMarineBatch sends a single point through the single-point exchange (bare object)")
+    void fetchMarineBatch_singlePoint_usesSingleExchange() {
+        OpenMeteoMarineApi api = mock(OpenMeteoMarineApi.class);
+        OpenMeteoMarineResponse only = new OpenMeteoMarineResponse();
+        when(api.getMarine(55.6, -1.7,
+                "wave_height,swell_wave_height,wave_direction,wave_period,swell_wave_period", "UTC", 7))
+                .thenReturn(only);
+
+        List<OpenMeteoMarineResponse> result =
+                new MarineClient(api).fetchMarineBatch(List.of(new MarineClient.Point(55.6, -1.7)));
+
+        assertThat(result).containsExactly(only);
+    }
+
+    @Test
+    @DisplayName("fetchMarineBatch rejects a response whose length differs from the request")
+    void fetchMarineBatch_lengthMismatch_throws() {
+        OpenMeteoMarineApi api = mock(OpenMeteoMarineApi.class);
+        when(api.getMarineBatch("55.6,54.9", "-1.7,-1.35",
+                "wave_height,swell_wave_height,wave_direction,wave_period,swell_wave_period", "UTC", 7))
+                .thenReturn(List.of(new OpenMeteoMarineResponse()));
+
+        assertThatThrownBy(() -> new MarineClient(api).fetchMarineBatch(
+                List.of(new MarineClient.Point(55.6, -1.7), new MarineClient.Point(54.9, -1.35))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("1 responses for 2 coordinates");
+    }
+
+    @Test
+    @DisplayName("fetchMarineBatch rejects a null body")
+    void fetchMarineBatch_nullBody_throws() {
+        OpenMeteoMarineApi api = mock(OpenMeteoMarineApi.class);
+        when(api.getMarineBatch("55.6,54.9", "-1.7,-1.35",
+                "wave_height,swell_wave_height,wave_direction,wave_period,swell_wave_period", "UTC", 7))
+                .thenReturn(null);
+
+        assertThatThrownBy(() -> new MarineClient(api).fetchMarineBatch(
+                List.of(new MarineClient.Point(55.6, -1.7), new MarineClient.Point(54.9, -1.35))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no body");
     }
 }
