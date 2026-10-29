@@ -1,4 +1,5 @@
 import apiClient from './axiosClient.js';
+import { getMemoised } from '../utils/jsonMemo.js';
 
 const BASE_URL = '/api';
 
@@ -14,6 +15,6 @@ const BASE_URL = '/api';
  *   fierySkyPotential, goldenHourPotential, triageReason, triageMessage, evaluatedAt}>>}
  */
 export async function getAllEvaluationScores() {
-  const response = await apiClient.get(`${BASE_URL}/briefing/evaluate/scores`);
+  const response = await getMemoised(apiClient, `${BASE_URL}/briefing/evaluate/scores`);
   return response.data;
 }

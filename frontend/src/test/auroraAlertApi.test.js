@@ -12,7 +12,7 @@ describe('auroraApi.getAuroraAlert (aurora-lite-alert-plan.md §2.2)', () => {
     apiClient.get.mockResolvedValue({ data: body });
 
     await expect(getAuroraAlert()).resolves.toEqual(body);
-    expect(apiClient.get).toHaveBeenCalledWith('/api/aurora/alert');
+    expect(apiClient.get).toHaveBeenCalledWith('/api/aurora/alert', { responseType: 'text' });
   });
 
   it('resolves null on any error, including a 401, 403 or 500', async () => {

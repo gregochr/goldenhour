@@ -10,6 +10,7 @@ import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import useRatingLens from '../hooks/useRatingLens.js';
 import useReachLens from '../hooks/useReachLens.js';
+import { useVisiblePoll } from '../hooks/useVisiblePoll.js';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
 import { isTravelDate } from '../utils/conversions.js';
 import { isEventPast } from '../utils/briefingDisplay.js';
@@ -423,7 +424,6 @@ export function WindowFirstBriefingProvider({
   // on record — `undefined` must render as no badge and no bootstrap write rather than a false
   // "never seen": a dropped settings request must not fire the once-only bootstrap PUT a second
   // time.
-  const intervalRef = useRef(null);
   // The two polled fetches' request numbering (class comment): per fetch, how many requests have
   // been made, and the number of the newest one whose answer has been applied.
   //
@@ -491,6 +491,7 @@ export function WindowFirstBriefingProvider({
         scoresAppliedRef.current = request;
         // Raw rows only: the role-dependent strip happens in the `scoreRows` memo below, never
         // here (this callback has empty deps, so a `scoresLocked` read would be a stale closure).
+        // The identical array when the reply was unchanged (`getAllEvaluationScores` memoises the parse).
         setRawScoreRows(views);
       })
       .catch(() => {});
@@ -507,6 +508,9 @@ export function WindowFirstBriefingProvider({
         // stale briefing would outlive this page as the next cold start's first paint.
         if (request < briefingAppliedRef.current) return;
         briefingAppliedRef.current = request;
+        // An unchanged reply is the identical object (`getDailyBriefing` memoises the parse), so the
+        // state is left alone and nothing downstream re-renders; the mark above and the cache write
+        // below still happen, so a current cache's timestamp keeps moving.
         setBriefing(data);
         writeSwrCache(briefingCacheKey, data, gen);
       }
@@ -517,20 +521,15 @@ export function WindowFirstBriefingProvider({
     }
   }, [briefingCacheKey]);
 
-  useEffect(() => {
-    // Started together, not one after the other: the ratings do not depend on the briefing's answer,
-    // and the request-number guards (briefingRequestedRef / scoresRequestedRef, each applied by its
-    // own numbering) make either arrival order safe. Awaiting one first put the briefing's server
-    // time in front of the ratings' whole round trip.
-    (async () => { const briefingDone = fetchBriefing(); fetchScores(); await briefingDone; })();
-    function refresh() { fetchBriefing(); fetchScores(); }
-    intervalRef.current = setInterval(refresh, POLL_INTERVAL_MS);
-    window.addEventListener('focus', refresh);
-    return () => {
-      clearInterval(intervalRef.current);
-      window.removeEventListener('focus', refresh);
-    };
-  }, [fetchBriefing, fetchScores]);
+  // Started together, not one after the other: the ratings do not depend on the briefing's answer,
+  // and the request-number guards (briefingRequestedRef / scoresRequestedRef, each applied by its
+  // own numbering) make either arrival order safe. Awaiting one first put the briefing's server
+  // time in front of the ratings' whole round trip.
+  //
+  // Polled only while the page is visible, and refetched on return or focus only after the minimum gap
+  // (`useVisiblePoll`, P3a). A change of `fetchBriefing` (the role-keyed cache key) fetches at once.
+  const refresh = useCallback(() => { fetchBriefing(); fetchScores(); }, [fetchBriefing, fetchScores]);
+  useVisiblePoll(refresh, POLL_INTERVAL_MS);
 
   // A save of the reader's sub-regions refetches the briefing and ratings at once rather than waiting for
   // the next poll. Not on mount: the effect above already made those requests.

@@ -51,6 +51,7 @@ vi.mock('../api/regionApi.js', () => ({
 }));
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
 
+import { focusPastGap } from './pollGap.js';
 import { WindowFirstBriefingProvider, useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
@@ -186,7 +187,7 @@ async function mount() {
 
 /** The page regains focus: the provider asks for the briefing and the ratings again. */
 async function refocus() {
-  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  await act(async () => { focusPastGap(); });
 }
 
 /** The provider's ten-minute poll comes round — the same two requests again. */
@@ -796,5 +797,54 @@ describe('WindowFirstBriefingProvider — the briefing and the ratings are asked
 
     await land(() => briefingAnswer.resolve(briefing('06:00', 'MAYBE')));
     expect(briefingShown()).toEqual({ built: `${TODAY}T06:00:00`, verdicts: 'Maybe' });
+  });
+});
+
+describe('WindowFirstBriefingProvider — an unchanged reply changes nothing downstream (P3b)', () => {
+  /** The cache entry's raw text: it carries the write time, so a refreshed `ts` changes it. */
+  const rawCacheEntry = () => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith(CACHE_KEY));
+    return key ? localStorage.getItem(key) : null;
+  };
+
+  it('keeps the same objects, re-renders nothing, and still refreshes the cache timestamp', async () => {
+    // The API modules hand back the identical objects for identical text; the mocks do the same.
+    const sameBriefing = briefing('06:00', 'MAYBE');
+    const sameRows = [row(4)];
+    getDailyBriefing.mockResolvedValue(sameBriefing);
+    getAllEvaluationScores.mockResolvedValue(sameRows);
+
+    // A consumer of the context value: it re-renders only when the provider publishes a new value.
+    const consumerRenders = vi.fn();
+    function CountingConsumer() {
+      useWindowFirstBriefing();
+      consumerRenders();
+      return null;
+    }
+    await act(async () => {
+      render(<WindowFirstBriefingProvider><Probe /><CountingConsumer /></WindowFirstBriefingProvider>);
+    });
+    expect(briefingShown().built).toBe(`${TODAY}T06:00:00`);
+    const rendersAfterMount = consumerRenders.mock.calls.length;
+    const cacheAfterMount = rawCacheEntry();
+    expect(cacheAfterMount).not.toBeNull();
+
+    await poll();
+    expect(getDailyBriefing).toHaveBeenCalledTimes(2);
+    expect(getAllEvaluationScores).toHaveBeenCalledTimes(2);
+
+    // Nothing in the tree re-rendered...
+    expect(consumerRenders.mock.calls.length).toBe(rendersAfterMount);
+    // ...yet the cache entry was written again, so a current cache does not age out.
+    expect(rawCacheEntry()).not.toBe(cacheAfterMount);
+  });
+
+  it('does re-render when the briefing changes', async () => {
+    getDailyBriefing.mockResolvedValueOnce(briefing('06:00', 'MAYBE'));
+    getAllEvaluationScores.mockResolvedValue([]);
+    await mount();
+    getDailyBriefing.mockResolvedValueOnce(briefing('18:00', 'WORTH_IT'));
+    await poll();
+    expect(briefingShown().built).toBe(`${TODAY}T18:00:00`);
   });
 });

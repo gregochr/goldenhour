@@ -34,6 +34,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('../api/nlcApi.js', () => ({ getNlcSighting: vi.fn() }));
 
+import { focusPastGap } from './pollGap.js';
 import NlcSightingBanner from '../components/NlcSightingBanner.jsx';
 import { getNlcSighting } from '../api/nlcApi.js';
 
@@ -94,7 +95,7 @@ async function mount() {
 
 /** The page regains focus: the hook asks for the sighting again. */
 async function refocus() {
-  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  await act(async () => { focusPastGap(); });
 }
 
 /** The hook's ten-minute poll comes round. */
@@ -108,7 +109,7 @@ beforeEach(() => {
   // Intervals only: the hook's poll fires when a test says so and not otherwise. Every wait in this
   // file is an awaited `act`, never a `findBy*` or `waitFor`, whose own polling runs on
   // `setInterval`.
-  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
   // Reset, not cleared: `mockReturnValueOnce` queues survive `vi.clearAllMocks()`, so a test that
   // failed with a request still queued would hand it to the next test's mount. Each test queues
   // every answer it expects; one it does not expect answers `undefined` and fails the call-count

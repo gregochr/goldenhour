@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
+import { useVisiblePoll } from '../hooks/useVisiblePoll.js';
 import {
   getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates, getAuroraNights,
 } from '../api/auroraApi.js';
@@ -945,6 +946,9 @@ function getNextEventType(locations, date) {
 
 const ALERT_WORTHY_LEVELS = new Set(['MODERATE', 'STRONG']);
 
+/** The no-alert aurora scores, one shared object so clearing an already-empty map is a no-op state write. */
+const EMPTY_AURORA_SCORES = Object.freeze({});
+
 /**
  * "⌂" — a Leaflet control, because it is a map action.
  *
@@ -1830,7 +1834,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // What the legend may say about the line: the viewline overlay is eligible AND its own test says
   // it will draw (`viewlineDrawable`, shared with the overlay so the two cannot drift).
   const viewlineShown = viewlineEligible && viewlineDrawable(viewline);
-  const [auroraScores, setAuroraScores] = useState({});
+  const [auroraScores, setAuroraScores] = useState(EMPTY_AURORA_SCORES);
   // The last stored-aurora ANSWER that landed, tagged with the night it answers for —
   // `{night, byName}`, or null before any has. Set by a successful response and by nothing else.
   // `storedAuroraResults`, what every reader draws, is derived from it below (`nightScoresFor`).
@@ -2223,7 +2227,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // first refetch after it then fails, shows the earlier alert's answer until the next poll or focus.
   useEffect(() => {
     if (!auroraStatus || !ALERT_WORTHY_LEVELS.has(auroraStatus.level)) {
-      (async () => setAuroraScores({}))();
+      (async () => setAuroraScores(EMPTY_AURORA_SCORES))();
       return undefined;
     }
     let cancelled = false;
@@ -2238,6 +2242,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // Deliberately not a clear — see above — so there is nothing here for `cancelled` to guard.
       });
     return () => { cancelled = true; };
+    // Keyed on the status object: an unchanged poll hands back the identical object (`jsonMemo`) and asks
+    // nothing, while a reply that differs in any field (Kp, timestamps, level) is a new object and refetches.
   }, [auroraStatus]);
 
   // Fetch available dates for stored aurora forecast results (ADMIN/PRO only).
@@ -2254,16 +2260,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // it — on mount, on a role change and every 5 minutes (the aurora status poll's cadence; the ETag makes an
   // unchanged answer a 304). It feeds the Pro door under the window list, never `buildMapEvents`.
   const [auroraNightsServed, setAuroraNightsServed] = useState({ nights: [], currentNightEndsAt: null });
+  const isLiteReader = role === 'LITE_USER';
+  // Which role the poll was last (re)started under: a request from a superseded run drops its answer. Declared
+  // BEFORE the poll so its effect runs first.
+  const nightsRunRef = useRef(0);
   useEffect(() => {
-    if (role !== 'LITE_USER') return undefined; // the door below is role-gated too, so a stale answer never draws
-    let cancelled = false;
-    const load = () => {
-      getAuroraNights().then((answer) => { if (!cancelled) setAuroraNightsServed(answer); }).catch(() => {});
-    };
-    load();
-    const poll = setInterval(load, AURORA_NIGHTS_POLL_MS);
-    return () => { cancelled = true; clearInterval(poll); };
-  }, [role]);
+    nightsRunRef.current += 1;
+    return () => { nightsRunRef.current += 1; };
+  }, [isLiteReader]);
+  const loadAuroraNights = useCallback(() => {
+    const run = nightsRunRef.current;
+    getAuroraNights()
+      .then((answer) => {
+        if (run !== nightsRunRef.current) return;
+        // Same nights and same end: keep the held object, so an unchanged poll re-renders nothing.
+        setAuroraNightsServed((prev) => (
+          prev.currentNightEndsAt === answer.currentNightEndsAt
+          && prev.nights.length === answer.nights.length
+          && prev.nights.every((n, i) => n === answer.nights[i]) ? prev : answer));
+      })
+      .catch(() => {});
+  }, []);
+  // Polled while visible; a stale answer never draws because the door below is role-gated too.
+  useVisiblePoll(loadAuroraNights, AURORA_NIGHTS_POLL_MS, { enabled: isLiteReader });
 
   // Fetch stored aurora results when in Aurora mode and the selected NIGHT changes — `nightDate`,
   // not `date`: they diverge only when the window control's EV-ownership rule has kept a night

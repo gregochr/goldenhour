@@ -93,6 +93,7 @@ vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null 
 // reads the same filtered set, is what this file counts. Stubbed so a heat field can be offered.
 vi.mock('../components/map/MapLabels.jsx', () => ({ default: () => <div data-testid="map-labels-stub" /> }));
 
+import { focusPastGap } from './pollGap.js';
 import MapView from '../components/MapView.jsx';
 import { AuroraStatusProvider } from '../context/AuroraStatusContext.jsx';
 import {
@@ -161,7 +162,7 @@ async function openMap(mapElement) {
 /** The alert ends, and the page regains focus: the provider fetches the status and publishes it. */
 async function endAlert() {
   serverStatus = ALL_CLEAR;
-  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  await act(async () => { focusPastGap(); });
 }
 
 /** A roster join over the rendered locations, so the heat field is offered and the counts footer mounts. */
