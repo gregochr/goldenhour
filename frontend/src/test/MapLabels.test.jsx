@@ -164,6 +164,12 @@ function makeFullMap(opts = {}) {
 const MOUSE = { pointerType: 'mouse' };
 const TOUCH = { pointerType: 'touch' };
 
+/** The tooltip card's position, read back from its ref-written CSS transform (performance review F21). */
+const tipXY = (el) => {
+  const m = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(el.style.transform);
+  return { x: Number.parseFloat(m[1]), y: Number.parseFloat(m[2]) };
+};
+
 describe('MapLabels — mounting', () => {
   it('renders nothing when the map cannot make a pane', async () => {
     // The base `makeMap()` (unlike `makeFullMap()`) carries no `createPane` at all — the shape a
@@ -938,15 +944,98 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     // the card's left edge past `width - tipWidth - 8`.
     fireEvent.pointerEnter(chip, { ...MOUSE, clientX: 795, clientY: 250 });
     const tip = document.querySelector('[data-testid="map-label-tip"]');
-    // The node has not measured a real `offsetWidth` in jsdom (0), so the clamp falls back to
-    // `TOOLTIP_WIDTH_FALLBACK` (240, the CSS `max-width`) — the same fallback a browser's very
-    // first frame (before layout) would also need.
-    expect(parseFloat(tip.style.left)).toBeCloseTo(800 - 240 - 8, 5);
+    // F21: the card mounts BEFORE it is placed, so even the first show clamps against its real
+    // measured width (here the stubbed 50). The old state-based version could only use the 240px
+    // `TOOLTIP_WIDTH_FALLBACK` for that first show; the fallback now serves a node reporting 0.
+    expect(tipXY(tip).x).toBeCloseTo(800 - 50 - 8, 5);
 
     // And the vertical floor: hovering near the very top must never push the card above y=6.
     fireEvent.pointerEnter(chip, { ...MOUSE, clientX: 100, clientY: 2 });
     const tipAgain = document.querySelector('[data-testid="map-label-tip"]');
-    expect(parseFloat(tipAgain.style.top)).toBe(6);
+    expect(tipXY(tipAgain).y).toBe(6);
+  });
+
+  it('moves the tooltip without re-rendering MapLabels, and writes once per frame however many moves arrive (F21)', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    const rect = vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    const commits = vi.fn();
+    await act(async () => {
+      render(
+        <React.Profiler id="labels" onRender={commits}>
+          <MapLabels spots={SPOTS} />
+        </React.Profiler>,
+      );
+    });
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Bamburgh'));
+    fireEvent.pointerEnter(chip, { ...MOUSE, clientX: 100, clientY: 100 });
+    const tip = document.querySelector('[data-testid="map-label-tip"]');
+    expect(tipXY(tip)).toEqual({ x: 113, y: 90 });
+
+    commits.mockClear();
+    rect.mockClear();
+    frames = [];
+    fireEvent.pointerMove(chip, { ...MOUSE, clientX: 200, clientY: 120 });
+    fireEvent.pointerMove(chip, { ...MOUSE, clientX: 250, clientY: 130 });
+    fireEvent.pointerMove(chip, { ...MOUSE, clientX: 300, clientY: 140 });
+    // Nothing is written until the frame fires, and exactly one frame was requested.
+    expect(frames.filter(Boolean)).toHaveLength(1);
+    expect(rect).not.toHaveBeenCalled();
+    expect(tipXY(tip)).toEqual({ x: 113, y: 90 });
+    runFrames();
+    expect(rect).toHaveBeenCalledTimes(1);
+    expect(tipXY(tip)).toEqual({ x: 313, y: 130 });
+    expect(commits).not.toHaveBeenCalled();
+  });
+
+  it('clamps a wider chip B against its OWN width after a batched A-to-B swap (F21)', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    const base = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get() {
+        return this.getAttribute?.('data-testid') === 'map-label-tip' && this.textContent.includes('Whitby')
+          ? 200 : base.get.call(this);
+      },
+    });
+    currentMap = makeFullMap({ zoom: 13 });
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    await mount();
+    await act(async () => { runFrames(); });
+    const chipOf = (n) => [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes(n));
+    fireEvent.pointerEnter(chipOf('Bamburgh'), { ...MOUSE, clientX: 795, clientY: 250 });
+    expect(tipXY(document.querySelector('[data-testid="map-label-tip"]')).x).toBe(742);
+    act(() => {
+      fireEvent.pointerLeave(chipOf('Bamburgh'), MOUSE);
+      fireEvent.pointerEnter(chipOf('Whitby'), { ...MOUSE, clientX: 795, clientY: 250 });
+    });
+    const tip = document.querySelector('[data-testid="map-label-tip"]');
+    expect(tip).toHaveTextContent('Whitby');
+    expect(tipXY(tip).x).toBe(800 - 200 - 8);
+  });
+
+  it('ignores touch moves and drops the tooltip on leave, as before (F21)', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount();
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Bamburgh'));
+    expect(document.querySelector('[data-testid="map-label-tip"]')).toBeNull();
+    fireEvent.pointerEnter(chip, { ...MOUSE, clientX: 10, clientY: 50 });
+    expect(document.querySelector('[data-testid="map-label-tip"]')).not.toBeNull();
+    frames = [];
+    fireEvent.pointerMove(chip, { ...TOUCH, clientX: 400, clientY: 400 });
+    expect(frames.filter(Boolean)).toHaveLength(0);
+    fireEvent.pointerLeave(chip, MOUSE);
+    expect(document.querySelector('[data-testid="map-label-tip"]')).toBeNull();
   });
 
   it('reads the CONTAINER rect for the clamp, never the zero-sized label-layer root (PR #733 review, a confirmed regression)', async () => {
@@ -969,7 +1058,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
       .find((el) => el.textContent.includes('Bamburgh'));
     fireEvent.pointerEnter(chip, { ...MOUSE, clientX: 400, clientY: 250 });
     const tip = document.querySelector('[data-testid="map-label-tip"]');
-    const left = parseFloat(tip.style.left);
+    const left = tipXY(tip).x;
     // A mid-frame hover with a real 800px-wide container: the raw offset (400 - 0 + 13 = 413) sits
     // nowhere near either clamp, so an unregressed implementation reports it UNCHANGED. The old,
     // zero-width bug would instead report `0 - 240 - 8 = -248` here — well outside the container
