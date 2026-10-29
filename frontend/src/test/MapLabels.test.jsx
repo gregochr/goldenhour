@@ -992,6 +992,35 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(commits).not.toHaveBeenCalled();
   });
 
+  it('clamps a wider chip B against its OWN width after a batched A-to-B swap (F21)', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    const base = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get() {
+        return this.getAttribute?.('data-testid') === 'map-label-tip' && this.textContent.includes('Whitby')
+          ? 200 : base.get.call(this);
+      },
+    });
+    currentMap = makeFullMap({ zoom: 13 });
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    await mount();
+    await act(async () => { runFrames(); });
+    const chipOf = (n) => [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes(n));
+    fireEvent.pointerEnter(chipOf('Bamburgh'), { ...MOUSE, clientX: 795, clientY: 250 });
+    expect(tipXY(document.querySelector('[data-testid="map-label-tip"]')).x).toBe(742);
+    act(() => {
+      fireEvent.pointerLeave(chipOf('Bamburgh'), MOUSE);
+      fireEvent.pointerEnter(chipOf('Whitby'), { ...MOUSE, clientX: 795, clientY: 250 });
+    });
+    const tip = document.querySelector('[data-testid="map-label-tip"]');
+    expect(tip).toHaveTextContent('Whitby');
+    expect(tipXY(tip).x).toBe(800 - 200 - 8);
+  });
+
   it('ignores touch moves and drops the tooltip on leave, as before (F21)', async () => {
     restoreMeasure = withMeasuredLabels(50, 14);
     currentMap = makeFullMap({ zoom: 13 });

@@ -16,7 +16,7 @@ import {
 } from '../../utils/mapLabels.js';
 import MapChipTooltip from './MapChipTooltip.jsx';
 import useChipTipPosition from '../../hooks/useChipTipPosition.js';
-import BigSeasChip,{ BigSeasTipLines } from './BigSeasChip.jsx';
+import BigSeasChip, { BigSeasTipLines } from './BigSeasChip.jsx';
 import { badgeAccessibleClause } from '../../utils/outcomeRatingJoin.js';
 import RatedBadge from './RatedBadge.jsx';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
@@ -361,7 +361,9 @@ export default function MapLabels({
   const regionRefs = useRef(new Map());
   const chipRefs = useRef(new Map());
   const seasRefs = useRef(new Map());
-  const { attach: attachTip, place: placeTip, move: moveTipPos } = useChipTipPosition(map);
+  const {
+    attach: attachTip, place: placeTip, move: moveTipPos, refresh: refreshTip,
+  } = useChipTipPosition(map);
 
   /**
    * One measure-and-paint pass: projects the current window's candidates and stores them as
@@ -736,6 +738,9 @@ export default function MapLabels({
     ? null
     : (frame?.bigSeasItems.find((it) => it.locationId === hoverSeasId) ?? null);
   if (hoverSeasId != null && hoverSeas == null) setHoverSeasId(null);
+  // A swap from chip A to chip B can batch into one render that REUSES the tooltip node, so `place`
+  // clamped against A's width. Re-place once B's content is committed and measurable.
+  useLayoutEffect(() => { refreshTip(); }, [hoverName, hoverSeasId, refreshTip]);
 
   if (!pane || !frame) return null;
 

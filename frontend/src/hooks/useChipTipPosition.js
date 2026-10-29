@@ -67,5 +67,5 @@ export default function useChipTipPosition(map) {
 
   useEffect(() => cancel, [cancel]);
 
-  return { attach, place, move };
+  return { attach, place, move, refresh: write };
 }

@@ -63,6 +63,42 @@ describe('WindowFirstMapPane — the filtered foreign-modal observer', () => {
     pane.unmount();
   });
 
+  it('sees a Modal mounted deep inside the SAME rendered tree, and sees it unmount', async () => {
+    // Inline, as `Modal` renders in `#root`: a descendant of the shell next to the pane, not a
+    // separate root and not portalled.
+    function Shell({ open }) {
+      return (
+        <div data-testid="shell">
+          <WindowFirstMapPane
+            locations={[]}
+            dates={DATES}
+            selectedDate={DATES[0]}
+            onSelectDate={vi.fn()}
+          />
+          <section><div>
+            {open && <Modal label="Deep" onClose={() => {}}><p>deep</p></Modal>}
+          </div></section>
+        </div>
+      );
+    }
+    const view = render(<Shell open={false} />);
+    await flush();
+    const spy = vi.spyOn(document, 'querySelectorAll');
+    const asked = () => spy.mock.calls.filter(([q]) => q === DIALOG_QUERY).length;
+
+    view.rerender(<Shell open />);
+    await flush();
+    expect(screen.getByRole('dialog', { name: 'Deep' })).toBeInTheDocument();
+    expect(asked()).toBeGreaterThan(0);
+
+    spy.mockClear();
+    view.rerender(<Shell open={false} />);
+    await flush();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(asked()).toBeGreaterThan(0);
+    view.unmount();
+  });
+
   it('runs no foreign-modal query for a tile inserted under a Leaflet tile container', async () => {
     const pane = renderPane();
     await flush();
