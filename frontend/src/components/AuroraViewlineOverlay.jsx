@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { Polygon, Polyline, Tooltip } from 'react-leaflet';
 import { viewlineDrawable } from '../utils/viewlineDrawable.js';
@@ -48,6 +48,25 @@ function viewlineLabel(viewline, isForecast) {
  * @param {object}  props.viewline    - AuroraViewlineResponse from the API
  */
 export default function AuroraViewlineOverlay({ viewline = null }) {
+  // Memoised on the viewline object (identical for an unchanged reply, see utils/jsonMemo), so an
+  // unrelated map re-render hands Leaflet the same arrays and the layers are not rebuilt. Above the
+  // early return so the hook order never changes.
+  const viewlineLatLngs = useMemo(
+    () => (viewlineDrawable(viewline) ? viewline.points.map(p => [p.latitude, p.longitude]) : null),
+    [viewline],
+  );
+  const polygonPositions = useMemo(() => {
+    if (!viewlineLatLngs) return null;
+    const westLon = viewline.points[0].longitude;
+    const eastLon = viewline.points[viewline.points.length - 1].longitude;
+    const northBound = 72; // north map boundary (72°N across the longitude range)
+    return [
+      [northBound, westLon],
+      [northBound, eastLon],
+      ...viewlineLatLngs.slice().reverse(),
+    ];
+  }, [viewline, viewlineLatLngs]);
+
   if (!viewlineDrawable(viewline)) {
     return null;
   }
@@ -59,20 +78,6 @@ export default function AuroraViewlineOverlay({ viewline = null }) {
   const dashArray = isForecast ? '10, 6' : undefined;
 
   const tooltipLabel = viewlineLabel(viewline, isForecast);
-
-  // Build the viewline as [lat, lon] pairs (Leaflet format)
-  const viewlineLatLngs = viewline.points.map(p => [p.latitude, p.longitude]);
-
-  // Build polygon: north boundary (72°N across the longitude range) → viewline → close
-  const westLon = viewline.points[0].longitude;
-  const eastLon = viewline.points[viewline.points.length - 1].longitude;
-  const northBound = 72;
-
-  const polygonPositions = [
-    [northBound, westLon],
-    [northBound, eastLon],
-    ...viewlineLatLngs.slice().reverse(),
-  ];
 
   return (
     <>

@@ -68,3 +68,41 @@ export function foreignModalOver(paneRoot) {
 export function foreignModalOverPaneOf(node) {
   return foreignModalOver(node?.closest?.(MAP_PANE_SELECTOR) ?? null);
 }
+
+/** Subtrees whose churn (tiles, markers, panning) can never carry a dialog. */
+const LEAFLET_NOISE_SELECTOR = '.leaflet-pane, .leaflet-tile-container';
+
+/**
+ * @param {Node} node a node from a mutation record's added or removed list
+ * @returns {boolean} true when it is, or contains, a dialog
+ */
+function isOrHoldsDialog(node) {
+  return node.nodeType === 1
+    && (node.matches('[role="dialog"]') || node.querySelector('[role="dialog"]') !== null);
+}
+
+/**
+ * Whether a batch of DOM mutation records could have changed {@link foreignModalOver}'s answer
+ * (performance review F22). The Map tab's observer must watch `document.body`'s whole subtree,
+ * because `Modal` renders inline in `#root` and its `stacked` toggle is an attribute change; what it
+ * can do is stop running the document query for Leaflet's own churn.
+ *
+ * <p>A record counts when it is an `aria-modal` attribute change, or a child-list change that adds
+ * or removes a node that is, or contains, a `[role=dialog]`; anything whose target sits inside
+ * `.leaflet-pane` / `.leaflet-tile-container` is ignored first. An empty batch cannot be judged and
+ * counts (a caller that cannot say what changed must not be told "nothing did").
+ *
+ * @param {MutationRecord[]} records the observer's batch
+ * @returns {boolean} true when the foreign-modal question should be asked again
+ */
+export function mutationsMayChangeForeignModal(records) {
+  if (!records || records.length === 0) return true;
+  return records.some((record) => {
+    const { target } = record;
+    if (target?.nodeType === 1 && target.closest(LEAFLET_NOISE_SELECTOR)) return false;
+    if (record.type === 'attributes') return record.attributeName === 'aria-modal';
+    if (record.type !== 'childList') return true;
+    return Array.from(record.addedNodes).some(isOrHoldsDialog)
+      || Array.from(record.removedNodes).some(isOrHoldsDialog);
+  });
+}

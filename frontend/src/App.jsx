@@ -10,6 +10,7 @@ import SubRegionSignInPrompt from './components/subregions/SubRegionSignInPrompt
 import { markPostcodePromptDismissed } from './api/settingsApi.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
+import { AuroraViewlineProvider } from './context/AuroraViewlineContext.jsx';
 import { useAuroraStatus } from './hooks/useAuroraStatus.js';
 import { ukDateStr, ukDateStrOffset, resolveAuroraNight, resolveMapDate } from './utils/mapDates.js';
 import { auroraTabOffered } from './utils/auroraTab.js';
@@ -261,9 +262,11 @@ function RewindGate() {
   useEffect(() => { clearForecastDetailCache(); }, [rewind?.to]);
   return (
     <AuroraStatusProvider key={rewind?.to ?? 'live'}>
-      <HealthStatusProvider>
-        <AppInner />
-      </HealthStatusProvider>
+      <AuroraViewlineProvider>
+        <HealthStatusProvider>
+          <AppInner />
+        </HealthStatusProvider>
+      </AuroraViewlineProvider>
     </AuroraStatusProvider>
   );
 }

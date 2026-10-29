@@ -7592,6 +7592,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    fires), positioned off the cursor exactly like the design bundle's own `#tip`. */
 .wf-maplab-tip {
   position: absolute;
+  left: 0;
+  top: 0;
   z-index: 1400;
   max-width: 240px;
   padding: 6px 9px;
