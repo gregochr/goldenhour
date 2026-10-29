@@ -155,7 +155,7 @@ describe('NlcSightingBanner', () => {
     fireEvent.click(screen.getByTestId('nlc-sighting-dismiss'));
 
     useNlcSighting.mockReturnValue({ sighting: s, loading: false });
-    rerender(<NlcSightingBanner />);
+    rerender(<NlcSightingBanner eligible />);
     expect(screen.queryByTestId('nlc-sighting-banner')).not.toBeInTheDocument();
   });
 
@@ -169,7 +169,7 @@ describe('NlcSightingBanner', () => {
       sighting: activeSighting({ reportedAt: newer }),
       loading: false,
     });
-    rerender(<NlcSightingBanner />);
+    rerender(<NlcSightingBanner eligible />);
     expect(screen.getByTestId('nlc-sighting-banner')).toBeInTheDocument();
   });
 

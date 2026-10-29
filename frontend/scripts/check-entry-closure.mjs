@@ -3,10 +3,12 @@
 // (the entry script, its modulepreloads and its stylesheets) pulls in Leaflet, its CSS, or the
 // lazy-only chart/geo/heat-field chunks, or if any closure file (or AuthPages) is missing from the
 // service worker's precache list. Prints each closure file with raw and gzip sizes.
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { AUTH_PAGES_RE, requiredPrecache } from './precacheClosure.mjs';
 
 const dist = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const htmlPath = join(dist, 'index.html');
@@ -58,13 +60,19 @@ if (!existsSync(swPath)) {
 }
 const sw = readFileSync(swPath, 'utf8');
 const precached = new Set([...sw.matchAll(/url:\s*"([^"]+)"/g)].map((m) => m[1]));
-for (const href of refs.keys()) {
-  if (!precached.has(href.replace(/^\//, ''))) {
-    violations.push(`${href} (in index.html but not in the sw.js precache)`);
-  }
+// The WHOLE static import closure of the entry and of AuthPages, not just the tags in index.html:
+// AuthPages is lazy but imports shared chunks (PasswordInput ...), and an offline reload to sign-in
+// needs every one of them.
+const built = readdirSync(join(dist, 'assets')).map((name) => `assets/${name}`);
+if (!built.some((url) => AUTH_PAGES_RE.test(url))) {
+  violations.push('assets/AuthPages-*.js (not built)');
 }
-if (![...precached].some((url) => /^assets\/AuthPages-[^/]+\.js$/.test(url))) {
-  violations.push('assets/AuthPages-*.js (not in the sw.js precache; offline sign-in needs it)');
+const required = requiredPrecache(html, built, (url) => {
+  const file = join(dist, url);
+  return existsSync(file) ? readFileSync(file, 'utf8') : null;
+});
+for (const url of required) {
+  if (!precached.has(url)) violations.push(`/${url} (in the entry or AuthPages static closure, not in the sw.js precache)`);
 }
 console.log(`precache entries: ${precached.size}`);
 

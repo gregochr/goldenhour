@@ -3,39 +3,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-
-/**
- * Every `/assets/*` file `dist/index.html` references through a script, modulepreload or
- * stylesheet tag: the entry's whole static closure, which the browser fetches before first paint.
- *
- * The precache used to be a hand-kept list of globs (`index-*`, `react-*`), so any other chunk the
- * entry statically imports (`authApi`, `conversions`, ...) was fetched from the network on every
- * cold start even with the service worker installed. Reading the generated HTML keeps the list in
- * step with whatever Rolldown decides to emit. Workbox runs after the bundle is written, so
- * `dist/index.html` exists by then; if it somehow does not, the build fails rather than precaching
- * a shell that cannot paint offline.
- *
- * @param {string} distDir absolute path of the build output
- * @returns {Set<string>} precache-style urls (`assets/x.js`, no leading slash)
- */
-function entryClosureUrls(distDir) {
-  const htmlPath = resolve(distDir, 'index.html');
-  if (!existsSync(htmlPath)) {
-    throw new Error(`precache: ${htmlPath} not found; cannot derive the entry closure`);
-  }
-  const html = readFileSync(htmlPath, 'utf8');
-  const urls = new Set();
-  for (const [tag] of html.matchAll(/<(?:script|link)\b[^>]*>/gi)) {
-    const isScript = tag.toLowerCase().startsWith('<script');
-    const rel = /\brel="([^"]*)"/i.exec(tag)?.[1] ?? '';
-    const href = /\b(?:href|src)="([^"]*)"/i.exec(tag)?.[1];
-    if (!href || !href.includes('/assets/')) continue;
-    if (isScript || ['modulepreload', 'stylesheet'].includes(rel)) {
-      urls.add(href.replace(/^\//, ''));
-    }
-  }
-  return urls;
-}
+import { filterManifest, requiredPrecache } from './scripts/precacheClosure.mjs';
 
 // `loadEnv`, not bare `process.env`. Vite's .env files populate `import.meta.env` for CLIENT
 // code; this config runs in Node, where `process.env` holds only what the shell exported. So a
@@ -46,9 +14,18 @@ function entryClosureUrls(distDir) {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const apiTarget = env.VITE_API_TARGET || 'http://localhost:8082';
+  let outDir = resolve(process.cwd(), 'dist'); // replaced by configResolved above
   return {
   plugins: [
     react(),
+    // Captures the RESOLVED output directory for the precache transform below (a custom
+    // `build.outDir` or `--outDir` would otherwise be missed).
+    {
+      name: 'precache-out-dir',
+      configResolved(config) {
+        outDir = resolve(config.root, config.build.outDir);
+      },
+    },
     // Service worker that precaches the app shell so a refresh paints from disk instead of
     // waiting on the network. Deliberately scoped:
     //  - PRECACHE only the critical shell (html, css, fonts, entry + react chunks). The heavy
@@ -89,21 +66,30 @@ export default defineConfig(({ mode }) => {
         ],
       },
       workbox: {
-        // Every built script is a candidate; `manifestTransforms` below keeps only the entry's
-        // closure and AuthPages. (The old `rolldown-runtime-*` glob matched nothing: Rolldown
-        // inlines its runtime, so it was dropped.)
+        // Every built script is a candidate; `manifestTransforms` keeps only what a cold start and
+        // an offline sign-in need: the chunks `dist/index.html` references, AuthPages, and the whole
+        // STATIC import closure of both (`scripts/precacheClosure.mjs`). AuthPages is lazy, so
+        // without its closure (PasswordInput ...) an offline reload to sign-in hits the chunk error
+        // boundary. The old `rolldown-runtime-*` glob matched nothing (Rolldown inlines its
+        // runtime) and is gone. Workbox runs after the bundle is written, so dist/index.html exists;
+        // if it does not, the build fails rather than precaching a shell that cannot paint.
         globPatterns: ['**/*.{css,html,woff2}', 'assets/*.js'],
         manifestTransforms: [
           async (entries) => {
-            const closure = entryClosureUrls(resolve(process.cwd(), 'dist'));
-            const keep = (url) => !url.endsWith('.js')
-              // AuthPages is not in the closure (the login screen is lazy) but must be precached
-              // so a reload offline can still sign in.
-              || closure.has(url) || /^assets\/AuthPages-[^/]*\.js$/.test(url);
-            const manifest = entries.filter((entry) => keep(entry.url));
-            const missing = [...closure].filter((url) => !manifest.some((e) => e.url === url));
-            const warnings = missing.map((url) => `precache: entry closure file not precached: ${url}`);
-            return { manifest, warnings };
+            const htmlPath = resolve(outDir, 'index.html');
+            if (!existsSync(htmlPath)) {
+              throw new Error(`precache: ${htmlPath} not found; cannot derive the entry closure`);
+            }
+            const readChunk = (url) => {
+              const file = resolve(outDir, url);
+              return existsSync(file) ? readFileSync(file, 'utf8') : null;
+            };
+            const required = requiredPrecache(
+              readFileSync(htmlPath, 'utf8'),
+              entries.map((entry) => entry.url),
+              readChunk,
+            );
+            return filterManifest(entries, required);
           },
         ],
         navigateFallback: '/index.html',

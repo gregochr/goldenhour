@@ -89,7 +89,7 @@ async function land(settle) {
 
 /** Mounts the banner and lets the mount's own request — answered up front by each test — land. */
 async function mount() {
-  await act(async () => { render(<NlcSightingBanner />); });
+  await act(async () => { render(<NlcSightingBanner eligible />); });
 }
 
 /** The page regains focus: the hook asks for the sighting again. */
@@ -349,7 +349,7 @@ describe('useNlcSighting — answers are applied in the order they were asked fo
       .mockReturnValueOnce(secondRun.promise);
 
     await act(async () => {
-      render(<StrictMode><NlcSightingBanner /></StrictMode>);
+      render(<StrictMode><NlcSightingBanner eligible /></StrictMode>);
     });
     // StrictMode really did run the effect twice — without that this test proves nothing.
     expect(getNlcSighting).toHaveBeenCalledTimes(2);
@@ -371,6 +371,33 @@ describe('useNlcSighting — answers are applied in the order they were asked fo
       await poll();
       expect(getNlcSighting).not.toHaveBeenCalled();
       expect(banner()).toBeNull();
+    });
+
+    it('toggling eligible true to false stops the poll and focus listener and hides the sighting; back on restarts them', async () => {
+      getNlcSighting.mockResolvedValue({ ...REPORT });
+      let view;
+      await act(async () => { view = render(<NlcSightingBanner eligible />); });
+      expect(banner()).toHaveTextContent('Noctilucent cloud reported over Scotland');
+      expect(getNlcSighting).toHaveBeenCalledTimes(1);
+
+      await act(async () => { view.rerender(<NlcSightingBanner eligible={false} />); });
+      expect(banner()).toBeNull();
+      await poll();
+      await refocus();
+      expect(getNlcSighting).toHaveBeenCalledTimes(1);
+
+      await act(async () => { view.rerender(<NlcSightingBanner eligible />); });
+      expect(getNlcSighting).toHaveBeenCalledTimes(2);
+      await poll();
+      expect(getNlcSighting).toHaveBeenCalledTimes(3);
+      await refocus();
+      expect(getNlcSighting).toHaveBeenCalledTimes(4);
+    });
+
+    it('the banner fails closed: no request without the eligible prop', async () => {
+      await act(async () => { render(<NlcSightingBanner />); });
+      await refocus();
+      expect(getNlcSighting).not.toHaveBeenCalled();
     });
 
     it('still asks for an eligible reader (Pro and Admin)', async () => {

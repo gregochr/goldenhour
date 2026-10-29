@@ -106,7 +106,7 @@ const NLC_A_STYLE = `
  * - Inert: no click or keyboard route to the map exists for it yet
  * - Calm: no pulse animation
  */
-export default function NlcSightingBanner({ eligible = true }) {
+export default function NlcSightingBanner({ eligible = false }) {
   const { sighting } = useNlcSighting(eligible);
   const [dismissedKey, setDismissedKey] = useState(null);
 
@@ -200,6 +200,6 @@ export default function NlcSightingBanner({ eligible = true }) {
 }
 
 NlcSightingBanner.propTypes = {
-  /** False for a reader the endpoint refuses (Lite): no request is made. */
+  /** Fails closed: false (the default) makes no request. App passes true for Pro and Admin only. */
   eligible: PropTypes.bool,
 };
