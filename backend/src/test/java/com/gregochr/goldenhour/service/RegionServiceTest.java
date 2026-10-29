@@ -42,11 +42,12 @@ class RegionServiceTest {
     private BriefingRegionSnapshotRepository snapshotRepository;
 
     private RegionService regionService;
+    private final ServedBriefingEpoch epoch = new ServedBriefingEpoch();
 
     @BeforeEach
     void setUp() {
         regionService = new RegionService(
-                regionRepository, regionDriveTimeWriter, snapshotRepository);
+                regionRepository, regionDriveTimeWriter, snapshotRepository, epoch);
     }
 
     // --- findAll ---
@@ -98,6 +99,35 @@ class RegionServiceTest {
         assertThatThrownBy(() -> regionService.findById(99L))
                 .isInstanceOf(NoSuchElementException.class)
                 .hasMessageContaining("99");
+    }
+
+    // --- serve epoch (P1b): every region save invalidates the memoised served briefing ---
+
+    @Test
+    @DisplayName("add(), update(), setEnabled() and setBase() each bump the serve epoch")
+    void everyRegionSave_bumpsServeEpoch() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.existsByName("Northumberland")).thenReturn(false);
+        when(regionRepository.existsByName("Lakes")).thenReturn(false);
+        when(regionRepository.save(org.mockito.ArgumentMatchers.argThat((RegionEntity r) -> r != null
+                && ("Northumberland".equals(r.getName()) || "Lakes".equals(r.getName())))))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        long e0 = epoch.current();
+        regionService.add(new AddRegionRequest("Northumberland"));
+        long e1 = epoch.current();
+        regionService.update(1L, new UpdateRegionRequest("Lakes"));
+        long e2 = epoch.current();
+        regionService.setEnabled(1L, false);
+        long e3 = epoch.current();
+        regionService.setBase(1L, new SetRegionBaseRequest("Keswick", 54.601, -3.135));
+        long e4 = epoch.current();
+
+        assertThat(e1).isGreaterThan(e0);
+        assertThat(e2).isGreaterThan(e1);
+        assertThat(e3).isGreaterThan(e2);
+        assertThat(e4).isGreaterThan(e3);
     }
 
     // --- add ---

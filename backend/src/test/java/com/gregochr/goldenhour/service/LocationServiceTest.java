@@ -61,11 +61,12 @@ class LocationServiceTest {
     private SubRegionMembershipService subRegionMembership;
 
     private LocationService locationService;
+    private final ServedBriefingEpoch epoch = new ServedBriefingEpoch();
 
     @BeforeEach
     void setUp() {
         locationService = new LocationService(locationRepository, regionRepository,
-                tideService, locationEnrichmentService, nameGuard, subRegionMembership);
+                tideService, locationEnrichmentService, nameGuard, subRegionMembership, epoch);
     }
 
     @Test
@@ -203,6 +204,40 @@ class LocationServiceTest {
         List<LocationEntity> result = locationService.findAllEnabled();
 
         assertThat(result).isSameAs(expected);
+    }
+
+    // --- serve epoch (P1b): every roster write invalidates the memoised served briefing ---
+
+    @Test
+    @DisplayName("add(), update(), setEnabled() and resetFailures() each bump the serve epoch")
+    void everyRosterWrite_bumpsServeEpoch() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        existing.setSolarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)));
+        existing.setDisabledReason("auto");
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(existing));
+        when(locationRepository.existsByName("Bamburgh Castle")).thenReturn(false);
+        when(locationRepository.save(org.mockito.ArgumentMatchers.argThat((LocationEntity l) -> l != null
+                && ("Bamburgh Castle".equals(l.getName()) || "Durham UK".equals(l.getName())))))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        long e0 = epoch.current();
+        locationService.add(new AddLocationRequest(
+                "Bamburgh Castle", 55.6090, -1.7099, null, null, null, null, null, null, null, null, null,
+                null, null));
+        long e1 = epoch.current();
+        locationService.update(1L, new UpdateLocationRequest(
+                null, null, null, Set.of(SolarEventType.SUNSET), null, null, null));
+        long e2 = epoch.current();
+        locationService.setEnabled(1L, false);
+        long e3 = epoch.current();
+        locationService.resetFailures("Durham UK");
+        long e4 = epoch.current();
+
+        assertThat(e1).isGreaterThan(e0);
+        assertThat(e2).isGreaterThan(e1);
+        assertThat(e3).isGreaterThan(e2);
+        assertThat(e4).isGreaterThan(e3);
     }
 
     // --- add ---

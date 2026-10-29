@@ -134,6 +134,7 @@ class LocationFailureServiceTest {
     private final Map<Long, Integer> storedCounts = new java.util.concurrent.ConcurrentHashMap<>();
 
     private LocationFailureService service;
+    private final ServedBriefingEpoch epoch = org.mockito.Mockito.mock(ServedBriefingEpoch.class);
     private ListAppender<ILoggingEvent> logAppender;
     private Logger serviceLogger;
 
@@ -184,7 +185,7 @@ class LocationFailureServiceTest {
         });
         service = new LocationFailureService(resolver, locationRepository, adminAlertService,
                 Clock.fixed(NOW, ZoneOffset.UTC), transactionManager, pipelineRunRepository,
-                forecastBatchRepository);
+                forecastBatchRepository, epoch);
         serviceLogger = (Logger) LoggerFactory.getLogger(LocationFailureService.class);
         logAppender = new ListAppender<>();
         logAppender.start();
@@ -265,6 +266,8 @@ class LocationFailureServiceTest {
         verify(locationRepository).resetFailureCounts(ids(1, 9));
         verify(locationRepository).findAllById(List.of(10L));
         verify(locationRepository).recordFailure(10L, NOW_UTC);
+        // resetFailureCounts and recordFailure are roster writes: the served briefing must be invalidated
+        org.mockito.Mockito.verify(epoch, org.mockito.Mockito.atLeastOnce()).bump();
         verify(locationRepository).findConsecutiveFailuresById(10L);
         verifyNoMoreInteractions(locationRepository);
         verifyNoInteractions(adminAlertService);
@@ -460,6 +463,7 @@ class LocationFailureServiceTest {
         settle(evidence);
 
         verify(locationRepository).autoDisable(10L, 3, NOW_UTC, COLLECTION_REASON);
+        org.mockito.Mockito.verify(epoch, org.mockito.Mockito.atLeastOnce()).bump();
         assertThat(messages(Level.INFO)).containsExactly(
                 FULL_MODE_LOG,
                 "Pipeline run 300: location 'Bamburgh' failed this cycle (COLLECTION), "
@@ -1300,7 +1304,7 @@ class LocationFailureServiceTest {
         service.settleCycle(run(RUN_ID, CycleType.NIGHTLY));
         LocationFailureService restarted = new LocationFailureService(resolver, locationRepository,
                 adminAlertService, Clock.fixed(NOW, ZoneOffset.UTC), transactionManager,
-                pipelineRunRepository, forecastBatchRepository);
+                pipelineRunRepository, forecastBatchRepository, new ServedBriefingEpoch());
 
         restarted.settleCycle(run(RUN_ID, CycleType.NIGHTLY));
 

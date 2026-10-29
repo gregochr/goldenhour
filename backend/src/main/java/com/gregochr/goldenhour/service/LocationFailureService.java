@@ -192,6 +192,7 @@ public class LocationFailureService {
     private final PipelineRunRepository pipelineRunRepository;
 
     private final ForecastBatchRepository forecastBatchRepository;
+    private final ServedBriefingEpoch servedEpoch;
 
     /**
      * Held across a whole settle, commit included, so the read-then-write of the counters, the
@@ -209,12 +210,14 @@ public class LocationFailureService {
      * @param transactionManager  runs each settle in one transaction held inside the settle lock
      * @param pipelineRunRepository the durable claim and ordering state on {@code pipeline_run}
      * @param forecastBatchRepository finds a cycle's forecast batches that are still being polled
+     * @param servedEpoch         bumped after commit on every roster write (failure counts, auto-disable)
      */
     public LocationFailureService(CycleLocationOutcomeResolver outcomeResolver,
             LocationRepository locationRepository, AdminAlertService adminAlertService,
             Clock clock, PlatformTransactionManager transactionManager,
             PipelineRunRepository pipelineRunRepository,
-            ForecastBatchRepository forecastBatchRepository) {
+            ForecastBatchRepository forecastBatchRepository, ServedBriefingEpoch servedEpoch) {
+        this.servedEpoch = servedEpoch;
         this.outcomeResolver = outcomeResolver;
         this.locationRepository = locationRepository;
         this.adminAlertService = adminAlertService;
@@ -506,6 +509,7 @@ public class LocationFailureService {
 
         if (!gotThrough.isEmpty()) {
             int reset = locationRepository.resetFailureCounts(gotThrough);
+            servedEpoch.bump();
             if (reset > 0) {
                 LOG.info("Pipeline run {}: {} place(s) got through, consecutive failure counter "
                         + "reset to 0", runId, reset);
@@ -543,7 +547,9 @@ public class LocationFailureService {
             if (location == null || !location.isEnabled()) {
                 continue;
             }
-            if (locationRepository.recordFailure(id, failedAt) == 0) {
+            int recorded = locationRepository.recordFailure(id, failedAt);
+            servedEpoch.bump();
+            if (recorded == 0) {
                 continue;
             }
             // Read back what the database produced; the snapshot above is for the name only.
@@ -573,8 +579,10 @@ public class LocationFailureService {
         List<DisabledLocation> disabled = new ArrayList<>();
         for (Counted c : qualifying) {
             String reason = disabledReason(c.count(), failedAt, c.kind());
-            if (locationRepository.autoDisable(c.location().getId(), c.count(), failedAt,
-                    reason) > 0) {
+            int autoDisabled = locationRepository.autoDisable(c.location().getId(), c.count(), failedAt,
+                    reason);
+            servedEpoch.bump();
+            if (autoDisabled > 0) {
                 LOG.warn("Pipeline run {}: location '{}' AUTO-DISABLED: {}", runId,
                         LogSanitizer.sanitize(c.location().getName()), reason);
                 disabled.add(new DisabledLocation(c.location().getName(), reason));

@@ -41,11 +41,12 @@ class GridCellBackfillJobTest {
     private DynamicSchedulerService dynamicSchedulerService;
 
     private GridCellBackfillJob job;
+    private final ServedBriefingEpoch epoch = org.mockito.Mockito.mock(ServedBriefingEpoch.class);
 
     @BeforeEach
     void setUp() {
         job = new GridCellBackfillJob(locationRepository, locationEnrichmentService,
-                dynamicSchedulerService);
+                dynamicSchedulerService, epoch);
     }
 
     @Test
@@ -90,6 +91,7 @@ class GridCellBackfillJobTest {
         verify(locationRepository).updateGridCell(penshaw.getId(), 54.9, -1.5);
         verify(locationRepository).updateGridCell(roker.getId(), 54.95, -1.35);
         verify(locationRepository, never()).save(any());
+        org.mockito.Mockito.verify(epoch, org.mockito.Mockito.atLeastOnce()).bump();
     }
 
     @Test

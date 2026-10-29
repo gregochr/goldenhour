@@ -125,7 +125,7 @@ class LocationFailureTrackingTest {
                 pipelineRunRepository, forecastScoreRepository);
         return new LocationFailureService(resolver, locationRepository, adminAlertService,
                 CLOCK, transactionManager, pipelineRunRepository,
-                forecastBatchRepository);
+                forecastBatchRepository, new ServedBriefingEpoch());
     }
 
     /** A transaction manager whose commit can be made to fail after rolling the work back. */
@@ -476,7 +476,8 @@ class LocationFailureTrackingTest {
                 forecastBatchRepository, dispositionRepository, apiCallLogRepository,
                 pipelineRunRepository, forecastScoreRepository);
         LocationFailureService unlucky = new LocationFailureService(resolver, locationRepository,
-                adminAlertService, CLOCK, failing, pipelineRunRepository, forecastBatchRepository);
+                adminAlertService, CLOCK, failing, pipelineRunRepository, forecastBatchRepository,
+                new ServedBriefingEpoch());
 
         org.assertj.core.api.Assertions.assertThatThrownBy(
                         () -> unlucky.settleCycle(newRun(runId)))

@@ -40,6 +40,7 @@ public class RegionService {
     private final RegionRepository regionRepository;
     private final RegionDriveTimeWriter regionDriveTimeWriter;
     private final BriefingRegionSnapshotRepository snapshotRepository;
+    private final ServedBriefingEpoch servedEpoch;
 
     /**
      * Constructs a {@code RegionService}.
@@ -47,13 +48,16 @@ public class RegionService {
      * @param regionRepository      repository for {@link RegionEntity}
      * @param regionDriveTimeWriter clears a region's shared drive-time matrix when its base moves
      * @param snapshotRepository    the name-keyed movement store a rename orphans
+     * @param servedEpoch           bumped after commit on every region save (names feed hot topics)
      */
     public RegionService(RegionRepository regionRepository,
             RegionDriveTimeWriter regionDriveTimeWriter,
-            BriefingRegionSnapshotRepository snapshotRepository) {
+            BriefingRegionSnapshotRepository snapshotRepository,
+            ServedBriefingEpoch servedEpoch) {
         this.regionRepository = regionRepository;
         this.regionDriveTimeWriter = regionDriveTimeWriter;
         this.snapshotRepository = snapshotRepository;
+        this.servedEpoch = servedEpoch;
     }
 
     /**
@@ -107,6 +111,7 @@ public class RegionService {
                 .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
         RegionEntity saved = regionRepository.save(entity);
+        servedEpoch.bump();
 
         LOG.info("Added region '{}'", saved.getName());
         return saved;
@@ -137,6 +142,7 @@ public class RegionService {
         boolean renamed = !trimmed.equals(region.getName());
         region.setName(trimmed);
         RegionEntity saved = regionRepository.save(region);
+        servedEpoch.bump();
 
         if (renamed) {
             // ⚠️ `briefing_region_snapshot` is keyed on the region NAME (V144), so a rename orphans
@@ -214,6 +220,7 @@ public class RegionService {
         region.setBaseLat(lat);
         region.setBaseLon(lon);
         RegionEntity saved = regionRepository.save(region);
+        servedEpoch.bump();
 
         if (moved) {
             regionDriveTimeWriter.clearForRegion(saved.getId());
@@ -237,6 +244,7 @@ public class RegionService {
         RegionEntity region = findById(id);
         region.setEnabled(enabled);
         RegionEntity saved = regionRepository.save(region);
+        servedEpoch.bump();
 
         LOG.info("Region '{}' {}", saved.getName(), enabled ? "enabled" : "disabled");
         return saved;

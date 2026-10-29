@@ -39,7 +39,7 @@ class BriefingEvaluationServiceCacheFreshnessTest {
         service = new BriefingEvaluationService(
                 cachedEvaluationRepository, deltaLogRepository,
                 new ObjectMapper(), freshnessResolver, stabilitySnapshotProvider,
-                supersedingDispositionService);
+                supersedingDispositionService, new ServedBriefingEpoch());
     }
 
     /**

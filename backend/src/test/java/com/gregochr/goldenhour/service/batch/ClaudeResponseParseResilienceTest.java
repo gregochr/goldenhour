@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.batch;
 
+import com.gregochr.goldenhour.service.ServedBriefingEpoch;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.ObjectMappers;
 import com.anthropic.core.http.StreamResponse;
@@ -445,7 +446,7 @@ class ClaudeResponseParseResilienceTest {
                 stubbedClient(response), batchRepository, mock(LocationRepository.class),
                 batchJobRunService, costCalculator, mockHandler, mock(AuroraResultHandler.class),
                 mock(EvaluationAbandonmentService.class),
-                mock(com.gregochr.goldenhour.repository.PipelineRunRepository.class));
+                mock(com.gregochr.goldenhour.repository.PipelineRunRepository.class), new ServedBriefingEpoch());
 
         ForecastBatchEntity batch = new ForecastBatchEntity(
                 BATCH_ID, BatchType.FORECAST, 1, Instant.now().plusSeconds(86_400));

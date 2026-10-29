@@ -210,7 +210,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
     }
 
     /**
@@ -274,6 +274,8 @@ class BriefingServiceTest {
         return new SurgeCurveService(new StormSurgeService());
     }
 
+    private final ServedBriefingEpoch loaderEpoch = org.mockito.Mockito.mock(ServedBriefingEpoch.class);
+
     /**
      * A REAL {@link BriefingWeatherLoader} over the mocked {@code openMeteoClient},
      * {@code locationRepository} and {@code jobRunService} — not a mock of the loader.
@@ -286,7 +288,8 @@ class BriefingServiceTest {
      * @return a fresh loader wired over the mocked collaborators
      */
     private BriefingWeatherLoader weatherLoader() {
-        return new BriefingWeatherLoader(openMeteoClient, locationRepository, jobRunService);
+        return new BriefingWeatherLoader(openMeteoClient, locationRepository, jobRunService,
+                loaderEpoch);
     }
 
     /** NLC clarity service wired with a real transect sampler over the mocked Open-Meteo client. */
@@ -573,7 +576,8 @@ class BriefingServiceTest {
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     evaluationViewService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), BST_CLOCK, marineWaveRefreshService,
-                    snapshots(), assembler(BST_CLOCK), rollup(BST_CLOCK), eclipseSightAssembler);
+                    snapshots(), assembler(BST_CLOCK), rollup(BST_CLOCK), eclipseSightAssembler,
+                    new ServedBriefingEpoch());
             freshService.loadPersistedBriefing();
 
             DailyBriefingResponse api = freshService.getCachedBriefingForApi();
@@ -951,7 +955,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -985,7 +989,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1012,7 +1016,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1147,6 +1151,7 @@ class BriefingServiceTest {
             assertThat(loc.getGridLng()).isEqualTo(-1.5);
             // Scoped to the grid cell: a detached snapshot must not rewrite any other column.
             org.mockito.Mockito.verify(locationRepository).updateGridCell(1L, 55.1, -1.5);
+            org.mockito.Mockito.verify(loaderEpoch, org.mockito.Mockito.atLeastOnce()).bump();
             org.mockito.Mockito.verify(locationRepository, org.mockito.Mockito.never())
                     .saveAll(any());
         }
@@ -1558,7 +1563,7 @@ class BriefingServiceTest {
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     evaluationViewService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                    snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+                    snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1
@@ -1737,7 +1742,7 @@ class BriefingServiceTest {
                     slotBuilder, eventPublisher, realAggregator,
                     evaluationViewService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                    snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
+                    snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
             refreshWithOneLocation();
 
             DailyBriefingResponse first = briefingService.getCachedBriefing();

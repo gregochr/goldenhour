@@ -152,6 +152,7 @@ public class BriefingEvaluationService {
     private static final String AGE_BASIS_CACHE_KEY = "CACHE_KEY";
 
     private final CachedEvaluationRepository cachedEvaluationRepository;
+    private final ServedBriefingEpoch servedEpoch;
     private final EvaluationDeltaLogRepository deltaLogRepository;
     private final ObjectMapper objectMapper;
     private final FreshnessResolver freshnessResolver;
@@ -197,13 +198,16 @@ public class BriefingEvaluationService {
      * @param supersedingDispositionService round 14: answers "has a later pipeline run already
      *                                       decided against this slot" — see its own class javadoc
      *                                       for the full rule (replaces round 13's design in full)
+     * @param servedEpoch                bumped after every {@code cached_evaluation} write and wipe
      */
     public BriefingEvaluationService(CachedEvaluationRepository cachedEvaluationRepository,
             EvaluationDeltaLogRepository deltaLogRepository,
             ObjectMapper objectMapper,
             FreshnessResolver freshnessResolver,
             StabilitySnapshotProvider stabilitySnapshotProvider,
-            SupersedingDispositionService supersedingDispositionService) {
+            SupersedingDispositionService supersedingDispositionService,
+            ServedBriefingEpoch servedEpoch) {
+        this.servedEpoch = servedEpoch;
         this.cachedEvaluationRepository = cachedEvaluationRepository;
         this.deltaLogRepository = deltaLogRepository;
         this.objectMapper = objectMapper;
@@ -820,6 +824,7 @@ public class BriefingEvaluationService {
                 + "({} in-memory)", currentPrincipal(), dbDeleted, size);
         cache.clear();
         cachedEvaluationRepository.deleteAll();
+        servedEpoch.bump();
         // Reset the heartbeat baseline so the next health check treats this intentional clear
         // as the new normal rather than flagging it as an unexpected backwards jump.
         lastHealth.set(new CacheHealth(0, null));
@@ -995,6 +1000,9 @@ public class BriefingEvaluationService {
             entity.setUpdatedAt(Instant.now());
 
             cachedEvaluationRepository.save(entity);
+            // The one chokepoint every cached_evaluation write goes through (the four cache.put
+            // sites all end here), so the memoised served briefing re-reads the new ratings.
+            servedEpoch.bump();
             LOG.info("{} results persisted to DB for key: {} ({} results)",
                     source, cacheKey, results.size());
         } catch (JsonProcessingException e) {

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.batch;
 
+import com.gregochr.goldenhour.service.ServedBriefingEpoch;
 import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.ForecastRunDispositionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -44,10 +45,24 @@ class ForecastDispositionServiceTest {
     private PipelineRunRepository pipelineRunRepository;
 
     private ForecastDispositionService service;
+    private final ServedBriefingEpoch epoch = new ServedBriefingEpoch();
 
     @BeforeEach
     void setUp() {
-        service = new ForecastDispositionService(repository, pipelineRunRepository);
+        service = new ForecastDispositionService(repository, pipelineRunRepository, epoch);
+    }
+
+    @Test
+    @DisplayName("persist: a disposition write (a stability skip retracts ratings) bumps the serve epoch")
+    void persist_bumpsServeEpoch() {
+        CandidateDisposition d = new CandidateDisposition(
+                42L, "Durham UK", TODAY.plusDays(1), TargetType.SUNRISE, 1,
+                DispositionCategory.EVALUATED, null);
+        long before = epoch.current();
+
+        service.persist(7L, List.of(d));
+
+        assertThat(epoch.current()).isGreaterThan(before);
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.batch;
 
+import com.gregochr.goldenhour.service.ServedBriefingEpoch;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.http.StreamResponse;
 import com.anthropic.models.messages.StopReason;
@@ -100,6 +101,7 @@ class BatchResultProcessorTest {
     private PipelineRunRepository pipelineRunRepository;
 
     private BatchResultProcessor processor;
+    private final ServedBriefingEpoch epoch = new ServedBriefingEpoch();
 
     @BeforeEach
     void setUp() {
@@ -107,12 +109,27 @@ class BatchResultProcessorTest {
                 anthropicClient, batchRepository, locationRepository,
                 jobRunService, costCalculator,
                 forecastResultHandler, auroraResultHandler, evaluationAbandonmentService,
-                pipelineRunRepository);
+                pipelineRunRepository, epoch);
     }
 
     private void stubBatchService() {
         when(anthropicClient.messages()).thenReturn(messageService);
         when(messageService.batches()).thenReturn(batchService);
+    }
+
+    // ── Serve epoch (P1b) ────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("every processed result batch bumps the serve epoch, a failed one included")
+    void processResults_bumpsServeEpoch() {
+        stubBatchService();
+        when(batchService.resultsStreaming("msgbatch_fail"))
+                .thenThrow(new RuntimeException("Network error"));
+        long before = epoch.current();
+
+        processor.processResults(buildBatch(BatchType.FORECAST));
+
+        assertThat(epoch.current()).isGreaterThan(before);
     }
 
     // ── Stream failure ───────────────────────────────────────────────────────

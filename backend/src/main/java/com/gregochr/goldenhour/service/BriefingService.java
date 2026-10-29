@@ -27,6 +27,7 @@ import com.gregochr.goldenhour.service.evaluation.BluebellGlossService;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
 import com.gregochr.goldenhour.util.ForecastHorizon;
+import com.gregochr.goldenhour.util.Rewind;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -37,6 +38,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -45,6 +48,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
@@ -88,6 +93,7 @@ public class BriefingService {
     private final ServedBriefingAssembler assembler;
     private final BriefingRegionEvaluationRollup rollup;
     private final EclipseSightAssembler eclipseSightAssembler;
+    private final ServedBriefingEpoch servedEpoch;
 
     /**
      * Number of consecutive dates the briefing covers, starting on the day it is built.
@@ -115,6 +121,45 @@ public class BriefingService {
 
     private final AtomicReference<DailyBriefingResponse> cache = new AtomicReference<>();
     private final AtomicReference<DailyBriefingResponse> lastKnownGood = new AtomicReference<>();
+
+    /**
+     * How long {@link #getCachedBriefingForApi()} reuses its assembled result, in seconds: the value
+     * (and clock style) of {@code AskSnapshotBuilder.MEMO_SECONDS}.
+     */
+    static final int SERVED_MEMO_SECONDS = 30;
+
+    /** Guards {@link #servedMemo} writes and {@link #inFlight}; held only for short, non-I/O sections. */
+    private final Object flightLock = new Object();
+
+    /** The memoised served result and what it was built from. */
+    private volatile ServedMemo servedMemo;
+
+    /** The build a miss is running right now, so concurrent callers for the same key join it. */
+    private InFlight inFlight;
+
+    /** A running served-briefing build and the key it is for. */
+    private record InFlight(DailyBriefingResponse source, LocalDate date, long epoch,
+            CompletableFuture<DailyBriefingResponse> future) {
+        boolean matches(DailyBriefingResponse otherSource, LocalDate otherDate, long otherEpoch) {
+            return source == otherSource && date.equals(otherDate) && epoch == otherEpoch;
+        }
+    }
+
+    /**
+     * One memoised served briefing, with the key it is valid for.
+     *
+     * @param source  the identity of the {@code cache.get()} object it was built from
+     * @param date    the UK civil date it was built on
+     * @param epoch   the serve epoch read BEFORE it was assembled
+     * @param builtAt when it was built, on the injected clock
+     * @param result  the assembled result, before role shaping (may be null: nothing built yet)
+     */
+    private record ServedMemo(DailyBriefingResponse source, LocalDate date, long epoch, Instant builtAt,
+            DailyBriefingResponse result) {
+        boolean matches(DailyBriefingResponse otherSource, LocalDate otherDate, long otherEpoch) {
+            return source == otherSource && date.equals(otherDate) && epoch == otherEpoch;
+        }
+    }
 
     /**
      * Held for the whole of a briefing build, so two builds never run at once.
@@ -180,6 +225,7 @@ public class BriefingService {
      *                                   deliberately NOT how a real sight reaches a slot;
      *                                   that happens once, at build time, inside
      *                                   {@code slotBuilder} itself
+     * @param servedEpoch                the serve epoch writers bump; keys the served-briefing memo
      */
     public BriefingService(LocationService locationService,
             BriefingWeatherLoader weatherLoader,
@@ -203,7 +249,8 @@ public class BriefingService {
             BriefingRegionSnapshotService regionSnapshotService,
             ServedBriefingAssembler assembler,
             BriefingRegionEvaluationRollup rollup,
-            EclipseSightAssembler eclipseSightAssembler) {
+            EclipseSightAssembler eclipseSightAssembler,
+            ServedBriefingEpoch servedEpoch) {
         this.locationService = locationService;
         this.weatherLoader = weatherLoader;
         this.jobRunService = jobRunService;
@@ -229,6 +276,7 @@ public class BriefingService {
         this.assembler = assembler;
         this.rollup = rollup;
         this.eclipseSightAssembler = eclipseSightAssembler;
+        this.servedEpoch = servedEpoch;
     }
 
     /**
@@ -268,6 +316,12 @@ public class BriefingService {
      * (see that class's own javadoc for why persisting one there was a real defect, Codex review
      * of #914) — so toggling the admin simulation takes effect on the very next request in either
      * direction, and a restart with it off serves the persisted, real-sights-only cache untouched.
+     *
+     * <p>Not memoised: the internal, unfiltered path (the batch collector, the SSE drill-down) always
+     * overlays afresh. The API-facing {@link #getCachedBriefingForApi()} memoises the assembly built
+     * on top of this for {@value #SERVED_MEMO_SECONDS} seconds, so on the served path hot topics are
+     * recomputed per assembly, not per request; a simulation toggle bumps {@link ServedBriefingEpoch}
+     * and shows on the next request.
      *
      * @return the most recent briefing response with every live overlay applied, or null
      */
@@ -369,12 +423,90 @@ public class BriefingService {
      * <p>Internal callers (the batch task collector, the SSE drill-down service,
      * the model-comparison test harness) continue to call {@link
      * #getCachedBriefing()} so they see the untransformed triage data they
-     * depend on. See {@link BriefingHonestyFilter} for the rationale.
+     * depend on. See {@link BriefingHonestyFilter} for the rationale. That method is NOT memoised.
+     *
+     * <p><b>Memoised for {@value #SERVED_MEMO_SECONDS} seconds</b> (performance plan P1b). What is
+     * served is not a function of the build alone: hot topics and aurora are recomputed per
+     * assembly, ratings are re-read, pastness reads the clock. So the memo is keyed by the identity
+     * of the cached briefing, the UK civil date and the {@link ServedBriefingEpoch}, which every
+     * known writer bumps after commit (simulation toggles, aurora state, rating and retraction
+     * writes, travel days, the location and region rosters). The epoch is read BEFORE assembling and
+     * stored with the result, so a result built across a write is rebuilt on the next call. Concurrent
+     * misses for the same (cache, date, epoch) key share one build (single-flight); a caller for a
+     * newer epoch starts its own, and a result is stored only if no newer one is. Under
+     * Rewind the memo and the lock are bypassed. Role shaping and the Lite pick shaper happen in the controller,
+     * downstream of this memo, per request; this method takes no user.
      *
      * @return the cached briefing with honesty filter applied, or {@code null}
      *         if no briefing has been built yet
      */
     public DailyBriefingResponse getCachedBriefingForApi() {
+        if (Rewind.isActive()) {
+            // Never reads, writes or waits on the memo or an in-flight build.
+            return assembleForApi();
+        }
+        Instant now = clock.instant();
+        LocalDate today = ForecastHorizon.today(clock);
+        // Read the epoch BEFORE assembling: a write that lands during assembly leaves the stored
+        // epoch behind the live one, so the next call rebuilds.
+        long epochBefore = servedEpoch.current();
+        DailyBriefingResponse source = cache.get();
+        ServedMemo memo = servedMemo;
+        if (memo != null && memo.matches(source, today, epochBefore)
+                && isMemoFresh(Duration.between(memo.builtAt(), now))) {
+            return memo.result();
+        }
+        InFlight mine = null;
+        InFlight flight;
+        synchronized (flightLock) {
+            flight = inFlight;
+            if (flight == null || !flight.matches(source, today, epochBefore)) {
+                // A caller for a newer epoch starts its own build; it is not queued behind an older one.
+                mine = new InFlight(source, today, epochBefore, new CompletableFuture<>());
+                inFlight = mine;
+                flight = mine;
+            }
+        }
+        if (mine == null) {
+            // Single-flight: join the build already running for this very key.
+            try {
+                return flight.future().join();
+            } catch (CompletionException e) {
+                if (e.getCause() instanceof RuntimeException re) {
+                    throw re;
+                }
+                throw e;
+            }
+        }
+        try {
+            DailyBriefingResponse result = assembleForApi();
+            synchronized (flightLock) {
+                // Stored only if no newer result is already stored.
+                ServedMemo stored = servedMemo;
+                if (stored == null || stored.epoch() <= epochBefore) {
+                    servedMemo = new ServedMemo(source, today, epochBefore, now, result);
+                }
+            }
+            mine.future().complete(result);
+            return result;
+        } catch (RuntimeException | Error e) {
+            mine.future().completeExceptionally(e);
+            throw e;
+        } finally {
+            synchronized (flightLock) {
+                if (inFlight == mine) {
+                    inFlight = null;
+                }
+            }
+        }
+    }
+
+    /** Whether a memo of this age may be reused: not negative, and under the memo window. */
+    private static boolean isMemoFresh(Duration age) {
+        return !age.isNegative() && age.compareTo(Duration.ofSeconds(SERVED_MEMO_SECONDS)) < 0;
+    }
+
+    private DailyBriefingResponse assembleForApi() {
         // The ordered composition itself — projector outermost, honesty wrapping the fallback,
         // movement attached after the honesty filter, the tide rollup fed the
         // FILTERED days, UTC not London — is ServedBriefingAssembler's job now; see

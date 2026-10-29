@@ -55,7 +55,7 @@ class EvaluationDeltaLogTest {
                 // mapper would quietly skip the persistence path instead of failing.
                 new ObjectMapper().registerModule(new JavaTimeModule()),
                 freshnessResolver, stabilitySnapshotProvider,
-                supersedingDispositionService);
+                supersedingDispositionService, new ServedBriefingEpoch());
     }
 
     @SuppressWarnings("unchecked")

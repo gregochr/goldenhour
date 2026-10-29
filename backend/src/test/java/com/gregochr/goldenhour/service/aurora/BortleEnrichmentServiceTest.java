@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.aurora;
 
+import com.gregochr.goldenhour.service.ServedBriefingEpoch;
 import com.gregochr.goldenhour.client.LightPollutionClient;
 import com.gregochr.goldenhour.client.LightPollutionClient.SkyBrightnessResult;
 import com.gregochr.goldenhour.entity.JobRunEntity;
@@ -47,11 +48,12 @@ class BortleEnrichmentServiceTest {
 
     private BortleEnrichmentService service;
     private JobRunEntity stubJobRun;
+    private final ServedBriefingEpoch epoch = org.mockito.Mockito.mock(ServedBriefingEpoch.class);
 
     @BeforeEach
     void setUp() {
         service = new BortleEnrichmentService(locationRepository, lightPollutionClient,
-                jobRunService, progressTracker, eventPublisher);
+                jobRunService, progressTracker, eventPublisher, epoch);
         stubJobRun = new JobRunEntity();
         stubJobRun.setId(1L);
     }
@@ -86,6 +88,7 @@ class BortleEnrichmentServiceTest {
         // Scoped: only the two measured columns, never the whole (possibly stale) entity.
         verify(locationRepository, times(1)).updateSkyBrightness(1L, 21.75, 3);
         verify(locationRepository, never()).save(loc);
+        org.mockito.Mockito.verify(epoch, org.mockito.Mockito.atLeastOnce()).bump();
     }
 
     @Test

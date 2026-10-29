@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.RunPhase;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.ServedBriefingEpoch;
 import com.gregochr.goldenhour.service.RunCompletion;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import org.slf4j.Logger;
@@ -45,6 +46,7 @@ public class BortleEnrichmentService {
     private final RunProgressTracker progressTracker;
     private final ApplicationEventPublisher eventPublisher;
     private final RunCompletion runCompletion;
+    private final ServedBriefingEpoch servedEpoch;
 
     /**
      * Constructs the service with repository, HTTP client, and job run dependencies.
@@ -54,12 +56,15 @@ public class BortleEnrichmentService {
      * @param jobRunService        job run service for tracking the enrichment run
      * @param progressTracker      tracker for SSE progress broadcasting
      * @param eventPublisher       Spring event publisher for per-location state transitions
+     * @param servedEpoch          bumped after each sky-brightness write
      */
     public BortleEnrichmentService(LocationRepository locationRepository,
             LightPollutionClient lightPollutionClient,
             JobRunService jobRunService,
             RunProgressTracker progressTracker,
-            ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher,
+            ServedBriefingEpoch servedEpoch) {
+        this.servedEpoch = servedEpoch;
         this.locationRepository = locationRepository;
         this.lightPollutionClient = lightPollutionClient;
         this.jobRunService = jobRunService;
@@ -132,6 +137,7 @@ public class BortleEnrichmentService {
                 // so it must not rewrite any other column.
                 locationRepository.updateSkyBrightness(
                         location.getId(), brightness.sqm(), brightness.bortle());
+                servedEpoch.bump();
                 enriched++;
                 publishEvent(jobRun.getId(), location, LocationTaskState.COMPLETE, null);
                 LOG.debug("Enriched '{}': SQM {}, Bortle {}",

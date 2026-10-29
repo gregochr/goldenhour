@@ -128,7 +128,10 @@ invalidation.
   list missed (so Plan labels may trail `/scores` badges by up to 30 s in that case).
 - What is memoised is the result **before** role shaping and `LitePickShaper`; those stay per request.
   `getCachedBriefingForApi` takes no user, so personal data never enters the memo.
-- `AskSnapshotBuilder` and `BriefingDigestService` get the memo for free. `getCachedBriefing()` (the unfiltered internal
+- `BriefingDigestService` gets the memo for free. `AskSnapshotBuilder` keeps its own 30 s TTL (it also reads travel days, the
+  almanac and night forecasts) but is keyed on the identity of the served briefing it was built from, so a serve-epoch
+  bump reaches Ask on the next call. Misses are single-flight per (cache, date, epoch), Rewind bypasses the memo and the
+  lock, and a result is stored only if no newer one is. `getCachedBriefing()` (the unfiltered internal
   path, read by the batch collector and SSE drill-down) is **not** memoised.
 - Tests: hit within 30 s (one assembly); miss after 30 s via a mutable clock; miss on a new cache object; miss on date
   roll; miss after each epoch source (one test per item in the list); a write inside a rolled-back transaction does not
@@ -511,6 +514,7 @@ P1 and P2 touch disjoint files and may be built in parallel worktrees; each stil
 |---|---|---|---|---|
 | plan | `claude/app-performance-review-d46a33` | | 2026-10-28 | |
 | P6a | `perf/p6a-indexes` | | 2026-10-28 | five indexes (V197); I5 skipped |
+| P1b | `perf/p1b-served-briefing-memo` | | 2026-10-28 | `/api/briefing` on a memo hit: 0 statements (assembler not called); a miss assembles as before. 30 s memo, keyed by cache identity, UK date and `ServedBriefingEpoch` |
 
 ## 11. What the review changed (draft 1 → draft 2)
 

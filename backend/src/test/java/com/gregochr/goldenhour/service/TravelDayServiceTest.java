@@ -32,6 +32,9 @@ class TravelDayServiceTest {
     @Mock
     private TravelDayRepository repository;
 
+    @Mock
+    private ServedBriefingEpoch servedEpoch;
+
     @InjectMocks
     private TravelDayService service;
 

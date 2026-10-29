@@ -28,14 +28,17 @@ public class TravelDayService {
     private static final Logger LOG = LoggerFactory.getLogger(TravelDayService.class);
 
     private final TravelDayRepository repository;
+    private final ServedBriefingEpoch servedEpoch;
 
     /**
      * Constructs the service.
      *
-     * @param repository travel-day persistence
+     * @param repository  travel-day persistence
+     * @param servedEpoch bumped after commit on every create and delete (hot topics read travel days)
      */
-    public TravelDayService(TravelDayRepository repository) {
+    public TravelDayService(TravelDayRepository repository, ServedBriefingEpoch servedEpoch) {
         this.repository = repository;
+        this.servedEpoch = servedEpoch;
     }
 
     /**
@@ -85,6 +88,7 @@ public class TravelDayService {
                 .endDate(request.endDate())
                 .note(request.note())
                 .build());
+        servedEpoch.bump();
         LOG.info("[TRAVEL] Added travel range {} → {} ({})",
                 saved.getStartDate(), saved.getEndDate(),
                 saved.getNote() != null ? saved.getNote() : "no note");
@@ -103,6 +107,7 @@ public class TravelDayService {
             throw new NoSuchElementException("No travel range with id " + id);
         }
         repository.deleteById(id);
+        servedEpoch.bump();
         LOG.info("[TRAVEL] Deleted travel range id={}", id);
     }
 }
