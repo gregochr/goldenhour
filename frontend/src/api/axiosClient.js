@@ -84,6 +84,17 @@ let refreshPromise = null;
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
+    // A request made with `responseType: 'text'` (the memoised polled endpoints, `utils/jsonMemo`) gets its
+    // error body back as a string, because axios's default transform only parses when no responseType is
+    // set — and that transform runs before this interceptor. Parse it once here, in place, before any
+    // `.code` check, so every reader downstream sees the JSON object it always has.
+    if (typeof error.response?.data === 'string' && error.response.data !== '') {
+      try {
+        error.response.data = JSON.parse(error.response.data);
+      } catch {
+        // not JSON (a proxy's HTML page): leave the text
+      }
+    }
     const original = error.config;
     // The refresh request goes through this same client, so its own 401 (an expired refresh
     // token) must never re-enter the refresh path below, or it would await itself and hang
