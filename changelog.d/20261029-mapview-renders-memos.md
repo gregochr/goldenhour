@@ -1,0 +1,3 @@
+### Changed — the map no longer re-renders on every pan, and its window list is memoised
+
+A pan or zoom on the Map tab now re-renders the tab only when it changes what the tide cues and the tide strip show (whether a coastal place is in view, and which ones), instead of on every `moveend`. The tab's window list (`mapEvents`), its per-window verdicts and the region list are memoised on their real inputs, including the clock, so the memos downstream of them now hit between renders. A window still retires on the first render after its time (plus the afterglow) has passed, and the High-water expiry timer still rebuilds the list. Nothing a reader sees changes, on phone, tablet or desktop.

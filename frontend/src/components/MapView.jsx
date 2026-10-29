@@ -86,7 +86,9 @@ import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../uti
 import { landingRows, landingHeader, betterNextWindow } from '../utils/mapLanding.js';
 import { NIGHT_RETRY_LINE, isCoastalTidalLocation } from '../utils/mapCallout.js';
 import { isEventTimePast } from '../utils/briefingDisplay.js';
-import { tierOf, stripModel, siblingEventTime, coastalInView } from '../utils/mapTideFit.js';
+import {
+  tierOf, stripModel, siblingEventTime, coastalInView, tideViewSignature,
+} from '../utils/mapTideFit.js';
 import MapTideStrip from './map/MapTideStrip.jsx';
 import TideUpsellPopover from './map/TideUpsell.jsx';
 import { useOutsideDismiss } from '../hooks/useOutsideDismiss.js';
@@ -1766,13 +1768,33 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * `[south, west, north, east]` array. `mapTideFit.stripModel` needs a real {@code pad}/{@code contains} pair (tide-window-plan.md
    * §1 #8: "no `bounds.pad()` existed anywhere in this codebase before this increment"), which
    * Leaflet's own object already supplies — converting to and back from a plain array would only
-   * lose that. No identity-dedupe here: `stripModel` is one deliberately un-split function (T3's own
-   * documented tension) that DOES need to recompute on every pan (§5 "Derived per (window,
-   * viewport): recompute on pan"), so a fresh object each `moveend` is the intended behaviour, not
-   * the wasted-render risk {@code handleBounds} above guards against.
+   * lose that.
+   *
+   * <p>⚠️ <b>Held in a ref; only its DERIVED answers are state</b> (performance-review-2026-10 P4d, F19).
+   * {@code BoundsTracker} reports on every {@code moveend}/{@code zoomend}, and a plain state here
+   * re-rendered all of {@code MapView} on each one. Three readers need the viewport: the tide strip, the
+   * phone tide-cue gate ({@code hasCoastalInViewForCues}) and the peek pulse's seed. Each needs only what
+   * {@code tideViewSignature} captures (whether the gate pool has a coastal place in view, and which strip
+   * places are), so {@code handleTideBounds} stores the raw bounds in the ref and bumps
+   * {@code tideBoundsVersion} only when that signature differs from the one the last render drew. The
+   * first report always bumps (the signature ref starts null), which is the seed the pulse needs. A render
+   * for any other reason reads the latest ref, so nothing is ever stale: an unchanged signature means the
+   * same answers. The ref pair is refreshed by the effect beside {@code labelSpots}.
    */
-  const [tideViewBounds, setTideViewBounds] = useState(null);
-  const handleTideBounds = useCallback((b) => setTideViewBounds(b), []);
+  const tideBoundsRef = useRef(null);
+  const tideRenderedSigRef = useRef(null);
+  const tidePoolsRef = useRef(null);
+  const [tideBoundsVersion, setTideBoundsVersion] = useState(0);
+  const handleTideBounds = useCallback((b) => {
+    tideBoundsRef.current = b;
+    const pools = tidePoolsRef.current;
+    const drawn = tideRenderedSigRef.current;
+    if (pools != null && drawn != null && drawn === tideViewSignature(b, pools.gatePool, pools.stripPool)) return;
+    setTideBoundsVersion((v) => v + 1);
+  }, []);
+  // The High-water deadline timer's render key (further down) so `servedMapEvents` rebuilds when that
+  // row's window ends; declared here because the memo that reads it sits above the timer.
+  const [hwExpiryTick, setHwExpiryTick] = useState(0);
   const { status: auroraStatus, liteAlert } = useAuroraStatus();
   // The night aurora results are keyed to — from the backend, which owns the dusk/dawn rule.
   // Falls back to the local calendar date when status is absent (LITE, failed fetch, or a backend
@@ -3522,7 +3544,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const verdictScopePool = heat?.enabled
     ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
     : EMPTY_POINTS;
-  const regionsInScope = regionNamesOf(verdictScopePool);
+  const regionsInScope = useMemo(() => regionNamesOf(verdictScopePool), [verdictScopePool]);
 
   // ⚠️ The LIVE night's row (overlay convergence C3). The window control's night rows come from STORED
   // results only (D-14), so a real alert whose scoring run has not stored anything yet had a live field
@@ -3570,34 +3592,51 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * The Map tab's single chronological event list — map-tab-v2-plan.md §3 P6, replacing the
    * date strip, the event pills and the in-map window select.
    *
-   * <p>Built fresh every render rather than `useMemo`'d: every input already recomputes on its
-   * own cadence above (the briefing poll's `heat.windows`, the two multi-date fetches), so a memo
-   * here would carry the identical dependency list for a builder over a few tens of rows at most —
-   * not a cost worth a second list to keep in sync.
+   * <p>Memoised on its real inputs (performance-review-2026-10 P4e, F20), so every memo downstream
+   * of it can hit. ⚠️ <b>Time is an input.</b> {@code buildMapEvents} reads the app clock
+   * ({@code now = appNow()}, and {@code isEventTimePast} per row), so two values stand in for it:
+   * {@code hwExpiryTick}, which the High-water deadline timer bumps to rebuild the list when that row's
+   * window ends, and {@code pastClock}, the app clock in whole seconds. A render is the only moment the
+   * old plain expression ever noticed a window had elapsed, so a row still retires on the first render
+   * after its boundary; whole seconds, not minutes, so the memo never holds a row past it perceptibly.
    */
-  const servedMapEvents = buildMapEvents({
+  const mapTomorrowStr = ukDateStrOffset(1);
+  const pastClock = Math.floor(appNow().getTime() / 1000);
+  const nightOnScreen = useMemo(
+    () => ((isAstroMode || isAuroraMode) ? { eventType, date: nightDate } : null),
+    [isAstroMode, isAuroraMode, eventType, nightDate],
+  );
+  const eventAuroraDates = useMemo(
+    () => (liveNightOffered ? [...auroraAvailableDates, auroraNight] : auroraAvailableDates),
+    [liveNightOffered, auroraAvailableDates, auroraNight],
+  );
+  const servedMapEvents = useMemo(() => buildMapEvents({
     solarWindows: heat?.windows || [],
     tideByWindow: heat?.tideByWindow,
     isEventTimePast,
     forecastDates,
     pastSolarWindows,
     todayStr: mapTodayStr,
-    tomorrowStr: ukDateStrOffset(1),
+    tomorrowStr: mapTomorrowStr,
     // D-14 (`utils/mapEvents.js`'s module doc): only nights not yet over become rows. The night in
     // progress is `auroraNight`, the SAME value `App` hands `resolveMapDate`, so the two agree on
     // which nights are over; and the night on screen keeps its row once it ends, so the pill never
     // reads "No forecast" over stars this map is still painting for it. That exception is a row
     // `App` would refuse, which is why `selectEvRow` forwards only `isForwardableRow` rows.
     currentNightDate: auroraNight,
-    nightOnScreen: (isAstroMode || isAuroraMode) ? { eventType, date: nightDate } : null,
+    nightOnScreen,
     astroAvailableDates,
     astroConditionsByDate,
-    auroraAvailableDates: liveNightOffered ? [...auroraAvailableDates, auroraNight] : auroraAvailableDates,
+    auroraAvailableDates: eventAuroraDates,
     auroraResultsByDate: auroraNightRows,
     isLite: role === 'LITE_USER',
     formatTimeUk: formatEventTimeUk,
     bigSeas,
-  });
+  // `hwExpiryTick` and `pastClock` are the clock (see above); neither is read inside the body.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [heat?.windows, heat?.tideByWindow, forecastDates, pastSolarWindows, mapTodayStr, mapTomorrowStr,
+    auroraNight, nightOnScreen, astroAvailableDates, astroConditionsByDate, eventAuroraDates,
+    auroraNightRows, role, bigSeas, hwExpiryTick, pastClock]);
   /**
    * The Lite aurora Pro door: the soonest served night, labelled the way the Pro row for it is. D-14's rule
    * (`isNightOffered`): while the served current night has not ended every served night stays (last night
@@ -3610,7 +3649,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const ended = !isStillCurrent(currentNightEndsAt, appNow());
     const soonest = nights.find((night) => !ended || night >= mapTodayStr);
     if (!soonest) return null;
-    return { label: auroraUpsellLabel(nightLabel(soonest, mapTodayStr, ukDateStrOffset(1))) };
+    return { label: auroraUpsellLabel(nightLabel(soonest, mapTodayStr, mapTomorrowStr)) };
   })();
   /**
    * The same rows, each solar row's clock time taken over the places in SCOPE rather than the
@@ -3619,9 +3658,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * test stays on the served instant. The same pool as the verdict, so the pill's word and its time
    * describe one set of places.
    */
-  const mapEvents = withScopedSolarTimes({
+  const mapEvents = useMemo(() => withScopedSolarTimes({
     events: servedMapEvents, spots: verdictScopePool, locations, formatTimeUk: formatEventTimeUk,
-  });
+  }), [servedMapEvents, verdictScopePool, locations]);
   /**
    * The night rows whose served rows the window control's preview has NOT answered — still in
    * flight, or failed with nothing earlier to keep — by EV row id, for the callout's every-window
@@ -3654,21 +3693,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * night-row rule and the keying so a test can reach them without a component — the correction the
    * doors series' own no-caller-yet phase was given at review.
    *
-   * <p>Built fresh every render, for the same reason {@code mapEvents} above is, and not merely by
-   * analogy: {@code mapEvents} is a new array on every render, so a {@code useMemo} listing it as a
-   * dependency could never hit.
+   * <p>Memoised on {@code mapEvents}, itself memoised, so the identity holds between renders (P4e).
    *
    * <p>Read by the window control's verdict cell, its medallion and its two stepper ticks
    * (map-landing-plan.md §3 L2).
    */
-  const evVerdicts = buildEvVerdicts({
+  const evVerdicts = useMemo(() => buildEvVerdicts({
     events: mapEvents,
     index: regionVerdictIndex,
     regionsInScope,
     // A shaped body carries no region mean to rank by (the server strips it), so the lead region comes
     // served; `null` for everyone else keeps the pick exactly as it was.
     shapedLeads: shaped ? shapedLeadIndex : null,
-  });
+  }), [mapEvents, regionVerdictIndex, regionsInScope, shaped, shapedLeadIndex]);
   /**
    * The picks across each region (S5a-2), for a shaped body only: `pickGeography.regionPickSummaries`, from the
    * served ids and each place's served sub-region. Null for every Pro, Admin and flag-off reader.
@@ -3711,8 +3748,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     verdicts: evVerdicts,
     windowStates: heat?.windowStates,
     scopePool: verdictScopePool,
-  // `mapEvents` and `evVerdicts` are new objects every render (see `evVerdicts`), so this recomputes
-  // each render by construction; the memo is for the one object identity the pill reads.
   }), [mapEvents, evVerdicts, heat, verdictScopePool]);
 
   /**
@@ -4059,10 +4094,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * saved mode is (plan §5 D-6, README Verify 6's invariance).
    */
   const tideAvailableForCues = activeMapEvent?.kind === EVENT_KIND.SOLAR && activeMapEvent?.tide != null;
-  const hasCoastalInViewForCues = coastalInView(
-    scopedVisibleLocations.map((loc) => ({ lat: loc.lat, lng: loc.lon, coastal: isCoastalTidalLocation(loc) })),
-    tideViewBounds,
-  ).length > 0;
+  const tideGatePool = useMemo(
+    () => scopedVisibleLocations.map((loc) => ({ lat: loc.lat, lng: loc.lon, coastal: isCoastalTidalLocation(loc) })),
+    [scopedVisibleLocations],
+  );
+  // The latest report, read at render. A ref read is safe here because a changed answer always arrives with
+  // a `tideBoundsVersion` bump (see `handleTideBounds`); `tideBoundsSeen` is the null-then-first-report gate.
+  const tideBoundsSeen = tideBoundsVersion > 0;
+  const tideViewBounds = tideBoundsSeen ? tideBoundsRef.current : null;
+  const hasCoastalInViewForCues = coastalInView(tideGatePool, tideViewBounds).length > 0;
   const activeWindowTier = evVerdicts.get(activeMapEvent?.id)?.tier ?? null;
   /**
    * The one gate every phone tide cue reads (map-mobile-sheet-plan.md §1 #6, §3 M5 task 2) — a
@@ -4218,7 +4258,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const tidePulseArmedRef = useRef({ armed: false, prevTideVisible: false });
   const [tidePulse, setTidePulse] = useState(false);
   useEffect(() => {
-    if (tideViewBounds == null) return; // no bounds report yet — nothing to arm or compare against
+    if (!tideBoundsSeen) return; // no bounds report yet — nothing to arm or compare against
     const state = tidePulseArmedRef.current;
     if (!state.armed) {
       // The seed render: record where things stand, but this is the baseline, never a transition.
@@ -4228,7 +4268,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     }
     if (!state.prevTideVisible && tidePeekShown) setTidePulse(true);
     state.prevTideVisible = tidePeekShown;
-  }, [tidePeekShown, tideViewBounds]);
+  }, [tidePeekShown, tideBoundsSeen]);
   /** Clears the pulse on the animation's own `animationend` (`MapPeekSheet`'s `onTidePulseEnd`) —
    * never a timer, which could race a second transition landing mid-animation. Under
    * `prefers-reduced-motion: reduce` the CSS drops the animation outright (this file's existing
@@ -4377,6 +4417,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [
     scopedVisibleLocations, selectedLoc, spotOf, locations, askPicks, askSelectedRank,
   ]);
+  // P4d: what `handleTideBounds` compares a new report against. Refreshed after every render that changed a
+  // pool or took a bounds bump, so the stored signature is always the one the screen is showing (a pool
+  // change with the viewport still must update it, or a later pan could be judged against a stale answer).
+  useEffect(() => {
+    tidePoolsRef.current = { gatePool: tideGatePool, stripPool: labelSpots };
+    tideRenderedSigRef.current = tideBoundsVersion > 0
+      ? tideViewSignature(tideBoundsRef.current, tideGatePool, labelSpots) : null;
+  }, [tideGatePool, labelSpots, tideBoundsVersion]);
   /** The pick spots that actually reached the map — what dims the rest and what the camera frames. */
   const askPickSpots = labelSpots.filter((spot) => spot.askPick);
   const askActive = askPickSpots.length > 0;
@@ -4480,7 +4528,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const hwArrivedRef = useRef(null);
   const hwAutoTopicRef = useRef(false);
   const lastHwRowRef = useRef(null);
-  const [, setHwExpiryTick] = useState(0);
   // ⚠️ The announcement is ONE-SHOT. A live region speaks what is in it whenever it is re-shown, so text
   // left in it was re-spoken on every pane re-show, foreign-modal close and retry-line drop. It is
   // cleared when the window row changes, when the pane is hidden, when the retry line takes the region,
