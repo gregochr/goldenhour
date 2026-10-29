@@ -33,7 +33,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -426,13 +426,28 @@ class MarineWaveRefreshServiceBigSeasTest {
         when(marineClient.sampleAt(response, sunrise)).thenReturn(Optional.of(new MarineWaveSample(2.2, 1.0, 40)));
         when(marineWaveRepository.findByLocation_IdInAndEvaluationDateIn(List.of(STRUCTURE_ID), List.of(DAY)))
                 .thenReturn(List.of());
-        when(marineWaveRepository.saveAll(any())).thenThrow(new IllegalStateException("db down"));
+        when(marineWaveRepository.saveAll(argThat(this::isExpectedSunriseRow)))
+                .thenThrow(new IllegalStateException("db down"));
         when(tideExtremeRepository.findHighWatersInWindow(List.of(STRUCTURE_ID), DAY_START, DAY_END))
                 .thenReturn(List.of());
 
         service.refresh(List.of(roker), List.of(DAY), JOB_RUN_ID);
 
+        verify(marineWaveRepository).saveAll(argThat(this::isExpectedSunriseRow));
         assertThat(writtenRows(STRUCTURE_ID, DAY_START, DAY_END)).isEmpty();
+    }
+
+    /** True only for exactly the one Roker sunrise row the stubbed sample produces. */
+    private boolean isExpectedSunriseRow(List<MarineWaveEntity> rows) {
+        if (rows == null || rows.size() != 1) {
+            return false;
+        }
+        MarineWaveEntity row = rows.getFirst();
+        return row.getLocation() != null && row.getLocation().getId() == STRUCTURE_ID
+                && DAY.equals(row.getEvaluationDate()) && row.getEventType() == TargetType.SUNRISE
+                && Double.valueOf(2.2).equals(row.getSignificantWaveHeightMetres())
+                && Double.valueOf(1.0).equals(row.getSwellWaveHeightMetres())
+                && Integer.valueOf(40).equals(row.getWaveDirectionDegrees());
     }
 
     @Test
