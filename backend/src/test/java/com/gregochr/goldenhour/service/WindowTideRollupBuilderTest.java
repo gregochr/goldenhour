@@ -446,7 +446,8 @@ class WindowTideRollupBuilderTest {
             assertThat(rollups.get(key(d3, TargetType.SUNRISE)).seas()).isNull();
             assertThat(rollups.get(key(d3, TargetType.SUNSET)).seas()).isNull();
             verify(marineWaveRepository, times(1))
-                    .findByLocation_IdAndEvaluationDateBetween(any(), any(), any());
+                    .findByLocation_IdAndEvaluationDateBetween(ID_WHITBY, DAY, d3);
+            // any() on purpose: "never" must hold for every argument, not one particular triple.
             verify(marineWaveRepository, never())
                     .findByLocation_IdAndEvaluationDateAndEventType(any(), any(), any());
         }
