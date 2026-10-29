@@ -1,0 +1,3 @@
+### Tests — valley mist fixtures for the 29 Oct Penrith (mist) and Keswick (clear) mornings
+
+Tests only. The owner's real Open-Meteo forecast for Stainton and Keswick on 29 Oct 2026 now sits in `src/test/resources/valley-mist/` and is read through the production parser with nothing patched. At the 08:00 sunrise slot Stainton, where shallow valley mist was photographed at 09:02-09:08, scores 5.75 POSSIBLE (a known near-miss, one band short of LIKELY); Keswick, clear at 09:22, scores 3.90 NONE under the overcast veto (mean total cloud 92 percent). A discrimination test pins that Stainton ranks above Keswick, and the inversion-only isolation test now also runs on the Stainton fixture. These are characterisation tests of current behaviour, not tuning targets.

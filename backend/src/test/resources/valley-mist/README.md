@@ -29,3 +29,39 @@ No `visibility`, `precipitation`, `weather_code`, `shortwave_radiation`, `bounda
 these, so the tests patch placeholder arrays onto the deserialised response before parsing (each patch
 is commented in `BrathayValleyMistFixture`), and then read it through the real
 `OpenMeteoResponseParser`.
+
+## open-meteo-stainton-keswick-2026-10-27_29.json
+
+Open-Meteo forecast API response (`past_days=2`, `timezone=GMT`, wind in m/s) supplied by the owner,
+unchanged. **It is a JSON array of two responses**, one per location, each with hourly data for
+2026-10-27T00:00 to 2026-10-29T23:00 (72 slots):
+
+| Index | Place | Requested | Returned elevation |
+|---|---|---|---|
+| 0 | Stainton, by Penrith | 54.6478, -2.810852 | 214 m |
+| 1 | Keswick | 54.592644, -3.1208649 | 92 m |
+
+Times are GMT = UTC on this date. Sunrise on 29 Oct 2026 was 07:05 UTC at both points, so production
+reads the 08:00 slot.
+
+Variables: `temperature_2m`, `dew_point_2m`, `relative_humidity_2m`, `wind_speed_10m` (m/s),
+`wind_direction_10m`, total `cloud_cover` and `cloud_cover_low`/`mid`/`high`, `visibility`,
+`precipitation`, `weather_code`, `shortwave_radiation`, `boundary_layer_height`,
+`temperature_975hPa`/`950hPa`/`925hPa`/`850hPa`, `geopotential_height_975hPa`/`950hPa`/`925hPa`,
+`wind_speed_975hPa`/`950hPa`/`925hPa`.
+
+### What the owner saw
+
+- **Stainton area, 09:02-09:08 GMT:** shallow valley mist from a car on the A66 west of Penrith (by
+  Ullswater Community College, Redhills, near the Rheged roundabout, just west of Stainton; times and
+  places from the iPhone photo metadata). Frost or heavy dew, puddles, broken cloud overhead, mist at
+  tree height with sky visible through it.
+- **Keswick, 09:22 GMT** (about 20 km further west): no mist ("it's clear").
+
+### What the file lacks
+
+`apparent_temperature`, `precipitation_probability`, `pressure_msl`, `surface_pressure`, `snowfall`,
+`snow_depth`, freezing level, wind gusts, and air quality. None of the parser's required fields is
+missing, so `PenrithValleyMistFixture` patches nothing; it only supplies the empty-but-non-null
+air-quality response the parser dereferences. The tests (`ValleyMistPenrithKeswickFixtureTest`) are
+characterisation tests of current behaviour on this observed morning, not tuning targets.
