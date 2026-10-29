@@ -296,6 +296,36 @@ class MarineWaveRefreshServiceBatchTest {
     }
 
     @Test
+    @DisplayName("a failing bulk marine_wave read saves nothing event-grain but every location's "
+            + "high-water refresh still runs (cleared when its fetch failed)")
+    void bulkReadFailure_highWatersStillRun() {
+        when(marineApi.getMarineBatch(lats(1, 20), lons(1, 20), HOURLY, "UTC", 7))
+                .thenThrow(new IllegalStateException("429 too many"));
+        when(marineApi.getMarineBatch(lats(21, 25), lons(21, 25), HOURLY, "UTC", 7)).thenReturn(responses(21, 25));
+        List<LocationEntity> locations = new ArrayList<>();
+        for (long id = 1; id <= COASTAL_COUNT; id++) {
+            locations.add(coastal(id, id == 1 || id == 21));
+        }
+        when(marineWaveRepository.findByLocation_IdInAndEvaluationDateIn(
+                LongStreamBoxed.range(21, 25), List.of(DATE))).thenThrow(new IllegalStateException("db down"));
+        when(tideExtremeRepository.findHighWatersInWindow(List.of(21L), FROM, TO))
+                .thenReturn(List.of(new TideHighWater(21L, NOON, new BigDecimal("5.250"))));
+        when(solarService.civilDawnUtc(lat(21), lon(21), DATE)).thenReturn(DAWN);
+        when(solarService.civilDuskUtc(lat(21), lon(21), DATE)).thenReturn(DUSK);
+
+        service.refresh(locations, List.of(DATE), JOB_RUN_ID);
+
+        verify(marineWaveRepository).findByLocation_IdInAndEvaluationDateIn(
+                LongStreamBoxed.range(21, 25), List.of(DATE));
+        verifyNoMoreInteractions(marineWaveRepository);
+        verify(highWaterWriter).replace(1L, FROM, TO, List.of());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MarineHighWaterEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(highWaterWriter).replace(eq(21L), eq(FROM), eq(TO), captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+    }
+
+    @Test
     @DisplayName("with a snapshot, high waters come from it (HIGH only) and the live window query is not used")
     void snapshot_isTheHighWaterSource() {
         LocationEntity pier = coastal(21, true);

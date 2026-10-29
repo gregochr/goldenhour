@@ -193,6 +193,16 @@ public class MarineWaveRefreshService {
      */
     private int persistEvents(List<LocationEntity> coastal, List<OpenMeteoMarineResponse> responses,
             List<LocalDate> dates, Instant now) {
+        try {
+            return persistEventsUnguarded(coastal, responses, dates, now);
+        } catch (RuntimeException e) {
+            LOG.warn("Marine event-grain persistence failed, high waters still refresh: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    private int persistEventsUnguarded(List<LocationEntity> coastal, List<OpenMeteoMarineResponse> responses,
+            List<LocalDate> dates, Instant now) {
         List<Long> fetchedIds = new ArrayList<>();
         for (int i = 0; i < coastal.size(); i++) {
             if (responses.get(i) != null) {
@@ -215,12 +225,7 @@ public class MarineWaveRefreshService {
         if (rows.isEmpty()) {
             return 0;
         }
-        try {
-            marineWaveRepository.saveAll(rows);
-        } catch (RuntimeException e) {
-            LOG.warn("Marine event-grain save failed for {} rows: {}", rows.size(), e.getMessage());
-            return 0;
-        }
+        marineWaveRepository.saveAll(rows);
         return rows.size();
     }
 
