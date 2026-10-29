@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.BrathayValleyMistFixture;
+import com.gregochr.goldenhour.PenrithValleyMistFixture;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.SeasonalWindow;
@@ -96,7 +97,11 @@ class ValleyMistIsolationTest {
 
     /** The real chain: inversion first, then mist on its output, as ForecastService does. */
     private AtmosphericData chain(LocalDateTime sunrise, Variant variant) {
-        AtmosphericData parsed = BrathayValleyMistFixture.sunriseAt(sunrise);
+        return chain(BrathayValleyMistFixture.sunriseAt(sunrise), variant);
+    }
+
+    /** The real chain on already-parsed data (any fixture). */
+    private AtmosphericData chain(AtmosphericData parsed, Variant variant) {
         AtmosphericData varied = BrathayValleyMistFixture.withUpperAir(parsed,
                 variant.temperature925(), variant.temperature850(), variant.boundaryLayerMetres());
         AtmosphericData withInversion = augmentor.augmentWithInversionScore(
@@ -133,6 +138,22 @@ class ValleyMistIsolationTest {
         AtmosphericData actual = chain(sunrise, variant);
 
         // Exact equality, not a tolerance: nothing mist reads has changed.
+        assertThat(actual.mistScore()).isEqualTo(expected.mistScore());
+        assertThat(actual.mistPotential()).isEqualTo(expected.mistPotential());
+    }
+
+    @ParameterizedTest(name = "Stainton: {0}")
+    @MethodSource("inversionOnlyVariants")
+    @DisplayName("Stainton (29 Oct, 5.75 POSSIBLE): mist is identical whatever the inversion-only inputs")
+    void stainton_mist_isIdenticalAcrossInversionOnlyInputs(Variant variant) {
+        AtmosphericData parsed = PenrithValleyMistFixture.sunrise(PenrithValleyMistFixture.STAINTON);
+        AtmosphericData expected = augmentor.augmentWithValleyMist(
+                augmentor.augmentWithInversionScore(parsed, null, false), true);
+        assertThat(expected.mistScore()).isCloseTo(5.75, within(0.01));
+        assertThat(expected.mistPotential()).isEqualTo(MistPotential.POSSIBLE);
+
+        AtmosphericData actual = chain(parsed, variant);
+
         assertThat(actual.mistScore()).isEqualTo(expected.mistScore());
         assertThat(actual.mistPotential()).isEqualTo(expected.mistPotential());
     }

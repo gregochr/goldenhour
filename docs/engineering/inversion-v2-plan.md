@@ -362,4 +362,60 @@ Switch-over (shadow → live) is an owner decision on that evidence.
     Worth as much as a positive: the score should read low.
   - Undated, date to be read off the page: Times & Star, "Lake District cloud inversion spotted, Honister
     Pass"; Chris Gouge, "Cloud inversion & Brocken spectres on Helvellyn".
+- Observed valley-mist mornings (mist guards, not inversion evidence):
+  - **17 Oct 2026, River Brathay**: Mike Ridley's photographs; the Phase 0 fixture (7.03, LIKELY).
+  - **29 Oct 2026, A66 near Penrith (Eden valley farmland), about 09:00 GMT**: the owner's own photographs
+    from a car. Shallow mist at tree height over open fields, sky visible through it; frost or heavy dew on
+    the grass; standing puddles (recent rain); broken cloud overhead, roughly half the sky, low sun
+    breaking through. Sunrise about 07:12 UTC, so production reads the 08:00 slot and 09:00 is T+1h in
+    the `MistTrend`. Not a riverside site: mist covered the valley floor. **Location and time confirmed
+    from the photos' metadata (iPhone Photos info): 09:02–09:08 GMT, WEST of Penrith along the A66** —
+    by Ullswater Community College on the edge of Penrith (09:02), Redhills by the Rheged roundabout
+    (09:06), and just west of Stainton (09:08, two photos). So the **west point** below is the one that
+    matches. The owner fetched both (Open-Meteo forecast API, `past_days=1`, 2026-10-29; pasted
+    in the session, not yet saved as a file): east 54.648, −2.687, returned elevation 133 m; west
+    54.648, −2.811, returned elevation 235 m.
+    - **Same-morning contrast: Keswick, 09:22 GMT, no mist** ("it's clear"; the owner, driving west on
+      the A66, about 20 km on). Caveat: 09:22 is 2 h 10 min after sunrise, so it cannot tell "never
+      formed" from "already burned off". **Fetched** (second fetch, same session, both points in one
+      file: `open-meteo-stainton-keswick-2026-10-27_29.json`; Keswick snapped to 54.593, −3.121,
+      returned elevation 92 m). Keswick's night was overcast: mean total cloud 96% from 21:00 to 05:00
+      and 73–100% over 05:00–08:00, against Stainton's 81% and 63%; gap 1.1 °C at best. Score:
+      clear 0 + calm 1.50 + moisture 2.40 + cooling 0 + wet 0.03 + confirmation 0 = 5.43, **capped at
+      3.90 by the overcast veto, NONE**. **So the pair discriminates, the right way round**: POSSIBLE
+      where mist was seen, NONE where it was not, for a stated reason (cloud). A genuine contrast, not
+      only burn-off timing.
+    - **Second fetch of Stainton** (same coordinates, a later model run): returned elevation 214 m
+      (235 m in the first fetch; Open-Meteo's reported elevation differs between the two responses
+      for the same point, worth knowing for Phase 1a), and the 05:00–08:00 hours moved (cloud 100, 66,
+      74, 11 instead of 73, 64, 41, 84). The score did not: 0 + 1.50 + 4.0 + 0 + 0 + 0.25 = **5.75,
+      POSSIBLE**. Sunrise 07:05 UTC at both points, so production reads the 08:00 slot. The fixture
+      uses this second fetch.
+    - **What `ValleyMistCalculator` would say (hand-computed, 08:00 slot, night side 05:00–08:00):**
+      east clear 0 (mean total cloud 67.5%) + calm 1.42 (min 2.1 m/s) + moisture 4.0 (min gap 0.3 °C)
+      + cooling 0 + wet 0 + confirmation 0.25 (6,880 m) = **5.67, POSSIBLE**; west 0 + 1.50 + 4.0 + 0 +
+      0 + 0.25 = **5.75, POSSIBLE**. Mist was seen, so this is one band short: no hot topic (LIKELY
+      only) and no map badge.
+    - **Why it fell short** (observations from ONE morning, not a case for retuning):
+      1. *The clear spell was brief and before the window.* Cloud overnight was mostly 85–100%, with a
+         clearance at 03:00–04:00 (east 59% then 6%) when the air cooled 9.3 → 7.0 °C and the gap
+         closed to 0.2 °C; by 05:00 cloud was back to 60–94%. The T−3h window starts at 05:00.
+      2. *The cooling term reads after sunrise.* The window ends at the 08:00 event slot, by which the
+         air was warming (east 8.4 → 10.1 °C), so cooling scores 0. The real cooling was 01:00–04:00.
+         (Brathay's LIKELY also rests on this term, on a tie; any change here moves Brathay.)
+      3. *Wet ground misses "rain yesterday".* The term sums 6 h before the event; the rain (east
+         ~3 mm, west ~8 mm) fell 01:00–12:00 the previous day.
+      4. *The model saw the mist before dawn.* Visibility fell to 2,600 m (east, 04:00) and 2,800 m
+         (west, 05:00), but the term reads the event slot only (6,880 m, half weight).
+    - **Inversion-relevant:** a shallow surface inversion before dawn (east 04:00: 975 hPa +2.5 °C,
+      950 +1.5, 925 +0.4 over the surface; west 05:00: 975 +2.0), gone by the 08:00 slot (975 −1.1)
+      while the mist lasted to 09:00. So **reading the profile only at the event slot can miss the
+      inversion that made the fog**; Phase 1b should consider the strongest pre-dawn reversal over the
+      night-side slots. 975 hPa sat at 415–432 m (not the standard atmosphere's ~320 m), as the review
+      predicted. Boundary layer 135–190 m overnight.
+    - **Mist follow-ups (a separate, mist-only series; not part of inversion v2, and each must hold
+      the Brathay guard):** cooling measured to the pre-dawn minimum rather than to the event slot; a
+      wet-ground window long enough for "rain then a clear night"; confirmation from the night-side
+      minimum visibility. Decide only with more than one morning; record the next misty morning the
+      same way.
 - MWIS comparison log: _pending_.
