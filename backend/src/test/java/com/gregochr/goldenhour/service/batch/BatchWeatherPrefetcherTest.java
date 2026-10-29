@@ -31,6 +31,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
@@ -51,6 +52,7 @@ class BatchWeatherPrefetcherTest {
     private SolarService solarService;
 
     private final Clock clock = Clock.fixed(Instant.parse("2026-06-21T12:00:00Z"), ZoneOffset.UTC);
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 6, 21, 12, 0);
 
     private BatchWeatherPrefetcher prefetcher;
 
@@ -239,7 +241,8 @@ class BatchWeatherPrefetcherTest {
     @DisplayName("prefetchBatchWeather returns an empty map when the fetch returns nothing")
     void prefetchBatchWeather_emptyFetch_returnsEmpty() {
         LocationEntity a = located(1L, 55.0, -1.5, 55.01, -1.51);
-        when(openMeteoService.prefetchWeatherBatchResilient(anyList())).thenReturn(Map.of());
+        when(openMeteoService.prefetchWeatherBatchResilient(
+                argThat(BatchWeatherPrefetcherTest::isSingleCoord))).thenReturn(Map.of());
 
         assertThat(prefetcher.prefetchBatchWeather(List.of(
                 new ForecastCandidate(a, LocalDate.of(2026, 6, 21), TargetType.SUNSET)))).isEmpty();
@@ -254,7 +257,8 @@ class BatchWeatherPrefetcherTest {
         List<ForecastCandidate> candidates = List.of(
                 new ForecastCandidate(a, date, TargetType.SUNSET),
                 new ForecastCandidate(b, date, TargetType.SUNSET));
-        when(openMeteoService.prefetchWeatherBatchResilient(anyList())).thenReturn(
+        when(openMeteoService.prefetchWeatherBatchResilient(
+                argThat(BatchWeatherPrefetcherTest::isSingleCoord))).thenReturn(
                 Map.of(OpenMeteoService.coordKey(55.0, -1.5), windyResult()));
         Map<String, WeatherExtractionResult> weather = prefetcher.prefetchBatchWeather(candidates);
 
@@ -268,18 +272,22 @@ class BatchWeatherPrefetcherTest {
         when(openMeteoService.computeDirectionalCloudPoints(55.004, -1.502, 250))
                 .thenReturn(new ArrayList<>(List.of(new double[]{55.2, -1.5})));
         when(openMeteoService.computeUpwindPoint(eq(55.0), eq(-1.5), eq(270), eq(5.0),
-                any(LocalDateTime.class), eq(eventTime))).thenReturn(new double[]{55.3, -1.5});
+                eq(NOW), eq(eventTime))).thenReturn(new double[]{55.3, -1.5});
         when(openMeteoService.computeUpwindPoint(eq(55.004), eq(-1.502), eq(270), eq(5.0),
-                any(LocalDateTime.class), eq(eventTime))).thenReturn(new double[]{55.4, -1.5});
-        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), isNull()))
+                eq(NOW), eq(eventTime))).thenReturn(new double[]{55.4, -1.5});
+        when(openMeteoService.prefetchCloudBatch(argThat(l -> l.size() == 4), eq(List.of()), isNull()))
                 .thenReturn(new CloudPointCache(Map.of()));
 
         prefetcher.prefetchBatchCloudPoints(candidates, weather);
 
         verify(openMeteoService).computeUpwindPoint(eq(55.0), eq(-1.5), eq(270), eq(5.0),
-                any(LocalDateTime.class), eq(eventTime));
+                eq(NOW), eq(eventTime));
         verify(openMeteoService).computeUpwindPoint(eq(55.004), eq(-1.502), eq(270), eq(5.0),
-                any(LocalDateTime.class), eq(eventTime));
+                eq(NOW), eq(eventTime));
+    }
+
+    private static boolean isSingleCoord(List<double[]> coords) {
+        return coords.size() == 1 && coords.get(0)[0] == 55.0 && coords.get(0)[1] == -1.5;
     }
 
     private static List<double[]> fivePoints(double latBase) {

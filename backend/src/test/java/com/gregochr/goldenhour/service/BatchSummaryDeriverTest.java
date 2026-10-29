@@ -15,7 +15,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -23,9 +22,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -85,7 +85,7 @@ class BatchSummaryDeriverTest {
                         TargetType.SUNRISE, EvaluationModel.HAIKU),
                 call("fc-11-2026-05-19-SUNRISE", RUN_DATE.plusDays(1),
                         TargetType.SUNRISE, EvaluationModel.HAIKU)));
-        when(locationRepository.findAllById(ArgumentMatchers.anyIterable()))
+        when(locationRepository.findAllById(List.of(10L, 11L)))
                 .thenReturn(List.of(location(10L, region(1L)), location(11L, region(1L))));
 
         BatchSummary summary = deriver.derive(run).orElseThrow();
@@ -105,7 +105,7 @@ class BatchSummaryDeriverTest {
         when(apiCallLogRepository.findBatchSummaryCallsByJobRunId(1L)).thenReturn(List.of(
                 call("fc-10-2026-05-19-SUNRISE", RUN_DATE.plusDays(1),
                         TargetType.SUNRISE, EvaluationModel.HAIKU)));
-        when(locationRepository.findAllById(any())).thenReturn(List.of(location(10L, region(1L))));
+        when(locationRepository.findAllById(List.of(10L))).thenReturn(List.of(location(10L, region(1L))));
 
         deriver.derive(run);
 
@@ -129,7 +129,7 @@ class BatchSummaryDeriverTest {
                         TargetType.SUNRISE, EvaluationModel.HAIKU),
                 call("fc-10-2026-06-23-SUNRISE", ukToday.plusDays(3),
                         TargetType.SUNRISE, EvaluationModel.HAIKU)));
-        when(locationRepository.findAllById(any())).thenReturn(List.of(location(10L, region(1L))));
+        when(locationRepository.findAllById(List.of(10L))).thenReturn(List.of(location(10L, region(1L))));
 
         BatchSummary summary = deriver.derive(run).orElseThrow();
 
@@ -151,7 +151,7 @@ class BatchSummaryDeriverTest {
                         TargetType.SUNRISE, EvaluationModel.HAIKU),
                 call("fc-10-2026-01-23-SUNRISE", today.plusDays(3),
                         TargetType.SUNRISE, EvaluationModel.HAIKU)));
-        when(locationRepository.findAllById(any())).thenReturn(List.of(location(10L, region(1L))));
+        when(locationRepository.findAllById(List.of(10L))).thenReturn(List.of(location(10L, region(1L))));
 
         assertThat(deriver.derive(run).orElseThrow().horizonRange()).isEqualTo("T to T+3");
     }
@@ -167,7 +167,7 @@ class BatchSummaryDeriverTest {
                         TargetType.SUNSET, EvaluationModel.SONNET),
                 call("fc-10-2026-05-20-SUNSET", RUN_DATE.plusDays(2),
                         TargetType.SUNSET, EvaluationModel.SONNET)));
-        when(locationRepository.findAllById(any())).thenReturn(List.of(location(10L, region(1L))));
+        when(locationRepository.findAllById(List.of(10L))).thenReturn(List.of(location(10L, region(1L))));
 
         BatchSummary summary = deriver.derive(run).orElseThrow();
 
@@ -183,7 +183,7 @@ class BatchSummaryDeriverTest {
                         TargetType.SUNRISE, EvaluationModel.HAIKU),
                 call("fc-10-2026-05-19-SUNSET", RUN_DATE.plusDays(1),
                         TargetType.SUNSET, EvaluationModel.HAIKU)));
-        when(locationRepository.findAllById(any())).thenReturn(List.of(location(10L, region(1L))));
+        when(locationRepository.findAllById(List.of(10L))).thenReturn(List.of(location(10L, region(1L))));
 
         BatchSummary summary = deriver.derive(run).orElseThrow();
 
@@ -197,7 +197,7 @@ class BatchSummaryDeriverTest {
         when(apiCallLogRepository.findBatchSummaryCallsByJobRunId(1L)).thenReturn(List.of(
                 call("fc-10-2026-05-19-SUNRISE", RUN_DATE.plusDays(1),
                         TargetType.SUNRISE, EvaluationModel.SONNET_ET)));
-        when(locationRepository.findAllById(any())).thenReturn(List.of(location(10L, region(1L))));
+        when(locationRepository.findAllById(List.of(10L))).thenReturn(List.of(location(10L, region(1L))));
 
         BatchSummary summary = deriver.derive(run).orElseThrow();
 
@@ -216,7 +216,7 @@ class BatchSummaryDeriverTest {
                         TargetType.SUNRISE, EvaluationModel.HAIKU),
                 call("fc-30-2026-05-19-SUNRISE", RUN_DATE.plusDays(1),
                         TargetType.SUNRISE, EvaluationModel.HAIKU)));
-        when(locationRepository.findAllById(any())).thenReturn(List.of(
+        when(locationRepository.findAllById(idsOf(10L, 20L, 30L))).thenReturn(List.of(
                 location(10L, region(1L)),
                 location(20L, region(2L)),
                 location(30L, region(2L))));
@@ -236,7 +236,7 @@ class BatchSummaryDeriverTest {
                         TargetType.SUNRISE, EvaluationModel.HAIKU),
                 call("fc-20-2026-05-19-SUNRISE", RUN_DATE.plusDays(1),
                         TargetType.SUNRISE, EvaluationModel.HAIKU)));
-        when(locationRepository.findAllById(any())).thenReturn(List.of(
+        when(locationRepository.findAllById(idsOf(10L, 20L))).thenReturn(List.of(
                 location(10L, region(1L)),
                 location(20L, null)));
 
@@ -256,7 +256,7 @@ class BatchSummaryDeriverTest {
                 TargetType.SUNRISE, EvaluationModel.HAIKU);
         when(apiCallLogRepository.findBatchSummaryCallsByJobRunId(1L))
                 .thenReturn(List.of(good, broken));
-        when(locationRepository.findAllById(any())).thenReturn(List.of(location(10L, region(1L))));
+        when(locationRepository.findAllById(List.of(10L))).thenReturn(List.of(location(10L, region(1L))));
 
         BatchSummary summary = deriver.derive(run).orElseThrow();
 
@@ -283,6 +283,13 @@ class BatchSummaryDeriverTest {
                 .runType(runType)
                 .startedAt(RUN_START)
                 .build();
+    }
+
+    /** Matches the id collection by content: the deriver builds it from a HashSet, so order is not fixed. */
+    private static Iterable<Long> idsOf(Long... ids) {
+        return argThat(actual -> actual != null
+                && Set.copyOf(java.util.stream.StreamSupport.stream(actual.spliterator(), false).toList())
+                        .equals(Set.of(ids)));
     }
 
     private static BatchSummaryCall call(String customId, LocalDate targetDate,
