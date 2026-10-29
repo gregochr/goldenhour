@@ -26,7 +26,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -403,6 +405,25 @@ public class TideService {
         return Optional.of(new DualWindowTideData(
                 buildTideData(extremes, eventTime, tightWindowMinutes),
                 buildTideData(extremes, eventTime, widenedWindowMinutes)));
+    }
+
+    /**
+     * Loads one {@link TideExtremeSnapshot} for the given coastal locations over the window that
+     * covers every read around a solar event on any of the given dates, with a single query (none
+     * for no ids or no dates). The public entry for callers outside this package, such as the
+     * batch collector, since {@code TideExtremeSnapshot.load} is package-private.
+     *
+     * @param locationIds the coastal location primary keys to cover (nulls are ignored)
+     * @param dates       the dates the caller will read, in any order
+     * @return the snapshot, covering no locations when either argument is empty
+     */
+    public TideExtremeSnapshot snapshotFor(Collection<Long> locationIds, Collection<LocalDate> dates) {
+        List<Long> ids = dates.isEmpty() ? List.of()
+                : locationIds.stream().filter(Objects::nonNull).toList();
+        TideExtremeSnapshot.Window window = dates.isEmpty()
+                ? new TideExtremeSnapshot.Window(LocalDateTime.MIN, LocalDateTime.MIN)
+                : TideExtremeSnapshot.windowFor(dates.stream().sorted().toList());
+        return TideExtremeSnapshot.load(tideExtremeRepository, ids, window);
     }
 
     /**
