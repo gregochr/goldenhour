@@ -48,6 +48,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
@@ -126,8 +128,22 @@ public class BriefingService {
      */
     static final int SERVED_MEMO_SECONDS = 30;
 
-    /** The memoised served result and what it was built from; guarded by {@code this}. */
-    private ServedMemo servedMemo;
+    /** Guards {@link #servedMemo} writes and {@link #inFlight}; held only for short, non-I/O sections. */
+    private final Object flightLock = new Object();
+
+    /** The memoised served result and what it was built from. */
+    private volatile ServedMemo servedMemo;
+
+    /** The build a miss is running right now, so concurrent callers for the same key join it. */
+    private InFlight inFlight;
+
+    /** A running served-briefing build and the key it is for. */
+    private record InFlight(DailyBriefingResponse source, LocalDate date, long epoch,
+            CompletableFuture<DailyBriefingResponse> future) {
+        boolean matches(DailyBriefingResponse otherSource, LocalDate otherDate, long otherEpoch) {
+            return source == otherSource && date.equals(otherDate) && epoch == otherEpoch;
+        }
+    }
 
     /**
      * One memoised served briefing, with the key it is valid for.
@@ -140,6 +156,9 @@ public class BriefingService {
      */
     private record ServedMemo(DailyBriefingResponse source, LocalDate date, long epoch, Instant builtAt,
             DailyBriefingResponse result) {
+        boolean matches(DailyBriefingResponse otherSource, LocalDate otherDate, long otherEpoch) {
+            return source == otherSource && date.equals(otherDate) && epoch == otherEpoch;
+        }
     }
 
     /**
@@ -412,31 +431,74 @@ public class BriefingService {
      * of the cached briefing, the UK civil date and the {@link ServedBriefingEpoch}, which every
      * known writer bumps after commit (simulation toggles, aurora state, rating and retraction
      * writes, travel days, the location and region rosters). The epoch is read BEFORE assembling and
-     * stored with the result, so a result built across a write is rebuilt on the next call. Under
-     * Rewind the memo is bypassed. Role shaping and the Lite pick shaper happen in the controller,
+     * stored with the result, so a result built across a write is rebuilt on the next call. Concurrent
+     * misses for the same (cache, date, epoch) key share one build (single-flight); a caller for a
+     * newer epoch starts its own, and a result is stored only if no newer one is. Under
+     * Rewind the memo and the lock are bypassed. Role shaping and the Lite pick shaper happen in the controller,
      * downstream of this memo, per request; this method takes no user.
      *
      * @return the cached briefing with honesty filter applied, or {@code null}
      *         if no briefing has been built yet
      */
-    public synchronized DailyBriefingResponse getCachedBriefingForApi() {
+    public DailyBriefingResponse getCachedBriefingForApi() {
         if (Rewind.isActive()) {
+            // Never reads, writes or waits on the memo or an in-flight build.
             return assembleForApi();
         }
         Instant now = clock.instant();
         LocalDate today = ForecastHorizon.today(clock);
-        DailyBriefingResponse source = cache.get();
-        ServedMemo memo = servedMemo;
-        if (memo != null && memo.source() == source && memo.date().equals(today)
-                && memo.epoch() == servedEpoch.current() && isMemoFresh(Duration.between(memo.builtAt(), now))) {
-            return memo.result();
-        }
         // Read the epoch BEFORE assembling: a write that lands during assembly leaves the stored
         // epoch behind the live one, so the next call rebuilds.
         long epochBefore = servedEpoch.current();
-        DailyBriefingResponse result = assembleForApi();
-        servedMemo = new ServedMemo(source, today, epochBefore, now, result);
-        return result;
+        DailyBriefingResponse source = cache.get();
+        ServedMemo memo = servedMemo;
+        if (memo != null && memo.matches(source, today, epochBefore)
+                && isMemoFresh(Duration.between(memo.builtAt(), now))) {
+            return memo.result();
+        }
+        InFlight mine = null;
+        InFlight flight;
+        synchronized (flightLock) {
+            flight = inFlight;
+            if (flight == null || !flight.matches(source, today, epochBefore)) {
+                // A caller for a newer epoch starts its own build; it is not queued behind an older one.
+                mine = new InFlight(source, today, epochBefore, new CompletableFuture<>());
+                inFlight = mine;
+                flight = mine;
+            }
+        }
+        if (mine == null) {
+            // Single-flight: join the build already running for this very key.
+            try {
+                return flight.future().join();
+            } catch (CompletionException e) {
+                if (e.getCause() instanceof RuntimeException re) {
+                    throw re;
+                }
+                throw e;
+            }
+        }
+        try {
+            DailyBriefingResponse result = assembleForApi();
+            synchronized (flightLock) {
+                // Stored only if no newer result is already stored.
+                ServedMemo stored = servedMemo;
+                if (stored == null || stored.epoch() <= epochBefore) {
+                    servedMemo = new ServedMemo(source, today, epochBefore, now, result);
+                }
+            }
+            mine.future().complete(result);
+            return result;
+        } catch (RuntimeException | Error e) {
+            mine.future().completeExceptionally(e);
+            throw e;
+        } finally {
+            synchronized (flightLock) {
+                if (inFlight == mine) {
+                    inFlight = null;
+                }
+            }
+        }
     }
 
     /** Whether a memo of this age may be reused: not negative, and under the memo window. */

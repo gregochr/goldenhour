@@ -274,6 +274,8 @@ class BriefingServiceTest {
         return new SurgeCurveService(new StormSurgeService());
     }
 
+    private final ServedBriefingEpoch loaderEpoch = org.mockito.Mockito.mock(ServedBriefingEpoch.class);
+
     /**
      * A REAL {@link BriefingWeatherLoader} over the mocked {@code openMeteoClient},
      * {@code locationRepository} and {@code jobRunService} — not a mock of the loader.
@@ -286,7 +288,8 @@ class BriefingServiceTest {
      * @return a fresh loader wired over the mocked collaborators
      */
     private BriefingWeatherLoader weatherLoader() {
-        return new BriefingWeatherLoader(openMeteoClient, locationRepository, jobRunService, new ServedBriefingEpoch());
+        return new BriefingWeatherLoader(openMeteoClient, locationRepository, jobRunService,
+                loaderEpoch);
     }
 
     /** NLC clarity service wired with a real transect sampler over the mocked Open-Meteo client. */
@@ -1148,6 +1151,7 @@ class BriefingServiceTest {
             assertThat(loc.getGridLng()).isEqualTo(-1.5);
             // Scoped to the grid cell: a detached snapshot must not rewrite any other column.
             org.mockito.Mockito.verify(locationRepository).updateGridCell(1L, 55.1, -1.5);
+            org.mockito.Mockito.verify(loaderEpoch, org.mockito.Mockito.atLeastOnce()).bump();
             org.mockito.Mockito.verify(locationRepository, org.mockito.Mockito.never())
                     .saveAll(any());
         }

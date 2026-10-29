@@ -518,13 +518,30 @@ class AskSnapshotBuilderTest {
         Optional<AskSnapshot> second = builder.current();
 
         assertThat(second.orElseThrow()).isSameAs(first.orElseThrow());
-        verify(briefingService, times(1)).getCachedBriefingForApi();
+        // one peek per call (the served briefing is itself memoised), one build
+        verify(briefingService, times(2)).getCachedBriefingForApi();
 
         clock.set(NOW.toInstant(ZoneOffset.UTC).plusSeconds(30));
         Optional<AskSnapshot> third = builder.current();
 
         assertThat(third.orElseThrow()).isNotSameAs(first.orElseThrow());
-        verify(briefingService, times(2)).getCachedBriefingForApi();
+        verify(briefingService, times(3)).getCachedBriefingForApi();
+    }
+
+    @Test
+    @DisplayName("a new served briefing (a serve-epoch bump) leads to a new Ask snapshot on the next call, "
+            + "inside the 30 s TTL")
+    void current_servedBriefingChange_rebuildsInsideTheTtl() {
+        when(freshness.now()).thenReturn(NOW);
+        stubAlmanac(List.of());
+        when(briefingService.getCachedBriefingForApi())
+                .thenReturn(AskFixtures.briefing(List.of(), List.of()))
+                .thenReturn(AskFixtures.briefing(List.of(), List.of()));
+
+        AskSnapshot first = builder.current().orElseThrow();
+        AskSnapshot second = builder.current().orElseThrow();
+
+        assertThat(second).isNotSameAs(first);
     }
 
     @Test
@@ -540,7 +557,7 @@ class AskSnapshotBuilderTest {
 
         assertThat(second.orElseThrow()).isNotSameAs(first.orElseThrow());
         assertThat(third.orElseThrow()).isSameAs(second.orElseThrow());
-        verify(briefingService, times(2)).getCachedBriefingForApi();
+        verify(briefingService, times(3)).getCachedBriefingForApi();
     }
 
     // -- an admin's rewind -------------------------------------------------------------------
@@ -577,7 +594,7 @@ class AskSnapshotBuilderTest {
         assertThat(first.orElseThrow().today()).isEqualTo(TODAY.minusDays(2));
         assertThat(second.orElseThrow()).isNotSameAs(first.orElseThrow());
         assertThat(after.orElseThrow()).isSameAs(live.orElseThrow());
-        verify(briefingService, times(3)).getCachedBriefingForApi();
+        verify(briefingService, times(4)).getCachedBriefingForApi();
     }
 
     @Test

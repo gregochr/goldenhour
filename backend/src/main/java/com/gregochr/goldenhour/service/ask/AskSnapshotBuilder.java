@@ -83,7 +83,11 @@ import java.util.Set;
  * fail-soft: a failure there leaves a snapshot with no nights, never none at all.
  *
  * <p>{@link #current()} memoises the snapshot for {@value #MEMO_SECONDS} seconds: the assembly it
- * reads is the full Plan-tab one and is not cheap.
+ * reads is the full Plan-tab one and is not cheap. The memo is also keyed on the identity of the served
+ * briefing it was built from ({@code BriefingService.getCachedBriefingForApi}, itself memoised and
+ * invalidated by the serve epoch), so a rating write or a simulation toggle reaches Ask as soon as the
+ * served briefing changes, not up to {@value #MEMO_SECONDS} seconds later. The TTL stays because the
+ * snapshot also reads travel days, the almanac, the night forecasts and the aurora state.
  */
 @Service
 public class AskSnapshotBuilder {
@@ -111,6 +115,7 @@ public class AskSnapshotBuilder {
 
     private Instant memoBuiltAt;
     private AskSnapshot memo;
+    private DailyBriefingResponse memoSource;
 
     /**
      * Creates the builder.
@@ -188,13 +193,20 @@ public class AskSnapshotBuilder {
             return build();
         }
         Instant now = clock.instant();
-        if (memo != null && isFresh(Duration.between(memoBuiltAt, now))) {
+        // Cheap on a served-briefing memo hit; a different object means the served briefing changed
+        // (a new build, or a serve-epoch bump), so the Ask snapshot built from the old one is stale.
+        DailyBriefingResponse briefing = briefingService.getCachedBriefingForApi();
+        if (briefing == null) {
+            return Optional.empty();
+        }
+        if (memo != null && memoSource == briefing && isFresh(Duration.between(memoBuiltAt, now))) {
             return Optional.of(memo);
         }
-        Optional<AskSnapshot> built = build();
+        Optional<AskSnapshot> built = build(briefing);
         built.ifPresent(snapshot -> {
             memo = snapshot;
             memoBuiltAt = now;
+            memoSource = briefing;
         });
         return built;
     }
@@ -214,6 +226,10 @@ public class AskSnapshotBuilder {
         if (briefing == null) {
             return Optional.empty();
         }
+        return build(briefing);
+    }
+
+    private Optional<AskSnapshot> build(DailyBriefingResponse briefing) {
         LocalDateTime now = freshness.now();
         Set<AskWindowKey> rendered = renderedKeys(briefing);
         Map<LocalDate, Boolean> travel = new HashMap<>();

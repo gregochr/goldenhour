@@ -24,6 +24,11 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -219,7 +224,7 @@ class BriefingServiceServedMemoTest {
     void memoIsPreShaping_sameObjectForEveryCaller() {
         // The controller shapes (BriefingRoleShaper, LitePickShaper) per request on whatever this
         // returns. Two callers within 30 s get the SAME unshaped object, so no shaping happened
-        // upstream of the memo; BriefingControllerMemoShapingTest drives the per-role output.
+        // upstream of the memo; roleShapingStaysPerRequest below drives the per-role output.
         DailyBriefingResponse forLite = service.getCachedBriefingForApi();
         DailyBriefingResponse forPro = service.getCachedBriefingForApi();
 
@@ -261,6 +266,106 @@ class BriefingServiceServedMemoTest {
     private static org.springframework.security.core.Authentication auth(String role) {
         return new org.springframework.security.authentication.TestingAuthenticationToken(
                 "user", "pw", role);
+    }
+
+    @Test
+    @DisplayName("two concurrent misses for the same epoch share one assembly (single-flight)")
+    void concurrentMissesSameEpoch_assembleOnce() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        when(assembler.assembleForPlan(any(), anyDouble())).thenAnswer(inv -> {
+            calls.incrementAndGet();
+            entered.countDown();
+            release.await(10, TimeUnit.SECONDS);
+            return briefing("shared");
+        });
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<DailyBriefingResponse> first = pool.submit(() -> service.getCachedBriefingForApi());
+            assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<DailyBriefingResponse> second = pool.submit(() -> service.getCachedBriefingForApi());
+            Thread.sleep(200);
+            release.countDown();
+
+            assertThat(second.get(10, TimeUnit.SECONDS)).isSameAs(first.get(10, TimeUnit.SECONDS));
+            assertThat(calls).hasValue(1);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("a caller for a newer epoch is not blocked behind an older build, and the older result "
+            + "never replaces the newer one")
+    void newerEpochNotBlockedByOlderBuild() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        when(assembler.assembleForPlan(any(), anyDouble())).thenAnswer(inv -> {
+            int n = calls.incrementAndGet();
+            if (n == 1) {
+                entered.countDown();
+                release.await(10, TimeUnit.SECONDS);
+            }
+            return briefing("assembly-" + n);
+        });
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<DailyBriefingResponse> older = pool.submit(() -> service.getCachedBriefingForApi());
+            assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
+            epoch.bump();
+
+            DailyBriefingResponse newer = service.getCachedBriefingForApi();
+
+            assertThat(newer.headline()).isEqualTo("assembly-2");
+            release.countDown();
+            older.get(10, TimeUnit.SECONDS);
+            // The older build finished last but must not have replaced the newer memo: this is a hit.
+            assertThat(service.getCachedBriefingForApi()).isSameAs(newer);
+            assertThat(calls).hasValue(2);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("a Rewind call never touches the memo or waits on a running build")
+    void rewindNeverTouchesMemoOrLock() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        when(assembler.assembleForPlan(any(), anyDouble())).thenAnswer(inv -> {
+            int n = calls.incrementAndGet();
+            if (n == 1) {
+                entered.countDown();
+                release.await(10, TimeUnit.SECONDS);
+            }
+            return briefing("assembly-" + n);
+        });
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<DailyBriefingResponse> live = pool.submit(() -> service.getCachedBriefingForApi());
+            assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
+
+            Rewind.set(T0.minus(Duration.ofDays(1)));
+            DailyBriefingResponse rewound;
+            try {
+                rewound = service.getCachedBriefingForApi();
+            } finally {
+                Rewind.clear();
+            }
+
+            assertThat(rewound.headline()).isEqualTo("assembly-2");
+            assertThat(ReflectionTestUtils.getField(service, "servedMemo")).isNull();
+            release.countDown();
+            live.get(10, TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
     }
 
     private void setCache(DailyBriefingResponse response) {

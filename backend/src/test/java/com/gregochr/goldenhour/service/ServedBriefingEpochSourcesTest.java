@@ -19,6 +19,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -89,6 +91,20 @@ class ServedBriefingEpochSourcesTest {
         long before = epoch.current();
         cache.evaluate(AlertLevel.MODERATE);
         assertThat(epoch.current()).isGreaterThan(before);
+    }
+
+    @Test
+    @DisplayName("AuroraStateCache: updateScores, updateTrigger and updateLocationCounts each call bump()")
+    void auroraScoreTriggerAndCountWrites_bump() {
+        ServedBriefingEpoch mocked = mock(ServedBriefingEpoch.class);
+        AuroraStateCache cache = new AuroraStateCache(mocked);
+
+        cache.updateScores(List.of());
+        verify(mocked, times(1)).bump();
+        cache.updateTrigger(com.gregochr.goldenhour.service.aurora.TriggerType.REALTIME, 6.0);
+        verify(mocked, times(2)).bump();
+        cache.updateLocationCounts(5, 3);
+        verify(mocked, times(3)).bump();
     }
 
     @Test
