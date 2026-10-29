@@ -51,3 +51,5 @@ agrees with the Java civil-date comparison across a BST midnight. The pick limit
 
 **Not in S2.** The registration step (after `HOME`, skipped when `status` is `NOT_APPLICABLE` or `enforced` is
 false) and the Settings picker are S4; response shaping by the picks is S3.
+
+**Health status (frontend)**: `HealthStatusProvider` (`context/HealthStatusContext.jsx`, inside `RewindGate`) owns `useHealthStatus` and the deferred (after-first-paint) `/api/status/stream`, and publishes two contexts: the full value (`checkedAt` included) read only by `HealthStatusPill` (the admin pill), and a bare `isDown` boolean (`useHealthIsDown`) that `AppInner` reads for the down banner and `contentDisabled`. A context consumer re-renders only when its value changes by identity, so the 30 s tick that changes only `checkedAt` re-renders the pill and never `App`. The hook keeps `checkedAt` in its own state and replaces the compared health object only when a field other than `checkedAt` differs (`sameHealth`). Recovery on tab wake, the expired-token session probe (#1312) and the 12 s DOWN grace are unchanged. Pinned by `AppHealthRender.test.jsx` (performance-review-2026-10-plan.md P3c).
