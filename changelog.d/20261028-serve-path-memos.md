@@ -1,0 +1,3 @@
+### Performance — one marine read per rollup, aurora status from cache, memoised drive-time matrix
+
+The window tide rollup (`WindowTideRollupBuilder.seas()`) now reads the representative location's sea-state rows for the whole date range in one query instead of one query per window. `GET /api/aurora/status` serves Kp, OVATION and solar wind from cache and refreshes a stale feed once, in the background, instead of calling NOAA on the request thread (a cold cache still waits for the single fetch; the aurora state machine's own fetches are unchanged and synchronous). `GET /api/regions/drive-times` keeps its matrix in memory and clears it after the commit of any write to a region's drive times.

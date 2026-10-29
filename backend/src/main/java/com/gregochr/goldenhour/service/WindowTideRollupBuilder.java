@@ -194,6 +194,10 @@ public class WindowTideRollupBuilder {
         BigDecimal avgRange = tideService.getTideStats(representative.getId())
                 .map(TideStats::avgRangeMetres).orElse(null);
 
+        // One marine_wave read for the whole date range (was one per window).
+        Map<PlanWindowProjector.WindowKey, MarineWaveEntity> waves =
+                loadWaves(representative.getId(), dates);
+
         Map<PlanWindowProjector.WindowKey, BriefingWindowTide> rollups = new HashMap<>();
         for (BriefingDay day : days) {
             if (day.date() == null) {
@@ -201,7 +205,8 @@ public class WindowTideRollupBuilder {
             }
             for (BriefingEventSummary summary : day.eventSummaries()) {
                 BriefingWindowTide rollup =
-                        rollup(representative, extremes, avgRange, day.date(), summary.targetType());
+                        rollup(representative, extremes, avgRange, waves, day.date(),
+                                summary.targetType());
                 if (rollup != null) {
                     rollups.put(new PlanWindowProjector.WindowKey(day.date(), summary.targetType()),
                             rollup);
@@ -268,7 +273,8 @@ public class WindowTideRollupBuilder {
      * the offset would measure one coastline's water against another's light.
      */
     private BriefingWindowTide rollup(LocationEntity location, List<TideExtremeEntity> extremes,
-            BigDecimal avgRange, LocalDate date, TargetType targetType) {
+            BigDecimal avgRange, Map<PlanWindowProjector.WindowKey, MarineWaveEntity> waves,
+            LocalDate date, TargetType targetType) {
         OptionalDouble range = rangeOn(extremes, date);
         if (range.isEmpty()) {
             return null;
@@ -310,7 +316,7 @@ public class WindowTideRollupBuilder {
                 TideWording.offsetPhrase(nearestOffsetMinutes, sunrise ? "sunrise" : "sunset"),
                 TideWording.metres(range.getAsDouble()),
                 rangeAnomaly(meanRangeOn(extremes, date), avgRange),
-                seas(location.getId(), date, targetType),
+                seas(waves, date, targetType),
                 shape.curve(),
                 TideCurveCalculator.positionOf(eventMinutes),
                 shape.levelOf(heightAtEvent),
@@ -392,12 +398,29 @@ public class WindowTideRollupBuilder {
      * state a sea the reader will not be standing in. Null is the correct answer past T+4, where
      * {@code marine_wave} stops.
      */
-    private String seas(Long locationId, LocalDate date, TargetType targetType) {
-        return marineWaveRepository
-                .findByLocation_IdAndEvaluationDateAndEventType(locationId, date, targetType)
-                .map(MarineWaveEntity::getSignificantWaveHeightMetres)
-                .map(hs -> TideWording.metres(hs) + " · " + SeaState.fromHs(hs).label())
-                .orElse(null);
+    private static String seas(Map<PlanWindowProjector.WindowKey, MarineWaveEntity> waves,
+            LocalDate date, TargetType targetType) {
+        MarineWaveEntity wave = waves.get(new PlanWindowProjector.WindowKey(date, targetType));
+        if (wave == null || wave.getSignificantWaveHeightMetres() == null) {
+            return null;
+        }
+        double hs = wave.getSignificantWaveHeightMetres();
+        return TideWording.metres(hs) + " · " + SeaState.fromHs(hs).label();
+    }
+
+    /**
+     * Loads the representative's sea-state samples for the whole briefing range in one query,
+     * keyed by window.
+     */
+    private Map<PlanWindowProjector.WindowKey, MarineWaveEntity> loadWaves(Long locationId,
+            List<LocalDate> dates) {
+        Map<PlanWindowProjector.WindowKey, MarineWaveEntity> byWindow = new HashMap<>();
+        for (MarineWaveEntity wave : marineWaveRepository.findByLocation_IdAndEvaluationDateBetween(
+                locationId, dates.get(0), dates.get(dates.size() - 1))) {
+            byWindow.put(new PlanWindowProjector.WindowKey(wave.getEvaluationDate(),
+                    wave.getEventType()), wave);
+        }
+        return byWindow;
     }
 
     /**

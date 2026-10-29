@@ -9,9 +9,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -30,9 +35,12 @@ class RegionDriveTimeWriterTest {
 
     private RegionDriveTimeWriter writer;
 
+    private RegionDriveMatrixMemo memo;
+
     @BeforeEach
     void setUp() {
-        writer = new RegionDriveTimeWriter(repository);
+        memo = new RegionDriveMatrixMemo();
+        writer = new RegionDriveTimeWriter(repository, memo);
     }
 
     @Test
@@ -63,5 +71,71 @@ class RegionDriveTimeWriterTest {
 
         verify(repository).deleteAllByRegionId(REGION_ID);
         verify(repository, never()).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("replaceForRegion clears the memoised matrix (no transaction: at once)")
+    void replaceForRegion_clearsMemo() {
+        AtomicInteger loads = new AtomicInteger();
+        memo.getOrLoad(() -> Map.of(7L, Map.of(11L, loads.incrementAndGet())));
+
+        writer.replaceForRegion(REGION_ID, List.of());
+
+        memo.getOrLoad(() -> Map.of(7L, Map.of(11L, loads.incrementAndGet())));
+        assertThat(loads).hasValue(2);
+    }
+
+    @Test
+    @DisplayName("clearForRegion clears the memoised matrix (no transaction: at once)")
+    void clearForRegion_clearsMemo() {
+        AtomicInteger loads = new AtomicInteger();
+        memo.getOrLoad(() -> Map.of(7L, Map.of(11L, loads.incrementAndGet())));
+
+        writer.clearForRegion(REGION_ID);
+
+        memo.getOrLoad(() -> Map.of(7L, Map.of(11L, loads.incrementAndGet())));
+        assertThat(loads).hasValue(2);
+    }
+
+    @Test
+    @DisplayName("inside a transaction the memo is cleared after commit, not before, and not on rollback")
+    void clearsAfterCommitOnly() {
+        AtomicInteger loads = new AtomicInteger();
+        memo.getOrLoad(() -> Map.of(7L, Map.of(11L, loads.incrementAndGet())));
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            writer.clearForRegion(REGION_ID);
+
+            // Still inside the transaction: the memo must keep serving.
+            memo.getOrLoad(() -> Map.of(7L, Map.of(11L, loads.incrementAndGet())));
+            assertThat(loads).as("not cleared inside the transaction").hasValue(1);
+
+            // Rollback: afterCommit never runs.
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+            memo.getOrLoad(() -> Map.of(7L, Map.of(11L, loads.incrementAndGet())));
+            assertThat(loads).as("a rolled-back write does not clear").hasValue(1);
+
+            // Commit.
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        memo.getOrLoad(() -> Map.of(7L, Map.of(11L, loads.incrementAndGet())));
+        assertThat(loads).as("cleared once the transaction commits").hasValue(2);
+    }
+
+    @Test
+    @DisplayName("a load that began before an invalidation never stores its stale result")
+    void staleLoadIsNotStored() {
+        AtomicInteger loads = new AtomicInteger();
+        memo.getOrLoad(() -> {
+            writer.clearForRegion(REGION_ID); // a commit lands while this reader is loading
+            return Map.of(7L, Map.of(11L, loads.incrementAndGet()));
+        });
+
+        memo.getOrLoad(() -> Map.of(7L, Map.of(11L, loads.incrementAndGet())));
+        assertThat(loads).as("the in-flight result was not stored").hasValue(2);
     }
 }

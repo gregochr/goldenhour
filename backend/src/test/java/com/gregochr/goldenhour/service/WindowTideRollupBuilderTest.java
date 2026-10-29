@@ -36,6 +36,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -362,8 +364,8 @@ class WindowTideRollupBuilderTest {
             stubState(TideState.MID);
             stubCoastal(whitby());
             stubExtremes(whitbyDay(DAY));
-            when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
-                    ID_WHITBY, DAY, TargetType.SUNSET)).thenReturn(Optional.of(wave(0.3)));
+            when(marineWaveRepository.findByLocation_IdAndEvaluationDateBetween(
+                    ID_WHITBY, DAY, DAY)).thenReturn(List.of(wave(0.3, DAY, TargetType.SUNSET)));
 
             assertThat(rollup(DAY, TargetType.SUNSET).seas()).isEqualTo("0.3 m · smooth");
         }
@@ -398,16 +400,56 @@ class WindowTideRollupBuilderTest {
             stubState(TideState.MID);
             stubCoastal(whitby());
             stubExtremes(whitbyDay(DAY));
-            when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
-                    ID_WHITBY, DAY, TargetType.SUNSET)).thenReturn(Optional.of(wave(2.7)));
-            when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
-                    ID_WHITBY, DAY, TargetType.SUNRISE)).thenReturn(Optional.empty());
+            when(marineWaveRepository.findByLocation_IdAndEvaluationDateBetween(
+                    ID_WHITBY, DAY, DAY)).thenReturn(List.of(wave(2.7, DAY, TargetType.SUNSET)));
 
             Map<PlanWindowProjector.WindowKey, BriefingWindowTide> rollups =
                     builder.build(List.of(bothWindows(DAY)));
 
             assertThat(rollups.get(key(DAY, TargetType.SUNSET)).seas()).isEqualTo("2.7 m · rough");
             assertThat(rollups.get(key(DAY, TargetType.SUNRISE)).seas()).isNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("sea state is read once for the whole range")
+    class SeasSingleRead {
+
+        @Test
+        @DisplayName("every window gets the same seas as a per-window lookup, from one query")
+        void oneQueryEveryWindowEquivalent() {
+            LocalDate d2 = DAY.plusDays(1);
+            LocalDate d3 = DAY.plusDays(2);
+            stubSunrise();
+            stubSunset();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            List<TideExtremeEntity> extremes = new ArrayList<>(whitbyDay(DAY));
+            extremes.addAll(whitbyDay(d2));
+            extremes.addAll(whitbyDay(d3));
+            stubExtremes(extremes);
+            // d2 sunrise has no sample; d3 has none at all (past the wave horizon).
+            List<MarineWaveEntity> rows = List.of(
+                    wave(0.3, DAY, TargetType.SUNRISE), wave(2.7, DAY, TargetType.SUNSET),
+                    wave(1.2, d2, TargetType.SUNSET));
+            when(marineWaveRepository.findByLocation_IdAndEvaluationDateBetween(ID_WHITBY, DAY, d3))
+                    .thenReturn(rows);
+
+            Map<PlanWindowProjector.WindowKey, BriefingWindowTide> rollups = builder.build(
+                    List.of(bothWindows(DAY), bothWindows(d2), bothWindows(d3)));
+
+            assertThat(rollups).hasSize(6);
+            assertThat(rollups.get(key(DAY, TargetType.SUNRISE)).seas()).isEqualTo("0.3 m · smooth");
+            assertThat(rollups.get(key(DAY, TargetType.SUNSET)).seas()).isEqualTo("2.7 m · rough");
+            assertThat(rollups.get(key(d2, TargetType.SUNRISE)).seas()).isNull();
+            assertThat(rollups.get(key(d2, TargetType.SUNSET)).seas()).isEqualTo("1.2 m · slight");
+            assertThat(rollups.get(key(d3, TargetType.SUNRISE)).seas()).isNull();
+            assertThat(rollups.get(key(d3, TargetType.SUNSET)).seas()).isNull();
+            verify(marineWaveRepository, times(1))
+                    .findByLocation_IdAndEvaluationDateBetween(ID_WHITBY, DAY, d3);
+            // any() on purpose: "never" must hold for every argument, not one particular triple.
+            verify(marineWaveRepository, never())
+                    .findByLocation_IdAndEvaluationDateAndEventType(any(), any(), any());
         }
     }
 
@@ -1269,9 +1311,11 @@ class WindowTideRollupBuilderTest {
                 null, null, null, 0L, null, null, null, 0L);
     }
 
-    private static MarineWaveEntity wave(double hs) {
+    private static MarineWaveEntity wave(double hs, LocalDate date, TargetType type) {
         MarineWaveEntity entity = new MarineWaveEntity();
         entity.setSignificantWaveHeightMetres(hs);
+        entity.setEvaluationDate(date);
+        entity.setEventType(type);
         return entity;
     }
 

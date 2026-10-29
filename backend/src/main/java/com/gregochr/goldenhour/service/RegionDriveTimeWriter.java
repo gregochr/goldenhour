@@ -20,14 +20,18 @@ import java.util.List;
 public class RegionDriveTimeWriter {
 
     private final RegionDriveTimeRepository repository;
+    private final RegionDriveMatrixMemo matrixMemo;
 
     /**
      * Constructs the writer.
      *
      * @param repository JPA repository for the shared matrix
+     * @param matrixMemo memo of the served matrix, cleared after a commit that changes the rows
      */
-    public RegionDriveTimeWriter(RegionDriveTimeRepository repository) {
+    public RegionDriveTimeWriter(RegionDriveTimeRepository repository,
+            RegionDriveMatrixMemo matrixMemo) {
         this.repository = repository;
+        this.matrixMemo = matrixMemo;
     }
 
     /**
@@ -42,6 +46,7 @@ public class RegionDriveTimeWriter {
         if (!driveTimes.isEmpty()) {
             repository.saveAll(driveTimes);
         }
+        matrixMemo.invalidateAfterCommit();
     }
 
     /**
@@ -62,5 +67,6 @@ public class RegionDriveTimeWriter {
     @Transactional
     public void clearForRegion(Long regionId) {
         repository.deleteAllByRegionId(regionId);
+        matrixMemo.invalidateAfterCommit();
     }
 }

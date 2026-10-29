@@ -42,6 +42,7 @@ public class RegionDriveDurationService {
     private final LocationRepository locationRepository;
     private final RegionDriveTimeRepository driveTimeRepository;
     private final RegionDriveTimeWriter driveTimeWriter;
+    private final RegionDriveMatrixMemo matrixMemo;
 
     /**
      * Constructs a {@code RegionDriveDurationService}.
@@ -51,16 +52,19 @@ public class RegionDriveDurationService {
      * @param locationRepository  JPA repository for locations
      * @param driveTimeRepository JPA repository for the shared matrix, for the serve-side read
      * @param driveTimeWriter     transactional writer for one region's rows
+     * @param matrixMemo          memo of the served matrix, cleared by the writer after commit
      */
     public RegionDriveDurationService(OpenRouteServiceClient orsClient, OrsProperties orsProperties,
             LocationRepository locationRepository,
             RegionDriveTimeRepository driveTimeRepository,
-            RegionDriveTimeWriter driveTimeWriter) {
+            RegionDriveTimeWriter driveTimeWriter,
+            RegionDriveMatrixMemo matrixMemo) {
         this.orsClient = orsClient;
         this.orsProperties = orsProperties;
         this.locationRepository = locationRepository;
         this.driveTimeRepository = driveTimeRepository;
         this.driveTimeWriter = driveTimeWriter;
+        this.matrixMemo = matrixMemo;
     }
 
     /**
@@ -158,14 +162,23 @@ public class RegionDriveDurationService {
      * nightly sweep and immediately after a base moves. The client reads an absent drive time as
      * <em>unknown</em>, never as far.
      *
-     * @return region id to (location id to drive minutes)
+     * <p>Memoised until {@link RegionDriveTimeWriter} changes a region's rows (cleared after commit),
+     * and returned <strong>unmodifiable</strong>, at both levels, because the same instance is
+     * shared by every caller.
+     *
+     * @return region id to (location id to drive minutes), unmodifiable
      */
     public Map<Long, Map<Long, Integer>> getMatrix() {
+        return matrixMemo.getOrLoad(this::loadMatrix);
+    }
+
+    private Map<Long, Map<Long, Integer>> loadMatrix() {
         Map<Long, Map<Long, Integer>> matrix = new HashMap<>();
         for (RegionDriveTimeEntity row : driveTimeRepository.findAll()) {
             matrix.computeIfAbsent(row.getRegionId(), key -> new HashMap<>())
                     .put(row.getLocationId(), row.getDriveMinutes());
         }
-        return matrix;
+        matrix.replaceAll((regionId, byLocation) -> Map.copyOf(byLocation));
+        return Map.copyOf(matrix);
     }
 }
