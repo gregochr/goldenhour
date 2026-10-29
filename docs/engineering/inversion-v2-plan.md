@@ -362,4 +362,14 @@ Switch-over (shadow → live) is an owner decision on that evidence.
     Worth as much as a positive: the score should read low.
   - Undated, date to be read off the page: Times & Star, "Lake District cloud inversion spotted, Honister
     Pass"; Chris Gouge, "Cloud inversion & Brocken spectres on Helvellyn".
+- Observed valley-mist mornings (mist guards, not inversion evidence):
+  - **17 Oct 2026, River Brathay**: Mike Ridley's photographs; the Phase 0 fixture (7.03, LIKELY).
+  - **29 Oct 2026, A66 near Penrith (Eden valley farmland), about 09:00 GMT**: the owner's own photographs
+    from a car. Shallow mist at tree height over open fields, sky visible through it; frost or heavy dew on
+    the grass; standing puddles (recent rain); broken cloud overhead, roughly half the sky, low sun
+    breaking through. Sunrise about 07:12 UTC, so production reads the 08:00 slot and 09:00 is T+1h in
+    the `MistTrend`. Not a riverside site: mist covered the valley floor. Open-Meteo data: _pending_
+    (owner to fetch; the stretch of A66 is unconfirmed, east towards Temple Sowerby or west towards
+    Keswick). Questions it can answer: whether the broken cloud was there overnight (clear-night term)
+    or arrived at dawn; whether the wet-ground term fires; whether any `mist_prone` site nearby scored.
 - MWIS comparison log: _pending_.
