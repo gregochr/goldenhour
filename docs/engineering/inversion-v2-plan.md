@@ -377,10 +377,20 @@ Switch-over (shadow → live) is an owner decision on that evidence.
     54.648, −2.811, returned elevation 235 m.
     - **Same-morning contrast: Keswick, 09:22 GMT, no mist** ("it's clear"; the owner, driving west on
       the A66, about 20 km on). Caveat: 09:22 is 2 h 10 min after sunrise, so it cannot tell "never
-      formed" from "already burned off". Worth fetching the Keswick grid point (about 54.600, −3.135)
-      for the same hours: if its night was cloudier or windier than Stainton's, the pair is a real
-      discrimination case (the score should rank Stainton above Keswick); if the set-ups match, it is
-      a burn-off timing note and nothing more.
+      formed" from "already burned off". **Fetched** (second fetch, same session, both points in one
+      file: `open-meteo-stainton-keswick-2026-10-27_29.json`; Keswick snapped to 54.593, −3.121,
+      returned elevation 92 m). Keswick's night was overcast: mean total cloud 96% from 21:00 to 05:00
+      and 73–100% over 05:00–08:00, against Stainton's 81% and 63%; gap 1.1 °C at best. Score:
+      clear 0 + calm 1.50 + moisture 2.40 + cooling 0 + wet 0.03 + confirmation 0 = 5.43, **capped at
+      3.90 by the overcast veto, NONE**. **So the pair discriminates, the right way round**: POSSIBLE
+      where mist was seen, NONE where it was not, for a stated reason (cloud). A genuine contrast, not
+      only burn-off timing.
+    - **Second fetch of Stainton** (same coordinates, a later model run): returned elevation 214 m
+      (235 m in the first fetch; Open-Meteo's reported elevation differs between the two responses
+      for the same point, worth knowing for Phase 1a), and the 05:00–08:00 hours moved (cloud 100, 66,
+      74, 11 instead of 73, 64, 41, 84). The score did not: 0 + 1.50 + 4.0 + 0 + 0 + 0.25 = **5.75,
+      POSSIBLE**. Sunrise 07:05 UTC at both points, so production reads the 08:00 slot. The fixture
+      uses this second fetch.
     - **What `ValleyMistCalculator` would say (hand-computed, 08:00 slot, night side 05:00–08:00):**
       east clear 0 (mean total cloud 67.5%) + calm 1.42 (min 2.1 m/s) + moisture 4.0 (min gap 0.3 °C)
       + cooling 0 + wet 0 + confirmation 0.25 (6,880 m) = **5.67, POSSIBLE**; west 0 + 1.50 + 4.0 + 0 +
