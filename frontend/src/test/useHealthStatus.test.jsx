@@ -8,7 +8,7 @@ vi.mock('../context/AuthContext.jsx', () => ({ useAuth: vi.fn() }));
 import createEventSource from '../utils/createEventSource.js';
 import { getSettings } from '../api/settingsApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
-import { useHealthStatus } from '../hooks/useHealthStatus.js';
+import { useHealthStatus, sameHealth } from '../hooks/useHealthStatus.js';
 
 const DOWN_GRACE_MS = 12000;
 let streams;
@@ -163,12 +163,76 @@ describe('useHealthStatus tick identity', () => {
     expect(first.checkedAt).toBeInstanceOf(Date);
 
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(Date.now() + 30000);
-    statusEvent(lastStream());
-    vi.useRealTimers();
+    try {
+      vi.setSystemTime(Date.now() + 30000);
+      statusEvent(lastStream());
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(result.current.checkedAt.getTime()).toBeGreaterThan(first.checkedAt.getTime());
     expect(result.current.degraded).toBe(first.degraded);
     expect(result.current.status).toBe('UP');
+  });
+});
+
+describe('sameHealth', () => {
+  const base = {
+    status: 'UP', degraded: [], checkedAt: new Date(1000),
+    build: { commitId: 'abc', branch: 'main' }, session: { user: 'a' },
+    database: { latencyMs: 3 }, services: { tides: { latencyMs: 40 } },
+    appVersion: '1.0', startedAt: '2026-01-01T00:00:00Z',
+  };
+
+  it.each([
+    ['status', { status: 'DEGRADED' }],
+    ['degraded', { degraded: ['tides'] }],
+    ['services (nested latency)', { services: { tides: { latencyMs: 41 } } }],
+    ['appVersion', { appVersion: '1.1' }],
+    ['startedAt', { startedAt: '2026-01-02T00:00:00Z' }],
+    ['build', { build: { commitId: 'def', branch: 'main' } }],
+    ['session', { session: { user: 'b' } }],
+    ['database', { database: { latencyMs: 4 } }],
+  ])('a change to %s is not the same', (_name, change) => {
+    expect(sameHealth(base, { ...base, ...change })).toBe(false);
+  });
+
+  it('a change to checkedAt alone is the same', () => {
+    expect(sameHealth(base, { ...base, checkedAt: new Date(99999) })).toBe(true);
+  });
+});
+
+describe('useHealthStatus repeated DOWN', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    streams = [];
+    createEventSource.mockImplementation((path, params, handlers, options) => {
+      const stream = { path, params, handlers, options, cleanup: vi.fn() };
+      streams.push(stream);
+      return stream.cleanup;
+    });
+    getSettings.mockResolvedValue({});
+    useAuth.mockReturnValue({ token: 'tok-1' });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('a second DOWN grace firing keeps the health fields and still moves checkedAt', async () => {
+    const { result } = renderHook(() => useHealthStatus(true));
+    const { options } = lastStream();
+    act(() => options.onError());
+    await advance(DOWN_GRACE_MS + 1);
+    const first = result.current;
+    expect(first.status).toBe('DOWN');
+
+    act(() => options.onError());
+    await advance(DOWN_GRACE_MS + 1);
+
+    expect(result.current.status).toBe('DOWN');
+    expect(Object.is(result.current.degraded, first.degraded)).toBe(true);
+    expect(result.current.checkedAt.getTime()).toBeGreaterThan(first.checkedAt.getTime());
   });
 });
