@@ -170,6 +170,118 @@ class BatchWeatherPrefetcherTest {
                 .isSameAs(pointsB.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX));
     }
 
+    private static LocationEntity located(long id, double lat, double lon, Double gridLat, Double gridLng) {
+        LocationEntity loc = new LocationEntity();
+        loc.setId(id);
+        loc.setName("Loc" + id);
+        loc.setLat(lat);
+        loc.setLon(lon);
+        loc.setGridLat(gridLat);
+        loc.setGridLng(gridLng);
+        return loc;
+    }
+
+    private static WeatherExtractionResult windyResult() {
+        OpenMeteoForecastResponse forecast = new OpenMeteoForecastResponse();
+        OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+        hourly.setTime(List.of("2026-06-21T20:00"));
+        hourly.setWindDirection10m(List.of(270));
+        hourly.setWindSpeed10m(List.of(5.0));
+        forecast.setHourly(hourly);
+        return new WeatherExtractionResult(null, forecast, new OpenMeteoAirQualityResponse());
+    }
+
+    @Test
+    @DisplayName("prefetchBatchWeather fetches once per cell and per cell-less location, fanning out to all")
+    void prefetchBatchWeather_dedupesByGridCell_andFansOut() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocationEntity a = located(1L, 55.0, -1.5, 55.01, -1.51);
+        LocationEntity b = located(2L, 55.004, -1.502, 55.01, -1.51);
+        LocationEntity c = located(3L, 54.0, -2.0, 54.02, -2.02);
+        LocationEntity d = located(4L, 53.0, -3.0, null, null);
+        LocationEntity e = located(5L, 53.5, -3.5, null, null);
+        List<ForecastCandidate> candidates = List.of(
+                new ForecastCandidate(a, date, TargetType.SUNRISE),
+                new ForecastCandidate(a, date, TargetType.SUNSET),
+                new ForecastCandidate(b, date, TargetType.SUNSET),
+                new ForecastCandidate(c, date, TargetType.SUNSET),
+                new ForecastCandidate(d, date, TargetType.SUNSET),
+                new ForecastCandidate(e, date, TargetType.SUNSET));
+        WeatherExtractionResult cellA = windyResult();
+        WeatherExtractionResult cellC = windyResult();
+        WeatherExtractionResult own = windyResult();
+        Map<String, WeatherExtractionResult> fetched = new java.util.LinkedHashMap<>();
+        fetched.put(OpenMeteoService.coordKey(55.0, -1.5), cellA);
+        fetched.put(OpenMeteoService.coordKey(54.0, -2.0), cellC);
+        fetched.put(OpenMeteoService.coordKey(53.0, -3.0), own);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<double[]>> coordsCaptor = ArgumentCaptor.forClass(List.class);
+        when(openMeteoService.prefetchWeatherBatchResilient(coordsCaptor.capture())).thenReturn(fetched);
+
+        Map<String, WeatherExtractionResult> result = prefetcher.prefetchBatchWeather(candidates);
+
+        // 2 distinct cells + 2 cell-less locations = 4 fetches (not 5 distinct coordinates)
+        assertThat(coordsCaptor.getValue()).hasSize(4);
+        assertThat(coordsCaptor.getValue().get(0)).containsExactly(55.0, -1.5);
+        assertThat(coordsCaptor.getValue().get(1)).containsExactly(54.0, -2.0);
+        assertThat(coordsCaptor.getValue().get(2)).containsExactly(53.0, -3.0);
+        assertThat(coordsCaptor.getValue().get(3)).containsExactly(53.5, -3.5);
+        verify(openMeteoService).prefetchWeatherBatchResilient(coordsCaptor.getValue());
+        // every coordinate is served: the cell fans out, the cell-less ones keep their own result
+        assertThat(result.get(OpenMeteoService.coordKey(55.0, -1.5))).isSameAs(cellA);
+        assertThat(result.get(OpenMeteoService.coordKey(55.004, -1.502))).isSameAs(cellA);
+        assertThat(result.get(OpenMeteoService.coordKey(54.0, -2.0))).isSameAs(cellC);
+        assertThat(result.get(OpenMeteoService.coordKey(53.0, -3.0))).isSameAs(own);
+        assertThat(result).doesNotContainKey(OpenMeteoService.coordKey(53.5, -3.5));
+    }
+
+    @Test
+    @DisplayName("prefetchBatchWeather returns an empty map when the fetch returns nothing")
+    void prefetchBatchWeather_emptyFetch_returnsEmpty() {
+        LocationEntity a = located(1L, 55.0, -1.5, 55.01, -1.51);
+        when(openMeteoService.prefetchWeatherBatchResilient(anyList())).thenReturn(Map.of());
+
+        assertThat(prefetcher.prefetchBatchWeather(List.of(
+                new ForecastCandidate(a, LocalDate.of(2026, 6, 21), TargetType.SUNSET)))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("prefetchBatchCloudPoints finds the fanned-out weather for every location in a cell")
+    void prefetchBatchCloudPoints_fannedOutWeather_allLookupsHit() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocationEntity a = located(1L, 55.0, -1.5, 55.01, -1.51);
+        LocationEntity b = located(2L, 55.004, -1.502, 55.01, -1.51);
+        List<ForecastCandidate> candidates = List.of(
+                new ForecastCandidate(a, date, TargetType.SUNSET),
+                new ForecastCandidate(b, date, TargetType.SUNSET));
+        when(openMeteoService.prefetchWeatherBatchResilient(anyList())).thenReturn(
+                Map.of(OpenMeteoService.coordKey(55.0, -1.5), windyResult()));
+        Map<String, WeatherExtractionResult> weather = prefetcher.prefetchBatchWeather(candidates);
+
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0);
+        when(solarService.sunsetAzimuthDeg(55.0, -1.5, date)).thenReturn(250);
+        when(solarService.sunsetAzimuthDeg(55.004, -1.502, date)).thenReturn(250);
+        when(solarService.sunsetUtc(55.0, -1.5, date)).thenReturn(eventTime);
+        when(solarService.sunsetUtc(55.004, -1.502, date)).thenReturn(eventTime);
+        when(openMeteoService.computeDirectionalCloudPoints(55.0, -1.5, 250))
+                .thenReturn(new ArrayList<>(List.of(new double[]{55.1, -1.5})));
+        when(openMeteoService.computeDirectionalCloudPoints(55.004, -1.502, 250))
+                .thenReturn(new ArrayList<>(List.of(new double[]{55.2, -1.5})));
+        when(openMeteoService.computeUpwindPoint(eq(55.0), eq(-1.5), eq(270), eq(5.0),
+                any(LocalDateTime.class), eq(eventTime))).thenReturn(new double[]{55.3, -1.5});
+        when(openMeteoService.computeUpwindPoint(eq(55.004), eq(-1.502), eq(270), eq(5.0),
+                any(LocalDateTime.class), eq(eventTime))).thenReturn(new double[]{55.4, -1.5});
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), isNull()))
+                .thenReturn(new CloudPointCache(Map.of()));
+
+        prefetcher.prefetchBatchCloudPoints(candidates, weather);
+
+        verify(openMeteoService).computeUpwindPoint(eq(55.0), eq(-1.5), eq(270), eq(5.0),
+                any(LocalDateTime.class), eq(eventTime));
+        verify(openMeteoService).computeUpwindPoint(eq(55.004), eq(-1.502), eq(270), eq(5.0),
+                any(LocalDateTime.class), eq(eventTime));
+    }
+
     private static List<double[]> fivePoints(double latBase) {
         List<double[]> points = new ArrayList<>();
         for (int i = 0; i < 5; i++) {

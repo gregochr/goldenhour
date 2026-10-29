@@ -280,10 +280,7 @@ class JobRunServiceTest {
                     .build();
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-            when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(1L)).thenReturn(List.of(
-                    ApiCallLogEntity.builder().costMicroDollars(5400L).build(),
-                    ApiCallLogEntity.builder().costMicroDollars(5400L).build()
-            ));
+            when(apiCallLogRepository.sumCostMicroDollarsByJobRunId(1L)).thenReturn(10800L);
 
             jobRunService.completeRun(jobRun, 5, 2);
 
@@ -294,6 +291,8 @@ class JobRunServiceTest {
             assertThat(completed.getSucceeded()).isEqualTo(5);
             assertThat(completed.getFailed()).isEqualTo(2);
             assertThat(completed.getTotalCostMicroDollars()).isEqualTo(10800L);
+            verify(apiCallLogRepository).sumCostMicroDollarsByJobRunId(1L);
+            verify(apiCallLogRepository, never()).findByJobRunIdOrderByCalledAtAsc(1L);
         }
 
         @Test
@@ -307,7 +306,7 @@ class JobRunServiceTest {
                     .build();
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-            when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(2L)).thenReturn(List.of());
+            when(apiCallLogRepository.sumCostMicroDollarsByJobRunId(2L)).thenReturn(0L);
 
             jobRunService.completeRun(jobRun, 3, 0,
                     List.of(LocalDate.of(2026, 4, 15),
@@ -330,7 +329,7 @@ class JobRunServiceTest {
                     .build();
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-            when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(3L)).thenReturn(List.of());
+            when(apiCallLogRepository.sumCostMicroDollarsByJobRunId(3L)).thenReturn(0L);
 
             jobRunService.completeRun(jobRun, 0, 0, List.of());
 
@@ -350,7 +349,7 @@ class JobRunServiceTest {
                     .build();
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-            when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(4L)).thenReturn(List.of());
+            when(apiCallLogRepository.sumCostMicroDollarsByJobRunId(4L)).thenReturn(0L);
 
             jobRunService.completeRun(jobRun, 0, 0, null);
 
@@ -370,7 +369,7 @@ class JobRunServiceTest {
                     .build();
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-            when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(5L)).thenReturn(List.of());
+            when(apiCallLogRepository.sumCostMicroDollarsByJobRunId(5L)).thenReturn(0L);
             LocalDateTime before = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(1);
 
             jobRunService.completeRun(jobRun, 1, 0);
@@ -391,7 +390,7 @@ class JobRunServiceTest {
                     .build();
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-            when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(6L)).thenReturn(List.of());
+            when(apiCallLogRepository.sumCostMicroDollarsByJobRunId(6L)).thenReturn(0L);
 
             jobRunService.completeRun(jobRun, 0, 0);
 
