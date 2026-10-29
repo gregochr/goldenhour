@@ -195,13 +195,15 @@ async function refocus() {
   await act(async () => { focusPastGap(); });
 }
 
+let kpTick = 0;
 /**
- * The alert moves up a level and the page regains focus. The live-scores effect is keyed on the status's
- * `level` and `active`, not on the status object (P3b: an unchanged poll hands back the SAME object and
- * must re-request nothing), so a request is re-made only by a status that differs in one of them.
+ * The status changes in a field other than the level (a Kp reading) and the page regains focus. The
+ * live-scores effect is keyed on the status object, which an unchanged poll leaves identical (P3b), so a
+ * request is re-made exactly when some field of the reply differs.
  */
 async function escalate() {
-  serverStatus = { ...ALERT, level: 'STRONG' };
+  kpTick += 1;
+  serverStatus = { ...ALERT, kp: kpTick };
   await refocus();
 }
 
@@ -215,8 +217,15 @@ beforeEach(() => {
   // `getAuroraLocations` answer below is queued by the test that expects it. Reset leaves that mock
   // answering `undefined`, so an unexpected extra request fails loudly rather than landing silently.
   getAuroraStatus.mockReset();
-  // A new object per call, as a parsed response body is — the property the whole race rests on.
-  getAuroraStatus.mockImplementation(() => Promise.resolve({ ...serverStatus }));
+  // As the API module behaves (`jsonMemo`): the identical object while the reply text is unchanged, a new
+  // object once any field differs — the property the whole race rests on.
+  let heldText = null;
+  let heldObject = null;
+  getAuroraStatus.mockImplementation(() => {
+    const text = JSON.stringify(serverStatus);
+    if (text !== heldText) { heldText = text; heldObject = { ...serverStatus }; }
+    return Promise.resolve(heldObject);
+  });
   getAuroraLocations.mockReset();
   getAuroraForecastResults.mockReset();
   getAuroraForecastResults.mockResolvedValue([]);
@@ -239,6 +248,18 @@ describe('the live aurora scores answer for the latest alert state', () => {
     await refocus();
     expect(getAuroraStatus).toHaveBeenCalledTimes(2);
     expect(getAuroraLocations).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks again when a field other than the level changes at the same level', async () => {
+    getAuroraLocations.mockResolvedValue(EARLIER);
+
+    await openMap();
+    await waitFor(() => expect(drawn()).toBe(1));
+    expect(getAuroraLocations).toHaveBeenCalledTimes(1);
+
+    serverStatus = { ...ALERT, kp: 7, updatedAt: '2026-08-14T00:30:00Z' };
+    await refocus();
+    expect(getAuroraLocations).toHaveBeenCalledTimes(2);
   });
 
   it('drops a late response once the alert has ended — it wrote the ended alert\'s stars back', async () => {

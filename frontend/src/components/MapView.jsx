@@ -1774,10 +1774,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [tideViewBounds, setTideViewBounds] = useState(null);
   const handleTideBounds = useCallback((b) => setTideViewBounds(b), []);
   const { status: auroraStatus, liteAlert } = useAuroraStatus();
-  // The scalars the live-scores effect keys on, so it does not re-run for a status object that differs
-  // only by identity.
-  const auroraLevel = auroraStatus?.level;
-  const auroraActive = auroraStatus?.active;
   // The night aurora results are keyed to — from the backend, which owns the dusk/dawn rule.
   // Falls back to the local calendar date when status is absent (LITE, failed fetch, or a backend
   // older than the field), which is the behaviour this replaced — and once a status the provider is
@@ -2230,7 +2226,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // negative #814 refused, in the retired overlay popup). The residual accepted: a device that missed the gap between two alerts, and whose
   // first refetch after it then fails, shows the earlier alert's answer until the next poll or focus.
   useEffect(() => {
-    if (!auroraLevel || !ALERT_WORTHY_LEVELS.has(auroraLevel)) {
+    if (!auroraStatus || !ALERT_WORTHY_LEVELS.has(auroraStatus.level)) {
       (async () => setAuroraScores(EMPTY_AURORA_SCORES))();
       return undefined;
     }
@@ -2246,9 +2242,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // Deliberately not a clear — see above — so there is nothing here for `cancelled` to guard.
       });
     return () => { cancelled = true; };
-    // `auroraActive` is read for nothing but its identity: the backend's live cache re-scores when the alert
-    // switches on or off at the same level, and the status object itself is now stable across unchanged polls.
-  }, [auroraLevel, auroraActive]);
+    // Keyed on the status object: an unchanged poll hands back the identical object (`jsonMemo`) and asks
+    // nothing, while a reply that differs in any field (Kp, timestamps, level) is a new object and refetches.
+  }, [auroraStatus]);
 
   // Fetch available dates for stored aurora forecast results (ADMIN/PRO only).
   // Determines whether the Aurora toggle should be shown when no live alert is active.

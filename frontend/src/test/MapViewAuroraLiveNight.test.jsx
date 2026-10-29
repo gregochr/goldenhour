@@ -192,13 +192,9 @@ describe('the 🏆 best-location card', () => {
 });
 
 describe('the 🏆 best-location card — dismissal (aurora heat A4)', () => {
-  /**
-   * Re-render with a status whose alert level has moved (the live fetch is keyed on the status's `level` and
-   * `active`, no longer on its identity: an unchanged poll must re-request nothing) and the given scores.
-   */
+  /** Re-render with a NEW status object (the live fetch is keyed on its identity) and the given scores. */
   async function reRead(view, night, scores) {
-    const level = auroraStatusRef.current?.level === 'MODERATE' ? 'STRONG' : 'MODERATE';
-    auroraStatusRef.current = { level, kpIndex: 6, currentNightDate: night, active: true };
+    auroraStatusRef.current = { level: 'MODERATE', kpIndex: 6, currentNightDate: night, active: true };
     getAuroraLocations.mockResolvedValue(scores);
     await act(async () => {
       view.rerender(
