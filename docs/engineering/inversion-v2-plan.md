@@ -368,8 +368,11 @@ Switch-over (shadow → live) is an owner decision on that evidence.
     from a car. Shallow mist at tree height over open fields, sky visible through it; frost or heavy dew on
     the grass; standing puddles (recent rain); broken cloud overhead, roughly half the sky, low sun
     breaking through. Sunrise about 07:12 UTC, so production reads the 08:00 slot and 09:00 is T+1h in
-    the `MistTrend`. Not a riverside site: mist covered the valley floor. Which side of Penrith is
-    unconfirmed, so the owner fetched both (Open-Meteo forecast API, `past_days=1`, 2026-10-29; pasted
+    the `MistTrend`. Not a riverside site: mist covered the valley floor. **Location and time confirmed
+    from the photos' metadata (iPhone Photos info): 09:02–09:08 GMT, WEST of Penrith along the A66** —
+    by Ullswater Community College on the edge of Penrith (09:02), Redhills by the Rheged roundabout
+    (09:06), and just west of Stainton (09:08, two photos). So the **west point** below is the one that
+    matches. The owner fetched both (Open-Meteo forecast API, `past_days=1`, 2026-10-29; pasted
     in the session, not yet saved as a file): east 54.648, −2.687, returned elevation 133 m; west
     54.648, −2.811, returned elevation 235 m.
     - **What `ValleyMistCalculator` would say (hand-computed, 08:00 slot, night side 05:00–08:00):**
