@@ -368,8 +368,35 @@ Switch-over (shadow → live) is an owner decision on that evidence.
     from a car. Shallow mist at tree height over open fields, sky visible through it; frost or heavy dew on
     the grass; standing puddles (recent rain); broken cloud overhead, roughly half the sky, low sun
     breaking through. Sunrise about 07:12 UTC, so production reads the 08:00 slot and 09:00 is T+1h in
-    the `MistTrend`. Not a riverside site: mist covered the valley floor. Open-Meteo data: _pending_
-    (owner to fetch; the stretch of A66 is unconfirmed, east towards Temple Sowerby or west towards
-    Keswick). Questions it can answer: whether the broken cloud was there overnight (clear-night term)
-    or arrived at dawn; whether the wet-ground term fires; whether any `mist_prone` site nearby scored.
+    the `MistTrend`. Not a riverside site: mist covered the valley floor. Which side of Penrith is
+    unconfirmed, so the owner fetched both (Open-Meteo forecast API, `past_days=1`, 2026-10-29; pasted
+    in the session, not yet saved as a file): east 54.648, −2.687, returned elevation 133 m; west
+    54.648, −2.811, returned elevation 235 m.
+    - **What `ValleyMistCalculator` would say (hand-computed, 08:00 slot, night side 05:00–08:00):**
+      east clear 0 (mean total cloud 67.5%) + calm 1.42 (min 2.1 m/s) + moisture 4.0 (min gap 0.3 °C)
+      + cooling 0 + wet 0 + confirmation 0.25 (6,880 m) = **5.67, POSSIBLE**; west 0 + 1.50 + 4.0 + 0 +
+      0 + 0.25 = **5.75, POSSIBLE**. Mist was seen, so this is one band short: no hot topic (LIKELY
+      only) and no map badge.
+    - **Why it fell short** (observations from ONE morning, not a case for retuning):
+      1. *The clear spell was brief and before the window.* Cloud overnight was mostly 85–100%, with a
+         clearance at 03:00–04:00 (east 59% then 6%) when the air cooled 9.3 → 7.0 °C and the gap
+         closed to 0.2 °C; by 05:00 cloud was back to 60–94%. The T−3h window starts at 05:00.
+      2. *The cooling term reads after sunrise.* The window ends at the 08:00 event slot, by which the
+         air was warming (east 8.4 → 10.1 °C), so cooling scores 0. The real cooling was 01:00–04:00.
+         (Brathay's LIKELY also rests on this term, on a tie; any change here moves Brathay.)
+      3. *Wet ground misses "rain yesterday".* The term sums 6 h before the event; the rain (east
+         ~3 mm, west ~8 mm) fell 01:00–12:00 the previous day.
+      4. *The model saw the mist before dawn.* Visibility fell to 2,600 m (east, 04:00) and 2,800 m
+         (west, 05:00), but the term reads the event slot only (6,880 m, half weight).
+    - **Inversion-relevant:** a shallow surface inversion before dawn (east 04:00: 975 hPa +2.5 °C,
+      950 +1.5, 925 +0.4 over the surface; west 05:00: 975 +2.0), gone by the 08:00 slot (975 −1.1)
+      while the mist lasted to 09:00. So **reading the profile only at the event slot can miss the
+      inversion that made the fog**; Phase 1b should consider the strongest pre-dawn reversal over the
+      night-side slots. 975 hPa sat at 415–432 m (not the standard atmosphere's ~320 m), as the review
+      predicted. Boundary layer 135–190 m overnight.
+    - **Mist follow-ups (a separate, mist-only series; not part of inversion v2, and each must hold
+      the Brathay guard):** cooling measured to the pre-dawn minimum rather than to the event slot; a
+      wet-ground window long enough for "rain then a clear night"; confirmation from the night-side
+      minimum visibility. Decide only with more than one morning; record the next misty morning the
+      same way.
 - MWIS comparison log: _pending_.
