@@ -216,8 +216,10 @@ class LocationServiceTest {
         existing.setDisabledReason("auto");
         when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
         when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(existing));
-        when(locationRepository.existsByName(any())).thenReturn(false);
-        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(locationRepository.existsByName("Bamburgh Castle")).thenReturn(false);
+        when(locationRepository.save(org.mockito.ArgumentMatchers.argThat((LocationEntity l) -> l != null
+                && ("Bamburgh Castle".equals(l.getName()) || "Durham UK".equals(l.getName())))))
+                .thenAnswer(inv -> inv.getArgument(0));
 
         long e0 = epoch.current();
         locationService.add(new AddLocationRequest(

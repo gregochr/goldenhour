@@ -17,7 +17,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -131,7 +131,10 @@ class ServedBriefingEpochSourcesTest {
     @DisplayName("TravelDayService: create and delete both bump")
     void travelDayCreateAndDelete_bump() {
         TravelDayRepository repository = mock(TravelDayRepository.class);
-        when(repository.save(any(TravelDayEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(repository.save(argThat((TravelDayEntity e) -> e != null
+                && LocalDate.of(2026, 11, 1).equals(e.getStartDate())
+                && LocalDate.of(2026, 11, 3).equals(e.getEndDate()))))
+                .thenAnswer(inv -> inv.getArgument(0));
         when(repository.existsById(1L)).thenReturn(true);
         TravelDayService travel = new TravelDayService(repository, epoch);
         long before = epoch.current();

@@ -108,8 +108,11 @@ class RegionServiceTest {
     void everyRegionSave_bumpsServeEpoch() {
         RegionEntity entity = buildRegion(1L, "Lake District");
         when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
-        when(regionRepository.existsByName(any())).thenReturn(false);
-        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(regionRepository.existsByName("Northumberland")).thenReturn(false);
+        when(regionRepository.existsByName("Lakes")).thenReturn(false);
+        when(regionRepository.save(org.mockito.ArgumentMatchers.argThat((RegionEntity r) -> r != null
+                && ("Northumberland".equals(r.getName()) || "Lakes".equals(r.getName())))))
+                .thenAnswer(inv -> inv.getArgument(0));
 
         long e0 = epoch.current();
         regionService.add(new AddRegionRequest("Northumberland"));

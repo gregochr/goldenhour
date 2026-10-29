@@ -33,9 +33,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -45,6 +48,9 @@ import static org.mockito.Mockito.when;
  */
 class BriefingServiceServedMemoTest {
 
+    /** The service's min-coverage ratio, which this test never sets (the field default). */
+    private static final double COVERAGE = 0.0;
+
     private static final Instant T0 = Instant.parse("2026-10-28T12:00:00Z");
 
     private ServedBriefingEpoch epoch;
@@ -52,6 +58,7 @@ class BriefingServiceServedMemoTest {
     private ServedBriefingAssembler assembler;
     private AtomicInteger assemblies;
     private BriefingService service;
+    private DailyBriefingResponse snapshot;
 
     @BeforeEach
     void setUp() {
@@ -59,7 +66,7 @@ class BriefingServiceServedMemoTest {
         clock = new MutableClock(T0);
         assembler = mock(ServedBriefingAssembler.class);
         assemblies = new AtomicInteger();
-        when(assembler.assembleForPlan(any(), anyDouble())).thenAnswer(inv -> {
+        when(assembler.assembleForPlan(currentSnapshot(), eq(COVERAGE))).thenAnswer(inv -> {
             assemblies.incrementAndGet();
             return briefing("assembly-" + assemblies.get());
         });
@@ -106,11 +113,17 @@ class BriefingServiceServedMemoTest {
     @Test
     @DisplayName("a new cache object (a new build) misses")
     void newCacheObject_misses() {
+        DailyBriefingResponse first = snapshot;
         service.getCachedBriefingForApi();
         setCache(briefing("built-2"));
+        DailyBriefingResponse replacement = snapshot;
         service.getCachedBriefingForApi();
 
         assertThat(assemblies).hasValue(2);
+        // the second assembly was fed the REPLACEMENT snapshot, not the old one
+        verify(assembler).assembleForPlan(same(first), eq(COVERAGE));
+        verify(assembler).assembleForPlan(same(replacement), eq(COVERAGE));
+        verifyNoMoreInteractions(assembler);
     }
 
     @Test
@@ -139,7 +152,7 @@ class BriefingServiceServedMemoTest {
     @DisplayName("the epoch is read BEFORE assembly: a bump during assembly leaves the result stale-stamped")
     void bumpDuringAssembly_nextCallRebuilds() {
         AtomicInteger calls = new AtomicInteger();
-        when(assembler.assembleForPlan(any(), anyDouble())).thenAnswer(inv -> {
+        when(assembler.assembleForPlan(currentSnapshot(), eq(COVERAGE))).thenAnswer(inv -> {
             if (calls.incrementAndGet() == 1) {
                 epoch.bump();
             }
@@ -240,7 +253,7 @@ class BriefingServiceServedMemoTest {
                 "Go west", "Clear", "Wed sunset", "Lake District",
                 com.gregochr.goldenhour.model.Confidence.HIGH, null, "Wednesday", "SUNSET", "18:30",
                 null, null);
-        when(assembler.assembleForPlan(any(), anyDouble())).thenAnswer(inv -> {
+        when(assembler.assembleForPlan(currentSnapshot(), eq(COVERAGE))).thenAnswer(inv -> {
             assemblies.incrementAndGet();
             return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 28, 9, 0), "h", List.of(),
                     List.of(bet), null, null, false, false, 0, "Opus", List.of(), List.of(),
@@ -248,15 +261,19 @@ class BriefingServiceServedMemoTest {
         });
         assemblies.set(0); // re-stubbing above ran the previous stub's answer once
         LitePickShaper litePickShaper = mock(LitePickShaper.class);
-        when(litePickShaper.scopeFor(any())).thenReturn(PickScope.unrestricted());
-        when(litePickShaper.shapeBriefing(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        org.springframework.security.core.Authentication liteAuth = auth("ROLE_LITE_USER");
+        org.springframework.security.core.Authentication proAuth = auth("ROLE_PRO_USER");
+        when(litePickShaper.scopeFor(liteAuth)).thenReturn(PickScope.unrestricted());
+        when(litePickShaper.scopeFor(proAuth)).thenReturn(PickScope.unrestricted());
+        when(litePickShaper.shapeBriefing(argThat(b -> b != null && "h".equals(b.headline())),
+                eq(PickScope.unrestricted()))).thenAnswer(inv -> inv.getArgument(0));
         com.gregochr.goldenhour.controller.BriefingController controller =
                 new com.gregochr.goldenhour.controller.BriefingController(service,
                         mock(com.gregochr.goldenhour.service.BriefingModelTestService.class),
                         mock(BriefingDigestService.class), new BriefingRoleShaper(), litePickShaper);
 
-        DailyBriefingResponse lite = controller.getBriefing(auth("ROLE_LITE_USER")).getBody();
-        DailyBriefingResponse pro = controller.getBriefing(auth("ROLE_PRO_USER")).getBody();
+        DailyBriefingResponse lite = controller.getBriefing(liteAuth).getBody();
+        DailyBriefingResponse pro = controller.getBriefing(proAuth).getBody();
 
         assertThat(assemblies).hasValue(1);
         assertThat(lite.bestBets()).isEmpty();
@@ -274,7 +291,7 @@ class BriefingServiceServedMemoTest {
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
-        when(assembler.assembleForPlan(any(), anyDouble())).thenAnswer(inv -> {
+        when(assembler.assembleForPlan(currentSnapshot(), eq(COVERAGE))).thenAnswer(inv -> {
             calls.incrementAndGet();
             entered.countDown();
             release.await(10, TimeUnit.SECONDS);
@@ -303,7 +320,7 @@ class BriefingServiceServedMemoTest {
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
-        when(assembler.assembleForPlan(any(), anyDouble())).thenAnswer(inv -> {
+        when(assembler.assembleForPlan(currentSnapshot(), eq(COVERAGE))).thenAnswer(inv -> {
             int n = calls.incrementAndGet();
             if (n == 1) {
                 entered.countDown();
@@ -337,7 +354,7 @@ class BriefingServiceServedMemoTest {
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
-        when(assembler.assembleForPlan(any(), anyDouble())).thenAnswer(inv -> {
+        when(assembler.assembleForPlan(currentSnapshot(), eq(COVERAGE))).thenAnswer(inv -> {
             int n = calls.incrementAndGet();
             if (n == 1) {
                 entered.countDown();
@@ -368,10 +385,16 @@ class BriefingServiceServedMemoTest {
         }
     }
 
+    /** Matches only the snapshot currently in the service's cache: a wrong source gets no stub answer. */
+    private DailyBriefingResponse currentSnapshot() {
+        return argThat(arg -> arg == snapshot);
+    }
+
     private void setCache(DailyBriefingResponse response) {
         @SuppressWarnings("unchecked")
         AtomicReference<DailyBriefingResponse> ref =
                 (AtomicReference<DailyBriefingResponse>) ReflectionTestUtils.getField(service, "cache");
+        snapshot = response;
         ref.set(response);
     }
 
