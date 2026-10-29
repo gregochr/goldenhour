@@ -569,7 +569,7 @@ public class BriefingService {
         // closing here rather than leaving as a pre-existing pattern.
         days = rollup.enrich(days, bulkScoreResolver(days), bulkTriagedResolver(days));
 
-        // Enrich GO/MARGINAL regions with Claude-generated one-line gloss
+        // Gloss every region that has slots (STANDDOWN included); unchanged inputs reuse the last build's gloss
         if (succeeded > 0) {
             days = glossService.generateGlosses(days, jobRun.getId());
         }

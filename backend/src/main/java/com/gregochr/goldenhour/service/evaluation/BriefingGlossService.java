@@ -26,8 +26,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -51,6 +58,16 @@ public class BriefingGlossService {
 
     /** Maximum response tokens — headline + detail JSON needs more than a single phrase. */
     private static final int MAX_TOKENS = 256;
+
+    /**
+     * Version of everything that turns the model's output into the stored gloss. It is part of the
+     * reuse key, so <b>bump it whenever the post-processing changes</b>: {@code sanitizeBrand},
+     * {@code truncateToWords(7)}, the leaked-field drop ({@link #LEAKED_FIELD_NAME} and
+     * {@code withoutLeakedFieldName}), the JSON-parse fallback — or anything else between the raw
+     * response and the headline and detail that are kept. A change to {@code SYSTEM_PROMPT}, the
+     * model id or the user message needs no bump: those are hashed into the key directly.
+     */
+    static final String GLOSS_VERSION = "1";
 
     /** Maximum concurrent Haiku calls. */
     private static final int MAX_CONCURRENCY = 10;
@@ -135,6 +152,19 @@ public class BriefingGlossService {
             new ParallelGlossExecutor<>(MAX_CONCURRENCY, "Gloss");
 
     /**
+     * The glosses the last build produced, keyed by {@link #reuseKey}. Immutable and replaced
+     * wholesale at the end of each build, so it holds at most one build's worth of regions and the
+     * concurrent gloss calls only ever read a frozen map. Starts empty after a restart: the
+     * persisted briefing carries no prompt, model or version fingerprint, so seeding from it could
+     * reuse a gloss written under an older prompt.
+     */
+    private volatile Map<String, GlossResult> previousGlosses = Map.of();
+
+    /** A stored gloss: only ever built from a non-null headline and detail. */
+    record GlossResult(String headline, String detail) {
+    }
+
+    /**
      * Constructs a {@code BriefingGlossService}.
      *
      * <p>It no longer takes {@code BriefingEvaluationService}. The score statistics fed to Claude
@@ -162,10 +192,12 @@ public class BriefingGlossService {
     }
 
     /**
-     * Enriches each GO/MARGINAL region in the briefing hierarchy with a Claude-generated gloss.
+     * Enriches each region that has at least one slot with a Claude-generated gloss, reusing the
+     * previous build's gloss for any region whose model input is unchanged.
      *
-     * <p>Returns a new list of days with gloss-populated regions. STANDDOWN regions retain
-     * null gloss. Any failure (per-call or global) is caught — the briefing always completes.
+     * <p>Returns a new list of days with gloss-populated regions. Regions with no slots retain
+     * a null gloss; STANDDOWN regions are glossed like any other. Any failure
+     * (per-call or global) is caught — the briefing always completes.
      *
      * @param days     the fully assembled briefing days (triage complete)
      * @param jobRunId the current briefing job run ID for API call logging
@@ -187,7 +219,8 @@ public class BriefingGlossService {
         // Collect work items
         List<GlossWorkItem> workItems = collectWorkItems(days);
         if (workItems.isEmpty()) {
-            LOG.debug("No GO/MARGINAL regions to gloss");
+            LOG.debug("No regions with slots to gloss");
+            previousGlosses = Map.of();
             return days;
         }
 
@@ -198,7 +231,19 @@ public class BriefingGlossService {
         LOG.info("Gloss generation: {} work items, {} with Claude scores",
                 workItems.size(), withScores);
 
-        glossExecutor.execute(workItems, item -> callGloss(item, model, jobRunId));
+        Map<String, GlossResult> reusable = previousGlosses;
+        Map<String, GlossResult> next = new ConcurrentHashMap<>();
+        AtomicInteger reused = new AtomicInteger();
+        glossExecutor.execute(workItems, item -> {
+            if (reuseGloss(item, model, reusable, next)) {
+                reused.incrementAndGet();
+            } else {
+                callGloss(item, model, jobRunId, next);
+            }
+        });
+        previousGlosses = Map.copyOf(next);
+        LOG.info("Gloss generation: {} reused, {} requested", reused.get(),
+                workItems.size() - reused.get());
 
         return reassemble(days, workItems);
     }
@@ -227,7 +272,8 @@ public class BriefingGlossService {
     /**
      * Makes a single Haiku call for one region and stores the result on the work item.
      */
-    private void callGloss(GlossWorkItem item, EvaluationModel model, Long jobRunId) {
+    private void callGloss(GlossWorkItem item, EvaluationModel model, Long jobRunId,
+            Map<String, GlossResult> next) {
         long callStart = System.currentTimeMillis();
         String userMessage = null;
         try {
@@ -252,6 +298,10 @@ public class BriefingGlossService {
                     .orElse("");
 
             parseGlossResponse(item, raw.strip());
+            // Only a complete gloss is kept for reuse; a half-dropped one is retried next build.
+            if (item.glossHeadline != null && item.glossDetail != null) {
+                next.put(reuseKey(userMessage, model), new GlossResult(item.glossHeadline, item.glossDetail));
+            }
             var usage = response.usage();
             TokenUsage tokenUsage = usage == null ? null : TokenUsage.from(usage);
             // Pass the token usage so the successful gloss call records its real cost, not £0.
@@ -267,6 +317,60 @@ public class BriefingGlossService {
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
                     "POST", "briefing-gloss", userMessage,
                     durationMs, null, null, false, e.getMessage(), model);
+        }
+    }
+
+    /**
+     * Applies the previous build's gloss to the item when its reuse key is unchanged, carrying the
+     * entry into the next build's map. Returns false (so the caller makes the Haiku call) on a
+     * miss, or if the key cannot be computed.
+     */
+    private boolean reuseGloss(GlossWorkItem item, EvaluationModel model,
+            Map<String, GlossResult> reusable, Map<String, GlossResult> next) {
+        try {
+            String key = reuseKey(buildUserMessage(item), model);
+            GlossResult hit = reusable.get(key);
+            if (hit == null) {
+                return false;
+            }
+            item.glossHeadline = hit.headline();
+            item.glossDetail = hit.detail();
+            next.put(key, hit);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * SHA-256 over the system prompt, {@link #GLOSS_VERSION}, the model id and the user message,
+     * NUL-separated so no field can run into the next.
+     */
+    static String reuseKey(String userMessage, EvaluationModel model) {
+        return reuseKey(userMessage, model, SYSTEM_PROMPT, GLOSS_VERSION);
+    }
+
+    /** The system prompt in force, for tests that vary one key part at a time. */
+    static String systemPrompt() {
+        return SYSTEM_PROMPT;
+    }
+
+    /** Number of glosses held for reuse by the next build (test visibility). */
+    int storedGlossCount() {
+        return previousGlosses.size();
+    }
+
+    /** The key with every part explicit; the two-argument form supplies the live prompt and version. */
+    static String reuseKey(String userMessage, EvaluationModel model, String systemPrompt, String version) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            for (String part : new String[] {systemPrompt, version, model.getModelId(), userMessage}) {
+                digest.update(part.getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) 0);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
         }
     }
 
