@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getAuroraAlert, getAuroraStatus } from '../api/auroraApi.js';
 import { useAuth } from './AuthContext.jsx';
+import { useVisiblePoll } from '../hooks/useVisiblePoll.js';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -17,7 +18,7 @@ const NIGHT_END_RECHECK_MS = 60 * 1000;
 const AuroraStatusContext = createContext({ status: null, liteAlert: null, loading: false });
 
 /**
- * Fetches aurora status once (5-minute poll + refetch on window focus) and shares it via context,
+ * Fetches aurora status once (5-minute poll while visible + refetch on return or focus after a minute) and shares it via context,
  * so the multiple consumers ({@code AuroraBanner}, {@code MapView}, {@code JobRunsMetricsView}) no
  * longer each fire their own request and poll — one fetch serves the whole tree.
  *
@@ -41,7 +42,6 @@ export function AuroraStatusProvider({ children }) {
   const [status, setStatus] = useState(null);
   const [liteAlert, setLiteAlert] = useState(null);
   const [loading, setLoading] = useState(true);
-  const intervalRef = useRef(null);
   // The two halves of that ordering: how many requests have been made, and the number of the
   // newest one whose answer has been applied. Refs rather than locals in the effect, so one
   // numbering spans StrictMode's second run of the effect, which makes its own request while the
@@ -56,7 +56,7 @@ export function AuroraStatusProvider({ children }) {
   // failed. Here only an applied answer moves the mark, so a failed request blocks nothing.
   //
   // ⚠️ The effect is keyed on the role, which picks the endpoint, so a request from a run the change
-  // superseded must not land its answer over the new one: each run carries its own `cancelled` flag, as
+  // superseded must not land its answer over the new one: each request carries the run number (`runRef`) it started under, as
   // `useAuroraViewline` does. The counters still span runs (one numbering for whichever endpoint is polled).
   const requestedRef = useRef(0);
   const appliedRef = useRef(0);
@@ -67,7 +67,7 @@ export function AuroraStatusProvider({ children }) {
   // re-reads the night only when something re-renders it. So the provider re-renders once the end has
   // passed, and every consumer with it — App's date clamp and the map's night list re-read the night
   // in the same commit, as they do when a fresh status lands.
-  const [, setNightEnded] = useState(0);
+  const [nightEndedTick, setNightEnded] = useState(0);
   const nightEndsAt = liteAlert?.currentNightEndsAt ?? status?.currentNightEndsAt ?? null;
   useEffect(() => {
     const end = Date.parse(nightEndsAt);
@@ -87,42 +87,45 @@ export function AuroraStatusProvider({ children }) {
     return () => clearTimeout(timer);
   }, [nightEndsAt]);
 
+  // Which run of the role-keyed fetch a request belongs to. Bumped when `isLite` changes (and on unmount), so
+  // a request from a superseded run drops its answer; declared BEFORE the poll so its effect runs first.
+  const runRef = useRef(0);
   useEffect(() => {
-    let cancelled = false;
-    async function fetchStatus() {
-      requestedRef.current += 1;
-      const request = requestedRef.current;
-      try {
-        const data = isLite ? await getAuroraAlert() : await getAuroraStatus();
-        if (cancelled) return; // this run was superseded (the role changed)
-        if (request < appliedRef.current) return; // a newer answer is already on screen
-        appliedRef.current = request;
-        if (isLite) setLiteAlert(data);
-        else setStatus(data); // null for 403 (free-tier) — consumers render nothing
-      } catch {
-        // Network errors are transient — retain existing status
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    fetchStatus();
-    intervalRef.current = setInterval(fetchStatus, POLL_INTERVAL_MS);
-
-    function handleFocus() {
-      fetchStatus();
-    }
-    window.addEventListener('focus', handleFocus);
-
-    return () => {
-      cancelled = true;
-      clearInterval(intervalRef.current);
-      window.removeEventListener('focus', handleFocus);
-    };
+    runRef.current += 1;
+    return () => { runRef.current += 1; };
   }, [isLite]);
 
+  const fetchStatus = useCallback(async () => {
+    const run = runRef.current;
+    requestedRef.current += 1;
+    const request = requestedRef.current;
+    try {
+      const data = isLite ? await getAuroraAlert() : await getAuroraStatus();
+      if (run !== runRef.current) return; // this run was superseded (the role changed)
+      if (request < appliedRef.current) return; // a newer answer is already on screen
+      appliedRef.current = request;
+      // An unchanged reply is the same object (the API functions memoise the parse), so this is a
+      // no-op then and the context value below does not change.
+      if (isLite) setLiteAlert(data);
+      else setStatus(data); // null for 403 (free-tier) — consumers render nothing
+    } catch {
+      // Network errors are transient — retain existing status
+    } finally {
+      if (run === runRef.current) setLoading(false);
+    }
+  }, [isLite]);
+
+  // A change of `isLite` changes `fetchStatus`, which `useVisiblePoll` fetches on at once.
+  useVisiblePoll(fetchStatus, POLL_INTERVAL_MS);
+
+  // `nightEndedTick` is in the deps although the value does not read it: the provider re-renders when a night
+  // ends precisely so that every consumer re-reads the clock, and a memoised value that did not change would
+  // stop the re-render at the provider. It moves once per night end, not per poll.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
+  const value = useMemo(() => ({ status, liteAlert, loading }), [status, liteAlert, loading, nightEndedTick]);
+
   return (
-    <AuroraStatusContext.Provider value={{ status, liteAlert, loading }}>
+    <AuroraStatusContext.Provider value={value}>
       {children}
     </AuroraStatusContext.Provider>
   );

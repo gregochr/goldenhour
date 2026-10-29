@@ -11,6 +11,7 @@
  */
 
 import { getRewindTo } from './rewind.js';
+import { clearJsonMemo } from './jsonMemo.js';
 
 /** Every key this module has ever owned. Sweeping uses this so old generations stay collectable. */
 const ROOT = 'photocast_swr:';
@@ -193,6 +194,7 @@ export function writeSwrCache(key, value, atGeneration) {
  * account is never shown to the next account signing in on the same browser.
  */
 export function clearSwrCache() {
+  clearJsonMemo(); // the polled API modules' parsed-object memo is per account too
   // Bump FIRST, so a write racing this sweep is refused even if it lands mid-loop.
   generation += 1;
   try {

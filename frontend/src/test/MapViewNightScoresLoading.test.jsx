@@ -112,6 +112,7 @@ vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null 
 // reads the same visible set, is what this file counts. Stubbed so a heat field can be offered.
 vi.mock('../components/map/MapLabels.jsx', () => ({ default: () => <div data-testid="map-labels-stub" /> }));
 
+import { focusPastGap } from './pollGap.js';
 import MapView from '../components/MapView.jsx';
 import {
   getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates,
@@ -790,7 +791,7 @@ describe.each(KINDS)('a failed $name night request is asked again', (kind) => {
     }
   }
 
-  const focusTheWindow = async () => { await act(async () => { window.dispatchEvent(new Event('focus')); }); };
+  const focusTheWindow = async () => { await act(async () => { focusPastGap(); }); };
 
   it('asks again two seconds after a failure — and not a millisecond sooner', async () => {
     await onNightBAfterAFailure();

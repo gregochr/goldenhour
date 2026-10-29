@@ -91,6 +91,7 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
   },
 }));
 
+import { focusPastGap } from './pollGap.js';
 import MapView from '../components/MapView.jsx';
 import { AuroraStatusProvider } from '../context/AuroraStatusContext.jsx';
 import {
@@ -191,7 +192,17 @@ async function openMap() {
 
 /** The page regains focus: the provider re-fetches the status and publishes a FRESH object. */
 async function refocus() {
-  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  await act(async () => { focusPastGap(); });
+}
+
+/**
+ * The alert moves up a level and the page regains focus. The live-scores effect is keyed on the status's
+ * `level` and `active`, not on the status object (P3b: an unchanged poll hands back the SAME object and
+ * must re-request nothing), so a request is re-made only by a status that differs in one of them.
+ */
+async function escalate() {
+  serverStatus = { ...ALERT, level: 'STRONG' };
+  await refocus();
 }
 
 beforeEach(() => {
@@ -218,6 +229,18 @@ afterEach(() => {
 });
 
 describe('the live aurora scores answer for the latest alert state', () => {
+  it('asks nothing again for a re-poll of the same alert — the status did not change', async () => {
+    getAuroraLocations.mockResolvedValue(EARLIER);
+
+    await openMap();
+    await waitFor(() => expect(drawn()).toBe(1));
+    expect(getAuroraLocations).toHaveBeenCalledTimes(1);
+
+    await refocus();
+    expect(getAuroraStatus).toHaveBeenCalledTimes(2);
+    expect(getAuroraLocations).toHaveBeenCalledTimes(1);
+  });
+
   it('drops a late response once the alert has ended — it wrote the ended alert\'s stars back', async () => {
     // Tonight also has a stored run, rating a third place. That keeps aurora mode on after the alert
     // ends — as a stored run does in production — and its one drawn place is the control that every
@@ -238,7 +261,7 @@ describe('the live aurora scores answer for the latest alert state', () => {
     expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Cheviot');
 
     // The same alert, re-polled: this is the request that will still be out when the alert ends.
-    await refocus();
+    await escalate();
     expect(getAuroraLocations).toHaveBeenCalledTimes(2);
 
     serverStatus = ALL_CLEAR;
@@ -267,7 +290,7 @@ describe('the live aurora scores answer for the latest alert state', () => {
       .mockReturnValueOnce(newer.promise);
 
     await openMap();
-    await refocus();
+    await escalate();
     // Both requests really are out at once — without that there is no race to lose.
     expect(getAuroraLocations).toHaveBeenCalledTimes(2);
 
@@ -297,7 +320,7 @@ describe('the live aurora scores answer for the latest alert state', () => {
     await openMap();
     await waitFor(() => expect(drawn()).toBe(1));
 
-    await refocus();
+    await escalate();
     // The refresh really is out...
     expect(getAuroraLocations).toHaveBeenCalledTimes(2);
     // ...and the alert's last answer is still drawn for the round trip. Cleared, both would be gone.
@@ -322,7 +345,7 @@ describe('the live aurora scores answer for the latest alert state', () => {
     await openMap();
     await waitFor(() => expect(drawn()).toBe(1));
 
-    await refocus();
+    await escalate();
     expect(getAuroraLocations).toHaveBeenCalledTimes(2);
     await land(() => refresh.reject(new Error('503 from /api/aurora/locations')));
 

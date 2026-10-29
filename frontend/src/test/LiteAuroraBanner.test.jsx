@@ -25,6 +25,7 @@ vi.mock('../components/AuroraFieldThumb.jsx', () => ({
   default: () => <div data-testid="aurora-field-stub" />,
 }));
 
+import { focusPastGap } from './pollGap.js';
 import AuroraBannerRoot from '../components/AuroraBannerRoot.jsx';
 import { AuroraStatusProvider } from '../context/AuroraStatusContext.jsx';
 import {
@@ -128,7 +129,7 @@ describe('LiteAuroraBanner — the card (640px and up)', () => {
     expect(screen.queryByTestId('aurora-banner')).toBeNull();
 
     getAuroraAlert.mockResolvedValue(alertOf({ level: 'STRONG' }));
-    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await act(async () => { focusPastGap(); });
 
     expect(screen.getByTestId('aurora-banner-pill')).toHaveTextContent('Strong');
   });

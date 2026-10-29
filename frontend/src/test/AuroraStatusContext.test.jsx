@@ -55,6 +55,7 @@ vi.mock('../components/AuroraFieldThumb.jsx', () => ({
   default: () => <div data-testid="aurora-field-stub" />,
 }));
 
+import { focusPastGap } from './pollGap.js';
 import AuroraBanner from '../components/AuroraBanner.jsx';
 import { AuroraStatusProvider } from '../context/AuroraStatusContext.jsx';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
@@ -156,7 +157,7 @@ async function mount() {
 
 /** The page regains focus: the provider asks for the status again. */
 async function refocus() {
-  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  await act(async () => { focusPastGap(); });
 }
 
 /** The provider's five-minute poll comes round. */
@@ -171,7 +172,7 @@ beforeEach(() => {
   // Intervals only: the provider's poll fires when a test says so and not otherwise. Every wait in
   // this file is an awaited `act`, never a `findBy*` or `waitFor`, whose own polling runs on
   // `setInterval`.
-  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
   // Reset, not cleared: `mockReturnValueOnce` queues survive `vi.clearAllMocks()`, so a test that
   // failed with a request still queued would hand it to the next test's mount. Each test queues
   // every status answer it expects. One it does not expect is refused, and a refused request writes

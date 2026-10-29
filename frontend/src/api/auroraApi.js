@@ -1,4 +1,5 @@
 import apiClient from './axiosClient.js';
+import { getMemoised } from '../utils/jsonMemo.js';
 
 const BASE_URL = '/api/aurora';
 
@@ -11,7 +12,7 @@ const BASE_URL = '/api/aurora';
  */
 export async function getAuroraStatus() {
   try {
-    const response = await apiClient.get(`${BASE_URL}/status`);
+    const response = await getMemoised(apiClient, `${BASE_URL}/status`);
     return response.data;
   } catch (err) {
     if (err.response?.status === 403 || err.response?.status === 401) {
@@ -34,7 +35,7 @@ export async function getAuroraStatus() {
  */
 export async function getAuroraAlert() {
   try {
-    const response = await apiClient.get(`${BASE_URL}/alert`);
+    const response = await getMemoised(apiClient, `${BASE_URL}/alert`);
     return response.data ?? null;
   } catch {
     return null;
@@ -179,7 +180,7 @@ export async function getAuroraForecastAvailableDates() {
  */
 export async function getAuroraForecastViewline() {
   try {
-    const response = await apiClient.get(`${BASE_URL}/viewline/forecast`);
+    const response = await getMemoised(apiClient, `${BASE_URL}/viewline/forecast`);
     return response.data;
   } catch (err) {
     if (err.response?.status === 403 || err.response?.status === 401) {
@@ -197,7 +198,7 @@ export async function getAuroraForecastViewline() {
  */
 export async function getAuroraViewline() {
   try {
-    const response = await apiClient.get(`${BASE_URL}/viewline`);
+    const response = await getMemoised(apiClient, `${BASE_URL}/viewline`);
     return response.data;
   } catch (err) {
     if (err.response?.status === 403 || err.response?.status === 401) {

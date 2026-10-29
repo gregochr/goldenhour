@@ -1,0 +1,3 @@
+### Changed — polls pause when hidden, and an unchanged reply changes nothing
+
+The briefing, ratings, aurora status, Lite aurora alert and nights, viewline and noctilucent-cloud polls now stop while the tab is hidden, and a return to the tab or a window focus refetches only when the last fetch is more than a minute old (a sign-in, role change or upgrade still fetches at once). The polled API functions keep the previous parsed object when the reply text is unchanged, so an idle session no longer re-renders the provider chain, repaints the aurora thumbnail or rebuilds the map on every poll and focus. The map re-requests its live aurora scores when the alert level or active flag changes rather than on every poll.

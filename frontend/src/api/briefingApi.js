@@ -1,4 +1,5 @@
 import apiClient from './axiosClient.js';
+import { getMemoised } from '../utils/jsonMemo.js';
 
 const BASE_URL = '/api/briefing';
 
@@ -10,7 +11,7 @@ const BASE_URL = '/api/briefing';
  * @returns {Promise<object|null>} the briefing response or null
  */
 export async function getDailyBriefing() {
-  const response = await apiClient.get(BASE_URL);
+  const response = await getMemoised(apiClient, BASE_URL);
   if (response.status === 204) {
     return null;
   }

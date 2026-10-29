@@ -5,6 +5,7 @@ import {
 import {
   cleanup, render, screen, act, fireEvent, waitFor,
 } from '@testing-library/react';
+import { focusPastGap } from './pollGap.js';
 import { WindowFirstBriefingProvider, useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import WindowFirstLensBar from '../components/WindowFirstLensBar.jsx';
 import { getDailyBriefing } from '../api/briefingApi.js';
@@ -472,7 +473,7 @@ describe('WindowFirstBriefingProvider', () => {
     await act(async () => {});
     expect(getDailyBriefing).toHaveBeenCalledTimes(1);
 
-    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await act(async () => { focusPastGap(); });
     expect(getDailyBriefing).toHaveBeenCalledTimes(2);
   });
 
@@ -508,7 +509,7 @@ describe('WindowFirstBriefingProvider', () => {
     expect(getAllEvaluationScores).toHaveBeenCalledTimes(2);
     expect(getDailyBriefing).toHaveBeenCalledTimes(2);
 
-    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await act(async () => { focusPastGap(); });
     expect(getAllEvaluationScores).toHaveBeenCalledTimes(3);
     expect(getDailyBriefing).toHaveBeenCalledTimes(3);
   });
@@ -572,7 +573,7 @@ describe('WindowFirstBriefingProvider', () => {
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
-      window.dispatchEvent(new Event('focus'));
+      focusPastGap();
     });
     expect(getDailyBriefing).not.toHaveBeenCalled();
     // The scores fetch rides the same interval and listener now, so it has to come down with them.
@@ -592,7 +593,7 @@ describe('WindowFirstBriefingProvider', () => {
     // SAME build, re-derived content.
     getDailyBriefing.mockResolvedValue(reserved(TODAY, `${TODAY}T12:00:00`, 'MAYBE'));
 
-    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await act(async () => { focusPastGap(); });
     expect(screen.getByTestId('strip-verdicts')).toHaveTextContent('Maybe');
   });
 
@@ -603,7 +604,7 @@ describe('WindowFirstBriefingProvider', () => {
 
     getDailyBriefing.mockResolvedValue(reserved(TODAY, `${TODAY}T18:00:00`, 'MAYBE'));
 
-    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await act(async () => { focusPastGap(); });
     expect(screen.getByTestId('strip-verdicts')).toHaveTextContent('Maybe');
   });
 

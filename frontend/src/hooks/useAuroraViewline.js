@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAuroraViewline, getAuroraForecastViewline } from '../api/auroraApi.js';
+import { useVisiblePoll } from './useVisiblePoll.js';
 import { viewlineDrawable } from '../utils/viewlineDrawable.js';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -38,40 +39,41 @@ export function useAuroraViewline(enabled, { includeForecast = true } = {}) {
   const [live, setLive] = useState(null);
   const [forecast, setForecast] = useState(null);
 
+  // Which run (enabled / includeForecast) a request belongs to: bumped on every change and on unmount, so a
+  // late answer from a superseded or disabled run never lands in a newer run's state. Declared BEFORE the
+  // poll so its effect runs first.
+  const runRef = useRef(0);
   useEffect(() => {
-    if (!enabled) {
-      // Inline async wrapper satisfies react-hooks/set-state-in-effect while the setState still
-      // applies synchronously this tick — the idiom MapView's own fetch effects use.
-      (async () => {
-        setLive(null);
-        setForecast(null);
-      })();
-      return undefined;
-    }
-
-    let cancelled = false;
-
-    async function fetchBoth() {
-      // Independent: one endpoint failing or lagging must not hold up or discard the other.
-      const askLive = getAuroraViewline().then(
-        (data) => { if (!cancelled) setLive(data); },
-        () => { /* transient error — keep whatever is held */ },
-      );
-      const askForecast = !includeForecast ? Promise.resolve() : getAuroraForecastViewline().then(
-        (data) => { if (!cancelled) setForecast(data); },
-        () => { /* transient error — keep whatever is held */ },
-      );
-      await Promise.all([askLive, askForecast]);
-    }
-
-    fetchBoth();
-    const interval = setInterval(fetchBoth, POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
+    runRef.current += 1;
+    return () => { runRef.current += 1; };
   }, [enabled, includeForecast]);
+
+  useEffect(() => {
+    if (enabled) return;
+    // Inline async wrapper satisfies react-hooks/set-state-in-effect while the setState still
+    // applies synchronously this tick — the idiom MapView's own fetch effects use.
+    (async () => {
+      setLive(null);
+      setForecast(null);
+    })();
+  }, [enabled]);
+
+  const fetchBoth = useCallback(async () => {
+    const run = runRef.current;
+    // Independent: one endpoint failing or lagging must not hold up or discard the other.
+    const askLive = getAuroraViewline().then(
+      (data) => { if (run === runRef.current) setLive(data); },
+      () => { /* transient error — keep whatever is held */ },
+    );
+    const askForecast = !includeForecast ? Promise.resolve() : getAuroraForecastViewline().then(
+      (data) => { if (run === runRef.current) setForecast(data); },
+      () => { /* transient error — keep whatever is held */ },
+    );
+    await Promise.all([askLive, askForecast]);
+  }, [includeForecast]);
+
+  // Polls while visible; a change of `enabled` or `includeForecast` fetches at once (`useVisiblePoll`).
+  useVisiblePoll(fetchBoth, POLL_INTERVAL_MS, { enabled });
 
   // `enabled &&` covers the render in which the hook is disabled, before the clear above has run.
   if (enabled && viewlineDrawable(live)) return { viewline: live, source: 'live' };

@@ -1,4 +1,5 @@
 import apiClient from './axiosClient.js';
+import { getMemoised } from '../utils/jsonMemo.js';
 
 const BASE_URL = '/api/nlc';
 
@@ -18,7 +19,7 @@ const BASE_URL = '/api/nlc';
  */
 export async function getNlcSighting() {
   try {
-    const response = await apiClient.get(`${BASE_URL}/sighting`);
+    const response = await getMemoised(apiClient, `${BASE_URL}/sighting`);
     return response.data;
   } catch (err) {
     if (err.response?.status === 403 || err.response?.status === 401) {

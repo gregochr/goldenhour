@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { getNlcSighting } from '../api/nlcApi.js';
+import { useVisiblePoll } from './useVisiblePoll.js';
 
 // Sightings are low-frequency and only meaningful during a short summer season,
 // so a gentler cadence than the 5-minute aurora poll is fine.
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
- * Polls the NLC sighting endpoint every 10 minutes and on window focus.
+ * Polls the NLC sighting endpoint every 10 minutes while the page is visible, and on return or focus after a minute.
  *
  * Returns null when the user is not eligible (free-tier, 403), before the first
  * successful fetch, or when there is no active sighting to surface.
@@ -43,7 +44,6 @@ const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 export function useNlcSighting(enabled = true) {
   const [sighting, setSighting] = useState(null);
   const [loading, setLoading] = useState(true);
-  const intervalRef = useRef(null);
   // The two halves of that ordering: how many requests have been made, and the number of the
   // newest one whose answer has been applied. Refs rather than locals in the effect, so one
   // numbering spans StrictMode's second run of the effect, which makes its own request while the
@@ -56,37 +56,26 @@ export function useNlcSighting(enabled = true) {
   const requestedRef = useRef(0);
   const appliedRef = useRef(0);
 
-  useEffect(() => {
-    // Nothing to do for a reader the endpoint refuses; the returned value is derived below.
-    if (!enabled) return undefined;
-    async function fetchSighting() {
-      requestedRef.current += 1;
-      const request = requestedRef.current;
-      try {
-        const data = await getNlcSighting();
-        if (request < appliedRef.current) return; // a newer answer is already on screen
-        appliedRef.current = request;
-        setSighting(data); // null for 403 (free-tier) — component returns null
-      } catch {
-        // Network errors are transient — retain existing sighting
-      } finally {
-        setLoading(false);
-      }
+  const fetchSighting = useCallback(async () => {
+    requestedRef.current += 1;
+    const request = requestedRef.current;
+    try {
+      const data = await getNlcSighting();
+      if (request < appliedRef.current) return; // a newer answer is already on screen
+      appliedRef.current = request;
+      // null for 403 (free-tier) — component returns null. An unchanged reply is the same object
+      // (`getNlcSighting` memoises the parse), so this is a no-op then.
+      setSighting(data);
+    } catch {
+      // Network errors are transient — retain existing sighting
+    } finally {
+      setLoading(false);
     }
+  }, []);
 
-    fetchSighting();
-    intervalRef.current = setInterval(fetchSighting, POLL_INTERVAL_MS);
-
-    function handleFocus() {
-      fetchSighting();
-    }
-    window.addEventListener('focus', handleFocus);
-
-    return () => {
-      clearInterval(intervalRef.current);
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [enabled]);
+  // Polls while visible and refetches on return/focus after the gap (`useVisiblePoll`). A disabled hook
+  // makes no request, polls nothing and listens for nothing; the returned value is derived below.
+  useVisiblePoll(fetchSighting, POLL_INTERVAL_MS, { enabled });
 
   return { sighting: enabled ? sighting : null, loading: enabled ? loading : false };
 }
