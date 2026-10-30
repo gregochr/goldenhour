@@ -27,8 +27,10 @@ import java.util.concurrent.ScheduledFuture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -76,8 +78,22 @@ class DynamicSchedulerTimeZoneTest {
                 .build();
     }
 
-    private Trigger scheduledTrigger(DynamicSchedulerService service, SchedulerJobConfigEntity config) {
-        when(taskScheduler.schedule(any(Runnable.class), any(Trigger.class)))
+    /**
+     * Matches the cron trigger the service should install: the expected expression, firing at
+     * {@code expectedNext} when asked at {@code probeNow}. {@link CronTrigger} exposes no zone getter, so the
+     * zone is pinned by that fire time (pick a probe date where the zone shifts the instant). The runnable
+     * is the service's own wrapper, which a test cannot name, so it stays {@code any(Runnable.class)}.
+     */
+    private static Trigger cronTrigger(String expression, String probeNow, String expectedNext) {
+        return argThat(t -> t instanceof CronTrigger c
+                && c.getExpression().equals(expression)
+                && Instant.parse(expectedNext).equals(nextFire(c, probeNow)));
+    }
+
+    private Trigger scheduledTrigger(DynamicSchedulerService service, SchedulerJobConfigEntity config,
+            String probeNow, String expectedNext) {
+        when(taskScheduler.schedule(any(Runnable.class),
+                cronTrigger(config.getCronExpression(), probeNow, expectedNext)))
                 .thenReturn(mock(ScheduledFuture.class));
         service.registerJobTarget(config.getJobKey(), () -> { });
         service.scheduleJob(config);
@@ -95,7 +111,8 @@ class DynamicSchedulerTimeZoneTest {
     @DisplayName("a null-zone CRON job still fires in UTC")
     void nullZoneJobFiresInUtc() {
         DynamicSchedulerService service = serviceAt("2026-07-01T12:00:00Z");
-        Trigger trigger = scheduledTrigger(service, cronJob("tide_refresh", "0 0 20 * * *", null));
+        Trigger trigger = scheduledTrigger(service, cronJob("tide_refresh", "0 0 20 * * *", null),
+                "2026-07-01T12:00:00Z", "2026-07-01T20:00:00Z");
 
         assertThat(trigger).isInstanceOf(CronTrigger.class);
         assertThat(nextFire(trigger, "2026-07-01T12:00:00Z"))
@@ -108,7 +125,8 @@ class DynamicSchedulerTimeZoneTest {
     @DisplayName("a Europe/London job's installed trigger fires at 21:00 UK: 21:00Z winter, 20:00Z summer")
     void londonJobTriggerFollowsUkClock() {
         DynamicSchedulerService service = serviceAt("2026-10-30T12:00:00Z");
-        Trigger trigger = scheduledTrigger(service, cronJob(EVENING, EVENING_CRON, LONDON));
+        Trigger trigger = scheduledTrigger(service, cronJob(EVENING, EVENING_CRON, LONDON),
+                "2026-07-01T12:00:00Z", "2026-07-01T20:00:00Z");
 
         assertThat(nextFire(trigger, "2026-10-30T12:00:00Z"))
                 .isEqualTo(Instant.parse("2026-10-30T21:00:00Z"));
@@ -151,7 +169,8 @@ class DynamicSchedulerTimeZoneTest {
         SchedulerJobConfigEntity good = cronJob("tide_refresh", "0 0 2 * * MON", null);
         good.setId(2L);
         when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(bad, good));
-        when(taskScheduler.schedule(any(Runnable.class), any(Trigger.class)))
+        when(taskScheduler.schedule(any(Runnable.class),
+                cronTrigger("0 0 2 * * MON", "2026-07-01T12:00:00Z", "2026-07-06T02:00:00Z")))
                 .thenReturn(mock(ScheduledFuture.class));
         service.registerJobTarget(EVENING, () -> { });
         service.registerJobTarget("tide_refresh", () -> { });
@@ -159,8 +178,9 @@ class DynamicSchedulerTimeZoneTest {
         service.initSchedules();
 
         ArgumentCaptor<Trigger> captor = ArgumentCaptor.forClass(Trigger.class);
-        verify(taskScheduler).schedule(any(Runnable.class), captor.capture());
+        verify(taskScheduler, times(1)).schedule(any(Runnable.class), captor.capture());
         assertThat(captor.getAllValues()).hasSize(1);
+        assertThat(((CronTrigger) captor.getValue()).getExpression()).isEqualTo("0 0 2 * * MON");
         assertThat(service.calculateNextFireTime(bad)).isNull();
     }
 
@@ -181,7 +201,8 @@ class DynamicSchedulerTimeZoneTest {
         DynamicSchedulerService service = serviceAt("2026-10-30T12:00:00Z");
         SchedulerJobConfigEntity config = cronJob(EVENING, EVENING_CRON, LONDON);
         when(repository.findByJobKey(EVENING)).thenReturn(Optional.of(config));
-        when(taskScheduler.schedule(any(Runnable.class), any(Trigger.class)))
+        when(taskScheduler.schedule(any(Runnable.class),
+                cronTrigger("0 30 22 * * *", "2026-07-01T12:00:00Z", "2026-07-01T21:30:00Z")))
                 .thenReturn(mock(ScheduledFuture.class));
         service.registerJobTarget(EVENING, () -> { });
 
