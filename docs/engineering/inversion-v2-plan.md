@@ -390,6 +390,13 @@ Switch-over (shadow → live) is an owner decision on that evidence.
 6. **High viewpoints** (2026-10-30, from §8): both confirmed inversion mornings topped out at about
    700–900 m, above every roster site. Add a few summits (Blencathra, Helvellyn, Skiddaw, Scafell Pike,
    Red Pike) as inversion viewpoints, or accept that the roster scores shallow valley fog only?
+   **Decided 2026-10-30: both.** Score shallow valley fog for the 200–600 m roster AND add high
+   viewpoints. Added the same day by the owner (direct `INSERT`, region 3, sub-region copied from a
+   neighbour, `overlooks_water`, sunrise and sunset, LANDSCAPE, OS summit heights): **264 Helvellyn
+   (950 m), 265 Scafell Pike (978 m), 266 Blencathra (868 m)**. Grid cells left for the nightly
+   `GridCellBackfillJob`; no Bortle. Until 1b they are scored by today's calculator, whose 925 hPa
+   comparison happens to sit near summit height (right on 15 Oct at Blencathra, vetoed by cloud on 4 Nov
+   at Skiddaw); 1b scores them properly, and their shadow-mode record starts now.
 7. **Switch-over** from shadow, per phase, on §6's evidence.
 
 ---
