@@ -11,7 +11,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Proves V203 against a real Postgres (Flyway runs every migration in {@link IntegrationTestBase}):
+ * Proves V204 against a real Postgres (Flyway runs every migration in {@link IntegrationTestBase}):
  * the evening sunrise refresh runs at 21:00 UK time and every other job keeps a null (UTC) zone.
  *
  * <p>CI-only: it needs the Postgres Testcontainer, and there is no Docker on the development machine
@@ -23,7 +23,7 @@ class SchedulerJobTimeZoneMigrationTest extends IntegrationTestBase {
     private JdbcTemplate jdbc;
 
     @Test
-    @DisplayName("V203 puts the evening refresh in Europe/London at 21:00 and leaves its status as seeded")
+    @DisplayName("V204 puts the evening refresh in Europe/London at 21:00 and leaves its status as seeded")
     void eveningRefreshRunsInUkTime() {
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT time_zone, cron_expression, status FROM scheduler_job_config "
@@ -37,7 +37,7 @@ class SchedulerJobTimeZoneMigrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("V203 leaves every other job's time_zone null, meaning UTC")
+    @DisplayName("V204 leaves every other job's time_zone null, meaning UTC")
     void otherJobsStayUtc() {
         List<String> zoned = jdbc.queryForList(
                 "SELECT job_key FROM scheduler_job_config WHERE time_zone IS NOT NULL "

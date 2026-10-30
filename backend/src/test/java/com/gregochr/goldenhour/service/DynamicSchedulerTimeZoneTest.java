@@ -35,7 +35,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for the per-job time zone of {@link DynamicSchedulerService} (V203): a CRON job with a
+ * Unit tests for the per-job time zone of {@link DynamicSchedulerService} (V204): a CRON job with a
  * {@code time_zone} is evaluated in that zone, a job without one stays in UTC.
  */
 @ExtendWith(MockitoExtension.class)
