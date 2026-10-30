@@ -27,7 +27,7 @@ public enum CycleType {
     INTRADAY,
 
     /**
-     * Evening refresh — tomorrow's sunrise alone, about 20:00 UTC, so the bedtime decision rests on a
+     * Evening refresh — tomorrow's sunrise alone, at 21:00 UK time, so the bedtime decision rests on a
      * fresh look. Gives no failure evidence ({@code LocationFailureService} claims and ignores it).
      */
     EVENING;

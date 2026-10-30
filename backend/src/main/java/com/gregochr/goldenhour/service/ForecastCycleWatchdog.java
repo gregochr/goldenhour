@@ -26,9 +26,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -66,7 +66,8 @@ import java.util.Optional;
  * </ul>
  *
  * <p><b>Finding F.</b> {@link CronExpression} has no "previous fire", so for a {@code CRON} job the
- * expression is walked forward from {@code now - 6 h} (in UTC, the scheduler's own zone) and the last
+ * expression is walked forward from {@code now - 6 h} (in the job's own time zone, UTC unless the row
+ * names one, as the scheduler does) and the last
  * fire at or before now is F; a job that fires more than {@value #MAX_CRON_STEPS} times in six hours
  * is not one this watchdog can reason about and is skipped. For a {@code SOLAR_OFFSET} job F is the
  * trigger's own fire for the UK date today and yesterday ({@link SolarOffsetTrigger#fireFor}), the
@@ -264,7 +265,7 @@ public class ForecastCycleWatchdog {
      */
     private void checkEveningFinished(SchedulerJobConfigEntity config, CycleType cycle, Instant now,
             LocalDate today) {
-        // The evening fires at 20:00 UTC, so its deadline (and a timeout failure) can fall after UK
+        // The evening fires at 21:00 UK time, so its deadline (and a timeout failure) can fall after UK
         // midnight: look back far enough to include any run whose deadline is recent. The extra hour
         // covers first-submit lag and several watchdog passes; the latch prevents repeats.
         Instant dayStart = today.atStartOfDay(LONDON).toInstant();
@@ -352,7 +353,7 @@ public class ForecastCycleWatchdog {
                     config.getSolarEvent(), config.getSolarOffsetMinutes(), config.getCronExpression());
             SolarOffsetTrigger.Fire todays = trigger.fireFor(today);
             if (!todays.usable()) {
-                return cronLastFire(config.getCronExpression(), now);
+                return cronLastFire(config.getCronExpression(), DynamicSchedulerService.cronZone(config), now);
             }
             Instant latest = null;
             for (SolarOffsetTrigger.Fire fire : List.of(todays, trigger.fireFor(today.minusDays(1)))) {
@@ -364,28 +365,28 @@ public class ForecastCycleWatchdog {
             return Optional.ofNullable(latest);
         }
         if (config.getScheduleType() == ScheduleType.CRON) {
-            return cronLastFire(config.getCronExpression(), now);
+            return cronLastFire(config.getCronExpression(), DynamicSchedulerService.cronZone(config), now);
         }
         return Optional.empty();
     }
 
-    private static Optional<Instant> cronLastFire(String expression, Instant now) {
+    private static Optional<Instant> cronLastFire(String expression, ZoneId zone, Instant now) {
         if (expression == null || expression.isBlank()) {
             return Optional.empty();
         }
         CronExpression cron = CronExpression.parse(expression);
-        LocalDateTime nowUtc = LocalDateTime.ofInstant(now, ZoneOffset.UTC);
-        LocalDateTime next = cron.next(nowUtc.minusHours(MAX_FIRE_AGE_HOURS));
-        LocalDateTime last = null;
+        ZonedDateTime nowLocal = now.atZone(zone);
+        ZonedDateTime next = cron.next(nowLocal.minusHours(MAX_FIRE_AGE_HOURS));
+        ZonedDateTime last = null;
         int steps = 0;
-        while (next != null && !next.isAfter(nowUtc)) {
+        while (next != null && !next.isAfter(nowLocal)) {
             if (++steps > MAX_CRON_STEPS) {
                 return Optional.empty();
             }
             last = next;
             next = cron.next(next);
         }
-        return Optional.ofNullable(last).map(t -> t.toInstant(ZoneOffset.UTC));
+        return Optional.ofNullable(last).map(ZonedDateTime::toInstant);
     }
 
     private synchronized boolean firstTime(String key) {

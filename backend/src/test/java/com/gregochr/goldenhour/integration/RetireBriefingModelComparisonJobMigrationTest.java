@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Proves V199 against a real Postgres: the {@code briefing_model_comparison} row exists at V198 and is
- * gone after migrating to the latest version, while every other {@code scheduler_job_config} row is still
+ * gone after migrating to V199, while every other {@code scheduler_job_config} row is still
  * present with its cron unchanged.
  *
  * <p>CI-only — it starts its own Testcontainer, and there is no Docker on the development machine
@@ -72,7 +72,7 @@ class RetireBriefingModelComparisonJobMigrationTest {
         }
         assertThat(before).containsKey(JOB_KEY);
 
-        flyway("latest").migrate();
+        flyway("199").migrate();
 
         try (Connection c = connect(); Statement st = c.createStatement()) {
             Map<String, String> after = crons(st);

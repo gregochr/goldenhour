@@ -87,6 +87,13 @@ public class SchedulerJobConfigEntity {
     @Column(name = "cron_expression", length = 100)
     private String cronExpression;
 
+    /**
+     * IANA zone id the CRON expression is evaluated in; {@code null} means UTC. Written only by
+     * migrations, so never updatable from the entity.
+     */
+    @Column(name = "time_zone", length = 40, updatable = false)
+    private String timeZone;
+
     /** Fixed delay in milliseconds — only applicable when scheduleType is FIXED_DELAY. */
     @Column(name = "fixed_delay_ms")
     private Long fixedDelayMs;

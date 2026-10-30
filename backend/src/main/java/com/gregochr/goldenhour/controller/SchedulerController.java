@@ -183,6 +183,9 @@ public class SchedulerController {
                         config.getDescription() != null ? config.getDescription() : ""),
                 Map.entry("scheduleType",
                         config.getScheduleTypeRaw() != null ? config.getScheduleTypeRaw() : ""),
+                Map.entry("timeZone",
+                        config.getTimeZone() != null && !config.getTimeZone().isBlank()
+                                ? config.getTimeZone() : "UTC"),
                 Map.entry("cronExpression",
                         config.getCronExpression() != null ? config.getCronExpression() : ""),
                 Map.entry("solarEvent",

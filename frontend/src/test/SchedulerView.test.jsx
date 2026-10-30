@@ -759,4 +759,41 @@ describe('describeCron() — UK time conversion', () => {
       );
     });
   });
+
+  it('shows a Europe/London cron as-is, labelled UK time, in BST', async () => {
+    fetchSchedulerJobs.mockResolvedValue([{
+      ...MOCK_JOBS[0], cronExpression: '0 0 21 * * *', timeZone: 'Europe/London',
+    }]);
+    render(<SchedulerView />);
+    await waitFor(() => {
+      const row = screen.getByTestId('scheduler-job-tide_refresh');
+      expect(row).toHaveTextContent('Daily at 21:00 UK time');
+      expect(row).not.toHaveTextContent('22:00');
+    });
+  });
+
+  it('shows a Europe/London cron unchanged in winter too', async () => {
+    vi.setSystemTime(new Date('2026-01-13T10:00:00Z')); // GMT
+    fetchSchedulerJobs.mockResolvedValue([{
+      ...MOCK_JOBS[0], cronExpression: '0 0 21 * * *', timeZone: 'Europe/London',
+    }]);
+    render(<SchedulerView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent(
+        'Daily at 21:00 UK time',
+      );
+    });
+  });
+
+  it('still converts a job whose timeZone is UTC', async () => {
+    fetchSchedulerJobs.mockResolvedValue([{
+      ...MOCK_JOBS[0], cronExpression: '0 0 4 * * *', timeZone: 'UTC',
+    }]);
+    render(<SchedulerView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent(
+        'Daily at 05:00 BST',
+      );
+    });
+  });
 });
