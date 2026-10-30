@@ -66,6 +66,11 @@ public class JobMetricsController {
     /**
      * Retrieves recent job runs, optionally filtered by run type.
      *
+     * <p>Both the filtered and the all-types query page newest-first by {@code page} / {@code size}.
+     * The service is asked for one probe row beyond the requested page, so the page knows whether
+     * another follows; the scan cap is therefore effectively {@value #MAX_SCANNED_ROWS} + 1. The
+     * page's {@code totalElements} is a lower bound, not a true count.
+     *
      * <p>A negative {@code page} or a non-positive {@code size} is rejected with 400 — there is no
      * sensible reading of either. An oversized {@code size} is clamped to {@value #MAX_PAGE_SIZE}
      * rather than rejected, so an over-eager UI still gets its data.
@@ -87,22 +92,30 @@ public class JobMetricsController {
         int pageSize = Math.min(size, MAX_PAGE_SIZE);
 
         try {
-            List<JobRunEntity> runs;
+            // One extra probe row beyond the requested page tells us whether another page exists.
+            int fetchLimit = scanLimit(page, pageSize) + 1;
+            List<JobRunEntity> fetched;
 
             if (runType != null && !runType.isEmpty()) {
                 RunType rt = RunType.valueOf(runType.toUpperCase());
-                runs = jobRunService.getRecentRuns(rt, scanLimit(page, pageSize)).stream()
-                        .skip((long) page * pageSize)
-                        .limit(pageSize)
-                        .toList();
+                fetched = jobRunService.getRecentRuns(rt, fetchLimit);
             } else {
-                runs = jobRunService.getRecentRunsAllTypes(pageSize);
+                fetched = jobRunService.getRecentRunsAllTypes(fetchLimit);
             }
+
+            List<JobRunEntity> window = fetched.stream()
+                    .skip((long) page * pageSize)
+                    .limit(pageSize + 1L)
+                    .toList();
+            boolean hasNext = window.size() > pageSize;
+            List<JobRunEntity> runs = hasNext ? window.subList(0, pageSize) : window;
 
             runs.forEach(run -> batchSummaryDeriver.derive(run).ifPresent(run::setBatchSummary));
 
             List<JobRunDto> content = runs.stream().map(JobRunDto::from).toList();
-            return ResponseEntity.ok(new PageImpl<>(content, PageRequest.of(page, pageSize), runs.size()));
+            // A lower bound, not a count: rows before this page, plus this page, plus one if more exist.
+            long total = (long) page * pageSize + runs.size() + (hasNext ? 1 : 0);
+            return ResponseEntity.ok(new PageImpl<>(content, PageRequest.of(page, pageSize), total));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body("Invalid run type: " + runType);
         }
