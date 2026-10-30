@@ -642,6 +642,86 @@ when it is inside a higher-based layer.
   ≤ 5 m/s, MARGINAL at 10 m/s, VETOED at ≥ 15 m/s. Priors, named constants. 10 m wind unchanged.
 - Count the load (rule 6). Extend the isolation test. Tests convert the fixture's mph.
 
+### Phases 2 and 3 build spec (2026-10-30, after 1b merged; supersedes the two sketches above)
+
+**Owner decisions (2026-10-30):** build both now, one PR each, Phase 2 first; Option B **yes**; night
+window **about 21:00 to 05:00 local**. The sketches were written for the old calculator. Since 1b the
+score that matters is `InversionScoreCalculatorV2`, which has no 15–80 % low-cloud gate (sea evidence
+replaced it). So both phases live **in V2 only**:
+- The old `InversionScoreCalculator` stays byte-for-byte as it is, since it is the revert reference
+  and the stored `inversion_score_v1`.
+- Sites without a valley floor see no change.
+- Mist is untouched (rules 1–5): nothing reads or writes a mist input, and `FORECAST_PARAMS` and
+  `MistSlot` are unchanged. Each PR extends `ValleyMistInversionV2IsolationTest` with its new inputs.
+
+All new readings come from the **valley profile request** (same call, more variables); there is no new
+request. Every new variable is nullable: a missing value means "no night term" or "no wind cap", never a
+failed profile. Terms and caps stay whole numbers (revision 8). Every threshold is a named constant and
+a prior.
+
+**Phase 2: the clear night (sunrise only).**
+1. *Data.* Add `cloud_cover_mid` and `cloud_cover_high` to `INVERSION_PROFILE_PARAMS` (15 → 17).
+   - Add `past_days=1` to the profile request. A T+0 sunrise needs the previous evening, and today
+     the request starts at 00:00 UTC.
+   - `InversionProfile` gains a **night slice** beside the event slice: every hour whose
+     Europe/London local time falls in [21:00 of the evening before the event date, 05:00 on the
+     event date]. A slot earlier than 05:00 local ends the night at the slot.
+   - The night slice keeps per hour: mid, high and low cloud, the valley 2 m temperature and dew
+     point, and the valley wind.
+   - A night slice with fewer than 6 hours that have mid and high cloud is "no night data".
+   - SUNSET gets no night slice; the inversion is a dawn subject.
+2. *Night cloud* = the mean over the night hours of max(mid, high). Low cloud is **not** counted
+   against the night, because valley low cloud forming overnight is the fog itself (18 Oct 06:00 had
+   54 %).
+3. *Cap, never an added point* (sketch: an additive term would bring back "calm saturated dawn reads
+   STRONG"):
+   - night cloud ≥ `NIGHT_OVERCAST_PERCENT` = 70 → **cap 6** ("overcast-night");
+   - ≥ `NIGHT_PARTLY_PERCENT` = 40 → **cap 8** ("cloudy-night");
+   - otherwise no cap. No night data → no cap.
+4. *Option B (owner: yes).* A **clear, calm, moist night** means all three of:
+   - night cloud < 40;
+   - valley wind ≤ `FOG_CALM_WIND_MS` (2 m/s) in at least half the night hours;
+   - valley gap (T − Td) ≤ `NIGHT_MOIST_GAP_C` = 2 °C in at least one night hour.
+
+   It is read from the valley cell, not from mist's band. Where it holds:
+   - (a) sea evidence is at least 1 (`SEA_PARTIAL`; caps "night-sea");
+   - (b) it counts as fog evidence for the surface-based regime, so a viewpoint ≥ h0 + 100 m is edge
+     (cap 8), not unconfirmed (6).
+
+   It never lifts any cap, and the raise cap (< 600 m, at most old + 1) still applies.
+5. *Prompt.* When V2 drove the score, the existing `Warm layer:` line gains a short clause, e.g. "after
+   a clear, calm night" or "under a cloudy night (cap 8)". The fallback path stays byte-identical.
+6. *Tests.* Clear, partly and overcast nights at the 40 and 70 boundaries; no night data; the local
+   window across the BST/GMT change (last Sunday of October and March); a slot before 05:00. Option B on
+   and off, and each of its three conditions failing alone. Sunset has no night term. The six fixture
+   rows: report any change; the fixtures have no mid/high night series, so expect "no night data" and
+   no change. Plus a 2b2-style test fixture extended by hand with a night series (labelled synthetic).
+
+**Phase 3: wind at summit height.**
+1. *Data.* Add `wind_speed_{975,950,925,900,850}hPa` to `INVERSION_PROFILE_PARAMS` (17 → 22). The
+   request already sets `wind_speed_unit=ms`.
+2. *Level.* At the event slot, take the level with valid wind and height whose geopotential height is
+   nearest the viewpoint height E; a tie goes to the higher level. No valid level → no wind cap.
+3. *Cap:*
+   - ≥ `SUMMIT_WIND_VETO_MS` = 15 m/s → **cap 6** ("summit-wind");
+   - ≥ `SUMMIT_WIND_MARGINAL_MS` = 10 → **cap 8**;
+   - otherwise none.
+
+   The 10 m valley wind term is unchanged.
+4. *Prompt.* When the cap binds and V2 drove the score, the `Warm layer:` line adds "wind across the
+   top about N m/s at the X hPa level".
+5. *Tests.*
+   - Nearest-level choice, including the tie and null levels.
+   - Both caps at their boundaries (9.9, 10.0, 14.9, 15.0).
+   - Fixtures 2a, 2b2 and 2c carry wind at 975/950/925 hPa in m/s. Pin what they compute and report
+     any row change; they have no 900/850 wind, so the nearest-level rule must cope with that.
+6. *Load.* 22 variables over 8 days is about 2.2 call-equivalents per point, roughly 30 sites, one or
+   two calls per run. Note it under rule 6.
+
+**Both PRs.** Docs: `conditions.md` (the night cap, Option B, the wind cap), `pipeline.md` (`past_days`,
+the variable count) and the changelog. No migration: the stored columns are unchanged, and the log
+line's `caps=` already names every cap.
+
 ### Phase 4 (optional, owner sign-off): sky above the sea at dawn
 
 High cloud does not decide whether an inversion forms; it decides the light on it, which Claude already
