@@ -192,14 +192,21 @@ class ValleyMistInversionV2IsolationTest {
         assertThat(surface.caps()).isEqualTo("night-fog(8)");
     }
 
+    /** The one variant whose label starts with {@code prefix}, so the reach tests survive a reorder. */
+    private static Variant byName(String prefix) {
+        return variants().stream().filter(v -> v.name().startsWith(prefix)).reduce((a, b) -> {
+            throw new IllegalStateException("ambiguous variant prefix: " + prefix);
+        }).orElseThrow(() -> new IllegalStateException("no variant: " + prefix));
+    }
+
     @Test
     @DisplayName("the wind variants really do reach the inversion score, so their isolation is not vacuous")
     void windVariantsReachTheInversionScore() {
         AtmosphericData parsed = BrathayValleyMistFixture.sunriseAt(BrathayValleyMistFixture.SUNRISE_READS_0700);
 
-        InversionV2Result windy = chain(parsed, variants().get(14)).inversionV2();
-        InversionV2Result gale = chain(parsed, variants().get(15)).inversionV2();
-        InversionV2Result site = chain(parsed, variants().get(16)).inversionV2();
+        InversionV2Result windy = chain(parsed, byName("wind 13 m/s across the top, summit")).inversionV2();
+        InversionV2Result gale = chain(parsed, byName("wind 20 m/s across the top, summit")).inversionV2();
+        InversionV2Result site = chain(parsed, byName("wind 20 m/s across the top, 335 m site")).inversionV2();
 
         assertThat(windy.windMs()).isEqualTo(13.0);
         assertThat(windy.windLevelHpa()).isEqualTo(950);

@@ -208,14 +208,28 @@ class InversionScoreCalculatorV2WindTest {
         }
 
         @Test
-        @DisplayName("caps are listed clearance, in-cloud, then wind; a wind that cannot lower a 6 is not listed")
-        void inCloudBeforeWind() {
+        @DisplayName("in-cloud at 6 leaves a veto wind unrecorded: the wind cannot lower a 6")
+        void inCloudLeavesVetoWindUnrecorded() {
             InversionV2Result r = InversionScoreCalculatorV2.calculate(
                     data(profile(H0, elevatedSlot().winds(null, 20.0, null, null, null)), 90, 1000), 2000);
 
             assertThat(r.caps()).isEqualTo("in-cloud(6)");
             assertThat(r.windCapBound()).isFalse();
             assertThat(r.windMs()).isEqualTo(20.0);
+        }
+
+        @Test
+        @DisplayName("caps are listed weak, then wind: a 1 degC layer caps at 8, a 20 m/s top then caps at 6")
+        void weakBeforeWind() {
+            H slot = H.at(7).t2(8.0).dew(7.8).wind(1.0).low(90).vis(10000.0).temps(6.0, 5.0, 6.0, 5.5, 5.0)
+                    .winds(null, 20.0, null, null, null);
+
+            InversionV2Result r = score(profile(H0, slot), 2000);
+
+            assertThat(r.strengthCelsius()).isEqualTo(1.0);
+            assertThat(r.caps()).isEqualTo("weak(8),summit-wind(6)");
+            assertThat(r.v2Raw()).isEqualTo(6.0);
+            assertThat(r.windCapBound()).isTrue();
         }
 
         @Test
