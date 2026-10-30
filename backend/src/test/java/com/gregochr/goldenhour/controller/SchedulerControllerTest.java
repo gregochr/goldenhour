@@ -65,7 +65,6 @@ class SchedulerControllerTest extends AbstractControllerTest {
                 "0 0 21 * * *", null, SchedulerJobStatus.ACTIVE);
         london.setTimeZone("Europe/London");
         when(schedulerService.getAll()).thenReturn(List.of(utc, london));
-        when(schedulerService.calculateNextFireTime(any())).thenReturn(null);
 
         mockMvc.perform(get("/api/admin/scheduler/jobs"))
                 .andExpect(status().isOk())
