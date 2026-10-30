@@ -5,6 +5,128 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.35.3] - 2026-10-30
+
+### Changed — map labels no longer re-place mid-drag
+
+Map labels and location chips are no longer re-measured and re-placed on every frame of a drag; they move with the map and re-place when the drag ends, so a chip entering from the screen edge appears at the end of the drag. During a two-finger pinch the labels are hidden until the pinch settles.
+
+### Docs — map gesture redraws measured after P4b and P4c
+
+The performance plan's phase log records the re-measurement on main: heat-field redraws and label placements now happen only on
+settle (126 → 5–7 per phone drag, 74 → 5 per pinch, none mid-gesture). Per-redraw milliseconds were not judged; the host was saturated.
+
+### Performance — the heat field no longer redraws mid-drag
+
+The Map tab's colour field is no longer redrawn on every frame of a drag or pinch, which was a visible cost on phones. The visible change: while you drag, the edge that scrolls into view stays blank until the movement ends (after any glide), and during a pinch the field scales with the map and sharpens on release.
+
+### Added — editable elevation and valley-floor suggestions for locations
+
+The admin location editor can now correct a site's elevation by hand and set a valley floor below it. A
+**Suggest** button samples 96 points within 5 km in one Open-Meteo elevation call and offers the lowest
+point in each compass direction that is at least 30 m below the site (height, distance and bearing); picking
+one fills the floor's height and coordinates and shows the model cell Open-Meteo resolves it to, so a wrong
+valley is visible before anything uses it. The floor is stored in three new nullable columns on `locations`
+(V201: `valley_floor_m`, `valley_floor_lat`, `valley_floor_lng`) and is served on `GET /api/locations`.
+`PUT /api/locations/{id}` takes `elevationMetres`, the three floor fields and `clearValleyFloor`; new
+admin-only `GET /api/locations/valley-floor-candidates` and `GET /api/locations/valley-floor-cell`.
+
+Nothing in the forecast path reads the valley floor yet (inversion v2 phase 1b will). Editing
+`elevation_m` does move what already reads it (inversion eligibility at 200 m on a site that overlooks water,
+the snow-tops topic, the neighbour guard), so the editor warns when an edit crosses 200 m on such a site.
+The elevation backfill and the Add dialog are unchanged.
+
+### Fixed — Job Runs "Load More" repeated the newest runs
+
+With the "All Run Types" filter, Operations → Job Runs ignored the page index, so "Load More" appended the newest 20 runs again instead of older ones. The all-types list now pages like the filtered one, orders runs that share a start second by id so pages cannot overlap, and the grid drops any run it already shows.
+
+### Added — cloud inversion v2: wind at summit height
+
+The v2 inversion score now reads the wind across the top of an elevated warm layer (inversion-v2-plan
+Phase 3). The valley profile request gains the wind speed at the five pressure levels (17 to 22 hourly
+variables). At the event slot the larger of the wind at the layer's base level and at the level above it
+caps the score: 12 m/s or more at 8, 18 m/s or more at 6. Surface-based layers and sites with no layer are
+unchanged, a missing wind means no cap, and the cap is recorded in the log line's `caps=` only when it
+lowers the score. The `[INVERSION v2]` log line gains `wind=<m/s>@<hPa>`, and the prompt's warm-layer line
+gains a short clause only when the wind changed the score. No fixture score moves. Open-Meteo load on the
+main fetch rises from about +16 % to about +21 %.
+
+### Added — cloud inversion v2: the clear night
+
+The v2 inversion score now reads the night before a sunrise (inversion-v2-plan Phase 2). The valley
+profile request gains mid and high cloud (15 to 17 hourly variables) and `past_days=1`, on that request
+only. Per night hour, from 21:00 to 05:00 UK local time, the measure is the larger of mid cloud, half of
+high cloud and a low-cloud lid (valley low cloud over visibility of 5 km or more); the mean caps a score
+by regime: surface-based layers at 6 from 70 %, elevated layers at 8 from a mean mid cloud of 70 %. A
+clear, calm, moist night (Option B) counts as fog evidence for a surface-based layer, turning an
+unconfirmed viewpoint 100 m or more above the valley floor into an edge. Sunsets and sites without a
+valley floor are unchanged; a night with too few hours changes nothing. The `[INVERSION v2]` log line
+gains `night=` and `optionB=`, and the prompt's warm-layer line gains a short clause only when the night
+changed the score. Open-Meteo load on the main fetch rises from about +14 % to about +16 % (about +21 % after Phase 3).
+
+### Added — cloud inversion v2: the warm layer measured from the valley floor
+
+The inversion score now reads the temperature profile from each site's confirmed valley floor instead of
+comparing 925 hPa with the viewpoint cell's own 2 m temperature (which on a fell top is the fell). For a site
+with `elevation_m` >= 200, `overlooks_water` and a valley floor set in the location editor, one extra
+best-effort Open-Meteo request per run (the floor's own lat/lng with `elevation=<valley_floor_m>`, 15 hourly
+variables, batched 20 to a call, rate limiter only: no retry, no `open-meteo` circuit breaker) feeds the new
+`InversionScoreCalculatorV2`. It finds the warm layer (base, top, strength; shallow surface-based or
+elevated), judges whether the viewpoint is inside it, at its edge or clear of it, and adds a valley-fog
+evidence term and an in-cloud check on the viewpoint's own cell. On the owner's reported mornings it scores
+the 15 Oct 2025 Cat Bells-style false positive 6 (the old calculator said 7), Blencathra at the edge 7,
+Scafell Pike clear 7, Helvellyn clear 7 and the 4 Nov 2024 Skiddaw-like cell in cloud 6. By design no site
+below 600 m can score above 8 under v2: STRONG comes only from summits.
+
+The old score is still computed beside it. A site without a valley floor, a failed fetch or a profile with no
+usable hours keeps today's score exactly; a profile failure never fails a slot or leaves valley mist
+unscored, and mist's inputs, `FORECAST_PARAMS` and `ValleyMistCalculator` are untouched. In the first winter v2
+may raise a site below 600 m by at most one point over the old score (summits are uncapped), and may lower one
+freely. One `[INVERSION v2]` INFO line per scored slot logs old, new, regime, base, top, strength and the caps
+that applied. The user message gains a `Warm layer:` line in place of the 925 hPa `Measured reversal` line
+when v2 drove the score; the system prompt is untouched.
+
+V202 adds `slot_atmosphere.inversion_score_v1` and `inversion_score_v2_raw`, written on every write (null when
+v2 did not compute), so the `INVERSION_CALC` series can be read in two halves per site
+(`inversion_score_v1 IS NOT NULL` marks a v2-era row). `photocast.inversion.v2.enabled` (default true) is the
+revert switch and `photocast.inversion.v2.raise-cap-enabled` (default true) lifts the first-winter raise cap;
+both are read at startup, so changing either needs a backend restart. Documented in
+`docs/engineering/reference/conditions.md`, `configuration.md`, `database-migrations.md` and `pipeline.md`.
+
+### Fixed — Evening sunrise refresh runs at 21:00 UK time all year
+
+The evening sunrise refresh was seeded as a UTC cron (`0 0 20 * * *`), so it fired at 21:00 in summer
+but at 20:00 GMT once the clocks went back. Scheduler jobs now carry an optional time zone
+(`scheduler_job_config.time_zone`, V204; empty means UTC, so every other job is unchanged) and the
+evening refresh runs `0 0 21 * * *` in `Europe/London`. The forecast-cycle watchdog judges that job's
+fires in the same zone, and the Scheduler screen shows its time as "21:00 UK time".
+
+### Removed — model test tables
+
+Migration V200 drops the four tables behind the retired Location Model Test and Briefing Model Test screens (`model_test_run`, `model_test_result`, `briefing_model_test_run`, `briefing_model_test_result`), now that the release without their entities has shipped. Dropping `model_test_result` also removes the old foreign key that stopped regions and locations being deleted. Local H2 keeps the tables (`ddl-auto: update` never drops).
+
+### Removed — dead backend classes, methods and config
+
+Pre-launch dead-code sweep, backend half. Removed `ForecastProperties` (bound but never injected) together with the `forecast:` blocks in `application-prod.yml`, `application-local.yml`, `application-example.yml` and `application-dev.yml`; `EvaluationResponse` and `DriveTimesRequest`; the unused `EvaluationFailure` machinery (it is now a small final class holding `errorTypeOf`, `httpStatusOf` and the error-type constants); about thirty methods nothing in `src/main` called (the legacy zero-argument `submitForecastBatch()` and `collectScheduledBatches()`, `prefetchWeatherBatch`, the unused Open-Meteo and marine fetchers, `forJfdi`, `flushCacheKey`, and others); the never-read `AuroraProperties` fields and their yml keys; the unread `JobRunEntity.apiCalls` mapping (no schema change); and the dormant `daily_briefing` scheduler target (V103 had already removed its row). No behaviour change. The gitignored production `application.yml` may still carry an inert `forecast:` block, which is harmless and needs no edit.
+
+### Removed — dead frontend modules and exports
+
+Deleted the old map popup (`MarkerPopupContent`) and its `TideIndicator`, plus `solarEventTimes`,
+`VerdictPill`, `SlotLocationName` and `useLocalStorageState`, none of which any live code imported,
+along with their tests, the 57 stale `MarkerPopupContent` mocks and `LocationSheetFactsParity` (the
+sheet's own tests cover its facts). Also dropped a dozen unused exports and API functions
+(`forecastApi` tide helpers, `tideApi.fetchTidesForDate`, the moon and Bortle helpers and others),
+and reworded comments that cited the deleted names. `prop-types`, imported in 165 files but only
+installed as a transitive dependency, is now declared in `package.json`. Nothing on screen changes.
+
+### Fixed — a restart no longer re-buys a standing aurora alert's scoring
+
+`AuroraStateCache` lives in memory and started IDLE, so the first poll after every deploy answered NOTIFY for an alert the old process had been suppressing, and paid for triage and a full Claude scoring over every dark-sky location again (two of 30 October's three `AURORA_EVALUATION` runs). The standing real alert is now saved to a one-row `aurora_alert_snapshot` table (V203), with its level, trigger, counts, scores and any night-poll hold, and restored inside the first polling cycle after a restart, before that cycle's evaluation. The same reading then answers SUPPRESS with no Claude call, "alert since" keeps its original time, and an alert held when dawn comes is still cleared by the first daylight poll. A snapshot older than last night is discarded, a simulation is never saved or restored, and a database failure never fails a poll.
+
+### Fixed — Ask Ready: fewer discarded answers
+
+Production's Ask Ready precompute (job run 2320) discarded 8 of 28 answers. The "Best spot" question for today's sunset said "tonight", which steered the model to the night tools and a pick on the astro window, so the answer was thrown away; it now reads "Best spot this evening?" and a typed "tonight" or "this evening" still matches it. A Ready conversation's prompt now also says every pick must be on one of the question's windows. A "can't" answer to an events-only question (snow on the tops, rare events) stored nothing either way but counted as a failure: it now counts as skipped, and the log line says why. Stored "Best spot tonight?" rows are withheld once, until the next precompute rewrites them (an admin can run `POST /api/admin/ask/ready/precompute`).
+
 ## [v2.35.2] - 2026-10-30
 
 ### Changed — the tide lifts a coastal rating at most one star above the sky
