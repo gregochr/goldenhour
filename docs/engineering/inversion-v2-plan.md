@@ -1,6 +1,6 @@
 # Cloud inversion v2: measure the warm layer where the fells are (2026-10-28)
 
-**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) building. **Owner decision
+**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) built and reviewed (2026-10-30; this PR). Phase 1b spec written and reviewed; waiting on the raise-cap decision and 1-pre's merge. **Owner decision
 2026-10-30: no shadow period.** Phases 1b–3 ship LIVE, each with two safety nets instead: the old score is
 still computed and logged beside the new one (so the comparison still happens, after the switch rather
 than before it), and a config switch (`photocast.inversion.v2.enabled`, default on) puts the old score back
