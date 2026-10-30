@@ -1,6 +1,6 @@
 # Model test screens retirement: Location Model Test and Briefing Model Test
 
-**Status: PLAN WRITTEN 2026-10-30.** Written against `main` at `99de0d9ed` (v2.35.1).
+**Status: Phase 1 merged (#1517, shipped in v2.35.2); Phase 2 in PR.** Written against `main` at `99de0d9ed` (v2.35.1).
 
 Owner decision (2026-10-30): keep **Sky Eval** as the only model-test screen in Operations, and delete
 Location Model Test and Briefing Model Test. Part of the pre-launch tech-debt sweep.
@@ -11,7 +11,7 @@ Location Model Test and Briefing Model Test. Part of the pre-launch tech-debt sw
 |---|---|---|---|---|
 | plan | — | — | 2026-10-30 | Survey by the planner (grep trace of every reference). Review: two lenses (backend/data; frontend/tests/docs), 19 charges; all folded in, `ReplayJson` added to the deletions. |
 | 1 | `chore/model-test-retirement-phase-1` | see PR | 2026-10-30 | Built to plan. Also reworded README line 28 ("Model comparison harness", now a stale claim) to name Sky Eval; migration is V199. |
-| 2 | | | | |
+| 2 | `chore/model-test-retirement-phase-2` | see PR | 2026-10-30 | Built to plan: V200 drops the four tables, migration test seeds both families (incl. `parent_run_id` re-run) and checks regions/locations survive. |
 
 ---
 
