@@ -10,7 +10,7 @@ import java.time.LocalDate;
  * Candidate-collection strategy for the {@code EVENING} refresh cycle: tomorrow's sunrise, alone.
  *
  * <p>The evening exists for one decision, whether to set an alarm, so it looks at the one event that
- * decision turns on, about 20:00 UTC, hours after the afternoon cycle's look and before the overnight
+ * decision turns on, at 21:00 UK time, hours after the afternoon cycle's look and before the overnight
  * one. Nothing else is in scope: tonight's sunset is nearly over, and every later event is the
  * afternoon's and the overnight cycle's job.
  *

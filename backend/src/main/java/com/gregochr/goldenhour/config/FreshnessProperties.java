@@ -106,13 +106,15 @@ public class FreshnessProperties {
          * today's fixed 01:00 / 14:00 schedule, whose smallest gap is 11 h.
          *
          * <p><b>A third cycle breaks the two-cycle derivation at T+0 in summer.</b> The evening
-         * refresh (about 20:00 UTC, tomorrow's sunrise alone) bypasses this gate for its own slots,
+         * refresh (21:00 UK time, tomorrow's sunrise alone) bypasses this gate for its own slots,
          * but the overnight cycle does not: in June the overnight fires about 23:13 UTC, when
          * tomorrow's sunrise has become today's, T+0, whose cap is {@code t0Hours} (2 h). An evening
          * result that lands after about 21:13 UTC is then under that cap and the overnight marks the
          * slot cached, so the morning look <em>is</em> the evening's. That is accepted (owner
          * decision E-D8, evening-sunrise-refresh-plan): 2 h is what the cap already calls fresh
          * enough, and it saves the spend.
+         * In winter (GMT) the 21:00 UK evening result lands about an hour later in UTC than it did
+         * at the old 20:00 UTC cron, still well before the overnight cycle.
          */
         private int t1Hours = 3;
     }

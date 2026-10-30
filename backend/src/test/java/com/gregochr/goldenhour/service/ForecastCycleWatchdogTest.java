@@ -509,6 +509,67 @@ class ForecastCycleWatchdogTest {
                 CycleType.EVENING, Instant.parse("2026-10-13T20:00:00Z"), clock.instant());
     }
 
+    private void londonEvening() {
+        when(configs.findByJobKey(NIGHTLY)).thenReturn(Optional.empty());
+        when(configs.findByJobKey(INTRADAY)).thenReturn(Optional.empty());
+        SchedulerJobConfigEntity config = cronJob(EVENING, "0 0 21 * * *", SchedulerJobStatus.ACTIVE);
+        config.setTimeZone("Europe/London");
+        when(configs.findByJobKey(EVENING)).thenReturn(Optional.of(config));
+    }
+
+    @Test
+    @DisplayName("a London evening job at 21:00 UK: 21:45 GMT with no run alerts for the 21:00Z fire")
+    void eveningLondon_didNotStartInWinter_alerts() {
+        londonEvening();
+        clock.set(Instant.parse("2026-12-10T21:45:00Z"));
+
+        watchdog.check();
+
+        verifyAlertedOnce(EVENING, "did not start");
+        verify(runs).findFirstByCycleTypeAndTriggerTimeBetweenOrderByTriggerTimeDesc(
+                CycleType.EVENING, Instant.parse("2026-12-10T21:00:00Z"), clock.instant());
+    }
+
+    @Test
+    @DisplayName("a London evening job at 21:00 UK: 21:45 BST with no run alerts for the 20:00Z fire")
+    void eveningLondon_didNotStartInSummer_alerts() {
+        londonEvening();
+        clock.set(Instant.parse("2026-07-10T20:45:00Z"));
+
+        watchdog.check();
+
+        verifyAlertedOnce(EVENING, "did not start");
+        verify(runs).findFirstByCycleTypeAndTriggerTimeBetweenOrderByTriggerTimeDesc(
+                CycleType.EVENING, Instant.parse("2026-07-10T20:00:00Z"), clock.instant());
+    }
+
+    @Test
+    @DisplayName("a London evening job whose 21:00 UK run started is not alerted, winter or summer")
+    void eveningLondon_runStarted_noAlert() {
+        londonEvening();
+        runStarted(run(40, CycleType.EVENING, Instant.parse("2026-12-10T21:00:05Z"),
+                PipelineRunStatus.COMPLETED));
+        clock.set(Instant.parse("2026-12-10T21:45:00Z"));
+
+        watchdog.check();
+
+        verify(alerts, never()).sendForecastCycleWatchdogAlert(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("a London evening job just before its 21:00 UK fire has no fire to judge yet in winter")
+    void eveningLondon_beforeTodaysFire_judgesYesterdaysFire() {
+        londonEvening();
+        // 20:30Z in December is 20:30 UK: today's 21:00 fire has not happened, so the 20:00Z a UTC
+        // reading would have used must not trigger a "did not start" for it.
+        clock.set(Instant.parse("2026-12-10T20:30:00Z"));
+
+        watchdog.check();
+
+        verify(runs, never()).findFirstByCycleTypeAndTriggerTimeBetweenOrderByTriggerTimeDesc(
+                eq(CycleType.EVENING), eq(Instant.parse("2026-12-10T20:00:00Z")), any());
+    }
+
     @Test
     @DisplayName("an evening run failed by the safety timeout alerts once, quoting the reason")
     void evening_timedOut_alertsOnce() {

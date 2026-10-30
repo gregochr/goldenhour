@@ -19,8 +19,10 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDateTime;
+import java.time.DateTimeException;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,8 +47,11 @@ public class DynamicSchedulerService {
     /** Minimum allowed fixed delay to prevent accidental tight loops. */
     private static final long MIN_FIXED_DELAY_MS = 10_000;
 
-    /** The zone every cron is evaluated in, pinned so behaviour never depends on the JVM default. */
-    private static final ZoneOffset SCHEDULE_ZONE = ZoneOffset.UTC;
+    /**
+     * The zone a cron is evaluated in when the row names none, pinned so behaviour never depends on
+     * the JVM default.
+     */
+    private static final ZoneOffset DEFAULT_SCHEDULE_ZONE = ZoneOffset.UTC;
 
     /** Longest offset a solar job may use, in minutes before the event. */
     private static final int MAX_SOLAR_OFFSET_MINUTES = 720;
@@ -222,7 +227,7 @@ public class DynamicSchedulerService {
         }
         // Build the replacement now, before touching the entity or the live schedule.
         Installer replacement = prepare(jobKey, type, newCron, newDelay, config.getSolarEvent(),
-                config.getSolarOffsetMinutes());
+                config.getSolarOffsetMinutes(), config.getTimeZone());
 
         config.setCronExpression(newCron);
         config.setFixedDelayMs(newDelay);
@@ -288,7 +293,7 @@ public class DynamicSchedulerService {
         // Validates everything (solar fields, the stored cron) and builds the trigger; no side
         // effect on the row or the live schedule has happened yet.
         Installer replacement = prepare(jobKey, newType, config.getCronExpression(),
-                config.getFixedDelayMs(), newEvent, newOffset);
+                config.getFixedDelayMs(), newEvent, newOffset, config.getTimeZone());
 
         String previousType = config.getScheduleTypeRaw();
         String previousEvent = config.getSolarEventRaw();
@@ -441,9 +446,40 @@ public class DynamicSchedulerService {
     }
 
     /**
+     * Resolves the zone a job's cron is evaluated in.
+     *
+     * @param config the job config
+     * @return UTC when the row has no {@code time_zone}, else the named zone
+     * @throws IllegalArgumentException if the stored zone id is not recognised
+     */
+    static ZoneId cronZone(SchedulerJobConfigEntity config) {
+        return cronZone(config.getTimeZone());
+    }
+
+    /**
+     * Resolves a stored zone id.
+     *
+     * @param timeZone the zone id, {@code null} or blank for UTC
+     * @return the zone
+     * @throws IllegalArgumentException if the id is not recognised
+     */
+    static ZoneId cronZone(String timeZone) {
+        if (timeZone == null || timeZone.isBlank()) {
+            return DEFAULT_SCHEDULE_ZONE;
+        }
+        try {
+            return ZoneId.of(timeZone.trim());
+        } catch (DateTimeException e) {
+            throw new IllegalArgumentException(
+                    "unknown time zone '" + LogSanitizer.sanitize(timeZone) + "'", e);
+        }
+    }
+
+    /**
      * Computes the next fire time for a job config.
      *
-     * <p>For CRON jobs, uses {@link CronExpression#next(LocalDateTime)}.
+     * <p>For CRON jobs, uses {@link CronExpression#next(java.time.temporal.Temporal)} in the job's
+     * own zone, read from the injected clock.
      * For FIXED_DELAY jobs, adds the delay to the last completion time.
      * Returns {@code null} if the job is paused or disabled.
      *
@@ -459,8 +495,8 @@ public class DynamicSchedulerService {
         if (type == ScheduleType.CRON && config.getCronExpression() != null) {
             try {
                 CronExpression cron = CronExpression.parse(config.getCronExpression());
-                LocalDateTime next = cron.next(LocalDateTime.now(SCHEDULE_ZONE));
-                return next != null ? next.toInstant(SCHEDULE_ZONE) : null;
+                ZonedDateTime next = cron.next(ZonedDateTime.now(clock.withZone(cronZone(config))));
+                return next != null ? next.toInstant() : null;
             } catch (IllegalArgumentException e) {
                 return null;
             }
@@ -539,7 +575,8 @@ public class DynamicSchedulerService {
 
     private Installer prepare(SchedulerJobConfigEntity config) {
         return prepare(config.getJobKey(), config.getScheduleType(), config.getCronExpression(),
-                config.getFixedDelayMs(), config.getSolarEvent(), config.getSolarOffsetMinutes());
+                config.getFixedDelayMs(), config.getSolarEvent(), config.getSolarOffsetMinutes(),
+                config.getTimeZone());
     }
 
     /**
@@ -551,11 +588,12 @@ public class DynamicSchedulerService {
      * @param delay  the fixed delay in ms (FIXED_DELAY)
      * @param event  the solar event (SOLAR_OFFSET)
      * @param offset the minutes before the event (SOLAR_OFFSET)
+     * @param timeZone the zone id the CRON expression is evaluated in, {@code null} for UTC
      * @return the installer for the schedule
      * @throws IllegalArgumentException if the schedule cannot be built
      */
     private Installer prepare(String jobKey, ScheduleType type, String cron, Long delay,
-            SolarEvent event, Integer offset) {
+            SolarEvent event, Integer offset, String timeZone) {
         if (type == null) {
             throw new IllegalArgumentException("unrecognised schedule type");
         }
@@ -564,9 +602,10 @@ public class DynamicSchedulerService {
                 if (cron == null || cron.isBlank()) {
                     throw new IllegalArgumentException("CRON job has no cron expression");
                 }
+                ZoneId zone = cronZone(timeZone);
                 CronTrigger trigger;
                 try {
-                    trigger = new CronTrigger(cron, SCHEDULE_ZONE);
+                    trigger = new CronTrigger(cron, zone);
                 } catch (IllegalArgumentException e) {
                     throw new IllegalArgumentException("unparseable cron expression", e);
                 }

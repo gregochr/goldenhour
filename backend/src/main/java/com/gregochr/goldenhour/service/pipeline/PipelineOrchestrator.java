@@ -482,7 +482,7 @@ public class PipelineOrchestrator {
     }
 
     /**
-     * Evening refresh entry point: one look at tomorrow's sunrise at about 20:00 UTC, so the bedtime
+     * Evening refresh entry point: one look at tomorrow's sunrise at 21:00 UK time, so the bedtime
      * decision rests on a forecast hours fresher than the afternoon's. Bound to the
      * {@code evening_sunrise_refresh} schedule (seeded PAUSED). It differs from the other cycles in
      * its strategy (tomorrow's sunrise alone, bypassing the cache gate), its policy (every stability),

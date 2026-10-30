@@ -63,12 +63,14 @@ function formatUTCAsUK(utcHour, utcMinute = 0) {
 
 /**
  * Returns a human-readable description of a cron expression, with times
- * converted to UK local time (BST or GMT).
+ * converted to UK local time (BST or GMT). A job whose cron already runs in
+ * Europe/London shows its hours as-is, labelled "UK time".
  *
  * @param {string} cron - a 6-field Spring cron expression
+ * @param {string} [timeZone] - the zone the cron runs in; absent or "UTC" means UTC
  * @returns {string} human-readable description
  */
-function describeCron(cron) {
+function describeCron(cron, timeZone) {
   if (!cron) return '';
   const parts = cron.split(' ');
   if (parts.length < 6) return cron;
@@ -76,10 +78,15 @@ function describeCron(cron) {
   const [sec, min, hour, dom, mon, dow] = parts;
 
   if (sec === '0' && dom === '*' && mon === '*') {
-    const tzLabel = getUKTimezoneLabel();
+    const isUK = timeZone === 'Europe/London';
+    const tzLabel = isUK ? 'UK time' : getUKTimezoneLabel();
     const minVal = parseInt(min, 10) || 0;
     const hours = hour.split(',');
-    const timeStr = hours.map((h) => formatUTCAsUK(parseInt(h, 10), minVal)).join(', ');
+    const timeStr = hours
+      .map((h) => (isUK
+        ? `${String(parseInt(h, 10)).padStart(2, '0')}:${String(minVal).padStart(2, '0')}`
+        : formatUTCAsUK(parseInt(h, 10), minVal)))
+      .join(', ');
     if (dow === '*') return `Daily at ${timeStr} ${tzLabel}`;
     const dayMap = { MON: 'Monday', TUE: 'Tuesday', WED: 'Wednesday', THU: 'Thursday', FRI: 'Friday', SAT: 'Saturday', SUN: 'Sunday' };
     return `Every ${dayMap[dow] || dow} at ${timeStr} ${tzLabel}`;
@@ -489,7 +496,7 @@ export default function SchedulerView() {
                   </div>
                   {job.scheduleType === SCHEDULE_CRON && editValue && (
                     <span className="text-plex-text-muted text-xs">
-                      {describeCron(editValue)}
+                      {describeCron(editValue, job.timeZone)}
                     </span>
                   )}
                 </div>
@@ -502,7 +509,7 @@ export default function SchedulerView() {
                   </span>
                   {job.scheduleType === SCHEDULE_CRON && (
                     <span className="text-plex-text-muted">
-                      {describeCron(job.cronExpression)}
+                      {describeCron(job.cronExpression, job.timeZone)}
                     </span>
                   )}
                   <button

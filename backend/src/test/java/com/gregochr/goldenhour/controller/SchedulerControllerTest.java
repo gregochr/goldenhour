@@ -57,6 +57,24 @@ class SchedulerControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/admin/scheduler/jobs reports timeZone: UTC when none is stored, else the stored zone")
+    void listJobs_reportsTimeZone() throws Exception {
+        SchedulerJobConfigEntity utc = buildConfig("tide_refresh", ScheduleType.CRON,
+                "0 0 2 * * MON", null, SchedulerJobStatus.ACTIVE);
+        SchedulerJobConfigEntity london = buildConfig("evening_sunrise_refresh", ScheduleType.CRON,
+                "0 0 21 * * *", null, SchedulerJobStatus.ACTIVE);
+        london.setTimeZone("Europe/London");
+        when(schedulerService.getAll()).thenReturn(List.of(utc, london));
+        when(schedulerService.calculateNextFireTime(any())).thenReturn(null);
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].timeZone").value("UTC"))
+                .andExpect(jsonPath("$[1].timeZone").value("Europe/London"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("GET /api/admin/scheduler/jobs lists a row with an unrecognised schedule type")
     void listJobs_serialisesUnrecognisedScheduleType() throws Exception {
         SchedulerJobConfigEntity unknown = SchedulerJobConfigEntity.builder()
