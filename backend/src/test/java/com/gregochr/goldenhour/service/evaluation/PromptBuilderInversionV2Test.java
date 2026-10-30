@@ -104,7 +104,7 @@ class PromptBuilderInversionV2Test {
                 .doesNotContain("Warm layer");
     }
 
-    /** A driving carrier with the night fields: night 75, mid 75, Option B off, the night cap bound or not. */
+    /** A driving carrier with the night fields: night 75, mid 75, with Option B and the cap-bound flags as given. */
     private static InversionV2Result nightDrove(boolean nightCapBound, boolean optionB, boolean optionBBound) {
         return new InversionV2Result(null, 6.0, 8.0, 8.0, InversionRegime.ELEVATED, 682.0, 1130.0, 4.6,
                 152, 868, InversionClearance.CLEAR, "night-mid(8)", true, 75.0, 75.0, optionB, nightCapBound,

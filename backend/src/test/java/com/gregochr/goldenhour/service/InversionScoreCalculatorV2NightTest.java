@@ -436,6 +436,26 @@ class InversionScoreCalculatorV2NightTest {
         }
 
         @Test
+        @DisplayName("it changes the score a user sees: 8 with Option B, 6 with one condition broken")
+        void optionBChangesTheScore() {
+            // Gap 0.2 (5) + wind 2.5 (2) + sea 2 (low 90) = 9 before clearance; wind above 2 m/s means the slot
+            // has no fog evidence of its own, so only the night can confirm the layer.
+            H breezy = H.at(7).t2(8.0).dew(7.8).wind(2.5).low(90).vis(10000.0).temps(10.5, 9.0, 8.0, 7.0, 6.0);
+            InversionProfile on = profile(H0, night(8, h -> h), breezy);
+            InversionProfile off = profile(H0, night(8, h -> h.dew(5.0)), breezy);
+
+            InversionV2Result with = score(on, 450);
+            InversionV2Result without = score(off, 450);
+
+            assertThat(with.optionB()).isTrue();
+            assertThat(with.v2Raw()).isEqualTo(8.0);
+            assertThat(with.caps()).isEqualTo("night-fog(8)");
+            assertThat(without.optionB()).isFalse();
+            assertThat(without.v2Raw()).isEqualTo(6.0);
+            assertThat(without.caps()).isEqualTo("unconfirmed(6)");
+        }
+
+        @Test
         @DisplayName("it never lifts the in-cloud cap")
         void optionBKeepsInCloud() {
             AtmosphericData inCloud = data(profile(H0, night(8, h -> h), surfaceSlotNoFog()), 90, 2000);

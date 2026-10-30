@@ -22,7 +22,7 @@ import java.util.List;
  *
  * <p>Every reading is nullable (a model without 975 or 950 hPa, a short forecast, a failed field). One
  * instance per location holds the whole forecast; {@link #sliceForEvent} cuts it to the event slot and its
- * night side, which is what {@link InversionV2Result} carries on an {@link AtmosphericData}.
+ * night hours, which is what {@link InversionV2Result} carries on an {@link AtmosphericData}.
  *
  * @param cellLatitude         latitude of the model cell the response resolved to, or null
  * @param cellLongitude        longitude of the model cell, or null
@@ -54,7 +54,7 @@ public record InversionProfile(
     public static final int NIGHT_END_HOUR_LOCAL = 5;
 
     /**
-     * A profile without a night side, at the arity before Phase 2.
+     * A profile without night hours, at the arity before Phase 2.
      *
      * @param cellLatitude        latitude of the model cell, or null
      * @param cellLongitude       longitude of the model cell, or null
@@ -68,10 +68,10 @@ public record InversionProfile(
         this(cellLatitude, cellLongitude, cellElevationMetres, valleyFloorMetres, slotTime, hours, List.of());
     }
 
-    /** Hours of the night side examined before a sunrise slot. */
+    /** Hours of the event window examined before a sunrise slot. */
     public static final int SUNRISE_HOURS_BEFORE = 4;
 
-    /** Hours of the night side examined after a sunset slot. */
+    /** Hours of the event window examined after a sunset slot. */
     public static final int SUNSET_HOURS_AFTER = 2;
 
     /** The pressure levels read, lowest first. */
@@ -175,11 +175,11 @@ public record InversionProfile(
     }
 
     /**
-     * Cuts the profile to the event slot and its night side: the {@value #SUNRISE_HOURS_BEFORE} hours up to
+     * Cuts the profile to the event slot and its event window: the {@value #SUNRISE_HOURS_BEFORE} hours up to
      * a sunrise slot, or the {@value #SUNSET_HOURS_AFTER} hours from a sunset slot. The slot is chosen by
      * the same rule as the main forecast ({@link TimeSlotUtils#findBestIndex}).
      *
-     * <p>For a sunrise the night side is also cut, into {@link #nightHours()}: every hour from
+     * <p>For a sunrise the night before is also cut, into {@link #nightHours()}: every hour from
      * {@value #NIGHT_START_HOUR_LOCAL}:00 Europe/London on the evening before the event date to
      * 0{@value #NIGHT_END_HOUR_LOCAL}:00 on the event date, both inclusive, ended early (inclusive) at a slot
      * earlier than 05:00. That is 10 hours on the October fall-back night and 8 in March. A sunset gets none.

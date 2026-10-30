@@ -8,7 +8,7 @@ package com.gregochr.goldenhour.model;
  * cannot be moved by it. A carrier with only {@code profile} set means "a profile was attached and not yet
  * (or could not be) scored"; the score fields are null in that case.
  *
- * @param profile           the valley profile sliced to the event slot and its night side
+ * @param profile           the valley profile sliced to the event slot and its event window (plus the night hours)
  * @param v1Score           the old calculator's score for the slot, or null when it could not score
  * @param v2Raw             the v2 score before the raise cap, or null when v2 could not score
  * @param stored            the value stored as the slot's inversion score once the rules in

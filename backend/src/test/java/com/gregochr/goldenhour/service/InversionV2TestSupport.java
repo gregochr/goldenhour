@@ -57,6 +57,10 @@ final class InversionV2TestSupport {
             return new H(time);
         }
 
+        LocalDateTime time() {
+            return time;
+        }
+
         H mid(Integer v) {
             this.mid = v;
             return this;

@@ -53,7 +53,11 @@ class ValleyMistInversionV2IsolationTest {
     private static final Function<H, H> CLEAR_NIGHT = h -> DEEP_SEA.apply(h).vis(900.0).mid(0).high(0);
     private static final Function<H, H> OVERCAST_NIGHT = h -> DEEP_SEA.apply(h).vis(900.0).mid(100).high(100);
     private static final Function<H, H> CLEAR_CALM_MOIST_NIGHT =
-            h -> h.t2(8.0).dew(7.5).wind(1.0).low(0).mid(0).high(0).temps(10.5, 9.0, 8.0, 7.0, 6.0);
+            h -> h.time().getHour() >= 12
+                    // the evening before: clear, calm and moist
+                    ? h.t2(8.0).dew(7.5).wind(1.0).low(0).vis(10000.0).mid(0).high(0).temps(10.5, 9.0, 8.0, 7.0, 6.0)
+                    // the event window: dry enough (gap 3) and breezy (2.5 m/s) for no fog evidence
+                    : h.t2(8.0).dew(5.0).wind(2.5).low(10).vis(10000.0).mid(0).high(0).temps(10.5, 9.0, 8.0, 7.0, 6.0);
     private static final Function<H, H> NO_LEVELS = h -> h.temps(null, null, null, null, null);
     private static final Function<H, H> NO_RISE = h -> h.t2(9.0).temps(8.0, 7.0, 6.0, 5.0, 4.0);
     private static final Function<H, H> SLOT_UNREADABLE = h -> h.dew(null).wind(null).temps(6.0, 5.0, 9.0, 11.0, 10.0);
@@ -178,5 +182,7 @@ class ValleyMistInversionV2IsolationTest {
         assertThat(overcast.v2Raw()).isEqualTo(8.0);
         assertThat(overcast.nightCapBound()).isTrue();
         assertThat(surface.optionB()).isTrue();
+        assertThat(surface.optionBBound()).isTrue();
+        assertThat(surface.caps()).isEqualTo("night-fog(8)");
     }
 }

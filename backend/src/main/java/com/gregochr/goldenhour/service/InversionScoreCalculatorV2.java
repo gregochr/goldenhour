@@ -66,8 +66,8 @@ import java.util.List;
  *
  * <p><b>Surface terms</b> come from the valley cell at the event slot: moisture
  * ({@link MoistureScoring#gapScore}, called and not changed), wind 0-3 (the old steps), and sea evidence 0-2
- * (2 for valley low cloud of at least {@value #SEA_LOW_CLOUD_PERCENT} percent at the event or night-side
- * visibility under {@value #DENSE_FOG_VISIBILITY_METRES} m; 1 for night-side visibility under
+ * (2 for valley low cloud of at least {@value #SEA_LOW_CLOUD_PERCENT} percent at the event or event-window
+ * visibility under {@value #DENSE_FOG_VISIBILITY_METRES} m; 1 for event-window visibility under
  * {@value #FOG_VISIBILITY_METRES} m; else 0). A layer of at least
  * {@value InversionScoreCalculator#STRONG_REVERSAL_CELSIUS} degC allows 10, a weaker one caps at 8, no layer
  * caps at 6.

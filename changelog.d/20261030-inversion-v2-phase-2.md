@@ -9,4 +9,4 @@ clear, calm, moist night (Option B) counts as fog evidence for a surface-based l
 unconfirmed viewpoint 100 m or more above the valley floor into an edge. Sunsets and sites without a
 valley floor are unchanged; a night with too few hours changes nothing. The `[INVERSION v2]` log line
 gains `night=` and `optionB=`, and the prompt's warm-layer line gains a short clause only when the night
-changed the score. Open-Meteo load on the main fetch rises from about +14 % to +21 %.
+changed the score. Open-Meteo load on the main fetch rises from about +14 % to about +16 % (about +21 % after Phase 3).
