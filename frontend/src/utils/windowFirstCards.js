@@ -209,7 +209,7 @@ export const SLOT_VERDICT_LABEL = {
  *
  * <p>Confidence qualifies a <em>recommendation</em>. Decaying a Poor or an Awaiting badge would say
  * "we are unsure it is bad", which is not what the channel means and not a claim the derivation
- * supports. The same gate ships on `VerdictPill`, and the rail already sets its
+ * supports. The same gate ships on the since-deleted `VerdictPill`, and the rail already sets its
  * own tile confidence to null on an all-poor day. It also sidesteps a real defect: the neutral
  * badge's border is a token rather than an `rgba()` literal, so it cannot decay with its fill, and
  * a half-decayed badge would look like a rendering bug.
@@ -879,7 +879,7 @@ export function buildWindowCards(
       // inferred tier, as it always has). UNRATED keeps the server's tier — an ineligible region is
       // floored LOW there, and a field drawn for a window nothing has called should be the hazy one,
       // not the horizon's MEDIUM — while the BADGE decay and `ProvisionalMark` stay gated on
-      // `CONFIDENCE_VERDICTS` at their own mounts (the popup's badge, the grid cell, `VerdictPill`),
+      // `CONFIDENCE_VERDICTS` at their own mounts (the popup's badge, the grid cell, the since-deleted `VerdictPill`),
       // so "Too few rated" is never also a faded or marked word: it already says the provisional thing.
       confidence: HAZE_VERDICTS.has(verdict)
         ? ((scopedRegion ? scopedRegion.confidence : win?.confidence) ?? null)

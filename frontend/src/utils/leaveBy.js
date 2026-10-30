@@ -37,7 +37,7 @@ import { ukDateStr } from './mapDates.js';
  * callers pass. Sunrise on this roster spans tens of minutes across the country, and the leave-by
  * line is advice to one person driving to one place — the window header's single time is chosen
  * for determinism across a region set ({@code BriefingEventSummary.earliestEventTime}), which is
- * the right answer to a different question. {@code solarEventTimes.js} records the same
+ * the right answer to a different question. The since-deleted {@code solarEventTimes.js} recorded the same
  * distinction for the run dialog.
  *
  * <h2>London, and the wrap that follows from it</h2>

@@ -12,7 +12,7 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
  * carries the Plan's live lens.
  *
  * <p>The pane is a stub exposing exactly the prop under test as buttons: what each real
- * producer CALLS it with is pinned by its own suite (`SlotLocationName`,
+ * producer CALLS it with is pinned by its own suite (the since-deleted `SlotLocationName`,
  * `WindowComingUpEntry`), and what a trigger resolves to by `mapDoor.test.js`; what only the shell
  * can be wrong about is the join between them.
  */

@@ -3,7 +3,7 @@
  *
  * <p>This lived in five copies: `MapView.LOCATION_TYPE_LABELS`,
  * `LocationTypeBadges.LOCATION_TYPE_META` (that component is since deleted as dead code, v1
- * retirement D4), `MarkerPopupContent.POPUP_LOC_TYPE_META`, `briefingDisplay.LOCATION_TYPE_ICONS`
+ * retirement D4), the since-deleted `MarkerPopupContent.POPUP_LOC_TYPE_META`, `briefingDisplay.LOCATION_TYPE_ICONS`
  * (likewise since deleted) and `LocationManagementView.LOCATION_TYPES`, plus three open-coded type
  * predicates. Adding WOODLAND cost five hand-edits that nothing forced you to make, and the copies
  * had already drifted — `briefingDisplay` used 💧 for WATERFALL where the other four used 💦, and
@@ -28,9 +28,6 @@ export const LOCATION_TYPE_META = {
   WATERFALL: { label: 'Waterfall', emoji: '💦' },
   BLUEBELL:  { label: 'Bluebell',  emoji: '🌸' },
 };
-
-/** Every type, in display order. */
-export const LOCATION_TYPES = Object.keys(LOCATION_TYPE_META);
 
 /**
  * Types shown as a permanent chip or badge.

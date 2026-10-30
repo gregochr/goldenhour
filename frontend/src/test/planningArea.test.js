@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  GLANCE_MINUTES, areaRegions, areaSpots, beyondRegions, regionDriveMinutes,
+  GLANCE_MINUTES, areaRegions, beyondRegions, regionDriveMinutes,
 } from '../utils/planningArea.js';
 
 /**
@@ -148,31 +148,5 @@ describe('areaRegions — the degrade', () => {
 
     expect(areaRegions(SPOTS, reachById)).toEqual(['North East']);
     expect(beyondRegions(SPOTS, reachById)).toEqual(['Lake District']);
-  });
-});
-
-describe('areaSpots', () => {
-  it('returns the spots of the in-area regions, in input order', () => {
-    expect(areaSpots(SPOTS, reach([[1, 400], [2, 60], [3, 400]])).map((s) => s.id))
-      .toEqual([1, 2]);
-  });
-
-  it('keeps a region whole — a 400-minute spot stays in because its region is near', () => {
-    // The area is a set of places you plan a trip around, and half a region is not one. It also
-    // keeps the Map tab's opening bounds from cutting a region's own field in half. Spot 1 is
-    // four hours away and in; spot 3 is four hours away and out — the difference is entirely
-    // which region each sits in.
-    const spots = areaSpots(SPOTS, reach([[1, 400], [2, 60], [3, 400]]));
-
-    expect(spots.map((s) => s.id)).toEqual([1, 2]);
-    expect(spots.map((s) => s.regionName)).toEqual(['North East', 'North East']);
-  });
-
-  it('is every spot when nothing is measured', () => {
-    expect(areaSpots(SPOTS, new Map())).toHaveLength(3);
-  });
-
-  it('survives a null spot list', () => {
-    expect(areaSpots(null, new Map())).toEqual([]);
   });
 });

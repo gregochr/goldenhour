@@ -114,7 +114,6 @@ vi.mock('react-leaflet', () => ({
 vi.mock('../components/MapHeatLayer.jsx', () => ({
   default: ({ dim }) => <div data-testid="map-heat-layer" data-dim={dim} />,
 }));
-vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));

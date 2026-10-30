@@ -57,5 +57,3 @@ export function firstClause(text) {
   // No boundary worth cutting at — the summary is already one clause.
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
-
-export default firstClause;

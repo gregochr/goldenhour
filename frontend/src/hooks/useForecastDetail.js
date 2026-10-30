@@ -9,7 +9,7 @@ import { getForecastDetail, peekForecastDetail, cacheForecastDetail } from '../a
  *      row; report {@code detailLoading} while in flight;
  *   3. sparse cached-only row ({@code id == null}) → nothing to fetch, use the slot itself.
  *
- * <p>The one resolution the location sheet (overlay convergence C2) and `MarkerPopupContent` (which can be
+ * <p>The one resolution the location sheet (overlay convergence C2) and the since-deleted `MarkerPopupContent` (which can be
  * handed a slot with NO id and so never fetches) share. The cache
  * is `forecastApi`'s — cleared on logout — so a second surface paints from it with no second
  * request. A FAILED fetch is not memoised (it is remembered for this mount only, so the next mount

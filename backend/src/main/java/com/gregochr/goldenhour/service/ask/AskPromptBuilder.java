@@ -295,7 +295,8 @@ public class AskPromptBuilder {
         }
         if (coveredWindowIds != null && !coveredWindowIds.isEmpty()) {
             sb.append("The question is about these windows: ")
-                    .append(String.join(", ", coveredWindowIds)).append(".\n");
+                    .append(String.join(", ", coveredWindowIds))
+                    .append(". Every pick must be on one of these windows.\n");
         }
         if (contextWindow != null) {
             sb.append("The reader is looking at ")

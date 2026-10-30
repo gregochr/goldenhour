@@ -434,28 +434,6 @@ export function formatElapsedSince(startedAtUtc, nowMs = Date.now()) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
-/**
- * Returns a plain-English label for a Bortle class value.
- *
- * @param {number|null} bortleClass - Bortle class (1–9), or null.
- * @returns {string|null} Label like "Rural sky", or null if unknown/null.
- */
-export function bortleLabel(bortleClass) {
-  if (bortleClass == null) return null;
-  const labels = {
-    1: 'Exceptional',
-    2: 'Truly dark',
-    3: 'Rural sky',
-    4: 'Rural/suburban transition',
-    5: 'Suburban sky',
-    6: 'Bright suburban',
-    7: 'Bright suburban',
-    8: 'City sky',
-    9: 'City sky',
-  };
-  return labels[bortleClass] ?? null;
-}
-
 const AUTO_SELECTION_BUFFER_MS = 30 * 60 * 1000; // 30-minute afterglow buffer
 
 /**
@@ -495,66 +473,5 @@ export function computeAutoSelection(locations, now) {
   }
 
   return { date: ukDateStrOffset(1, now), eventType: 'SUNRISE' };
-}
-
-/**
- * Moon phase emoji map — keyed by backend MoonPhase enum values.
- */
-export const MOON_EMOJI = {
-  NEW_MOON: '\u{1F311}', WAXING_CRESCENT: '\u{1F312}', FIRST_QUARTER: '\u{1F313}',
-  WAXING_GIBBOUS: '\u{1F314}', FULL_MOON: '\u{1F315}', WANING_GIBBOUS: '\u{1F316}',
-  LAST_QUARTER: '\u{1F317}', WANING_CRESCENT: '\u{1F318}',
-};
-
-/**
- * Human-readable moon phase names — keyed by backend MoonPhase enum values.
- */
-export const MOON_PHASE_NAME = {
-  NEW_MOON: 'New moon', WAXING_CRESCENT: 'Waxing crescent', FIRST_QUARTER: 'First quarter',
-  WAXING_GIBBOUS: 'Waxing gibbous', FULL_MOON: 'Full moon', WANING_GIBBOUS: 'Waning gibbous',
-  LAST_QUARTER: 'Last quarter', WANING_CRESCENT: 'Waning crescent',
-};
-
-/**
- * Returns colour class and descriptive suffix for a moon indicator.
- *
- * When windowQuality is present (aurora observation window data), the transition
- * timing drives the result. Falls back to illumination-only thresholds when
- * windowQuality is absent (backward compatible with non-aurora contexts).
- *
- * @param {number} illuminationPct - Moon illumination percentage (0–100).
- * @param {string} [windowQuality] - One of DARK_ALL_WINDOW, DARK_THEN_MOONLIT,
- *   MOONLIT_THEN_DARK, MOONLIT_ALL_WINDOW.
- * @param {string} [moonRiseTime] - UTC ISO timestamp of moonrise within the window.
- * @param {string} [moonSetTime] - UTC ISO timestamp of moonset within the window.
- * @returns {{ colourClass: string, suffix: string }}
- */
-export function moonIlluminationStyle(illuminationPct, windowQuality, moonRiseTime, moonSetTime) {
-  if (windowQuality) {
-    switch (windowQuality) {
-      case 'DARK_ALL_WINDOW':
-        return { colourClass: 'text-green-400/70', suffix: ' — dark all night' };
-      case 'DARK_THEN_MOONLIT':
-        return {
-          colourClass: 'text-amber-400',
-          suffix: ` — dark until ${formatEventTimeUk(moonRiseTime) || '??:??'} ↑`,
-        };
-      case 'MOONLIT_THEN_DARK':
-        return {
-          colourClass: 'text-green-400/70',
-          suffix: ` — clears after ${formatEventTimeUk(moonSetTime) || '??:??'} ↓`,
-        };
-      case 'MOONLIT_ALL_WINDOW':
-        return { colourClass: 'text-red-400', suffix: ' — moon above horizon all night' };
-      default:
-        break; // unknown windowQuality — fall through to illumination logic
-    }
-  }
-
-  // Illumination-only fallback
-  if (illuminationPct < 20) return { colourClass: 'text-green-400/70', suffix: ' — dark all night' };
-  if (illuminationPct < 50) return { colourClass: 'text-plex-text-secondary', suffix: '' };
-  if (illuminationPct < 75) return { colourClass: 'text-amber-400', suffix: ' — moon will impact' };
-  return { colourClass: 'text-red-400', suffix: ' — moon above horizon all night' };
 }
 

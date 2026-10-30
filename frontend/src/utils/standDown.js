@@ -3,7 +3,7 @@
  *
  * <p>Lives here rather than inside `MapView` because the marker and its own popup must answer the
  * question identically. They previously did not: the marker ORed the two sources while
- * `MarkerPopupContent` consulted only the forecast row, so a slot could render a 4★ marker
+ * The since-deleted `MarkerPopupContent` consulted only the forecast row, so a slot could render a 4★ marker
  * whose popup said "Stand-down".
  */
 

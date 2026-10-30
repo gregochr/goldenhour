@@ -795,7 +795,7 @@ public class JobRunService {
      * @return list of recent job runs
      */
     public List<JobRunEntity> getRecentRuns(RunType runType, int limit) {
-        return jobRunRepository.findByRunTypeOrderByStartedAtDesc(runType,
+        return jobRunRepository.findByRunTypeOrderByStartedAtDescIdDesc(runType,
                 PageRequest.of(0, Math.max(limit, 1)));
     }
 
@@ -810,15 +810,16 @@ public class JobRunService {
     }
 
     /**
-     * Retrieves recent job runs by all run types, ordered by start time descending.
+     * Retrieves recent job runs by all run types from the last seven days, newest first (id
+     * descending breaks start-time ties). The limit is applied in the database.
      *
      * @param limit maximum number of runs to return (across all run types)
      * @return list of recent job runs
      */
     public List<JobRunEntity> getRecentRunsAllTypes(int limit) {
         LocalDateTime since = LocalDateTime.now(ZoneOffset.UTC).minusDays(7);
-        List<JobRunEntity> runs = jobRunRepository.findByStartedAtAfterOrderByStartedAtDesc(since);
-        return runs.stream().limit(limit).toList();
+        return jobRunRepository.findByStartedAtAfterOrderByStartedAtDescIdDesc(since,
+                PageRequest.of(0, Math.max(limit, 1)));
     }
 
     /**

@@ -208,7 +208,6 @@ vi.mock('react-leaflet', () => ({
 // none of these are what this file is about, and the real ones (`MapHeatLayer` in particular) pull
 // in `d3-geo` and canvas work no jsdom run needs for a wiring proof.
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div data-testid="map-heat-layer" /> }));
-vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  DEFAULT_SWATCH_COLOR, SWATCH_COLOR, TOPIC_PALETTE_TYPES, topicStyle,
+  DEFAULT_SWATCH_COLOR, SWATCH_COLOR, topicStyle,
 } from '../utils/topicPalette.js';
 
 /**
@@ -17,7 +17,7 @@ const EIGHTEEN = [
 describe('topicStyle', () => {
   it('has an explicit entry for every one of the eighteen types, and no others', () => {
     expect(EIGHTEEN).toHaveLength(18);
-    expect([...TOPIC_PALETTE_TYPES].sort()).toEqual([...EIGHTEEN].sort());
+    expect(Object.keys(SWATCH_COLOR).sort()).toEqual([...EIGHTEEN].sort());
   });
 
   it.each(EIGHTEEN)('%s has a real colour, glyph, name and short name — never the fallback', (type) => {
@@ -80,7 +80,7 @@ describe('the live swatch colours survive the move from comingUpHandoff', () => 
 
 describe('chipName — the Coming up day tile\'s phone name (coming-up-glance-plan T1)', () => {
   it('is six characters or fewer for every type, so it fits a 375px tile without ellipsis', () => {
-    for (const type of TOPIC_PALETTE_TYPES) {
+    for (const type of EIGHTEEN) {
       expect(topicStyle(type).chipName.length, type).toBeLessThanOrEqual(6);
     }
   });

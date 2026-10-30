@@ -62,12 +62,6 @@ vi.mock('../api/settingsApi.js', () => ({ getDriveTimes: vi.fn().mockResolvedVal
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
 // The overlay's aurora popup, recording what it was handed.
 const popupAuroraScores = [];
-vi.mock('../components/MarkerPopupContent.jsx', () => ({
-  default: ({ auroraScore }) => {
-    popupAuroraScores.push(auroraScore);
-    return <div data-testid="popup-content" />;
-  },
-}));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({
   default: ({ viewline }) => (viewline ? <div data-testid="aurora-viewline-overlay" /> : null),

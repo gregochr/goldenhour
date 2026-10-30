@@ -87,40 +87,6 @@ export function formatDetectedAt(isoTimestamp, now = new Date()) {
   return `${formatInstantUk(isoTimestamp, { day: 'numeric', month: 'short' })} ${time}`;
 }
 
-/**
- * Returns a Bz status descriptor based on the nanoTesla value.
- * @param {number} bz
- * @returns {{ emoji: string, label: string, explanation: string }}
- */
-export function bzStatus(bz) {
-  if (bz < -1) {
-    return {
-      emoji: '✅',
-      label: `Bz south (${bz.toFixed(1)} nT)`,
-      explanation: 'favourable for aurora',
-    };
-  }
-  if (bz < 0) {
-    return {
-      emoji: '➖',
-      label: `Bz near zero (${bz.toFixed(1)} nT)`,
-      explanation: 'neutral',
-    };
-  }
-  if (bz <= 5) {
-    return {
-      emoji: '⚠️',
-      label: `Bz north (+${bz.toFixed(1)} nT)`,
-      explanation: 'poor for aurora',
-    };
-  }
-  return {
-    emoji: '⚠️',
-    label: `Bz north (+${bz.toFixed(1)} nT)`,
-    explanation: 'poor for aurora',
-  };
-}
-
 
 /** Aurora "curtains" glyph used on the glow strip. */
 function AuroraGlyph() {

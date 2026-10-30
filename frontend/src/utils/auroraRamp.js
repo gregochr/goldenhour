@@ -42,9 +42,6 @@ export const AURORA_STOPS = [
  */
 export const AURORA_BLOOM = { rgb: [120, 255, 170], from: 3.4, a: 150 };
 
-/** The Heat toggle's swatch while an aurora night is showing. */
-export const AURORA_TOGGLE_SWATCH = 'linear-gradient(90deg,#1F7F78,#76FFA0)';
-
 /**
  * A 1–5 aurora rating to an [r, g, b] triple, linearly interpolated between {@link AURORA_STOPS}
  * and clamped at both ends. A non-finite score resolves to the BOTTOM stop, never the top — the

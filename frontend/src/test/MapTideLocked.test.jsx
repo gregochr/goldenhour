@@ -84,7 +84,6 @@ vi.mock('../api/astroApi.js', () => ({
   getAstroAvailableDates: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockResolvedValue([]) }));
-vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 vi.mock('../components/BottomSheet.jsx', () => ({ default: () => null }));

@@ -57,7 +57,6 @@ vi.mock('../api/astroApi.js', () => ({
   getAstroAvailableDates: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
-vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 
 // What `MapView` hands `MapLabels` is the other end of the wire for a rating: its `rating` becomes

@@ -245,29 +245,3 @@ export async function geocodePlace(placeName) {
   };
 }
 
-/**
- * Fetches all tide extremes for a location on a given UTC calendar day.
- *
- * @param {string} locationName - The configured location name.
- * @param {string} date - Target date in ISO format (YYYY-MM-DD).
- * @returns {Promise<Array<{id: number, type: string, eventTime: string, heightMetres: string}>>}
- */
-export async function fetchTidesForDate(locationName, date) {
-  const response = await apiClient.get(`${BASE_URL}/tides`, {
-    params: { locationName, date },
-  });
-  return response.data;
-}
-
-/**
- * Fetches aggregate tide height statistics for a location from historical data.
- *
- * @param {string} locationName - The configured location name.
- * @returns {Promise<{avgHighMetres: number, maxHighMetres: number, avgLowMetres: number, minLowMetres: number, dataPoints: number}|null>}
- */
-export async function fetchTideStats(locationName) {
-  const response = await apiClient.get(`${BASE_URL}/tides/stats`, {
-    params: { locationName },
-  });
-  return response.status === 204 ? null : response.data;
-}

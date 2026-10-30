@@ -249,8 +249,9 @@ class ForecastTaskCollectorHorizonBasisTest {
                         new WeatherExtractionResult(null, new OpenMeteoForecastResponse(),
                                 new OpenMeteoAirQualityResponse())));
         int utcBasisHorizon = (int) java.time.temporal.ChronoUnit.DAYS.between(UTC_TODAY, date);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any()))
+        // Both dates under test are within the near-term horizon, so the near-term model applies.
+        when(CollectorTriageStubs.triageOf(forecastService, loc, date, TargetType.SUNSET,
+                EvaluationModel.SONNET))
                 .thenReturn(sunsetPreEval(loc, date, utcBasisHorizon));
         return loc;
     }
