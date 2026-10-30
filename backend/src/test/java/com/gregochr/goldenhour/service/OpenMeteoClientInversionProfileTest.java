@@ -83,10 +83,11 @@ class OpenMeteoClientInversionProfileTest {
     }
 
     @Test
-    @DisplayName("INVERSION_PROFILE_PARAMS is the 15 documented variables, and FORECAST_PARAMS gained none of them")
-    void paramsAreExactlyTheFifteenAndForecastParamsIsUntouched() {
+    @DisplayName("INVERSION_PROFILE_PARAMS is the 17 documented variables, and FORECAST_PARAMS gained none of them")
+    void paramsAreExactlyTheSeventeenAndForecastParamsIsUntouched() {
         assertThat(OpenMeteoClient.INVERSION_PROFILE_PARAMS.split(",")).containsExactly(
-                "temperature_2m", "dew_point_2m", "cloud_cover_low", "visibility", "wind_speed_10m",
+                "temperature_2m", "dew_point_2m", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
+                "visibility", "wind_speed_10m",
                 "temperature_975hPa", "temperature_950hPa", "temperature_925hPa", "temperature_900hPa",
                 "temperature_850hPa",
                 "geopotential_height_975hPa", "geopotential_height_950hPa", "geopotential_height_925hPa",
@@ -115,6 +116,41 @@ class OpenMeteoClientInversionProfileTest {
         assertThat(param(uri, "hourly")).isEqualTo(OpenMeteoClient.INVERSION_PROFILE_PARAMS);
         assertThat(param(uri, "wind_speed_unit")).isEqualTo("ms");
         assertThat(param(uri, "timezone")).isEqualTo("UTC");
+    }
+
+    @Test
+    @DisplayName("the profile request carries past_days=1 so a day-0 sunrise has the evening before")
+    void profileRequestCarriesPastDays() {
+        List<java.net.URI> seen = new ArrayList<>();
+        server.expect(request -> seen.add(request.getURI()))
+                .andRespond(withSuccess(jsonArray(2), MediaType.APPLICATION_JSON));
+
+        client.fetchInversionProfileBatch(points(2));
+
+        server.verify();
+        assertThat(param(seen.get(0), "past_days")).isEqualTo("1");
+    }
+
+    @Test
+    @DisplayName("the main, pressure-level and generic batches send no past_days")
+    void otherBatchesSendNoPastDays() {
+        List<java.net.URI> seen = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            server.expect(request -> seen.add(request.getURI()))
+                    .andRespond(withSuccess(jsonArray(2), MediaType.APPLICATION_JSON));
+        }
+        List<double[]> coords = List.of(new double[]{54.0, -3.0}, new double[]{54.01, -3.0});
+
+        client.fetchForecastBatch(coords);
+        client.fetchPressureLevelCloudBatch(coords);
+        client.fetchCloudOnlyBatch(coords);
+
+        server.verify();
+        assertThat(seen).hasSize(3);
+        assertThat(seen).allSatisfy(uri -> assertThat(param(uri, "past_days")).isNull());
+        assertThat(param(seen.get(0), "hourly")).isEqualTo(OpenMeteoClient.FORECAST_PARAMS);
+        assertThat(param(seen.get(1), "hourly")).isEqualTo(OpenMeteoClient.PRESSURE_LEVEL_CLOUD_PARAMS);
+        assertThat(param(seen.get(2), "hourly")).isEqualTo(OpenMeteoClient.CLOUD_ONLY_PARAMS);
     }
 
     @Test

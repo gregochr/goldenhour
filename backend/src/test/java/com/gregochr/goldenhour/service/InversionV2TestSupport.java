@@ -37,6 +37,8 @@ final class InversionV2TestSupport {
         private Double t2 = 8.0;
         private Double dew = 7.8;
         private Integer low = 90;
+        private Integer mid;
+        private Integer high;
         private Double vis = 10000.0;
         private Double wind = 1.0;
         private Double[] temps = {null, null, null, null, null};
@@ -48,6 +50,21 @@ final class InversionV2TestSupport {
 
         static H at(int hourOfDay) {
             return new H(LocalDateTime.of(2025, 10, 15, hourOfDay, 0));
+        }
+
+        /** An hour at an explicit time, for the night side and for days other than {@link #EVENT}'s. */
+        static H on(LocalDateTime time) {
+            return new H(time);
+        }
+
+        H mid(Integer v) {
+            this.mid = v;
+            return this;
+        }
+
+        H high(Integer v) {
+            this.high = v;
+            return this;
         }
 
         H t2(Double v) {
@@ -92,7 +109,7 @@ final class InversionV2TestSupport {
             for (int i = 0; i < hpa.length; i++) {
                 levels.add(new InversionProfile.Level(hpa[i], temps[i], heights[i]));
             }
-            return new InversionProfile.Hour(time, t2, dew, low, vis, wind, List.copyOf(levels));
+            return new InversionProfile.Hour(time, t2, dew, low, mid, high, vis, wind, List.copyOf(levels));
         }
     }
 
@@ -100,6 +117,12 @@ final class InversionV2TestSupport {
     static InversionProfile profile(int valleyFloor, H... hours) {
         return new InversionProfile(54.5, -3.1, (double) valleyFloor, valleyFloor, SLOT,
                 java.util.Arrays.stream(hours).map(H::build).toList());
+    }
+
+    /** A sliced profile with {@link #SLOT} as the slot and a night side. */
+    static InversionProfile profile(int valleyFloor, List<InversionProfile.Hour> nightHours, H... hours) {
+        return new InversionProfile(54.5, -3.1, (double) valleyFloor, valleyFloor, SLOT,
+                java.util.Arrays.stream(hours).map(H::build).toList(), nightHours);
     }
 
     /** A sunrise {@link AtmosphericData} for the viewpoint cell, carrying {@code profile}. */

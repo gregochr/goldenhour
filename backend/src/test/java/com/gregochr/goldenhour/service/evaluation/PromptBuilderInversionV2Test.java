@@ -103,4 +103,44 @@ class PromptBuilderInversionV2Test {
         assertThat(promptBuilder.buildUserMessage(data)).doesNotContain("CLOUD INVERSION FORECAST")
                 .doesNotContain("Warm layer");
     }
+
+    /** A driving carrier with the night fields: night 75, mid 75, Option B off, the night cap bound or not. */
+    private static InversionV2Result nightDrove(boolean nightCapBound, boolean optionB, boolean optionBBound) {
+        return new InversionV2Result(null, 6.0, 8.0, 8.0, InversionRegime.ELEVATED, 682.0, 1130.0, 4.6,
+                152, 868, InversionClearance.CLEAR, "night-mid(8)", true, 75.0, 75.0, optionB, nightCapBound,
+                optionBBound);
+    }
+
+    @Test
+    @DisplayName("the night cap bound: the Warm layer line gains '; under a cloudy night'")
+    void nightCapClause() {
+        AtmosphericData data = slot(8.0).build().withInversionV2(nightDrove(true, false, false));
+
+        assertThat(promptBuilder.buildUserMessage(data)).contains("Warm layer: +4.6°C from about 682 m to 1130 m "
+                + "above a valley at 152 m; this viewpoint (868 m) is clear of it; under a cloudy night.");
+    }
+
+    @Test
+    @DisplayName("Option B made an unconfirmed layer an edge: the line gains '; after a clear, calm night'")
+    void optionBClause() {
+        InversionV2Result carrier = new InversionV2Result(null, 6.0, 8.0, 8.0, InversionRegime.SURFACE_BASED, 100.0,
+                450.0, 2.5, 100, 450, InversionClearance.EDGE, "night-fog(8)", true, 5.0, 0.0, true, false, true);
+        AtmosphericData data = slot(8.0).build().withInversionV2(carrier);
+
+        assertThat(promptBuilder.buildUserMessage(data)).contains("this viewpoint (450 m) is at its edge; "
+                + "after a clear, calm night.");
+    }
+
+    @Test
+    @DisplayName("a night that bound nothing leaves the line byte-identical, whatever the night figures say")
+    void unboundNightChangesNothing() {
+        AtmosphericData plain = slot(8.0).build().withInversionV2(drove(InversionClearance.CLEAR));
+        AtmosphericData withNightFigures = slot(8.0).build().withInversionV2(nightDrove(false, true, false));
+        AtmosphericData sameFigures = slot(8.0).build().withInversionV2(new InversionV2Result(null, 6.0, 8.0, 8.0,
+                InversionRegime.ELEVATED, 682.0, 1130.0, 4.6, 152, 868, InversionClearance.CLEAR, "-", true,
+                75.0, 75.0, true, false, false));
+
+        assertThat(promptBuilder.buildUserMessage(withNightFigures)).isEqualTo(promptBuilder.buildUserMessage(plain));
+        assertThat(promptBuilder.buildUserMessage(sameFigures)).isEqualTo(promptBuilder.buildUserMessage(plain));
+    }
 }

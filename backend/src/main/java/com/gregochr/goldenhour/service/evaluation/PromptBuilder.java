@@ -857,9 +857,27 @@ public class PromptBuilder {
         String standing = v2.clearance() == InversionClearance.CLEAR ? "clear of it" : "at its edge";
         sb.append(String.format(
                 "%nWarm layer: %+.1f\u00b0C from about %d m to %d m above a valley at %d m; "
-                + "this viewpoint (%d m) is %s.",
+                + "this viewpoint (%d m) is %s%s.",
                 v2.strengthCelsius(), Math.round(v2.baseMetres()), Math.round(v2.topMetres()),
-                v2.valleyFloorMetres(), v2.viewpointMetres(), standing));
+                v2.valleyFloorMetres(), v2.viewpointMetres(), standing, nightClause(v2)));
+    }
+
+    /**
+     * The night clause of the warm layer line (inversion-v2-plan Phase 2): present only when the night is why
+     * the score reads as it does, so a score the night did not move keeps the line byte-identical.
+     *
+     * @param v2 the v2 carrier that drove the stored score
+     * @return "; under a cloudy night" when the night cap lowered the score, "; after a clear, calm night" when
+     *         Option B made an unconfirmed layer an edge, else the empty string
+     */
+    private static String nightClause(InversionV2Result v2) {
+        if (v2.nightCapBound()) {
+            return "; under a cloudy night";
+        }
+        if (v2.optionBBound()) {
+            return "; after a clear, calm night";
+        }
+        return "";
     }
 
     /**

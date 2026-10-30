@@ -1,10 +1,17 @@
 package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,7 +30,10 @@ import java.util.List;
  *                             request), or null
  * @param valleyFloorMetres    the location's stored valley floor in metres, the walk's reference height h0
  * @param slotTime             the event slot's hour on a sliced profile; null on a whole-forecast profile
- * @param hours                the hourly readings in time order
+ * @param hours                the hourly readings in time order: on a sliced profile the event window only
+ * @param nightHours           the night before a sunrise slot (21:00 local the evening before to 05:00
+ *                             local, clipped at the slot), kept apart from {@code hours} so the walk and the
+ *                             fog evidence never see it; empty for a sunset and for a whole-forecast profile
  */
 public record InversionProfile(
         Double cellLatitude,
@@ -31,7 +41,32 @@ public record InversionProfile(
         Double cellElevationMetres,
         int valleyFloorMetres,
         LocalDateTime slotTime,
-        List<Hour> hours) {
+        List<Hour> hours,
+        List<Hour> nightHours) {
+
+    /** The zone the night window is read in, as for {@code TideWording}: the photographer's local clock. */
+    public static final ZoneId LONDON = ZoneId.of("Europe/London");
+
+    /** Local hour the night window opens, on the evening before the event date. */
+    public static final int NIGHT_START_HOUR_LOCAL = 21;
+
+    /** Local hour the night window closes, on the event date. */
+    public static final int NIGHT_END_HOUR_LOCAL = 5;
+
+    /**
+     * A profile without a night side, at the arity before Phase 2.
+     *
+     * @param cellLatitude        latitude of the model cell, or null
+     * @param cellLongitude       longitude of the model cell, or null
+     * @param cellElevationMetres surface height the response refers to, or null
+     * @param valleyFloorMetres   the stored valley floor in metres
+     * @param slotTime            the event slot's hour, or null on a whole-forecast profile
+     * @param hours               the hourly readings in time order
+     */
+    public InversionProfile(Double cellLatitude, Double cellLongitude, Double cellElevationMetres,
+            int valleyFloorMetres, LocalDateTime slotTime, List<Hour> hours) {
+        this(cellLatitude, cellLongitude, cellElevationMetres, valleyFloorMetres, slotTime, hours, List.of());
+    }
 
     /** Hours of the night side examined before a sunrise slot. */
     public static final int SUNRISE_HOURS_BEFORE = 4;
@@ -62,6 +97,8 @@ public record InversionProfile(
      * @param temperatureCelsius 2 m temperature, or null
      * @param dewPointCelsius    2 m dew point, or null
      * @param lowCloudPercent    low cloud cover, or null
+     * @param midCloudPercent    mid cloud cover, or null
+     * @param highCloudPercent   high cloud cover, or null
      * @param visibilityMetres   visibility, or null
      * @param windSpeedMs        10 m wind speed in m/s, or null
      * @param levels             the pressure levels, lowest first (975, 950, 925, 900, 850 hPa)
@@ -71,9 +108,28 @@ public record InversionProfile(
             Double temperatureCelsius,
             Double dewPointCelsius,
             Integer lowCloudPercent,
+            Integer midCloudPercent,
+            Integer highCloudPercent,
             Double visibilityMetres,
             Double windSpeedMs,
             List<Level> levels) {
+
+        /**
+         * An hour without mid and high cloud, at the arity before Phase 2.
+         *
+         * @param time               the UTC hour
+         * @param temperatureCelsius 2 m temperature, or null
+         * @param dewPointCelsius    2 m dew point, or null
+         * @param lowCloudPercent    low cloud cover, or null
+         * @param visibilityMetres   visibility, or null
+         * @param windSpeedMs        10 m wind speed in m/s, or null
+         * @param levels             the pressure levels, lowest first
+         */
+        public Hour(LocalDateTime time, Double temperatureCelsius, Double dewPointCelsius,
+                Integer lowCloudPercent, Double visibilityMetres, Double windSpeedMs, List<Level> levels) {
+            this(time, temperatureCelsius, dewPointCelsius, lowCloudPercent, null, null, visibilityMetres,
+                    windSpeedMs, levels);
+        }
     }
 
     /**
@@ -108,18 +164,25 @@ public record InversionProfile(
                     at(h.getTemperature2m(), i),
                     at(h.getDewPoint2m(), i),
                     at(h.getCloudCoverLow(), i),
+                    at(h.getCloudCoverMid(), i),
+                    at(h.getCloudCoverHigh(), i),
                     at(h.getVisibility(), i),
                     at(h.getWindSpeed10m(), i),
                     List.copyOf(levels)));
         }
         return new InversionProfile(response.getLatitude(), response.getLongitude(), response.getElevation(),
-                valleyFloorMetres, null, List.copyOf(hours));
+                valleyFloorMetres, null, List.copyOf(hours), List.of());
     }
 
     /**
      * Cuts the profile to the event slot and its night side: the {@value #SUNRISE_HOURS_BEFORE} hours up to
      * a sunrise slot, or the {@value #SUNSET_HOURS_AFTER} hours from a sunset slot. The slot is chosen by
      * the same rule as the main forecast ({@link TimeSlotUtils#findBestIndex}).
+     *
+     * <p>For a sunrise the night side is also cut, into {@link #nightHours()}: every hour from
+     * {@value #NIGHT_START_HOUR_LOCAL}:00 Europe/London on the evening before the event date to
+     * 0{@value #NIGHT_END_HOUR_LOCAL}:00 on the event date, both inclusive, ended early (inclusive) at a slot
+     * earlier than 05:00. That is 10 hours on the October fall-back night and 8 in March. A sunset gets none.
      *
      * @param eventTime  UTC time of the solar event
      * @param targetType SUNRISE or SUNSET
@@ -141,8 +204,25 @@ public record InversionProfile(
         List<Hour> window = hours.stream()
                 .filter(hour -> !hour.time().isBefore(from) && !hour.time().isAfter(to))
                 .toList();
+        List<Hour> night = targetType == TargetType.SUNRISE ? nightBefore(eventTime, slot) : List.of();
         return new InversionProfile(cellLatitude, cellLongitude, cellElevationMetres, valleyFloorMetres, slot,
-                window);
+                window, night);
+    }
+
+    /** The hours of the night window before a sunrise: see {@link #sliceForEvent}. */
+    private List<Hour> nightBefore(LocalDateTime eventTime, LocalDateTime slot) {
+        LocalDate eventDate = ForecastHorizon.civilDate(eventTime.toInstant(ZoneOffset.UTC));
+        Instant open = ZonedDateTime.of(eventDate.minusDays(1), LocalTime.of(NIGHT_START_HOUR_LOCAL, 0), LONDON)
+                .toInstant();
+        Instant close = ZonedDateTime.of(eventDate, LocalTime.of(NIGHT_END_HOUR_LOCAL, 0), LONDON).toInstant();
+        Instant slotInstant = slot.toInstant(ZoneOffset.UTC);
+        Instant end = slotInstant.isBefore(close) ? slotInstant : close;
+        return hours.stream()
+                .filter(hour -> {
+                    Instant at = hour.time().toInstant(ZoneOffset.UTC);
+                    return !at.isBefore(open) && !at.isAfter(end);
+                })
+                .toList();
     }
 
     /**

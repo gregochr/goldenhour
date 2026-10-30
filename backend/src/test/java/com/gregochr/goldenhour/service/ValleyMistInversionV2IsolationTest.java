@@ -38,16 +38,22 @@ import static org.mockito.Mockito.mock;
  */
 class ValleyMistInversionV2IsolationTest {
 
-    /** A whole-day valley profile built around the fixture's date: a deep, saturated, calm sea under a warm cap. */
+    /** A valley profile for the fixture's date and the evening before: a deep, saturated, calm sea under a warm cap. */
     private static InversionProfile wholeProfile(LocalDate day, Function<H, H> shape) {
+        // The evening before is included so the night side (from 21:00 local) is cut from it too.
         List<InversionProfile.Hour> hours = new ArrayList<>();
-        for (int hour = 0; hour < 24; hour++) {
-            hours.add(shape.apply(new H(day.atTime(hour, 0))).build());
+        for (int hour = 0; hour < 48; hour++) {
+            hours.add(shape.apply(new H(day.minusDays(1).atTime(0, 0).plusHours(hour))).build());
         }
         return new InversionProfile(54.5, -3.1, 80.0, 80, null, hours);
     }
 
     private static final Function<H, H> DEEP_SEA = h -> h.temps(6.0, 5.0, 9.0, 11.0, 10.0);
+    /** Phase 2 night inputs (mid and high cloud) on the same deep sea, in dense fog so no low-cloud lid counts. */
+    private static final Function<H, H> CLEAR_NIGHT = h -> DEEP_SEA.apply(h).vis(900.0).mid(0).high(0);
+    private static final Function<H, H> OVERCAST_NIGHT = h -> DEEP_SEA.apply(h).vis(900.0).mid(100).high(100);
+    private static final Function<H, H> CLEAR_CALM_MOIST_NIGHT =
+            h -> h.t2(8.0).dew(7.5).wind(1.0).low(0).mid(0).high(0).temps(10.5, 9.0, 8.0, 7.0, 6.0);
     private static final Function<H, H> NO_LEVELS = h -> h.temps(null, null, null, null, null);
     private static final Function<H, H> NO_RISE = h -> h.t2(9.0).temps(8.0, 7.0, 6.0, 5.0, 4.0);
     private static final Function<H, H> SLOT_UNREADABLE = h -> h.dew(null).wind(null).temps(6.0, 5.0, 9.0, 11.0, 10.0);
@@ -71,7 +77,12 @@ class ValleyMistInversionV2IsolationTest {
                 new Variant("v2 switched off with a profile", DEEP_SEA, false, 950, true),
                 new Variant("profile present but site ineligible (no water)", DEEP_SEA, true, 335, false),
                 new Variant("profile present but elevation below the gate", DEEP_SEA, true, 150, true),
-                new Variant("profile present, elevation null", DEEP_SEA, true, null, true));
+                new Variant("profile present, elevation null", DEEP_SEA, true, null, true),
+                new Variant("clear night, summit", CLEAR_NIGHT, true, 950, true),
+                new Variant("overcast night, summit (night cap binds)", OVERCAST_NIGHT, true, 950, true),
+                new Variant("overcast night, 335 m site", OVERCAST_NIGHT, true, 335, true),
+                new Variant("clear, calm, moist night, surface-based layer (Option B)", CLEAR_CALM_MOIST_NIGHT,
+                        true, 450, true));
     }
 
     private static ForecastDataAugmentor augmentor(boolean v2On) {
@@ -150,5 +161,22 @@ class ValleyMistInversionV2IsolationTest {
         assertThat(noProfile.inversionV2()).isNull();
         assertThat(off.inversionV2().v2Raw()).isNull();
         assertThat(chain(parsed, variants().get(7)).inversionScore()).isNull();
+    }
+
+    @Test
+    @DisplayName("the night variants really do reach the inversion score, so their isolation is not vacuous")
+    void nightVariantsReachTheInversionScore() {
+        AtmosphericData parsed = BrathayValleyMistFixture.sunriseAt(BrathayValleyMistFixture.SUNRISE_READS_0700);
+
+        InversionV2Result clear = chain(parsed, variants().get(10)).inversionV2();
+        InversionV2Result overcast = chain(parsed, variants().get(11)).inversionV2();
+        InversionV2Result surface = chain(parsed, variants().get(13)).inversionV2();
+
+        assertThat(clear.nightPercent()).isNotNull();
+        assertThat(clear.v2Raw()).isEqualTo(10.0);
+        assertThat(overcast.nightMidPercent()).isEqualTo(100.0);
+        assertThat(overcast.v2Raw()).isEqualTo(8.0);
+        assertThat(overcast.nightCapBound()).isTrue();
+        assertThat(surface.optionB()).isTrue();
     }
 }
