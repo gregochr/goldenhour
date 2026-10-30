@@ -73,7 +73,7 @@ class SkyRatingEvalRepositoryTest {
     }
 
     @Test
-    @DisplayName("results round-trip with sub-scores, band, miss direction and are fetched by run")
+    @DisplayName("results round-trip with sub-scores, band and miss direction and are fetched by run")
     void resultsRoundTripAndFetchByRun() {
         SkyRatingEvalRunEntity run = runRepository.save(buildRun(
                 LocalDateTime.of(2026, 6, 27, 3, 0), SkyRatingEvalStatus.COMPLETED));
@@ -85,8 +85,10 @@ class SkyRatingEvalRepositoryTest {
         resultRepository.save(buildResult(run.getId(), "st-marys-10mar-moderate", 2, 3,
                 MissDirection.BELOW));
 
-        List<SkyRatingEvalResultEntity> results =
-                resultRepository.findByRunIdOrderByFixtureNameAscRunIndexAsc(run.getId());
+        List<SkyRatingEvalResultEntity> results = resultRepository.findByRunIdIn(List.of(run.getId())).stream()
+                .sorted(java.util.Comparator.comparing(SkyRatingEvalResultEntity::getFixtureName)
+                        .thenComparing(SkyRatingEvalResultEntity::getRunIndex))
+                .toList();
 
         assertThat(results).hasSize(3);
         assertThat(results.get(0).getFixtureName()).isEqualTo("copt-hill-5mar-washout");

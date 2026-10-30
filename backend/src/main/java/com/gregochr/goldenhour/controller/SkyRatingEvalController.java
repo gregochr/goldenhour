@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.SkyRatingEvalResultEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalTrigger;
 import com.gregochr.goldenhour.model.SkyRatingEvalTrendPoint;
@@ -87,18 +86,6 @@ public class SkyRatingEvalController {
     @PreAuthorize("hasRole('ADMIN')")
     public SkyRatingEvalRunEntity run(@PathVariable Long id) {
         return service.getRun(id);
-    }
-
-    /**
-     * The per-(fixture × run-index) results for one run.
-     *
-     * @param id the run id
-     * @return the results
-     */
-    @GetMapping("/runs/{id}/results")
-    @PreAuthorize("hasRole('ADMIN')")
-    public List<SkyRatingEvalResultEntity> results(@PathVariable Long id) {
-        return service.resultsForRun(id);
     }
 
     /**
