@@ -179,7 +179,12 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           setAllApiCalls([]);
         }
       } else {
-        setRuns((prev) => [...prev, ...newRuns]);
+        // Guard against a repeated row (e.g. the list shifting between pages): keep what is shown,
+        // add only runs not already present. hasMore below still follows the server page.
+        setRuns((prev) => {
+          const seen = new Set(prev.map((run) => run.id));
+          return [...prev, ...newRuns.filter((run) => !seen.has(run.id))];
+        });
       }
 
       setPage(pageNum + 1);

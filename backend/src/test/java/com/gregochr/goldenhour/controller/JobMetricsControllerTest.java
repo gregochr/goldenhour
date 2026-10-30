@@ -54,7 +54,7 @@ class JobMetricsControllerTest extends AbstractControllerTest {
                 .succeeded(10)
                 .failed(0)
                 .build();
-        when(jobRunService.getRecentRunsAllTypes(20)).thenReturn(List.of(run));
+        when(jobRunService.getRecentRunsAllTypes(21)).thenReturn(List.of(run));
 
         mockMvc.perform(get("/api/metrics/job-runs")
                 .contentType(MediaType.APPLICATION_JSON))
@@ -72,7 +72,7 @@ class JobMetricsControllerTest extends AbstractControllerTest {
                 .runType(RunType.SCHEDULED_BATCH)
                 .startedAt(LocalDateTime.of(2026, 5, 18, 2, 5, 30))
                 .build();
-        when(jobRunService.getRecentRunsAllTypes(20)).thenReturn(List.of(run));
+        when(jobRunService.getRecentRunsAllTypes(21)).thenReturn(List.of(run));
         when(batchSummaryDeriver.derive(any())).thenReturn(Optional.of(new BatchSummary(
                 "T+1", List.of("SUNRISE"), "HAIKU", 29, 7, false)));
 
@@ -97,7 +97,7 @@ class JobMetricsControllerTest extends AbstractControllerTest {
                 .runType(RunType.TIDE)
                 .startedAt(LocalDateTime.now())
                 .build();
-        when(jobRunService.getRecentRunsAllTypes(20)).thenReturn(List.of(run));
+        when(jobRunService.getRecentRunsAllTypes(21)).thenReturn(List.of(run));
         when(batchSummaryDeriver.derive(any())).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/metrics/job-runs")
@@ -115,7 +115,7 @@ class JobMetricsControllerTest extends AbstractControllerTest {
                 .id(1L)
                 .runType(RunType.WEATHER)
                 .build();
-        when(jobRunService.getRecentRuns(eq(RunType.WEATHER), eq(20))).thenReturn(List.of(run));
+        when(jobRunService.getRecentRuns(eq(RunType.WEATHER), eq(21))).thenReturn(List.of(run));
 
         mockMvc.perform(get("/api/metrics/job-runs?runType=WEATHER")
                 .contentType(MediaType.APPLICATION_JSON))
@@ -149,14 +149,14 @@ class JobMetricsControllerTest extends AbstractControllerTest {
     @DisplayName("GET /api/metrics/job-runs clamps an oversized page size to 200")
     @WithMockUser(roles = "ADMIN")
     void getJobRuns_oversizedSize_isClampedToMaxPageSize() throws Exception {
-        when(jobRunService.getRecentRunsAllTypes(200)).thenReturn(List.of());
+        when(jobRunService.getRecentRunsAllTypes(201)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/metrics/job-runs?size=2000000000")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isEmpty());
 
-        verify(jobRunService).getRecentRunsAllTypes(200);
+        verify(jobRunService).getRecentRunsAllTypes(201);
     }
 
     @Test
@@ -165,14 +165,83 @@ class JobMetricsControllerTest extends AbstractControllerTest {
     void getJobRuns_hugePageAndSize_capsScanLimit() throws Exception {
         // size * (page + 1) overflows int at these values; the clamp + long arithmetic must
         // leave the service with a positive, bounded limit
-        when(jobRunService.getRecentRuns(eq(RunType.WEATHER), eq(5000))).thenReturn(List.of());
+        when(jobRunService.getRecentRuns(eq(RunType.WEATHER), eq(5001))).thenReturn(List.of());
 
         mockMvc.perform(get("/api/metrics/job-runs?runType=WEATHER&page=2000000000&size=2000000000")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isEmpty());
 
-        verify(jobRunService).getRecentRuns(RunType.WEATHER, 5000);
+        verify(jobRunService).getRecentRuns(RunType.WEATHER, 5001);
+    }
+
+    private static List<JobRunEntity> runs(RunType type, int count) {
+        return java.util.stream.IntStream.rangeClosed(1, count)
+                .mapToObj(i -> JobRunEntity.builder().id((long) i).runType(type).build())
+                .toList();
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/job-runs all-types page 1 returns the next runs, not page 0 again")
+    @WithMockUser(roles = "ADMIN")
+    void getJobRuns_allTypes_pageOne_returnsNextWindow() throws Exception {
+        when(jobRunService.getRecentRunsAllTypes(5)).thenReturn(runs(RunType.WEATHER, 5));
+        when(jobRunService.getRecentRunsAllTypes(3)).thenReturn(runs(RunType.WEATHER, 3));
+
+        mockMvc.perform(get("/api/metrics/job-runs?page=0&size=2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(1))
+                .andExpect(jsonPath("$.content[1].id").value(2));
+
+        mockMvc.perform(get("/api/metrics/job-runs?page=1&size=2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(3))
+                .andExpect(jsonPath("$.content[1].id").value(4))
+                .andExpect(jsonPath("$.totalElements").value(5))
+                .andExpect(jsonPath("$.number").value(1))
+                .andExpect(jsonPath("$.last").value(false));
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/job-runs filtered page 1 returns the next runs, not page 0 again")
+    @WithMockUser(roles = "ADMIN")
+    void getJobRuns_filtered_pageOne_returnsNextWindow() throws Exception {
+        when(jobRunService.getRecentRuns(RunType.WEATHER, 5)).thenReturn(runs(RunType.WEATHER, 5));
+
+        mockMvc.perform(get("/api/metrics/job-runs?runType=WEATHER&page=1&size=2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(3))
+                .andExpect(jsonPath("$.content[1].id").value(4))
+                .andExpect(jsonPath("$.totalElements").value(5))
+                .andExpect(jsonPath("$.last").value(false));
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/job-runs last page holds the remaining runs and reports no further page")
+    @WithMockUser(roles = "ADMIN")
+    void getJobRuns_lastPage_hasRemainderAndTotal() throws Exception {
+        when(jobRunService.getRecentRunsAllTypes(5)).thenReturn(runs(RunType.WEATHER, 3));
+
+        mockMvc.perform(get("/api/metrics/job-runs?page=1&size=2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(3))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.last").value(true));
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/job-runs a page beyond the data is empty, not an error")
+    @WithMockUser(roles = "ADMIN")
+    void getJobRuns_pageBeyondData_isEmpty() throws Exception {
+        when(jobRunService.getRecentRunsAllTypes(13)).thenReturn(runs(RunType.WEATHER, 3));
+
+        mockMvc.perform(get("/api/metrics/job-runs?page=5&size=2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isEmpty());
     }
 
     @Test

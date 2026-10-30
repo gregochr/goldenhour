@@ -19,21 +19,24 @@ import java.util.Optional;
 public interface JobRunRepository extends JpaRepository<JobRunEntity, Long> {
 
     /**
-     * Finds recent job runs by run type, ordered by start time descending.
+     * Finds recent job runs by run type, ordered by start time descending. The id tie-break keeps
+     * offset paging stable when runs share a start second.
      *
      * @param runType  the run type to filter by
      * @param pageable pagination configuration
      * @return list of job runs
      */
-    List<JobRunEntity> findByRunTypeOrderByStartedAtDesc(RunType runType, Pageable pageable);
+    List<JobRunEntity> findByRunTypeOrderByStartedAtDescIdDesc(RunType runType, Pageable pageable);
 
     /**
-     * Finds all job runs that started after a given time, ordered descending.
+     * Finds job runs that started after a given time, ordered by start time descending. The id
+     * tie-break keeps offset paging stable when runs share a start second.
      *
-     * @param since the start time threshold
+     * @param since    the start time threshold
+     * @param pageable pagination configuration
      * @return list of job runs
      */
-    List<JobRunEntity> findByStartedAtAfterOrderByStartedAtDesc(LocalDateTime since);
+    List<JobRunEntity> findByStartedAtAfterOrderByStartedAtDescIdDesc(LocalDateTime since, Pageable pageable);
 
     /**
      * Finds the newest run of a type that started at or after a moment: the day's run, when the
