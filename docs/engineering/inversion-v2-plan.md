@@ -393,7 +393,19 @@ Switch-over (shadow → live) is an owner decision on that evidence.
 
 ## 8. Measurements and candidates (to be filled)
 
-- Production query, sites both `mist_prone` and inversion-eligible: _pending_.
+- **Production query (2026-10-30, owner, read-only `COPY` from `goldenhour-db`):** 26 enabled sites are
+  inversion-eligible, 200–597 m, exactly the V86 set. **No enabled site is `mist_prone`**: the query asked
+  for inversion-eligible OR mist-prone, and returned only the 26, all with `mist_prone = f`. Two
+  consequences:
+  1. **There is no overlap today**, so no inversion change can reach mist through Claude's echo. The
+     Phase 0 prompt-isolation test still matters, because the overlap appears the moment a site is ticked.
+  2. **Valley mist is dormant in production.** `augmentWithValleyMist` scores only flagged sites, so the
+     calculator, the "Valley mist" hot topic, the Coming up condition, the triage exemption, the prompt
+     block and the `MIST_CALC` log have nothing to work on. The valley-mist plan's Q5 shortlist (the
+     Brathay, Rydal, Grasmere, Buttermere, the Derwent Water shores, the Dales sites, the Hadrian's Wall
+     sites) was never ticked. That is an owner action in the location editor, not code.
+     ⚠️ Three Wall sites on that shortlist are also inversion-eligible here (Steel Rigg & Winshield Crags
+     345 m, Highshield Crags 300 m, Cawfields 250 m): ticking them creates the overlap at once.
 - 1a elevations, profiles and model coverage: _pending_.
 - Dated fog-sea mornings (the owner has none of their own; candidates from a web search 2026-10-28, dates
   taken from search summaries because this container could not open the pages; confirm each before use):
