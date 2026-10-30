@@ -83,18 +83,20 @@ class OpenMeteoClientInversionProfileTest {
     }
 
     @Test
-    @DisplayName("INVERSION_PROFILE_PARAMS is the 17 documented variables, and FORECAST_PARAMS gained none of them")
-    void paramsAreExactlyTheSeventeenAndForecastParamsIsUntouched() {
+    @DisplayName("INVERSION_PROFILE_PARAMS is the 22 documented variables, and FORECAST_PARAMS gained none of them")
+    void paramsAreExactlyTheTwentyTwoAndForecastParamsIsUntouched() {
         assertThat(OpenMeteoClient.INVERSION_PROFILE_PARAMS.split(",")).containsExactly(
                 "temperature_2m", "dew_point_2m", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
                 "visibility", "wind_speed_10m",
                 "temperature_975hPa", "temperature_950hPa", "temperature_925hPa", "temperature_900hPa",
                 "temperature_850hPa",
                 "geopotential_height_975hPa", "geopotential_height_950hPa", "geopotential_height_925hPa",
-                "geopotential_height_900hPa", "geopotential_height_850hPa");
+                "geopotential_height_900hPa", "geopotential_height_850hPa",
+                "wind_speed_975hPa", "wind_speed_950hPa", "wind_speed_925hPa", "wind_speed_900hPa",
+                "wind_speed_850hPa");
         assertThat(OpenMeteoClient.FORECAST_PARAMS)
                 .doesNotContain("975hPa").doesNotContain("950hPa").doesNotContain("900hPa")
-                .doesNotContain("geopotential");
+                .doesNotContain("geopotential").doesNotContain("wind_speed_9");
     }
 
     @Test

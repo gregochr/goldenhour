@@ -28,6 +28,11 @@ package com.gregochr.goldenhour.model;
  * @param optionB           true when the night was clear, calm and moist (Option B's three conditions)
  * @param nightCapBound     true when the night cap lowered the score
  * @param optionBBound      true when Option B turned an unconfirmed surface-based layer into an edge
+ * @param windMs            the wind in m/s across the top of an elevated layer at the event slot (the larger of
+ *                          the layer's base level and the level above it), or null with no elevated layer or
+ *                          no wind reading
+ * @param windLevelHpa      the pressure level in hPa that wind was read at, or null with {@code windMs}
+ * @param windCapBound      true when the summit-wind cap lowered the score
  */
 public record InversionV2Result(
         InversionProfile profile,
@@ -47,7 +52,42 @@ public record InversionV2Result(
         Double nightMidPercent,
         boolean optionB,
         boolean nightCapBound,
-        boolean optionBBound) {
+        boolean optionBBound,
+        Double windMs,
+        Integer windLevelHpa,
+        boolean windCapBound) {
+
+    /**
+     * A carrier without the wind fields, at the arity before Phase 3.
+     *
+     * @param profile           the sliced valley profile
+     * @param v1Score           the old calculator's score, or null
+     * @param v2Raw             the v2 score before the raise cap, or null
+     * @param stored            the value stored on the slot, or null
+     * @param regime            the warm layer's kind, or null
+     * @param baseMetres        the layer's base height, or null
+     * @param topMetres         the layer's top height, or null
+     * @param strengthCelsius   the layer's strength, or null
+     * @param valleyFloorMetres the valley floor h0
+     * @param viewpointMetres   the viewpoint elevation E
+     * @param clearance         where the viewpoint stands against the layer, or null
+     * @param caps              the caps that applied
+     * @param v2Drove           true when v2's value is the one stored
+     * @param nightPercent      the night's cloud measure, or null
+     * @param nightMidPercent   the night's mean mid cloud, or null
+     * @param optionB           true when the night was clear, calm and moist
+     * @param nightCapBound     true when the night cap lowered the score
+     * @param optionBBound      true when Option B turned an unconfirmed layer into an edge
+     */
+    public InversionV2Result(InversionProfile profile, Double v1Score, Double v2Raw, Double stored,
+            InversionRegime regime, Double baseMetres, Double topMetres, Double strengthCelsius,
+            Integer valleyFloorMetres, Integer viewpointMetres, InversionClearance clearance, String caps,
+            boolean v2Drove, Double nightPercent, Double nightMidPercent, boolean optionB,
+            boolean nightCapBound, boolean optionBBound) {
+        this(profile, v1Score, v2Raw, stored, regime, baseMetres, topMetres, strengthCelsius,
+                valleyFloorMetres, viewpointMetres, clearance, caps, v2Drove, nightPercent, nightMidPercent,
+                optionB, nightCapBound, optionBBound, null, null, false);
+    }
 
     /**
      * A carrier without the night fields, at the arity before Phase 2.
@@ -71,7 +111,8 @@ public record InversionV2Result(
             Integer valleyFloorMetres, Integer viewpointMetres, InversionClearance clearance, String caps,
             boolean v2Drove) {
         this(profile, v1Score, v2Raw, stored, regime, baseMetres, topMetres, strengthCelsius,
-                valleyFloorMetres, viewpointMetres, clearance, caps, v2Drove, null, null, false, false, false);
+                valleyFloorMetres, viewpointMetres, clearance, caps, v2Drove, null, null, false, false, false,
+                null, null, false);
     }
 
     /**
@@ -96,7 +137,7 @@ public record InversionV2Result(
     public InversionV2Result withStorage(Double old, Double value, boolean drove) {
         return new InversionV2Result(profile, old, v2Raw, value, regime, baseMetres, topMetres,
                 strengthCelsius, valleyFloorMetres, viewpointMetres, clearance, caps, drove, nightPercent,
-                nightMidPercent, optionB, nightCapBound, optionBBound);
+                nightMidPercent, optionB, nightCapBound, optionBBound, windMs, windLevelHpa, windCapBound);
     }
 
     /**
@@ -108,6 +149,6 @@ public record InversionV2Result(
     public InversionV2Result withCaps(String capsText) {
         return new InversionV2Result(profile, v1Score, v2Raw, stored, regime, baseMetres, topMetres,
                 strengthCelsius, valleyFloorMetres, viewpointMetres, clearance, capsText, v2Drove, nightPercent,
-                nightMidPercent, optionB, nightCapBound, optionBBound);
+                nightMidPercent, optionB, nightCapBound, optionBBound, windMs, windLevelHpa, windCapBound);
     }
 }

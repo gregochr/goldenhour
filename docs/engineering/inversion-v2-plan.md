@@ -1,6 +1,6 @@
 # Cloud inversion v2: measure the warm layer where the fells are (2026-10-28)
 
-**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) merged (#1520, V201). Phase 1b built and reviewed (2026-10-30; this PR, V202), with the build-review amendments below the spec revisions. **Owner decision
+**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) merged (#1520, V201). Phase 1b merged (#1526, V202), with the build-review amendments below the spec revisions. Phase 2 (the clear night) merged (#1528). Phase 3 (summit wind) built and reviewed (2026-10-30; this PR). Phase 4 not planned (§7.5). **Owner decision
 2026-10-30: no shadow period.** Phases 1b–3 ship LIVE, each with two safety nets instead: the old score is
 still computed and logged beside the new one (so the comparison still happens, after the switch rather
 than before it), and a config switch (`photocast.inversion.v2.enabled`, default on) puts the old score back
@@ -161,7 +161,11 @@ block beside it.
    it; inversion gets its own night carrier if it needs low/mid cloud).
 6. **Open-Meteo load is a shared risk.** Production is on the free tier, weighted by variable count, and
    has had 429 storms (`application-prod.yml` ~75). A failed fetch leaves mist unscored too. Every
-   variable added is counted against that (§4 Phase 1b).
+   variable added is counted against that (§4 Phase 1b). **Running total (2026-10-30):** the valley
+   profile request is separate from the main fetch, so its failure never leaves mist unscored. It
+   carries 15 variables after 1b, 17 after Phase 2 and 22 after Phase 3. That is a weight per point of
+   1.5 → 1.7 → 2.2, about 45 → 51 → 66 call-equivalents per run at ~30 sites: about +14 % → +16 % →
+   +21 % on the main fetch's call-equivalents. `past_days=1` adds nothing below 14 days.
 
 ---
 

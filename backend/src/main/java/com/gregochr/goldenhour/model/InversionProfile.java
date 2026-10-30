@@ -86,8 +86,20 @@ public record InversionProfile(
      * @param pressureHpa        the level in hPa
      * @param temperatureCelsius temperature at the level, or null
      * @param heightMetres       geopotential height of the level, or null
+     * @param windSpeedMs        wind speed at the level in m/s, or null (Phase 3)
      */
-    public record Level(int pressureHpa, Double temperatureCelsius, Double heightMetres) {
+    public record Level(int pressureHpa, Double temperatureCelsius, Double heightMetres, Double windSpeedMs) {
+
+        /**
+         * A level without wind, at the arity before Phase 3.
+         *
+         * @param pressureHpa        the level in hPa
+         * @param temperatureCelsius temperature at the level, or null
+         * @param heightMetres       geopotential height of the level, or null
+         */
+        public Level(int pressureHpa, Double temperatureCelsius, Double heightMetres) {
+            this(pressureHpa, temperatureCelsius, heightMetres, null);
+        }
     }
 
     /**
@@ -153,11 +165,16 @@ public record InversionProfile(
                 orEmpty(h.getGeopotentialHeight975hPa()), orEmpty(h.getGeopotentialHeight950hPa()),
                 orEmpty(h.getGeopotentialHeight925hPa()), orEmpty(h.getGeopotentialHeight900hPa()),
                 orEmpty(h.getGeopotentialHeight850hPa()));
+        List<List<Double>> winds = List.of(
+                orEmpty(h.getWindSpeed975hPa()), orEmpty(h.getWindSpeed950hPa()),
+                orEmpty(h.getWindSpeed925hPa()), orEmpty(h.getWindSpeed900hPa()),
+                orEmpty(h.getWindSpeed850hPa()));
         List<Hour> hours = new ArrayList<>(h.getTime().size());
         for (int i = 0; i < h.getTime().size(); i++) {
             List<Level> levels = new ArrayList<>(PRESSURE_LEVELS_HPA.length);
             for (int l = 0; l < PRESSURE_LEVELS_HPA.length; l++) {
-                levels.add(new Level(PRESSURE_LEVELS_HPA[l], at(temperatures.get(l), i), at(heights.get(l), i)));
+                levels.add(new Level(PRESSURE_LEVELS_HPA[l], at(temperatures.get(l), i), at(heights.get(l), i),
+                        at(winds.get(l), i)));
             }
             hours.add(new Hour(
                     LocalDateTime.parse(h.getTime().get(i)),

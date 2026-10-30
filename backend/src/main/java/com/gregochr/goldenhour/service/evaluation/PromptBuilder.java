@@ -859,7 +859,7 @@ public class PromptBuilder {
                 "%nWarm layer: %+.1f\u00b0C from about %d m to %d m above a valley at %d m; "
                 + "this viewpoint (%d m) is %s%s.",
                 v2.strengthCelsius(), Math.round(v2.baseMetres()), Math.round(v2.topMetres()),
-                v2.valleyFloorMetres(), v2.viewpointMetres(), standing, nightClause(v2)));
+                v2.valleyFloorMetres(), v2.viewpointMetres(), standing, nightClause(v2) + windClause(v2)));
     }
 
     /**
@@ -878,6 +878,23 @@ public class PromptBuilder {
             return "; after a clear, calm night";
         }
         return "";
+    }
+
+    /**
+     * The wind clause of the warm layer line (inversion-v2-plan Phase 3), after any night clause: present only
+     * when the summit-wind cap lowered the score (only the cap of 8 can reach a stored 7 or more, so the block
+     * never shows the cap of 6), so a score the wind did not move keeps the line byte-identical.
+     *
+     * @param v2 the v2 carrier that drove the stored score
+     * @return "; wind across the top about N m/s at the X hPa level" when the wind cap bound, else the empty
+     *         string
+     */
+    private static String windClause(InversionV2Result v2) {
+        if (!v2.windCapBound() || v2.windMs() == null || v2.windLevelHpa() == null) {
+            return "";
+        }
+        return String.format("; wind across the top about %d m/s at the %d hPa level",
+                Math.round(v2.windMs()), v2.windLevelHpa());
     }
 
     /**
