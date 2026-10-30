@@ -9,7 +9,6 @@ import com.gregochr.goldenhour.model.ReverseLookupRequest;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
 import com.gregochr.goldenhour.model.TodaysLightResponse;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
-import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.model.ReachEntry;
 import com.gregochr.goldenhour.service.ReachService;
 import com.gregochr.goldenhour.service.TodaysLightService;
@@ -27,7 +26,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * REST controller for user profile settings — home location and per-user drive times.
@@ -38,7 +36,6 @@ import java.util.Map;
 public class UserSettingsController {
 
     private final UserSettingsService settingsService;
-    private final DriveTimeResolver driveTimeResolver;
     private final ReachService reachService;
     private final TodaysLightService todaysLightService;
     private final AskService askService;
@@ -47,18 +44,15 @@ public class UserSettingsController {
      * Constructs a {@code UserSettingsController}.
      *
      * @param settingsService    the user settings service
-     * @param driveTimeResolver  the drive time resolver for fetching per-user drive times
      * @param reachService       the caller's reach over the whole roster
      * @param todaysLightService today's light at the caller's home, for the masthead
      * @param askService         the caller's Ask allowance
      */
     public UserSettingsController(UserSettingsService settingsService,
-            DriveTimeResolver driveTimeResolver,
             ReachService reachService,
             TodaysLightService todaysLightService,
             AskService askService) {
         this.settingsService = settingsService;
-        this.driveTimeResolver = driveTimeResolver;
         this.reachService = reachService;
         this.todaysLightService = todaysLightService;
         this.askService = askService;
@@ -203,20 +197,6 @@ public class UserSettingsController {
     @PreAuthorize("hasAnyRole('PRO_USER','ADMIN')")
     public DriveTimeRefreshResponse refreshDriveTimes(Authentication auth) {
         return settingsService.refreshDriveTimes(auth);
-    }
-
-    /**
-     * Returns the current user's per-location drive times in minutes. Pro and Admin only: a Lite
-     * account gets 403.
-     *
-     * @param auth the current authentication context
-     * @return map of location ID to drive time in minutes
-     */
-    @GetMapping("/drive-times")
-    @PreAuthorize("hasAnyRole('PRO_USER','ADMIN')")
-    public Map<Long, Integer> getDriveTimes(Authentication auth) {
-        Long userId = settingsService.getUserId(auth);
-        return driveTimeResolver.getAllMinutes(userId);
     }
 
     /**

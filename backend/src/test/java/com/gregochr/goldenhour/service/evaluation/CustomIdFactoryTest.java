@@ -101,20 +101,6 @@ class CustomIdFactoryTest {
     }
 
     @Test
-    void forForceSubmitSanitisesRegionName() {
-        String id = CustomIdFactory.forForceSubmit(
-                "The North York Moors", 93L, DATE, TargetType.SUNSET);
-        assertThat(id).isEqualTo("force-TheNorthYorkMoors-93-2026-04-16-SUNSET");
-    }
-
-    @Test
-    void forForceSubmitStripsPunctuationAndUnderscores() {
-        String id = CustomIdFactory.forForceSubmit(
-                "Lake-District_(Wet)!", 1L, DATE, TargetType.SUNRISE);
-        assertThat(id).isEqualTo("force-LakeDistrictWet-1-2026-04-16-SUNRISE");
-    }
-
-    @Test
     void forAuroraProducesExpectedFormat() {
         assertThat(CustomIdFactory.forAurora(AlertLevel.MODERATE, DATE))
                 .isEqualTo("au-MODERATE-2026-04-16");
@@ -124,19 +110,8 @@ class CustomIdFactoryTest {
     void allBuildersProduceAnthropicCompatibleIds() {
         assertThat(CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE))
                 .matches(ANTHROPIC);
-        assertThat(CustomIdFactory.forForceSubmit("Lake District", 42L, DATE, TargetType.SUNRISE))
-                .matches(ANTHROPIC);
         assertThat(CustomIdFactory.forAurora(AlertLevel.STRONG, DATE))
                 .matches(ANTHROPIC);
-    }
-
-    @Test
-    void validationRejectsIdExceeding64Chars() {
-        String longRegion = "A".repeat(60);
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> CustomIdFactory.forForceSubmit(
-                        longRegion, 999L, DATE, TargetType.SUNRISE))
-                .withMessageContaining("64 chars");
     }
 
     @Test
@@ -385,8 +360,9 @@ class CustomIdFactoryTest {
 
     @Test
     void forceSubmitRoundTripsThroughParse() {
-        String id = CustomIdFactory.forForceSubmit(
-                "The North York Moors", 93L, DATE, TargetType.SUNSET);
+        // No builder any more: a force-submit batch submitted before the route was removed can
+        // still come back, so the parser keeps reading the old shape.
+        String id = "force-TheNorthYorkMoors-93-2026-04-16-SUNSET";
         assertThat(CustomIdFactory.parse(id))
                 .isEqualTo(new ParsedCustomId.ForceSubmit(
                         "TheNorthYorkMoors", 93L, DATE, TargetType.SUNSET));
@@ -447,43 +423,14 @@ class CustomIdFactoryTest {
     }
 
     @Test
-    void forForceSubmitRejectsRegionThatSanitisesToEmpty() {
-        // "!!!", "—", "***" all sanitise to "" and would produce "force--{id}-{date}-{type}".
-        // The parse-side cannot recover the empty region segment (it requires at least
-        // one char before the locationId hyphen), so build must fail-fast rather than
-        // emit an ID that round-trips to MALFORMED_ID at result time.
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> CustomIdFactory.forForceSubmit(
-                        "!!!", 1L, DATE, TargetType.SUNRISE))
-                .withMessageContaining("no alphanumeric");
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> CustomIdFactory.forForceSubmit(
-                        "", 1L, DATE, TargetType.SUNRISE))
-                .withMessageContaining("no alphanumeric");
-    }
-
-    @Test
-    void forForceSubmitAcceptsIdAtExactly64Chars() {
+    void forceSubmitIdAtExactly64CharsParses() {
         // "force-" (6) + region (38) + "-" (1) + "1" (1) + "-" (1)
         //   + "2026-04-16" (10) + "-" (1) + "SUNSET" (6) = 64
         String region = "A".repeat(38);
-        String id = CustomIdFactory.forForceSubmit(region, 1L, DATE, TargetType.SUNSET);
+        String id = "force-" + region + "-1-" + DATE + "-SUNSET";
         assertThat(id).hasSize(64);
-        // Round-trips cleanly — boundary value is genuinely valid, not just accidentally
-        // accepted by an off-by-one mutation.
         assertThat(CustomIdFactory.parse(id))
                 .isEqualTo(new ParsedCustomId.ForceSubmit(region, 1L, DATE, TargetType.SUNSET));
-    }
-
-    @Test
-    void forForceSubmitRejectsIdAtExactly65Chars() {
-        // 39 chars of A — one over the boundary tested above. Mutation guard for `> 64`
-        // vs `>= 64` boundary in CustomIdFactory.validate.
-        String region = "A".repeat(39);
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> CustomIdFactory.forForceSubmit(
-                        region, 1L, DATE, TargetType.SUNSET))
-                .withMessageContaining("64 chars");
     }
 
     @Test
@@ -504,16 +451,6 @@ class CustomIdFactoryTest {
         assertThat(CustomIdFactory.parse(id))
                 .isEqualTo(new ParsedCustomId.Forecast(
                         Long.MAX_VALUE, DATE, TargetType.SUNRISE, null));
-    }
-
-    @Test
-    void sanitiseRegionPreservesExistingBehaviour() {
-        // Rule preserved verbatim from ForceSubmitBatchService:276-278
-        assertThat(CustomIdFactory.sanitiseRegionName("North York Moors"))
-                .isEqualTo("NorthYorkMoors");
-        assertThat(CustomIdFactory.sanitiseRegionName("Lake-District_1")).isEqualTo("LakeDistrict1");
-        assertThat(CustomIdFactory.sanitiseRegionName("")).isEmpty();
-        assertThat(CustomIdFactory.sanitiseRegionName("!!!")).isEmpty();
     }
 
     @Test

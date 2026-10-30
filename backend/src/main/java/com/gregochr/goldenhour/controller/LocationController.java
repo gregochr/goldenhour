@@ -137,17 +137,6 @@ public class LocationController {
     }
 
     /**
-     * Returns a summary of Open-Meteo grid cell groupings for enabled locations.
-     *
-     * @return grid cell statistics including total locations, distinct cells, and largest group
-     */
-    @GetMapping("/grid-cells")
-    @PreAuthorize("hasRole('ADMIN')")
-    public Map<String, Object> getGridCellSummary() {
-        return locationService.getGridCellSummary();
-    }
-
-    /**
      * Enriches a location with auto-detected metadata (bortle, SQM, elevation, grid cell).
      *
      * @param lat latitude in decimal degrees

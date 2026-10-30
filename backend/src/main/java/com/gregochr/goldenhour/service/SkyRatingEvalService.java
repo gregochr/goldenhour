@@ -239,16 +239,6 @@ public class SkyRatingEvalService {
     }
 
     /**
-     * All per-(fixture × run-index) results for one run.
-     *
-     * @param runId the run id
-     * @return the run's results, ordered by fixture then run index
-     */
-    public List<SkyRatingEvalResultEntity> resultsForRun(Long runId) {
-        return resultRepository.findByRunIdOrderByFixtureNameAscRunIndexAsc(runId);
-    }
-
-    /**
      * Builds the calibration-drift series: one aggregate point per (completed run × fixture),
      * oldest run first. The frontend groups by fixture (a line each, against its band) and by model.
      *

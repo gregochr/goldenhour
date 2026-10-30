@@ -64,16 +64,15 @@ import java.util.regex.Pattern;
  * different hyphen count. Prefix dispatch plus bounded length extraction (date is always
  * 10 chars) removes that fragility.
  *
- * <p>Region sanitisation for force-submit IDs strips every non-ASCII-alphanumeric
- * character — the exact rule previously used at {@code ForceSubmitBatchService.forceSubmit},
- * preserved verbatim because {@link BatchResultProcessor}'s forward-compatible parser
- * relies on the region segment containing zero hyphens.
+ * <p>Force-submit IDs ({@code force-{region}-{locationId}-{date}-{target}}) are no longer built
+ * (the admin force-submit route was removed), but {@link #parse} still reads them so a batch
+ * submitted before that removal resolves cleanly. The parser relies on the region segment
+ * containing zero hyphens.
  */
 public final class CustomIdFactory {
 
     private static final int MAX_LENGTH = 64;
     private static final Pattern ANTHROPIC_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]{1,64}$");
-    private static final Pattern REGION_STRIP = Pattern.compile("[^a-zA-Z0-9]");
 
     /** Trailing {@code -r{evalRowId}} suffix on a forecast custom ID (R3). */
     private static final Pattern ROW_ID_SUFFIX = Pattern.compile("-r(\\d+)$");
@@ -248,38 +247,6 @@ public final class CustomIdFactory {
     }
 
     /**
-     * Builds a force-submit custom ID.
-     *
-     * <p>The region name is sanitised by stripping every non-ASCII-alphanumeric character
-     * (e.g. {@code "The North York Moors"} → {@code "TheNorthYorkMoors"}). This matches
-     * the rule previously inlined in {@code ForceSubmitBatchService.forceSubmit} verbatim
-     * and is required for the result-side parser to work: the region segment must contain
-     * zero hyphens so the trailing date and target-type segments remain unambiguous.
-     *
-     * @param regionName region name; will be sanitised
-     * @param locationId database ID of the location
-     * @param date       forecast date
-     * @param targetType SUNRISE, SUNSET, or HOURLY
-     * @return an ID of the form {@code "force-{sanitisedRegion}-{locationId}-{date}-{targetType}"}
-     * @throws IllegalArgumentException if the resulting ID exceeds the Anthropic 64-char
-     *                                  limit or contains invalid characters
-     */
-    public static String forForceSubmit(String regionName, Long locationId,
-            LocalDate date, TargetType targetType) {
-        Objects.requireNonNull(regionName, "regionName");
-        Objects.requireNonNull(locationId, "locationId");
-        Objects.requireNonNull(date, "date");
-        Objects.requireNonNull(targetType, "targetType");
-        String sanitised = sanitiseRegionName(regionName);
-        if (sanitised.isEmpty()) {
-            throw new IllegalArgumentException("Region name has no alphanumeric characters: "
-                    + regionName);
-        }
-        return validate(PREFIX_FORCE + sanitised + "-" + locationId + "-" + date
-                + "-" + targetType.name());
-    }
-
-    /**
      * Builds an aurora custom ID.
      *
      * @param alertLevel current alert level
@@ -304,14 +271,6 @@ public final class CustomIdFactory {
      */
     public static String forCachePrimer(int ordinal) {
         return validate(PREFIX_CACHE_PRIMER + ordinal);
-    }
-
-    /**
-     * Applies the force-submit region sanitisation rule: strip every non-ASCII-alphanumeric
-     * character. Exposed package-private for test reuse and explicit documentation.
-     */
-    static String sanitiseRegionName(String regionName) {
-        return REGION_STRIP.matcher(regionName).replaceAll("");
     }
 
     /**

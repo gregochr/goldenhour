@@ -99,7 +99,6 @@ class HttpCachingConfigTest {
         "/api/outcome/ratings/all",
         "/api/travel-days",
         "/api/user/settings",
-        "/api/user/settings/drive-times",
         // The window-first reach lens. Home-derived per-user data, and the reason it lives under
         // /api/user/settings rather than beside the briefing it is joined to on the client.
         "/api/user/settings/reach",
@@ -192,7 +191,7 @@ class HttpCachingConfigTest {
         // If this ever fails, someone swapped the Set for a prefix matcher and the SSE exclusions
         // above are no longer guaranteed.
         assertThat(filter.shouldNotFilter(get("/api/briefing/anything"))).isTrue();
-        assertThat(filter.shouldNotFilter(get("/api/locations/grid-cells"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/locations/anything"))).isTrue();
         assertThat(filter.shouldNotFilter(get("/api/tides/stats/all"))).isTrue();
     }
 
