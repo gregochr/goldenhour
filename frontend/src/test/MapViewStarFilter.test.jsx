@@ -57,9 +57,6 @@ vi.mock('../api/auroraApi.js', () => ({
 vi.mock('../components/BottomSheet.jsx', () => ({
   default: ({ children }) => <div>{children}</div>,
 }));
-vi.mock('../components/MarkerPopupContent.jsx', () => ({
-  default: () => <div data-testid="popup-content" />,
-}));
 vi.mock('../components/InfoTip.jsx', () => ({
   default: () => null,
 }));
@@ -777,7 +774,7 @@ describe('MapView filter behaviour — stand-down hide/show', () => {
 
   it('the mirror case: a forecast rating wins over a triaged briefing score', () => {
     // The rule has to be symmetric. Fixing only "briefing rating beats forecast triage" would
-    // leave the mirror image, and MarkerPopupContent already resolved this direction the other
+    // leave the mirror image, and the since-deleted MarkerPopupContent already resolved this direction the other
     // way — which is how a scored medallion came to open a "Stand-down" popup.
     const loc = {
       name: 'ForecastScoredBriefingTriaged', lat: 55.7, lon: -1.7,

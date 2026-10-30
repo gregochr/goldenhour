@@ -87,7 +87,6 @@ vi.mock('../api/askApi.js', async (importOriginal) => ({
   ask: vi.fn(),
   getAskSettings: vi.fn(),
 }));
-vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 vi.mock('../components/BottomSheet.jsx', () => ({ default: () => null }));

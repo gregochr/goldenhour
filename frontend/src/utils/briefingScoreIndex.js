@@ -9,25 +9,6 @@
  */
 
 /**
- * Reference linear scan — the ground-truth semantics the index mirrors. Returns the first
- * (insertion-order) entry whose key ends with {@code "|date|eventType|locationName"}, or null.
- *
- * @param {Map<string, object>|null|undefined} briefingScores - keyed score map.
- * @param {string} locationName - location display name.
- * @param {string} date - target date (YYYY-MM-DD).
- * @param {string} eventType - 'SUNRISE' or 'SUNSET'.
- * @returns {object|null} the matched score, or null when nothing matches.
- */
-export function getBriefingScore(briefingScores, locationName, date, eventType) {
-  if (!briefingScores || briefingScores.size === 0) return null;
-  const suffix = `|${date}|${eventType}|${locationName}`;
-  for (const [key, result] of briefingScores) {
-    if (key.endsWith(suffix)) return result;
-  }
-  return null;
-}
-
-/**
  * Builds an O(1) lookup index from a briefing-score map. Each index key is the score key's last
  * three {@code |}-delimited fields — exactly the {@code "date|eventType|locationName"} tail the
  * scan's {@code endsWith} matches — so any leading field(s) are dropped whatever they contain.
@@ -54,7 +35,7 @@ export function buildBriefingScoreIndex(briefingScores) {
 
 /**
  * O(1) lookup against a {@link buildBriefingScoreIndex} index. Returns the matched score or null
- * (never undefined), matching {@link getBriefingScore}.
+ * (never undefined), matching the linear scan the index replaced.
  *
  * @param {Map<string, object>|null|undefined} index - index from buildBriefingScoreIndex.
  * @param {string} locationName - location display name.

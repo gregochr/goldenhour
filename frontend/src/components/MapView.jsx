@@ -139,7 +139,7 @@ function paneIsOffScreen(paneRoot) {
  * (Safari "Block all cookies", an enterprise site-data policy) throws `SecurityError` on bare
  * access, and several of these reads happen inside `useState` initializers, i.e. during render:
  * an unguarded throw there would crash the whole app, not just the map. Matches
- * `useLocalStorageState.js`'s existing convention.
+ * the convention of the since-deleted `useLocalStorageState.js`.
  */
 function readMapFilter(key) {
   try {

@@ -33,7 +33,7 @@ const COMFORT_ICONS = {
  * a served field (see `utils/forecastDetailFacts.js`), and the block renders NOTHING for a window
  * with none of them, so a location with no detail to show draws the sheet it always drew.
  *
- * <p>Never imports `MarkerPopupContent` or its inline styles — the sheet's own vocabulary
+ * <p>Never imports the since-deleted `MarkerPopupContent` or its inline styles — the sheet's own vocabulary
  * (`.wf-loc-*` in `index.css`), per map-tab-v2-plan.md §4 #11.
  *
  * @param {object} props

@@ -34,5 +34,3 @@ export function useIsCoarsePointer() {
 
   return coarse;
 }
-
-export default useIsCoarsePointer;

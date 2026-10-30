@@ -11,18 +11,6 @@ export async function fetchAllTideStats() {
 }
 
 /**
- * Fetches tide extremes for a location on a given date.
- *
- * @param {string} locationName - The location name.
- * @param {string} date - ISO date string (YYYY-MM-DD).
- * @returns {Promise<Array>} Array of tide extreme objects.
- */
-export async function fetchTidesForDate(locationName, date) {
-  const res = await apiClient.get('/api/tides', { params: { locationName, date } });
-  return res.data;
-}
-
-/**
  * Fetches tide statistics for a single location.
  *
  * @param {string} locationName - The location name.

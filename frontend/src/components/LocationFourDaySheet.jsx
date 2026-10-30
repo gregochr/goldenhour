@@ -90,7 +90,7 @@ const DIM_AT_OR_BELOW = 2;
  * <p>The design draws {@code ◐ 88%} on every row. D3 rejects the percentage outright — this
  * project's confidence is three-tier and a percentage would invent precision the backend never
  * claimed — so a row takes {@code ProvisionalMark} on the low tier, which is exactly what the shared
- * {@code VerdictPill} and the Best Bet pill already do. The fill decay that the grid cells carry has
+ * the since-deleted {@code VerdictPill} and the Best Bet pill already do. The fill decay that the grid cells carry has
  * no home here: the only coloured surface on a row is the rating badge, and CLAUDE.md is explicit
  * that the quality signal is never dimmed by the confidence channel. The mark is absent on an
  * unrated row, because the channel qualifies a forecast and there is none to qualify.

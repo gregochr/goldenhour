@@ -1,13 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import React from 'react';
-import { render } from '@testing-library/react';
 import {
   VERDICT_LABEL, VERDICT_LABEL_SHORT, SLOT_VERDICT_LABEL, shortVerdictLabel,
 } from '../utils/windowFirstCards.js';
 import { VERDICT_TINT } from '../components/WindowFirstHeatStrip.jsx';
 import { VERDICT_TREATMENT } from '../components/WindowSheetDialog.jsx';
 import { resolveRegionDisplay } from '../utils/tierUtils.js';
-import VerdictPill from '../components/shared/VerdictPill.jsx';
 import { unratedRules, setsVerdictHue } from './unratedStylesheet.js';
 
 /**
@@ -15,8 +12,7 @@ import { unratedRules, setsVerdictHue } from './unratedStylesheet.js';
  *
  * <p>Eight stylesheet comments, and the plan, say "every verdict word is handled in the JS that sets
  * this attribute". This is that test: for EVERY key of {@code VERDICT_LABEL} it asserts the entry in
- * each exported JS map or Set that keys on a verdict, and the one rendered surface that spells the
- * words itself ({@code VerdictPill}). A new verdict value added to the label table fails here until
+ * each exported JS map or Set that keys on a verdict. A new verdict value added to the label table fails here until
  * every one of them has an arm — instead of reading as AWAITING by a lookup miss.
  */
 const WORDS = Object.keys(VERDICT_LABEL);
@@ -35,12 +31,6 @@ describe('every verdict word has an explicit arm in every map that keys on one',
 
   it.each(WORDS)('%s resolves to itself', (word) => {
     expect(resolveRegionDisplay({ displayVerdict: word })).toBe(word);
-  });
-
-  it.each(WORDS)('%s is spelled by VerdictPill exactly as the shared label table spells it', (word) => {
-    const { container, unmount } = render(<VerdictPill displayVerdict={word} />);
-    expect(container.textContent).toBe(VERDICT_LABEL[word]);
-    unmount();
   });
 
   it('shortens only UNRATED, and never to a word that claims there are no ratings', () => {

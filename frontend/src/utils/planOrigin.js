@@ -47,9 +47,6 @@ import { areaRegions } from './planningArea.js';
  */
 export const AWAY_TIER_ID = '90';
 
-/** That tier's threshold, for the away arm's far mark. Kept as the number the id names. */
-export const AWAY_LIMIT_MINUTES = 90;
-
 /**
  * Whether a region can be an origin at all.
  *

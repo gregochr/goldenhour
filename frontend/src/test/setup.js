@@ -18,7 +18,7 @@ import { configure } from '@testing-library/react';
 // run before the test module is evaluated, so a file-scope `process.env.TZ = …` is applied second.
 // Several files rely on that — `mapDates`, `computeAutoSelection`, `DateStripToday` and
 // `MapViewAuroraNight` pin Europe/London; `mapDatesAbroad`, `instantsAbroad`,
-// `jobRunSlotDatesAbroad`, `metricsTodayFilterAbroad`, `solarEventTimes` and `leaveByAbroad` pin
+// `jobRunSlotDatesAbroad`, `metricsTodayFilterAbroad` and `leaveByAbroad` pin
 // America/New_York — and EVERY abroad file carries a "the zone fixture itself" guard, so if this
 // line ever defeated a per-file pin those files fail rather than quietly becoming duplicates.
 // (`grep -l "process.env.TZ" src/test/*` for the current set; the list above is the reason, not the

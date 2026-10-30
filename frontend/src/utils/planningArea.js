@@ -140,17 +140,3 @@ export function beyondRegions(spots, reachById) {
     .sort(byDriveThenName(minutes));
 }
 
-/**
- * The spots inside the planning area — the Map tab's opening bounds and the strip's framing.
- *
- * <p>Region-grained, not location-grained: the area is a set of places you would plan a trip
- * around, and half a region is not one. A region is in or out as a unit (see {@link areaRegions}).
- *
- * @param {Array<object>} spots                              heat spots
- * @param {Map<*, {driveMinutes: ?number}>|null} reachById    per-user reach, keyed by location id
- * @returns {Array<object>} the subset of {@code spots} in the area, in input order
- */
-export function areaSpots(spots, reachById) {
-  const inArea = new Set(areaRegions(spots, reachById));
-  return (Array.isArray(spots) ? spots : []).filter((s) => s && inArea.has(s.regionName));
-}

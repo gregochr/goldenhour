@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  isNightType, NIGHT_TYPE, nightRequestsOf, nightRowFor, nightWindowId,
+  isNightType, NIGHT_TYPE, nightRequestsOf, nightRowFor,
 } from '../utils/askNights.js';
 import { astroRow, auroraRow, nightPick, pick } from './askFixtures.js';
 
@@ -23,13 +23,6 @@ describe('isNightType — Ask\'s own window kinds', () => {
 
   it('exposes the two kinds under the names the wire uses', () => {
     expect(NIGHT_TYPE).toEqual({ ASTRO: 'ASTRO', AURORA: 'AURORA' });
-  });
-});
-
-describe('nightWindowId — Ask\'s id, never the Map\'s', () => {
-  it('is yyyy-MM-dd_astro / _aurora, lower case', () => {
-    expect(nightWindowId('2026-10-11', 'ASTRO')).toBe('2026-10-11_astro');
-    expect(nightWindowId('2026-10-11', 'AURORA')).toBe('2026-10-11_aurora');
   });
 });
 

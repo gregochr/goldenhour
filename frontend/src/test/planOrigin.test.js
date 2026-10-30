@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  AWAY_LIMIT_MINUTES,
   AWAY_TIER_ID,
   canBeOrigin,
   gateSpotsByOrigin,
@@ -274,11 +273,11 @@ describe('planOrigin', () => {
       // number and mark at another, which is exactly the bug `reachLens`' own labels are derived
       // to prevent.
       expect(tierById(AWAY_TIER_ID)).not.toBeNull();
-      expect(tierById(AWAY_TIER_ID).limitMinutes).toBe(AWAY_LIMIT_MINUTES);
+      expect(tierById(AWAY_TIER_ID).limitMinutes).toBe(90);
     });
 
     it('is tighter than the home planning area, which is what makes it a stay rather than a trip', () => {
-      expect(AWAY_LIMIT_MINUTES).toBeLessThan(GLANCE_MINUTES);
+      expect(tierById(AWAY_TIER_ID).limitMinutes).toBeLessThan(GLANCE_MINUTES);
     });
   });
 });
