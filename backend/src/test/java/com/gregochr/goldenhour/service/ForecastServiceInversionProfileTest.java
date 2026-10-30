@@ -35,7 +35,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.AdditionalAnswers.returnsFirstArg;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
@@ -86,9 +86,15 @@ class ForecastServiceInversionProfileTest {
     @InjectMocks
     private ForecastService forecastService;
 
+    /** The weather data every extraction carries; the augmentations up to the inversion step pass it through. */
+    private static final AtmosphericData BASE = TestAtmosphericData.builder().targetType(TargetType.SUNRISE)
+            .solarEventTime(SUNRISE).build();
+
+    /** The raw forecast response every extraction carries (the storm surge step receives it). */
+    private static final OpenMeteoForecastResponse RESPONSE = new OpenMeteoForecastResponse();
+
     private static WeatherExtractionResult extraction() {
-        return new WeatherExtractionResult(TestAtmosphericData.builder().targetType(TargetType.SUNRISE)
-                .solarEventTime(SUNRISE).build(), new OpenMeteoForecastResponse());
+        return new WeatherExtractionResult(BASE, RESPONSE);
     }
 
     private static ForecastRequest request() {
@@ -113,19 +119,26 @@ class ForecastServiceInversionProfileTest {
                 .thenReturn(extraction());
     }
 
-    /** Every augmentation other than the inversion score passes its input through. */
-    private void stubPassThroughAugmentation(LocalDateTime sunrise) {
-        when(augmentor.augmentWithDirectionalCloud(any(), eq(LAT), eq(LON), eq(AZIMUTH), eq(sunrise), isNull(),
+    /**
+     * Pins every pass-through augmentation to the values this location and slot fix. The inversion step and
+     * the two after it (mist, bluebell) receive data that may or may not carry a v2 carrier, so their data
+     * argument stays open and the tests inspect it with captors instead; the cloud-approach step also takes
+     * the wall-clock time, which a test cannot know.
+     */
+    private void stubAugmentationChain(LocalDate date, LocalDateTime sunrise, int elevation) {
+        when(augmentor.augmentWithDirectionalCloud(eq(BASE), eq(LAT), eq(LON), eq(AZIMUTH), eq(sunrise), isNull(),
                 isNull())).then(returnsFirstArg());
-        when(augmentor.augmentWithCloudApproach(any(), eq(LAT), eq(LON), eq(AZIMUTH), eq(sunrise), any(),
+        when(augmentor.augmentWithCloudApproach(eq(BASE), eq(LAT), eq(LON), eq(AZIMUTH), eq(sunrise), any(),
                 isNull(), isNull())).then(returnsFirstArg());
-        when(augmentor.augmentWithTideData(any(), eq(LOCATION_ID), eq(sunrise), eq(Set.of()), eq(LAT), eq(LON),
+        when(augmentor.augmentWithTideData(eq(BASE), eq(LOCATION_ID), eq(sunrise), eq(Set.of()), eq(LAT), eq(LON),
                 eq(TargetType.SUNRISE), isNull())).then(returnsFirstArg());
-        when(augmentor.augmentWithLocationOrientation(any(), any())).then(returnsFirstArg());
-        when(augmentor.augmentWithStormSurge(any(), any(), eq(LOCATION_ID), eq("Cat Bells"), any()))
+        when(augmentor.augmentWithLocationOrientation(eq(BASE), eq(ELIGIBLE.getSolarEventType())))
                 .then(returnsFirstArg());
-        when(augmentor.augmentWithInversionScore(any(), any(), anyBoolean())).then(returnsFirstArg());
-        when(augmentor.augmentWithBluebellConditions(any(), any(), any(), eq(DATE))).then(returnsFirstArg());
+        when(augmentor.augmentWithStormSurge(eq(BASE), any(), eq(LOCATION_ID), eq("Cat Bells"), same(RESPONSE)))
+                .then(returnsFirstArg());
+        when(augmentor.augmentWithInversionScore(any(), eq(elevation), eq(true))).then(returnsFirstArg());
+        when(augmentor.augmentWithBluebellConditions(any(), eq(ELIGIBLE.getLocationType()),
+                eq(ELIGIBLE.getBluebellExposure()), eq(date))).then(returnsFirstArg());
         when(augmentor.augmentWithValleyMist(any(), eq(false))).then(returnsFirstArg());
     }
 
@@ -163,9 +176,13 @@ class ForecastServiceInversionProfileTest {
     }
 
     private void stubPath() {
+        stubPath(451);
+    }
+
+    private void stubPath(int elevation) {
         stubSolar(DATE, SUNRISE);
         stubCachedWeather(SUNRISE);
-        stubPassThroughAugmentation(SUNRISE);
+        stubAugmentationChain(DATE, SUNRISE, elevation);
     }
 
     @Test
@@ -216,7 +233,7 @@ class ForecastServiceInversionProfileTest {
         stubSolar(DATE, SUNRISE);
         stubCachedWeather(SUNRISE);
         stubFetchedWeather(SUNRISE);
-        stubPassThroughAugmentation(SUNRISE);
+        stubAugmentationChain(DATE, SUNRISE, 451);
         when(augmentor.inversionV2Enabled()).thenReturn(true);
         when(openMeteoService.fetchInversionProfileOnDemand(ELIGIBLE)).thenReturn(wholeProfile());
 
@@ -256,19 +273,7 @@ class ForecastServiceInversionProfileTest {
         when(openMeteoService.getAtmosphericDataFromCache(
                 eq(new ForecastRequest(LAT, LON, "Cat Bells", september, TargetType.SUNRISE)),
                 eq(septemberSunrise), eq(Map.of()))).thenReturn(extraction());
-        when(augmentor.augmentWithDirectionalCloud(any(), eq(LAT), eq(LON), eq(AZIMUTH), eq(septemberSunrise),
-                isNull(), isNull())).then(returnsFirstArg());
-        when(augmentor.augmentWithCloudApproach(any(), eq(LAT), eq(LON), eq(AZIMUTH), eq(septemberSunrise),
-                any(), isNull(), isNull())).then(returnsFirstArg());
-        when(augmentor.augmentWithTideData(any(), eq(LOCATION_ID), eq(septemberSunrise), eq(Set.of()), eq(LAT),
-                eq(LON), eq(TargetType.SUNRISE), isNull())).then(returnsFirstArg());
-        when(augmentor.augmentWithLocationOrientation(any(), any())).then(returnsFirstArg());
-        when(augmentor.augmentWithStormSurge(any(), any(), eq(LOCATION_ID), eq("Cat Bells"), any()))
-                .then(returnsFirstArg());
-        when(augmentor.augmentWithInversionScore(any(), any(), anyBoolean())).then(returnsFirstArg());
-        when(augmentor.augmentWithBluebellConditions(any(), any(), any(), eq(september)))
-                .then(returnsFirstArg());
-        when(augmentor.augmentWithValleyMist(any(), eq(false))).then(returnsFirstArg());
+        stubAugmentationChain(september, septemberSunrise, 451);
         when(augmentor.inversionV2Enabled()).thenReturn(true);
 
         forecastService.fetchWeatherAndTriage(ELIGIBLE, september, TargetType.SUNRISE, Set.of(),
@@ -311,7 +316,7 @@ class ForecastServiceInversionProfileTest {
         LocationEntity low = LocationEntity.builder().id(LOCATION_ID).name("Cat Bells").lat(LAT).lon(LON)
                 .elevationMetres(199).overlooksWater(true)
                 .valleyFloorMetres(80).valleyFloorLat(54.575).valleyFloorLng(-3.152).build();
-        stubPath();
+        stubPath(199);
 
         tenArg(low, Map.of(LOCATION_ID, wholeProfile()));
 

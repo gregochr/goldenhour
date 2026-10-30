@@ -32,28 +32,37 @@ final class CollectorTriageStubs {
     }
 
     /**
-     * The triage call for one location, with every argument the collector fixes pinned.
+     * The triage call for one candidate, with every argument the collector fixes pinned.
      *
      * @param forecastService the mock (or {@code verify(mock)})
      * @param location        the location the collector passes
+     * @param date            the candidate's date
+     * @param targetType      the candidate's event
+     * @param model           the evaluation model the collector resolves for the candidate
      * @return the (stubbed or verified) result
      */
-    static ForecastPreEvalResult triageOf(ForecastService forecastService, LocationEntity location) {
+    static ForecastPreEvalResult triageOf(ForecastService forecastService, LocationEntity location,
+            LocalDate date, TargetType targetType, EvaluationModel model) {
         return forecastService.fetchWeatherAndTriage(
-                eq(location), any(LocalDate.class), any(TargetType.class), eq(location.getTideType()),
-                any(EvaluationModel.class), isNull(), anyMap(), isNull(), isNull(), eq(NO_PROFILES));
+                eq(location), eq(date), eq(targetType), eq(location.getTideType()),
+                eq(model), isNull(), anyMap(), isNull(), isNull(), eq(NO_PROFILES));
     }
 
     /**
-     * The triage call when several locations are in play: any location, the pinned rest.
+     * The triage call when several locations share one slot: any location, with the date, event and model
+     * they have in common pinned.
      *
      * @param forecastService the mock (or {@code verify(mock)})
+     * @param date            the shared date
+     * @param targetType      the shared event
+     * @param model           the shared evaluation model
      * @return the (stubbed or verified) result
      */
     @SuppressWarnings("unchecked")
-    static ForecastPreEvalResult triageOfAny(ForecastService forecastService) {
+    static ForecastPreEvalResult triageOfAny(ForecastService forecastService, LocalDate date,
+            TargetType targetType, EvaluationModel model) {
         return forecastService.fetchWeatherAndTriage(
-                any(LocationEntity.class), any(LocalDate.class), any(TargetType.class), any(Set.class),
-                any(EvaluationModel.class), isNull(), anyMap(), isNull(), isNull(), eq(NO_PROFILES));
+                any(LocationEntity.class), eq(date), eq(targetType), any(Set.class),
+                eq(model), isNull(), anyMap(), isNull(), isNull(), eq(NO_PROFILES));
     }
 }
