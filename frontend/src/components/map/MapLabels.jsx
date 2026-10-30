@@ -2,7 +2,7 @@ import {
   useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import L from 'leaflet';
 import { useMap } from 'react-leaflet';
 import { pxPerKmAtHome, RING_MIN_PX, RING_TIERS } from '../../utils/reachRings.js';
@@ -384,6 +384,10 @@ export default function MapLabels({
     if (!(width > 20) || !(height > 20)) return;
     const zoom = map.getZoom();
     paintedZoomRef.current = zoom;
+    // The origin these container coordinates are glued to (see the glue effect below); never re-read live.
+    originRef.current = typeof map.containerPointToLayerPoint === 'function'
+      ? map.containerPointToLayerPoint([0, 0])
+      : null;
     const project = (spot) => {
       const p = map.latLngToContainerPoint([spot.lat, spot.lng]);
       return [p.x, p.y];
@@ -477,6 +481,7 @@ export default function MapLabels({
   // pan needs no paint at all; they re-place at `moveend`. A chip entering from an edge therefore
   // appears at `moveend`, not mid-drag.
   const paintedZoomRef = useRef(null);
+  const originRef = useRef(null);
   useLayoutEffect(() => { paintRef.current = paint; }, [paint]);
   const rafRef = useRef(0);
   const repaintNow = useCallback(() => {
@@ -496,17 +501,25 @@ export default function MapLabels({
 
   useEffect(() => {
     if (typeof map?.on !== 'function') return undefined;
-    // Before any paint, today's throttled repaint. After one, `move` is skipped (pure pan, or the
-    // `move` half of a pinch frame), and a `zoom` at a different zoom hides the layer's pane until
-    // `zoomend` (a pinch fires `zoom` per frame at fractional zoom; text cannot be CSS-scaled, and a
-    // per-frame repaint costs ~14 ms at 390 px). Wheel/button zoom fires no `zoom` until its end.
-    const onMove = () => { if (paintedZoomRef.current == null) repaint(); };
-    const onZoom = () => {
+    // Before any paint, today's throttled repaint. After one, a pure-pan `move` is skipped. A pinch
+    // (`zoom` carrying `pinch`, Leaflet's TouchZoom, which always ends in zoomend/moveend) hides the
+    // layer's pane until the settle: text cannot be CSS-scaled and a per-frame repaint costs ~14 ms at
+    // 390 px. A fly frame (`flyTo` on move/zoom) or any other off-zoom `zoom` keeps the throttled
+    // repaint, so nothing can be left hidden by a cancelled animation. Wheel/button zoom fire no
+    // `zoom`/`move` at all, only `zoomend`/`moveend`.
+    const onMove = (e) => { if (paintedZoomRef.current == null || e?.flyTo) repaint(); };
+    const onZoom = (e) => {
       if (paintedZoomRef.current == null) { repaint(); return; }
-      if (map.getZoom() !== paintedZoomRef.current) pane?.classList.add(GESTURE_HIDE_CLASS);
+      if (e?.pinch) pane?.classList.add(GESTURE_HIDE_CLASS);
+      else if (e?.flyTo || map.getZoom() !== paintedZoomRef.current) repaint();
     };
     const settle = () => {
-      pane?.classList.remove(GESTURE_HIDE_CLASS);
+      if (pane?.classList.contains(GESTURE_HIDE_CLASS)) {
+        // Place synchronously, then unhide: the pane must never show the old placements at the new zoom.
+        flushSync(() => repaintNow());
+        pane.classList.remove(GESTURE_HIDE_CLASS);
+        return;
+      }
       repaintNow();
     };
     map.on('move', onMove);
@@ -683,7 +696,10 @@ export default function MapLabels({
   // offset has not moved, and both the candidate render and the placed render need it equally.
   useEffect(() => {
     if (!rootRef.current || typeof map?.containerPointToLayerPoint !== 'function') return;
-    L.DomUtil?.setPosition?.(rootRef.current, map.containerPointToLayerPoint([0, 0]));
+    // From the origin captured at the last paint, not a live read: a render with no paint (hover, a
+    // parent re-render) mid-pan would otherwise re-glue the root to the moved pane while the labels
+    // still hold the last paint's container coordinates.
+    L.DomUtil?.setPosition?.(rootRef.current, originRef.current ?? map.containerPointToLayerPoint([0, 0]));
   });
 
   const isMeasured = placement?.frame === frame;
