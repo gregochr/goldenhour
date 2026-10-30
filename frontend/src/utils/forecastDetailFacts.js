@@ -5,11 +5,10 @@
  * <p><b>Nothing here derives a verdict, a rating or a score.</b> Every figure is a field the
  * forecast row (`GET /api/forecast`, slim) or its detail row (`GET /api/forecast/{id}`) already
  * serves, formatted for display; the badges are filter/map/select over those fields, the already
- * licensed class (CLAUDE.md, *Backend-heavy*). Two thresholds are carried over UNCHANGED from
- * `MarkerPopupContent.jsx` because the popup applied them client-side before this module existed:
- * the dust test (`isDustEnhanced`) and the rising-tide window (`risingTideOf`). They are MOVED, not
- * invented, and since overlay convergence C5 this module is their ONE home - the popup
- * (`MarkerPopupContent`) imports them from here. They are a debt with a name, not a
+ * licensed class (CLAUDE.md, *Backend-heavy*). Two thresholds were carried over UNCHANGED from the
+ * since-deleted `MarkerPopupContent.jsx` because the popup applied them client-side before this
+ * module existed: the dust test (`isDustEnhanced`) and the rising-tide window (`risingTideOf`). They
+ * are MOVED, not invented, and this module is their ONE home. They are a debt with a name, not a
  * precedent: the exit for both is a served boolean on the detail DTO.
  *
  * <p>Role gating mirrors the popup's, section by section: a LITE reader gets the plain "High
@@ -34,7 +33,7 @@ const BLUEBELL_MIN_SCORE = 2;
 const BLUEBELL_STRONG_SCORE = 4;
 
 /** User-facing label for each TriageReason enum value - the one table the sheet and the popup share. */
-export const TRIAGE_REASON_LABELS = {
+const TRIAGE_REASON_LABELS = {
   HIGH_CLOUD: 'heavy low cloud at the solar horizon',
   PRECIPITATION: 'active precipitation forecast at event time',
   LOW_VISIBILITY: 'visibility too low (fog or heavy haze)',

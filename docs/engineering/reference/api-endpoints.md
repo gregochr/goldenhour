@@ -489,7 +489,7 @@ CLAUDE.md's Almanac section) |
 > **PRO_USER and ADMIN only since 2026-10-26** (owner decision: tide heights are Pro). `TideController` carries a
 > class-level `@PreAuthorize("hasAnyRole('ADMIN', 'PRO_USER')")`, as `AuroraController` does; LITE_USER gets 403,
 > unauthenticated 401, `/api/tides/stats` answers 204 when no extremes are stored. The only callers are admin
-> screens (`TideManagementView`, `LocationManagementView` and `TideIndicator`). The ETag
+> screens (`TideManagementView`, `LocationManagementView`; the since-deleted `TideIndicator` also used it). The ETag
 > filter is body-derived and tags 2xx only, so a 403 never carries or honours a validator a PRO 200 produced.
 
 ### Push (mixed auth)

@@ -328,7 +328,7 @@ function kindShort(event) {
  *        that instant, like the window going past
  * @param {?string} [props.auroraAlertLevel] the SERVED geomagnetic alert level for THIS place on the
  *        aurora night on screen (`QUIET | MINOR | MODERATE | STRONG` — the aurora result row's
- *        `alertLevel`, the same row `MarkerPopupContent` read it from; overlay convergence C2). Drawn
+ *        `alertLevel`, the same row the since-deleted `MarkerPopupContent` read it from; overlay convergence C2). Drawn
  *        as one "Alert level" line under the verdict on an aurora window only; null or any other
  *        window draws nothing. The callout showed the stars alone before
  * @param {?string} [props.highWaterLead] the daylight High-water row's lead copy ({@code bigSeasCopy().lead}),

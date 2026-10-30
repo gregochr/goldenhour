@@ -5,7 +5,6 @@ import TideManagementView from '../components/TideManagementView.jsx';
 vi.mock('../api/tideApi', () => ({
   fetchAllTideStats: vi.fn(),
   fetchTideStats: vi.fn(),
-  fetchTidesForDate: vi.fn(),
 }));
 
 import { fetchAllTideStats } from '../api/tideApi';

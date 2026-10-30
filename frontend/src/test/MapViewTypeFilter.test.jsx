@@ -52,9 +52,6 @@ vi.mock('../api/auroraApi.js', () => ({
   getAuroraForecastAvailableDates: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
-vi.mock('../components/MarkerPopupContent.jsx', () => ({
-  default: () => <div data-testid="popup-content" />,
-}));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 // `MapLabels` needs a real Leaflet pane to place a chip (its own test's job); the counts footer, which
 // reads the same filtered set, is what this file counts. Stubbed so a heat field can be offered.

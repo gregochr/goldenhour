@@ -5,10 +5,23 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  getBriefingScore,
   buildBriefingScoreIndex,
   lookupBriefingScore,
 } from '../utils/briefingScoreIndex.js';
+
+/**
+ * Reference linear scan, the ground-truth semantics the index mirrors. Returns the first
+ * (insertion-order) entry whose key ends with "|date|eventType|locationName", or null. Test-only
+ * since the production scan (`getBriefingScore`) had no caller and was removed.
+ */
+function getBriefingScore(briefingScores, locationName, date, eventType) {
+  if (!briefingScores || briefingScores.size === 0) return null;
+  const suffix = `|${date}|${eventType}|${locationName}`;
+  for (const [key, result] of briefingScores) {
+    if (key.endsWith(suffix)) return result;
+  }
+  return null;
+}
 
 const D1 = '2026-07-24';
 const D2 = '2026-07-25';

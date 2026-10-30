@@ -12,13 +12,10 @@
  * indicator stays drawn through the request where `disabled` used to take the focus, and the
  * indicator, away — dimmed with the button to 40%.
  *
- * <p>For `.btn-primary`. A `.btn-secondary` button uses {@link BUSY_BUTTON_SECONDARY}, whose hover
- * background is its own, not gold.
+ * <p>For `.btn-primary`. A `.btn-secondary` button would need its own hover
+ * background, not gold.
  */
 export const BUSY_BUTTON = 'aria-disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:hover:bg-plex-gold';
-
-/** The same busy treatment for `.btn-secondary`, copying its `disabled:hover:bg-plex-surface-light`. */
-export const BUSY_BUTTON_SECONDARY = 'aria-disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:hover:bg-plex-surface-light';
 
 /** The same busy treatment for `.btn-danger` (index.css), whose hover is a dimming, not a fill. */
 export const BUSY_BUTTON_DANGER = 'aria-disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:hover:opacity-40';

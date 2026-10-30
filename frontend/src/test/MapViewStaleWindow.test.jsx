@@ -65,7 +65,6 @@ vi.mock('../api/astroApi.js', () => ({
   getAstroAvailableDates: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
-vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 // `MapLabels` needs a real Leaflet pane and measured DOM boxes to place a chip, which is
 // `MapLabels.test.jsx`'s harness and its job. What THIS file needs is the other end of the wire:

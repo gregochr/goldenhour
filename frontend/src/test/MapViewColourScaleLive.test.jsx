@@ -56,7 +56,6 @@ vi.mock('../api/auroraApi.js', () => ({
   getAuroraForecastAvailableDates: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
-vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div data-testid="popup-content" /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 // `MapLabels` and the heat layer need a real Leaflet pane (their own tests' job). The heat layer is a
 // probe recording the props `MapView` hands it, `colourMode` among them.
