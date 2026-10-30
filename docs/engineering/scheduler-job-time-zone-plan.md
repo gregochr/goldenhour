@@ -10,7 +10,7 @@ byte-for-byte unchanged. The evening refresh row is set to `Europe/London` with 
 
 ## Scope (one PR)
 
-### Migration `V202__scheduler_job_time_zone.sql`
+### Migration `V203__scheduler_job_time_zone.sql`
 - `ALTER TABLE scheduler_job_config ADD COLUMN time_zone VARCHAR(40);` (nullable, no default).
 - `UPDATE scheduler_job_config SET time_zone = 'Europe/London', cron_expression = '0 0 21 * * *',
   description = 'Re-evaluates tomorrow''s sunrise at 21:00 UK time all year, so the bedtime decision rests on a fresh look'
@@ -74,16 +74,16 @@ byte-for-byte unchanged. The evening refresh row is set to `Europe/London` with 
 
 ## Docs in the same PR
 - `docs/engineering/reference/platform.md`: "Crons are pinned to UTC" → "Crons run in UTC unless the row's
-  `time_zone` says otherwise (V202; only `evening_sunrise_refresh`, `Europe/London` 21:00)"; fix the
+  `time_zone` says otherwise (V203; only `evening_sunrise_refresh`, `Europe/London` 21:00)"; fix the
   evening paragraph's "`0 0 20 * * *` UTC (21:00 UK in summer, 20:00 in winter)" and the watchdog's
   "from the UTC cron".
-- `docs/engineering/reference/database-migrations.md`: a V202 row.
+- `docs/engineering/reference/database-migrations.md`: a V203 row.
 - `changelog.d/20261030-evening-refresh-uk-time.md` (`### Fixed — …`).
 
 ## Review amendments (adversarial plan review, 2026-10-30)
 1. **CI break:** `integration/EveningSunriseRefreshSeedMigrationTest` asserts `0 0 20 * * *`; all migrations
    run in CI, so update it in this PR (cron `0 0 21 * * *`, `time_zone = Europe/London`, status still
-   `PAUSED`; fix its javadoc and DisplayName to say V184 seeds, V202 moves it to UK time).
+   `PAUSED`; fix its javadoc and DisplayName to say V184 seeds, V203 moves it to UK time).
 2. **Prove the firing trigger, not only the display:** capture the `Trigger` passed to
    `taskScheduler.schedule` for a London job and assert its zone / `nextExecution` from a fixed
    `TriggerContext`. Fixed-clock cases need their own service instance (the shared one uses
@@ -95,7 +95,7 @@ byte-for-byte unchanged. The evening refresh row is set to `Europe/London` with 
    the evening result now lands about an hour later in GMT, still well before the overnight cycle),
    `ForecastCycleWatchdog.java:69` class javadoc and `:267`; `api-endpoints.md:484` (DTO gains
    `timeZone`). Never edit V184.
-5. **Local H2:** `ddl-auto: update` adds the column but V202 never runs locally, so set the local evening
+5. **Local H2:** `ddl-auto: update` adds the column but V203 never runs locally, so set the local evening
    row by hand for a browser check and say so.
 6. `SchedulerView.jsx:450` (solar fallback) and `:610` (switch dialog) deliberately stay UTC.
 

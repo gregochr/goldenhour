@@ -11,9 +11,9 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Proves V184 and V202 against a real Postgres (Flyway runs every migration in
+ * Proves V184 and V203 against a real Postgres (Flyway runs every migration in
  * {@link IntegrationTestBase}): V184 seeds exactly one {@code evening_sunrise_refresh} row, PAUSED,
- * with no solar rule, and V202 moves it to a CRON at 21:00 UK time ({@code Europe/London}). Also,
+ * with no solar rule, and V203 moves it to a CRON at 21:00 UK time ({@code Europe/London}). Also,
  * {@code pipeline_run.cycle_type} (a plain {@code VARCHAR(20)} since V102) accepts the new {@code EVENING} value.
  *
  * <p>CI-only: it needs the Postgres Testcontainer, and there is no Docker on the development machine
@@ -25,7 +25,7 @@ class EveningSunriseRefreshSeedMigrationTest extends IntegrationTestBase {
     private JdbcTemplate jdbc;
 
     @Test
-    @DisplayName("V184 seeds the evening_sunrise_refresh row PAUSED with no solar rule; V202 moves it "
+    @DisplayName("V184 seeds the evening_sunrise_refresh row PAUSED with no solar rule; V203 moves it "
             + "to CRON 0 0 21 * * * in Europe/London")
     void seedsTheEveningJobPaused() {
         List<Map<String, Object>> rows = jdbc.queryForList(
