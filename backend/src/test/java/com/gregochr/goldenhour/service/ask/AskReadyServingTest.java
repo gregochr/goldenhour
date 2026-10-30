@@ -57,7 +57,8 @@ class AskReadyServingTest {
         AskPick pick = new AskPick(1, 1L, "Bamburgh", "Northumberland", oct(9),
                 AskWindowKind.SUNSET, "2026-10-09_sunset", "Why.", 5,
                 com.gregochr.goldenhour.model.DisplayVerdict.WORTH_IT.name());
-        return new AskReadyStore.Stored("ALL", "BEST_NEXT", "Best spot tonight?", List.of("2026-10-09_sunset"), built,
+        return new AskReadyStore.Stored("ALL", "BEST_NEXT", "Best spot this evening?",
+                List.of("2026-10-09_sunset"), built,
                 new AskAnswer(true, "Tonight.", List.of(pick), List.of(), null));
     }
 
@@ -147,7 +148,7 @@ class AskReadyServingTest {
         assertThat(service.suggestions(AskScope.ALL, snapshot, 0)).isEmpty();
         assertThat(service.suggestions(AskScope.ALL, snapshot, -1)).isEmpty();
         assertThat(service.suggestions(AskScope.ALL, snapshot, 2).getFirst().text())
-                .isEqualTo("Best spot tonight?");
+                .isEqualTo("Best spot this evening?");
     }
 
     @Test

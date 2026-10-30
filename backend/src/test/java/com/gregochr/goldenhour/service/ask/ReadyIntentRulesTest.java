@@ -135,6 +135,22 @@ class ReadyIntentRulesTest {
                 ready(ReadyQuestion.BEST_NEXT, "Best spot tonight?", SAT))).isTrue();
     }
 
+    @ParameterizedTest(name = "BEST_NEXT(this evening) matches \"{0}\"")
+    @ValueSource(strings = {"Best spot tonight", "Best spot this evening", "Where's good tonight?"})
+    @DisplayName("BEST_NEXT, written for this evening: tonight and this evening both match")
+    void nextThisEvening(String typed) {
+        assertThat(matches(ReadyQuestion.BEST_NEXT, typed,
+                ready(ReadyQuestion.BEST_NEXT, "Best spot this evening?", SAT))).isTrue();
+    }
+
+    @ParameterizedTest(name = "BEST_NEXT(this evening) declines \"{0}\"")
+    @ValueSource(strings = {"Best spot this sunset", "Best spot this night", "Best spot this morning"})
+    @DisplayName("BEST_NEXT, written for this evening: this sunset and this night are not it")
+    void nextThisEveningNegatives(String typed) {
+        assertThat(matches(ReadyQuestion.BEST_NEXT, typed,
+                ready(ReadyQuestion.BEST_NEXT, "Best spot this evening?", SAT))).isFalse();
+    }
+
     @ParameterizedTest(name = "BEST_NEXT(tonight) declines \"{0}\"")
     @ValueSource(strings = {"Best spot tomorrow evening?", "Best spot this morning?", "Best spot tonight near me?",
             "Best spot tonight at sunrise?", "Best spot tomorrow?", "Best spot tonight within an hour?",

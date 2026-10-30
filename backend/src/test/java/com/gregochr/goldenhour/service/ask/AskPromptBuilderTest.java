@@ -406,10 +406,11 @@ class AskPromptBuilderTest {
                 java.util.List.of("2026-10-10_sunrise", "2026-10-10_sunset", "2026-10-11_sunset"));
 
         assertThat(ready).contains("The question is about these windows: 2026-10-10_sunrise, 2026-10-10_sunset, "
-                + "2026-10-11_sunset.");
+                + "2026-10-11_sunset. Every pick must be on one of these windows.");
         assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, null, null, false, false,
                 java.util.List.of())).isEqualTo(plain);
-        assertThat(plain).doesNotContain("The question is about these windows");
+        assertThat(plain).doesNotContain("The question is about these windows")
+                .doesNotContain("Every pick must be on one of these windows");
     }
 
     // -- the two system blocks (prompt caching) ---------------------------------------------
