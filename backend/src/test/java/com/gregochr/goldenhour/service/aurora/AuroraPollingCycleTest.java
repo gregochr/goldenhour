@@ -780,12 +780,16 @@ class AuroraPollingCycleTest {
             snapshotRow.set(row);
             return row;
         });
-        when(repository.findById(any())).thenAnswer(invocation -> Optional.ofNullable(snapshotRow.get()));
-        when(repository.existsById(any())).thenAnswer(invocation -> snapshotRow.get() != null);
+        // Any other id falls through to the mock's defaults (empty, false, no delete): a store that
+        // addressed the wrong singleton would find nothing.
+        when(repository.findById(AuroraAlertSnapshotEntity.ONLY_ID))
+                .thenAnswer(invocation -> Optional.ofNullable(snapshotRow.get()));
+        when(repository.existsById(AuroraAlertSnapshotEntity.ONLY_ID))
+                .thenAnswer(invocation -> snapshotRow.get() != null);
         doAnswer(invocation -> {
             snapshotRow.set(null);
             return null;
-        }).when(repository).deleteById(any());
+        }).when(repository).deleteById(AuroraAlertSnapshotEntity.ONLY_ID);
         when(repository.confirmNight(any())).thenAnswer(invocation -> {
             LocalDate night = invocation.getArgument(0);
             AuroraAlertSnapshotEntity row = snapshotRow.get();
