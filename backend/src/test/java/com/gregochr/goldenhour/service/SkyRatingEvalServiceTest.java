@@ -283,13 +283,6 @@ class SkyRatingEvalServiceTest {
     }
 
     @Test
-    void resultsForRunDelegatesToRepository() {
-        SkyRatingEvalResultEntity res = resultRow(1L, "strong", 1, 4, 50, 60, MissDirection.IN_BAND);
-        when(resultRepository.findByRunIdOrderByFixtureNameAscRunIndexAsc(1L)).thenReturn(List.of(res));
-        assertThat(service().resultsForRun(1L)).containsExactly(res);
-    }
-
-    @Test
     void runScheduledScoresEveryModelOnePersistedRunEach() {
         EvaluationDetail detail = new EvaluationDetail(
                 new SunsetEvaluation(3, 50, 60, "A controlled summary."),

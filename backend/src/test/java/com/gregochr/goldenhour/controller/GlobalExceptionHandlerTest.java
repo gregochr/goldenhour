@@ -42,15 +42,15 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("RestClientResponseException is mapped to 502 Bad Gateway")
     void handleUpstreamError_returns502() throws Exception {
-        // GET /api/forecast/compare is only the vehicle: it resolves the location before anything else.
-        when(locationService.findByName("Durham UK"))
+        // GET /api/locations/valley-floor-candidates is only the vehicle: it delegates straight to the
+        // enrichment service, which is stubbed to throw.
+        when(locationEnrichmentService.valleyFloorCandidates(54.77, -1.57))
                 .thenThrow(new RestClientResponseException(
                         "Service Unavailable", 503, "Service Unavailable",
                         null, null, null));
 
-        mockMvc.perform(get("/api/forecast/compare")
-                        .param("location", "Durham UK").param("date", "2026-10-14")
-                        .param("targetType", "SUNRISE"))
+        mockMvc.perform(get("/api/locations/valley-floor-candidates")
+                        .param("lat", "54.77").param("lon", "-1.57"))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error").exists());
     }
@@ -73,12 +73,11 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("NoSuchElementException is mapped to 404 Not Found")
     void handleNotFound_returns404() throws Exception {
-        when(locationService.findByName("Durham UK"))
+        when(locationEnrichmentService.valleyFloorCandidates(54.77, -1.57))
                 .thenThrow(new NoSuchElementException("Location not found"));
 
-        mockMvc.perform(get("/api/forecast/compare")
-                        .param("location", "Durham UK").param("date", "2026-10-14")
-                        .param("targetType", "SUNRISE"))
+        mockMvc.perform(get("/api/locations/valley-floor-candidates")
+                        .param("lat", "54.77").param("lon", "-1.57"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("Location not found"));
     }
@@ -87,12 +86,11 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("IllegalArgumentException is mapped to 400 Bad Request")
     void handleBadRequest_returns400() throws Exception {
-        when(locationService.findByName("Durham UK"))
+        when(locationEnrichmentService.valleyFloorCandidates(54.77, -1.57))
                 .thenThrow(new IllegalArgumentException("Invalid location coordinates"));
 
-        mockMvc.perform(get("/api/forecast/compare")
-                        .param("location", "Durham UK").param("date", "2026-10-14")
-                        .param("targetType", "SUNRISE"))
+        mockMvc.perform(get("/api/locations/valley-floor-candidates")
+                        .param("lat", "54.77").param("lon", "-1.57"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Invalid location coordinates"));
     }
@@ -101,10 +99,10 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("Missing required request parameter is mapped to 400 Bad Request")
     void handleMissingParam_returns400() throws Exception {
-        // GET /api/forecast/history requires 'from' and 'to' params. ADMIN because the endpoint
-        // gained @PreAuthorize ADMIN (2026-08-28): this test is about the missing-param mapping,
-        // not the gate, so it must not depend on whether binding or authorization runs first.
-        mockMvc.perform(get("/api/forecast/history"))
+        // GET /api/locations/enrich requires 'lat' and 'lon' params. ADMIN because the endpoint is
+        // @PreAuthorize ADMIN: this test is about the missing-param mapping, not the gate, so it
+        // must not depend on whether binding or authorization runs first.
+        mockMvc.perform(get("/api/locations/enrich"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").exists());
     }
@@ -159,12 +157,11 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("Unexpected RuntimeException is mapped to 500 Internal Server Error")
     void handleUnexpected_returns500() throws Exception {
-        when(locationService.findByName("Durham UK"))
+        when(locationEnrichmentService.valleyFloorCandidates(54.77, -1.57))
                 .thenThrow(new RuntimeException("Unexpected failure"));
 
-        mockMvc.perform(get("/api/forecast/compare")
-                        .param("location", "Durham UK").param("date", "2026-10-14")
-                        .param("targetType", "SUNRISE"))
+        mockMvc.perform(get("/api/locations/valley-floor-candidates")
+                        .param("lat", "54.77").param("lon", "-1.57"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error").exists());
     }

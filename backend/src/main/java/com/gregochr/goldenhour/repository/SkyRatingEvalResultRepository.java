@@ -12,14 +12,6 @@ import java.util.List;
 public interface SkyRatingEvalResultRepository extends JpaRepository<SkyRatingEvalResultEntity, Long> {
 
     /**
-     * All results for one run, ordered for stable display.
-     *
-     * @param runId the parent run id
-     * @return the run's results, ordered by fixture then run index
-     */
-    List<SkyRatingEvalResultEntity> findByRunIdOrderByFixtureNameAscRunIndexAsc(Long runId);
-
-    /**
      * All results across a set of runs — one query for trend aggregation in the service.
      *
      * @param runIds the parent run ids

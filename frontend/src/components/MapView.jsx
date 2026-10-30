@@ -1388,8 +1388,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [driveOverride, reachById]);
   /**
    * Straight-line miles, for the selection callout's facts row ONLY (map-tab-v2-plan.md §3 P9) —
-   * `driveMinutesFor` above never carries a mile figure at all (`userDriveTimes` is minutes-only,
-   * `GET /api/user/settings/drive-times`), so the callout's own {@code distanceMiles} fact reads
+   * `driveMinutesFor` above never carries a mile figure at all (it is minutes-only), so the callout's own {@code distanceMiles} fact reads
    * this separate map instead.
    *
    * <p><b>Home origin only</b>, matching the reach-honesty rule the callout's own module comment

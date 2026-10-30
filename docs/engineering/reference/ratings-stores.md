@@ -289,7 +289,7 @@ Two consequences worth stating plainly:
   ⚠️ **Two accepted limits, not gaps.** The join is on location NAME (`forecast_run_disposition`'s
   denormalised snapshot), so a location renamed between its last skip and the serve misses its own
   history and keeps serving one cycle too long — safe-direction, not fixed. And "newest decision
-  wins" means a hand-started or force-submitted admin evaluation made shortly before a nightly cycle
+  wins" means a hand-started (JFDI) admin evaluation made shortly before a nightly cycle
   is retracted by that cycle's own skip a few minutes later; the rule has no way to except a human's
   deliberate request, and a short admin-run window is preferred to making admin evaluations immune to
   ever being retracted once stale.

@@ -29,7 +29,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * Repository slice tests for {@link ForecastEvaluationRepository}.
@@ -201,61 +200,6 @@ class ForecastEvaluationRepositoryTest {
         assertThat(repository.findById(saved.getId()).orElseThrow().getConfidence()).isNull();
     }
 
-    // ── findByLocationIdInAndTargetDateBetween ──────────────────────────────
-
-    @Test
-    @DisplayName("findByLocationIdInAndTargetDateBetween returns evaluations in the date range")
-    void findByLocationIdInAndTargetDateBetween_returnsEvaluationsInRange() {
-        LocalDate today = LocalDate.of(2026, 2, 20);
-        LocalDateTime run = LocalDateTime.of(2026, 2, 18, 6, 0);
-        repository.save(buildSonnetEvaluation(durham, today, TargetType.SUNSET, run, 2));
-        repository.save(buildSonnetEvaluation(durham, today.plusDays(1), TargetType.SUNRISE, run, 3));
-        repository.save(buildSonnetEvaluation(durham, today.plusDays(8), TargetType.SUNSET, run, 10));
-
-        List<ForecastEvaluationEntity> results =
-                repository.findByLocationIdInAndTargetDateBetween(
-                        List.of(durham.getId()), today, today.plusDays(7));
-
-        assertThat(results).hasSize(2);
-        assertThat(results.get(0).getTargetDate()).isEqualTo(today);
-        assertThat(results.get(1).getTargetDate()).isEqualTo(today.plusDays(1));
-    }
-
-    @Test
-    @DisplayName("findByLocationIdInAndTargetDateBetween excludes evaluations for a location not in the id list")
-    void findByLocationIdInAndTargetDateBetween_excludesLocationNotInList() {
-        LocalDate today = LocalDate.of(2026, 2, 20);
-        repository.save(buildSonnetEvaluation(edinburgh, today, TargetType.SUNSET,
-                LocalDateTime.of(2026, 2, 18, 6, 0), 2));
-
-        List<ForecastEvaluationEntity> results =
-                repository.findByLocationIdInAndTargetDateBetween(
-                        List.of(durham.getId()), today, today.plusDays(7));
-
-        assertThat(results).isEmpty();
-    }
-
-    @Test
-    @DisplayName("findByLocationIdInAndTargetDateBetween orders by location name, then date, then target type")
-    void findByLocationIdInAndTargetDateBetween_ordersByLocationNameThenDateThenType() {
-        LocalDate today = LocalDate.of(2026, 2, 20);
-        LocalDateTime run = LocalDateTime.of(2026, 2, 18, 6, 0);
-        // Edinburgh sorts after Durham alphabetically; seed rows so a date-only sort would
-        // interleave them, to prove location name is the primary sort key.
-        repository.save(buildSonnetEvaluation(edinburgh, today, TargetType.SUNSET, run, 2));
-        repository.save(buildSonnetEvaluation(durham, today, TargetType.SUNRISE, run, 2));
-        repository.save(buildSonnetEvaluation(durham, today, TargetType.SUNSET, run, 2));
-
-        List<ForecastEvaluationEntity> results = repository.findByLocationIdInAndTargetDateBetween(
-                List.of(durham.getId(), edinburgh.getId()), today, today.plusDays(7));
-
-        assertThat(results).extracting(e -> e.getLocation().getName(), ForecastEvaluationEntity::getTargetType)
-                .containsExactly(
-                        tuple("Durham UK", TargetType.SUNRISE),
-                        tuple("Durham UK", TargetType.SUNSET),
-                        tuple("Edinburgh UK", TargetType.SUNSET));
-    }
-
     @Test
     @DisplayName("findByLocationAndDateRangeAndModel returns only matching model rows")
     void findByLocationAndDateRangeAndModel_filtersByModel() {
@@ -280,45 +224,6 @@ class ForecastEvaluationRepositoryTest {
         assertThat(haikuResults).hasSize(1);
         assertThat(haikuResults.get(0).getEvaluationModel()).isEqualTo(EvaluationModel.HAIKU);
         assertThat(haikuResults.get(0).getRating()).isEqualTo(3);
-    }
-
-    @Test
-    @DisplayName("findByLocationIdAndTargetDateAndTargetType returns evaluations ordered by forecast_run_at")
-    void findByLocationIdAndTargetDateAndTargetType_orderedByForecastRunAt() {
-        LocalDate target = LocalDate.of(2026, 2, 27);
-        LocalDateTime runDay0 = LocalDateTime.of(2026, 2, 20, 6, 0);
-        LocalDateTime runDay4 = LocalDateTime.of(2026, 2, 23, 6, 0);
-        LocalDateTime runDay7 = LocalDateTime.of(2026, 2, 26, 18, 0);
-
-        repository.save(buildSonnetEvaluation(durham, target, TargetType.SUNSET, runDay7, 1));
-        repository.save(buildSonnetEvaluation(durham, target, TargetType.SUNSET, runDay0, 7));
-        repository.save(buildSonnetEvaluation(durham, target, TargetType.SUNSET, runDay4, 4));
-
-        List<ForecastEvaluationEntity> results =
-                repository.findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
-                        durham.getId(), target, TargetType.SUNSET);
-
-        assertThat(results).hasSize(3);
-        assertThat(results.get(0).getForecastRunAt()).isEqualTo(runDay0);
-        assertThat(results.get(1).getForecastRunAt()).isEqualTo(runDay4);
-        assertThat(results.get(2).getForecastRunAt()).isEqualTo(runDay7);
-    }
-
-    @Test
-    @DisplayName("findByLocationIdAndTargetDateAndTargetType excludes the other target type")
-    void findByLocationIdAndTargetDateAndTargetType_excludesOtherTargetType() {
-        LocalDate target = LocalDate.of(2026, 2, 27);
-        repository.save(buildSonnetEvaluation(durham, target, TargetType.SUNRISE,
-                LocalDateTime.of(2026, 2, 20, 6, 0), 7));
-        repository.save(buildSonnetEvaluation(durham, target, TargetType.SUNSET,
-                LocalDateTime.of(2026, 2, 20, 18, 0), 7));
-
-        List<ForecastEvaluationEntity> results =
-                repository.findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
-                        durham.getId(), target, TargetType.SUNSET);
-
-        assertThat(results).hasSize(1);
-        assertThat(results.get(0).getTargetType()).isEqualTo(TargetType.SUNSET);
     }
 
     // ── findLatestRunPerSlotByLocationIds ───────────────────────────────────
