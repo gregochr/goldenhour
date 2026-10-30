@@ -24,12 +24,9 @@ public enum EvaluationModel {
      * Claude Sonnet 5.5 — selectable only, never a default. Thinking is left at the model's
      * adaptive default (it rejects {@code thinking: disabled}) and effort is sent as low. The enum
      * name is capped at 10 characters because every column storing a model name is VARCHAR(10) in
-     * production (as of 2026-10-04): api_call_log.evaluation_model,
-     * briefing_model_test_result.evaluation_model (historic rows only, dropped in Phase 2),
-     * forecast_evaluation.evaluation_model, job_run.evaluation_model, model_selection.active_model,
-     * model_test_result.evaluation_model (likewise), prompt_test_result.evaluation_model,
-     * prompt_test_run.evaluation_model (both dropped by V198) and
-     * sky_rating_eval_run.model.
+     * production (as of 2026-10-04): api_call_log.evaluation_model, forecast_evaluation.evaluation_model,
+     * job_run.evaluation_model, model_selection.active_model and sky_rating_eval_run.model. (The
+     * Prompt Test and model-test result tables that also carried one were dropped by V198 and V200.)
      *
      * <p>A refusal from this model counts as a failed result for {@code LocationFailureService}
      * exactly like any other failed result (it can contribute to a place's auto-disable count).
