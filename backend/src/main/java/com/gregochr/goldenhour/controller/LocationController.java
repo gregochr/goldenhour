@@ -6,6 +6,8 @@ import com.gregochr.goldenhour.model.LocationDto;
 import com.gregochr.goldenhour.model.LocationDtoMapper;
 import com.gregochr.goldenhour.model.LocationEnrichmentResult;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
+import com.gregochr.goldenhour.model.ValleyFloorCandidates;
+import com.gregochr.goldenhour.model.ValleyFloorCell;
 import com.gregochr.goldenhour.service.LocationEnrichmentService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.SubRegionMembershipService;
@@ -157,6 +159,40 @@ public class LocationController {
     public LocationEnrichmentResult enrichLocation(@RequestParam double lat,
             @RequestParam double lon) {
         return locationEnrichmentService.enrich(lat, lon);
+    }
+
+    /**
+     * Suggests valley-floor points below a location: the lowest sampled point in each compass sector within
+     * about 5 km, kept only when at least 30 m below the location's own DEM sample.
+     *
+     * @param lat latitude in decimal degrees (the editor's edited value)
+     * @param lon longitude in decimal degrees
+     * @return the site's DEM height and the qualifying candidates, lowest first (possibly empty)
+     * @throws IllegalArgumentException if the coordinates are out of range (HTTP 400)
+     * @throws com.gregochr.goldenhour.exception.UpstreamLookupException if the elevation lookup fails (HTTP 502)
+     */
+    @GetMapping("/valley-floor-candidates")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ValleyFloorCandidates valleyFloorCandidates(@RequestParam double lat, @RequestParam double lon) {
+        return locationEnrichmentService.valleyFloorCandidates(lat, lon);
+    }
+
+    /**
+     * Shows the Open-Meteo model cell a chosen valley-floor point resolves to when requested at that
+     * height. Read-only; nothing is stored.
+     *
+     * @param lat       the floor point's latitude
+     * @param lon       the floor point's longitude
+     * @param elevation the floor height in metres
+     * @return the snapped cell and the surface height the response refers to
+     * @throws IllegalArgumentException if an input is out of range (HTTP 400)
+     * @throws com.gregochr.goldenhour.exception.UpstreamLookupException if the lookup fails (HTTP 502)
+     */
+    @GetMapping("/valley-floor-cell")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ValleyFloorCell valleyFloorCell(@RequestParam double lat, @RequestParam double lon,
+            @RequestParam double elevation) {
+        return locationEnrichmentService.valleyFloorCell(lat, lon, elevation);
     }
 
 }

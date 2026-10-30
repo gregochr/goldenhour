@@ -191,6 +191,34 @@ export async function enrichLocation(lat, lon) {
 }
 
 /**
+ * Suggests valley-floor points below a location (admin only): the lowest sampled point in each compass
+ * sector within about 5 km, kept only when at least 30 m below the location's own DEM sample. An empty
+ * list means none qualify; a failed lookup rejects (HTTP 502), so the two stay distinguishable.
+ *
+ * @param {number} lat - Latitude in decimal degrees (the editor's edited value).
+ * @param {number} lon - Longitude in decimal degrees.
+ * @returns {Promise<{siteSampleMetres: number, candidates: Array<{metres: number, lat: number, lng: number, distanceKm: number, bearing: string}>}>}
+ */
+export async function fetchValleyFloorCandidates(lat, lon) {
+  const response = await apiClient.get(`${BASE_URL}/locations/valley-floor-candidates`, { params: { lat, lon } });
+  return response.data;
+}
+
+/**
+ * Looks up the Open-Meteo model cell a chosen valley-floor point resolves to when requested at that
+ * height (admin only; shown, never stored).
+ *
+ * @param {number} lat - The floor point's latitude.
+ * @param {number} lon - The floor point's longitude.
+ * @param {number} elevation - The floor height in metres.
+ * @returns {Promise<{cellLat: number, cellLng: number, cellElevationMetres: number, cellDistanceKm: number}>}
+ */
+export async function fetchValleyFloorCell(lat, lon, elevation) {
+  const response = await apiClient.get(`${BASE_URL}/locations/valley-floor-cell`, { params: { lat, lon, elevation } });
+  return response.data;
+}
+
+/**
  * Geocodes a place name via Nominatim (OpenStreetMap).
  * Uses plain fetch to avoid the JWT axios interceptor.
  *

@@ -21,6 +21,9 @@ public class OpenMeteoForecastResponse {
     /** Snapped grid longitude returned by Open-Meteo (~2 km resolution). */
     private Double longitude;
 
+    /** Surface height in metres the response refers to (Open-Meteo's top-level {@code elevation}). */
+    private Double elevation;
+
     private Hourly hourly;
 
     /**

@@ -31,4 +31,26 @@ public interface OpenMeteoForecastApi {
             @RequestParam String hourly,
             @RequestParam("wind_speed_unit") String windSpeedUnit,
             @RequestParam String timezone);
+
+    /**
+     * Fetches a forecast with the model's surface pinned to a stated height, via Open-Meteo's
+     * {@code elevation} parameter. Used by the admin editor to show which model cell a chosen
+     * valley-floor point lands in; the response's {@code elevation} field is the height used.
+     *
+     * @param latitude      latitude in decimal degrees
+     * @param longitude     longitude in decimal degrees
+     * @param hourly        comma-separated list of hourly parameters to return
+     * @param windSpeedUnit wind speed unit (e.g. "ms")
+     * @param timezone      timezone for timestamps (e.g. "UTC")
+     * @param elevation     the surface height in metres the model should be adjusted to
+     * @return the deserialized forecast response
+     */
+    @GetExchange("/v1/forecast")
+    OpenMeteoForecastResponse getForecastAtElevation(
+            @RequestParam double latitude,
+            @RequestParam double longitude,
+            @RequestParam String hourly,
+            @RequestParam("wind_speed_unit") String windSpeedUnit,
+            @RequestParam String timezone,
+            @RequestParam double elevation);
 }

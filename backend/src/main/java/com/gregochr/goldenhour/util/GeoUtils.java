@@ -11,6 +11,18 @@ public final class GeoUtils {
     /** Mean Earth radius in MILES. Never mix with {@link #EARTH_RADIUS_M}. */
     private static final double EARTH_RADIUS_MILES = 3958.8;
 
+    /** Metres in a kilometre. */
+    private static final double METRES_PER_KM = 1000.0;
+
+    /** Full circle in degrees. */
+    private static final double FULL_CIRCLE_DEGREES = 360.0;
+
+    /** Width of one point of the eight-point compass, in degrees. */
+    private static final double COMPASS_POINT_DEGREES = 45.0;
+
+    /** The eight-point compass, clockwise from north. */
+    private static final String[] COMPASS_POINTS = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+
     private GeoUtils() {
     }
 
@@ -78,5 +90,54 @@ public final class GeoUtils {
      */
     public static double antisolarBearing(double azimuthDegrees) {
         return (azimuthDegrees + 180.0) % 360.0;
+    }
+
+    /**
+     * Great-circle distance between two points, in kilometres.
+     *
+     * @param lat1 first latitude in degrees
+     * @param lon1 first longitude in degrees
+     * @param lat2 second latitude in degrees
+     * @param lon2 second longitude in degrees
+     * @return the distance in kilometres
+     */
+    public static double distanceKm(double lat1, double lon1, double lat2, double lon2) {
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.pow(Math.sin(dLat / 2), 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.pow(Math.sin(dLon / 2), 2);
+        return 2 * EARTH_RADIUS_M / METRES_PER_KM * Math.asin(Math.min(1.0, Math.sqrt(a)));
+    }
+
+    /**
+     * Initial great-circle bearing from the first point to the second.
+     *
+     * @param lat1 start latitude in degrees
+     * @param lon1 start longitude in degrees
+     * @param lat2 end latitude in degrees
+     * @param lon2 end longitude in degrees
+     * @return the bearing in degrees clockwise from north, in [0, 360)
+     */
+    public static double initialBearing(double lat1, double lon1, double lat2, double lon2) {
+        double phi1 = Math.toRadians(lat1);
+        double phi2 = Math.toRadians(lat2);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double y = Math.sin(dLon) * Math.cos(phi2);
+        double x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon);
+        double degrees = Math.toDegrees(Math.atan2(y, x));
+        return (degrees + FULL_CIRCLE_DEGREES) % FULL_CIRCLE_DEGREES;
+    }
+
+    /**
+     * Names the eight-point compass direction nearest a bearing.
+     *
+     * @param bearingDegrees a bearing in degrees clockwise from north (any value; it is normalised)
+     * @return one of N, NE, E, SE, S, SW, W, NW
+     */
+    public static String compassPoint(double bearingDegrees) {
+        double normalised = ((bearingDegrees % FULL_CIRCLE_DEGREES) + FULL_CIRCLE_DEGREES) % FULL_CIRCLE_DEGREES;
+        int index = (int) Math.round(normalised / COMPASS_POINT_DEGREES) % COMPASS_POINTS.length;
+        return COMPASS_POINTS[index];
     }
 }
