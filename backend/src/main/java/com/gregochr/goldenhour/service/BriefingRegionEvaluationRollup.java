@@ -157,8 +157,8 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                     // because neither alone covers every path that can triage a slot:
                     //
                     //   (a) triagedResolver — the batch's own disposition table, resolved for this
-                    //   exact region/date/event by EvaluationViewService#getTriagedByBatchLocationNames
-                    //   (single-key) / #getTriagedByBatchLocationNamesBulk (bulk). Reaches the
+                    //   exact region/date/event by EvaluationViewService#getTriagedByBatchLocationNamesBulk
+                    //   (bulk). Reaches the
                     //   rollup for EVERY such slot regardless of what `cached` resolves to for it
                     //   — a genuine triage result, nothing, or a retraction marker — because it is
                     //   queried independently rather than filtered out of `cached` (a second Codex

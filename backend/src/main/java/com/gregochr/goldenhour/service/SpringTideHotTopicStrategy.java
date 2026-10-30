@@ -5,8 +5,6 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
-import com.gregochr.goldenhour.model.BriefingEventSummary;
-import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
@@ -204,30 +202,6 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
             topics.add(topic);
         }
         return topics.stream().map(t -> t.withTideRun(run.get(t.date()))).toList();
-    }
-
-    /**
-     * Returns the first spring-but-not-king tide info found in the given day.
-     *
-     * @param day the briefing day to scan
-     * @return first matching {@link BriefingSlot.TideInfo}, or null if none
-     */
-    static BriefingSlot.TideInfo findSpringTide(BriefingDay day) {
-        for (BriefingEventSummary event : day.eventSummaries()) {
-            for (BriefingRegion region : event.regions()) {
-                for (BriefingSlot slot : region.slots()) {
-                    if (isSpringNotKing(slot.tide())) {
-                        return slot.tide();
-                    }
-                }
-            }
-            for (BriefingSlot slot : event.unregioned()) {
-                if (isSpringNotKing(slot.tide())) {
-                    return slot.tide();
-                }
-            }
-        }
-        return null;
     }
 
     /**

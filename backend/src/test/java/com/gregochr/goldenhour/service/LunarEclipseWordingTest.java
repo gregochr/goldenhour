@@ -108,26 +108,6 @@ class LunarEclipseWordingTest {
     }
 
     @Nested
-    @DisplayName("coverageWord — 'total' for TOTAL, 'N%' otherwise")
-    class CoverageWord {
-
-        @Test
-        void totalReadsTheWordTotalNeverAPercentage() {
-            assertThat(LunarEclipseWording.coverageWord(withMagnitude(1.24785))).isEqualTo("total");
-        }
-
-        @Test
-        void deepPartialReadsAPercentage() {
-            assertThat(LunarEclipseWording.coverageWord(withMagnitude(0.93187))).isEqualTo("93%");
-        }
-
-        @Test
-        void slightReadsAPercentage() {
-            assertThat(LunarEclipseWording.coverageWord(withMagnitude(0.0679))).isEqualTo("7%");
-        }
-    }
-
-    @Nested
     @DisplayName("shadowClause — one sentence per band, the real figure substituted where needed")
     class ShadowClause {
 
@@ -200,7 +180,6 @@ class LunarEclipseWordingTest {
         void the2028Dec31EclipseIsTotal() {
             LunarEclipse eclipse = LunarEclipseCatalog.on(LocalDate.of(2028, 12, 31)).orElseThrow();
             assertThat(LunarEclipseWording.depthOf(eclipse)).isEqualTo(Depth.TOTAL);
-            assertThat(LunarEclipseWording.coverageWord(eclipse)).isEqualTo("total");
         }
     }
 

@@ -87,7 +87,7 @@ class PipelineOrchestratorAlmanacRefreshTest {
         lenient().when(batchRetryService.submitRetry(any(), any())).thenReturn(RetrySubmitResult.none());
         lenient().when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
                 any(), any(), any(), anyBoolean(), any()))
-                .thenReturn(ForecastBatchSubmissionOutcome.ran(BatchSubmissionSummary.allEmpty()));
+                .thenReturn(ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(0, 0, java.util.List.of())));
     }
 
     private static PipelineRunEntity run() {

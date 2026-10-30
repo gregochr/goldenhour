@@ -144,11 +144,19 @@ class KingTideHotTopicStrategyTest {
      * deliberate: several tests construct a {@code BriefingDay} inline — an unregioned slot, a
      * second event summary — and never touch a builder, so a builder-side hook drifts.
      */
+    private static boolean hasKingSlot(BriefingDay day) {
+        return day.eventSummaries().stream().anyMatch(event ->
+                event.regions().stream().anyMatch(region -> region.slots().stream()
+                        .anyMatch(s -> s.tide() != null && s.tide().lunarTideType() == LunarTideType.KING_TIDE))
+                        || event.unregioned().stream()
+                        .anyMatch(s -> s.tide() != null && s.tide().lunarTideType() == LunarTideType.KING_TIDE));
+    }
+
     private boolean fixtureSaysPerigean(LocalDate date) {
         List<BriefingDay> days = briefingService.getCachedDays();
         return days != null && days.stream()
                 .filter(d -> date.equals(d.date()))
-                .anyMatch(d -> KingTideHotTopicStrategy.findKingTide(d) != null);
+                .anyMatch(KingTideHotTopicStrategyTest::hasKingSlot);
     }
 
     @Test
@@ -842,7 +850,7 @@ class KingTideHotTopicStrategyTest {
 
     @Test
     @DisplayName("king tide only in unregioned — regioned slots have no king tide")
-    void findKingTide_regionedRegularUnregionedKing_findsKingTide() {
+    void findTidalSlot_regionedRegularUnregionedKing_findsKingTide() {
         BriefingSlot.TideInfo kingTide = new BriefingSlot.TideInfo(
                 "HIGH", true, null, null, true, true,
                 LunarTideType.KING_TIDE, "Full Moon", true);
@@ -859,7 +867,7 @@ class KingTideHotTopicStrategyTest {
                 TargetType.SUNRISE, List.of(region), List.of(kingSlot));
         BriefingDay day = new BriefingDay(TODAY, List.of(event));
 
-        BriefingSlot.TideInfo result = KingTideHotTopicStrategy.findKingTide(day);
+        BriefingSlot.TideInfo result = KingTideHotTopicStrategy.findTidalSlot(day);
 
         assertThat(result).isNotNull();
         assertThat(result.lunarTideType()).isEqualTo(LunarTideType.KING_TIDE);
@@ -1127,35 +1135,6 @@ class KingTideHotTopicStrategyTest {
                 .isEqualTo("tide aligned with sunrise \u00b7 2 coastal locations");
     }
 
-    // ── formatCatch / formatCatchShort / formatLocationCount ─────────────
-
-    @Test
-    @DisplayName("formatCatch — singular and plural")
-    void formatCatch_singularAndPlural() {
-        assertThat(KingTideHotTopicStrategy.formatCatch(1, "sunrise"))
-                .isEqualTo("1 location catches sunrise");
-        assertThat(KingTideHotTopicStrategy.formatCatch(3, "sunset"))
-                .isEqualTo("3 locations catch sunset");
-    }
-
-    @Test
-    @DisplayName("formatCatchShort — singular and plural")
-    void formatCatchShort_singularAndPlural() {
-        assertThat(KingTideHotTopicStrategy.formatCatchShort(1, "sunrise"))
-                .isEqualTo("1 catches sunrise");
-        assertThat(KingTideHotTopicStrategy.formatCatchShort(4, "sunset"))
-                .isEqualTo("4 catch sunset");
-    }
-
-    @Test
-    @DisplayName("formatLocationCount — singular and plural")
-    void formatLocationCount_singularAndPlural() {
-        assertThat(KingTideHotTopicStrategy.formatLocationCount(1))
-                .isEqualTo("1 location");
-        assertThat(KingTideHotTopicStrategy.formatLocationCount(7))
-                .isEqualTo("7 locations");
-    }
-
     // ── buildExpandedDetail — empty tideType ────────────────────────────
 
     @Test
@@ -1256,14 +1235,14 @@ class KingTideHotTopicStrategyTest {
     // ── heightAboveP95 negative — neither flag matches ──────────────────────
 
     @Test
-    @DisplayName("findKingTide returns null when all slots have heightAboveP95=false and REGULAR_TIDE")
-    void findKingTide_noKingTideFlags_returnsNull() {
+    @DisplayName("findTidalSlot returns null when no slot is lunar-tidal or above the spring threshold")
+    void findTidalSlot_noTidalFlags_returnsNull() {
         BriefingSlot.TideInfo notKing = new BriefingSlot.TideInfo(
-                "HIGH", true, null, null, false, true,
+                "HIGH", true, null, null, false, false,
                 LunarTideType.REGULAR_TIDE, null, false);
         BriefingDay day = buildDayWithTide(TODAY, notKing);
 
-        assertThat(KingTideHotTopicStrategy.findKingTide(day)).isNull();
+        assertThat(KingTideHotTopicStrategy.findTidalSlot(day)).isNull();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

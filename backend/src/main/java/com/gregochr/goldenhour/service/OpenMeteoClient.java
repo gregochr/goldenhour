@@ -211,22 +211,6 @@ public class OpenMeteoClient {
     }
 
     /**
-     * Fetches hourly weather forecast data for a location, using a dedicated circuit breaker
-     * and no retries. Used by the briefing job so that forecast-run or aurora failures cannot
-     * trip the briefing circuit breaker and vice versa.
-     *
-     * @param lat latitude in decimal degrees
-     * @param lon longitude in decimal degrees
-     * @return the deserialized forecast response
-     */
-    @Retry(name = "open-meteo-briefing")
-    @CircuitBreaker(name = "open-meteo-briefing")
-    @RateLimiter(name = "open-meteo")
-    public OpenMeteoForecastResponse fetchForecastBriefing(double lat, double lon) {
-        return forecastApi.getForecast(lat, lon, FORECAST_PARAMS, "ms", "UTC");
-    }
-
-    /**
      * Fetches hourly air quality data for a location.
      *
      * @param lat latitude in decimal degrees
@@ -238,20 +222,6 @@ public class OpenMeteoClient {
     @RateLimiter(name = "open-meteo")
     public OpenMeteoAirQualityResponse fetchAirQuality(double lat, double lon) {
         return airQualityApi.getAirQuality(lat, lon, AIR_QUALITY_PARAMS, "UTC");
-    }
-
-    /**
-     * Fetches cloud-only forecast data for a directional horizon sampling point.
-     *
-     * @param lat latitude in decimal degrees
-     * @param lon longitude in decimal degrees
-     * @return the deserialized forecast response (only cloud layers populated)
-     */
-    @Retry(name = "open-meteo")
-    @CircuitBreaker(name = "open-meteo")
-    @RateLimiter(name = "open-meteo")
-    public OpenMeteoForecastResponse fetchCloudOnly(double lat, double lon) {
-        return forecastApi.getForecast(lat, lon, CLOUD_ONLY_PARAMS, "ms", "UTC");
     }
 
     // ──────────────────────────────── Batch methods ────────────────────────────────

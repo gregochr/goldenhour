@@ -113,8 +113,8 @@ public final class DirectionalSamplingGeometry {
      *
      * <p>These are the first three entries of {@link #computeDirectionalCloudPoints}, exposed
      * separately so the cloud-approach trend can be averaged over the same cone rather than read
-     * from the centre bearing alone. The centre point (index 1) is identical to
-     * {@link #computeSolarHorizonPoint}.
+     * from the centre bearing alone. The centre point (index 1) is the point 113 km
+     * along the solar bearing.
      *
      * @param lat             observer latitude
      * @param lon             observer longitude
@@ -128,18 +128,6 @@ public final class DirectionalSamplingGeometry {
             points.add(GeoUtils.offsetPoint(lat, lon, bearing, DIRECTIONAL_OFFSET_METRES));
         }
         return points;
-    }
-
-    /**
-     * Computes the solar horizon point used for cloud approach trend analysis.
-     *
-     * @param lat             observer latitude
-     * @param lon             observer longitude
-     * @param solarAzimuthDeg compass bearing of the sun
-     * @return [lat, lon] pair at 113 km along the solar bearing
-     */
-    public static double[] computeSolarHorizonPoint(double lat, double lon, int solarAzimuthDeg) {
-        return GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg, DIRECTIONAL_OFFSET_METRES);
     }
 
     /**

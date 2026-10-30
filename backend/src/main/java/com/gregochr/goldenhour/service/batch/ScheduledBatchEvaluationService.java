@@ -166,33 +166,6 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
-     * Builds and submits a forecast evaluation batch to the Anthropic Batch API.
-     *
-     * <p>Guards against concurrent submissions with an {@link AtomicBoolean}. If a batch
-     * submission is already in progress (e.g. triggered simultaneously by two scheduler
-     * threads), the second call is silently dropped. The {@code finally} block guarantees
-     * the guard is always cleared, even if {@link #doSubmitForecastBatch(Long)} throws.
-     *
-     * <p>Weather data for all candidate locations is pre-fetched in bulk before the
-     * per-location triage loop, avoiding per-location Open-Meteo calls that would trip
-     * the minutely rate limit when processing 200+ locations.
-     */
-    public void submitForecastBatch() {
-        if (!forecastBatchRunning.compareAndSet(false, true)) {
-            LOG.warn("Forecast batch already running — skipping concurrent trigger");
-            return;
-        }
-        try {
-            doSubmitForecastBatch(null,
-                    NightlyCandidateCollectionStrategy.INSTANCE,
-                    NightlyEligibilityPolicy.INSTANCE,
-                    false, NO_OP_BETWEEN_STEPS);
-        } finally {
-            forecastBatchRunning.set(false);
-        }
-    }
-
-    /**
      * Cycle-aware variant called by {@code PipelineOrchestrator}. Identical to
      * {@link #submitForecastBatch()} except every {@code forecast_batch} row it produces
      * is tagged with the given {@code pipelineRunId} so the orchestrator can detect

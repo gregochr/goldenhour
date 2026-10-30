@@ -60,7 +60,7 @@ import java.util.Set;
  * {@code examinedCount} silently collapsed to rated-only. {@link #examinedCount} now takes a set of
  * voting location NAMES assembled by {@code BriefingRegionEvaluationRollup} from TWO independent
  * sources unioned together: the batch's own disposition table ({@code EvaluationViewService
- * #getTriagedByBatchLocationNames}/{@code #getTriagedByBatchLocationNamesBulk}, sourced from
+ * #getTriagedByBatchLocationNamesBulk}, sourced from
  * {@code forecast_run_disposition} — never the briefing tree), and any resolved triage evidence the
  * score resolver itself returns (a hand-started or synchronous-engine run can triage a slot without
  * ever writing a disposition row at all — the evidence then lives only on the

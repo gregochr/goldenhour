@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <p>Reads serve the Plan and Map tabs via {@link EvaluationViewService}, the
  * {@code BriefingBestBetAdvisor}, and the {@code BriefingGlossService}. Freshness gates
- * for the batch collector are exposed through {@link #hasEvaluation} and
+ * for the batch collector are exposed through
  * {@link #hasFreshEvaluation}.
  *
  * <p>The cache is intentionally retained across briefing refreshes — Claude scores are
@@ -276,20 +276,6 @@ public class BriefingEvaluationService {
         return cachedEvaluationRepository
                 .findByCacheKey(CacheKeyFactory.build(regionName, date, targetType))
                 .map(CachedEvaluationEntity::getUpdatedAt);
-    }
-
-    /**
-     * Returns whether a non-empty cached evaluation exists for the given cache key.
-     *
-     * <p>Available for future schedulers (e.g. the planned intraday refresh) to gate work
-     * on whether a region has any cached result at all.
-     *
-     * @param cacheKey the cache key in the format "regionName|date|targetType"
-     * @return true if the cache has at least one result for this key
-     */
-    public boolean hasEvaluation(String cacheKey) {
-        CachedEvaluation cached = cache.get(cacheKey);
-        return cached != null && !cached.results().isEmpty();
     }
 
     /**

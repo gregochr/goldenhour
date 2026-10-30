@@ -249,7 +249,7 @@ class BriefingEvaluationServiceTest {
     @Test
     @DisplayName("hasEvaluation returns false when cache is empty")
     void hasEvaluation_returnsFalseWhenNotCached() {
-        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isFalse();
+        assertThat(BriefingEvaluationTestSupport.hasEvaluation(service, "North East|2026-04-07|SUNRISE")).isFalse();
     }
 
     @Test
@@ -257,7 +257,7 @@ class BriefingEvaluationServiceTest {
     void hasEvaluation_returnsFalseWhenEmptyResults() {
         service.writeFromBatch("North East|2026-04-07|SUNRISE", List.of());
 
-        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isFalse();
+        assertThat(BriefingEvaluationTestSupport.hasEvaluation(service, "North East|2026-04-07|SUNRISE")).isFalse();
     }
 
     @Test
@@ -267,7 +267,7 @@ class BriefingEvaluationServiceTest {
                 new BriefingEvaluationResult("Durham", 4, 72, 65, "Good conditions");
         service.writeFromBatch("North East|2026-04-07|SUNRISE", List.of(result));
 
-        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isTrue();
+        assertThat(BriefingEvaluationTestSupport.hasEvaluation(service, "North East|2026-04-07|SUNRISE")).isTrue();
     }
 
     @Test
@@ -1207,11 +1207,11 @@ class BriefingEvaluationServiceTest {
         BriefingEvaluationResult result =
                 new BriefingEvaluationResult("Durham", 4, 72, 65, "Good");
         service.writeFromBatch("North East|2026-04-07|SUNRISE", List.of(result));
-        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isTrue();
+        assertThat(BriefingEvaluationTestSupport.hasEvaluation(service, "North East|2026-04-07|SUNRISE")).isTrue();
 
         service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
 
-        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isTrue();
+        assertThat(BriefingEvaluationTestSupport.hasEvaluation(service, "North East|2026-04-07|SUNRISE")).isTrue();
     }
 
     @Test
@@ -1251,11 +1251,11 @@ class BriefingEvaluationServiceTest {
         BriefingEvaluationResult result =
                 new BriefingEvaluationResult("Durham", 4, 72, 65, "Good");
         service.writeFromBatch(cacheKey, List.of(result));
-        assertThat(service.hasEvaluation(cacheKey)).isTrue();
+        assertThat(BriefingEvaluationTestSupport.hasEvaluation(service, cacheKey)).isTrue();
 
         assertThat(service.clearCache()).isEqualTo(1);
 
-        assertThat(service.hasEvaluation(cacheKey)).isFalse();
+        assertThat(BriefingEvaluationTestSupport.hasEvaluation(service, cacheKey)).isFalse();
         assertThat(service.getCachedScores("North East", DATE, TargetType.SUNRISE)).isEmpty();
     }
 
@@ -1416,7 +1416,7 @@ class BriefingEvaluationServiceTest {
         service.rehydrateCacheOnStartup();
 
         assertThat(service.getCachedScores(REGION, today, TargetType.SUNSET)).isEmpty();
-        assertThat(service.hasEvaluation(REGION + "|" + today + "|SUNSET")).isFalse();
+        assertThat(BriefingEvaluationTestSupport.hasEvaluation(service, REGION + "|" + today + "|SUNSET")).isFalse();
     }
 
     @Test

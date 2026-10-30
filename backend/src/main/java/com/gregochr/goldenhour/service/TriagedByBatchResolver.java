@@ -22,7 +22,7 @@ import java.util.Set;
  * whether the score resolver's answer for it is a genuine triage result, nothing, or a retraction
  * marker; the two questions are asked and answered independently, never one derived from the other.
  *
- * <p>The build path hands it {@code EvaluationViewService::getTriagedByBatchLocationNames}; the
+ * <p>The build path hands it a closure over {@code EvaluationViewService#getTriagedByBatchLocationNamesBulk}; the
  * serve path hands it a closure over a bulk index loaded once for the whole payload — the same
  * shape {@link RegionScoreResolver}'s own two production implementations already take.
  */

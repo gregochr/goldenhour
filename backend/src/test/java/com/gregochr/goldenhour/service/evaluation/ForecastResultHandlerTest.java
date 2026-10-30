@@ -1154,20 +1154,6 @@ class ForecastResultHandlerTest {
         assertThat(result).isPresent();
     }
 
-    @Test
-    @DisplayName("flushCacheKey still delegates to writeFromBatch — it is the destructive path, "
-            + "deprecated and no longer called by production")
-    @SuppressWarnings("deprecation")
-    void flushCacheKey_delegatesToBriefingService() {
-        BriefingEvaluationResult res =
-                new BriefingEvaluationResult("Castlerigg", 4, 70, 65, "X");
-
-        handler.flushCacheKey("Lake District|2026-04-16|SUNRISE", List.of(res));
-
-        verify(briefingEvaluationService).writeFromBatch(
-                eq("Lake District|2026-04-16|SUNRISE"), eq(List.of(res)));
-    }
-
     // ── v2.13.2: sky-tide decomposition ──────────────────────────────────────
 
     @Test

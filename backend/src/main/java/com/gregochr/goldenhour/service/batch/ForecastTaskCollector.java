@@ -208,24 +208,7 @@ public class ForecastTaskCollector {
      * Each abort path logs a clearly distinguishable reason at WARN/ERROR level so
      * operators can tell "no work this cycle" apart from "upstream degradation".
      *
-     * @return bucketed tasks (possibly all-empty)
-     */
-    /**
-     * Convenience overload: collects scheduled batches with nightly's
-     * candidate-collection strategy and eligibility policy. Preserves the
-     * legacy zero-arg API for callers (notably the admin {@code submitForecastBatch()}
-     * path and any test harnesses) that don't supply a cycle-specific override.
-     *
-     * @return bucketed tasks (possibly all-empty)
-     */
-    public ScheduledBatchTasks collectScheduledBatches() {
-        return collectScheduledBatches(
-                NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE);
-    }
-
-    /**
-     * Cycle-aware variant: same triage and bucketing as the nightly path, but
+     * <p>Cycle-aware variant: same triage and bucketing as the nightly path, but
      * the candidate set and eligibility decisions are delegated to the supplied
      * strategy + policy. Publishes (persists) the stability snapshot, as the
      * nightly path requires.
@@ -697,46 +680,6 @@ public class ForecastTaskCollector {
                 candidate.date(), candidate.targetType(), daysAhead,
                 forced ? DispositionCategory.FORCE_EVALUATED : DispositionCategory.EVALUATED,
                 forced ? "Force-evaluated best-bet headline candidate" : null);
-    }
-
-    /**
-     * Encodes the Gate 4 batch eligibility policy: which (daysAhead, stability)
-     * combinations enter the batch, and which model tier evaluates them.
-     *
-     * <table>
-     *   <caption>Eligibility table</caption>
-     *   <tr><th>daysAhead</th><th>Eligibility</th><th>Model tier</th></tr>
-     *   <tr><td>T+0, T+1</td><td>all stabilities</td>
-     *       <td>{@code BATCH_NEAR_TERM}</td></tr>
-     *   <tr><td>T+2</td><td>SETTLED or TRANSITIONAL</td>
-     *       <td>{@code BATCH_FAR_TERM}</td></tr>
-     *   <tr><td>T+3</td><td>SETTLED only</td>
-     *       <td>{@code BATCH_FAR_TERM}</td></tr>
-     *   <tr><td>T+4 and beyond</td><td>never eligible</td><td>—</td></tr>
-     * </table>
-     *
-     * <p>UNSETTLED cells from T+1 onward are not evaluated by the batch — they
-     * remain triage-only. The policy is intentionally independent of
-     * {@code ForecastStability.evaluationWindowDays()}, which is now a
-     * display-only depth hint for the admin UI.
-     *
-     * @param daysAhead     forecast horizon (T+0 = 0)
-     * @param targetType    the candidate's solar event; the nightly table ignores it
-     * @param stability     classified stability for the grid cell
-     * @param nearTermModel resolved {@code BATCH_NEAR_TERM} model for this run
-     * @param farTermModel  resolved {@code BATCH_FAR_TERM} model for this run
-     * @return include-with-model or skip-with-reason
-     */
-    static EligibilityDecision resolveEligibility(int daysAhead, TargetType targetType,
-            ForecastStability stability,
-            EvaluationModel nearTermModel, EvaluationModel farTermModel) {
-        // Behaviour preserved for legacy callers and existing tests by delegating
-        // to the policy where the table's authoritative implementation now lives.
-        // Cycle-aware callers should pass an {@link EligibilityPolicy} directly
-        // to {@link #collectScheduledBatches(CandidateCollectionStrategy,
-        // EligibilityPolicy)} instead of calling this helper.
-        return NightlyEligibilityPolicy.INSTANCE.resolve(
-                daysAhead, targetType, stability, nearTermModel, farTermModel);
     }
 
     /**

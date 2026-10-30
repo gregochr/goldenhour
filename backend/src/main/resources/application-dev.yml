@@ -36,12 +36,6 @@ worldtides:
 notifications:
   admin-alerts:
     enabled: false
-forecast:
-  schedule:
-    sonnet:
-      cron: "0 0 0 1 1 ?"
-    haiku:
-      cron: "0 0 0 1 1 ?"
 tide:
   schedule:
     cron: "0 0 0 1 1 ?"

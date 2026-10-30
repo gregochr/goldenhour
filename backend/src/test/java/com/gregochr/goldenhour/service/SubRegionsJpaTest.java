@@ -72,6 +72,11 @@ class SubRegionsJpaTest {
                 .createdAt(LocalDateTime.of(2026, 2, 22, 12, 0)).build());
     }
 
+    private java.util.Optional<Long> subRegionOf(Long locationId) {
+        return java.util.Optional.ofNullable(membership.subRegionsByLocation().get(locationId))
+                .map(com.gregochr.goldenhour.model.LocationSubRegionRow::areaId);
+    }
+
     private AreaDto subRegion(String name, RegionEntity region, String... aliases) {
         return areaService.create(new AreaRequest(name, List.of(aliases), AreaKind.SUB_REGION, region.getId()));
     }
@@ -240,14 +245,14 @@ class SubRegionsJpaTest {
         LocationEntity force = location("High Force", dales);
         membership.assign(force, swale.id());
         assertThat(membership.membersByArea()).containsEntry(swale.id(), List.of(force.getId()));
-        assertThat(membership.subRegionOf(force.getId())).contains(swale.id());
+        assertThat(subRegionOf(force.getId())).contains(swale.id());
 
         membership.assign(force, wensley.id());
 
         assertThat(membership.membersByArea()).doesNotContainKey(swale.id())
                 .containsEntry(wensley.id(), List.of(force.getId()));
         assertThat(membership.membersOf(swale.id())).isEmpty();
-        assertThat(membership.subRegionOf(force.getId())).contains(wensley.id());
+        assertThat(subRegionOf(force.getId())).contains(wensley.id());
         assertThat(areaService.findAll()).filteredOn(a -> a.id().equals(wensley.id()))
                 .singleElement().satisfies(a -> assertThat(a.locationIds()).containsExactly(force.getId()));
 
@@ -366,11 +371,11 @@ class SubRegionsJpaTest {
 
         membership.assign(force, swale.id());
         reload();
-        assertThat(membership.subRegionOf(force.getId())).contains(swale.id());
+        assertThat(subRegionOf(force.getId())).contains(swale.id());
 
         membership.assign(force.getId(), wensley.id());
         reload();
-        assertThat(membership.subRegionOf(force.getId())).contains(wensley.id());
+        assertThat(subRegionOf(force.getId())).contains(wensley.id());
         assertThat(membership.membersOf(swale.id())).isEmpty();
         assertThat(membership.membersOf(wensley.id())).containsExactly(force.getId());
         assertThat(membership.countMembers(wensley.id())).isEqualTo(1);
@@ -467,13 +472,13 @@ class SubRegionsJpaTest {
 
         LocationEntity stillDales = entityManager.find(LocationEntity.class, force.getId());
         assertThat(membership.reconcileRegion(stillDales)).isFalse();
-        assertThat(membership.subRegionOf(force.getId())).contains(swale.id());
+        assertThat(subRegionOf(force.getId())).contains(swale.id());
 
         LocationEntity moved = entityManager.find(LocationEntity.class, force.getId());
         moved.setRegion(entityManager.find(RegionEntity.class, lakes.getId()));
         assertThat(membership.reconcileRegion(moved)).isTrue();
         reload();
-        assertThat(membership.subRegionOf(force.getId())).isEmpty();
+        assertThat(subRegionOf(force.getId())).isEmpty();
         assertThat(membership.reconcileRegion(moved)).as("nothing left to drop").isFalse();
     }
 

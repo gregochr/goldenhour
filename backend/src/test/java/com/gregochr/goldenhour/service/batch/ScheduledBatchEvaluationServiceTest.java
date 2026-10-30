@@ -30,7 +30,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
@@ -79,6 +78,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ScheduledBatchEvaluationServiceTest {
 
+    private static final Long PIPELINE_RUN_ID = 1L;
     private static final LocalDate TEST_DATE = now();
     private static final LocalDateTime TEST_EVENT_TIME = TEST_DATE.atTime(5, 30);
 
@@ -174,7 +174,7 @@ class ScheduledBatchEvaluationServiceTest {
                 false))
                 .thenReturn(ScheduledBatchTasks.empty());
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         verifyNoInteractions(evaluationService);
     }
@@ -197,15 +197,15 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(nearInlandTask), List.of(nearCoastalTask),
                         List.of(), List.of(), List.of(), List.of(), List.of()));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_x", 1));
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         // One submit per non-empty bucket — exactly two here
         verify(evaluationService, org.mockito.Mockito.times(2))
                 .submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                        ArgumentMatchers.isNull());
+                        eq(PIPELINE_RUN_ID));
     }
 
     @Test
@@ -226,18 +226,18 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(nearInlandTask), List.of(), List.of(), List.of(),
                         List.of(bluebellTask), List.of(), List.of()));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_x", 1));
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(batchCachePrimer, evaluationService);
         order.verify(batchCachePrimer).prime(
                 List.of(List.of(nearInlandTask), List.of(), List.of(), List.of()));
         order.verify(evaluationService).submit(List.of(nearInlandTask),
-                BatchTriggerSource.SCHEDULED, null);
+                BatchTriggerSource.SCHEDULED, PIPELINE_RUN_ID);
         order.verify(evaluationService).submit(List.of(bluebellTask),
-                BatchTriggerSource.SCHEDULED, null);
+                BatchTriggerSource.SCHEDULED, PIPELINE_RUN_ID);
         order.verifyNoMoreInteractions();
     }
 
@@ -259,18 +259,18 @@ class ScheduledBatchEvaluationServiceTest {
         org.mockito.Mockito.doThrow(new IllegalStateException("boom"))
                 .when(batchCachePrimer).prime(any());
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_x", 1));
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         verify(batchCachePrimer).prime(
                 List.of(List.of(nearInlandTask), List.of(), List.of(farInlandTask), List.of()));
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(evaluationService);
         order.verify(evaluationService).submit(List.of(nearInlandTask),
-                BatchTriggerSource.SCHEDULED, null);
+                BatchTriggerSource.SCHEDULED, PIPELINE_RUN_ID);
         order.verify(evaluationService).submit(List.of(farInlandTask),
-                BatchTriggerSource.SCHEDULED, null);
+                BatchTriggerSource.SCHEDULED, PIPELINE_RUN_ID);
     }
 
     @Test
@@ -293,18 +293,18 @@ class ScheduledBatchEvaluationServiceTest {
         when(batchCachePrimer.prime(List.of(List.of(nearInlandTask), List.of(), List.of(), List.of())))
                 .thenReturn(new BatchCachePrimer.PrimeResult(java.util.Set.of("haiku|inland"),
                         java.util.Map.of("haiku|inland", BatchCachePrimer.Outcome.ENDED), 0));
-        when(evaluationService.submitWarmed(List.of(nearInlandTask), BatchTriggerSource.SCHEDULED, null,
+        when(evaluationService.submitWarmed(List.of(nearInlandTask), BatchTriggerSource.SCHEDULED, PIPELINE_RUN_ID,
                 java.util.Set.of("haiku|inland")))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_x", 1));
-        when(evaluationService.submit(List.of(bluebellTask), BatchTriggerSource.SCHEDULED, null))
+        when(evaluationService.submit(List.of(bluebellTask), BatchTriggerSource.SCHEDULED, PIPELINE_RUN_ID))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_y", 1));
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(evaluationService);
         order.verify(evaluationService).submitWarmed(List.of(nearInlandTask),
-                BatchTriggerSource.SCHEDULED, null, java.util.Set.of("haiku|inland"));
-        order.verify(evaluationService).submit(List.of(bluebellTask), BatchTriggerSource.SCHEDULED, null);
+                BatchTriggerSource.SCHEDULED, PIPELINE_RUN_ID, java.util.Set.of("haiku|inland"));
+        order.verify(evaluationService).submit(List.of(bluebellTask), BatchTriggerSource.SCHEDULED, PIPELINE_RUN_ID);
         order.verifyNoMoreInteractions();
     }
 
@@ -324,14 +324,14 @@ class ScheduledBatchEvaluationServiceTest {
         when(batchCachePrimer.prime(List.of(List.of(nearInlandTask), List.of(), List.of(), List.of())))
                 .thenReturn(new BatchCachePrimer.PrimeResult(java.util.Set.of(),
                         java.util.Map.of("haiku|inland", BatchCachePrimer.Outcome.TIMED_OUT), 0));
-        when(evaluationService.submit(List.of(nearInlandTask), BatchTriggerSource.SCHEDULED, null))
+        when(evaluationService.submit(List.of(nearInlandTask), BatchTriggerSource.SCHEDULED, PIPELINE_RUN_ID))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_x", 1));
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
-        verify(evaluationService).submit(List.of(nearInlandTask), BatchTriggerSource.SCHEDULED, null);
+        verify(evaluationService).submit(List.of(nearInlandTask), BatchTriggerSource.SCHEDULED, PIPELINE_RUN_ID);
         verify(evaluationService, org.mockito.Mockito.never()).submitWarmed(
-                List.of(nearInlandTask), BatchTriggerSource.SCHEDULED, null, java.util.Set.of());
+                List.of(nearInlandTask), BatchTriggerSource.SCHEDULED, PIPELINE_RUN_ID, java.util.Set.of());
     }
 
     @Test
@@ -351,16 +351,16 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(), List.of(),
                         List.of(bluebellTask), List.of()));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_bb", 1));
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         // The bluebell bucket is the only non-empty bucket → exactly one submit, carrying it.
         ArgumentCaptor<List<EvaluationTask.Forecast>> captor =
                 ArgumentCaptor.forClass(List.class);
         verify(evaluationService).submit(captor.capture(), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull());
+                eq(PIPELINE_RUN_ID));
         assertThat(captor.getValue()).containsExactly(bluebellTask);
     }
 
@@ -394,13 +394,13 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(), List.of(), List.of(), List.of(),
                         List.of(evaluatedDispo, triagedDispo)));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(new EvaluationHandle(100L, "msgbatch_1", 1))
                 .thenReturn(new EvaluationHandle(101L, "msgbatch_2", 1));
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
-        verify(dispositionService).persist(eq(100L),
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(100L),
                 eq(List.of(evaluatedDispo, triagedDispo)));
     }
 
@@ -416,7 +416,7 @@ class ScheduledBatchEvaluationServiceTest {
                 false))
                 .thenReturn(ScheduledBatchTasks.empty());
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         verifyNoInteractions(dispositionService);
         verifyNoInteractions(jobRunService);
@@ -446,13 +446,13 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(cached1, cached2)));
         when(jobRunService.startDispositionAnchorRun(2)).thenReturn(555L);
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         // No batch submitted...
         verifyNoInteractions(evaluationService);
         // ...but the anchor run was created and dispositions persisted against it.
         verify(jobRunService).startDispositionAnchorRun(2);
-        verify(dispositionService).persist(eq(555L), eq(List.of(cached1, cached2)));
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(555L), eq(List.of(cached1, cached2)));
     }
 
     @Test
@@ -508,29 +508,6 @@ class ScheduledBatchEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("the legacy cron-direct entry (no pipeline run) records no link: there is no "
-            + "cycle to settle")
-    void legacyEntry_noPipelineRun_recordsNoLink() {
-        CandidateDisposition cached = new CandidateDisposition(
-                null, "Cached A", TEST_DATE, TargetType.SUNRISE, 1,
-                DispositionCategory.SKIPPED_CACHED, "Fresh cached evaluation");
-        when(forecastTaskCollector.collectScheduledBatches(
-                NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE,
-                false))
-                .thenReturn(new ScheduledBatchTasks(
-                        List.of(), List.of(), List.of(),
-                        List.of(), List.of(), List.of(),
-                        List.of(cached)));
-        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(555L);
-
-        service.submitForecastBatch();
-
-        verify(dispositionService).persist(eq(555L), eq(List.of(cached)));
-        verifyNoMoreInteractions(dispositionService);
-    }
-
-    @Test
     @DisplayName("submitForecastBatch: buckets submitted but all handles return null "
             + "jobRunId → anchor run created so dispositions still land, rewritten "
             + "SUBMISSION_FAILED since the one bucket carrying them failed")
@@ -558,18 +535,18 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(), List.of(), List.of(),
                         List.of(dispo)));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(EvaluationHandle.empty());
         when(jobRunService.startDispositionAnchorRun(1)).thenReturn(999L);
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         verify(jobRunService).startDispositionAnchorRun(1);
         CandidateDisposition expected = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
                 DispositionCategory.SUBMISSION_FAILED,
                 "near-term inland batch submission failed");
-        verify(dispositionService).persist(eq(999L), eq(List.of(expected)));
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(999L), eq(List.of(expected)));
     }
 
     @Test
@@ -597,18 +574,18 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(bluebellTask), List.of(),
                         List.of(dispo)));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(EvaluationHandle.empty())
                 .thenReturn(EvaluationHandle.empty());
         when(jobRunService.startDispositionAnchorRun(1)).thenReturn(999L);
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         CandidateDisposition expected = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
                 DispositionCategory.SUBMISSION_FAILED,
                 "near-term inland+bluebell batch submission failed");
-        verify(dispositionService).persist(eq(999L), eq(List.of(expected)));
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(999L), eq(List.of(expected)));
     }
 
     @Test
@@ -636,18 +613,18 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(bluebellTask), List.of(),
                         List.of(dispo)));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(new EvaluationHandle(7L, "msgbatch_sky_ok", 1))
                 .thenReturn(EvaluationHandle.empty());
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         CandidateDisposition expected = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
                 DispositionCategory.EVALUATED,
                 "bluebell batch submission failed for part of this candidate's pairing — "
                         + "the rest was evaluated normally");
-        verify(dispositionService).persist(eq(7L), eq(List.of(expected)));
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(7L), eq(List.of(expected)));
     }
 
     @Test
@@ -675,18 +652,18 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(bluebellTask), List.of(),
                         List.of(dispo)));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(new EvaluationHandle(7L, "msgbatch_sky_ok", 1))
                 .thenReturn(EvaluationHandle.empty());
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         CandidateDisposition expected = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 5,
                 DispositionCategory.FORCE_EVALUATED,
                 FORCE_EVAL_DETAIL + "; bluebell batch submission failed for part of this "
                         + "candidate's pairing — the rest was evaluated normally");
-        verify(dispositionService).persist(eq(7L), eq(List.of(expected)));
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(7L), eq(List.of(expected)));
     }
 
     @Test
@@ -709,17 +686,17 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(), List.of(),
                         List.of(dispo)));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(EvaluationHandle.empty());
         when(jobRunService.startDispositionAnchorRun(1)).thenReturn(999L);
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         CandidateDisposition expected = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 5,
                 DispositionCategory.SUBMISSION_FAILED,
                 "far-term inland batch submission failed (forced)");
-        verify(dispositionService).persist(eq(999L), eq(List.of(expected)));
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(999L), eq(List.of(expected)));
     }
 
     @Test
@@ -745,17 +722,17 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(), List.of(),
                         List.of(evaluatedDispo, triagedDispo)));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(EvaluationHandle.empty());
         when(jobRunService.startDispositionAnchorRun(2)).thenReturn(999L);
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         CandidateDisposition expectedEvaluated = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
                 DispositionCategory.SUBMISSION_FAILED,
                 "near-term inland batch submission failed");
-        verify(dispositionService).persist(eq(999L),
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(999L),
                 eq(List.of(expectedEvaluated, triagedDispo)));
     }
 
@@ -790,13 +767,13 @@ class ScheduledBatchEvaluationServiceTest {
         // near-term inland (first bucket attempted) throws building its request; near-term
         // coastal (second) succeeds normally.
         when(evaluationService.submit(eq(List.of(nearInlandTask)),
-                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                eq(BatchTriggerSource.SCHEDULED), eq(PIPELINE_RUN_ID)))
                 .thenThrow(new IllegalStateException("request building failed"));
         when(evaluationService.submit(eq(List.of(nearCoastalTask)),
-                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                eq(BatchTriggerSource.SCHEDULED), eq(PIPELINE_RUN_ID)))
                 .thenReturn(new EvaluationHandle(13L, "msgbatch_coastal_ok", 1));
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         CandidateDisposition expectedInland = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
@@ -805,7 +782,7 @@ class ScheduledBatchEvaluationServiceTest {
         // The coastal bucket succeeded, so its own disposition is untouched, and the cycle's
         // dispositions anchor to ITS real job_run rather than an anchor run — proving the
         // second bucket really was attempted after the first one threw.
-        verify(dispositionService).persist(eq(13L), eq(List.of(expectedInland, coastalDispo)));
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(13L), eq(List.of(expectedInland, coastalDispo)));
     }
 
     @Test
@@ -838,22 +815,22 @@ class ScheduledBatchEvaluationServiceTest {
         // near-term inland (first bucket attempted) succeeds for real; near-term coastal
         // (second) is accepted by Anthropic but its tracking row fails to persist.
         when(evaluationService.submit(eq(List.of(nearInlandTask)),
-                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                eq(BatchTriggerSource.SCHEDULED), eq(PIPELINE_RUN_ID)))
                 .thenReturn(new EvaluationHandle(21L, "msgbatch_inland_ok", 1));
         OrphanedBatchException orphaned = new OrphanedBatchException(
                 "msgbatch_coastal_orphan", new RuntimeException("row persist failed"));
         when(evaluationService.submit(eq(List.of(nearCoastalTask)),
-                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                eq(BatchTriggerSource.SCHEDULED), eq(PIPELINE_RUN_ID)))
                 .thenThrow(orphaned);
 
-        assertThatThrownBy(() -> service.submitForecastBatch())
+        assertThatThrownBy(() -> service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID))
                 .isSameAs(orphaned);
 
         // Both candidates stay exactly as the collector wrote them: the inland one because its
         // bucket genuinely succeeded, the coastal one because a real request reached Claude for
         // it even though the tracking row was lost — and the cycle anchors to the inland bucket's
         // own real job_run, which was already known before the orphan was thrown.
-        verify(dispositionService).persist(eq(21L), eq(List.of(inlandDispo, coastalDispo)));
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(21L), eq(List.of(inlandDispo, coastalDispo)));
     }
 
     @Test
@@ -902,7 +879,7 @@ class ScheduledBatchEvaluationServiceTest {
         OrphanedBatchException orphaned = new OrphanedBatchException(
                 "msgbatch_inland_orphan", new RuntimeException("row persist failed"));
         when(evaluationService.submit(eq(List.of(nearInlandTask)),
-                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                eq(BatchTriggerSource.SCHEDULED), eq(PIPELINE_RUN_ID)))
                 .thenThrow(orphaned);
         // No stub for the near-coastal or far-inland buckets at all — submitBuckets must never
         // call evaluationService.submit for them, since the orphan aborts the cycle before their
@@ -910,7 +887,7 @@ class ScheduledBatchEvaluationServiceTest {
         // cycle falls back to a disposition-only anchor run.
         when(jobRunService.startDispositionAnchorRun(3)).thenReturn(777L);
 
-        assertThatThrownBy(() -> service.submitForecastBatch())
+        assertThatThrownBy(() -> service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID))
                 .isSameAs(orphaned);
 
         CandidateDisposition expectedCoastalFailed = new CandidateDisposition(
@@ -922,13 +899,13 @@ class ScheduledBatchEvaluationServiceTest {
                 DispositionCategory.SUBMISSION_FAILED,
                 "far-term inland batch not submitted: an earlier bucket's batch was orphaned "
                         + "(forced)");
-        verify(dispositionService).persist(eq(777L),
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(777L),
                 eq(List.of(inlandDispo, expectedCoastalFailed, expectedFarInlandFailed)));
         verifyNoMoreInteractions(dispositionService);
 
         // Proves the later buckets were never attempted at all — not attempted-and-failed.
         verify(evaluationService).submit(eq(List.of(nearInlandTask)),
-                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull());
+                eq(BatchTriggerSource.SCHEDULED), eq(PIPELINE_RUN_ID));
         verifyNoMoreInteractions(evaluationService);
     }
 
@@ -961,7 +938,7 @@ class ScheduledBatchEvaluationServiceTest {
         OrphanedBatchException orphaned = new OrphanedBatchException(
                 "msgbatch_sky_orphan", new RuntimeException("row persist failed"));
         when(evaluationService.submit(eq(List.of(skyTask)),
-                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                eq(BatchTriggerSource.SCHEDULED), eq(PIPELINE_RUN_ID)))
                 .thenThrow(orphaned);
         // No stub for the bluebell bucket at all — submitBuckets must never call
         // evaluationService.submit for it, since the orphan on the first (and only preceding)
@@ -970,7 +947,7 @@ class ScheduledBatchEvaluationServiceTest {
         // disposition-only anchor run over the collector's one disposition row.
         when(jobRunService.startDispositionAnchorRun(1)).thenReturn(778L);
 
-        assertThatThrownBy(() -> service.submitForecastBatch())
+        assertThatThrownBy(() -> service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID))
                 .isSameAs(orphaned);
 
         CandidateDisposition expected = new CandidateDisposition(
@@ -978,14 +955,14 @@ class ScheduledBatchEvaluationServiceTest {
                 DispositionCategory.EVALUATED,
                 "bluebell batch not submitted for part of this candidate's pairing — an earlier "
                         + "bucket's batch was orphaned; the rest was evaluated normally");
-        verify(dispositionService).persist(eq(778L), eq(List.of(expected)));
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(778L), eq(List.of(expected)));
         verifyNoMoreInteractions(dispositionService);
 
         verify(jobRunService).startDispositionAnchorRun(1);
 
         // Proves the bluebell bucket was never attempted at all — not attempted-and-failed.
         verify(evaluationService).submit(eq(List.of(skyTask)),
-                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull());
+                eq(BatchTriggerSource.SCHEDULED), eq(PIPELINE_RUN_ID));
         verifyNoMoreInteractions(evaluationService);
     }
 
@@ -1018,11 +995,11 @@ class ScheduledBatchEvaluationServiceTest {
         OrphanedBatchException orphaned = new OrphanedBatchException(
                 "msgbatch_sky_orphan", new RuntimeException("row persist failed"));
         when(evaluationService.submit(eq(List.of(skyTask)),
-                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                eq(BatchTriggerSource.SCHEDULED), eq(PIPELINE_RUN_ID)))
                 .thenThrow(orphaned);
         when(jobRunService.startDispositionAnchorRun(1)).thenReturn(778L);
 
-        assertThatThrownBy(() -> service.submitForecastBatch())
+        assertThatThrownBy(() -> service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID))
                 .isSameAs(orphaned);
 
         CandidateDisposition expected = new CandidateDisposition(
@@ -1031,13 +1008,13 @@ class ScheduledBatchEvaluationServiceTest {
                 FORCE_EVAL_DETAIL + "; bluebell batch not submitted for part of this candidate's "
                         + "pairing — an earlier bucket's batch was orphaned; the rest was "
                         + "evaluated normally");
-        verify(dispositionService).persist(eq(778L), eq(List.of(expected)));
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(778L), eq(List.of(expected)));
         verifyNoMoreInteractions(dispositionService);
 
         verify(jobRunService).startDispositionAnchorRun(1);
 
         verify(evaluationService).submit(eq(List.of(skyTask)),
-                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull());
+                eq(BatchTriggerSource.SCHEDULED), eq(PIPELINE_RUN_ID));
         verifyNoMoreInteractions(evaluationService);
     }
 
@@ -1057,10 +1034,10 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(nearInlandTask), List.of(), List.of(),
                         List.of(), List.of(), List.of(), List.of()));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(new EvaluationHandle(7L, "msgbatch_honest_ok", 1));
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         assertThat(logAppender.list)
                 .filteredOn(event -> event.getFormattedMessage().startsWith("[BATCH DIAG]"))
@@ -1096,10 +1073,10 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(nearInlandTask), List.of(), List.of(),
                         List.of(), List.of(), List.of(), List.of()));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(EvaluationHandle.empty());
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         assertThat(logAppender.list)
                 .filteredOn(event -> event.getFormattedMessage().startsWith("[BATCH DIAG]"))
@@ -1137,11 +1114,11 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(nearInlandTask), List.of(nearCoastalTask),
                         List.of(), List.of(), List.of(), List.of(), List.of()));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
-                ArgumentMatchers.isNull()))
+                eq(PIPELINE_RUN_ID)))
                 .thenReturn(new EvaluationHandle(7L, "msgbatch_partial_ok", 1))
                 .thenReturn(EvaluationHandle.empty());
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         assertThat(logAppender.list).anySatisfy(event -> {
             assertThat(event.getLevel()).isEqualTo(Level.INFO);
@@ -1441,7 +1418,7 @@ class ScheduledBatchEvaluationServiceTest {
                 NightlyEligibilityPolicy.INSTANCE,
                 false))
                 .thenReturn(ScheduledBatchTasks.empty());
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
         verify(forecastTaskCollector).collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
                 NightlyEligibilityPolicy.INSTANCE,
@@ -1471,7 +1448,7 @@ class ScheduledBatchEvaluationServiceTest {
         forecastField.setAccessible(true);
         ((AtomicBoolean) forecastField.get(service)).set(true);
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         verifyNoInteractions(forecastTaskCollector);
     }
@@ -1500,12 +1477,12 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(ScheduledBatchTasks.empty());
 
         try {
-            service.submitForecastBatch();
+            service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
         } catch (RuntimeException ignored) {
             // expected — guard must still be cleared
         }
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
         verify(forecastTaskCollector, org.mockito.Mockito.times(2))
                 .collectScheduledBatches(
                         NightlyCandidateCollectionStrategy.INSTANCE,
@@ -1637,13 +1614,13 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(), List.of(),
                         List.of(okDispo, failDispo)));
         when(evaluationService.submit(eq(List.of(nearInlandTask)),
-                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                eq(BatchTriggerSource.SCHEDULED), eq(PIPELINE_RUN_ID)))
                 .thenReturn(new EvaluationHandle(15L, "msgbatch_mixed_ok", 1));
         when(evaluationService.submit(eq(List.of(farInlandTask)),
-                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                eq(BatchTriggerSource.SCHEDULED), eq(PIPELINE_RUN_ID)))
                 .thenReturn(EvaluationHandle.empty());
 
-        service.submitForecastBatch();
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
 
         CandidateDisposition expectedFail = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE.plusDays(3), TargetType.SUNSET, 3,
@@ -1651,7 +1628,7 @@ class ScheduledBatchEvaluationServiceTest {
                 "far-term inland batch submission failed");
         // Anchored to the SUCCESSFUL bucket's real job_run — proving the failed bucket did not
         // prevent the successful one from being attempted or from anchoring the cycle.
-        verify(dispositionService).persist(eq(15L), eq(List.of(okDispo, expectedFail)));
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(15L), eq(List.of(okDispo, expectedFail)));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

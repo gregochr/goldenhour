@@ -24,7 +24,6 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -171,14 +170,5 @@ public class BatchSummaryDeriver {
             // Aurora ids carry an alert level and date only — there is no location to count.
             case ParsedCustomId.Aurora ignored -> null;
         };
-    }
-
-    /**
-     * Returns an immutable snapshot of the run types this deriver considers.
-     *
-     * @return the set of batch run types
-     */
-    public static Set<RunType> batchRunTypes() {
-        return Collections.unmodifiableSet(BATCH_RUN_TYPES);
     }
 }

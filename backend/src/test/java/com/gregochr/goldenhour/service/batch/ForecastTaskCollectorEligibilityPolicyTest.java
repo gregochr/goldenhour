@@ -10,7 +10,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Pure unit tests for {@link ForecastTaskCollector#resolveEligibility} — the
+ * Pure unit tests for {@link NightlyEligibilityPolicy#resolve} — the
  * Gate 4 batch eligibility policy. Covers all 15 combinations of
  * {@code daysAhead ∈ {0, 1, 2, 3, 4} × stability ∈ {SETTLED, TRANSITIONAL,
  * UNSETTLED}}.
@@ -51,10 +51,10 @@ class ForecastTaskCollectorEligibilityPolicyTest {
             "4,           TRANSITIONAL, false,    ,              T+4 beyond horizon",
             "4,           UNSETTLED,    false,    ,              T+4 beyond horizon",
     })
-    @DisplayName("resolveEligibility honours the Gate 4 policy table")
+    @DisplayName("NightlyEligibilityPolicy honours the Gate 4 policy table")
     void resolveEligibility_policyTable(int daysAhead, ForecastStability stability,
             boolean expectedEligible, EvaluationModel expectedModel, String expectedSkipReason) {
-        EligibilityDecision decision = ForecastTaskCollector.resolveEligibility(
+        EligibilityDecision decision = NightlyEligibilityPolicy.INSTANCE.resolve(
                 daysAhead, ANY_EVENT, stability, NEAR, FAR);
 
         assertThat(decision.eligible()).isEqualTo(expectedEligible);
@@ -72,9 +72,9 @@ class ForecastTaskCollectorEligibilityPolicyTest {
     @org.junit.jupiter.api.Test
     @DisplayName("T+1 → T+2 boundary: TRANSITIONAL switches tier (near→far) but stays eligible")
     void boundary_t1ToT2_transitional_switchesTier() {
-        EligibilityDecision t1 = ForecastTaskCollector.resolveEligibility(
+        EligibilityDecision t1 = NightlyEligibilityPolicy.INSTANCE.resolve(
                 1, ANY_EVENT, ForecastStability.TRANSITIONAL, NEAR, FAR);
-        EligibilityDecision t2 = ForecastTaskCollector.resolveEligibility(
+        EligibilityDecision t2 = NightlyEligibilityPolicy.INSTANCE.resolve(
                 2, ANY_EVENT, ForecastStability.TRANSITIONAL, NEAR, FAR);
 
         assertThat(t1.eligible()).isTrue();
@@ -86,9 +86,9 @@ class ForecastTaskCollectorEligibilityPolicyTest {
     @org.junit.jupiter.api.Test
     @DisplayName("T+1 → T+2 boundary: UNSETTLED drops out of the batch")
     void boundary_t1ToT2_unsettled_dropsOut() {
-        EligibilityDecision t1 = ForecastTaskCollector.resolveEligibility(
+        EligibilityDecision t1 = NightlyEligibilityPolicy.INSTANCE.resolve(
                 1, ANY_EVENT, ForecastStability.UNSETTLED, NEAR, FAR);
-        EligibilityDecision t2 = ForecastTaskCollector.resolveEligibility(
+        EligibilityDecision t2 = NightlyEligibilityPolicy.INSTANCE.resolve(
                 2, ANY_EVENT, ForecastStability.UNSETTLED, NEAR, FAR);
 
         assertThat(t1.eligible()).isTrue();
@@ -99,9 +99,9 @@ class ForecastTaskCollectorEligibilityPolicyTest {
     @org.junit.jupiter.api.Test
     @DisplayName("T+2 → T+3 boundary: TRANSITIONAL drops out of the batch")
     void boundary_t2ToT3_transitional_dropsOut() {
-        EligibilityDecision t2 = ForecastTaskCollector.resolveEligibility(
+        EligibilityDecision t2 = NightlyEligibilityPolicy.INSTANCE.resolve(
                 2, ANY_EVENT, ForecastStability.TRANSITIONAL, NEAR, FAR);
-        EligibilityDecision t3 = ForecastTaskCollector.resolveEligibility(
+        EligibilityDecision t3 = NightlyEligibilityPolicy.INSTANCE.resolve(
                 3, ANY_EVENT, ForecastStability.TRANSITIONAL, NEAR, FAR);
 
         assertThat(t2.eligible()).isTrue();
@@ -112,9 +112,9 @@ class ForecastTaskCollectorEligibilityPolicyTest {
     @org.junit.jupiter.api.Test
     @DisplayName("T+3 → T+4 boundary: SETTLED drops out of the batch")
     void boundary_t3ToT4_settled_dropsOut() {
-        EligibilityDecision t3 = ForecastTaskCollector.resolveEligibility(
+        EligibilityDecision t3 = NightlyEligibilityPolicy.INSTANCE.resolve(
                 3, ANY_EVENT, ForecastStability.SETTLED, NEAR, FAR);
-        EligibilityDecision t4 = ForecastTaskCollector.resolveEligibility(
+        EligibilityDecision t4 = NightlyEligibilityPolicy.INSTANCE.resolve(
                 4, ANY_EVENT, ForecastStability.SETTLED, NEAR, FAR);
 
         assertThat(t3.eligible()).isTrue();

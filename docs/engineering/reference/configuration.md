@@ -7,7 +7,7 @@
 
 Never commit `application.yml`. Only `application-example.yml` is committed.
 
-Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `spring.mail`, `notifications`, `forecast.locations`, `jwt`, `server.port`, `aurora` (enabled, poll-interval-minutes — unread, the interval is the `aurora_polling` scheduler row's, light-pollution-api-key, noaa.*, met-office.*, triggers.*, bortle-threshold.moderate/strong).
+Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `spring.mail`, `notifications`, `jwt`, `server.port`, `aurora` (enabled — the poll interval is the `aurora_polling` scheduler row's, not a key; light-pollution-api-key, noaa.*, met-office.*, triggers.*, bortle-threshold.moderate/strong).
 
 `photocast.scheduler.solar-reference.lat|lon` (the point `SOLAR_OFFSET` jobs are timed against; Durham 54.776 / -1.575 by default; both or neither; an invalid value logs ERROR and uses Durham, it never stops startup); `photocast.pipeline.safety-timeout` (ISO-8601, default PT3H30M: the one wait budget per forecast cycle, measured from its first batch submit and shared by WAIT and RETRY_FAILED; only `application-example.yml` sets it, and the production host's hand-edited config must be changed there too if it overrides it); `photocast.pipeline.evening-safety-timeout` (ISO-8601, default PT2H, bounds PT30M..PT3H30M, an out-of-range value fails startup: the evening refresh's own wait budget, measured and enforced like `safety-timeout`, and read by the forecast-cycle watchdog for its evening check).
 

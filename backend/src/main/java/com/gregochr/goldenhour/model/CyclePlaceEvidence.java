@@ -70,44 +70,6 @@ public record CyclePlaceEvidence(boolean triaged, boolean collectionFailed,
     }
 
     /**
-     * Builds evidence for a place the pipeline triaged away.
-     *
-     * @return evidence with only {@code triaged} set
-     */
-    public static CyclePlaceEvidence triagedOnly() {
-        return new CyclePlaceEvidence(true, false, Set.of(), Set.of());
-    }
-
-    /**
-     * Builds evidence for a place that scored in the given lanes and failed in none.
-     *
-     * @param lanes the lanes with a usable result
-     * @return the evidence
-     */
-    public static CyclePlaceEvidence scoredIn(Lane... lanes) {
-        return new CyclePlaceEvidence(false, false, setOf(lanes), Set.of());
-    }
-
-    /**
-     * Builds evidence for a place whose results failed in the given lanes and succeeded in none.
-     *
-     * @param lanes the lanes with a failed result
-     * @return the evidence
-     */
-    public static CyclePlaceEvidence failedIn(Lane... lanes) {
-        return new CyclePlaceEvidence(false, false, Set.of(), setOf(lanes));
-    }
-
-    /**
-     * Builds evidence for a place whose collection threw and that has nothing else recorded.
-     *
-     * @return the evidence
-     */
-    public static CyclePlaceEvidence collectionError() {
-        return new CyclePlaceEvidence(false, true, Set.of(), Set.of());
-    }
-
-    /**
      * Builds evidence for a place with nothing recorded either way (queued but no result,
      * skipped, never submitted).
      *
@@ -115,12 +77,6 @@ public record CyclePlaceEvidence(boolean triaged, boolean collectionFailed,
      */
     public static CyclePlaceEvidence nothing() {
         return new CyclePlaceEvidence(false, false, Set.of(), Set.of());
-    }
-
-    private static Set<Lane> setOf(Lane... lanes) {
-        Set<Lane> set = EnumSet.noneOf(Lane.class);
-        set.addAll(java.util.Arrays.asList(lanes));
-        return set;
     }
 
     /**

@@ -146,17 +146,6 @@ public class JwtService {
     }
 
     /**
-     * Extracts the role from a JWT access token.
-     *
-     * @param token the compact JWT string
-     * @return the {@link UserRole} embedded in the token
-     */
-    public UserRole extractRole(String token) {
-        String roleName = parseClaims(token).get(CLAIM_ROLE, String.class);
-        return UserRole.valueOf(roleName);
-    }
-
-    /**
      * Extracts the expiry time from a JWT access token.
      *
      * @param token the compact JWT string

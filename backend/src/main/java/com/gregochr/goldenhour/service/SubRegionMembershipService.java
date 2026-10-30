@@ -110,17 +110,6 @@ public class SubRegionMembershipService {
     }
 
     /**
-     * The sub-region a location belongs to.
-     *
-     * @param locationId the location
-     * @return the sub-region's area id, or empty when it has none
-     */
-    @Transactional(readOnly = true)
-    public Optional<Long> subRegionOf(Long locationId) {
-        return membership.findAreaIdsByLocationId(locationId).stream().findFirst();
-    }
-
-    /**
      * Enabled locations with a region and no sub-region. Disabled and unregioned locations are not counted.
      *
      * @return the uncovered locations, by region then name

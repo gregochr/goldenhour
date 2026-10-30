@@ -141,6 +141,11 @@ class ForecastTaskCollectorTest {
                 .thenReturn(Duration.ofHours(6));
     }
 
+    private static ScheduledBatchTasks collectNightly(ForecastTaskCollector collector) {
+        return collector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE);
+    }
+
     // ── Collection short-circuits ─────────────────────────────────────────────
 
     @Test
@@ -148,7 +153,7 @@ class ForecastTaskCollectorTest {
     void collectScheduledBatches_noBriefing_returnsEmpty() {
         when(briefingService.getCachedBriefing()).thenReturn(null);
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.isEmpty()).isTrue();
         verifyNoInteractions(forecastService, openMeteoService);
@@ -177,7 +182,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.nearInland()).hasSize(1);
         verify(forecastService).fetchWeatherAndTriage(
@@ -202,7 +207,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         // The previously-filtered slot now reaches prefetch + triage and ends up in
         // the near-term inland bucket.
@@ -233,7 +238,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.nearInland()).as("no sky task for a canopy site").isEmpty();
         assertThat(result.nearCoastal()).isEmpty();
@@ -267,7 +272,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.nearInland()).isEmpty();
         assertThat(result.bluebell()).isEmpty();
@@ -291,7 +296,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.nearInland()).hasSize(1);
     }
@@ -310,7 +315,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(bluebellPreEval(loc, TODAY, 0, BluebellExposure.WOODLAND, false));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.bluebell()).hasSize(1);
         assertThat(result.bluebell().get(0).promptKind())
@@ -338,7 +343,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(bluebellPreEval(loc, TODAY, 0, BluebellExposure.WOODLAND, true));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.bluebell()).hasSize(1);
         assertThat(result.totalSize()).isEqualTo(1);
@@ -358,7 +363,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(bluebellPreEval(loc, TODAY, 0, BluebellExposure.OPEN_FELL, false));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         // Sky task in the near-term inland bucket...
         assertThat(result.nearInland()).hasSize(1);
@@ -377,7 +382,7 @@ class ForecastTaskCollectorTest {
                 .thenReturn(buildBriefingForVerdict(TODAY.minusDays(1), Verdict.GO));
         stubModels();
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.isEmpty()).isTrue();
         verifyNoInteractions(openMeteoService, forecastService);
@@ -391,7 +396,7 @@ class ForecastTaskCollectorTest {
         stubModels();
         when(briefingEvaluationService.hasFreshEvaluation(any(), any())).thenReturn(true);
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.isEmpty()).isTrue();
         verifyNoInteractions(openMeteoService, forecastService);
@@ -406,7 +411,7 @@ class ForecastTaskCollectorTest {
         // No location returned by locationService.findAllEnabled() — slot will be UNKNOWN_LOCATION
         when(locationService.findAllEnabled()).thenReturn(List.of());
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.isEmpty()).isTrue();
         verifyNoInteractions(openMeteoService, forecastService);
@@ -421,7 +426,7 @@ class ForecastTaskCollectorTest {
         stubModels();
         when(openMeteoService.prefetchWeatherBatchResilient(any())).thenReturn(Map.of());
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.isEmpty()).isTrue();
         verifyNoInteractions(forecastService);
@@ -447,7 +452,7 @@ class ForecastTaskCollectorTest {
         when(openMeteoService.prefetchWeatherBatchResilient(any()))
                 .thenReturn(Map.of(key1, dummyExtraction()));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.isEmpty()).isTrue();
         verifyNoInteractions(forecastService);
@@ -473,7 +478,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(triagedPreEval(loc1));
 
-        collector.collectScheduledBatches();
+        collectNightly(collector);
 
         // fetchWeatherAndTriage IS called → triage proceeded
         verify(forecastService, org.mockito.Mockito.atLeastOnce()).fetchWeatherAndTriage(
@@ -492,7 +497,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(triagedPreEval(loc));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.isEmpty()).isTrue();
     }
@@ -522,7 +527,7 @@ class ForecastTaskCollectorTest {
                         loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
                         ForecastStability.UNSETTLED, "low confidence", 1));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.isEmpty()).isTrue();
     }
@@ -537,7 +542,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("boom"));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.isEmpty()).isTrue();
     }
@@ -554,7 +559,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.nearInland()).hasSize(1);
         assertThat(result.nearCoastal()).isEmpty();
@@ -575,7 +580,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(coastalPreEval(loc, TODAY.plusDays(1), 1));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.nearCoastal()).hasSize(1);
         assertThat(result.nearInland()).isEmpty();
@@ -604,7 +609,7 @@ class ForecastTaskCollectorTest {
                         loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
                         ForecastStability.SETTLED, "stable", 3));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.farInland()).hasSize(1);
         assertThat(result.nearInland()).isEmpty();
@@ -635,7 +640,7 @@ class ForecastTaskCollectorTest {
                         loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
                         ForecastStability.SETTLED, "stable", 3));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.farCoastal()).hasSize(1);
         assertThat(result.farInland()).isEmpty();
@@ -664,7 +669,7 @@ class ForecastTaskCollectorTest {
                         loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
                         ForecastStability.TRANSITIONAL, "frontal approach", 1));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.farInland()).hasSize(1);
         assertThat(result.farInland().get(0).model()).isEqualTo(EvaluationModel.HAIKU);
@@ -693,7 +698,7 @@ class ForecastTaskCollectorTest {
                         loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
                         ForecastStability.TRANSITIONAL, "frontal approach", 1));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.isEmpty()).isTrue();
     }
@@ -799,7 +804,7 @@ class ForecastTaskCollectorTest {
                         loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
                         ForecastStability.SETTLED, "stable", 3));
 
-        collector.collectScheduledBatches();
+        collectNightly(collector);
 
         ArgumentCaptor<StabilitySummaryResponse> captor =
                 ArgumentCaptor.forClass(StabilitySummaryResponse.class);
@@ -913,7 +918,7 @@ class ForecastTaskCollectorTest {
                         loc1.gridCellKey(), loc1.getGridLat(), loc1.getGridLng(),
                         ForecastStability.TRANSITIONAL, "mixed signals", 2));
 
-        collector.collectScheduledBatches();
+        collectNightly(collector);
 
         ArgumentCaptor<StabilitySummaryResponse> captor =
                 ArgumentCaptor.forClass(StabilitySummaryResponse.class);
@@ -955,7 +960,7 @@ class ForecastTaskCollectorTest {
                         loc1.gridCellKey(), loc1.getGridLat(), loc1.getGridLng(),
                         ForecastStability.SETTLED, "stable", 3));
 
-        collector.collectScheduledBatches();
+        collectNightly(collector);
 
         verify(stabilityClassifier, org.mockito.Mockito.times(1))
                 .classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
@@ -973,7 +978,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
 
-        collector.collectScheduledBatches();
+        collectNightly(collector);
 
         verify(stabilitySnapshotProvider, never()).update(any());
     }
@@ -983,7 +988,7 @@ class ForecastTaskCollectorTest {
     void collectScheduledBatches_emptyBriefing_snapshotNotWritten() {
         when(briefingService.getCachedBriefing()).thenReturn(null);
 
-        collector.collectScheduledBatches();
+        collectNightly(collector);
 
         verify(stabilitySnapshotProvider, never()).update(any());
     }
@@ -1011,7 +1016,7 @@ class ForecastTaskCollectorTest {
                         loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
                         ForecastStability.UNSETTLED, "thick cloud", 1));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         // Result is empty (triaged out)
         assertThat(result.isEmpty()).isTrue();
@@ -1059,7 +1064,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.dispositions()).hasSize(1);
         CandidateDisposition d = result.dispositions().get(0);
@@ -1082,7 +1087,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(triagedPreEval(loc));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.dispositions()).hasSize(1);
         CandidateDisposition d = result.dispositions().get(0);
@@ -1112,7 +1117,7 @@ class ForecastTaskCollectorTest {
                         loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
                         ForecastStability.TRANSITIONAL, "frontal approach", 1));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.dispositions()).hasSize(1);
         CandidateDisposition d = result.dispositions().get(0);
@@ -1269,7 +1274,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.dispositions()).hasSize(1);
         CandidateDisposition d = result.dispositions().get(0);
@@ -1288,7 +1293,7 @@ class ForecastTaskCollectorTest {
         stubModels();
         when(briefingEvaluationService.hasFreshEvaluation(any(), any())).thenReturn(true);
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.dispositions()).hasSize(2);
         assertThat(result.dispositions())
@@ -1309,7 +1314,7 @@ class ForecastTaskCollectorTest {
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         stubModels();
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.dispositions()).hasSize(1);
         CandidateDisposition d = result.dispositions().get(0);
@@ -1326,7 +1331,7 @@ class ForecastTaskCollectorTest {
         stubModels();
         when(locationService.findAllEnabled()).thenReturn(List.of()); // no locations registered
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.dispositions()).hasSize(1);
         CandidateDisposition d = result.dispositions().get(0);
@@ -1345,7 +1350,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("boom"));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.dispositions()).hasSize(1);
         CandidateDisposition d = result.dispositions().get(0);
@@ -1426,7 +1431,7 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(inlandPreEval(goLoc, TODAY, 0));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         // Six slots considered → six dispositions, exactly one per slot.
         assertThat(result.dispositions()).hasSize(6);

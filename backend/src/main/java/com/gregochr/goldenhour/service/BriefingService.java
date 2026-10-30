@@ -576,8 +576,7 @@ public class BriefingService {
      * nothing and returns {@code false}.
      *
      * <p>For triggers where a second build straight after the first buys nothing: the admin
-     * "Run briefing" endpoint and the scheduler's {@code daily_briefing} target. The pipeline must
-     * not use this — see {@link #refreshBriefing()}.
+     * "Run briefing" endpoint. The pipeline must not use this — see {@link #refreshBriefing()}.
      *
      * @return {@code true} if this call ran a build, {@code false} if one was already running
      */

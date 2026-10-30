@@ -149,7 +149,7 @@ class PipelineOrchestratorTest {
         // rather than silently exercising the wrong path.
         lenient().when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
                 any(), any(), any(), anyBoolean(), any()))
-                .thenReturn(ForecastBatchSubmissionOutcome.ran(BatchSubmissionSummary.allEmpty()));
+                .thenReturn(ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(0, 0, java.util.List.of())));
     }
 
     private PipelineRunEntity newRun() {
@@ -1105,7 +1105,7 @@ class PipelineOrchestratorTest {
                 @SuppressWarnings("unchecked")
                 java.util.function.Consumer<ReclassSummary> hook = inv.getArgument(4);
                 hook.accept(new ReclassSummary(3, 1, 2));
-                return ForecastBatchSubmissionOutcome.ran(BatchSubmissionSummary.allEmpty());
+                return ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(0, 0, java.util.List.of()));
             }).when(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
                     eq(RUN_ID), any(), any(), eq(true), any());
 
@@ -1231,7 +1231,7 @@ class PipelineOrchestratorTest {
                 @SuppressWarnings("unchecked")
                 java.util.function.Consumer<ReclassSummary> hook = inv.getArgument(4);
                 hook.accept(new ReclassSummary(2, 0, 2));
-                return ForecastBatchSubmissionOutcome.ran(BatchSubmissionSummary.allEmpty());
+                return ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(0, 0, java.util.List.of()));
             }).when(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
                     eq(RUN_ID), any(), any(), eq(true), any());
 

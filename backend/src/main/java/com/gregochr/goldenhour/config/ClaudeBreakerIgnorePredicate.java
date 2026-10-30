@@ -13,14 +13,14 @@ import java.util.function.Predicate;
  * breaker that counted the rejections would open after the first wave of calls and then answer the
  * next minute's calls with "paused after repeated failures" — hiding the real reason (the key) and
  * making a run started after the key was fixed wait for the pause to lapse. The run itself already
- * stops on a rejected key (see {@code EvaluationFailure#stopsRun}).
+ * stops on a rejected key.
  *
  * <p><b>The trade-off.</b> A rejected key no longer opens the breaker, so anything derived from the
  * breaker's state no longer reflects it: the status page's overall DEGRADED/DOWN comes from the actuator's
  * circuit-breaker health, and its Claude entry is the {@code claudeApi} probe, which deliberately counts
  * ANY HTTP answer (401 and 403 included) as reachable, so a revoked key shows Claude as UP there. A rejected key is
- * visible where it is actually reported: a hand-started run stops with "Claude rejected the API key."
- * (and logs an ERROR), and a failed call's {@code api_call_log} row carries the status and an
+ * visible where it is actually reported: the failure is logged as an ERROR
+ * and a failed call's {@code api_call_log} row carries the status and an
  * {@code anthropic_401} / {@code anthropic_403} error type, which the Job Runs detail shows.
  * Another consequence: callers with no stop-on-rejected-key rule of their own (the briefing's gloss and
  * best-bet calls) used to be cut off by the open breaker after about ten calls and now attempt every call.

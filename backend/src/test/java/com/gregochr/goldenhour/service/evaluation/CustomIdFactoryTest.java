@@ -101,12 +101,6 @@ class CustomIdFactoryTest {
     }
 
     @Test
-    void forJfdiProducesExpectedFormat() {
-        assertThat(CustomIdFactory.forJfdi(42L, DATE, TargetType.SUNSET))
-                .isEqualTo("jfdi-42-2026-04-16-SUNSET");
-    }
-
-    @Test
     void forForceSubmitSanitisesRegionName() {
         String id = CustomIdFactory.forForceSubmit(
                 "The North York Moors", 93L, DATE, TargetType.SUNSET);
@@ -129,8 +123,6 @@ class CustomIdFactoryTest {
     @Test
     void allBuildersProduceAnthropicCompatibleIds() {
         assertThat(CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE))
-                .matches(ANTHROPIC);
-        assertThat(CustomIdFactory.forJfdi(42L, DATE, TargetType.SUNRISE))
                 .matches(ANTHROPIC);
         assertThat(CustomIdFactory.forForceSubmit("Lake District", 42L, DATE, TargetType.SUNRISE))
                 .matches(ANTHROPIC);
@@ -386,7 +378,7 @@ class CustomIdFactoryTest {
 
     @Test
     void jfdiRoundTripsThroughParse() {
-        String id = CustomIdFactory.forJfdi(7L, DATE, TargetType.SUNSET);
+        String id = "jfdi-7-" + DATE + "-SUNSET";
         assertThat(CustomIdFactory.parse(id))
                 .isEqualTo(new ParsedCustomId.Jfdi(7L, DATE, TargetType.SUNSET));
     }

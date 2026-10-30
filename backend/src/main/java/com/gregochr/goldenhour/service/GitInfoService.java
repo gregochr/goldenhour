@@ -27,7 +27,6 @@ public class GitInfoService {
     private LocalDateTime commitDate;
     private boolean dirty;
     private String branch;
-    private boolean available;
 
     /**
      * Loads git properties from the classpath at startup.
@@ -39,30 +38,39 @@ public class GitInfoService {
                 LOG.info("git.properties not found on classpath — git info unavailable");
                 return;
             }
-            Properties props = new Properties();
-            props.load(is);
-
-            commitHash = props.getProperty("git.commit.id", "");
-            commitAbbrev = props.getProperty("git.commit.id.abbrev", "");
-            dirty = Boolean.parseBoolean(props.getProperty("git.dirty", "false"));
-            branch = props.getProperty("git.branch", "");
-
-            String commitTimeStr = props.getProperty("git.commit.time", "");
-            if (!commitTimeStr.isEmpty()) {
-                try {
-                    commitDate = LocalDateTime.ofInstant(
-                            Instant.parse(commitTimeStr), ZoneOffset.UTC);
-                } catch (Exception e) {
-                    LOG.warn("Failed to parse git.commit.time '{}': {}", commitTimeStr, e.getMessage());
-                }
-            }
-
-            available = true;
-            LOG.info("Git info loaded — branch={}, commit={}{}, date={}",
-                    branch, commitAbbrev, dirty ? " (dirty)" : "", commitDate);
+            load(is);
         } catch (IOException e) {
             LOG.warn("Failed to load git.properties: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Reads the git fields from an open {@code git.properties} stream.
+     *
+     * @param is the stream to read
+     * @throws IOException if the stream cannot be read
+     */
+    void load(InputStream is) throws IOException {
+        Properties props = new Properties();
+        props.load(is);
+
+        commitHash = props.getProperty("git.commit.id", "");
+        commitAbbrev = props.getProperty("git.commit.id.abbrev", "");
+        dirty = Boolean.parseBoolean(props.getProperty("git.dirty", "false"));
+        branch = props.getProperty("git.branch", "");
+
+        String commitTimeStr = props.getProperty("git.commit.time", "");
+        if (!commitTimeStr.isEmpty()) {
+            try {
+                commitDate = LocalDateTime.ofInstant(
+                        Instant.parse(commitTimeStr), ZoneOffset.UTC);
+            } catch (Exception e) {
+                LOG.warn("Failed to parse git.commit.time '{}': {}", commitTimeStr, e.getMessage());
+            }
+        }
+
+        LOG.info("Git info loaded — branch={}, commit={}{}, date={}",
+                branch, commitAbbrev, dirty ? " (dirty)" : "", commitDate);
     }
 
     /**
@@ -72,15 +80,6 @@ public class GitInfoService {
      */
     public String getCommitHash() {
         return commitHash != null ? commitHash : "";
-    }
-
-    /**
-     * Returns the abbreviated commit hash (typically 7 characters).
-     *
-     * @return abbreviated hash, or empty string if unavailable
-     */
-    public String getCommitAbbrev() {
-        return commitAbbrev != null ? commitAbbrev : "";
     }
 
     /**
@@ -108,14 +107,5 @@ public class GitInfoService {
      */
     public String getBranch() {
         return branch != null ? branch : "";
-    }
-
-    /**
-     * Returns whether git information was successfully loaded.
-     *
-     * @return true if git.properties was found and parsed
-     */
-    public boolean isAvailable() {
-        return available;
     }
 }

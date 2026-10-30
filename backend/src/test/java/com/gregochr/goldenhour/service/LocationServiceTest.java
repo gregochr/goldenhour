@@ -746,30 +746,6 @@ class LocationServiceTest {
         verify(locationRepository, org.mockito.Mockito.never()).save(any());
     }
 
-    // --- shouldEvaluateSunrise / shouldEvaluateSunset ---
-    // solarEventType is photographer preference metadata, not an evaluation filter.
-    // Both methods always return true so every location gets sunrise AND sunset evaluations.
-
-    @Test
-    @DisplayName("shouldEvaluateSunrise() returns true for all solar event types")
-    void shouldEvaluateSunrise_alwaysTrue() {
-        for (SolarEventType type : SolarEventType.values()) {
-            assertThat(locationService.shouldEvaluateSunrise(entityWithSolarType(type)))
-                    .as("shouldEvaluateSunrise for %s", type)
-                    .isTrue();
-        }
-    }
-
-    @Test
-    @DisplayName("shouldEvaluateSunset() returns true for all solar event types")
-    void shouldEvaluateSunset_alwaysTrue() {
-        for (SolarEventType type : SolarEventType.values()) {
-            assertThat(locationService.shouldEvaluateSunset(entityWithSolarType(type)))
-                    .as("shouldEvaluateSunset for %s", type)
-                    .isTrue();
-        }
-    }
-
     // --- isCoastal ---
 
     @Test
@@ -807,47 +783,6 @@ class LocationServiceTest {
     @DisplayName("isCoastal() returns true for multiple tide types")
     void isCoastal_multipleTideTypes_returnsTrue() {
         assertThat(locationService.isCoastal(entityWithTideTypes(TideType.LOW, TideType.MID))).isTrue();
-    }
-
-    // --- isSeascape ---
-
-    @Test
-    @DisplayName("isSeascape() returns true when locationType contains SEASCAPE")
-    void isSeascape_withSeascape_returnsTrue() {
-        LocationEntity entity = LocationEntity.builder()
-                .name("Bamburgh").lat(55.6).lon(-1.7)
-                .locationType(Set.of(LocationType.SEASCAPE))
-                .build();
-        assertThat(locationService.isSeascape(entity)).isTrue();
-    }
-
-    @Test
-    @DisplayName("isSeascape() returns false when locationType contains only other types")
-    void isSeascape_withoutSeascape_returnsFalse() {
-        LocationEntity entity = LocationEntity.builder()
-                .name("Durham").lat(54.7).lon(-1.5)
-                .locationType(Set.of(LocationType.LANDSCAPE))
-                .build();
-        assertThat(locationService.isSeascape(entity)).isFalse();
-    }
-
-    @Test
-    @DisplayName("isSeascape() returns false when locationType is empty")
-    void isSeascape_emptyTypes_returnsFalse() {
-        LocationEntity entity = LocationEntity.builder()
-                .name("Durham").lat(54.7).lon(-1.5)
-                .build();
-        assertThat(locationService.isSeascape(entity)).isFalse();
-    }
-
-    @Test
-    @DisplayName("isSeascape() returns true when locationType contains SEASCAPE alongside other types")
-    void isSeascape_withSeascapeAndOtherTypes_returnsTrue() {
-        LocationEntity entity = LocationEntity.builder()
-                .name("Holy Island").lat(55.67).lon(-1.8)
-                .locationType(Set.of(LocationType.SEASCAPE, LocationType.LANDSCAPE))
-                .build();
-        assertThat(locationService.isSeascape(entity)).isTrue();
     }
 
     // --- getGridCellSummary ---
@@ -1499,11 +1434,6 @@ class LocationServiceTest {
                 .lat(lat)
                 .lon(lon)
                 .build();
-    }
-
-    private LocationEntity entityWithSolarType(SolarEventType type) {
-        return LocationEntity.builder().name("Test").lat(54.0).lon(-1.0)
-                .solarEventType(new HashSet<>(Set.of(type))).build();
     }
 
     private LocationEntity entityWithTideTypes(TideType... types) {

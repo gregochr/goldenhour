@@ -87,11 +87,19 @@ class SpringTideHotTopicStrategyTest {
      * deliberate: several tests construct a {@code BriefingDay} inline — an unregioned slot, a
      * second event summary — and never touch a builder, so a builder-side hook drifts.
      */
+    private static boolean hasKingSlot(BriefingDay day) {
+        return day.eventSummaries().stream().anyMatch(event ->
+                event.regions().stream().anyMatch(region -> region.slots().stream()
+                        .anyMatch(s -> s.tide() != null && s.tide().lunarTideType() == LunarTideType.KING_TIDE))
+                        || event.unregioned().stream()
+                        .anyMatch(s -> s.tide() != null && s.tide().lunarTideType() == LunarTideType.KING_TIDE));
+    }
+
     private boolean fixtureSaysPerigean(LocalDate date) {
         List<BriefingDay> days = briefingService.getCachedDays();
         return days != null && days.stream()
                 .filter(d -> date.equals(d.date()))
-                .anyMatch(d -> KingTideHotTopicStrategy.findKingTide(d) != null);
+                .anyMatch(SpringTideHotTopicStrategyTest::hasKingSlot);
     }
 
     @Test
@@ -675,7 +683,7 @@ class SpringTideHotTopicStrategyTest {
 
     @Test
     @DisplayName("spring tide only in unregioned — regioned slots have regular tide")
-    void findSpringTide_regionedRegularUnregionedSpring_findsSpringTide() {
+    void findTidalSlot_regionedRegularUnregionedSpring_findsSpringTide() {
         BriefingSlot.TideInfo springTide = new BriefingSlot.TideInfo(
                 "HIGH", true, null, null, false, true,
                 LunarTideType.SPRING_TIDE, "New Moon", false);
@@ -692,28 +700,10 @@ class SpringTideHotTopicStrategyTest {
                 TargetType.SUNRISE, List.of(region), List.of(springSlot));
         BriefingDay day = new BriefingDay(TODAY, List.of(event));
 
-        BriefingSlot.TideInfo result = SpringTideHotTopicStrategy.findSpringTide(day);
+        BriefingSlot.TideInfo result = KingTideHotTopicStrategy.findTidalSlot(day);
 
         assertThat(result).isNotNull();
         assertThat(result.lunarTideType()).isEqualTo(LunarTideType.SPRING_TIDE);
-    }
-
-    @Test
-    @DisplayName("king tide in unregioned slot does not emit spring pill")
-    void findSpringTide_unregionedKingTide_returnsNull() {
-        BriefingSlot.TideInfo kingTide = new BriefingSlot.TideInfo(
-                "HIGH", true, null, null, true, true,
-                LunarTideType.KING_TIDE, "Full Moon", true);
-        BriefingSlot kingSlot = new BriefingSlot(
-                "Orphan Coastal", null, Verdict.GO, null, kingTide,
-                List.of(), null);
-        BriefingEventSummary event = new BriefingEventSummary(
-                TargetType.SUNRISE, List.of(), List.of(kingSlot));
-        BriefingDay day = new BriefingDay(TODAY, List.of(event));
-
-        BriefingSlot.TideInfo result = SpringTideHotTopicStrategy.findSpringTide(day);
-
-        assertThat(result).isNull();
     }
 
     // ── Cached days outside detection window ──────────────────────────────────

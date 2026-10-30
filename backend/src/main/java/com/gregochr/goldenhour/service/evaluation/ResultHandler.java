@@ -9,7 +9,7 @@ package com.gregochr.goldenhour.service.evaluation;
  * batch-path entry points have type-specific signatures: forecast batch responses arrive
  * once-per-location and feed into a per-cache-key aggregator
  * ({@link ForecastResultHandler#parseBatchResponse} +
- * {@link ForecastResultHandler#flushCacheKey}); aurora batch responses arrive once total
+ * {@link ForecastResultHandler#mergeCacheKey}); aurora batch responses arrive once total
  * and trigger an at-result-time re-triage
  * ({@link AuroraResultHandler#processBatchResponse}). Forcing both into a uniform method
  * shape would erase the asymmetry that the orchestration logic in

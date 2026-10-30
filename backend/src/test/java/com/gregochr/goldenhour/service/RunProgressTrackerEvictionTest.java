@@ -118,7 +118,6 @@ class RunProgressTrackerEvictionTest {
         assertThat(live.sent().stream().filter(e -> e.startsWith("run-complete|")).findFirst().orElseThrow())
                 .contains("\"status\":\"COMPLETE\"").contains("\"jobRunId\":7");
         assertThat(live.completed).isTrue();
-        assertThat(tracker.isComplete(RUN)).isTrue();
     }
 
     @Test
@@ -134,12 +133,10 @@ class RunProgressTrackerEvictionTest {
         clock.advance(Duration.ofMinutes(29).plusSeconds(59));
         tracker.cleanupStaleEntries();
         assertThat(tracker.getProgress(RUN)).isNotNull();
-        assertThat(tracker.isComplete(RUN)).isTrue();
 
         clock.advance(Duration.ofSeconds(1));
         tracker.cleanupStaleEntries();
         assertThat(tracker.getProgress(RUN)).isNull();
-        assertThat(tracker.isComplete(RUN)).isFalse();
     }
 
     @Test
@@ -179,7 +176,6 @@ class RunProgressTrackerEvictionTest {
         assertThat(live.sent().stream().filter(e -> e.startsWith("run-complete|")).findFirst().orElseThrow())
                 .contains("\"status\":\"COMPLETE\"").contains("\"jobRunId\":7");
         assertThat(live.completed).isTrue();
-        assertThat(tracker.isComplete(RUN)).isTrue();
     }
 
     @Test
@@ -191,7 +187,6 @@ class RunProgressTrackerEvictionTest {
         tracker.cleanupStaleEntries();
 
         assertThat(tracker.getProgress(RUN)).isNotNull();
-        assertThat(tracker.isComplete(RUN)).isFalse();
         assertThat(emitters).isEmpty();
     }
 
@@ -219,7 +214,6 @@ class RunProgressTrackerEvictionTest {
         clock.advance(Duration.ofMinutes(29).plusSeconds(59));
         tracker.cleanupStaleEntries();
         assertThat(tracker.getProgress(RUN)).isNotNull();
-        assertThat(tracker.isComplete(RUN)).isTrue();
 
         clock.advance(Duration.ofSeconds(1));
         tracker.cleanupStaleEntries();

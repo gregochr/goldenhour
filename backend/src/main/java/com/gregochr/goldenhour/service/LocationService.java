@@ -417,34 +417,6 @@ public class LocationService {
     }
 
     /**
-     * Returns {@code true} if a sunrise evaluation should be run for this location.
-     *
-     * <p>Always returns {@code true} — {@code solarEventType} is photographer preference
-     * metadata, not an evaluation filter. Both sunrise and sunset are always evaluated so
-     * photographers can visit any location at either time.
-     *
-     * @param location the location to check
-     * @return always {@code true}
-     */
-    public boolean shouldEvaluateSunrise(LocationEntity location) {
-        return true;
-    }
-
-    /**
-     * Returns {@code true} if a sunset evaluation should be run for this location.
-     *
-     * <p>Always returns {@code true} — {@code solarEventType} is photographer preference
-     * metadata, not an evaluation filter. Both sunrise and sunset are always evaluated so
-     * photographers can visit any location at either time.
-     *
-     * @param location the location to check
-     * @return always {@code true}
-     */
-    public boolean shouldEvaluateSunset(LocationEntity location) {
-        return true;
-    }
-
-    /**
      * Returns {@code true} if this location is coastal and tide data should be fetched.
      *
      * <p>A location is coastal when its tide type set is non-empty.
@@ -454,16 +426,6 @@ public class LocationService {
      */
     public boolean isCoastal(LocationEntity location) {
         return !location.getTideType().isEmpty();
-    }
-
-    /**
-     * Returns {@code true} if this location has the {@link LocationType#SEASCAPE} tag.
-     *
-     * @param location the location to check
-     * @return {@code true} if the location's type set contains {@code SEASCAPE}
-     */
-    public boolean isSeascape(LocationEntity location) {
-        return location.getLocationType().contains(LocationType.SEASCAPE);
     }
 
     /**

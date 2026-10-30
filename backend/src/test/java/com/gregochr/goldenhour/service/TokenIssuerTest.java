@@ -157,7 +157,7 @@ class TokenIssuerTest {
             assertThat(jwtService.extractUserId(tokens.accessToken())).isEqualTo(userId);
             assertThat(jwtService.extractCredentialsVersion(tokens.accessToken())).isEqualTo(3L);
             assertThat(jwtService.extractUsername(tokens.accessToken())).isEqualTo("reader");
-            assertThat(jwtService.extractRole(tokens.accessToken())).isEqualTo(UserRole.PRO_USER);
+            assertThat(JwtTestClaims.roleOf(tokens.accessToken())).isEqualTo(UserRole.PRO_USER);
             assertThat(tokens.username()).isEqualTo("reader");
             assertThat(tokens.role()).isEqualTo("PRO_USER");
             assertThat(tokens.passwordChangeRequired()).isTrue();

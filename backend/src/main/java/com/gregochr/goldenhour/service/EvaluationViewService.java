@@ -280,7 +280,7 @@ public class EvaluationViewService {
     }
 
     /**
-     * Bulk equivalent of {@link #getTriagedByBatchLocationNames}, keyed by the SAME
+     * Names the locations whose latest batch decision was SKIPPED_TRIAGED, keyed by the SAME
      * {@code "regionName|date|targetType"} shape {@link #getScoresForEnrichmentBulk} uses, so a
      * caller building both indices for one window can look either up by the identical key.
      *
@@ -492,36 +492,6 @@ public class EvaluationViewService {
     }
 
     /**
-     * Single-region equivalent of {@link #getTriagedByBatchLocationNamesBulk}, mirroring {@link
-     * #getScoresForEnrichment}'s own per-region shape. Not currently reached by a production
-     * caller (both {@code BriefingService.bulkScoreResolver} and {@code
-     * ServedBriefingAssembler#reEnrichVerdicts} read the bulk sibling only, exactly as they already
-     * do for {@link #getScoresForEnrichment} vs {@link #getScoresForEnrichmentBulk}), but kept and
-     * tested so the single-key and bulk reads are PROVEN to agree rather than merely assumed to,
-     * the same reasoning {@code EvaluationViewServiceTest.bulkAgreesWithSingleRegion} already
-     * applies to the score map itself.
-     *
-     * @param regionName the region to resolve
-     * @param date       the forecast date
-     * @param targetType SUNRISE or SUNSET
-     * @return the set of location names in that region whose latest non-cached batch decision for
-     *         this slot was {@code SKIPPED_TRIAGED}; empty when nothing qualifies
-     */
-    public Set<String> getTriagedByBatchLocationNames(
-            String regionName, LocalDate date, TargetType targetType) {
-        Set<String> triagedKeys = loadTriagedByBatch(date, date);
-        if (triagedKeys.isEmpty()) {
-            return Set.of();
-        }
-        return locationService.findAllEnabled().stream()
-                .filter(loc -> loc.getRegion() != null
-                        && loc.getRegion().getName().equals(regionName))
-                .map(LocationEntity::getName)
-                .filter(name -> triagedKeys.contains(stabilitySkipKey(name, date, targetType)))
-                .collect(Collectors.toSet());
-    }
-
-    /**
      * The lookup key {@link #loadStabilitySkips} and every caller of {@link #mergeToView} /
      * {@link #resolveForEnrichment} agree on — location name (never id: the disposition table and
      * {@code cached_evaluation} are both keyed by name), evaluation date, event type name.
@@ -684,6 +654,10 @@ public class EvaluationViewService {
 
     /**
      * Returns the merged evaluation view for all locations in a region.
+     *
+     * <p>No production caller: this stays as the entry point {@code EvaluationViewServiceTest}
+     * drives {@code buildView} (merge precedence, retraction, stability skips) through for a whole
+     * region's locations.
      *
      * @param regionId   the region primary key
      * @param date       the forecast date
@@ -966,7 +940,7 @@ public class EvaluationViewService {
             // this method had nothing else to return, which production almost never hits (a batch
             // triage always writes a real forecast_evaluation row too, so `resolved` is usually a
             // genuine triage result already). BriefingRegionEvaluationRollup now reads {@link
-            // #getTriagedByBatchLocationNames}/{@link #getTriagedByBatchLocationNamesBulk}
+            // #getTriagedByBatchLocationNamesBulk}
             // directly — a set of names independent of whatever this map resolves to for the same
             // slot, so it reaches the rollup whether `resolved` here is a triage result, null, or a
             // retraction marker.

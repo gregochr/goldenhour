@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.BatchCallOutcome;
 import com.gregochr.goldenhour.model.CycleDisposition;
 import com.gregochr.goldenhour.model.CycleScoredComponent;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence;
+import com.gregochr.goldenhour.model.CyclePlaceEvidenceFixtures;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
@@ -120,7 +121,7 @@ class CycleLocationOutcomeResolverTest {
         Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
 
         assertThat(evidence).containsOnlyKeys(1L);
-        assertThat(evidence.get(1L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
+        assertThat(evidence.get(1L)).isEqualTo(CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
         assertThat(evidence.get(1L).gotThrough()).isTrue();
     }
 
@@ -131,7 +132,7 @@ class CycleLocationOutcomeResolverTest {
 
         CyclePlaceEvidence evidence = resolver().resolve(RUN_ID).get(2L);
 
-        assertThat(evidence).isEqualTo(CyclePlaceEvidence.triagedOnly());
+        assertThat(evidence).isEqualTo(CyclePlaceEvidenceFixtures.triagedOnly());
         assertThat(evidence.gotThrough()).isTrue();
         assertThat(evidence.hasResultIn(Lane.SKY)).isFalse();
     }
@@ -143,7 +144,7 @@ class CycleLocationOutcomeResolverTest {
 
         CyclePlaceEvidence evidence = resolver().resolve(RUN_ID).get(3L);
 
-        assertThat(evidence).isEqualTo(CyclePlaceEvidence.collectionError());
+        assertThat(evidence).isEqualTo(CyclePlaceEvidenceFixtures.collectionError());
         assertThat(evidence.failed()).isTrue();
     }
 
@@ -154,7 +155,7 @@ class CycleLocationOutcomeResolverTest {
 
         CyclePlaceEvidence evidence = resolver().resolve(RUN_ID).get(4L);
 
-        assertThat(evidence).isEqualTo(CyclePlaceEvidence.failedIn(Lane.SKY));
+        assertThat(evidence).isEqualTo(CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         assertThat(evidence.failed()).isTrue();
     }
 
@@ -189,7 +190,7 @@ class CycleLocationOutcomeResolverTest {
                 List.of(disposition(5L, "SKIPPED_STABILITY"), disposition(5L, "EVALUATED")),
                 List.of(sky(5L, false)));
 
-        assertThat(resolver().resolve(RUN_ID).get(5L)).isEqualTo(CyclePlaceEvidence.failedIn(Lane.SKY));
+        assertThat(resolver().resolve(RUN_ID).get(5L)).isEqualTo(CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
     }
 
     @Test
@@ -201,8 +202,8 @@ class CycleLocationOutcomeResolverTest {
 
         Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
 
-        assertThat(evidence.get(6L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.WOODLAND));
-        assertThat(evidence.get(7L)).isEqualTo(CyclePlaceEvidence.failedIn(Lane.WOODLAND));
+        assertThat(evidence.get(6L)).isEqualTo(CyclePlaceEvidenceFixtures.scoredIn(Lane.WOODLAND));
+        assertThat(evidence.get(7L)).isEqualTo(CyclePlaceEvidenceFixtures.failedIn(Lane.WOODLAND));
     }
 
     @Test
@@ -287,9 +288,9 @@ class CycleLocationOutcomeResolverTest {
 
         Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
 
-        assertThat(evidence.get(40L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
-        assertThat(evidence.get(41L)).isEqualTo(CyclePlaceEvidence.failedIn(Lane.WOODLAND));
-        assertThat(evidence.get(42L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.BLUEBELL));
+        assertThat(evidence.get(40L)).isEqualTo(CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        assertThat(evidence.get(41L)).isEqualTo(CyclePlaceEvidenceFixtures.failedIn(Lane.WOODLAND));
+        assertThat(evidence.get(42L)).isEqualTo(CyclePlaceEvidenceFixtures.scoredIn(Lane.BLUEBELL));
     }
 
     @Test
@@ -309,7 +310,7 @@ class CycleLocationOutcomeResolverTest {
         firstBatchWith(List.of(), List.of(new BatchCallOutcome(
                 CustomIdFactory.forForecast(23L, DATE, TargetType.SUNSET), null, null)));
 
-        assertThat(resolver().resolve(RUN_ID).get(23L)).isEqualTo(CyclePlaceEvidence.failedIn(Lane.SKY));
+        assertThat(resolver().resolve(RUN_ID).get(23L)).isEqualTo(CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
     }
 
     @Test
@@ -330,7 +331,7 @@ class CycleLocationOutcomeResolverTest {
         when(apiCallLogRepository.findBatchCallOutcomes(List.of(BATCH_ID)))
                 .thenReturn(List.of(sky(30L, true)));
 
-        assertThat(resolver().resolve(RUN_ID).get(30L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
+        assertThat(resolver().resolve(RUN_ID).get(30L)).isEqualTo(CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
     }
 
     // ---- success evidence that does not depend on the audit rows ----
@@ -352,7 +353,7 @@ class CycleLocationOutcomeResolverTest {
 
         CyclePlaceEvidence evidence = resolver().resolve(RUN_ID).get(5L);
 
-        assertThat(evidence).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
+        assertThat(evidence).isEqualTo(CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
         assertThat(evidence.gotThrough()).isTrue();
     }
 
@@ -446,7 +447,7 @@ class CycleLocationOutcomeResolverTest {
                 .thenReturn(List.of(sky(5L, false)));
 
         assertThat(resolver().resolve(RUN_ID).get(5L))
-                .isEqualTo(CyclePlaceEvidence.failedIn(Lane.SKY));
+                .isEqualTo(CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
     }
 
     @Test
@@ -462,11 +463,11 @@ class CycleLocationOutcomeResolverTest {
 
         Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
 
-        assertThat(evidence.get(1L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
-        assertThat(evidence.get(2L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
-        assertThat(evidence.get(3L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
-        assertThat(evidence.get(4L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.BLUEBELL));
-        assertThat(evidence.get(5L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.WOODLAND));
+        assertThat(evidence.get(1L)).isEqualTo(CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        assertThat(evidence.get(2L)).isEqualTo(CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        assertThat(evidence.get(3L)).isEqualTo(CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        assertThat(evidence.get(4L)).isEqualTo(CyclePlaceEvidenceFixtures.scoredIn(Lane.BLUEBELL));
+        assertThat(evidence.get(5L)).isEqualTo(CyclePlaceEvidenceFixtures.scoredIn(Lane.WOODLAND));
         assertThat(evidence).doesNotContainKeys(6L, 7L);
     }
 
@@ -477,7 +478,7 @@ class CycleLocationOutcomeResolverTest {
         firstBatchWith(List.of(disposition(8L, "EVALUATED")), List.of(sky(8L, false)));
         scoredRows();
 
-        assertThat(resolver().resolve(RUN_ID).get(8L)).isEqualTo(CyclePlaceEvidence.failedIn(Lane.SKY));
+        assertThat(resolver().resolve(RUN_ID).get(8L)).isEqualTo(CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
     }
 
     @Test
@@ -529,7 +530,7 @@ class CycleLocationOutcomeResolverTest {
         Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
 
         assertThat(evidence).containsOnlyKeys(1L, 2L, 3L);
-        assertThat(evidence.values()).containsOnly(CyclePlaceEvidence.triagedOnly());
+        assertThat(evidence.values()).containsOnly(CyclePlaceEvidenceFixtures.triagedOnly());
         verifyNoInteractions(apiCallLogRepository);
     }
 
@@ -555,7 +556,7 @@ class CycleLocationOutcomeResolverTest {
 
         Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
 
-        assertThat(evidence.get(1L)).isEqualTo(CyclePlaceEvidence.triagedOnly());
+        assertThat(evidence.get(1L)).isEqualTo(CyclePlaceEvidenceFixtures.triagedOnly());
         assertThat(evidence.get(2L)).isEqualTo(CyclePlaceEvidence.nothing());
     }
 
@@ -577,7 +578,7 @@ class CycleLocationOutcomeResolverTest {
         when(pipelineRunRepository.findDispositionJobRunId(RUN_ID)).thenReturn(Optional.of(JOB_RUN_ID));
         firstBatchWith(List.of(disposition(1L, "SKIPPED_TRIAGED")), List.of());
 
-        assertThat(resolver().resolve(RUN_ID).get(1L)).isEqualTo(CyclePlaceEvidence.triagedOnly());
+        assertThat(resolver().resolve(RUN_ID).get(1L)).isEqualTo(CyclePlaceEvidenceFixtures.triagedOnly());
     }
 
     @Test

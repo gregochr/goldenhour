@@ -119,7 +119,7 @@ class TideSizeIndexTest {
                 highWater(LOCATION_ID, DAY.atTime(6, 12), "3.10"),
                 highWater(SECOND_LOCATION_ID, DAY.atTime(6, 30), "6.40"));
 
-        // KingTideHotTopicStrategy.findKingTide returns the first qualifying slot anywhere in the
+        // KingTideHotTopicStrategy.findTidalSlot returns the first qualifying slot anywhere in the
         // briefing; a per-location or majority rule here would disagree with it by construction.
         assertThat(index.measure(
                 List.of(location(LOCATION_ID), location(SECOND_LOCATION_ID)), DAY, DAY)
