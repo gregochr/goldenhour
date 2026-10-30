@@ -29,9 +29,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -261,25 +261,25 @@ class LocationEnrichmentServiceValleyFloorTest {
         assertThat(cell.cellElevationMetres()).isEqualTo(80.0);
         assertThat(cell.cellDistanceKm())
                 .isCloseTo(GeoUtils.distanceKm(54.58, -3.15, 54.575, -3.152), within(1e-9));
-        verify(openMeteoForecastApi, never()).getForecast(
-                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyDouble(),
-                anyString(), anyString(), anyString());
+        verify(openMeteoForecastApi).getForecastAtElevation(
+                54.58, -3.15, "temperature_2m", "ms", "UTC", 80.0);
+        verifyNoMoreInteractions(openMeteoForecastApi);
     }
 
     @Test
     @DisplayName("valleyFloorCell() fails as an upstream failure on an exception or an incomplete response")
     void cell_failures() {
         when(openMeteoForecastApi.getForecastAtElevation(
-                eq(54.0), eq(-3.0), anyString(), anyString(), anyString(), eq(10.0)))
+                eq(54.0), eq(-3.0), eq("temperature_2m"), eq("ms"), eq("UTC"), eq(10.0)))
                 .thenThrow(new RuntimeException("down"));
         OpenMeteoForecastResponse noElevation = new OpenMeteoForecastResponse();
         noElevation.setLatitude(54.1);
         noElevation.setLongitude(-3.1);
         when(openMeteoForecastApi.getForecastAtElevation(
-                eq(54.1), eq(-3.1), anyString(), anyString(), anyString(), eq(10.0)))
+                eq(54.1), eq(-3.1), eq("temperature_2m"), eq("ms"), eq("UTC"), eq(10.0)))
                 .thenReturn(noElevation);
         when(openMeteoForecastApi.getForecastAtElevation(
-                eq(54.2), eq(-3.2), anyString(), anyString(), anyString(), eq(10.0)))
+                eq(54.2), eq(-3.2), eq("temperature_2m"), eq("ms"), eq("UTC"), eq(10.0)))
                 .thenReturn(null);
 
         assertThatThrownBy(() -> service.valleyFloorCell(54.0, -3.0, 10.0))

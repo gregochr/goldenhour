@@ -16,12 +16,12 @@ import java.sql.Statement;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Proves V199 against a real Postgres: {@code locations.valley_floor_m} (nullable INTEGER) and
+ * Proves V200 against a real Postgres: {@code locations.valley_floor_m} (nullable INTEGER) and
  * {@code valley_floor_lat} / {@code valley_floor_lng} (nullable DOUBLE PRECISION), and that a row planted
  * before the migration reads NULL in all three.
  *
  * <p>CI-only: it starts its own Testcontainer, and there is no Docker on the development machine (see
- * CLAUDE.md). It migrates to V198 first so it can plant a row before V199 runs.
+ * CLAUDE.md). It migrates to V199 first so it can plant a row before V200 runs.
  */
 @Testcontainers
 class LocationValleyFloorMigrationTest {
@@ -48,9 +48,9 @@ class LocationValleyFloorMigrationTest {
     }
 
     @Test
-    @DisplayName("V199 adds three nullable columns with the right types; an existing row reads NULL")
+    @DisplayName("V200 adds three nullable columns with the right types; an existing row reads NULL")
     void addsNullableColumns() throws SQLException {
-        flyway("198").migrate();
+        flyway("199").migrate();
         long locationId;
         try (Connection c = connect(); Statement st = c.createStatement()) {
             st.executeUpdate("INSERT INTO locations (name, lat, lon) "
@@ -62,7 +62,7 @@ class LocationValleyFloorMigrationTest {
             }
         }
 
-        flyway("199").migrate();
+        flyway("200").migrate();
 
         try (Connection c = connect(); Statement st = c.createStatement()) {
             assertNullableColumn(st, "valley_floor_m", "integer");
