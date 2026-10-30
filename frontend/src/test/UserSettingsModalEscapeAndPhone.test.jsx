@@ -224,6 +224,9 @@ describe('Escape on "Drive times updated"', () => {
     await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('settings-refresh-drive-btn'));
     await screen.findByTestId('settings-refresh-dismiss');
+    // The success view is a fresh Modal whose Escape listener is armed in a passive effect, which
+    // React can leave to a later task than the commit `findBy*` resolved on. Settle it first.
+    await act(async () => {});
 
     escape();
 
