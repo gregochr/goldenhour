@@ -393,8 +393,76 @@ Switch-over (shadow → live) is an owner decision on that evidence.
 
 ## 8. Measurements and candidates (to be filled)
 
-- Production query, sites both `mist_prone` and inversion-eligible: _pending_.
-- 1a elevations, profiles and model coverage: _pending_.
+- **Production query (2026-10-30, owner, read-only `COPY` from `goldenhour-db`):** 26 enabled sites are
+  inversion-eligible, 200–597 m, exactly the V86 set. **No enabled site is `mist_prone`**: the query asked
+  for inversion-eligible OR mist-prone, and returned only the 26, all with `mist_prone = f`. Two
+  consequences:
+  1. **There is no overlap today**, so no inversion change can reach mist through Claude's echo. The
+     Phase 0 prompt-isolation test still matters, because the overlap appears the moment a site is ticked.
+  2. **Valley mist is dormant in production.** `augmentWithValleyMist` scores only flagged sites, so the
+     calculator, the "Valley mist" hot topic, the Coming up condition, the triage exemption, the prompt
+     block and the `MIST_CALC` log have nothing to work on. The valley-mist plan's Q5 shortlist (the
+     Brathay, Rydal, Grasmere, Buttermere, the Derwent Water shores, the Dales sites, the Hadrian's Wall
+     sites) was never ticked. That is an owner action in the location editor, not code.
+     ⚠️ Three Wall sites on that shortlist are also inversion-eligible here (Steel Rigg & Winshield Crags
+     345 m, Highshield Crags 300 m, Cawfields 250 m): ticking them creates the overlap at once.
+  3. **Ticked the same day (2026-10-30, owner, `UPDATE … RETURNING`, 37 rows):** ids 156, 177, 175, 166,
+     169, 173, 189, 190, 194, 197, 159, 182, 179, 168, 157, 165 (Lakes shores, tarns, valley floors);
+     111, 102, 114, 136, 141, 137, 131, 132 (Dales); 223, 213, 214 (Northumberland); 41, 46, 43, 45, 48,
+     49, 50, 42, 44, 47 (Hadrian's Wall). Left out on purpose: Rydal Cave and Rydal Grotto (shot from
+     inside), Surprise View (a viewpoint above the lake), Bothal Woods (woodland has its own mist path);
+     Lamley Viaduct did not match. **Five sites are now both mist-prone and inversion-eligible**
+     (Malham Tarn, Tarn Hows, Cawfields, Steel Rigg & Winshield Crags, Highshield Crags), so the Phase 0
+     prompt-isolation test now guards a live case. Many ticked sites have no `elevation_m`; mist does
+     not need it, and Phase 1-pre's backfill will fill it.
+- **1a profiles: three reported mornings** (owner, 2026-10-30, historical-forecast API; raw files in
+  `docs/engineering/inversion-v2-data/`). Each fetch is a summit plus valley points. The dates for (a) and
+  (b) still need confirming against the original posts. Reversals below are "level minus the point's own
+  `temperature_2m`", with each level's geopotential height.
+  - **(a) 15 Jan 2025, Helvellyn, inversion reported, cloud top about 677 m.** Valley (Glenridding,
+    161 m) at 09:00 (sunrise slot): 975 hPa −0.8 at 469 m, 950 −0.1 at 682 m, 925 +0.8 at 902 m;
+    earlier hours 950 +0.6..+1.3, 925 +1.5..+2.6. Thirlmere (260 m) the same shape. Valley visibility
+    fell to 180 m at 06:00 (fog), low cloud 23–63%. **The warm layer starts between about 470 and 680 m,
+    which matches the reported 677 m cloud top.** A radiation-type sea: the valley cell's low cloud is
+    NOT high (the 15–80% gate would pass at some hours and fail at others).
+  - **(b) 17 Oct 2025, inversions reported, including from Scafell Pike (978 m).** Valley (Wasdale 163 m,
+    Keswick 92 m) at 07:00: every level to 925 hPa (854 m) colder, then 850 hPa (1,547 m) about 4.5 °C
+    warmer than 925; valley low cloud 95–100%. **A stratus sea topping out between about 850 m and
+    1,550 m: above every roster site (all ≤ 597 m), below Scafell's top.** Today's score reads NONE for the
+    roster (low cloud > 80% vetoes), which is probably right: a 335–597 m viewpoint was inside it.
+  - **(c) 4 Nov 2024, Keswick/Skiddaw, NO inversion** ("murky… thicker cloud around and above the
+    summits"). The profile is almost the same as (b): warm layer between 864 m and 1,552 m, valley low
+    cloud 80–100%. The difference is at the summit: Skiddaw's cell (911 m) had 96% low cloud and 2.6 km
+    visibility (in cloud), Scafell's 41–77% and 11 km. **So 925 → 850 hPa (about 860 m to 1,550 m) is
+    too coarse to place the cloud top**: (b) and (c) look the same at these levels and were opposite
+    mornings for a summit viewer. Adding `temperature_900hPa` (about 1,000 m), and possibly 800 hPa,
+    is now supported by data, not just suggested.
+  - **The summit trap, confirmed.** At the summit points (855–961 m), 975 and 950 hPa sit BELOW the
+    ground, and "975 minus surface" reads +3 to +6 °C on all three mornings, including (c) with no
+    inversion. That is the ordinary lapse rate, not an inversion. The 1b rule "skip any level not above
+    the reference height" is required, not optional.
+  - **What these say about the clearance rule.** The fog or cloud top sits near the BASE of the warm
+    layer (the height where temperature stops falling), not its top: (a) base about 470–680 m against the
+    reported 677 m. 1b's clearance should compare the viewpoint with that base, and with 975/950/925/900/850
+    the base is known to about ±100–300 m depending on the level gap.
+- **1a `elevation=` test (Cat Bells, 451 m; raw file `3-catbells-elevation.json`).** Same coordinates
+  (54.568, −3.170), three requests:
+  - `elevation=nan` (Open-Meteo's choice): snapped to 54.574, −3.183, **252 m**;
+  - `elevation=451`: snapped to 54.556, −3.213, **about 3 km west**;
+  - `elevation=80`: snapped to 54.575, −3.152, **80 m** (the Derwent Water shore).
+
+  So the parameter **changes which model cell is used** (it picks a nearby cell of similar height) rather
+  than only adjusting the lapse rate. The three cells' temperatures differ by up to 3 °C and not in a
+  fixed lapse order (on 30 Oct at 18:00 the 252 m cell was coldest: 6.9 °C against 8.3 at 451 m and 9.6
+  at 80 m). Consequences:
+  1. **Production's Cat Bells forecast today comes from a 252 m mid-slope cell**, neither the summit
+     (451 m stored) nor the lake. The current inversion score compares 925 hPa with that.
+  2. `elevation=<valley floor>` **does give a valley-floor cell from the same coordinates**, so the owner's
+     idea works, but the chosen cell can be up to a few km away and could be the wrong valley. Phase 1-pre's
+     valley-floor suggestion should store the cell's coordinates too, and the editor should show them.
+  3. This also explains Stainton's 235 m vs 214 m: different requests snapped to different cells.
+- **Model coverage of 975/950 at long lead times:** _pending_ (the historical-forecast API served them for
+  all three dates, but that is the short-range model).
 - Dated fog-sea mornings (the owner has none of their own; candidates from a web search 2026-10-28, dates
   taken from search summaries because this container could not open the pages; confirm each before use):
   - **15 Jan 2025 (a Wednesday), Helvellyn**: UKC Hill Talk thread "lakes inversion today, Wednesday";
