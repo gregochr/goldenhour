@@ -282,7 +282,7 @@ deliberate edit at a time. The editor warns when an edit crosses 200 m on an `ov
 - *The Add dialog changes.* Inversion sites are rare (the last three went in by SQL); the editor's Suggest
   covers them. `AddLocationRequest` and the Add dialog are untouched.
 
-**1. Migration `V200__location_valley_floor.sql`:** `locations.valley_floor_m INTEGER NULL`,
+**1. Migration `V201__location_valley_floor.sql`:** `locations.valley_floor_m INTEGER NULL`,
 `valley_floor_lat DOUBLE PRECISION NULL`, `valley_floor_lng DOUBLE PRECISION NULL`. Plain columns written
 only by the admin's `LocationService.update` (no scheduled writer, so no column-scoped updater; a sentence
 in the entity Javadoc says so, as `mist_prone`'s does). Testcontainers migration test in the
@@ -360,7 +360,7 @@ chosen floor ("model cell 54.575, −3.152, 80 m, 0.4 km from the floor") so a w
 
 **7. Docs in the same PR:** `reference/api-endpoints.md` (both new endpoints, ADMIN; the new PUT fields),
 `reference/conditions.md` (beside `mist_prone`: the valley floor, and that 1b will read it),
-`reference/database-migrations.md` (V200), this plan's status, a `changelog.d/` entry.
+`reference/database-migrations.md` (V201), this plan's status, a `changelog.d/` entry.
 
 **8. Tests.** Backend: candidates (97 points requested, coordinates formatted with `Locale.ROOT`, lowest per
 sector, the 30 m margin, sorted, empty list, failure → 502) with the HTTP call stubbed (the existing
@@ -487,7 +487,7 @@ reports any difference rather than tuning):
 **5a. Safety without a shadow period (2026-10-30, from the 1-pre scope review).**
 - *Per-site rollout and revert:* V2 runs only where `valley_floor_m` is set; a site without a confirmed
   floor keeps today's calculator, and clearing a floor in the editor puts that one site back.
-- *The old score is persisted, not just logged:* a nullable `slot_atmosphere.inversion_score_v1` (V201 or
+- *The old score is persisted, not just logged:* a nullable `slot_atmosphere.inversion_score_v1` (V202 or
   the next free number), written beside `inversion_score` on every slot V2 scored. Logs rotate; the
   `INVERSION_CALC` series must not mix the two without a record.
 - *First-winter asymmetry:* V2 may lower a score freely, but may raise it to at most the old score + 1, and
@@ -580,7 +580,7 @@ summits uncapped. Alternative: no cap, relying on per-site revert.
    variants (profile layers, null, failed) and still assert mist identical.
 6. *Nulls.* Old score null but V2 scores: store V2 capped at 6. V2 null with a profile (hours missing):
    fall back to old.
-7. *Storage.* Migration V201 (read the number at build time): `slot_atmosphere.inversion_score_v1` AND
+7. *Storage.* Migration V202 (read the number at build time): `slot_atmosphere.inversion_score_v1` AND
    `inversion_score_v2_raw`, nullable, written on EVERY write (null when V2 did not compute), so a cleared
    floor leaves no stale value. `inversion_score_v1 IS NOT NULL` is the per-row "V2 era" marker; the
    `INVERSION_CALC` split is per site, not one date; say so in `conditions.md`. Testcontainers migration test.
@@ -596,7 +596,7 @@ summits uncapped. Alternative: no cap, relying on per-site revert.
 11. *Config.* `photocast.inversion.v2.enabled` / `.raise-cap-enabled` in a `SubRegionProperties`-style class;
     env-var plus restart reverts; documented in `application-example.yml` and `configuration.md`.
 12. *Load.* About +14% on the main fetch's call-equivalents; noted under rule 6.
-13. *Docs:* `conditions.md`, `configuration.md`, `database-migrations.md` (V201), `pipeline.md` (the extra
+13. *Docs:* `conditions.md`, `configuration.md`, `database-migrations.md` (V202), `pipeline.md` (the extra
     prefetch, and that its failure never fails a slot).
 
 ### Phase 2: the clear night (inversion only, live)
