@@ -368,6 +368,93 @@ Sketch; finalise after 1a.
   layer aloft, nulls fall back to 925), clearance boundaries, the Brathay baseline still 6.0, the isolation
   test extended with every new input.
 
+### Phase 1b build spec (2026-10-30; supersedes the 1b sketch above where they differ)
+
+Branches from `main` after Phase 1-pre merges (it reads 1-pre's valley-floor columns). Live on merge, with
+the old score logged beside it and a revert switch (Status). Mist is untouched: nothing here reads or
+writes a mist input, and `FORECAST_PARAMS` does not change.
+
+**1. A separate valley profile request, inversion sites only.** For each enabled inversion-eligible
+location (elevation ≥ 200 m and `overlooks_water`) that has a confirmed valley floor, fetch ONE extra
+forecast at the valley-floor coordinates with Open-Meteo's `elevation=<valley_floor_m>` (§8: that picks a
+valley-floor cell), hourly:
+`temperature_2m, dew_point_2m, cloud_cover_low, visibility, wind_speed_10m,
+temperature_{975,950,925,900,850}hPa, geopotential_height_{975,950,925,900,850}hPa`
+(15 variables, a new constant `INVERSION_PROFILE_PARAMS`). Batched like the existing multi-coordinate
+fetch (one HTTP call per chunk; about 29 sites today, so one or two calls per run), resilient, and nullable
+everywhere (`getDoubleValue`): a missing level or a failed fetch means "no profile", never a failed slot.
+The batch path fetches it once per run beside `BatchWeatherPrefetcher`; the single-location path fetches it
+on demand. `OpenMeteoForecastApi` gains a method that takes `elevation` (the existing one does not).
+A location with no valley floor gets no profile and keeps today's calculator (point 5).
+
+**2. `InversionProfile` carrier.** Per location: the returned cell (lat, lng, elevation) and, per hour, the
+valley readings and the five levels (temperature and height). Carried on `AtmosphericData` as a new
+nullable field appended last. The Phase 0 isolation test gains it as an inversion-only input.
+
+**3. `InversionScoreCalculatorV2` (new, pure; the old class stays untouched for the side-by-side log and the
+revert switch).**
+- *Reference:* the valley cell's 2 m temperature at its returned elevation `h0`.
+- *Levels:* only those whose geopotential height is at least 50 m above `h0` (the summit trap, §8).
+- *Warm layer, per hour:* walk (h0, T0) then the valid levels upward. **Base** = the last point before the
+  first rise (temperature higher than the point below it); **top** = the first local maximum after the
+  base; **strength** = T(top) − T(base). No rise = no warm layer. A rise straight from the surface is a
+  *surface-based* layer (base = h0).
+- *Hours examined:* the event slot and the night side (sunrise: T−4h..T; sunset: T−2h..T). Use the hour
+  with the strongest layer (§8, Penrith: the layer that made the fog was gone by the event slot).
+- *Regime and clearance* (viewpoint height `E` = the location's stored elevation):
+  - **Elevated layer** (base ≥ h0 + 150 m; a stratus or deep fog sea): the cloud top sits within the
+    layer's lower part (§8). `E` below base → **inside, cap 6.0**. `E` between base and the next level
+    above it → **edge, cap 8.0**. `E` at or above that next level → **clear**.
+  - **Surface-based layer** (a shallow radiation-fog sea, top below the first level): needs valley fog
+    evidence (night-side valley visibility < 5 km, or valley gap ≤ 1 °C with valley wind ≤ 2 m/s). With it,
+    a viewpoint at least 100 m above `h0` is **edge, cap 8.0** (depth unknown); without it, **cap 6.0**.
+  - **Viewpoint in cloud:** the viewpoint's own cell at the event slot with low cloud ≥ 80% AND
+    visibility < 5 km → **cap 6.0** (§8, 4 Nov Skiddaw; 15 Oct Scafell at 16:00 had 89% but 12.7 km, so
+    passes).
+- *Surface terms* (from the valley cell at the event slot): moisture `MoistureScoring.gapScore` (called, not
+  changed; rule 2), wind 0–3 (today's steps), and **sea evidence 0–2** replacing the 15–80% low-cloud gate:
+  2 when valley low cloud ≥ 50% at the event or night-side valley visibility < 1 km; 1 when night-side
+  valley visibility < 5 km; else 0.
+- *Strength:* ≥ 2.0 °C allows 10; a weaker layer caps at 8.0; no layer caps at 6.0.
+- Score = min(moisture + wind + sea, every cap that applies). Named constants for every threshold; they are
+  priors from four mornings.
+
+**4. Expected results on the four mornings** (hand-derived; the builder pins what the code computes and
+reports any difference rather than tuning):
+
+| Morning | Viewpoint | Expected |
+|---|---|---|
+| 15 Oct 2025 07:00, valley Scales | Blencathra 868 m | base ≈ 683 m, next level 903 m: edge, cap 8; ≈ 7, MODERATE |
+| 15 Oct 2025 16:00, valley Wasdale | Scafell Pike 978 m | base ≈ 675 m, next 894 m: clear; strength ≈ 4.7 °C; ≈ 7 |
+| 15 Oct 2025 07:00, valley Keswick | a 451 m site | inside: 6.0 (today's calculator: 7, the false positive) |
+| 4 Nov 2024 08:00, valley Keswick | Skiddaw-like 911 m (cell in cloud) | in cloud: 6.0 |
+| 4 Nov 2024 08:00, valley Keswick | Latrigg 368 m | inside: 6.0 |
+| 15 Jan 2025 09:00, valley Glenridding | Helvellyn 950 m | base ≈ 469–682 m: clear; ≈ 6–7 |
+
+**5. Wiring and the switch.** `ForecastDataAugmentor.augmentWithInversionScore` computes BOTH scores when a
+profile exists; `photocast.inversion.v2.enabled` (new `@ConfigurationProperties("photocast.inversion")`,
+default true, documented in `application-example.yml` and `reference/configuration.md`) decides which one is
+stored on the slot and drives the readers. Without a profile, the old score as today. One INFO line per
+scored slot: `[INVERSION v2] <site> <date> <event> old=<n> new=<n> regime=<…> base=<m> top=<m>
+strength=<°C> viewpoint=<m> valley=<m> caps=<…>`. The readers (hot topic, Coming up, `INVERSION_CALC`)
+need no change; `reference/conditions.md` records the switch date so the `INVERSION_CALC` series is
+read in two halves.
+
+**6. Prompt (user message only).** When v2 scored the slot, the "Measured reversal" line states the warm
+layer instead of the 925 hPa difference: `Measured reversal: +Z °C, warm layer from about X m to Y m above a
+valley at h0 m; this viewpoint (E m) is clear of / at the edge of / inside it.` The system prompt is not
+touched (shared cache prefix; its "~760m" wording is now slightly stale and is flagged for the owner).
+`PromptGoldenMasterTest`/`PromptBuilderTest` string checks are regenerated; prompt-regression assertions
+are not touched.
+
+**7. Tests.** The four fixtures (`docs/engineering/inversion-v2-data/2a, 2b2, 2c`) copied to test resources
+and run through the parser and V2 (table above); walk unit tests (levels below h0+50 skipped, surface-based
+vs elevated, top = first local max, no rise); each cap; the switch both ways; the batch fetch (chunking,
+failure → no profile); the Phase 0 mist guards unchanged and the isolation test extended with the profile.
+
+**8. Operational.** The owner sets valley floors for the 29 inversion sites through the 1-pre editor
+(Suggest, check, save) before or after this merges; sites without one keep today's score until then.
+
 ### Phase 2: the clear night (inversion only, live)
 
 - An inversion-only night term, on its **own** carrier extracted from the same hourly arrays (no new
