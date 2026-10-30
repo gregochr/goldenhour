@@ -1,10 +1,10 @@
 # Cloud inversion v2: measure the warm layer where the fells are (2026-10-28)
 
-**Status:** plan, reviewed once (adversarial review 2026-10-28, folded in below). Phase 0 can start. Phase 1
-starts with a measurement (§4 Phase 1a) and ships in **shadow mode** (§4): the new score is logged beside
-the old one and drives nothing until a winter of comparisons says it should. The owner has no observed
-inversion morning of their own and cannot get out to test; shadow mode, an automatic reanalysis check and
-the dated candidates in §8 replace that.
+**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) building. **Owner decision
+2026-10-30: no shadow period.** Phases 1b–3 ship LIVE, each with two safety nets instead: the old score is
+still computed and logged beside the new one (so the comparison still happens, after the switch rather
+than before it), and a config switch (`photocast.inversion.v2.enabled`, default on) puts the old score back
+without a deploy. The original shadow-mode text below is kept for the record and marked superseded.
 
 **Prompted by:** three field tips from a Lake District photographer (roamingthelakes, Instagram, 2026-10-28):
 
@@ -261,13 +261,69 @@ Three heights, kept apart:
    the lowest point; the editor shows "Valley floor ≈ 120 m (suggested)" and the admin confirms or
    corrects it. A nullable column, written by the editor only, never inferred silently at forecast time.
 
-Scope of this PR: the backfill, the editable elevation, the suggested and confirmed valley-floor field
-(migration, entity, `AddLocationRequest`/`UpdateLocationRequest`, enrichment, editor UI), tests. **It
-touches the UI**, so it gets the CLAUDE.md adversarial review cadence (about six lenses), the frontend's
-four commands, and role gating (admin-only, like the rest of location management). It changes no score;
-1b decides how the valley floor is used.
+**Build spec (2026-10-30, owner go-ahead).** One PR. It changes no score: nothing in the forecast path
+reads the new columns until 1b. Follow the `mist_prone` precedent (V185) end to end; it is the same shape
+(a plain, admin-set location fact carried through add, update, DTO and the inline editor).
 
-### Phase 1b: the warm layer at the right height, in shadow mode
+1. **Migration `V199__location_valley_floor.sql`:** `locations.valley_floor_m INTEGER NULL`,
+   `valley_floor_lat DOUBLE PRECISION NULL`, `valley_floor_lng DOUBLE PRECISION NULL`. Plain columns,
+   written only by the admin's whole-entity `LocationService.add`/`update` (like `mist_prone`): no
+   detached or scheduled writer, so no column-scoped updater. A Testcontainers migration test in the
+   existing integration style (proven in CI only; no Docker locally).
+2. **Entity, DTO, requests.** `LocationEntity` gains the three fields. `LocationDto` and its mapper gain
+   `valleyFloorMetres`, `valleyFloorLat`, `valleyFloorLng` (role-free terrain facts, no personal data, so
+   the ETag-cached `GET /api/locations` body is unaffected in kind). `AddLocationRequest` gains the three;
+   `UpdateLocationRequest` gains `elevationMetres` and the three valley-floor fields, appended LAST, with
+   the existing convenience constructors kept compiling (null = "don't change", as `mistProne`).
+3. **Update semantics (`LocationService.update`).**
+   - `elevationMetres` non-null: validate −50..1,500 m (else 400) and set it.
+   - The valley floor is set as a unit: all three non-null sets them; a request carrying only some is
+     a 400. Clearing: a new boolean `clearValleyFloor` (true nulls all three). Validate the height
+     −50..1,500 m, the coordinates in range, and the floor point within 5 km of the location.
+   - **A coordinate change does not touch either height** (today it re-fetches only the grid cell; keep
+     that). The editor shows a hint after a coordinate change instead (point 6). Silent overwrites of a
+     hand-corrected height are what this phase exists to stop.
+4. **Valley-floor suggestion (`LocationEnrichmentService.suggestValleyFloor(lat, lon)`).** One call to
+   Open-Meteo's elevation API with a 9 × 9 grid of points spanning ±2 km around the location (81
+   coordinates, under the API's 100), on `forecastExecutor`, failing soft to null like `fetchElevation`.
+   Return the lowest point `{metres, lat, lng}`; return null if it is not at least 30 m below the
+   location's own sampled height (a site on a plateau has no valley below it worth naming). Extract the
+   spacing, radius and 30 m margin as named constants. Exposed two ways:
+   - `LocationEnrichmentResult` gains the suggestion, so the Add dialog shows it;
+   - a new `GET /api/locations/valley-floor?lat=&lon=` (ADMIN, same `@PreAuthorize` as `/enrich`), for
+     the editor's Suggest button. 200 with the suggestion, 200 with an empty body/`null` fields when there
+     is none.
+   It is a SUGGESTION only: nothing is stored until the admin saves.
+5. **Elevation backfill.** Extend `GridCellBackfillJob` with a second pass over enabled locations whose
+   `elevation_m` is null (a new repository finder), calling `fetchElevation` (made package-visible or
+   public, documented), same per-run cap, same consecutive-failure guard, saving each as it succeeds. It
+   never touches a non-null elevation and never fills the valley floor (that stays hand-confirmed). Log
+   one summary line per run like the grid pass.
+6. **UI (`LocationManagementView.jsx`), admin only like the rest of location management.**
+   - **Add dialog:** the enrichment panel and the confirm step show "Valley floor ≈ N m (suggested,
+     X km away)" when one came back, with a checkbox "Use as valley floor" (unticked by default), and
+     the elevation becomes an editable number field pre-filled from enrichment.
+   - **Inline editor:** an "Elevation (m)" number field, and a "Valley floor (m)" field with a
+     **Suggest** button (calls the new endpoint, fills height and coordinates, shows the distance) and a
+     **Clear** link. After a coordinate edit, a one-line hint: "Coordinates changed: check elevation and
+     valley floor."
+   - `data-testid` on every new control, Tailwind only, PropTypes, no new inline styles. Desktop and
+     phone layouts both (location management is admin and desktop-first; nothing phone-only).
+7. **Docs in the same PR:** `reference/api-endpoints.md` (the new endpoint, ADMIN), `reference/map-tab.md`
+   or wherever locations' fields are described (grep `mist_prone`), `reference/database-migrations.md`
+   (V199), this plan's Phase 1-pre status, a `changelog.d/` entry.
+8. **Tests.** Backend: enrichment sampling (81 points requested, lowest chosen, the 30 m margin, failure
+   to null) with the HTTP call stubbed; update semantics (each rule in 3, including the partial-floor 400
+   and that a coordinate change leaves both heights alone); add carrying the floor; the backfill pass
+   (fills nulls only, cap, failure guard); controller 403 for PRO/LITE on the new endpoint; DTO mapping.
+   Frontend (Vitest): editor fields render, Suggest fills them, Clear clears, the add dialog's
+   "Use as valley floor" sends the fields only when ticked, the coordinate-change hint. The 80% per-class
+   coverage gate applies.
+
+Out of scope: anything that reads the valley floor (1b), `elevation=` on forecast requests (1b), and
+changing which sites are inversion-eligible.
+
+### Phase 1b: the warm layer at the right height (live; was "in shadow mode")
 
 Sketch; finalise after 1a.
 
@@ -298,12 +354,12 @@ Sketch; finalise after 1a.
   clears; within one level spacing below it caps at MARGINAL; further below caps at VETOED. Thresholds are
   priors; the review of 1b decides them with 1a's numbers in hand. The boundary-layer check is dropped
   where a profile exists (with no reversal the lapse gate already caps at 6, so the fallback adds nothing).
-- **Shadow mode.** The new score is computed and logged (`[INVERSION v2] site date event old=… new=…
+- **~~Shadow mode~~ Superseded 2026-10-30: live, with the old score logged alongside and a revert switch** (see Status). Original text: the new score is computed and logged (`[INVERSION v2] site date event old=… new=…
   reversal=… top=… ref=…`), and optionally stored in a new nullable `slot_atmosphere` column; **the
   existing score keeps driving the hot topic, Coming up, `INVERSION_CALC` and the prompt.** Switching over
   is its own small PR after a winter of comparisons (§6), and it records the switch date in
   `conditions.md` so the `INVERSION_CALC` series never mixes the two regimes silently.
-- **Prompt.** Nothing changes while in shadow. At switch-over the user-message reversal line states the
+- **Prompt.** On merge (no shadow period, 2026-10-30) the user-message reversal line states the
   level and the top; the system prompt's "~760m" wording changes only with the owner's sign-off (shared
   batch cache prefix, near the prompt-regression suite). `PromptGoldenMasterTest` (darksky-inversion
   fixture) and `PromptBuilderTest` (~1480–1509) string checks will need regenerating then; they are not
@@ -312,7 +368,7 @@ Sketch; finalise after 1a.
   layer aloft, nulls fall back to 925), clearance boundaries, the Brathay baseline still 6.0, the isolation
   test extended with every new input.
 
-### Phase 2: the clear night (inversion only, shadow first)
+### Phase 2: the clear night (inversion only, live)
 
 - An inversion-only night term, on its **own** carrier extracted from the same hourly arrays (no new
   request; `MistSlot` untouched, rule 5). Window: decide in review between the existing T−3h and roughly
@@ -331,7 +387,7 @@ Sketch; finalise after 1a.
 - Tests: clear vs overcast nights, ramp ends, the cap, the gate bypass, the rounding rule, unchanged scores
   for existing `InversionScoreCalculatorTest` cases with no night data.
 
-### Phase 3: wind at summit height (inversion only, shadow first)
+### Phase 3: wind at summit height (inversion only, live)
 
 - `wind_speed` at the levels from Phase 1 (consider 900 hPa, which fills the 925–850 gap), nullable. Pick
   the level whose geopotential height is nearest the viewpoint; for 200–600 m sites usually 975 or 950.
@@ -364,16 +420,16 @@ under-rated for colour. Never add high cloud to the formation score.
 The owner cannot get out often enough to test, so validation is built from data the system already has
 or can fetch:
 
-- **Shadow logs** (Phases 1–3): old and new scores side by side every day.
+- **Side-by-side logs** (Phases 1–3): the old score is still computed and logged beside the live new one every day.
 - **Automatic reanalysis check** (if 1a confirms the archive serves ERA5 pressure levels): after each
   morning, fetch the reanalysis profile at the site and record whether the warm layer the forecast
   promised was there. ERA5 cannot see valley fog (31 km), but it can confirm the cap; this follows the
   V175 "recorded, never required" pattern of `cloud_verification`.
 - **Dated public reports** (§8), turned into fixtures from the historical-forecast API.
 - **Other readers' ratings**: the `seen` tag `INVERSION` on "How was it?" (V187).
-- **MWIS by hand** when convenient: their "cloud inversion likely" days against the shadow log.
+- **MWIS by hand** when convenient: their "cloud inversion likely" days against the side-by-side log.
 
-Switch-over (shadow → live) is an owner decision on that evidence.
+Superseded 2026-10-30: each phase goes live on merge; this evidence decides whether to keep it or flip the switch back.
 
 ---
 
@@ -396,8 +452,8 @@ Switch-over (shadow → live) is an owner decision on that evidence.
    (950 m), 265 Scafell Pike (978 m), 266 Blencathra (868 m)**. Grid cells left for the nightly
    `GridCellBackfillJob`; no Bortle. Until 1b they are scored by today's calculator, whose 925 hPa
    comparison happens to sit near summit height (right on 15 Oct at Blencathra, vetoed by cloud on 4 Nov
-   at Skiddaw); 1b scores them properly, and their shadow-mode record starts now.
-7. **Switch-over** from shadow, per phase, on §6's evidence.
+   at Skiddaw); 1b scores them properly.
+7. **Switch-over** from shadow, per phase. **Decided 2026-10-30: no shadow; live on merge, with a revert switch and the old score logged alongside.**
 
 ---
 
