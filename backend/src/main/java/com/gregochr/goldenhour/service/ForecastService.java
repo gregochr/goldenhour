@@ -18,6 +18,8 @@ import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
+import com.gregochr.goldenhour.model.InversionProfile;
+import com.gregochr.goldenhour.model.InversionV2Result;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskState;
@@ -203,6 +205,48 @@ public class ForecastService {
             EvaluationModel model, JobRunEntity jobRun,
             Map<String, WeatherExtractionResult> prefetchedWeather,
             CloudPointCache cloudCache, TideExtremeSnapshot tideSnapshot) {
+        return fetchWeatherAndTriage(location, date, targetType, tideTypes, model, jobRun,
+                prefetchedWeather, cloudCache, tideSnapshot, null);
+    }
+
+    /**
+     * Whether the v2 inversion score is switched on ({@code photocast.inversion.v2.enabled}). The batch
+     * collector skips its valley profile prefetch when this is false.
+     *
+     * @return true when v2 drives the stored inversion score for sites with a valley floor
+     */
+    public boolean inversionV2Enabled() {
+        return augmentor.inversionV2Enabled();
+    }
+
+    /**
+     * As the nine-argument form, carrying the run's v2 inversion valley profiles (inversion-v2-plan Phase 1b).
+     *
+     * <p>{@code inversionProfiles} is keyed by LOCATION ID. {@code null} means "no prefetch ran" (the
+     * six-argument callers: JFDI, force-submit, retry), so an eligible location's profile is fetched on demand,
+     * memoised per valley-floor request. A map that lacks the location's id means "prefetched and none": the
+     * slot is scored without a profile and there is NO on-demand fallback, so a failed prefetch cannot turn
+     * into one request per slot. Either way the profile fetch sits in its own try/catch outside the weather
+     * fetch below: a profile failure never fails a slot and never leaves mist unscored.
+     *
+     * @param location          the location entity
+     * @param date              the target date
+     * @param targetType        SUNRISE or SUNSET
+     * @param tideTypes         tide preferences for the location
+     * @param model             evaluation model to use
+     * @param jobRun            parent job run for metrics
+     * @param prefetchedWeather pre-fetched weather keyed by coord key, or null
+     * @param cloudCache        pre-fetched cloud point cache, or null
+     * @param tideSnapshot      the collection's tide snapshot, or null
+     * @param inversionProfiles the run's profiles by location id, or null to fetch on demand
+     * @return the pre-evaluation result
+     */
+    public ForecastPreEvalResult fetchWeatherAndTriage(LocationEntity location,
+            LocalDate date, TargetType targetType, Set<TideType> tideTypes,
+            EvaluationModel model, JobRunEntity jobRun,
+            Map<String, WeatherExtractionResult> prefetchedWeather,
+            CloudPointCache cloudCache, TideExtremeSnapshot tideSnapshot,
+            Map<Long, InversionProfile> inversionProfiles) {
         String locationName = location.getName();
         double lat = location.getLat();
         double lon = location.getLon();
@@ -280,7 +324,8 @@ public class ForecastService {
                 withOrientation, location.toCoastalParameters(), locationId, locationName,
                 forecastResponse);
         AtmosphericData withInversion = augmentor.augmentWithInversionScore(
-                withSurge, location.getElevationMetres(), location.isOverlooksWater());
+                withInversionProfile(withSurge, location, eventTime, targetType, inversionProfiles),
+                location.getElevationMetres(), location.isOverlooksWater());
         // Valley mist (V185, valley-mist-plan M1a): scored for a mist_prone site only, here and
         // before the readings write and the triage check below, exactly like the inversion score
         // above — so a stood-down candidate still records it (the two-question rule).
@@ -328,6 +373,33 @@ public class ForecastService {
         return new ForecastPreEvalResult(false, null, forecastData, location, date,
                 targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey,
                 forecastResponse);
+    }
+
+    /**
+     * Attaches the slot's v2 inversion valley profile, when the location has one to attach.
+     *
+     * <p>Runs in its own try/catch, outside the weather fetch: whatever goes wrong here the slot is returned
+     * unchanged (so scored by the old calculator) and mist is untouched.
+     */
+    private AtmosphericData withInversionProfile(AtmosphericData base, LocationEntity location,
+            LocalDateTime eventTime, TargetType targetType, Map<Long, InversionProfile> inversionProfiles) {
+        try {
+            if (!InversionProfileEligibility.isEligible(location) || !augmentor.inversionV2Enabled()) {
+                return base;
+            }
+            InversionProfile profile = inversionProfiles != null
+                    ? inversionProfiles.get(location.getId())
+                    : openMeteoService.fetchInversionProfileOnDemand(location);
+            if (profile == null) {
+                return base;
+            }
+            InversionProfile slice = profile.sliceForEvent(eventTime, targetType);
+            return slice == null ? base : base.withInversionV2(InversionV2Result.ofProfile(slice));
+        } catch (Exception e) {
+            LOG.warn("Inversion v2 profile unavailable for {} {} {}, scoring without it: {}",
+                    location.getName(), eventTime.toLocalDate(), targetType, e.getMessage());
+            return base;
+        }
     }
 
     /**

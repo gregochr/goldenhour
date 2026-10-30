@@ -310,7 +310,7 @@ class ForecastTaskCollectorForceEvalTest {
     private void stubTriagePass(LocationEntity loc, LocalDate date, int daysAhead,
             boolean coastal) {
         when(forecastService.fetchWeatherAndTriage(
-                org.mockito.ArgumentMatchers.eq(loc), any(), any(), any(), any(), any(), any(), any()))
+                org.mockito.ArgumentMatchers.eq(loc), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(preEval(loc, date, daysAhead, coastal));
     }
 

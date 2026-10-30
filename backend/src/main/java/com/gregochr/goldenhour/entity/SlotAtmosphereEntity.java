@@ -140,6 +140,24 @@ public class SlotAtmosphereEntity {
     private boolean inversionScored;
 
     /**
+     * The OLD {@code InversionScoreCalculator}'s score for a slot the v2 calculator also scored
+     * (inversion-v2-plan Phase 1b, V202), or null when v2 did not compute. Written on every write, so a
+     * cleared valley floor or a switched-off v2 leaves no stale value. {@code inversion_score_v1 IS NOT NULL}
+     * marks a "v2 era" row per slot, which is how the {@code INVERSION_CALC} series is split per site rather
+     * than at one date.
+     */
+    @Column(name = "inversion_score_v1")
+    private Double inversionScoreV1;
+
+    /**
+     * The v2 calculator's own score before the first-winter raise cap, or null when v2 did not compute
+     * (V202). The evidence for deciding whether to lift the cap; {@link #inversionScore} remains the value
+     * that drives the readers.
+     */
+    @Column(name = "inversion_score_v2_raw")
+    private Double inversionScoreV2Raw;
+
+    /**
      * Valley mist likelihood score (0–10, {@code ValleyMistCalculator}), or null when the location
      * is not {@code mist_prone} or the calculator could not score it for want of inputs. V185
      * (valley-mist-plan M1a): captured at the same collection-time seam as every other reading, so a

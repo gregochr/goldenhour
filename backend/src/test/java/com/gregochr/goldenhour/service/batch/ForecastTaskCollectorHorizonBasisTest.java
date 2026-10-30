@@ -250,7 +250,7 @@ class ForecastTaskCollectorHorizonBasisTest {
                                 new OpenMeteoAirQualityResponse())));
         int utcBasisHorizon = (int) java.time.temporal.ChronoUnit.DAYS.between(UTC_TODAY, date);
         when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any()))
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(sunsetPreEval(loc, date, utcBasisHorizon));
         return loc;
     }

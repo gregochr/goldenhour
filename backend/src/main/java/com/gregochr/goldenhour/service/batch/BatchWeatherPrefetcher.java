@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.batch;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CloudPointCache;
+import com.gregochr.goldenhour.model.InversionProfile;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.DirectionalSamplingGeometry;
@@ -119,6 +120,21 @@ public final class BatchWeatherPrefetcher {
             }
         }
         return result;
+    }
+
+    /**
+     * Pre-fetches the v2 inversion valley profile for the candidate set's eligible locations (inversion-v2-plan
+     * Phase 1b), once per run, after the weather and cloud pre-fetches. Best effort: the result holds only the
+     * locations that got a profile and the call never throws, so a failure here can never fail a slot or
+     * leave mist unscored.
+     *
+     * @param candidates the candidate set
+     * @return location id to profile; empty when nothing is eligible or the fetch failed
+     */
+    public Map<Long, InversionProfile> prefetchInversionProfiles(List<ForecastCandidate> candidates) {
+        List<LocationEntity> locations = candidates.stream().map(ForecastCandidate::location).toList();
+        Map<Long, InversionProfile> profiles = openMeteoService.prefetchInversionProfiles(locations);
+        return profiles == null ? Map.of() : profiles;
     }
 
     /**
