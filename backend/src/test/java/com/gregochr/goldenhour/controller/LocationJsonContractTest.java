@@ -81,6 +81,9 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 .coastalStructure(CoastalStructure.PIER)
                 .structureFacesDeg(45)
                 .structureLabel("Bamburgh Pier")
+                .valleyFloorMetres(120)
+                .valleyFloorLat(55.6)
+                .valleyFloorLng(-1.72)
                 .build();
         LocationEntity minimal = LocationEntity.builder()
                 .id(2L).name("Minimal Spot").lat(1.0).lon(2.0)
@@ -107,7 +110,8 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"coastalTidal\":true,\"elevationMetres\":30,\"overlooksWater\":true,\"mistProne\":true,"
                 + "\"gridLat\":55.61,\"gridLng\":-1.71,\"bluebellExposure\":\"WOODLAND\","
                 + "\"coastalStructure\":\"PIER\",\"structureFacesDeg\":45,\"structureLabel\":\"Bamburgh Pier\","
-                + "\"woodlandOnly\":false,\"subRegionId\":71,\"subRegionName\":\"Northumberland Coast\"},"
+                + "\"woodlandOnly\":false,\"subRegionId\":71,\"subRegionName\":\"Northumberland Coast\","
+                + "\"valleyFloorMetres\":120,\"valleyFloorLat\":55.6,\"valleyFloorLng\":-1.72},"
                 + "{\"id\":2,\"name\":\"Minimal Spot\",\"lat\":1.0,\"lon\":2.0,"
                 + "\"solarEventType\":[],\"tideType\":[],\"locationType\":[],\"region\":null,"
                 + "\"enabled\":true,\"createdAt\":\"2026-01-01T00:00:00\","
@@ -118,7 +122,8 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"overlooksWater\":false,\"mistProne\":false,\"gridLat\":null,\"gridLng\":null,"
                 + "\"bluebellExposure\":null,\"coastalStructure\":null,\"structureFacesDeg\":null,"
                 + "\"structureLabel\":null,\"woodlandOnly\":false,\"subRegionId\":null,"
-                + "\"subRegionName\":null}"
+                + "\"subRegionName\":null,\"valleyFloorMetres\":null,\"valleyFloorLat\":null,"
+                + "\"valleyFloorLng\":null}"
                 + "]";
 
         mockMvc.perform(get("/api/locations"))

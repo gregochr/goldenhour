@@ -221,6 +221,26 @@ public class LocationEntity {
     @Builder.Default
     private boolean mistProne = false;
 
+    /**
+     * Height in metres of the valley floor below this viewpoint (inversion v2 Phase 1-pre), or null when
+     * unset. Fog forms in the valley, so the inversion comparison of phase 1b needs it. An admin-confirmed
+     * fact, auto-suggested by {@code LocationEnrichmentService.valleyFloorCandidates} but never inferred at
+     * forecast time; nothing in the forecast path reads it yet. A plain column written only by the admin's
+     * whole-entity {@code LocationService.update}, exactly like {@link #mistProne}: no detached or scheduled
+     * writer touches it, so it needs no column-scoped updater. Set or cleared together with
+     * {@link #valleyFloorLat} and {@link #valleyFloorLng}.
+     */
+    @Column(name = "valley_floor_m")
+    private Integer valleyFloorMetres;
+
+    /** Latitude of the chosen valley-floor point, or null when no floor is set. */
+    @Column(name = "valley_floor_lat")
+    private Double valleyFloorLat;
+
+    /** Longitude of the chosen valley-floor point, or null when no floor is set. */
+    @Column(name = "valley_floor_lng")
+    private Double valleyFloorLng;
+
     /** Snapped Open-Meteo grid latitude (~2 km resolution). Null until first fetch. */
     @Column(name = "grid_lat")
     private Double gridLat;

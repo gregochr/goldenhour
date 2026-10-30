@@ -81,6 +81,7 @@
 | V198 | drops `prompt_test_result` then `prompt_test_run` (sync-engine-retirement Phase 4), shipped one release after V196 so the Phase 3 image, which no longer maps them, is the rollback target; the only FKs were between the two tables |
 | V199 | deletes the `briefing_model_comparison` `scheduler_job_config` row (model-test-retirement Phase 1: the Briefing Model Test service that registered its target is gone); the four `*_model_test_*` tables stay until Phase 2 so the previous image, which still maps them under `ddl-auto: validate`, remains a safe rollback |
 | V200 | drops `briefing_model_test_result`, `briefing_model_test_run`, `model_test_result` then `model_test_run` (model-test-retirement Phase 2), shipped one release after V199 so the Phase 1 image (v2.35.2), which maps none of them, is the rollback target; removes the `regions` FK that V137 §6 worked around |
+| V201 | location valley floor (inversion-v2-plan Phase 1-pre): `locations.valley_floor_m INTEGER NULL`, `valley_floor_lat DOUBLE PRECISION NULL`, `valley_floor_lng DOUBLE PRECISION NULL`; plain columns written only by the admin's `LocationService.update`, set or cleared together, existing rows stay NULL so the migration changes no behaviour; nothing in the forecast path reads them until Phase 1b. Proven by CI only (`LocationValleyFloorMigrationTest`). |
 | **latest** | **Deliberately not written down — every number recorded here has rotted.** Read it from the tree before adding a migration: `ls backend/src/main/resources/db/migration/ \| sort -V \| tail -1` |
 
 ---
