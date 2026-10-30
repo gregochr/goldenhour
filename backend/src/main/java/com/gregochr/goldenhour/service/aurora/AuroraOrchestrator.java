@@ -24,11 +24,14 @@ import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Orchestrates the aurora alerting pipeline using NOAA SWPC data.
@@ -87,7 +90,11 @@ public class AuroraOrchestrator {
     private final AuroraProperties properties;
     private final EvaluationService evaluationService;
     private final ModelSelectionService modelSelectionService;
+    private final AuroraAlertSnapshotStore snapshotStore;
     private final Clock clock;
+
+    /** Set by the first {@link #restoreOnce}, so the snapshot is read once per JVM. */
+    private final AtomicBoolean restored = new AtomicBoolean(false);
 
     /**
      * The hold the last night poll made, or {@code null} once a night poll has evaluated. Set only by
@@ -111,6 +118,7 @@ public class AuroraOrchestrator {
      *                              observability for the aurora real-time path that previously
      *                              had none)
      * @param modelSelectionService resolves the active aurora model
+     * @param snapshotStore         persists the standing real alert, so a restart can restore it
      * @param clock                 supplies the label date on the submitted evaluation task,
      *                              resolved in {@code Europe/London} by {@link ForecastHorizon},
      *                              and the instant {@link #deriveAlertLevel} reads at; the polling
@@ -123,6 +131,7 @@ public class AuroraOrchestrator {
             AuroraProperties properties,
             EvaluationService evaluationService,
             ModelSelectionService modelSelectionService,
+            AuroraAlertSnapshotStore snapshotStore,
             Clock clock) {
         this.noaaClient = noaaClient;
         this.weatherTriage = weatherTriage;
@@ -131,6 +140,7 @@ public class AuroraOrchestrator {
         this.properties = properties;
         this.evaluationService = evaluationService;
         this.modelSelectionService = modelSelectionService;
+        this.snapshotStore = snapshotStore;
         this.clock = clock;
     }
 
@@ -168,6 +178,9 @@ public class AuroraOrchestrator {
             AuroraStateCache.Evaluation eval = stateCache.evaluate(deferred.level());
             LOG.info("Night ended with an alert held for its reading: level={} action={}",
                     deferred.level(), eval.action());
+            if (eval.action() == AuroraStateCache.Action.CLEAR) {
+                snapshotStore.clear();
+            }
             return new AuroraPollOutcome(false, deferred.level(), eval.action(), deferred.trigger());
         }
 
@@ -213,11 +226,18 @@ public class AuroraOrchestrator {
                     // it escalates or clears, as every daylight NOTIFY whose fetch failed used to.
                     LOG.warn("NOAA fetch failed after a forecast NOTIFY — alert left unscored: {}",
                             e.getMessage());
+                    saveStandingAlert(night(tonight));
                     return new AuroraPollOutcome(false, level, eval.action(),
                             TriggerType.FORECAST_LOOKAHEAD);
                 }
             }
-            scoreAndCache(level, snapshot, TriggerType.FORECAST_LOOKAHEAD, tonight, restOfTonight);
+            try {
+                scoreAndCache(level, snapshot, TriggerType.FORECAST_LOOKAHEAD, tonight, restOfTonight);
+            } finally {
+                saveStandingAlert(night(tonight));
+            }
+        } else if (eval.action() == AuroraStateCache.Action.SUPPRESS) {
+            snapshotStore.confirm(night(tonight), stateCache::realAlertView);
         }
         return new AuroraPollOutcome(false, level, eval.action(), TriggerType.FORECAST_LOOKAHEAD);
     }
@@ -278,6 +298,7 @@ public class AuroraOrchestrator {
                     + "held until the last block's reading is published", level, trigger, restOfTonight,
                     kpNow);
             pendingHold = AuroraPollOutcome.held(level, trigger);
+            snapshotStore.hold(level, trigger);
             return pendingHold;
         }
 
@@ -287,12 +308,72 @@ public class AuroraOrchestrator {
                 level, trigger, restOfTonight, kpNow, eval.action());
 
         if (eval.action() == AuroraStateCache.Action.NOTIFY) {
-            scoreAndCache(level, snapshot, trigger, forecastReachesIt ? tonight : null,
-                    forecastReachesIt ? restOfTonight : kpNow);
+            try {
+                scoreAndCache(level, snapshot, trigger, forecastReachesIt ? tonight : null,
+                        forecastReachesIt ? restOfTonight : kpNow);
+            } finally {
+                saveStandingAlert(night(tonight));
+            }
+        } else if (eval.action() == AuroraStateCache.Action.SUPPRESS) {
+            snapshotStore.confirm(night(tonight), stateCache::realAlertView);
         } else if (eval.action() == AuroraStateCache.Action.CLEAR) {
+            snapshotStore.clear();
             LOG.info("Aurora event ended — cached scores cleared");
         }
         return new AuroraPollOutcome(true, level, eval.action(), trigger);
+    }
+
+    /**
+     * Restores the standing real alert persisted by the previous JVM, once, at the top of the first
+     * polling cycle and before that cycle's evaluation (the caller holds the cycle guard, so no
+     * evaluation can race it). Without it a restart starts IDLE and the first poll that still reads
+     * MODERATE or above NOTIFYs, paying for scoring an alert already standing.
+     *
+     * <p>A snapshot whose night is earlier than last night is stale: the JVM was down across a whole
+     * night it would have evaluated, and by day no poll ends an alert, so restoring it would show a
+     * days-old alert until dusk. It is discarded. Otherwise the alert is restored with its scores,
+     * and a hold the snapshot carries re-arms {@code pendingHold}, so the first daylight poll still
+     * makes the dawn CLEAR the previous JVM deferred. Nothing is restored while a simulation runs or an
+     * alert is already active.
+     *
+     * @param tonight tonight's dark window for this cycle
+     */
+    void restoreOnce(TonightWindow tonight) {
+        if (!restored.compareAndSet(false, true)) {
+            return;
+        }
+        Optional<AuroraAlertSnapshotStore.Snapshot> loaded = snapshotStore.load();
+        if (loaded.isEmpty()) {
+            return;
+        }
+        AuroraAlertSnapshotStore.Snapshot snapshot = loaded.get();
+        LocalDate tonightDate = night(tonight);
+        if (snapshot.nightDate().isBefore(tonightDate.minusDays(1))) {
+            LOG.info("Aurora snapshot discarded: night={} is stale (tonight={})", snapshot.nightDate(),
+                    tonightDate);
+            snapshotStore.clear();
+            return;
+        }
+        if (!stateCache.restore(snapshot.view())) {
+            LOG.info("Aurora snapshot not restored: an alert or simulation is already running");
+            return;
+        }
+        if (snapshot.heldLevel() != null && snapshot.heldTrigger() != null) {
+            pendingHold = AuroraPollOutcome.held(snapshot.heldLevel(), snapshot.heldTrigger());
+        }
+        LOG.info("Aurora alert restored after restart: level={} night={} activeSince={} scores={} held={}",
+                snapshot.view().level(), snapshot.nightDate(), snapshot.view().activeSince(),
+                snapshot.view().scores().size(), snapshot.heldLevel());
+    }
+
+    /** UTC date of tonight's dusk: the poller night an alert is stamped with. */
+    private static LocalDate night(TonightWindow tonight) {
+        return tonight.dusk().withZoneSameInstant(ZoneOffset.UTC).toLocalDate();
+    }
+
+    /** Persists the standing real alert, if there is one (a simulation or a reset leaves none). */
+    private void saveStandingAlert(LocalDate night) {
+        stateCache.realAlertView().ifPresent(view -> snapshotStore.save(view, night));
     }
 
     /**

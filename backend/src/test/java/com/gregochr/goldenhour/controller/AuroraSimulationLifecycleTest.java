@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.aurora.AuroraAlertSnapshotStore;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.AuroraPollingJob;
@@ -107,6 +108,8 @@ class AuroraSimulationLifecycleTest {
     private JobRunService jobRunService;
     @Mock
     private Executor forecastExecutor;
+    @Mock
+    private AuroraAlertSnapshotStore snapshotStore;
 
     /** Every default: Kp 5 and OVATION 20 % to alert, Bortle 4 (MODERATE) and 5 (STRONG). */
     private final AuroraProperties properties = new AuroraProperties();
@@ -123,11 +126,11 @@ class AuroraSimulationLifecycleTest {
         Clock clock = Clock.fixed(NOW.toInstant(), ZoneOffset.UTC);
         stateCache = new AuroraStateCache();
         AuroraOrchestrator orchestrator = new AuroraOrchestrator(noaaClient, weatherTriage, stateCache,
-                locationRepository, properties, evaluationService, modelSelectionService, clock);
+                locationRepository, properties, evaluationService, modelSelectionService, snapshotStore, clock);
         pollingJob = new AuroraPollingJob(orchestrator, properties, solarCalculator,
                 dynamicSchedulerService, clock);
         adminController = new AuroraAdminController(enrichmentService, properties, stateCache,
-                pollingJob, jobRunService, forecastExecutor, locationRepository);
+                pollingJob, jobRunService, forecastExecutor, locationRepository, snapshotStore);
         statusController = new AuroraController(stateCache, noaaClient, forecastRunService);
 
         // Dusk long past, dawn not yet due, at every date this class asks for: every poll here is a

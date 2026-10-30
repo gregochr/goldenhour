@@ -32,7 +32,7 @@ Writing the poller's scores there would change what users see, so this plan does
 
 ## The fix: persist the standing real alert, restore it before the first evaluation
 
-### 1. A one-row table, `aurora_alert_snapshot` (next migration, `V201`)
+### 1. A one-row table, `aurora_alert_snapshot` (next migration, `V203`)
 
 | column | type | meaning |
 |---|---|---|
@@ -183,13 +183,13 @@ rated, until it cleared.
   the same MODERATE must be SUPPRESS with **zero** further `evaluateNow` calls, and the restored scores must
   equal the scored ones. Add a second case where the restart is followed by STRONG: NOTIFY, one call.
 - `AuroraAdminControllerTest`: reset and simulate call `clear()`.
-- Testcontainers integration test (CI only, no Docker here) for V201 and the entity round-trip.
+- Testcontainers integration test (CI only, no Docker here) for V203 and the entity round-trip.
 
 ## Docs
 
 - `docs/engineering/reference/aurora.md`: add a ⚠️ sentence to the state-machine paragraph covering the snapshot,
   the restore window and the simulation exclusion, and point here.
-- `docs/engineering/reference/database-migrations.md`: one line for V201.
+- `docs/engineering/reference/database-migrations.md`: one line for V203.
 - `changelog.d/20261030-aurora-restart-restore.md`: `### Fixed — a restart no longer re-buys a standing aurora
   alert's scoring`.
 
@@ -237,5 +237,5 @@ run's cost several-fold. This plan does not change it.
 - `RealAlertView` copies its scores with `List.copyOf` in a compact constructor. Every new public type and method
   gets Javadoc (checkstyle). Each catch branch and each stale, no-row and refused path gets a test (JaCoCo is 80%
   per class).
-- Migration number: `V201` (latest is V200). Re-check at branch time. Add the line after
+- Migration number: `V203` (latest is V200). Re-check at branch time. Add the line after
   `database-migrations.md:83`.

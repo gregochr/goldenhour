@@ -167,6 +167,7 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
         verify(stateCache).activateSimulation(
                 eq(AlertLevel.STRONG),
                 eq(new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3")));
+        verify(auroraAlertSnapshotStore).clear();
     }
 
     // -------------------------------------------------------------------------
@@ -289,6 +290,7 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk());
 
         verify(stateCache).reset();
+        verify(auroraAlertSnapshotStore).clear();
     }
 
     // -------------------------------------------------------------------------
@@ -352,6 +354,7 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
 
         verify(stateCache).endSimulation();
         verify(stateCache, never()).reset();
+        verify(auroraAlertSnapshotStore, never()).clear();
     }
 
     /**

@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.service.aurora;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.AuroraAlertSnapshotEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
@@ -11,6 +13,7 @@ import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
+import com.gregochr.goldenhour.repository.AuroraAlertSnapshotRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -25,23 +28,32 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.quality.Strictness;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 /**
  * Consecutive {@link AuroraPollingJob} polls driven through the REAL {@link AuroraOrchestrator}, the
@@ -103,6 +115,9 @@ class AuroraPollingCycleTest {
     private final LocationEntity kielder = LocationEntity.builder()
             .id(1L).name("Kielder").lat(55.23).lon(-2.58).bortleClass(2).build();
 
+    private final AtomicReference<AuroraAlertSnapshotEntity> snapshotRow = new AtomicReference<>();
+    private final AuroraAlertSnapshotRepository snapshotRepository = fakeSnapshotRepository();
+
     private AuroraProperties properties;
     private AuroraStateCache stateCache;
     private AuroraPollingJob job;
@@ -111,10 +126,8 @@ class AuroraPollingCycleTest {
     void setUp() {
         properties = new AuroraProperties(); // Kp 5, OVATION 20%
         stateCache = new AuroraStateCache(clock);
-        AuroraOrchestrator orchestrator = new AuroraOrchestrator(noaa, weatherTriage, stateCache,
-                locationRepository, properties, evaluationService, modelSelectionService, clock);
-        job = new AuroraPollingJob(orchestrator, properties, new SolarCalculator(),
-                dynamicSchedulerService, clock);
+        job = newJob(stateCache);
+        lenient().when(locationRepository.findAllById(any())).thenReturn(List.of(kielder));
 
         // What the edges answer IF they are asked. Whether a poll asks is the behaviour under test;
         // every test here reaches at least one NOTIFY that asks, so no stub goes unused. The Bortle
@@ -613,6 +626,97 @@ class AuroraPollingCycleTest {
     }
 
     // -------------------------------------------------------------------------
+    // A restart during a standing alert
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a restart during a standing alert does not re-buy its scoring: the next poll SUPPRESSes")
+    void restart_duringAStandingAlert_isNotRescored() {
+        // 30 Oct 2026 in production: v2.35.2 started, and its first poll, at the same MODERATE the
+        // old JVM had been SUPPRESSing, NOTIFIED and paid for triage and a Claude call.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        clock.set("2027-01-14T12:00");
+        noaa.blocks = kpProduct(2.33, Map.of("2027-01-14T21:00", 5.33));
+        assertThat(poll()).isEqualTo(new AfterPoll(1, true, 1));
+        List<AuroraForecastScore> scored = stateCache.getCachedScores();
+        Instant since = stateCache.getActiveSince();
+
+        restart();
+        assertThat(stateCache.isActive()).as("a new JVM starts IDLE").isFalse();
+        clock.advance(POLL_INTERVAL);
+        AuroraPollOutcome outcome = job.executePoll();
+
+        assertThat(outcome.action()).isEqualTo(AuroraStateCache.Action.SUPPRESS);
+        assertThat(claudeCalls).as("no further Claude call").hasSize(1);
+        verify(weatherTriage, times(1)).triage(List.of(kielder));
+        assertThat(stateCache.isActive()).isTrue();
+        assertThat(stateCache.getCachedScores()).isEqualTo(scored);
+        assertThat(stateCache.getActiveSince()).as("restored, not restamped").isEqualTo(since);
+        assertThat(stateCache.getLastTriggerType()).isEqualTo(TriggerType.FORECAST_LOOKAHEAD);
+        assertThat(stateCache.getLastTriggerKp()).isEqualTo(5.33);
+        assertThat(snapshotRow.get()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("a restart followed by a STRONG forecast still escalates: NOTIFY, one more Claude call")
+    void restart_thenEscalation_stillPays() {
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        kielderIsEligibleAt(properties.getBortleThreshold().getStrong());
+        clock.set("2027-01-14T12:00");
+        noaa.blocks = kpProduct(2.33, Map.of("2027-01-14T21:00", 5.33));
+        assertThat(poll()).isEqualTo(new AfterPoll(1, true, 1));
+
+        restart();
+        clock.advance(POLL_INTERVAL);
+        noaa.blocks = kpProduct(2.33, Map.of("2027-01-14T21:00", 7.33));
+        AuroraPollOutcome outcome = job.executePoll();
+
+        assertThat(outcome.action()).isEqualTo(AuroraStateCache.Action.NOTIFY);
+        assertThat(claudeCalls).extracting(EvaluationTask.Aurora::alertLevel)
+                .containsExactly(AlertLevel.MODERATE, AlertLevel.STRONG);
+        assertThat(snapshotRow.get().getAlertLevel()).as("the escalation is saved too").isEqualTo("STRONG");
+    }
+
+    @Test
+    @DisplayName("an alert held when dawn comes survives a restart: the first daylight poll still CLEARs it")
+    void restart_whileAnAlertIsHeldAtDawn_stillClearsAtDawn() {
+        // The February night of alertHeldAtDawn_isEndedByTheFirstDaylightPoll, with the JVM restarted
+        // after the last hold (06:15) and before the first daylight poll (06:20).
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.blocks = kpProductFrom("2027-02-13", 2.33, Map.of(
+                "2027-02-14T00:00", 5.67,
+                "2027-02-14T03:00", 3.00));
+        pollEveryFiveMinutes("2027-02-13T09:00", "2027-02-14T06:20");
+        assertThat(stateCache.isActive()).isTrue();
+        assertThat(snapshotRow.get().getHeldLevel()).as("the 06:15 poll held the alert").isNotNull();
+
+        restart();
+        AuroraPollOutcome outcome = job.executePoll();
+
+        assertThat(outcome.action()).isEqualTo(AuroraStateCache.Action.CLEAR);
+        assertThat(stateCache.isActive()).isFalse();
+        assertThat(snapshotRow.get()).as("the snapshot goes with the alert").isNull();
+        assertThat(claudeCalls).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a CLEAR deletes the snapshot, so a later restart starts IDLE")
+    void clear_deletesTheSnapshot() {
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.blocks = kpProduct(2.33, Map.of("2027-01-14T18:00", 5.67, "2027-01-14T21:00", 3.00,
+                "2027-01-15T00:00", 5.33));
+        pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
+        assertThat(stateCache.isActive()).isFalse();
+        assertThat(snapshotRow.get()).isNull();
+
+        restart();
+        clock.set("2027-01-15T11:05");
+        job.executePoll();
+
+        assertThat(stateCache.isActive()).isFalse();
+    }
+
+    // -------------------------------------------------------------------------
     // Fixture
     // -------------------------------------------------------------------------
 
@@ -641,6 +745,66 @@ class AuroraPollingCycleTest {
     private void kielderIsEligibleAt(int bortleThreshold) {
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(bortleThreshold))
                 .thenReturn(List.of(kielder));
+    }
+
+    /**
+     * A polling job over {@code machine}, with a snapshot store of its own (as a new JVM has) over the
+     * one fake repository: what an earlier job wrote, a later one reads.
+     */
+    private AuroraPollingJob newJob(AuroraStateCache machine) {
+        AuroraAlertSnapshotStore store = new AuroraAlertSnapshotStore(snapshotRepository, locationRepository,
+                new ObjectMapper(), clock);
+        AuroraOrchestrator orchestrator = new AuroraOrchestrator(noaa, weatherTriage, machine,
+                locationRepository, properties, evaluationService, modelSelectionService, store, clock);
+        return new AuroraPollingJob(orchestrator, properties, new SolarCalculator(),
+                dynamicSchedulerService, clock);
+    }
+
+    /** A backend restart: a fresh state machine, orchestrator and store over the same database. */
+    private void restart() {
+        stateCache = new AuroraStateCache(clock);
+        job = newJob(stateCache);
+    }
+
+    /**
+     * A stateful fake of the one-row table: the row lives in {@link #snapshotRow}, and the repository's
+     * queries act on it as the real ones do.
+     */
+    private AuroraAlertSnapshotRepository fakeSnapshotRepository() {
+        AuroraAlertSnapshotRepository repository = mock(AuroraAlertSnapshotRepository.class,
+                withSettings().strictness(Strictness.LENIENT));
+        when(repository.save(any())).thenAnswer(invocation -> {
+            AuroraAlertSnapshotEntity row = invocation.getArgument(0);
+            snapshotRow.set(row);
+            return row;
+        });
+        when(repository.findById(any())).thenAnswer(invocation -> Optional.ofNullable(snapshotRow.get()));
+        when(repository.existsById(any())).thenAnswer(invocation -> snapshotRow.get() != null);
+        doAnswer(invocation -> {
+            snapshotRow.set(null);
+            return null;
+        }).when(repository).deleteById(any());
+        when(repository.confirmNight(any())).thenAnswer(invocation -> {
+            LocalDate night = invocation.getArgument(0);
+            AuroraAlertSnapshotEntity row = snapshotRow.get();
+            if (row == null || !(row.getNightDate().isBefore(night) || row.getHeldLevel() != null)) {
+                return 0;
+            }
+            row.setNightDate(night);
+            row.setHeldLevel(null);
+            row.setHeldTrigger(null);
+            return 1;
+        });
+        when(repository.setHold(any(), any())).thenAnswer(invocation -> {
+            AuroraAlertSnapshotEntity row = snapshotRow.get();
+            if (row == null) {
+                return 0;
+            }
+            row.setHeldLevel(invocation.getArgument(0));
+            row.setHeldTrigger(invocation.getArgument(1));
+            return 1;
+        });
+        return repository;
     }
 
     private AfterPoll poll() {
