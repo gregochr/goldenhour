@@ -101,6 +101,20 @@ class AuroraPollingJobTest {
     }
 
     @Test
+    @DisplayName("every cycle restores the standing alert for tonight's window before it evaluates")
+    void executePoll_restoresBeforeEvaluating() {
+        sunForAnEveningOn(JAN_14);
+        ZonedDateTime noon = utc("2027-01-14T12:00");
+        when(orchestrator.runForecastLookahead(NIGHT_OF_14TH, noon)).thenReturn(A_DAYLIGHT_POLL);
+
+        jobAt(noon).executePoll();
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(orchestrator);
+        order.verify(orchestrator).restoreOnce(NIGHT_OF_14TH);
+        order.verify(orchestrator).runForecastLookahead(NIGHT_OF_14TH, noon);
+    }
+
+    @Test
     @DisplayName("in the evening the poll runs the night poll for tonight, and nothing else")
     void executePoll_evening_runsTheNightPoll() {
         sunForAnEveningOn(JAN_14);

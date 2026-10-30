@@ -31,20 +31,25 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -86,6 +91,8 @@ class AuroraOrchestratorTest {
     private EvaluationService evaluationService;
     @Mock
     private ModelSelectionService modelSelectionService;
+    @Mock
+    private AuroraAlertSnapshotStore snapshotStore;
 
     private AuroraOrchestrator orchestrator;
     private AuroraProperties properties;
@@ -956,6 +963,7 @@ class AuroraOrchestratorTest {
                 AuroraStateCache.Action.NOTIFY, TriggerType.FORECAST_LOOKAHEAD));
         verify(stateCache).wouldNotify(AlertLevel.MODERATE);
         verify(stateCache).evaluate(AlertLevel.MODERATE);
+        verify(stateCache).realAlertView(); // the unscored alert is saved still
         verifyNoMoreInteractions(stateCache);
         verifyNoInteractions(locationRepository, weatherTriage, evaluationService);
     }
@@ -1141,18 +1149,361 @@ class AuroraOrchestratorTest {
     }
 
     // -------------------------------------------------------------------------
+    // The standing alert's snapshot — saved at NOTIFY, confirmed, held, cleared, restored
+    // -------------------------------------------------------------------------
+
+    private static final LocalDate NIGHT = LocalDate.of(2027, 1, 14);
+
+    private AuroraStateCache.RealAlertView aView() {
+        return new AuroraStateCache.RealAlertView(AlertLevel.MODERATE, Instant.parse("2027-01-14T19:30:00Z"),
+                TriggerType.FORECAST_LOOKAHEAD, 5.67, 1, 1,
+                List.of(new AuroraForecastScore(kielder, 4, AlertLevel.MODERATE, 10, "s", "d")));
+    }
+
+    @Test
+    @DisplayName("a night NOTIFY saves the standing alert for tonight's night, after scoring")
+    void runNightPoll_notify_savesTheAlert() {
+        when(noaaClient.fetchAll()).thenReturn(peakInTheSmallHours(3.0));
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE));
+        scoringReturns(properties.getBortleThreshold().getModerate(), AlertLevel.MODERATE);
+        when(stateCache.realAlertView()).thenReturn(Optional.of(aView()));
+
+        orchestrator.runNightPoll(TONIGHT, utc("2027-01-14T17:45"));
+
+        InOrder order = inOrder(stateCache, snapshotStore);
+        order.verify(stateCache).updateScores(any());
+        order.verify(snapshotStore).save(aView(), NIGHT);
+    }
+
+    @Test
+    @DisplayName("a night NOTIFY whose scoring throws still saves the alert, which is ACTIVE in memory")
+    void runNightPoll_notifyScoringThrows_stillSaves() {
+        when(noaaClient.fetchAll()).thenReturn(peakInTheSmallHours(3.0));
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE));
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(
+                properties.getBortleThreshold().getModerate())).thenReturn(List.of(kielder));
+        when(weatherTriage.triage(List.of(kielder))).thenThrow(new IllegalStateException("triage down"));
+        when(stateCache.realAlertView()).thenReturn(Optional.of(aView()));
+
+        assertThatThrownBy(() -> orchestrator.runNightPoll(TONIGHT, utc("2027-01-14T17:45")))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(snapshotStore).save(aView(), NIGHT);
+    }
+
+    @Test
+    @DisplayName("a NOTIFY that lands while a simulation runs saves nothing: there is no real alert to save")
+    void runNightPoll_notifyDuringSimulation_savesNothing() {
+        when(noaaClient.fetchAll()).thenReturn(afterTheStorm(35.0));
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE));
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(
+                properties.getBortleThreshold().getModerate())).thenReturn(List.of());
+        when(stateCache.realAlertView()).thenReturn(Optional.empty());
+
+        orchestrator.runNightPoll(TONIGHT, utc("2027-01-14T22:00"));
+
+        verify(snapshotStore, never()).save(any(), any());
+    }
+
+    @Test
+    @DisplayName("a night SUPPRESS confirms the night and touches the cache only through the supplier")
+    void runNightPoll_suppress_confirmsTheNight() {
+        when(noaaClient.fetchAll()).thenReturn(afterTheStorm(35.0));
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(evaluation(AuroraStateCache.Action.SUPPRESS, AlertLevel.MODERATE));
+
+        orchestrator.runNightPoll(TONIGHT, utc("2027-01-14T22:00"));
+
+        verifyConfirmSuppliesTheCachesAlert();
+        verify(snapshotStore, never()).save(any(), any());
+    }
+
+    /**
+     * The orchestrator handed {@code confirm} a supplier that reads the state machine's real alert, and
+     * did not evaluate it itself: a wrong callback would break the repair of a missing snapshot.
+     */
+    private void verifyConfirmSuppliesTheCachesAlert() {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Supplier<Optional<AuroraStateCache.RealAlertView>>> supplier =
+                ArgumentCaptor.forClass(Supplier.class);
+        verify(snapshotStore).confirm(eq(NIGHT), supplier.capture());
+        verify(stateCache, never()).realAlertView();
+
+        Optional<AuroraStateCache.RealAlertView> standing = Optional.of(aView());
+        when(stateCache.realAlertView()).thenReturn(standing);
+
+        assertThat(supplier.getValue().get()).isSameAs(standing);
+    }
+
+    @Test
+    @DisplayName("a night poll that holds the alert records the hold")
+    void runNightPoll_hold_recordsTheHold() {
+        SpaceWeatherData data = snapshot(List.of(reading("2027-01-14T18:00", 5.67)),
+                List.of(block("2027-01-14T18:00", 5.67), block("2027-01-14T21:00", 4.67),
+                        block("2027-01-15T00:00", 3.67), block("2027-01-15T03:00", 3.00)),
+                12.0);
+        when(noaaClient.fetchAll()).thenReturn(data);
+        when(stateCache.wouldClear(AlertLevel.MINOR)).thenReturn(true);
+
+        orchestrator.runNightPoll(TONIGHT, utc("2027-01-15T00:05"));
+
+        verify(snapshotStore).hold(AlertLevel.MINOR, TriggerType.REALTIME);
+    }
+
+    @Test
+    @DisplayName("a night CLEAR deletes the snapshot")
+    void runNightPoll_clear_clearsTheSnapshot() {
+        SpaceWeatherData data = snapshot(List.of(reading("2027-01-15T00:00", 2.00)),
+                List.of(block("2027-01-15T00:00", 2.00), block("2027-01-15T03:00", 2.33),
+                        block("2027-01-15T06:00", 2.00)),
+                3.0);
+        when(noaaClient.fetchAll()).thenReturn(data);
+        when(stateCache.evaluate(AlertLevel.QUIET))
+                .thenReturn(evaluation(AuroraStateCache.Action.CLEAR, null));
+
+        orchestrator.runNightPoll(TONIGHT, utc("2027-01-15T04:00"));
+
+        verify(snapshotStore).clear();
+    }
+
+    @Test
+    @DisplayName("a night poll that evaluates NONE touches the snapshot not at all")
+    void runNightPoll_none_leavesTheSnapshotAlone() {
+        SpaceWeatherData data = snapshot(List.of(reading("2027-01-15T00:00", 2.00)),
+                List.of(block("2027-01-15T00:00", 2.00), block("2027-01-15T03:00", 2.33),
+                        block("2027-01-15T06:00", 2.00)),
+                3.0);
+        when(noaaClient.fetchAll()).thenReturn(data);
+        when(stateCache.evaluate(AlertLevel.QUIET))
+                .thenReturn(evaluation(AuroraStateCache.Action.NONE, null));
+
+        orchestrator.runNightPoll(TONIGHT, utc("2027-01-15T04:00"));
+
+        verifyNoInteractions(snapshotStore);
+    }
+
+    @Test
+    @DisplayName("daylight: a NOTIFY saves the standing alert after scoring")
+    void runForecastLookahead_notify_savesTheAlert() {
+        SpaceWeatherData scoringData = peakInTheSmallHours(3.0);
+        when(noaaClient.fetchKpForecast()).thenReturn(scoringData.kpForecast());
+        when(stateCache.wouldNotify(AlertLevel.MODERATE)).thenReturn(true);
+        when(noaaClient.fetchAll()).thenReturn(scoringData);
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE));
+        scoringReturns(properties.getBortleThreshold().getModerate(), AlertLevel.MODERATE);
+        when(stateCache.realAlertView()).thenReturn(Optional.of(aView()));
+
+        orchestrator.runForecastLookahead(TONIGHT, utc("2027-01-14T12:00"));
+
+        verify(snapshotStore).save(aView(), NIGHT);
+    }
+
+    @Test
+    @DisplayName("daylight: a NOTIFY whose scoring throws still saves the alert")
+    void runForecastLookahead_notifyScoringThrows_stillSaves() {
+        SpaceWeatherData scoringData = peakInTheSmallHours(3.0);
+        when(noaaClient.fetchKpForecast()).thenReturn(scoringData.kpForecast());
+        when(stateCache.wouldNotify(AlertLevel.MODERATE)).thenReturn(true);
+        when(noaaClient.fetchAll()).thenReturn(scoringData);
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE));
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(
+                properties.getBortleThreshold().getModerate())).thenThrow(new IllegalStateException("db"));
+        when(stateCache.realAlertView()).thenReturn(Optional.of(aView()));
+
+        assertThatThrownBy(() -> orchestrator.runForecastLookahead(TONIGHT, utc("2027-01-14T12:00")))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(snapshotStore).save(aView(), NIGHT);
+    }
+
+    @Test
+    @DisplayName("daylight: a NOTIFY left unscored by a failed NOAA fetch still saves the (unscored) alert")
+    void runForecastLookahead_notifyUnscored_stillSaves() {
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(block("2027-01-14T21:00", 5.33)));
+        when(stateCache.wouldNotify(AlertLevel.MODERATE)).thenReturn(false);
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE));
+        when(noaaClient.fetchAll()).thenThrow(new RuntimeException("unexpected"));
+        when(stateCache.realAlertView()).thenReturn(Optional.of(aView()));
+
+        orchestrator.runForecastLookahead(TONIGHT, utc("2027-01-14T12:00"));
+
+        verify(snapshotStore).save(aView(), NIGHT);
+    }
+
+    @Test
+    @DisplayName("daylight: a SUPPRESS confirms the night")
+    void runForecastLookahead_suppress_confirmsTheNight() {
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(block("2027-01-14T21:00", 5.33)));
+        when(stateCache.wouldNotify(AlertLevel.MODERATE)).thenReturn(false);
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(evaluation(AuroraStateCache.Action.SUPPRESS, AlertLevel.MODERATE));
+
+        orchestrator.runForecastLookahead(TONIGHT, utc("2027-01-14T12:00"));
+
+        verifyConfirmSuppliesTheCachesAlert();
+        verify(snapshotStore, never()).save(any(), any());
+    }
+
+    @Test
+    @DisplayName("the deferred-hold CLEAR at dawn deletes the snapshot")
+    void runForecastLookahead_deferredHoldClear_clearsTheSnapshot() {
+        when(noaaClient.fetchAll()).thenReturn(snapshot(List.of(reading("2027-01-15T00:00", 5.33)),
+                List.of(block("2027-01-15T00:00", 5.33), block("2027-01-15T03:00", 2.67),
+                        block("2027-01-15T06:00", 2.33)),
+                5.0));
+        AuroraStateCache machine = new AuroraStateCache();
+        machine.evaluate(AlertLevel.MODERATE);
+        AuroraOrchestrator withMachine = orchestratorOver(machine);
+        TonightWindow tonight = new TonightWindow(utc("2027-01-14T17:30"), utc("2027-01-15T06:30"));
+        TonightWindow nextNight = new TonightWindow(utc("2027-01-15T17:30"), utc("2027-01-16T06:30"));
+
+        withMachine.runNightPoll(tonight, utc("2027-01-15T06:25"));
+        verify(snapshotStore).hold(AlertLevel.QUIET, TriggerType.FORECAST_LOOKAHEAD);
+        verify(snapshotStore, never()).clear();
+
+        withMachine.runForecastLookahead(nextNight, utc("2027-01-15T06:35"));
+
+        verify(snapshotStore).clear();
+    }
+
+    private static AuroraAlertSnapshotStore.Snapshot snapshotOf(AuroraStateCache.RealAlertView view,
+            LocalDate night, AlertLevel heldLevel, TriggerType heldTrigger) {
+        return new AuroraAlertSnapshotStore.Snapshot(view, night, heldLevel, heldTrigger);
+    }
+
+    @Test
+    @DisplayName("restoreOnce restores a snapshot of tonight's night, with its scores and trigger")
+    void restoreOnce_tonightsNight_restores() {
+        AuroraStateCache machine = new AuroraStateCache();
+        when(snapshotStore.load()).thenReturn(Optional.of(snapshotOf(aView(), NIGHT, null, null)));
+
+        orchestratorOver(machine).restoreOnce(TONIGHT);
+
+        assertThat(machine.realAlertView()).contains(aView());
+        verify(snapshotStore, never()).clear();
+    }
+
+    @Test
+    @DisplayName("restoreOnce restores a snapshot of last night: a daytime alert is not re-evaluated until dusk")
+    void restoreOnce_lastNight_restores() {
+        AuroraStateCache machine = new AuroraStateCache();
+        when(snapshotStore.load())
+                .thenReturn(Optional.of(snapshotOf(aView(), NIGHT.minusDays(1), null, null)));
+
+        orchestratorOver(machine).restoreOnce(TONIGHT);
+
+        assertThat(machine.isActive()).isTrue();
+    }
+
+    @Test
+    @DisplayName("restoreOnce discards and clears a snapshot two nights old")
+    void restoreOnce_twoNightsOld_isDiscarded() {
+        AuroraStateCache machine = new AuroraStateCache();
+        when(snapshotStore.load())
+                .thenReturn(Optional.of(snapshotOf(aView(), NIGHT.minusDays(2), null, null)));
+
+        orchestratorOver(machine).restoreOnce(TONIGHT);
+
+        assertThat(machine.isActive()).isFalse();
+        verify(snapshotStore).clear();
+    }
+
+    @Test
+    @DisplayName("restoreOnce does nothing when there is no snapshot")
+    void restoreOnce_noSnapshot_doesNothing() {
+        AuroraStateCache machine = new AuroraStateCache();
+        when(snapshotStore.load()).thenReturn(Optional.empty());
+
+        orchestratorOver(machine).restoreOnce(TONIGHT);
+
+        assertThat(machine.isActive()).isFalse();
+        verify(snapshotStore, never()).clear();
+    }
+
+    @Test
+    @DisplayName("restoreOnce reads the snapshot once per JVM, not once per cycle")
+    void restoreOnce_runsOnce() {
+        AuroraStateCache machine = new AuroraStateCache();
+        when(snapshotStore.load()).thenReturn(Optional.empty());
+        AuroraOrchestrator withMachine = orchestratorOver(machine);
+
+        withMachine.restoreOnce(TONIGHT);
+        withMachine.restoreOnce(TONIGHT);
+
+        verify(snapshotStore, times(1)).load();
+    }
+
+    @Test
+    @DisplayName("restoreOnce leaves a running simulation alone, and re-arms no hold")
+    void restoreOnce_simulationRunning_restoresNothing() {
+        AuroraStateCache machine = new AuroraStateCache();
+        machine.activateSimulation(AlertLevel.STRONG, new AuroraStateCache.SimulatedNoaaData(7, 40, -10, "G3"));
+        when(snapshotStore.load()).thenReturn(Optional.of(
+                snapshotOf(aView(), NIGHT, AlertLevel.QUIET, TriggerType.REALTIME)));
+        AuroraOrchestrator withMachine = orchestratorOver(machine);
+
+        withMachine.restoreOnce(TONIGHT);
+
+        assertThat(machine.getSimulatedData()).isNotNull();
+        assertThat(machine.getCurrentLevel()).isEqualTo(AlertLevel.STRONG);
+        // No hold was re-armed: the first daylight poll reads the forecast as usual.
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(block("2027-01-15T21:00", 2.33)));
+        withMachine.runForecastLookahead(new TonightWindow(utc("2027-01-15T17:30"), utc("2027-01-16T06:30")),
+                utc("2027-01-15T12:00"));
+        verify(noaaClient).fetchKpForecast();
+    }
+
+    @Test
+    @DisplayName("restoreOnce leaves an alert that is already ACTIVE as it is")
+    void restoreOnce_alreadyActive_restoresNothing() {
+        AuroraStateCache machine = new AuroraStateCache();
+        machine.evaluate(AlertLevel.STRONG);
+        when(snapshotStore.load()).thenReturn(Optional.of(snapshotOf(aView(), NIGHT, null, null)));
+
+        orchestratorOver(machine).restoreOnce(TONIGHT);
+
+        assertThat(machine.getCurrentLevel()).isEqualTo(AlertLevel.STRONG);
+        assertThat(machine.getCachedScores()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a restored hold re-arms pendingHold, so the first daylight poll makes the deferred CLEAR")
+    void restoreOnce_withAHold_rearmsTheDeferredClear() {
+        AuroraStateCache machine = new AuroraStateCache();
+        when(snapshotStore.load()).thenReturn(Optional.of(
+                snapshotOf(aView(), NIGHT, AlertLevel.QUIET, TriggerType.FORECAST_LOOKAHEAD)));
+        AuroraOrchestrator withMachine = orchestratorOver(machine);
+        TonightWindow nextNight = new TonightWindow(utc("2027-01-15T17:30"), utc("2027-01-16T06:30"));
+
+        withMachine.restoreOnce(TONIGHT);
+        AuroraPollOutcome atDawn = withMachine.runForecastLookahead(nextNight, utc("2027-01-15T06:35"));
+
+        assertThat(atDawn).isEqualTo(new AuroraPollOutcome(false, AlertLevel.QUIET,
+                AuroraStateCache.Action.CLEAR, TriggerType.FORECAST_LOOKAHEAD));
+        assertThat(machine.isActive()).isFalse();
+        verify(snapshotStore).clear();
+        verifyNoInteractions(noaaClient);
+    }
+
+    // -------------------------------------------------------------------------
     // Fixtures
     // -------------------------------------------------------------------------
 
     private AuroraOrchestrator orchestratorWithClockAt(Instant instant) {
         return new AuroraOrchestrator(noaaClient, weatherTriage, stateCache, locationRepository,
-                properties, evaluationService, modelSelectionService, Clock.fixed(instant, UTC));
+                properties, evaluationService, modelSelectionService, snapshotStore, Clock.fixed(instant, UTC));
     }
 
     /** An orchestrator over a real state machine, for the tests whose subject is what it is left in. */
     private AuroraOrchestrator orchestratorOver(AuroraStateCache machine) {
         return new AuroraOrchestrator(noaaClient, weatherTriage, machine, locationRepository,
-                properties, evaluationService, modelSelectionService, Clock.fixed(BATCH_NOW, UTC));
+                properties, evaluationService, modelSelectionService, snapshotStore, Clock.fixed(BATCH_NOW, UTC));
     }
 
     private static ZonedDateTime utc(String localDateTime) {

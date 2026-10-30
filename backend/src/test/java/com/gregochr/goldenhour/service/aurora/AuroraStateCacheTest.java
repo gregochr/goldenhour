@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.service.ServedBriefingEpoch;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Named;
@@ -976,6 +977,112 @@ class AuroraStateCacheTest {
     private static void realAlert(AuroraStateCache c) {
         c.evaluate(AlertLevel.MODERATE);
         landAScoring(c);
+    }
+
+    // -------------------------------------------------------------------------
+    // realAlertView / restore — the standing real alert survives a restart
+    // -------------------------------------------------------------------------
+
+    private static AuroraStateCache.RealAlertView aView(AlertLevel level) {
+        return new AuroraStateCache.RealAlertView(level, Instant.parse("2027-01-14T19:30:00Z"),
+                TriggerType.FORECAST_LOOKAHEAD, 5.67, 12, 7,
+                List.of(new AuroraForecastScore(null, 4, level, 20, "s", "d")));
+    }
+
+    @Test
+    @DisplayName("realAlertView is empty when IDLE")
+    void realAlertView_idle_isEmpty() {
+        assertThat(cache.realAlertView()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("realAlertView is empty during a simulation, which is never persisted")
+    void realAlertView_simulating_isEmpty() {
+        cache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7, 40, -10, "G3"));
+
+        assertThat(cache.realAlertView()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("realAlertView carries every field of a real alert")
+    void realAlertView_activeAlert_carriesEveryField() {
+        cache.evaluate(AlertLevel.MODERATE);
+        landAScoring(cache);
+
+        assertThat(cache.realAlertView()).hasValueSatisfying(v -> {
+            assertThat(v.level()).isEqualTo(AlertLevel.MODERATE);
+            assertThat(v.activeSince()).isEqualTo(START);
+            assertThat(v.triggerType()).isEqualTo(TriggerType.REALTIME);
+            assertThat(v.triggerKp()).isEqualTo(5.3);
+            assertThat(v.darkSkyCount()).isEqualTo(12);
+            assertThat(v.clearCount()).isEqualTo(7);
+            assertThat(v.scores()).hasSize(1);
+        });
+    }
+
+    @Test
+    @DisplayName("restore sets every field from IDLE and bumps the served epoch once")
+    void restore_fromIdle_setsEveryFieldAndBumpsOnce() {
+        ServedBriefingEpoch epoch = new ServedBriefingEpoch();
+        AuroraStateCache restored = new AuroraStateCache(clock, epoch);
+        long before = epoch.current();
+        AuroraStateCache.RealAlertView view = aView(AlertLevel.MODERATE);
+
+        assertThat(restored.restore(view)).isTrue();
+
+        assertThat(epoch.current()).isEqualTo(before + 1);
+        assertThat(restored.isActive()).isTrue();
+        assertThat(restored.getCurrentLevel()).isEqualTo(AlertLevel.MODERATE);
+        assertThat(restored.getActiveSince()).isEqualTo(view.activeSince());
+        assertThat(restored.getLastTriggerType()).isEqualTo(TriggerType.FORECAST_LOOKAHEAD);
+        assertThat(restored.getLastTriggerKp()).isEqualTo(5.67);
+        assertThat(restored.getDarkSkyLocationCount()).isEqualTo(12);
+        assertThat(restored.getClearLocationCount()).isEqualTo(7);
+        assertThat(restored.getCachedScores()).isEqualTo(view.scores());
+        assertThat(restored.getSimulatedData()).isNull();
+        assertThat(restored.realAlertView()).contains(view);
+    }
+
+    @Test
+    @DisplayName("restore is refused while an alert is ACTIVE, and leaves it as it was")
+    void restore_whenActive_isRefused() {
+        cache.evaluate(AlertLevel.STRONG);
+        List<Object> before = everything(cache);
+
+        assertThat(cache.restore(aView(AlertLevel.MODERATE))).isFalse();
+
+        assertThat(everything(cache)).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("restore is refused during a simulation")
+    void restore_whileSimulating_isRefused() {
+        cache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7, 40, -10, "G3"));
+
+        assertThat(cache.restore(aView(AlertLevel.MODERATE))).isFalse();
+        assertThat(cache.getSimulatedData()).isNotNull();
+        assertThat(cache.getCurrentLevel()).isEqualTo(AlertLevel.STRONG);
+    }
+
+    @Test
+    @DisplayName("a restored MODERATE alert SUPPRESSes MODERATE, NOTIFIES STRONG and CLEARs below MODERATE")
+    void restore_thenEvaluate_behavesLikeTheAlertNeverLeft() {
+        AuroraStateCache suppress = new AuroraStateCache(clock);
+        suppress.restore(aView(AlertLevel.MODERATE));
+        assertThat(suppress.evaluate(AlertLevel.MODERATE).action()).isEqualTo(AuroraStateCache.Action.SUPPRESS);
+
+        AuroraStateCache escalate = new AuroraStateCache(clock);
+        escalate.restore(aView(AlertLevel.MODERATE));
+        var eval = escalate.evaluate(AlertLevel.STRONG);
+        assertThat(eval.action()).isEqualTo(AuroraStateCache.Action.NOTIFY);
+        assertThat(eval.previousLevel()).isEqualTo(AlertLevel.MODERATE);
+
+        AuroraStateCache clear = new AuroraStateCache(clock);
+        clear.restore(aView(AlertLevel.MODERATE));
+        assertThat(clear.evaluate(AlertLevel.MINOR).action()).isEqualTo(AuroraStateCache.Action.CLEAR);
+        assertThat(clear.isActive()).isFalse();
     }
 
     /**

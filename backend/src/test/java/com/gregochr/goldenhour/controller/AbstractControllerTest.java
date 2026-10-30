@@ -49,6 +49,7 @@ import com.gregochr.goldenhour.service.UserSettingsService;
 import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService;
 import com.gregochr.goldenhour.service.batch.ForecastDispositionService;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
+import com.gregochr.goldenhour.service.aurora.AuroraAlertSnapshotStore;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.AuroraPollingJob;
@@ -291,6 +292,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected AuroraStateCache stateCache;
+
+    @MockitoBean
+    protected AuroraAlertSnapshotStore auroraAlertSnapshotStore;
 
     /**
      * Bortle enrichment service — exposed as {@code enrichmentService} to match the field name
