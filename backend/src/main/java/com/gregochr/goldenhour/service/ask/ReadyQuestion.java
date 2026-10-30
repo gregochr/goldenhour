@@ -60,7 +60,7 @@ public enum ReadyQuestion {
         }
     },
 
-    /** Best spot at the next window: tonight, this morning, tomorrow morning and so on. */
+    /** Best spot at the next window: this evening, this morning, tomorrow morning and so on. */
     BEST_NEXT(true, true, Events.NONE, "plan", "map") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
@@ -348,11 +348,11 @@ public enum ReadyQuestion {
         return date.equals(today) || date.equals(today.plusDays(1)) ? relative : "on " + relative;
     }
 
-    /** {@code tonight}, {@code this morning}, {@code tomorrow morning}, {@code on Saturday evening}. */
+    /** {@code this evening}, {@code this morning}, {@code tomorrow morning}, {@code on Saturday evening}. */
     static String nextWindowWords(AskSnapshot.Window window, LocalDate today) {
         boolean sunrise = window.targetType() == TargetType.SUNRISE;
         if (window.date().equals(today)) {
-            return sunrise ? "this morning" : "tonight";
+            return sunrise ? "this morning" : "this evening";
         }
         return dayWords(window.date(), today) + (sunrise ? " morning" : " evening");
     }

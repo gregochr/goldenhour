@@ -88,7 +88,7 @@ public class StubAskEngine implements AskEngine {
             "\\b(?:stars?|stargazing|milky way|dark skies|dark sky|night sky|clear skies|clear sky|bortle"
                     + "|northern lights)\\b");
     private static final Pattern AURORA_WORDS = Pattern.compile("\\b(?:aurora|northern lights)\\b");
-    private static final Pattern TODAY_WORDS = Pattern.compile("\\b(?:today|tonight|this morning)\\b");
+    private static final Pattern TODAY_WORDS = Pattern.compile("\\b(?:today|tonight|this evening|this morning)\\b");
     private static final Pattern TOMORROW_WORD = Pattern.compile("\\btomorrow\\b");
     private static final Pattern WEEKEND_WORD = Pattern.compile("\\bweekend\\b");
     private static final Pattern WEEKDAY_WORDS = Pattern.compile(

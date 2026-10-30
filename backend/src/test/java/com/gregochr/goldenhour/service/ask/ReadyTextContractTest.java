@@ -50,7 +50,7 @@ class ReadyTextContractTest {
     private static List<String> expectedPhrase(LocalDate date, TargetType type) {
         boolean sunrise = type == TargetType.SUNRISE;
         if (date.equals(TODAY)) {
-            return sunrise ? List.of("this", "morning") : List.of("tonight");
+            return sunrise ? List.of("this", "morning") : List.of("this", "evening");
         }
         String day = date.equals(TODAY.plusDays(1)) ? "tomorrow"
                 : date.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH).toLowerCase(Locale.ROOT);
@@ -61,7 +61,7 @@ class ReadyTextContractTest {
     @DisplayName("the texts a Ready question is stored under, pinned: a changed word would silently stop "
             + "matching the stored rows and typed phrasings")
     void storedTextsArePinned() {
-        assertThat(ReadyQuestion.nextWindowWords(window(TODAY, TargetType.SUNSET), TODAY)).isEqualTo("tonight");
+        assertThat(ReadyQuestion.nextWindowWords(window(TODAY, TargetType.SUNSET), TODAY)).isEqualTo("this evening");
         assertThat(ReadyQuestion.nextWindowWords(window(TODAY, TargetType.SUNRISE), TODAY)).isEqualTo("this morning");
         assertThat(ReadyQuestion.nextWindowWords(window(TODAY.plusDays(1), TargetType.SUNRISE), TODAY))
                 .isEqualTo("tomorrow morning");

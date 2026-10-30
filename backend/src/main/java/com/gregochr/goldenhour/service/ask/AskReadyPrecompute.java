@@ -47,8 +47,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li><b>Checked again at the last moment</b>: before every question the flag, the simulations and
  *       the deadline are asked again, and after the engine returns the simulation is asked once more
  *       before anything is written, so an answer built while a simulation switched on is dropped.</li>
- *   <li><b>One question's failure does not stop the rest</b>: a FAILED run, a "can't", an exception,
- *       a validator discard or an answer that breaks the question's own rules is logged and counted;
+ *   <li><b>One question's failure does not stop the rest</b>: a FAILED run, a "can't" on a pick question
+ *       (on an events question it is a skip), an exception, a validator
+ *       discard or an answer that breaks the question's own rules is logged and counted;
  *       the exception is the accounting latch, which refuses every later call too, so it stops the
  *       run.</li>
  *   <li><b>A deadline of {@link #PRECOMPUTE_DEADLINE}</b>, checked between questions: an overrun
@@ -347,9 +348,20 @@ public class AskReadyPrecompute {
             return false;
         }
         AskOutcome outcome = run.outcome();
+        if (outcome.status() == AskOutcome.Status.CANT && outcome.answer() != null && !outcome.personal()
+                && !task.question().picks()) {
+            // An events question is asked every time and stored only when it finds something: a "can't"
+            // is "nothing to show", like an OK answer with no events, not a lost answer.
+            LOG.info("[ASK] Ready {} found nothing to show (CANT: {}); not stored", label,
+                    outcome.answer().missing());
+            counts.skipped++;
+            return true;
+        }
         if (outcome.status() != AskOutcome.Status.OK || outcome.answer() == null || outcome.personal()) {
             LOG.warn("[ASK] Ready {} produced no answer: {} {}", label, outcome.status(),
-                    run.reason() == null ? "" : run.reason());
+                    run.reason() != null ? run.reason()
+                            : outcome.answer() == null || outcome.answer().missing() == null ? ""
+                            : outcome.answer().missing());
             counts.failed++;
             return true;
         }

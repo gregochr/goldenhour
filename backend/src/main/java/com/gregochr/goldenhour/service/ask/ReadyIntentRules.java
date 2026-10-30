@@ -43,7 +43,7 @@ import java.util.stream.Stream;
  *   <li>{@code BEST_SOON}: "next few days", "next couple of days", "coming days", "few days", "this
  *       week".</li>
  *   <li>{@code BEST_NEXT}: the window the Ready question was written for, read from its own text —
- *       "tonight" (also "this evening"), "this morning", "tomorrow morning" (also "tomorrow
+ *       "this evening" (also "tonight"), "this morning", "tomorrow morning" (also "tomorrow
  *       sunrise"), "tomorrow evening" (also "night", "sunset"), "Saturday evening"…: never another
  *       day or another half of the day.</li>
  *   <li>{@code COASTAL_HIGH}: "high tide" / "high water", optionally with a coastal word.</li>
@@ -316,8 +316,9 @@ final class ReadyIntentRules {
 
     /**
      * The phrases that name the window a "Best spot …?" Ready text was written for. The text is the
-     * one {@code ReadyQuestion.nextWindowWords} built: "tonight", "this morning", "tomorrow morning",
-     * "tomorrow evening", "on Saturday evening". Anything else yields no phrase, so no match.
+     * one {@code ReadyQuestion.nextWindowWords} built: "this evening" (or the older
+     * "tonight"), "this morning", "tomorrow morning", "tomorrow evening", "on Saturday evening". Anything else
+     * yields no phrase, so no match.
      */
     static List<List<String>> nextWindowSubjects(String readyText) {
         List<String> text = PhraseAskPreFilter.words(readyText == null ? "" : readyText);
@@ -326,7 +327,12 @@ final class ReadyIntentRules {
         }
         List<String> when = new ArrayList<>(text.subList(2, text.size()));
         when.remove("on");
+        if (when.equals(List.of("this", "evening"))) {
+            // The text's own phrase first (ReadyTextContractTest), then the older "tonight".
+            return List.of(List.of("this", "evening"), List.of("tonight"));
+        }
         if (when.equals(List.of("tonight"))) {
+            // Rows stored under the older "Best spot tonight?" text go through here until replaced.
             return List.of(List.of("tonight"), List.of("this", "evening"));
         }
         if (when.equals(List.of("this", "morning"))) {
