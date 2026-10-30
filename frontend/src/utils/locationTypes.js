@@ -94,9 +94,9 @@ export function locationTypeLabel(type) {
 /**
  * Whether a location may be sent to the SKY prompt (the sunrise/sunset colour forecast).
  *
- * <p>Mirrors `LocationEntity.hasColourTypes()`, the gate `ForceSubmitBatchService` and
- * `ModelTestService` filter on (the synchronous engine and the Prompt Test harness did too, before
- * they were deleted) — including its rule that an untyped location counts.
+ * <p>Mirrors `LocationEntity.hasColourTypes()`, the gate `ForceSubmitBatchService`
+ * filters on (the synchronous engine, the Prompt Test harness and the Model Test service did too,
+ * before they were deleted) — including its rule that an untyped location counts.
  *
  * <p>Not interchangeable with the briefing's own candidacy test: "may this go to the sky prompt?"
  * and "is this a candidate for the briefing?" have different answers for a wood, and conflating

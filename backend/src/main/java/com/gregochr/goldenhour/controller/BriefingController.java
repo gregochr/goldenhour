@@ -2,11 +2,8 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.BriefingDigestResponse;
-import com.gregochr.goldenhour.model.BriefingModelTestResultDto;
-import com.gregochr.goldenhour.model.BriefingModelTestRunDto;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.service.BriefingDigestService;
-import com.gregochr.goldenhour.service.BriefingModelTestService;
 import com.gregochr.goldenhour.service.BriefingRoleShaper;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.LitePickShaper;
@@ -22,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -38,7 +34,6 @@ import java.util.Map;
 public class BriefingController {
 
     private final BriefingService briefingService;
-    private final BriefingModelTestService briefingModelTestService;
     private final BriefingDigestService briefingDigestService;
     private final BriefingRoleShaper briefingRoleShaper;
     private final LitePickShaper litePickShaper;
@@ -47,17 +42,14 @@ public class BriefingController {
      * Constructs a {@code BriefingController}.
      *
      * @param briefingService          the service that manages the briefing cache
-     * @param briefingModelTestService the service that runs briefing model comparisons
      * @param briefingDigestService    the service that projects the briefing into the digest
      * @param briefingRoleShaper       the shaper that strips Pro-only tide data for LITE readers
      * @param litePickShaper           the shaper that strips ratings outside a Lite reader's sub-region picks
      */
     public BriefingController(BriefingService briefingService,
-            BriefingModelTestService briefingModelTestService,
             BriefingDigestService briefingDigestService,
             BriefingRoleShaper briefingRoleShaper, LitePickShaper litePickShaper) {
         this.briefingService = briefingService;
-        this.briefingModelTestService = briefingModelTestService;
         this.briefingDigestService = briefingDigestService;
         this.briefingRoleShaper = briefingRoleShaper;
         this.litePickShaper = litePickShaper;
@@ -165,43 +157,5 @@ public class BriefingController {
                     .body(Map.of("status", "A briefing refresh is already running."));
         }
         return ResponseEntity.ok(Map.of("status", "Briefing refresh complete."));
-    }
-
-    /**
-     * Runs a briefing model comparison test — calls Haiku, Sonnet, and Opus with the
-     * same rollup data from the current cached briefing. Admin-only.
-     *
-     * @return the completed test run entity with summary stats
-     */
-    @PostMapping("/compare-models")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<BriefingModelTestRunDto> runComparison() {
-        return ResponseEntity.ok(BriefingModelTestRunDto.from(briefingModelTestService.runComparison()));
-    }
-
-    /**
-     * Returns the 20 most recent briefing model test runs. Admin-only.
-     *
-     * @return recent test runs, newest first
-     */
-    @GetMapping("/compare-models/runs")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<BriefingModelTestRunDto>> getComparisonRuns() {
-        return ResponseEntity.ok(briefingModelTestService.getRecentRuns().stream()
-                .map(BriefingModelTestRunDto::from).toList());
-    }
-
-    /**
-     * Returns the results for a specific briefing model test run. Admin-only.
-     *
-     * @param runId the test run ID
-     * @return results ordered by evaluation model
-     */
-    @GetMapping("/compare-models/results")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<BriefingModelTestResultDto>> getComparisonResults(
-            @RequestParam Long runId) {
-        return ResponseEntity.ok(briefingModelTestService.getResults(runId).stream()
-                .map(BriefingModelTestResultDto::from).toList());
     }
 }

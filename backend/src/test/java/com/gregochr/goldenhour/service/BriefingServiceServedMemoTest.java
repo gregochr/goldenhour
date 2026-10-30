@@ -269,7 +269,6 @@ class BriefingServiceServedMemoTest {
                 eq(PickScope.unrestricted()))).thenAnswer(inv -> inv.getArgument(0));
         com.gregochr.goldenhour.controller.BriefingController controller =
                 new com.gregochr.goldenhour.controller.BriefingController(service,
-                        mock(com.gregochr.goldenhour.service.BriefingModelTestService.class),
                         mock(BriefingDigestService.class), new BriefingRoleShaper(), litePickShaper);
 
         DailyBriefingResponse lite = controller.getBriefing(liteAuth).getBody();

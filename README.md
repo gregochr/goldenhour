@@ -25,7 +25,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 - Directional cloud sampling (3-point cone at 113 km + far-field at 226 km) with cloud approach risk detection
 - Sunrise/sunset azimuth line on map — only the line for the selected event type is shown, reducing visual clutter
 - Per-run-type model configuration — three independent configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
-- Model comparison harness for A/B evaluation
+- Sky-rating eval harness (Operations → Sky Eval) for checking models against frozen fixtures
 - Stores every evaluation so you can track how the forecast converges as the date approaches
 - Outcome recording — Pro and Admin readers rate how a past sunrise or sunset turned out from the Map tab's location callout ("How was it?"); the older free-text `POST /api/outcome` endpoint has been removed. Ratings feed the calibration gate
 - Self-registration with email verification and Cloudflare Turnstile CAPTCHA; sign-in by username or email, forgot/reset password, and in-app account deletion
@@ -159,7 +159,7 @@ Users can self-register at the login page — email verification is required, an
 
 | Role | Access |
 |---|---|
-| `ADMIN` | All endpoints + Operations tab (users, regions, job metrics, model selection, model test) |
+| `ADMIN` | All endpoints + Operations tab (users, regions, job metrics, model selection) |
 | `PRO_USER` | 3-day forecast, all scores, outcome recording, rating past windows |
 | `LITE_USER` | 3-day forecast, star rating only |
 
@@ -219,7 +219,7 @@ Users can self-register at the login page — email verification is required, an
 | `PUT` | `/api/users/{id}/reset-password` | ADMIN | Generate a temporary password |
 | `DELETE` | `/api/users/{id}` | ADMIN | Delete a user (sends notification email) |
 
-### Metrics & model testing (ADMIN only)
+### Metrics & model selection (ADMIN only)
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
@@ -227,11 +227,6 @@ Users can self-register at the login page — email verification is required, an
 | `GET` | `/api/metrics/api-calls` | ADMIN | API call log with costs and timings |
 | `GET` | `/api/models` | Bearer | Available models and per-run-type active models |
 | `PUT` | `/api/models/active` | ADMIN | Set active model for a run type |
-| `POST` | `/api/model-test/run` | ADMIN | Trigger A/B/C model comparison test |
-| `POST` | `/api/model-test/run-location` | ADMIN | Test a single location with all 3 models |
-| `POST` | `/api/model-test/rerun` | ADMIN | Re-run a previous test with fresh data |
-| `GET` | `/api/model-test/runs` | ADMIN | Recent model test runs |
-| `GET` | `/api/model-test/results` | ADMIN | Results for a specific test run |
 
 ### Aurora
 
@@ -252,7 +247,6 @@ Users can self-register at the login page — email verification is required, an
 | `POST` | `/api/briefing/run` | ADMIN | Force briefing refresh |
 | `GET` | `/api/briefing/evaluate/scores` | Bearer | Cached briefing evaluation scores, per region |
 | `DELETE` | `/api/briefing/evaluate/cache` | ADMIN | Clear cached briefing evaluation scores |
-| `POST` | `/api/briefing/compare-models` | ADMIN | Trigger model comparison test |
 
 ### Astro conditions & user settings
 

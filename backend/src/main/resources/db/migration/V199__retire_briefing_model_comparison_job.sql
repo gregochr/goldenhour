@@ -1,0 +1,16 @@
+-- V199: Retire the briefing_model_comparison scheduled job (model-test-retirement-plan.md, Phase 1).
+--
+-- Why: the Briefing Model Test screen and the service behind it (BriefingModelTestService) were deleted in
+-- this release, so nothing registers a target for the job any more. The row was seeded ACTIVE by V79 and
+-- moved to 06:30 by V173; whether production still has it ACTIVE depends on hand edits, so it is removed
+-- either way rather than left to log "No registered target ... skipping schedule" on every start.
+--
+-- Rollback: the previous image still registers the target, finds no row and schedules nothing
+-- (DynamicSchedulerService skips a job with no config row, as V103 relied on for daily_briefing), so a
+-- rolled-back image is safe.
+--
+-- Dependencies: nothing references scheduler_job_config by foreign key, and no child table is keyed on
+-- job_key (checked against every migration to V198), so no other rows are affected. The four
+-- *_model_test_* tables are NOT touched here: the previous image still maps them and prod runs
+-- ddl-auto: validate, so they are dropped in the next release (Phase 2).
+DELETE FROM scheduler_job_config WHERE job_key = 'briefing_model_comparison';
