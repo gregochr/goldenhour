@@ -5,6 +5,146 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.35.1] - 2026-10-30
+
+### Changed — polls pause when hidden, and an unchanged reply changes nothing
+
+The briefing, ratings, aurora status, Lite aurora alert and nights, viewline and noctilucent-cloud polls now stop while the tab is hidden, and a return to the tab or a window focus refetches only when the last fetch is more than a minute old (a sign-in, role change or upgrade still fetches at once). The polled API functions keep the previous parsed object when the reply text is unchanged, so an idle session no longer re-renders the provider chain, repaints the aurora thumbnail or rebuilds the map on every poll and focus. The map re-requests its live aurora scores only when the aurora status reply actually changes, rather than on every poll.
+
+### Tests — valley mist fixtures for the 29 Oct Penrith (mist) and Keswick (clear) mornings
+
+Tests only. The owner's real Open-Meteo forecast for Stainton and Keswick on 29 Oct 2026 now sits in `src/test/resources/valley-mist/` and is read through the production parser with nothing patched. At the 08:00 sunrise slot Stainton, where shallow valley mist was photographed at 09:02-09:08, scores 5.75 POSSIBLE (a known near-miss, one band short of LIKELY); Keswick, clear at 09:22, scores 3.90 NONE under the overcast veto (mean total cloud 92 percent). A discrimination test pins that Stainton ranks above Keswick, and the inversion-only isolation test now also runs on the Stainton fixture. These are characterisation tests of current behaviour, not tuning targets.
+
+### Changed — batch triage reads tide extremes once per collection
+
+The scheduled and region-filtered batch collectors now load one `TideExtremeSnapshot` for all coastal candidates over their date window (a public `TideService.snapshotFor` factory) and pass it through `ForecastService.fetchWeatherAndTriage` to the tide derivation, instead of querying stored extremes separately for every candidate. The derived tide facts are identical; if the snapshot cannot be loaded, or a caller passes none (force-submit, retry), each candidate reads its own extremes as before.
+
+### Docs — performance series phase log
+
+Records every phase PR of the October 2026 performance series in `docs/engineering/performance-review-2026-10-plan.md` §10, and what was not run (P4a–c, P6b).
+
+### Changed — one aurora viewline poll serves the banner and the map
+
+The aurora banner and the Map tab used to each poll the live and forecast viewline endpoints every five minutes. One shared poll (`AuroraViewlineProvider`) now serves both: it runs while either wants the line (the banner's wide-layout field is on screen, or the Map reader is not Lite and the alert is worth showing), stops when neither does, and never runs for a Lite reader. A session with the banner and the map both showing the line makes half the viewline requests.
+
+The map's viewline overlay also keeps its Leaflet coordinate arrays between renders (rebuilt only when the line itself changes), so an unrelated map re-render no longer rebuilds the line and its fill.
+
+### Changed — the briefing's sea-state refresh fetches coastal locations in batches
+
+The marine refresh now asks Open-Meteo for 20 coastal locations per request instead of one request per
+location, reads the existing `marine_wave` rows in a single query and saves the upserts together. The high-water
+refresh for structure locations reads from the briefing build's tide snapshot instead of querying per location.
+A failed request still persists nothing for its locations and still clears their stale high-water rows. The rows
+written are unchanged.
+
+### Changed — the map no longer re-renders on every pan, and its window list is memoised
+
+A pan or zoom on the Map tab now re-renders the tab only when it changes what the tide cues and the tide strip show (whether a coastal place is in view, and which ones), instead of on every `moveend`. The tab's window list (`mapEvents`), its per-window verdicts and the region list are memoised on their real inputs, including the clock: a timer armed for the next instant the list can change (an afterglow expiry, a Big seas window end, UK midnight) rebuilds it, so the memos downstream of it hit between renders. A window still retires as its time (plus the afterglow) passes, and the High-water expiry timer still rebuilds the list. Nothing a reader sees changes, on phone, tablet or desktop.
+
+### Changed — health status no longer re-renders the whole app every tick
+
+The health stream's 30-second tick used to re-render `App` and everything under it for every role. Health now lives in its own `HealthStatusProvider`: the admin pill reads the full value (probe time included), while `App` reads only an `isDown` boolean, so a tick that changes nothing but `checkedAt` re-renders just the pill. The down banner, `contentDisabled`, recovery on tab wake, the expired-token session probe and the deferred stream start are unchanged.
+
+### Changed — run cost summed in SQL, batch weather prefetched once per grid cell
+
+Completing a job run now asks the database for the run's total cost instead of loading every
+`api_call_log` row (request and response bodies included) and adding them up in Java, and the batch
+summary on the admin metrics page reads only the five columns it uses. Totals and summaries are
+unchanged.
+
+The forecast batch's weather pre-fetch now fetches once per Open-Meteo grid cell and fans the
+result out to every location in that cell; a location with no known grid cell keeps its own fetch.
+Declared input change: Open-Meteo downscales temperature by a point's elevation, so two coordinates
+in one cell could previously differ slightly. They now share one reading, the same assumption the
+briefing's weather loader already makes.
+
+### Changed — the map chip tooltip and the modal watcher stop doing work on every pointer move and tile
+
+The map's chip hover tooltip is now positioned through a ref and a CSS transform, one write per animation frame, so moving the mouse over the map no longer re-renders the whole label layer. The Map tab's dialog watcher still sees every dialog open, close and stack, but ignores Leaflet tile and pane changes instead of re-querying the document for each one. On the first hover the tooltip now clamps against its real width rather than a 240 px estimate.
+
+### Changed — batch result processing reads locations once
+
+`BatchResultProcessor` now loads all locations with a single `findAll()` before streaming a forecast batch's results,
+instead of one `findById` per result (performance review finding F27, phase P5e). A result whose location id is not
+found is still logged as a `lookup_error` and counted as errored, exactly as before.
+
+### Changed — the served briefing is memoised for 30 seconds
+
+Performance plan phase P1b (`docs/engineering/performance-review-2026-10-plan.md`).
+`BriefingService.getCachedBriefingForApi()`, which backs `GET /api/briefing`, `GET /api/briefing/digest`
+and the Ask snapshot, now reuses its assembled result for up to 30 seconds instead of re-running the
+whole serve assembly (hot topics, live rating re-reads, tide rollup, roughly 25 queries) on every
+request. The memo is keyed by the identity of the cached briefing, the UK civil date and a new
+`ServedBriefingEpoch`, which every writer that changes a serve bumps after commit: hot-topic and
+aurora simulation toggles and aurora state writes, `cached_evaluation` writes and the admin wipe,
+the end of each batch result, stability-skip dispositions, travel days, and every location and region
+write. The epoch is read before assembly, Rewind bypasses the memo, and role shaping and the Lite pick
+shaper still run per request on the memoised result. A memo hit issues no database statement.
+Behaviour change: anything the writer list misses (live aurora summaries, pastness at a window's
+edge) can now trail by up to 30 seconds.
+
+### Performance — one marine read per rollup, aurora status from cache, memoised drive-time matrix
+
+The window tide rollup (`WindowTideRollupBuilder.seas()`) now reads the representative location's sea-state rows for the whole date range in one query instead of one query per window. `GET /api/aurora/status` serves Kp, OVATION and solar wind from cache and refreshes a stale feed once, in the background, instead of calling NOAA on the request thread (a cold cache still waits for the single fetch; the aurora state machine's own fetches are unchanged and synchronous). `GET /api/regions/drive-times` keeps its matrix in memory and clears it after the commit of any write to a region's drive times.
+
+### Changed — precache the whole entry closure; fewer startup requests (P2e, P2f)
+
+Performance plan phases P2e and P2f (`docs/engineering/performance-review-2026-10-plan.md`).
+
+- **Precache (P2e).** The service worker's JS precache was a hand-kept pair of globs (`index-*`,
+  `react-*`), so the other chunks the entry statically imports (`authApi`, `conversions`,
+  `confidenceUtils` and eleven more) were fetched from the network on every cold start. A
+  `workbox.manifestTransforms` function now reads `dist/index.html` and precaches every script,
+  modulepreload and stylesheet it references, plus `AuthPages` for offline sign-in. The dead
+  `rolldown-runtime-*` glob is gone. The transform also follows the static imports of the entry and of `AuthPages` (so `PasswordInput` is precached and offline sign-in works). Precache goes from 23 entries (1041 KiB) to 39 (1135 KiB).
+  `npm run check:entry` now fails if any file in `index.html`, or `AuthPages`, is missing from
+  `dist/sw.js`'s precache list.
+- **No NLC request for Lite readers (P2f).** `GET /api/nlc/sighting` is `ADMIN`/`PRO_USER` only, so a
+  Lite reader's request was always a 403. `useNlcSighting` takes an `enabled` flag, passed from the
+  same role predicate, and a disabled hook makes no request, poll or focus fetch.
+- **Regions join the instant-paint cache (P2f).** `/api/regions` and `/api/regions/drive-times` are
+  shared (not per-user) and measured at ~50 KB raw in the worst case (24 based regions x 209
+  locations), so they are cached as one pair under `regionOrigin:shared` (fetched and committed together, never one fresh beside one stale), with a
+  seven-day age cap, and revalidated on every mount. `/api/user/settings/ask` is unchanged: Lite needs
+  it for the Ask upsell.
+
+### Fixed — sign-in is refused after ten failed attempts per account on every login path
+
+A login carrying a verified Turnstile token, and any login while Turnstile is not configured, had no
+per-account bound at all; only the tokenless fallback took the account's five-attempt budget. Login now
+counts FAILED sign-ins per account (a wrong password; a correct one, even on a disabled account, and a
+successful sign-in never count) and answers 429 once an account has had ten in a quarter hour, before any
+password is compared. The fallback keeps its own five-attempt budget on top. Counters are in memory, so a
+backend restart clears a lockout; a locked-out admin can also wait out the window (`DEVOPS.md`).
+
+### Tests — valley mist guards before the inversion v2 work
+
+Phase 0 of `docs/engineering/inversion-v2-plan.md`, tests only. The owner's real River Brathay forecast for 17 Oct 2026 (the mist morning that prompted the valley-mist feature) now sits in `src/test/resources/valley-mist/` and is read through the production parser: the 07:00 slot scores 7.03 LIKELY, one hour earlier 5.03 POSSIBLE, and the LIKELY rests on a tie in the cooling term. An isolation test runs the real inversion-then-mist chain while varying only the pressure-level temperatures, boundary layer, elevation and `overlooks_water`, and a prompt test pins the `VALLEY MIST CONDITIONS` block whatever the inversion inputs, so inversion changes cannot silently move mist. The same file pins the inversion baseline at 6.0, and the comment on the synthetic `ValleyMistCalculatorTest.brathay()` fixture now says what it is.
+
+### Changed — briefing gloss reused when a region's input is unchanged
+
+P5b of the performance plan (`docs/engineering/performance-review-2026-10-plan.md`). `BriefingGlossService`
+keeps the glosses of the last build, keyed by a SHA-256 of the system prompt, a new `GLOSS_VERSION`, the
+model id and the region's user message, and reuses one without a Haiku call when the key is unchanged.
+Failed or half-dropped glosses are never stored, so the next build retries them; the map is replaced each
+build and does not grow. It starts empty after a restart (the persisted briefing carries no prompt or model
+fingerprint to seed from safely). STANDDOWN regions are still glossed. Also corrects the log line and
+comment that said only GO/MARGINAL regions are glossed.
+
+### Removed — prompt test tables
+
+The empty `prompt_test_run` and `prompt_test_result` tables are dropped (migration V198). The Prompt Test harness was deleted in the previous release and its rows cleared; this finishes the clean-up one release later so a rollback to that release still validates against the schema.
+
+### Changed — Ask caches its tools, static prompt and each turn's tool results
+
+Performance plan P5a (`docs/engineering/performance-review-2026-10-plan.md`). The Ask system prompt is now two
+text blocks: the static rules (with the with-user or user-less text) carry an ephemeral `cache_control`
+breakpoint, which also caches the tool definitions rendered before it, and the per-question tail (date, scope,
+covered windows, context window, thread rules) carries none. Each turn also marks the latest tool-result message
+with a rolling breakpoint, so earlier tool results are read from the cache on the next turn. Two breakpoints per
+request at most. The prompt text is byte for byte unchanged; prompts below the model's minimum cacheable size
+are ignored by the API at no cost.
+
 ## [v2.35.0] - 2026-10-28
 
 ### Removed — VERY_SHORT_TERM, SHORT_TERM and LONG_TERM run types
