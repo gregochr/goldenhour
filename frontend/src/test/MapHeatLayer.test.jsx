@@ -5,8 +5,12 @@ import {
 import { act, render } from '@testing-library/react';
 
 const setPosition = vi.fn();
+const setTransform = vi.fn();
 vi.mock('leaflet', () => {
-  const DomUtil = { setPosition: (...args) => setPosition(...args) };
+  const DomUtil = {
+    setPosition: (...args) => setPosition(...args),
+    setTransform: (...args) => setTransform(...args),
+  };
   return { default: { DomUtil }, DomUtil };
 });
 
@@ -78,7 +82,7 @@ function makeMap({ zoom = 9, size = { x: 800, y: 500 }, panes = null, onScreen =
   const built = panes || {};
   const handlers = new Map();
   const container = document.createElement('div');
-  Object.defineProperty(container, 'offsetWidth', { value: onScreen ? size.x : 0 });
+  Object.defineProperty(container, 'offsetWidth', { value: onScreen ? size.x : 0, configurable: true });
   document.body.appendChild(container);
   return {
     zoom,
@@ -108,6 +112,13 @@ function makeMap({ zoom = 9, size = { x: 800, y: 500 }, panes = null, onScreen =
     // asked for. A stub returning a constant passes for `([0, 0])`, `([50, 50])` and `()` alike —
     // and the container ORIGIN is the entire rule under test.
     containerPointToLayerPoint: (p) => ({ x: -40 + p[0], y: -25 + p[1] }),
+    // P4b: the gesture rule projects the drawn top-left corner. The corner is (55, -3) whatever the
+    // zoom; its layer point scales with 2^(zoom - 9), so a test can see the zoom it was asked at.
+    containerPointToLatLng: (p) => ({ lat: 55 - p[1] / 10, lng: -3 + p[0] / 10 }),
+    latLngToLayerPoint(ll) {
+      const k = 2 ** (this.zoom - 9);
+      return { x: (ll.lng + 3) * 10 * k - 40, y: (56 - ll.lat) * 10 * k - 25 };
+    },
     on(events, fn) { for (const e of events.split(' ')) handlers.set(e, [...(handlers.get(e) || []), fn]); },
     off(events, fn) {
       for (const e of events.split(' ')) {
@@ -436,15 +447,18 @@ describe('MapHeatLayer — the heat bloom (map-tab-v2-plan.md §3 P2)', () => {
 });
 
 describe('MapHeatLayer — throttle, never debounce', () => {
-  it('coalesces a burst of move events into ONE paint, on the next frame', async () => {
+  // P4b: `move`/`zoom` no longer paint (see the gesture describe below), so the throttle's contract
+  // is pinned on the events that still use it: `viewreset` and `resize`, and `move` before a first
+  // paint exists.
+  it('coalesces a burst of viewreset and resize events into ONE paint, on the next frame', async () => {
     currentMap = makeMap({ panes: markerPanes() });
     await mount();
     drawTiles.mockClear();
 
     await act(async () => {
-      currentMap.fire('move');
-      currentMap.fire('move');
-      currentMap.fire('zoom');
+      currentMap.fire('viewreset');
+      currentMap.fire('viewreset');
+      currentMap.fire('resize');
     });
     // Nothing yet — the first event scheduled a frame and the other two were dropped.
     expect(drawTiles).not.toHaveBeenCalled();
@@ -467,9 +481,9 @@ describe('MapHeatLayer — throttle, never debounce', () => {
     frames = [];
 
     await act(async () => {
-      currentMap.fire('move');
-      currentMap.fire('move');
-      currentMap.fire('move');
+      currentMap.fire('viewreset');
+      currentMap.fire('viewreset');
+      currentMap.fire('viewreset');
     });
     expect(frames.filter(Boolean)).toHaveLength(1);
     expect(cancelSpy).not.toHaveBeenCalled();
@@ -488,7 +502,7 @@ describe('MapHeatLayer — throttle, never debounce', () => {
     drawTiles.mockClear();
 
     await act(async () => {
-      currentMap.fire('move');
+      currentMap.fire('viewreset');
       currentMap.centre = { lat: 56, lng: -2 };
       currentMap.fire('moveend');
     });
@@ -576,6 +590,122 @@ describe('MapHeatLayer — throttle, never debounce', () => {
     currentMap.centre = { lat: 57, lng: -1 };
     await act(async () => { currentMap.fire('moveend'); });
     expect(drawTiles).not.toHaveBeenCalled();
+  });
+});
+
+describe('MapHeatLayer — the gesture rule (performance review F17 / P4b, decision D7)', () => {
+  it('does not paint or book a frame on a move at the zoom already drawn', async () => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount();
+    drawTiles.mockClear();
+    frames = [];
+
+    await act(async () => {
+      currentMap.fire('move');
+      currentMap.fire('move');
+    });
+    expect(frames.filter(Boolean)).toHaveLength(0);
+    expect(drawTiles).not.toHaveBeenCalled();
+    expect(setTransform).not.toHaveBeenCalled();
+  });
+
+  it('paints once on moveend after a pan', async () => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount();
+    drawTiles.mockClear();
+
+    await act(async () => {
+      currentMap.fire('move');
+      currentMap.centre = { lat: 56, lng: -2 };
+      currentMap.fire('moveend');
+    });
+    expect(drawTiles).toHaveBeenCalledTimes(1);
+    await act(async () => { runFrames(); });
+    expect(drawTiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('transforms the drawn bitmap, and does not draw, on a zoom at another zoom', async () => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount();
+    drawTiles.mockClear();
+    frames = [];
+
+    currentMap.zoom = 10;
+    await act(async () => {
+      currentMap.fire('zoom');
+      currentMap.fire('move');
+    });
+    expect(drawTiles).not.toHaveBeenCalled();
+    expect(frames.filter(Boolean)).toHaveLength(0);
+    const canvas = currentMap.panes['wf-heat'].querySelector('canvas');
+    // Corner (55, -3): layer point (0, 10) x 2 at zoom 10, less the pane origin (-40, -25).
+    expect(setTransform).toHaveBeenLastCalledWith(canvas, { x: -40, y: -5 }, 2);
+    expect(canvas.style.transformOrigin).toMatch(/^0(px)? 0(px)?$/);
+
+    // A fractional pinch zoom scales by the fractional ratio.
+    currentMap.zoom = 9.5;
+    await act(async () => { currentMap.fire('zoom'); });
+    expect(setTransform.mock.lastCall[2]).toBeCloseTo(2 ** 0.5, 10);
+    expect(drawTiles).not.toHaveBeenCalled();
+  });
+
+  it('repaints on the zoomend that follows, resetting the position with no scale', async () => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount();
+    currentMap.zoom = 10;
+    await act(async () => { currentMap.fire('zoom'); });
+    drawTiles.mockClear();
+    setPosition.mockClear();
+    setTransform.mockClear();
+
+    await act(async () => {
+      currentMap.fire('zoomend');
+      currentMap.fire('moveend');
+    });
+    expect(drawTiles).toHaveBeenCalledTimes(1);
+    // `setPosition` is what clears the scale (it rewrites `transform` as a bare translate).
+    expect(setPosition).toHaveBeenCalledTimes(1);
+    expect(setTransform).not.toHaveBeenCalled();
+
+    // The next move is a pure pan at the NEW drawn zoom.
+    await act(async () => { currentMap.fire('move'); });
+    expect(setTransform).not.toHaveBeenCalled();
+    expect(drawTiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('still repaints on viewreset and resize', async () => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount();
+    for (const event of ['viewreset', 'resize']) {
+      drawTiles.mockClear();
+      await act(async () => { currentMap.fire(event); });
+      await act(async () => { runFrames(); });
+      expect(drawTiles, event).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('still repaints when an input changes', async () => {
+    currentMap = makeMap({ panes: markerPanes() });
+    const { rerender } = await mount();
+    drawTiles.mockClear();
+    await act(async () => {
+      rerender(<MapHeatLayer points={[POINTS[0]]} conf={1} />);
+    });
+    await act(async () => { runFrames(); });
+    expect(drawTiles).toHaveBeenCalled();
+  });
+
+  it('falls back to the throttled repaint on a move before any paint has happened', async () => {
+    currentMap = makeMap({ panes: markerPanes(), onScreen: false });
+    await mount();
+    expect(drawTiles).not.toHaveBeenCalled();
+    // The map becomes visible; nothing has been drawn, so there is no bitmap to leave in place.
+    Object.defineProperty(currentMap.getContainer(), 'offsetWidth', { value: 800, configurable: true });
+    frames = [];
+    await act(async () => { currentMap.fire('move'); });
+    expect(frames.filter(Boolean)).toHaveLength(1);
+    await act(async () => { runFrames(); });
+    expect(drawTiles).toHaveBeenCalledTimes(1);
   });
 });
 
