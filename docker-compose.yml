@@ -70,7 +70,7 @@ services:
     # (2026-10-06) to size this for the job, not for that coincidence.
     stop_grace_period: 40s
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health/container"]
       interval: 30s
       timeout: 10s
       retries: 3

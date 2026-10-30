@@ -500,6 +500,14 @@ management:
       roles: ADMIN
       cache:
         time-to-live: 30s
+      group:
+        # Container/deploy probe: "this process is up and reaches its database". Deliberately excludes every
+        # external-service indicator (openMeteo, claudeApi, tideCheck, circuit breakers, rate limiters) so a
+        # third-party outage or quota (429) never marks the container unhealthy. Status only, no components.
+        container:
+          include: db,ping
+          show-components: never
+          show-details: never
   health:
     circuitbreakers:
       enabled: true

@@ -39,7 +39,7 @@ RUN mkdir -p /app/logs && chown appuser:appgroup /app/logs
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8082/actuator/health || exit 1
+    CMD curl -f http://localhost:8082/actuator/health/container || exit 1
 
 USER appuser
 EXPOSE 8082
