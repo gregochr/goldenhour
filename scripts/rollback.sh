@@ -189,7 +189,10 @@ docker compose -f docker-compose.yml -f "$OVERRIDE_FILE" up -d --no-deps goldenh
 echo "==> Waiting for backend health"
 healthy=false
 for _ in $(seq 1 30); do
-    if docker exec goldenhour-backend curl -sf http://localhost:8082/actuator/health/container >/dev/null 2>&1; then
+    # Images from before the db-only `container` health group answer 404 there, so fall back to the
+    # aggregate (a current image reaches the fallback only when the group fails, and then the
+    # aggregate is DOWN too).
+    if docker exec goldenhour-backend sh -c 'curl -sf http://localhost:8082/actuator/health/container || curl -sf http://localhost:8082/actuator/health' >/dev/null 2>&1; then
         healthy=true; break
     fi
     sleep 5

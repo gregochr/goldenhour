@@ -37,9 +37,12 @@ WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
 RUN mkdir -p /app/logs && chown appuser:appgroup /app/logs
 
-# Health check
+# Health check: the db-only `container` group, so an Open-Meteo/Claude/WorldTides outage never marks
+# the container unhealthy. Images from before that group existed answer 404 there, so fall back to the
+# aggregate; a current image only reaches the fallback if the group itself fails, and then the
+# aggregate is DOWN too, so behaviour is unchanged.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8082/actuator/health/container || exit 1
+    CMD curl -f http://localhost:8082/actuator/health/container || curl -f http://localhost:8082/actuator/health || exit 1
 
 USER appuser
 EXPOSE 8082

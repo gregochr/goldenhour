@@ -70,7 +70,11 @@ services:
     # (2026-10-06) to size this for the job, not for that coincidence.
     stop_grace_period: 40s
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health/container"]
+      # The db-only `container` group (an external-API outage must not mark the container unhealthy).
+      # Images from before that group existed answer 404, so fall back to the aggregate, which also
+      # keeps a rolled-back image healthy (the rollback override does not change this healthcheck).
+      # A current image reaches the fallback only if the group fails, when the aggregate is DOWN too.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8082/actuator/health/container >/dev/null || curl -fsS http://localhost:8082/actuator/health >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
