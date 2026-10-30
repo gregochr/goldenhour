@@ -47,7 +47,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -127,7 +126,6 @@ class AuroraPollingCycleTest {
         properties = new AuroraProperties(); // Kp 5, OVATION 20%
         stateCache = new AuroraStateCache(clock);
         job = newJob(stateCache);
-        lenient().when(locationRepository.findAllById(any())).thenReturn(List.of(kielder));
 
         // What the edges answer IF they are asked. Whether a poll asks is the behaviour under test;
         // every test here reaches at least one NOTIFY that asks, so no stub goes unused. The Bortle
@@ -632,6 +630,7 @@ class AuroraPollingCycleTest {
     @Test
     @DisplayName("a restart during a standing alert does not re-buy its scoring: the next poll SUPPRESSes")
     void restart_duringAStandingAlert_isNotRescored() {
+        when(locationRepository.findAllById(List.of(1L))).thenReturn(List.of(kielder));
         // 30 Oct 2026 in production: v2.35.2 started, and its first poll, at the same MODERATE the
         // old JVM had been SUPPRESSing, NOTIFIED and paid for triage and a Claude call.
         kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
@@ -649,6 +648,7 @@ class AuroraPollingCycleTest {
         assertThat(outcome.action()).isEqualTo(AuroraStateCache.Action.SUPPRESS);
         assertThat(claudeCalls).as("no further Claude call").hasSize(1);
         verify(weatherTriage, times(1)).triage(List.of(kielder));
+        verify(locationRepository).findAllById(List.of(1L));
         assertThat(stateCache.isActive()).isTrue();
         assertThat(stateCache.getCachedScores()).isEqualTo(scored);
         assertThat(stateCache.getActiveSince()).as("restored, not restamped").isEqualTo(since);
@@ -660,6 +660,7 @@ class AuroraPollingCycleTest {
     @Test
     @DisplayName("a restart followed by a STRONG forecast still escalates: NOTIFY, one more Claude call")
     void restart_thenEscalation_stillPays() {
+        when(locationRepository.findAllById(List.of(1L))).thenReturn(List.of(kielder));
         kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
         kielderIsEligibleAt(properties.getBortleThreshold().getStrong());
         clock.set("2027-01-14T12:00");
@@ -680,6 +681,7 @@ class AuroraPollingCycleTest {
     @Test
     @DisplayName("an alert held when dawn comes survives a restart: the first daylight poll still CLEARs it")
     void restart_whileAnAlertIsHeldAtDawn_stillClearsAtDawn() {
+        when(locationRepository.findAllById(List.of(1L))).thenReturn(List.of(kielder));
         // The February night of alertHeldAtDawn_isEndedByTheFirstDaylightPoll, with the JVM restarted
         // after the last hold (06:15) and before the first daylight poll (06:20).
         kielderIsEligibleAt(properties.getBortleThreshold().getModerate());

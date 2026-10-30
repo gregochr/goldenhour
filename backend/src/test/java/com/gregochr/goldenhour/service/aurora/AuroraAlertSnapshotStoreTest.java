@@ -24,8 +24,6 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyIterable;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -105,7 +103,7 @@ class AuroraAlertSnapshotStoreTest {
         row.setHeldTrigger("REALTIME");
         when(repository.findById(ID)).thenReturn(Optional.of(row));
         // Galloway (id 2) was deleted since; Kielder is still there.
-        when(locationRepository.findAllById(any())).thenReturn(List.of(kielder));
+        when(locationRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(kielder));
 
         AuroraAlertSnapshotStore.Snapshot loaded = store.load().orElseThrow();
 
@@ -129,7 +127,7 @@ class AuroraAlertSnapshotStoreTest {
         store.save(view(), NIGHT);
         AuroraAlertSnapshotEntity row = saved();
         when(repository.findById(ID)).thenReturn(Optional.of(row));
-        when(locationRepository.findAllById(any())).thenReturn(List.of(kielder, galloway));
+        when(locationRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(kielder, galloway));
 
         assertThat(store.load().orElseThrow().view().scores()).hasSize(2);
     }
@@ -144,7 +142,7 @@ class AuroraAlertSnapshotStoreTest {
         row.setScores("[]");
         row.setSavedAt(NOW);
         when(repository.findById(ID)).thenReturn(Optional.of(row));
-        when(locationRepository.findAllById(any())).thenReturn(List.of());
+        when(locationRepository.findAllById(List.of())).thenReturn(List.of());
 
         AuroraStateCache.RealAlertView v = store.load().orElseThrow().view();
 
@@ -189,7 +187,7 @@ class AuroraAlertSnapshotStoreTest {
     @Test
     @DisplayName("save swallows a database failure")
     void save_databaseFails_isSwallowed() {
-        when(repository.save(any())).thenThrow(new IllegalStateException("db down"));
+        when(repository.save(any(AuroraAlertSnapshotEntity.class))).thenThrow(new IllegalStateException("db down"));
 
         store.save(view(), NIGHT);
 
@@ -260,7 +258,7 @@ class AuroraAlertSnapshotStoreTest {
     @Test
     @DisplayName("hold with no row is a no-op (the UPDATE matches nothing) and never throws")
     void hold_noRow_isHarmless() {
-        when(repository.setHold(anyString(), anyString())).thenReturn(0);
+        when(repository.setHold("MINOR", "FORECAST_LOOKAHEAD")).thenReturn(0);
 
         store.hold(AlertLevel.MINOR, TriggerType.FORECAST_LOOKAHEAD);
 
@@ -272,7 +270,7 @@ class AuroraAlertSnapshotStoreTest {
     @DisplayName("confirm and hold swallow a database failure")
     void confirmAndHold_databaseFails_areSwallowed() {
         when(repository.confirmNight(NIGHT)).thenThrow(new IllegalStateException("db down"));
-        when(repository.setHold(anyString(), anyString())).thenThrow(new IllegalStateException("db down"));
+        when(repository.setHold("QUIET", "REALTIME")).thenThrow(new IllegalStateException("db down"));
 
         store.confirm(NIGHT, Optional::empty);
         store.hold(AlertLevel.QUIET, TriggerType.REALTIME);
@@ -318,7 +316,7 @@ class AuroraAlertSnapshotStoreTest {
         store.save(view(), NIGHT);
         AuroraAlertSnapshotEntity stored = saved();
         when(repository.findById(ID)).thenReturn(Optional.of(stored));
-        when(locationRepository.findAllById(anyIterable())).thenReturn(List.of(kielder, galloway));
+        when(locationRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(kielder, galloway));
 
         store.load();
 
