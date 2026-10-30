@@ -261,67 +261,119 @@ Three heights, kept apart:
    the lowest point; the editor shows "Valley floor ≈ 120 m (suggested)" and the admin confirms or
    corrects it. A nullable column, written by the editor only, never inferred silently at forecast time.
 
-**Build spec (2026-10-30, owner go-ahead).** One PR. It changes no score: nothing in the forecast path
-reads the new columns until 1b. Follow the `mist_prone` precedent (V185) end to end; it is the same shape
-(a plain, admin-set location fact carried through add, update, DTO and the inline editor).
+**Build spec, revised after three reviews (2026-10-30: backend and data, frontend and roles, scope).**
+One PR, admin-only UI. Nothing in the forecast path reads the new columns until 1b.
 
-1. **Migration `V199__location_valley_floor.sql`:** `locations.valley_floor_m INTEGER NULL`,
-   `valley_floor_lat DOUBLE PRECISION NULL`, `valley_floor_lng DOUBLE PRECISION NULL`. Plain columns,
-   written only by the admin's whole-entity `LocationService.add`/`update` (like `mist_prone`): no
-   detached or scheduled writer, so no column-scoped updater. A Testcontainers migration test in the
-   existing integration style (proven in CI only; no Docker locally).
-2. **Entity, DTO, requests.** `LocationEntity` gains the three fields. `LocationDto` and its mapper gain
-   `valleyFloorMetres`, `valleyFloorLat`, `valleyFloorLng` (role-free terrain facts, no personal data, so
-   the ETag-cached `GET /api/locations` body is unaffected in kind). `AddLocationRequest` gains the three;
-   `UpdateLocationRequest` gains `elevationMetres` and the three valley-floor fields, appended LAST, with
-   the existing convenience constructors kept compiling (null = "don't change", as `mistProne`).
-3. **Update semantics (`LocationService.update`).**
-   - `elevationMetres` non-null: validate −50..1,500 m (else 400) and set it.
-   - The valley floor is set as a unit: all three non-null sets them; a request carrying only some is
-     a 400. Clearing: a new boolean `clearValleyFloor` (true nulls all three). Validate the height
-     −50..1,500 m, the coordinates in range, and the floor point within 5 km of the location.
-   - **A coordinate change does not touch either height** (today it re-fetches only the grid cell; keep
-     that). The editor shows a hint after a coordinate change instead (point 6). Silent overwrites of a
-     hand-corrected height are what this phase exists to stop.
-4. **Valley-floor suggestion (`LocationEnrichmentService.suggestValleyFloor(lat, lon)`).** One call to
-   Open-Meteo's elevation API with a 9 × 9 grid of points spanning ±2 km around the location (81
-   coordinates, under the API's 100), on `forecastExecutor`, failing soft to null like `fetchElevation`.
-   Return the lowest point `{metres, lat, lng}`; return null if it is not at least 30 m below the
-   location's own sampled height (a site on a plateau has no valley below it worth naming). Extract the
-   spacing, radius and 30 m margin as named constants. Exposed two ways:
-   - `LocationEnrichmentResult` gains the suggestion, so the Add dialog shows it;
-   - a new `GET /api/locations/valley-floor?lat=&lon=` (ADMIN, same `@PreAuthorize` as `/enrich`), for
-     the editor's Suggest button. 200 with the suggestion, 200 with an empty body/`null` fields when there
-     is none.
-   It is a SUGGESTION only: nothing is stored until the admin saves.
-5. **Elevation backfill.** Extend `GridCellBackfillJob` with a second pass over enabled locations whose
-   `elevation_m` is null (a new repository finder), calling `fetchElevation` (made package-visible or
-   public, documented), same per-run cap, same consecutive-failure guard, saving each as it succeeds. It
-   never touches a non-null elevation and never fills the valley floor (that stays hand-confirmed). Log
-   one summary line per run like the grid pass.
-6. **UI (`LocationManagementView.jsx`), admin only like the rest of location management.**
-   - **Add dialog:** the enrichment panel and the confirm step show "Valley floor ≈ N m (suggested,
-     X km away)" when one came back, with a checkbox "Use as valley floor" (unticked by default), and
-     the elevation becomes an editable number field pre-filled from enrichment.
-   - **Inline editor:** an "Elevation (m)" number field, and a "Valley floor (m)" field with a
-     **Suggest** button (calls the new endpoint, fills height and coordinates, shows the distance) and a
-     **Clear** link. After a coordinate edit, a one-line hint: "Coordinates changed: check elevation and
-     valley floor."
-   - `data-testid` on every new control, Tailwind only, PropTypes, no new inline styles. Desktop and
-     phone layouts both (location management is admin and desktop-first; nothing phone-only).
-7. **Docs in the same PR:** `reference/api-endpoints.md` (the new endpoint, ADMIN), `reference/map-tab.md`
-   or wherever locations' fields are described (grep `mist_prone`), `reference/database-migrations.md`
-   (V199), this plan's Phase 1-pre status, a `changelog.d/` entry.
-8. **Tests.** Backend: enrichment sampling (81 points requested, lowest chosen, the 30 m margin, failure
-   to null) with the HTTP call stubbed; update semantics (each rule in 3, including the partial-floor 400
-   and that a coordinate change leaves both heights alone); add carrying the floor; the backfill pass
-   (fills nulls only, cap, failure guard); controller 403 for PRO/LITE on the new endpoint; DTO mapping.
-   Frontend (Vitest): editor fields render, Suggest fills them, Clear clears, the add dialog's
-   "Use as valley floor" sends the fields only when ticked, the coordinate-change hint. The 80% per-class
-   coverage gate applies.
+⚠️ **What it does change live, said plainly:** an admin editing a site's `elevation_m` moves everything that
+reads that column, today: inversion eligibility (`ForecastDataAugmentor`, 200 m with `overlooks_water`),
+the "Snow on the fells" topic (`SnowTopsHotTopicStrategy`, null suppresses it) and the neighbour guard
+(`NeighbourOutlierGuard`, ±150 m pools). That is the point of making it editable, and it happens one
+deliberate edit at a time. The editor warns when an edit crosses 200 m on an `overlooks_water` site
+(Ashness Bridge and Fewston Reservoir sit at exactly 200 m).
 
-Out of scope: anything that reads the valley floor (1b), `elevation=` on forecast requests (1b), and
-changing which sites are inversion-eligible.
+**Dropped from this PR after review:**
+- *The nightly elevation backfill.* Filling about 100 null heights would silently start the snow-tops topic
+  at valley sites and reshuffle the neighbour guard in every region, and nothing in 1b needs it (every
+  inversion-eligible site already has a height). If wanted later it is its own PR, with a column-scoped
+  `updateElevationIfNull` (`… WHERE elevation_m IS NULL`), a `servedEpoch.bump()`, its own pass in
+  `GridCellBackfillJob` with its own cap and failure counter, all locations (the job's documented scope),
+  a skip-and-log for any `overlooks_water` site the fill would make eligible, and the snow-tops and
+  neighbour-guard shifts written down first.
+- *The Add dialog changes.* Inversion sites are rare (the last three went in by SQL); the editor's Suggest
+  covers them. `AddLocationRequest` and the Add dialog are untouched.
+
+**1. Migration `V199__location_valley_floor.sql`:** `locations.valley_floor_m INTEGER NULL`,
+`valley_floor_lat DOUBLE PRECISION NULL`, `valley_floor_lng DOUBLE PRECISION NULL`. Plain columns written
+only by the admin's `LocationService.update` (no scheduled writer, so no column-scoped updater; a sentence
+in the entity Javadoc says so, as `mist_prone`'s does). Testcontainers migration test in the
+`ValleyMistReadingMigrationTest` style (CI only).
+
+**2. Entity, DTO, request.** `LocationEntity` gains the three fields; `LocationDto` and `LocationDtoMapper`
+gain `valleyFloorMetres`, `valleyFloorLat`, `valleyFloorLng` (role-free terrain facts; harmless on the public
+ETag-cached `GET /api/locations`). `UpdateLocationRequest` gains, appended last: `Integer elevationMetres`,
+`Integer valleyFloorMetres`, `Double valleyFloorLat`, `Double valleyFloorLng`, `Boolean clearValleyFloor`
+(all null = "don't change"; `Boolean`, not `boolean`). Keep every existing constructor compiling with
+explicit overloads (tests call the 7-, 8- and 9-arg forms dozens of times).
+
+**3. Update rules (`LocationService.update`)**, each failure an `IllegalArgumentException` (mapped to 400 by
+`GlobalExceptionHandler`):
+- `elevationMetres` non-null: integer −50..1,500 m, then set. There is no way to clear an elevation through
+  this API, by design.
+- Valley floor: all three non-null sets them; one or two present is a 400; `clearValleyFloor = true` with
+  any of the three is a 400; `clearValleyFloor = true` alone nulls all three.
+- When a floor is being SET (it differs from what is stored), validate the height −50..1,500 m, the
+  coordinates in range, and that the floor is within 10 km of the location's coordinates **as this same
+  request leaves them** (the `subRegionId` precedent). 10 km, not 5: Keswick is about 6.8 km from
+  Blencathra and was §8's working reference.
+- A coordinate change touches neither height (today it re-fetches only the grid cell; keep that).
+
+**4. Valley-floor candidates (`LocationEnrichmentService.valleyFloorCandidates(lat, lon)`)** and
+`GET /api/locations/valley-floor-candidates?lat=&lon=` (ADMIN, same `@PreAuthorize` as `/enrich`;
+synchronous). One call to Open-Meteo's elevation API with **96 points: 8 compass sectors × 12 points**
+(rings at 1, 2, 3, 4 and 5 km, spread across each sector's 45°, built with `GeoUtils.offsetPoint` so
+longitude scales with latitude; coordinates formatted with `String.format(Locale.ROOT, "%.5f", …)`).
+Also sample the location point itself (97 ≤ 100). For each sector, the lowest point; keep it only if it is
+at least 30 m below the sampled location height (Javadoc: the comparison is against the DEM sample, not the
+stored OS height). Return **always** `{ "siteSampleMetres": n, "candidates": [ … ] }`, candidates sorted by
+height, each `{metres, lat, lng, distanceKm, bearing}` (`bearing` a compass point such as `"NE"`; distance
+from a new `GeoUtils.distanceKm` or a named conversion, not a magic number). An empty list when none
+qualify; on any failure (catch `Exception`, a list whose size is not 97, or nulls) a 502 with a message,
+so the client can tell "none" from "failed". Each call counts as about 97 locations in Open-Meteo's quota:
+negligible, noted under rule 6.
+
+**5. The model cell, shown not stored.** `GET /api/locations/valley-floor-cell?lat=&lon=&elevation=`
+(ADMIN) makes a minimal forecast request (reuse `fetchGridCell`'s shape; `OpenMeteoForecastApi` gains an
+`elevation` parameter) and returns `{cellLat, cellLng, cellElevationMetres}`. The editor shows it for the
+chosen floor ("model cell 54.575, −3.152, 80 m, 0.4 km from the floor") so a wrong valley is visible before
+1b. 1b will request the floor's own lat/lng with `elevation=valley_floor_m`, which pins both.
+
+**6. Editor UI (`LocationManagementView.jsx`, inline editor's second row, the Lat/Lon row, made
+`flex-wrap`).**
+- *Elevation (m)*: `<label htmlFor>`, `type="number" step="1" inputMode="numeric"`, `inlineInputClass`.
+  Parsing: `''` → null, else `Math.round(Number(v))`; client-side −50..1,500 check. Emptying a stored
+  value blocks Save with `editError` ("Elevation can't be cleared; enter a value"). Warn inline when the
+  new value crosses 200 m on an `overlooks_water` site.
+- *Valley floor*: shows the stored floor (height and coordinates) or "—". **Suggest** (a `<button
+  type="button">`, disabled while the edited lat/lon are invalid) calls the candidates endpoint with the
+  EDITED coordinates and lists the candidates (height, distance, bearing); picking one fills height and
+  coordinates and fetches its model cell (point 5). The height field is editable only once a floor exists
+  (stored or picked); editing it keeps that floor's coordinates. **Clear** (`<button type="button">`)
+  blanks the three and sets `clearValleyFloor` only if a floor was stored; a later pick resets it. Status
+  text: "No valley floor 30 m below within 5 km" for an empty list, an error message on failure; neither
+  touches the current values. A pick overwrites a hand-typed height (it is an explicit action).
+- *Stale replies:* every async reply checks it still belongs to the open editor (`editValues.locId`, a
+  request token) and is dropped after Cancel or a row switch; Save is disabled while a request is in
+  flight.
+- *Payload:* keep a baseline at `handleStartEdit` and send `elevationMetres` and the floor (all three, or
+  `clearValleyFloor`) **only when they differ from it**, the `subRegionChange`/aliases pattern. An unchanged
+  save sends exactly today's payload (the existing exact-payload test at `LocationManagementView.test.jsx`
+  ~:350 must pass untouched).
+- *Coordinate hint:* when `parseFloat(editValues.lat/lon)` differ from the stored numbers, a one-line hint
+  "Coordinates changed: check elevation and valley floor" (`inline-edit-coords-hint`); it disappears when
+  they are put back.
+- `data-testid`s: `inline-edit-elevation`, `inline-edit-elevation-warning`, `inline-edit-valley-floor`,
+  `inline-edit-valley-floor-suggest`, `inline-edit-valley-floor-candidate-{i}`,
+  `inline-edit-valley-floor-cell`, `inline-edit-valley-floor-clear`, `inline-edit-valley-floor-status`,
+  `inline-edit-coords-hint`. Tailwind only; the new `forecastApi.js` functions get JSDoc like
+  `enrichLocation` and are added to the test's `vi.mock` factory. No phone-only behaviour; location
+  management is admin and desktop-first, and the wrapped row must not overflow at phone width.
+
+**7. Docs in the same PR:** `reference/api-endpoints.md` (both new endpoints, ADMIN; the new PUT fields),
+`reference/conditions.md` (beside `mist_prone`: the valley floor, and that 1b will read it),
+`reference/database-migrations.md` (V199), this plan's status, a `changelog.d/` entry.
+
+**8. Tests.** Backend: candidates (97 points requested, coordinates formatted with `Locale.ROOT`, lowest per
+sector, the 30 m margin, sorted, empty list, failure → 502) with the HTTP call stubbed (the existing
+`RETURNS_DEEP_STUBS` tests stub exact URIs, so stub the new call explicitly); the cell endpoint; every
+update rule in 3, including the partial-floor and clear-plus-values 400s, the 10 km check against the
+request's own coordinates, and that a coordinate change leaves both heights alone; controller 403 for
+PRO/LITE on both endpoints; DTO mapping. Frontend (Vitest): an unchanged save sends no new keys; elevation
+edit sends a number; empty blocks Save; the 200 m warning; Suggest lists candidates, a pick fills and
+fetches the cell; "none" and error messages; a reply after Cancel is ignored; Clear with and without a
+stored floor; the coordinate hint appears and disappears. The 80% per-class coverage gate applies.
+
+Out of scope: anything that reads the valley floor (1b), the elevation backfill (above), the Add dialog,
+and changing which sites are inversion-eligible (beyond an admin's deliberate elevation edit).
 
 ### Phase 1b: the warm layer at the right height (live; was "in shadow mode")
 
@@ -376,8 +428,9 @@ writes a mist input, and `FORECAST_PARAMS` does not change.
 
 **1. A separate valley profile request, inversion sites only.** For each enabled inversion-eligible
 location (elevation ≥ 200 m and `overlooks_water`) that has a confirmed valley floor, fetch ONE extra
-forecast at the valley-floor coordinates with Open-Meteo's `elevation=<valley_floor_m>` (§8: that picks a
-valley-floor cell), hourly:
+forecast at the stored valley-floor lat/lng WITH Open-Meteo's `elevation=<valley_floor_m>` (pinning both;
+§8: `elevation=` picks a cell of that height, and the floor's own coordinates keep it in the right valley;
+the 1-pre editor shows the admin which cell that is), hourly:
 `temperature_2m, dew_point_2m, cloud_cover_low, visibility, wind_speed_10m,
 temperature_{975,950,925,900,850}hPa, geopotential_height_{975,950,925,900,850}hPa`
 (15 variables, a new constant `INVERSION_PROFILE_PARAMS`). Batched like the existing multi-coordinate
@@ -431,6 +484,21 @@ reports any difference rather than tuning):
 | 4 Nov 2024 08:00, valley Keswick | Latrigg 368 m | inside: 6.0 |
 | 15 Jan 2025 09:00, valley Glenridding | Helvellyn 950 m | base ≈ 469–682 m: clear; ≈ 6–7 |
 
+**5a. Safety without a shadow period (2026-10-30, from the 1-pre scope review).**
+- *Per-site rollout and revert:* V2 runs only where `valley_floor_m` is set; a site without a confirmed
+  floor keeps today's calculator, and clearing a floor in the editor puts that one site back.
+- *The old score is persisted, not just logged:* a nullable `slot_atmosphere.inversion_score_v1` (V200 or
+  the next free number), written beside `inversion_score` on every slot V2 scored. Logs rotate; the
+  `INVERSION_CALC` series must not mix the two without a record.
+- *First-winter asymmetry:* V2 may lower a score freely, but may raise it to at most the old score + 1, and
+  never to STRONG (9+) where the old score was below MODERATE (7). False positives cost a prompt block and a
+  rating boost (the 15 Oct Cat Bells case); V2 is expected mostly to lower scores, so the cap costs little.
+  A named constant and a config flag (`photocast.inversion.v2.raise-cap-enabled`, default true) so the owner
+  can lift it after a winter.
+- *The switch is a restart, not a deploy:* `photocast.inversion.v2.enabled` is a configuration property, so
+  flipping it needs the backend restarted (an env var on the production host), which also clears the
+  briefing and hot-topic memos.
+
 **5. Wiring and the switch.** `ForecastDataAugmentor.augmentWithInversionScore` computes BOTH scores when a
 profile exists; `photocast.inversion.v2.enabled` (new `@ConfigurationProperties("photocast.inversion")`,
 default true, documented in `application-example.yml` and `reference/configuration.md`) decides which one is
@@ -452,8 +520,10 @@ and run through the parser and V2 (table above); walk unit tests (levels below h
 vs elevated, top = first local max, no rise); each cap; the switch both ways; the batch fetch (chunking,
 failure → no profile); the Phase 0 mist guards unchanged and the isolation test extended with the profile.
 
-**8. Operational.** The owner sets valley floors for the 29 inversion sites through the 1-pre editor
-(Suggest, check, save) before or after this merges; sites without one keep today's score until then.
+**8. Operational.** The owner sets valley floors through the 1-pre editor (Suggest, check the model cell,
+save) **before this merges**, at least for Cat Bells, Latrigg, Blencathra, Helvellyn, Scafell Pike and the
+five sites that are both mist-prone and inversion-eligible; otherwise 1b changes nothing where it matters.
+Sites without one keep today's score.
 
 ### Phase 2: the clear night (inversion only, live)
 
