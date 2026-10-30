@@ -1,6 +1,6 @@
 # Cloud inversion v2: measure the warm layer where the fells are (2026-10-28)
 
-**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) built and reviewed (2026-10-30; this PR). Phase 1b spec written and reviewed; waiting on the raise-cap decision and 1-pre's merge. **Owner decision
+**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) built and reviewed (2026-10-30; this PR). Phase 1b spec written and reviewed, raise cap decided (A); builds once 1-pre merges. **Owner decision
 2026-10-30: no shadow period.** Phases 1b–3 ship LIVE, each with two safety nets instead: the old score is
 still computed and logged beside the new one (so the comparison still happens, after the switch rather
 than before it), and a config switch (`photocast.inversion.v2.enabled`, default on) puts the old score back
@@ -552,7 +552,7 @@ From a physics review that re-ran the algorithm on the four mornings, and a code
 - Known fragile thresholds (visibility 4,960 vs 5,000 m at Thirlmere; Cat Bells 451 m against the 975 hPa
   height of 432–471 m; Blencathra against 925 hPa at 861–910 m) are listed in the calculator's Javadoc.
 
-**Raise cap: OWNER DECISION PENDING.** As specified, it blocks the true positives: the old score reads a
+**Raise cap: DECIDED 2026-10-30 (owner): option A, the cap applies only where E < 600 m; summits score uncapped.** The low-site cap keeps the 15 Oct Cat Bells-type false alarm small while V2 is new; summits are exempt because today's score reads their own clear cell and would hold confirmed inversions down. `photocast.inversion.v2.raise-cap-enabled` (default true) and a named `RAISE_CAP_MAX_ELEVATION_M = 600` constant; lift after a winter of `inversion_score_v1` / `inversion_score_v2_raw` evidence. Original analysis: As specified, it blocks the true positives: the old score reads a
 summit's own clear cell, which the low-cloud gate caps at 5–6, so Helvellyn on 15 Jan (confirmed) would be
 stored 6, NONE. Recommendation: apply the cap only where E < 600 m (where the false positives were),
 summits uncapped. Alternative: no cap, relying on per-site revert.
