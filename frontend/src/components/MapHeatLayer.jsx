@@ -14,6 +14,7 @@ import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { getMode } from '../utils/scoreRamp.js';
 import { pxPerKmAtHome, RING_MIN_PX, RING_TIERS } from '../utils/reachRings.js';
 import { fadeAt, LAND_CLIP_MAX_ZOOM } from '../utils/heatHandover.js';
+import { gestureTransform } from '../utils/heatGesture.js';
 
 /**
  * The pane the field is painted into, and its stacking order.
@@ -184,6 +185,12 @@ const RING_LINE_WIDTH = 1;
  * legibility floor are shared.
  */
 const RING_OFFFRAME_FACTOR = 1.15;
+
+/** The settle's view key: centre and zoom, as one string. */
+function viewKey(map) {
+  const c = map.getCenter?.();
+  return c ? `${c.lat},${c.lng},${map.getZoom()}` : '';
+}
 
 /**
  * Draws the reach rings straight in CONTAINER coordinates via {@code latLngToContainerPoint} —
@@ -357,11 +364,31 @@ export default function MapHeatLayer({
   // (`MapView`'s `legendHandoverFraction`, via `utils/heatHandover.js`): the handover's progress,
   // no longer an opacity anything paints at.
 
+  /**
+   * What the last completed paint is registered to; null until the first paint. {@code zoom},
+   * {@code pos} (the layer position it was placed at), {@code topLeft} (the LatLng under its
+   * top-left pixel) and {@code view} (the settle's view key) are read by {@code onGesture} and
+   * {@code settle}; {@code transformed} is true while a gesture transform sits on the canvas.
+   */
+  const drawn = useRef(null);
+
   const paint = useCallback(({ width, height, canvases }) => {
     const canvas = canvases.get(CANVAS_KEY);
     if (!canvas || !map?.getZoom) return;
-    L.DomUtil?.setPosition?.(canvas, map.containerPointToLayerPoint([0, 0]));
+    // Clear any gesture transform explicitly first, so a settle never depends on `setPosition`'s
+    // 3D path (`Browser.any3d`) to drop the scale; `setPosition` then writes the translate.
+    if (drawn.current?.transformed) canvas.style.transform = '';
+    const pos = map.containerPointToLayerPoint([0, 0]);
+    L.DomUtil?.setPosition?.(canvas, pos);
     const zoom = map.getZoom();
+    drawn.current = {
+      canvas,
+      zoom,
+      pos: { x: pos.x, y: pos.y },
+      topLeft: map.containerPointToLatLng ? map.containerPointToLatLng([0, 0]) : null,
+      view: viewKey(map),
+      transformed: false,
+    };
     const fade = fadeAt(zoom);
     const standRadius = () => radiusFor(map, STAND_RADIUS_METRES, STAND_RADIUS_MIN_PX, STAND_RADIUS_MAX_PX);
 
@@ -530,16 +557,52 @@ export default function MapHeatLayer({
    * correctness bug rather than an optimisation: it also swallows a settle for a view that HAS
    * moved, and a map driven through several zooms inside one task then keeps the fade it computed
    * for the first of them. That was measured in a browser, not reasoned about.
+   *
+   * <p>P4b: the key is compared with the view the BITMAP was drawn at ({@code drawn.current.view},
+   * written by {@code paint}), not with the last settled view. Pans no longer repaint, so those two
+   * can differ (drag away, a hook-driven repaint mid-drag, drag back to the settled view); and a
+   * bitmap carrying a gesture transform always needs repainting. The first settle of a
+   * zoomend+moveend pair paints, which updates the drawn view, so the second skips.
    */
-  const lastView = useRef('');
   const settle = useCallback(() => {
     if (typeof map?.getCenter !== 'function') return;
-    const c = map.getCenter();
-    const view = `${c.lat},${c.lng},${map.getZoom()}`;
-    if (view === lastView.current) return;
-    lastView.current = view;
+    const d = drawn.current;
+    if (d && !d.transformed && viewKey(map) === d.view) return;
     repaintNow();
   }, [map, repaintNow]);
+
+  /**
+   * The gesture rule (performance review F17 / P4b, owner decision D7): `move` and `zoom` do not
+   * redraw the field. `drawTiles` costs more than a frame on a phone, and the canvas already rides
+   * the map pane's translate, so:
+   * <ul>
+   *   <li>a pure pan (zoom equal to the zoom drawn) does nothing — the bitmap stays correctly
+   *       placed and only the newly revealed edge is blank until {@code moveend}/{@code zoomend};</li>
+   *   <li>a zoom at another zoom (pinch, fly) re-registers the existing bitmap with a transform
+   *       instead of redrawing it; the next paint resets it. Its fade and marker handover keep the
+   *       last painted values until the settle;</li>
+   *   <li>before any paint there is nothing to move, so the throttled repaint runs as before.</li>
+   * </ul>
+   * {@code viewreset} and {@code resize} still repaint; the pane stays {@code leaflet-zoom-hide}
+   * for {@code zoomanim}.
+   */
+  const onGesture = useCallback(() => {
+    const d = drawn.current;
+    if (!d?.topLeft || typeof map?.getZoom !== 'function') { repaint(); return; }
+    if (typeof map.latLngToLayerPoint !== 'function' || !L.DomUtil?.setTransform) { repaint(); return; }
+    const zoom = map.getZoom();
+    const p = map.latLngToLayerPoint(d.topLeft);
+    // Leaflet moves the map pane on a drag (the corner's layer point is unchanged), but on a pinch
+    // or fly frame it moves the PIXEL ORIGIN instead — even at exactly the drawn zoom (scale 1,
+    // pure midpoint shift). So "nothing to do" needs all three: same zoom, same layer point, no
+    // transform already outstanding.
+    if (zoom === d.zoom && !d.transformed && p.x === d.pos.x && p.y === d.pos.y) return;
+    const { offset, scale } = gestureTransform(d.zoom, zoom, p);
+    // `transform-origin` defaults to the centre; the maths scales about the top-left corner.
+    d.canvas.style.transformOrigin = '0 0';
+    L.DomUtil.setTransform(d.canvas, offset, scale);
+    d.transformed = true;
+  }, [map, repaint]);
 
   useEffect(() => {
     if (typeof map?.on !== 'function') return undefined;
@@ -549,15 +612,17 @@ export default function MapHeatLayer({
     // on the container at all, so a resize invalidation costs one Path2D rebuild against a
     // mistake, never a correctness fix.
     const invalidateMask = () => landMask.invalidate();
-    map.on('move zoom viewreset resize', repaint);
+    map.on('move zoom', onGesture);
+    map.on('viewreset resize', repaint);
     map.on('moveend zoomend', settle);
     map.on('zoomend resize', invalidateMask);
     return () => {
-      map.off('move zoom viewreset resize', repaint);
+      map.off('move zoom', onGesture);
+      map.off('viewreset resize', repaint);
       map.off('moveend zoomend', settle);
       map.off('zoomend resize', invalidateMask);
     };
-  }, [map, repaint, settle, landMask]);
+  }, [map, repaint, onGesture, settle, landMask]);
 
   /**
    * The container as the hook's observed frame.
