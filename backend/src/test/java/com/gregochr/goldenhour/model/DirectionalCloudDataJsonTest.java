@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Jackson round-trip tests for {@link DirectionalCloudData}. The mapper is deliberately a strict
  * default one (plain {@code ObjectMapper} plus the JavaTime module, unknown properties fail), not
- * the replay services' lenient {@code ReplayJson} mapper: it is the stronger check for the round trip.
+ * a lenient replay mapper: it is the stronger check for the round trip.
  */
 class DirectionalCloudDataJsonTest {
 

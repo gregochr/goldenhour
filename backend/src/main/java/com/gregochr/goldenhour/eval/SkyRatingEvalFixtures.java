@@ -14,7 +14,7 @@ import java.util.List;
  * {@link AtmosphericData}.
  *
  * <p><b>Loader fidelity.</b> The mapper here mirrors the production replay engine
- * (the replay mapper in {@code ReplayJson}): a Jackson 2 {@code ObjectMapper} with {@link JavaTimeModule}, so
+ * (the former replay mapper, since deleted): a Jackson 2 {@code ObjectMapper} with {@link JavaTimeModule}, so
  * {@code LocalDateTime} round-trips and a captured-real export written by that engine deserialises
  * byte-for-byte. Unknown properties are ignored so a captured fixture survives later
  * {@code AtmosphericData} schema additions.

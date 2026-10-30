@@ -4,7 +4,7 @@
  * The one place a model name becomes words, so a new model is added here and nowhere else. It is
  * a static table, never a network read: the labels must render even when the models endpoint has
  * not answered (a job-run row, a popup footer). Extended-thinking variants keep the "(ET)" wording
- * the briefing model test view already used.
+ * the since-deleted briefing comparison screen used.
  */
 const MODEL_LABELS = {
   HAIKU: 'Haiku 4.5',

@@ -17,8 +17,6 @@ vi.mock('../components/RegionManagementView.jsx', () => ({ default: () => <div>R
 vi.mock('../components/TideManagementView.jsx', () => ({ default: () => <div>Tides</div> }));
 vi.mock('../components/JobRunsMetricsView.jsx', () => ({ default: () => <div>Job Runs</div> }));
 vi.mock('../components/ModelSelectionView.jsx', () => ({ default: () => <div>Run Config</div> }));
-vi.mock('../components/ModelTestView.jsx', () => ({ default: () => <div>Model Test</div> }));
-vi.mock('../components/BriefingModelTestView.jsx', () => ({ default: () => <div>Briefing Model Test</div> }));
 vi.mock('../components/SchedulerView.jsx', () => ({ default: () => <div>Scheduler</div> }));
 vi.mock('../components/PipelineRunsView.jsx', () => ({ default: () => <div>Pipeline Runs</div> }));
 
@@ -35,6 +33,14 @@ describe('ManageView — Rewind tab', () => {
     fireEvent.click(tab);
     expect(await screen.findByTestId('rewind-view')).toBeInTheDocument();
     expect(window.location.hash).toBe('#manage/rewind');
+  });
+
+  it('lists Sky Eval as the only model-test screen (the other two were retired)', () => {
+    render(<ManageView onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('manage-group-operations'));
+    expect(screen.getByText('Sky Eval')).toBeInTheDocument();
+    expect(screen.queryByText('Location Model Test')).not.toBeInTheDocument();
+    expect(screen.queryByText('Briefing Model Test')).not.toBeInTheDocument();
   });
 
   it('#manage/rewind deep-links straight to it', async () => {
