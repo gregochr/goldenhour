@@ -992,7 +992,8 @@ class JobRunServiceTest {
                     JobRunEntity.builder().id(3L).build(),
                     JobRunEntity.builder().id(2L).build()
             );
-            when(jobRunRepository.findByStartedAtAfterOrderByStartedAtDescIdDesc(any(), eq(PageRequest.of(0, 2))))
+            when(jobRunRepository.findByStartedAtAfterOrderByStartedAtDescIdDesc(
+                    any(LocalDateTime.class), eq(PageRequest.of(0, 2))))
                     .thenReturn(runs);
 
             List<JobRunEntity> result = jobRunService.getRecentRunsAllTypes(2);
@@ -1003,24 +1004,28 @@ class JobRunServiceTest {
         @Test
         @DisplayName("clamps limit to 1 when caller passes 0")
         void getRecentRunsAllTypes_limitZero_usesPageSizeOf1() {
-            when(jobRunRepository.findByStartedAtAfterOrderByStartedAtDescIdDesc(any(), eq(PageRequest.of(0, 1))))
+            when(jobRunRepository.findByStartedAtAfterOrderByStartedAtDescIdDesc(
+                    any(LocalDateTime.class), eq(PageRequest.of(0, 1))))
                     .thenReturn(List.of());
 
             jobRunService.getRecentRunsAllTypes(0);
 
-            verify(jobRunRepository).findByStartedAtAfterOrderByStartedAtDescIdDesc(any(), eq(PageRequest.of(0, 1)));
+            verify(jobRunRepository).findByStartedAtAfterOrderByStartedAtDescIdDesc(
+                    any(LocalDateTime.class), eq(PageRequest.of(0, 1)));
         }
 
         @Test
         @DisplayName("queries with a since timestamp close to 7 days ago")
         void getRecentRunsAllTypes_queriesLast7Days() {
-            when(jobRunRepository.findByStartedAtAfterOrderByStartedAtDescIdDesc(any(), any()))
+            when(jobRunRepository.findByStartedAtAfterOrderByStartedAtDescIdDesc(
+                    any(LocalDateTime.class), eq(PageRequest.of(0, 10))))
                     .thenReturn(List.of());
             ArgumentCaptor<LocalDateTime> captor = ArgumentCaptor.forClass(LocalDateTime.class);
 
             jobRunService.getRecentRunsAllTypes(10);
 
-            verify(jobRunRepository).findByStartedAtAfterOrderByStartedAtDescIdDesc(captor.capture(), any());
+            verify(jobRunRepository).findByStartedAtAfterOrderByStartedAtDescIdDesc(
+                    captor.capture(), eq(PageRequest.of(0, 10)));
             LocalDateTime since = captor.getValue();
             LocalDateTime sevenDaysAgo = LocalDateTime.now(ZoneOffset.UTC).minusDays(7);
             assertThat(since).isAfterOrEqualTo(sevenDaysAgo.minusSeconds(5));
