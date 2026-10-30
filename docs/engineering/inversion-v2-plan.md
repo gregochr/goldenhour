@@ -387,10 +387,10 @@ Switch-over (shadow → live) is an owner decision on that evidence.
 3. **`overlooks_water`**: keep, or add a hand-set `overlooks_valley` flag? Recommended: the new flag.
 4. **Night window** (Phase 2): T−3h or ~21:00–05:00. Recommended: the longer window.
 5. **Phase 4**: recommended not yet.
-7. **High viewpoints** (2026-10-30, from §8): both confirmed inversion mornings topped out at about
+6. **High viewpoints** (2026-10-30, from §8): both confirmed inversion mornings topped out at about
    700–900 m, above every roster site. Add a few summits (Blencathra, Helvellyn, Skiddaw, Scafell Pike,
    Red Pike) as inversion viewpoints, or accept that the roster scores shallow valley fog only?
-6. **Switch-over** from shadow, per phase, on §6's evidence.
+7. **Switch-over** from shadow, per phase, on §6's evidence.
 
 ---
 
