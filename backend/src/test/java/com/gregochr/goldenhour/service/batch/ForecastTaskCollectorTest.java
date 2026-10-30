@@ -830,7 +830,7 @@ class ForecastTaskCollectorTest {
         when(triage(forecastService, run, EvaluationModel.SONNET, profiles))
                 .thenReturn(inlandPreEval(run.loc(), TODAY, 0));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.nearInland()).hasSize(1);
         verifyPrefetchOrder(run, profiles, EvaluationModel.SONNET);
@@ -847,7 +847,7 @@ class ForecastTaskCollectorTest {
         when(triage(forecastService, run, EvaluationModel.SONNET, none))
                 .thenReturn(inlandPreEval(run.loc(), TODAY, 0));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.nearInland()).hasSize(1);
     }
@@ -860,7 +860,7 @@ class ForecastTaskCollectorTest {
         when(triage(forecastService, run, EvaluationModel.SONNET, Map.of()))
                 .thenReturn(inlandPreEval(run.loc(), TODAY, 0));
 
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.nearInland()).hasSize(1);
         verify(openMeteoService, never()).prefetchInversionProfiles(any());
