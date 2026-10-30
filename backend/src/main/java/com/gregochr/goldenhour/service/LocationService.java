@@ -46,9 +46,6 @@ public class LocationService {
     /** The valley floor must lie within this distance of the location, in kilometres. */
     private static final double MAX_FLOOR_DISTANCE_KM = 10.0;
 
-    /** Height, latitude and longitude: the three fields a valley floor is set with. */
-    private static final int FLOOR_FIELD_COUNT = 3;
-
     private static final double MIN_LAT = -90.0;
     private static final double MAX_LAT = 90.0;
     private static final double MIN_LON = -180.0;
@@ -382,7 +379,7 @@ public class LocationService {
         if (present == 0) {
             return;
         }
-        if (present < FLOOR_FIELD_COUNT) {
+        if (floorMetres == null || floorLat == null || floorLng == null) {
             throw new IllegalArgumentException(
                     "A valley floor needs its height, latitude and longitude together");
         }
