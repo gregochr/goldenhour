@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatcher;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -13,7 +14,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -23,6 +25,7 @@ import static org.mockito.Mockito.when;
 /**
  * Batch prefetch and on-demand fetch of the v2 valley profile: eligibility, one request per distinct
  * valley-floor point, the location-id keying, the memo, and "a failure is no profile, never an exception".
+ * Every stub and verify names the exact [lat, lng, floor] points it expects to be sent.
  */
 class InversionProfileFetcherTest {
 
@@ -45,8 +48,23 @@ class InversionProfileFetcherTest {
                 .valleyFloorMetres(floor).valleyFloorLat(lat).valleyFloorLng(lng).build();
     }
 
+    private static double latOf(long id) {
+        return 54.575 + id * 0.001;
+    }
+
     private static LocationEntity eligible(long id) {
-        return site(id, 451, true, 80, 54.575 + id * 0.001, -3.152);
+        return site(id, 451, true, 80, latOf(id), -3.152);
+    }
+
+    /** The exact points a request must carry, in order. */
+    private static ArgumentMatcher<List<double[]>> sending(double[]... expected) {
+        return actual -> actual != null && actual.size() == expected.length
+                && java.util.stream.IntStream.range(0, expected.length)
+                        .allMatch(i -> Arrays.equals(actual.get(i), expected[i]));
+    }
+
+    private static double[] point(double lat, double lng, double floor) {
+        return new double[]{lat, lng, floor};
     }
 
     private static OpenMeteoForecastResponse response(double elevation) {
@@ -84,12 +102,12 @@ class InversionProfileFetcherTest {
     @Test
     @DisplayName("prefetch fetches only eligible sites and keys the result by LOCATION ID")
     void prefetchKeysByLocationId() {
-        LocationEntity a = eligible(1);
-        LocationEntity b = eligible(2);
         LocationEntity ineligible = site(3, 100, true, 80, 54.5, -3.1);
-        when(client.fetchInversionProfileBatch(anyList())).thenReturn(responses(response(80), response(81)));
+        when(client.fetchInversionProfileBatch(argThat(sending(
+                point(latOf(1), -3.152, 80), point(latOf(2), -3.152, 80)))))
+                .thenReturn(responses(response(80), response(81)));
 
-        Map<Long, InversionProfile> result = fetcher.prefetch(List.of(a, ineligible, b));
+        Map<Long, InversionProfile> result = fetcher.prefetch(List.of(eligible(1), ineligible, eligible(2)));
 
         assertThat(result).containsOnlyKeys(1L, 2L);
         assertThat(result.get(1L).cellElevationMetres()).isEqualTo(80.0);
@@ -105,17 +123,15 @@ class InversionProfileFetcherTest {
         LocationEntity a = site(1, 451, true, 80, 54.575, -3.152);
         LocationEntity twin = site(2, 368, true, 80, 54.575, -3.152);
         LocationEntity other = site(3, 451, true, 92, 54.593, -3.121);
-        when(client.fetchInversionProfileBatch(anyList())).thenReturn(responses(response(80), response(92)));
+        when(client.fetchInversionProfileBatch(argThat(sending(
+                point(54.575, -3.152, 80), point(54.593, -3.121, 92)))))
+                .thenReturn(responses(response(80), response(92)));
 
         Map<Long, InversionProfile> result = fetcher.prefetch(List.of(a, twin, other));
 
-        org.mockito.ArgumentCaptor<List<double[]>> points = org.mockito.ArgumentCaptor.forClass(List.class);
-        verify(client).fetchInversionProfileBatch(points.capture());
-        assertThat(points.getValue()).hasSize(2);
-        assertThat(points.getValue().get(0)).containsExactly(54.575, -3.152, 80.0);
-        assertThat(points.getValue().get(1)).containsExactly(54.593, -3.121, 92.0);
         assertThat(result).containsOnlyKeys(1L, 2L, 3L);
         assertThat(result.get(2L)).isSameAs(result.get(1L));
+        assertThat(result.get(3L).cellElevationMetres()).isEqualTo(92.0);
     }
 
     @Test
@@ -124,13 +140,15 @@ class InversionProfileFetcherTest {
         Map<Long, InversionProfile> result = fetcher.prefetch(List.of(site(1, 100, true, 80, 54.5, -3.1)));
 
         assertThat(result).isEmpty();
-        verify(client, never()).fetchInversionProfileBatch(anyList());
+        verify(client, never()).fetchInversionProfileBatch(any());
     }
 
     @Test
     @DisplayName("prefetch: a null response (failed chunk) leaves that site out; the others keep theirs")
     void prefetchPartialFailure() {
-        when(client.fetchInversionProfileBatch(anyList())).thenReturn(responses(response(80), null));
+        when(client.fetchInversionProfileBatch(argThat(sending(
+                point(latOf(1), -3.152, 80), point(latOf(2), -3.152, 80)))))
+                .thenReturn(responses(response(80), null));
 
         Map<Long, InversionProfile> result = fetcher.prefetch(List.of(eligible(1), eligible(2)));
 
@@ -138,9 +156,25 @@ class InversionProfileFetcherTest {
     }
 
     @Test
+    @DisplayName("prefetch: one malformed cell (bad time string) loses only its own profile")
+    void prefetchMalformedCellLosesOnlyItself() {
+        OpenMeteoForecastResponse malformed = response(81);
+        malformed.getHourly().setTime(List.of("not-a-time", "2025-10-15T07:00"));
+        when(client.fetchInversionProfileBatch(argThat(sending(
+                point(latOf(1), -3.152, 80), point(latOf(2), -3.152, 80), point(latOf(3), -3.152, 80)))))
+                .thenReturn(responses(response(80), malformed, response(82)));
+
+        Map<Long, InversionProfile> result = fetcher.prefetch(List.of(eligible(1), eligible(2), eligible(3)));
+
+        assertThat(result).containsOnlyKeys(1L, 3L);
+        assertThat(result.get(3L).cellElevationMetres()).isEqualTo(82.0);
+    }
+
+    @Test
     @DisplayName("prefetch: a response with no hourly data is no profile")
     void prefetchEmptyResponse() {
-        when(client.fetchInversionProfileBatch(anyList())).thenReturn(responses(new OpenMeteoForecastResponse()));
+        when(client.fetchInversionProfileBatch(argThat(sending(point(latOf(1), -3.152, 80)))))
+                .thenReturn(responses(new OpenMeteoForecastResponse()));
 
         assertThat(fetcher.prefetch(List.of(eligible(1)))).isEmpty();
     }
@@ -148,7 +182,8 @@ class InversionProfileFetcherTest {
     @Test
     @DisplayName("prefetch never throws: a client failure is an empty map")
     void prefetchNeverThrows() {
-        when(client.fetchInversionProfileBatch(anyList())).thenThrow(new RuntimeException("boom"));
+        when(client.fetchInversionProfileBatch(argThat(sending(point(latOf(1), -3.152, 80)))))
+                .thenThrow(new RuntimeException("boom"));
 
         assertThat(fetcher.prefetch(List.of(eligible(1)))).isEmpty();
     }
@@ -157,14 +192,15 @@ class InversionProfileFetcherTest {
     @DisplayName("on demand: an ineligible site is null with no request")
     void onDemandIneligible() {
         assertThat(fetcher.fetchOnDemand(site(1, 100, true, 80, 54.5, -3.1))).isNull();
-        verify(client, never()).fetchInversionProfileBatch(anyList());
+        verify(client, never()).fetchInversionProfileBatch(any());
     }
 
     @Test
-    @DisplayName("on demand: a site called for many dates and events costs one request")
+    @DisplayName("on demand: a site called for many dates and events costs one request, for its own point")
     void onDemandIsMemoised() {
         LocationEntity site = eligible(1);
-        when(client.fetchInversionProfileBatch(anyList())).thenReturn(responses(response(80)));
+        when(client.fetchInversionProfileBatch(argThat(sending(point(latOf(1), -3.152, 80)))))
+                .thenReturn(responses(response(80)));
 
         InversionProfile first = fetcher.fetchOnDemand(site);
         for (int i = 0; i < 7; i++) {
@@ -172,59 +208,72 @@ class InversionProfileFetcherTest {
         }
 
         assertThat(first).isNotNull();
-        verify(client, times(1)).fetchInversionProfileBatch(anyList());
+        verify(client, times(1)).fetchInversionProfileBatch(argThat(sending(point(latOf(1), -3.152, 80))));
     }
 
     @Test
     @DisplayName("on demand: two sites with the same valley-floor request share one fetch")
     void onDemandSharedByRequestKey() {
-        when(client.fetchInversionProfileBatch(anyList())).thenReturn(responses(response(80)));
+        when(client.fetchInversionProfileBatch(argThat(sending(point(54.575, -3.152, 80)))))
+                .thenReturn(responses(response(80)));
 
         InversionProfile a = fetcher.fetchOnDemand(site(1, 451, true, 80, 54.575, -3.152));
         InversionProfile b = fetcher.fetchOnDemand(site(2, 368, true, 80, 54.575, -3.152));
 
         assertThat(b).isSameAs(a);
-        verify(client, times(1)).fetchInversionProfileBatch(anyList());
+        verify(client, times(1)).fetchInversionProfileBatch(argThat(sending(point(54.575, -3.152, 80))));
     }
 
     @Test
     @DisplayName("on demand: a different valley-floor point or height is a different request")
     void onDemandDistinctKeys() {
-        when(client.fetchInversionProfileBatch(anyList())).thenReturn(responses(response(80)));
+        when(client.fetchInversionProfileBatch(argThat(sending(point(54.575, -3.152, 80)))))
+                .thenReturn(responses(response(80)));
+        when(client.fetchInversionProfileBatch(argThat(sending(point(54.575, -3.152, 81)))))
+                .thenReturn(responses(response(81)));
+        when(client.fetchInversionProfileBatch(argThat(sending(point(54.576, -3.152, 80)))))
+                .thenReturn(responses(response(82)));
 
-        fetcher.fetchOnDemand(site(1, 451, true, 80, 54.575, -3.152));
-        fetcher.fetchOnDemand(site(2, 451, true, 81, 54.575, -3.152));
-        fetcher.fetchOnDemand(site(3, 451, true, 80, 54.576, -3.152));
+        InversionProfile a = fetcher.fetchOnDemand(site(1, 451, true, 80, 54.575, -3.152));
+        InversionProfile b = fetcher.fetchOnDemand(site(2, 451, true, 81, 54.575, -3.152));
+        InversionProfile c = fetcher.fetchOnDemand(site(3, 451, true, 80, 54.576, -3.152));
 
-        verify(client, times(3)).fetchInversionProfileBatch(anyList());
+        assertThat(a.cellElevationMetres()).isEqualTo(80.0);
+        assertThat(b.cellElevationMetres()).isEqualTo(81.0);
+        assertThat(c.cellElevationMetres()).isEqualTo(82.0);
+        verify(client, times(1)).fetchInversionProfileBatch(argThat(sending(point(54.575, -3.152, 80))));
+        verify(client, times(1)).fetchInversionProfileBatch(argThat(sending(point(54.575, -3.152, 81))));
+        verify(client, times(1)).fetchInversionProfileBatch(argThat(sending(point(54.576, -3.152, 80))));
     }
 
     @Test
     @DisplayName("on demand: the memo expires after its time to live")
     void onDemandMemoExpires() {
         LocationEntity site = eligible(1);
-        when(client.fetchInversionProfileBatch(anyList())).thenReturn(responses(response(80)));
+        when(client.fetchInversionProfileBatch(argThat(sending(point(latOf(1), -3.152, 80)))))
+                .thenReturn(responses(response(80)));
 
         fetcher.fetchOnDemand(site);
         now += InversionProfileFetcher.MEMO_TTL_MS - 1;
         fetcher.fetchOnDemand(site);
-        verify(client, times(1)).fetchInversionProfileBatch(anyList());
+        verify(client, times(1)).fetchInversionProfileBatch(argThat(sending(point(latOf(1), -3.152, 80))));
 
         now += 1;
         fetcher.fetchOnDemand(site);
-        verify(client, times(2)).fetchInversionProfileBatch(anyList());
+        verify(client, times(2)).fetchInversionProfileBatch(argThat(sending(point(latOf(1), -3.152, 80))));
     }
 
     @Test
     @DisplayName("on demand: a failure is remembered too, so a failing site is not retried per slot")
     void onDemandFailureIsMemoised() {
         LocationEntity site = eligible(1);
-        when(client.fetchInversionProfileBatch(anyList())).thenThrow(new RuntimeException("429"));
+        when(client.fetchInversionProfileBatch(argThat(sending(point(latOf(1), -3.152, 80)))))
+                .thenThrow(new RuntimeException("429"));
 
         assertThat(fetcher.fetchOnDemand(site)).isNull();
         assertThat(fetcher.fetchOnDemand(site)).isNull();
 
-        verify(client, times(1)).fetchInversionProfileBatch(anyList());
+        verify(client, times(1)).fetchInversionProfileBatch(argThat(sending(point(latOf(1), -3.152, 80))));
     }
 
     @Test
@@ -232,7 +281,8 @@ class InversionProfileFetcherTest {
     void onDemandNullResponse() {
         List<OpenMeteoForecastResponse> nullResponse = new ArrayList<>();
         nullResponse.add(null);
-        when(client.fetchInversionProfileBatch(anyList())).thenReturn(nullResponse);
+        when(client.fetchInversionProfileBatch(argThat(sending(point(latOf(1), -3.152, 80)))))
+                .thenReturn(nullResponse);
 
         assertThat(fetcher.fetchOnDemand(eligible(1))).isNull();
     }

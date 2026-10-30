@@ -44,6 +44,7 @@ class ForecastDataAugmentorInversionV2Test {
     private ForecastDataAugmentor augmentor;
     private ListAppender<ILoggingEvent> logs;
     private Logger augmentorLogger;
+    private Level originalLevel;
 
     @BeforeEach
     void setUp() {
@@ -57,12 +58,14 @@ class ForecastDataAugmentorInversionV2Test {
         logs.start();
         augmentorLogger = (Logger) LoggerFactory.getLogger(ForecastDataAugmentor.class);
         augmentorLogger.addAppender(logs);
+        originalLevel = augmentorLogger.getLevel();
         augmentorLogger.setLevel(Level.INFO);
     }
 
     @AfterEach
     void tearDown() {
         augmentorLogger.detachAppender(logs);
+        augmentorLogger.setLevel(originalLevel);
     }
 
     /** The viewpoint cell, scoring {@code old} under the old calculator (see the class comment). */
@@ -172,14 +175,27 @@ class ForecastDataAugmentorInversionV2Test {
     }
 
     @Test
-    @DisplayName("old score null and v2 under 6: v2 is stored unchanged")
-    void oldNullAndLowV2() {
+    @DisplayName("old score null and v2 at 6 (inside): v2 is stored unchanged")
+    void oldNullAndV2AtSix() {
         AtmosphericData base = withProfile(cell(9).dewPoint(null).build(), deepSea());
 
         AtmosphericData result = augmentor.augmentWithInversionScore(base, 500, true);
 
         assertThat(result.inversionScore()).isEqualTo(6.0);
         assertThat(result.inversionV2().caps()).isEqualTo("inside(6)");
+    }
+
+    @Test
+    @DisplayName("old score null and v2 under 6: v2 is stored unchanged, not lifted to 6")
+    void oldNullAndV2UnderSix() {
+        InversionProfile dry = profile(H0, H.at(7).t2(9.0).dew(2.0).temps(8.0, 7.0, 6.0, 5.0, 4.0));
+        AtmosphericData base = withProfile(cell(9).dewPoint(null).build(), dry);
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 500, true);
+
+        assertThat(result.inversionV2().v2Raw()).isEqualTo(5.0);
+        assertThat(result.inversionScore()).isEqualTo(5.0);
+        assertThat(result.inversionV2().caps()).isEqualTo("none(6)");
     }
 
     @Test
@@ -252,13 +268,40 @@ class ForecastDataAugmentorInversionV2Test {
     }
 
     @Test
-    @DisplayName("an old score at or above v2's is never raised or changed by the cap")
-    void capDoesNotTouchEqualScores() {
+    @DisplayName("an old score above v2's is lowered to v2's, with no raise cap involved")
+    void v2BelowOldIsStoredUnchanged() {
         AtmosphericData base = withProfile(cell(9).build(), shallowFog());
 
         AtmosphericData result = augmentor.augmentWithInversionScore(base, 450, true);
 
         assertThat(result.inversionScore()).isEqualTo(8.0);
+        assertThat(result.inversionV2().caps()).isEqualTo("edge(8)");
+    }
+
+    @Test
+    @DisplayName("an old score equal to v2's stays put and no raise cap is recorded")
+    void equalScoresAreUntouched() {
+        AtmosphericData base = withProfile(cell(6).build(), deepSea());
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 450, true);
+
+        assertThat(result.inversionV2().v2Raw()).isEqualTo(6.0);
+        assertThat(result.inversionScore()).isEqualTo(6.0);
+        assertThat(result.inversionV2().caps()).isEqualTo("inside(6)");
+    }
+
+    @Test
+    @DisplayName("raise-cap boundary: v2 exactly one above the old score is stored as is, with no raise cap")
+    void raiseOfExactlyOneIsNotCapped() {
+        // Saturated but only moderate fog: gap 1.2 (3) + calm (3) + visibility under 5 km (1) = 7.
+        InversionProfile sevenProfile = profile(H0,
+                H.at(7).t2(5.0).dew(3.8).low(10).vis(3000.0).temps(7.0, 6.0, 5.0, 4.0, 3.0));
+        AtmosphericData base = withProfile(cell(6).build(), sevenProfile);
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 450, true);
+
+        assertThat(result.inversionV2().v2Raw()).isEqualTo(7.0);
+        assertThat(result.inversionScore()).isEqualTo(7.0);
         assertThat(result.inversionV2().caps()).isEqualTo("edge(8)");
     }
 

@@ -52,8 +52,8 @@ import static org.mockito.Mockito.mock;
  *   Latrigg 368 m, 4 Nov 08:00        expected inside, 6  old 5  raw 6  stored 6  INSIDE, base 863
  *   Helvellyn 950 m, 15 Jan 09:00     expected clear 6-7  old 5  raw 7  stored 7  CLEAR, base 464, top 900, 2.9 C
  * </pre>
- * The two summit rows with an old score below 7 (Blencathra, Helvellyn) and Scafell Pike are raised by 1 to 2
- * points because summits (viewpoint of 600 m or more) are exempt from the raise cap.
+ * Blencathra and Scafell Pike rise 6 to 7, within the raise cap's one point; only Helvellyn (5 to 7) depends on
+ * summits (viewpoint of 600 m or more) being exempt from the raise cap.
  */
 class InversionV2FixtureTest {
 
@@ -128,7 +128,7 @@ class InversionV2FixtureTest {
         assertThat(o.top()).isEqualTo(1130.0);
         assertThat(o.strength()).isEqualTo(4.6);
         assertThat(o.raw()).isEqualTo(7.0);
-        // 868 m is a summit (>= 600): the old score of 6 does not cap the raise.
+        // 6 -> 7 is within the raise cap's one point, so the summit exemption is not what lets it through.
         assertThat(o.old()).isEqualTo(6);
         assertThat(o.stored()).isEqualTo(7.0);
         assertThat(o.caps()).isEqualTo("edge(8)");
@@ -144,10 +144,12 @@ class InversionV2FixtureTest {
         // Expected: base about 675 m, next level 894 m, clear, strength about 4.7, about 7.
         assertThat(o.clearance()).isEqualTo(InversionClearance.CLEAR);
         assertThat(o.base()).isEqualTo(675.0);
+        assertThat(o.top()).isEqualTo(1122.0);
         assertThat(o.strength()).isEqualTo(4.7);
         assertThat(o.raw()).isEqualTo(7.0);
         assertThat(o.old()).isEqualTo(6);
         assertThat(o.stored()).isEqualTo(7.0);
+        assertThat(o.caps()).isEqualTo("-");
     }
 
     @Test
@@ -175,7 +177,9 @@ class InversionV2FixtureTest {
 
         // The 2c fetch has no 900 hPa; the profile must still score. The summit cell has 96% low cloud and
         // 2.6 km visibility, so the in-cloud cap binds even though 911 m is only at the edge of the layer.
-        assertThat(o.caps()).contains("in-cloud(6)");
+        assertThat(o.clearance()).isEqualTo(InversionClearance.EDGE);
+        assertThat(o.base()).isEqualTo(863.0);
+        assertThat(o.caps()).isEqualTo("edge(8),in-cloud(6)");
         assertThat(o.raw()).isEqualTo(6.0);
         assertThat(o.stored()).isEqualTo(6.0);
         assertThat(o.old()).isEqualTo(6);
@@ -189,6 +193,8 @@ class InversionV2FixtureTest {
         Outcome o = run(cells[2], cells[1], 368, LocalDateTime.of(2024, 11, 4, 7, 30), TargetType.SUNRISE);
 
         assertThat(o.clearance()).isEqualTo(InversionClearance.INSIDE);
+        assertThat(o.base()).isEqualTo(863.0);
+        assertThat(o.caps()).isEqualTo("inside(6)");
         assertThat(o.raw()).isEqualTo(6.0);
         // Old 5: the raise cap (a site under 600 m) allows at most 6, which is what v2 scored anyway.
         assertThat(o.old()).isEqualTo(5);
@@ -206,7 +212,11 @@ class InversionV2FixtureTest {
         // the summit's own clear cell and said 5, which is why summits are exempt from the raise cap.
         assertThat(o.clearance()).isEqualTo(InversionClearance.CLEAR);
         assertThat(o.base()).isEqualTo(464.0);
+        assertThat(o.top()).isEqualTo(900.0);
+        assertThat(o.strength()).isEqualTo(2.9);
+        assertThat(o.caps()).isEqualTo("-");
         assertThat(o.raw()).isEqualTo(7.0);
+        // 5 -> 7 is two points: only the summit exemption from the raise cap lets this through.
         assertThat(o.old()).isEqualTo(5);
         assertThat(o.stored()).isEqualTo(7.0);
     }

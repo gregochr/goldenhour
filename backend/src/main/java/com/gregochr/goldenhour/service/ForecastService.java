@@ -189,6 +189,10 @@ public class ForecastService {
      * As the eight-argument form, reading tide extremes from a collection-scoped snapshot when
      * one is given; {@code null} keeps the live per-candidate query, so other callers are unchanged.
      *
+     * <p>WARNING: this form passes no inversion profile map, so an eligible location's v2 valley profile is
+     * fetched ON DEMAND (memoised per valley-floor request). Batch callers that have prefetched the run's
+     * profiles must call the ten-argument form with that map, or every slot pays for a fetch of its own.
+     *
      * @param location          the location entity
      * @param date              the target date
      * @param targetType        SUNRISE or SUNSET

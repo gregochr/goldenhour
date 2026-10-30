@@ -88,8 +88,16 @@ public final class InversionProfileFetcher {
             List<OpenMeteoForecastResponse> responses = client.fetchInversionProfileBatch(points);
             int populated = 0;
             for (int i = 0; i < groups.size() && i < responses.size(); i++) {
-                InversionProfile profile = InversionProfile.from(responses.get(i),
-                        groups.get(i).get(0).getValleyFloorMetres());
+                InversionProfile profile;
+                try {
+                    profile = InversionProfile.from(responses.get(i),
+                            groups.get(i).get(0).getValleyFloorMetres());
+                } catch (Exception e) {
+                    // One malformed cell loses only its own profile.
+                    LOG.warn("Inversion profile for {} could not be read, skipping it: {}",
+                            groups.get(i).get(0).getName(), e.getMessage());
+                    continue;
+                }
                 if (profile == null) {
                     continue;
                 }

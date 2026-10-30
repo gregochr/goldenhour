@@ -24,17 +24,20 @@ import java.util.List;
  * <p><b>The walk.</b> Per hour: start at (h0, T0), the valley floor height and the valley cell's 2 m
  * temperature, then take the pressure levels whose geopotential height is at least
  * {@value #MIN_LEVEL_ABOVE_FLOOR_M} m above h0 (the summit trap: below that a level is under the ground),
- * skipping any level with a null reading. The profile is kept if at least one level is valid. The first
- * point that is warmer than the one below it starts a rise; the rise ends at the first local maximum.
- * Equal adjacent temperatures are not a rise. Strength is the top's temperature minus the base's, rounded
- * to 0.1 degC.
+ * skipping any level with a null reading. The profile is kept if at least one level is valid. Every maximal
+ * strictly increasing run along the points is a candidate layer (equal adjacent temperatures are not a rise).
+ * Strength is the top's temperature minus the base's, rounded to 0.1 degC; a run weaker than
+ * {@value #MIN_LAYER_STRENGTH_C} degC is discarded, and the hour's layer is its strongest remaining run (a
+ * tie keeps the lower one), so a small surface blip cannot mask a deeper layer above it.
  * <ul>
- *   <li><b>Surface-based:</b> the rise starts at the valley floor and its top is the FIRST valid level (a
+ *   <li><b>Surface-based:</b> the run starts at the valley floor and its top is the FIRST valid level (a
  *       shallow radiation-fog layer). Base is h0.</li>
- *   <li><b>Elevated:</b> anything else. A rise that starts at the floor and keeps going past the first level
- *       is elevated with base = the coldest valid LEVEL below the top; otherwise base is the last level
- *       before the rise.</li>
+ *   <li><b>Elevated:</b> anything else. A run that starts at the floor and goes on past the first level has
+ *       base = the first valid level; any other run has base at its own start.</li>
  * </ul>
+ * Known discontinuity, deliberately conservative for the first winter: a viewpoint between h0 + 100 m and
+ * the first level can flip between edge (surface-based) and inside (elevated, base = the first level) on a
+ * small change at the 950 hPa level.
  *
  * <p><b>Hours examined</b> are anchored to the event SLOT: for a sunrise the slot and the four hours before
  * it, for a sunset the slot and the two hours after it. The hour with the strongest layer supplies the
@@ -81,6 +84,9 @@ public final class InversionScoreCalculatorV2 {
 
     /** A level must sit at least this far above the valley floor to count (the summit trap). */
     static final double MIN_LEVEL_ABOVE_FLOOR_M = 50.0;
+
+    /** A rising run weaker than this (rounded to 0.1 degC) is noise, not a warm layer. */
+    static final double MIN_LAYER_STRENGTH_C = 0.3;
 
     /** Visibility in metres under which valley fog is taken as present. */
     static final double FOG_VISIBILITY_METRES = 5000.0;
@@ -238,46 +244,49 @@ public final class InversionScoreCalculatorV2 {
             return null;
         }
 
-        int rise = -1;
-        for (int i = 1; i < points.size(); i++) {
-            if (points.get(i).temperature() > points.get(i - 1).temperature()) {
-                rise = i;
-                break;
+        Layer best = null;
+        int i = 0;
+        while (i < points.size() - 1) {
+            if (points.get(i + 1).temperature() <= points.get(i).temperature()) {
+                i++;
+                continue;
             }
+            int top = i + 1;
+            while (top + 1 < points.size()
+                    && points.get(top + 1).temperature() > points.get(top).temperature()) {
+                top++;
+            }
+            Layer segment = segment(hour, points, i, top);
+            // Strictly stronger only, so a tie between segments keeps the lower one.
+            if (segment.strength() >= MIN_LAYER_STRENGTH_C && (best == null || segment.strength() > best.strength())) {
+                best = segment;
+            }
+            i = top;
         }
-        if (rise < 0) {
-            return new Layer(hour, InversionRegime.NONE, null, null, 0.0, null);
-        }
-        int top = rise;
-        while (top + 1 < points.size() && points.get(top + 1).temperature() > points.get(top).temperature()) {
-            top++;
-        }
+        return best != null ? best : new Layer(hour, InversionRegime.NONE, null, null, 0.0, null);
+    }
 
-        int baseIndex;
+    /**
+     * Builds the layer for one rising run from {@code start} to {@code top}. A run that starts at the valley
+     * floor and tops out at the first valid level is surface-based (base h0). A run that starts at the floor and
+     * goes on past the first level is elevated with base = the first valid level. Any other run is elevated with
+     * base at its start.
+     */
+    private static Layer segment(InversionProfile.Hour hour, List<Point> points, int start, int top) {
         InversionRegime regime;
-        if (rise == 1 && top == 1) {
+        int baseIndex;
+        if (start == 0 && top == 1) {
             regime = InversionRegime.SURFACE_BASED;
             baseIndex = 0;
         } else {
             regime = InversionRegime.ELEVATED;
-            baseIndex = rise == 1 ? coldestLevelBelow(points, top) : rise - 1;
+            baseIndex = start == 0 ? 1 : start;
         }
         Point base = points.get(baseIndex);
         Point topPoint = points.get(top);
         double strength = Math.round((topPoint.temperature() - base.temperature()) * TENTH) / TENTH;
         Double next = baseIndex + 1 < points.size() ? points.get(baseIndex + 1).height() : null;
         return new Layer(hour, regime, base, topPoint, strength, next);
-    }
-
-    /** The coldest level (never the valley floor point) below the top; the lowest on a tie. */
-    private static int coldestLevelBelow(List<Point> points, int top) {
-        int coldest = 1;
-        for (int i = 2; i < top; i++) {
-            if (points.get(i).temperature() < points.get(coldest).temperature()) {
-                coldest = i;
-            }
-        }
-        return coldest;
     }
 
     /** Strongest layer wins; a tie goes to the hour nearest the event slot. */

@@ -54,15 +54,89 @@ class InversionScoreCalculatorV2Test {
         }
 
         @Test
-        @DisplayName("the top is the FIRST local maximum, so a warmer layer aloft cannot extend it")
-        void topIsFirstLocalMaximum() {
-            InversionProfile p = profile(H0, slot().temps(6.0, 9.0, 7.0, 12.0, 11.0));
+        @DisplayName("each rising run ends at its own local maximum; the stronger earlier run is chosen")
+        void earlierStrongerRunIsChosen() {
+            InversionProfile p = profile(H0, slot().temps(6.0, 10.0, 7.0, 8.0, 7.5));
 
             InversionV2Result r = score(data(p), 2000);
 
             assertThat(r.baseMetres()).isEqualTo(450.0);
             assertThat(r.topMetres()).isEqualTo(680.0);
-            assertThat(r.strengthCelsius()).isEqualTo(3.0);
+            assertThat(r.strengthCelsius()).isEqualTo(4.0);
+        }
+
+        @Test
+        @DisplayName("the STRONGEST run is the layer: a stronger run higher up beats an earlier weaker one")
+        void strongestRunWins() {
+            InversionProfile p = profile(H0, slot().temps(6.0, 9.0, 7.0, 12.0, 11.0));
+
+            InversionV2Result r = score(data(p), 2000);
+
+            assertThat(r.baseMetres()).isEqualTo(900.0);
+            assertThat(r.topMetres()).isEqualTo(1130.0);
+            assertThat(r.strengthCelsius()).isEqualTo(5.0);
+        }
+
+        @Test
+        @DisplayName("a small surface blip under a strong layer does not mask it (Scales 04:00 on 15 Oct)")
+        void surfaceBlipDoesNotMaskStrongLayer() {
+            // 8.0 -> 8.6 at 450 m is a 0.6 degC blip; 7.6 at 685 m to 12.0 at 1134 m is the real layer.
+            InversionProfile p = profile(H0, slot().t2(8.0).temps(8.6, 7.6, 10.0, 12.0, 10.6)
+                    .heights(450.0, 685.0, 906.0, 1134.0, 1611.0));
+
+            InversionV2Result r = score(data(p), 2000);
+
+            assertThat(r.regime()).isEqualTo(InversionRegime.ELEVATED);
+            assertThat(r.baseMetres()).isEqualTo(685.0);
+            assertThat(r.topMetres()).isEqualTo(1134.0);
+            assertThat(r.strengthCelsius()).isEqualTo(4.4);
+        }
+
+        @Test
+        @DisplayName("a 0.1 degC wobble under a deeper layer is not the base: the 700 m viewpoint is inside, 6")
+        void falseClearProfileIsInside() {
+            InversionProfile p = profile(H0, slot().t2(8.0).temps(7.0, 7.1, 5.0, 10.0, 9.0));
+
+            InversionV2Result r = score(data(p), 700);
+
+            assertThat(r.baseMetres()).isEqualTo(900.0);
+            assertThat(r.topMetres()).isEqualTo(1130.0);
+            assertThat(r.clearance()).isEqualTo(InversionClearance.INSIDE);
+            assertThat(r.v2Raw()).isEqualTo(6.0);
+        }
+
+        @Test
+        @DisplayName("a 0.04 degC rise is no layer")
+        void tinyRiseIsNoLayer() {
+            InversionProfile p = profile(H0, slot().t2(8.0).temps(7.00, 7.04, 6.0, 5.0, 4.0));
+
+            InversionV2Result r = score(data(p), 2000);
+
+            assertThat(r.regime()).isEqualTo(InversionRegime.NONE);
+            assertThat(r.clearance()).isEqualTo(InversionClearance.NO_LAYER);
+        }
+
+        @Test
+        @DisplayName("the minimum layer strength is 0.3 degC: 0.3 counts, 0.2 does not")
+        void minimumStrengthBoundary() {
+            InversionProfile counts = profile(H0, slot().t2(8.0).temps(7.0, 6.0, 6.3, 5.0, 4.0));
+            InversionProfile doesNot = profile(H0, slot().t2(8.0).temps(7.0, 6.0, 6.2, 5.0, 4.0));
+
+            assertThat(score(data(counts), 2000).regime()).isEqualTo(InversionRegime.ELEVATED);
+            assertThat(score(data(counts), 2000).strengthCelsius()).isEqualTo(0.3);
+            assertThat(score(data(doesNot), 2000).regime()).isEqualTo(InversionRegime.NONE);
+        }
+
+        @Test
+        @DisplayName("two equal runs in one hour: the lower one is the layer")
+        void tieBetweenRunsKeepsTheLower() {
+            // 5->8 at 680..900 and 5->8 at 1130..1600, both 3.0 degC.
+            InversionProfile p = profile(H0, slot().t2(9.0).temps(8.0, 5.0, 8.0, 5.0, 8.0));
+
+            InversionV2Result r = score(data(p), 2000);
+
+            assertThat(r.baseMetres()).isEqualTo(680.0);
+            assertThat(r.topMetres()).isEqualTo(900.0);
         }
 
         @Test

@@ -23,6 +23,7 @@ import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
+import com.gregochr.goldenhour.model.InversionProfile;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
@@ -46,11 +47,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatcher;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.Arrays;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -60,6 +64,12 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -173,15 +183,13 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
 
         assertThat(result.nearInland()).hasSize(1);
-        verify(forecastService).fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+        CollectorTriageStubs.triageOf(verify(forecastService), loc);
     }
 
     @Test
@@ -198,8 +206,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -207,8 +214,7 @@ class ForecastTaskCollectorTest {
         // The previously-filtered slot now reaches prefetch + triage and ends up in
         // the near-term inland bucket.
         assertThat(result.nearInland()).hasSize(1);
-        verify(forecastService).fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+        CollectorTriageStubs.triageOf(verify(forecastService), loc);
     }
 
     // ── Out-of-season canopy sites (the triage fork) ──────────────────────────
@@ -229,8 +235,7 @@ class ForecastTaskCollectorTest {
         stubPrefetchSuccess(loc);
         // Out of season: no bluebell condition score on the payload, and triage passed it
         // (a clear day) — which before this change meant it went to the SKY bucket.
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -263,8 +268,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -287,8 +291,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -306,8 +309,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(bluebellPreEval(loc, TODAY, 0, BluebellExposure.WOODLAND, false));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -334,8 +336,7 @@ class ForecastTaskCollectorTest {
         stubPrefetchSuccess(loc);
         // Colour triage stands it down (overcast) — but woodland is bluebell-only, so it is
         // NOT dropped; the bluebell prompt scores the carpet light itself.
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(bluebellPreEval(loc, TODAY, 0, BluebellExposure.WOODLAND, true));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -354,8 +355,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(bluebellPreEval(loc, TODAY, 0, BluebellExposure.OPEN_FELL, false));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -469,15 +469,13 @@ class ForecastTaskCollectorTest {
         String key1 = OpenMeteoService.coordKey(loc1.getLat(), loc1.getLon());
         when(openMeteoService.prefetchWeatherBatchResilient(any()))
                 .thenReturn(Map.of(key1, dummyExtraction()));
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOfAny(forecastService))
                 .thenReturn(triagedPreEval(loc1));
 
         collector.collectScheduledBatches();
 
         // fetchWeatherAndTriage IS called → triage proceeded
-        verify(forecastService, org.mockito.Mockito.atLeastOnce()).fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+        CollectorTriageStubs.triageOfAny(verify(forecastService, atLeastOnce()));
     }
 
     // ── Triage / stability gates ──────────────────────────────────────────────
@@ -488,8 +486,7 @@ class ForecastTaskCollectorTest {
         LocationEntity loc = stubGoBriefingWithLocation("Durham UK");
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(triagedPreEval(loc));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -513,8 +510,7 @@ class ForecastTaskCollectorTest {
         stubPrefetchSuccess(loc);
 
         ForecastPreEvalResult farPreEval = inlandPreEval(loc, TODAY.plusDays(3), 3);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(farPreEval);
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -533,8 +529,7 @@ class ForecastTaskCollectorTest {
         LocationEntity loc = stubGoBriefingWithLocation("Durham UK");
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenThrow(new RuntimeException("boom"));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -550,8 +545,7 @@ class ForecastTaskCollectorTest {
         LocationEntity loc = stubGoBriefingWithLocation(TODAY.plusDays(1), "Durham UK");
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -571,8 +565,7 @@ class ForecastTaskCollectorTest {
         LocationEntity loc = stubGoBriefingWithLocation(TODAY.plusDays(1), "Whitby");
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(coastalPreEval(loc, TODAY.plusDays(1), 1));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -595,8 +588,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(2), 2));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -626,8 +618,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(coastalPreEval(loc, TODAY.plusDays(2), 2));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -655,8 +646,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(2), 2));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -684,8 +674,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(3), 3));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -732,8 +721,7 @@ class ForecastTaskCollectorTest {
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
         // Region id matches (loc has region id 1L, see buildInlandLocation)
@@ -767,8 +755,7 @@ class ForecastTaskCollectorTest {
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
         RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(null);
@@ -778,104 +765,126 @@ class ForecastTaskCollectorTest {
 
     // ── Inversion v2 valley profiles (inversion-v2-plan Phase 1b) ─────────────
 
-    private static final com.gregochr.goldenhour.model.InversionProfile A_PROFILE =
-            new com.gregochr.goldenhour.model.InversionProfile(54.5, -3.1, 80.0, 80, null, List.of());
+    private static final InversionProfile A_PROFILE =
+            new InversionProfile(54.5, -3.1, 80.0, 80, null, List.of());
 
-    /** The profile map handed to {@code fetchWeatherAndTriage} (its tenth argument). */
-    @SuppressWarnings("unchecked")
-    private Map<Long, com.gregochr.goldenhour.model.InversionProfile> capturedProfileMap() {
-        org.mockito.ArgumentCaptor<Map<Long, com.gregochr.goldenhour.model.InversionProfile>> captor =
-                org.mockito.ArgumentCaptor.forClass(Map.class);
-        verify(forecastService).fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), captor.capture());
-        return captor.getValue();
+    /** One enabled Durham location with a GO briefing for TODAY, weather prefetched, and its extraction. */
+    private record Run(LocationEntity loc, Map<String, WeatherExtractionResult> prefetched) {
     }
 
-    private LocationEntity stubScheduledRunWithProfiles(Map<Long, com.gregochr.goldenhour.model.InversionProfile> map) {
+    private Run stubRun() {
         LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
         when(briefingService.getCachedBriefing()).thenReturn(
                 buildBriefingWithSlots(TODAY, Verdict.GO, loc.getName()));
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
-        stubPrefetchSuccess(loc);
-        when(forecastService.inversionV2Enabled()).thenReturn(true);
-        lenient().when(openMeteoService.prefetchInversionProfiles(any())).thenReturn(map);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(inlandPreEval(loc, TODAY, 0));
-        return loc;
+        Map<String, WeatherExtractionResult> prefetched = Map.of(
+                OpenMeteoService.coordKey(loc.getLat(), loc.getLon()), dummyExtraction());
+        when(openMeteoService.prefetchWeatherBatchResilient(argThat(onlyPoint(loc)))).thenReturn(prefetched);
+        return new Run(loc, prefetched);
+    }
+
+    /** Matches a prefetch request for exactly the one [lat, lon] pair of {@code loc}. */
+    private static ArgumentMatcher<List<double[]>> onlyPoint(LocationEntity loc) {
+        return points -> points != null && points.size() == 1
+                && Arrays.equals(points.get(0), new double[]{loc.getLat(), loc.getLon()});
+    }
+
+    /** The collector's triage call for {@code run}, with the profile map and model pinned. */
+    private ForecastPreEvalResult triage(ForecastService service, Run run, EvaluationModel model,
+            Map<Long, InversionProfile> profiles) {
+        return service.fetchWeatherAndTriage(eq(run.loc()), eq(TODAY), eq(TargetType.SUNRISE),
+                eq(run.loc().getTideType()), eq(model), isNull(), eq(run.prefetched()), isNull(), isNull(),
+                same(profiles));
+    }
+
+    private void verifyPrefetchOrder(Run run, Map<Long, InversionProfile> profiles, EvaluationModel model) {
+        InOrder order = inOrder(openMeteoService, forecastService);
+        order.verify(openMeteoService).prefetchWeatherBatchResilient(argThat(onlyPoint(run.loc())));
+        order.verify(openMeteoService).prefetchCloudBatch(eq(List.of()), eq(List.of()), isNull());
+        order.verify(openMeteoService).prefetchInversionProfiles(List.of(run.loc()));
+        triage(order.verify(forecastService), run, model, profiles);
     }
 
     @Test
     @DisplayName("collectScheduledBatches: prefetches inversion profiles AFTER the weather and cloud prefetches "
-            + "and hands the map, keyed by location id, to every slot")
+            + "and BEFORE any slot, and hands that very map to the slot")
     void collectScheduledBatches_prefetchesInversionProfilesAfterWeatherAndCloud() {
-        LocationEntity loc = stubScheduledRunWithProfiles(Map.of(42L, A_PROFILE));
+        Run run = stubRun();
+        Map<Long, InversionProfile> profiles = Map.of(42L, A_PROFILE);
+        when(forecastService.inversionV2Enabled()).thenReturn(true);
+        when(openMeteoService.prefetchInversionProfiles(List.of(run.loc()))).thenReturn(profiles);
+        when(triage(forecastService, run, EvaluationModel.SONNET, profiles))
+                .thenReturn(inlandPreEval(run.loc(), TODAY, 0));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
 
         assertThat(result.nearInland()).hasSize(1);
-        org.mockito.InOrder order = org.mockito.Mockito.inOrder(openMeteoService);
-        order.verify(openMeteoService).prefetchWeatherBatchResilient(any());
-        order.verify(openMeteoService).prefetchCloudBatch(any(), any(), any());
-        order.verify(openMeteoService).prefetchInversionProfiles(List.of(loc));
-        assertThat(capturedProfileMap()).containsOnlyKeys(42L);
+        verifyPrefetchOrder(run, profiles, EvaluationModel.SONNET);
     }
 
     @Test
     @DisplayName("collectScheduledBatches: a failed profile prefetch is an EMPTY map (never null, so no per-slot "
             + "on-demand fetch) and the slot is still collected")
     void collectScheduledBatches_profilePrefetchFailureIsAnEmptyMap() {
-        stubScheduledRunWithProfiles(Map.of());
-        when(openMeteoService.prefetchInversionProfiles(any())).thenThrow(new RuntimeException("429"));
+        Run run = stubRun();
+        Map<Long, InversionProfile> none = Map.of();
+        when(forecastService.inversionV2Enabled()).thenReturn(true);
+        when(openMeteoService.prefetchInversionProfiles(List.of(run.loc()))).thenThrow(new RuntimeException("429"));
+        when(triage(forecastService, run, EvaluationModel.SONNET, none))
+                .thenReturn(inlandPreEval(run.loc(), TODAY, 0));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
 
         assertThat(result.nearInland()).hasSize(1);
-        assertThat(capturedProfileMap()).isNotNull().isEmpty();
     }
 
     @Test
     @DisplayName("collectScheduledBatches: with the v2 switch off no profile is fetched and the map is empty")
     void collectScheduledBatches_switchOffSkipsThePrefetch() {
-        stubScheduledRunWithProfiles(Map.of());
+        Run run = stubRun();
         when(forecastService.inversionV2Enabled()).thenReturn(false);
+        when(triage(forecastService, run, EvaluationModel.SONNET, Map.of()))
+                .thenReturn(inlandPreEval(run.loc(), TODAY, 0));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
 
         assertThat(result.nearInland()).hasSize(1);
         verify(openMeteoService, never()).prefetchInversionProfiles(any());
-        assertThat(capturedProfileMap()).isNotNull().isEmpty();
     }
 
     @Test
-    @DisplayName("collectRegionFilteredBatches: prefetches inversion profiles after weather and cloud and "
-            + "hands the map to every slot")
+    @DisplayName("collectRegionFilteredBatches: prefetches inversion profiles after weather and cloud, before "
+            + "any slot, and hands that very map to the slot")
     void collectRegionFilteredBatches_prefetchesInversionProfiles() {
-        LocationEntity loc = stubScheduledRunWithProfiles(Map.of(42L, A_PROFILE));
+        Run run = stubRun();
+        Map<Long, InversionProfile> profiles = Map.of(42L, A_PROFILE);
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM)).thenReturn(EvaluationModel.HAIKU);
+        when(forecastService.inversionV2Enabled()).thenReturn(true);
+        when(openMeteoService.prefetchInversionProfiles(List.of(run.loc()))).thenReturn(profiles);
+        when(triage(forecastService, run, EvaluationModel.HAIKU, profiles))
+                .thenReturn(inlandPreEval(run.loc(), TODAY, 0));
 
         RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(List.of(1L));
 
         assertThat(result.inland()).hasSize(1);
-        org.mockito.InOrder order = org.mockito.Mockito.inOrder(openMeteoService);
-        order.verify(openMeteoService).prefetchWeatherBatchResilient(any());
-        order.verify(openMeteoService).prefetchCloudBatch(any(), any(), any());
-        order.verify(openMeteoService).prefetchInversionProfiles(List.of(loc));
-        assertThat(capturedProfileMap()).containsOnlyKeys(42L);
+        verifyPrefetchOrder(run, profiles, EvaluationModel.HAIKU);
     }
 
     @Test
     @DisplayName("collectRegionFilteredBatches: a throwing profile prefetch is an empty map")
     void collectRegionFilteredBatches_profilePrefetchFailureIsAnEmptyMap() {
-        stubScheduledRunWithProfiles(Map.of());
+        Run run = stubRun();
+        Map<Long, InversionProfile> none = Map.of();
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(openMeteoService.prefetchInversionProfiles(any())).thenThrow(new RuntimeException("boom"));
+        when(forecastService.inversionV2Enabled()).thenReturn(true);
+        when(openMeteoService.prefetchInversionProfiles(List.of(run.loc()))).thenThrow(new RuntimeException("boom"));
+        when(triage(forecastService, run, EvaluationModel.HAIKU, none))
+                .thenReturn(inlandPreEval(run.loc(), TODAY, 0));
 
         RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(List.of(1L));
 
         assertThat(result.inland()).hasSize(1);
-        assertThat(capturedProfileMap()).isNotNull().isEmpty();
     }
 
     // ── Stability snapshot write ──────────────────────────────────────────────
@@ -892,8 +901,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -930,8 +938,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -967,8 +974,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -1006,8 +1012,7 @@ class ForecastTaskCollectorTest {
         String key2 = OpenMeteoService.coordKey(loc2.getLat(), loc2.getLon());
         when(openMeteoService.prefetchWeatherBatchResilient(any()))
                 .thenReturn(Map.of(key1, dummyExtraction(), key2, dummyExtraction()));
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOfAny(forecastService))
                 .thenReturn(inlandPreEval(loc1, TODAY.plusDays(1), 1));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -1048,8 +1053,7 @@ class ForecastTaskCollectorTest {
         String key2 = OpenMeteoService.coordKey(loc2.getLat(), loc2.getLon());
         when(openMeteoService.prefetchWeatherBatchResilient(any()))
                 .thenReturn(Map.of(key1, dummyExtraction(), key2, dummyExtraction()));
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOfAny(forecastService))
                 .thenReturn(inlandPreEval(loc1, TODAY.plusDays(1), 1));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -1071,8 +1075,7 @@ class ForecastTaskCollectorTest {
         // Deliberately no setGridLat/setGridLng — hasGridCell() returns false
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
 
         collector.collectScheduledBatches();
@@ -1104,8 +1107,7 @@ class ForecastTaskCollectorTest {
         stubModels();
         stubPrefetchSuccess(loc);
         // Triage rejects everything
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(triagedPreEval(loc));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -1140,8 +1142,7 @@ class ForecastTaskCollectorTest {
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
         collector.collectRegionFilteredBatches(List.of(1L));
@@ -1157,8 +1158,7 @@ class ForecastTaskCollectorTest {
         LocationEntity loc = stubGoBriefingWithLocation(TODAY.plusDays(1), "Durham UK");
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -1180,8 +1180,7 @@ class ForecastTaskCollectorTest {
         LocationEntity loc = stubGoBriefingWithLocation("Durham UK");
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(triagedPreEval(loc));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -1205,8 +1204,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(3), 3));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -1256,8 +1254,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -1295,8 +1292,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -1328,8 +1324,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
         when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble(), any()))
@@ -1367,8 +1362,7 @@ class ForecastTaskCollectorTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -1443,8 +1437,7 @@ class ForecastTaskCollectorTest {
         LocationEntity loc = stubGoBriefingWithLocation("Durham UK");
         stubModels();
         stubPrefetchSuccess(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, loc))
                 .thenThrow(new RuntimeException("boom"));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
@@ -1524,8 +1517,7 @@ class ForecastTaskCollectorTest {
         when(briefingEvaluationService.hasFreshEvaluation(org.mockito.ArgumentMatchers.eq(cachedKey),
                 any())).thenReturn(true);
         stubPrefetchSuccess(goLoc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(CollectorTriageStubs.triageOf(forecastService, goLoc))
                 .thenReturn(inlandPreEval(goLoc, TODAY, 0));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
