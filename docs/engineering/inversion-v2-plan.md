@@ -387,6 +387,9 @@ Switch-over (shadow → live) is an owner decision on that evidence.
 3. **`overlooks_water`**: keep, or add a hand-set `overlooks_valley` flag? Recommended: the new flag.
 4. **Night window** (Phase 2): T−3h or ~21:00–05:00. Recommended: the longer window.
 5. **Phase 4**: recommended not yet.
+7. **High viewpoints** (2026-10-30, from §8): both confirmed inversion mornings topped out at about
+   700–900 m, above every roster site. Add a few summits (Blencathra, Helvellyn, Skiddaw, Scafell Pike,
+   Red Pike) as inversion viewpoints, or accept that the roster scores shallow valley fog only?
 6. **Switch-over** from shadow, per phase, on §6's evidence.
 
 ---
@@ -415,36 +418,70 @@ Switch-over (shadow → live) is an owner decision on that evidence.
      (Malham Tarn, Tarn Hows, Cawfields, Steel Rigg & Winshield Crags, Highshield Crags), so the Phase 0
      prompt-isolation test now guards a live case. Many ticked sites have no `elevation_m`; mist does
      not need it, and Phase 1-pre's backfill will fill it.
-- **1a profiles: three reported mornings** (owner, 2026-10-30, historical-forecast API; raw files in
-  `docs/engineering/inversion-v2-data/`). Each fetch is a summit plus valley points. The dates for (a) and
-  (b) still need confirming against the original posts. Reversals below are "level minus the point's own
-  `temperature_2m`", with each level's geopotential height.
-  - **(a) 15 Jan 2025, Helvellyn, inversion reported, cloud top about 677 m.** Valley (Glenridding,
-    161 m) at 09:00 (sunrise slot): 975 hPa −0.8 at 469 m, 950 −0.1 at 682 m, 925 +0.8 at 902 m;
-    earlier hours 950 +0.6..+1.3, 925 +1.5..+2.6. Thirlmere (260 m) the same shape. Valley visibility
-    fell to 180 m at 06:00 (fog), low cloud 23–63%. **The warm layer starts between about 470 and 680 m,
-    which matches the reported 677 m cloud top.** A radiation-type sea: the valley cell's low cloud is
-    NOT high (the 15–80% gate would pass at some hours and fail at others).
-  - **(b) 17 Oct 2025, inversions reported, including from Scafell Pike (978 m).** Valley (Wasdale 163 m,
-    Keswick 92 m) at 07:00: every level to 925 hPa (854 m) colder, then 850 hPa (1,547 m) about 4.5 °C
-    warmer than 925; valley low cloud 95–100%. **A stratus sea topping out between about 850 m and
-    1,550 m: above every roster site (all ≤ 597 m), below Scafell's top.** Today's score reads NONE for the
-    roster (low cloud > 80% vetoes), which is probably right: a 335–597 m viewpoint was inside it.
-  - **(c) 4 Nov 2024, Keswick/Skiddaw, NO inversion** ("murky… thicker cloud around and above the
-    summits"). The profile is almost the same as (b): warm layer between 864 m and 1,552 m, valley low
-    cloud 80–100%. The difference is at the summit: Skiddaw's cell (911 m) had 96% low cloud and 2.6 km
-    visibility (in cloud), Scafell's 41–77% and 11 km. **So 925 → 850 hPa (about 860 m to 1,550 m) is
-    too coarse to place the cloud top**: (b) and (c) look the same at these levels and were opposite
-    mornings for a summit viewer. Adding `temperature_900hPa` (about 1,000 m), and possibly 800 hPa,
-    is now supported by data, not just suggested.
-  - **The summit trap, confirmed.** At the summit points (855–961 m), 975 and 950 hPa sit BELOW the
-    ground, and "975 minus surface" reads +3 to +6 °C on all three mornings, including (c) with no
-    inversion. That is the ordinary lapse rate, not an inversion. The 1b rule "skip any level not above
-    the reference height" is required, not optional.
-  - **What these say about the clearance rule.** The fog or cloud top sits near the BASE of the warm
-    layer (the height where temperature stops falling), not its top: (a) base about 470–680 m against the
-    reported 677 m. 1b's clearance should compare the viewpoint with that base, and with 975/950/925/900/850
-    the base is known to about ±100–300 m depending on the level gap.
+- **1a profiles: reported mornings** (owner, 2026-10-30, historical-forecast API; raw files in
+  `docs/engineering/inversion-v2-data/`). Each fetch is a summit plus valley points. **All three dates were
+  checked against the original posts by the owner (2026-10-30)**, which corrected two of them (below).
+  Reversals are "level minus the point's own `temperature_2m`", with each level's geopotential height.
+  - **(a) 15 Jan 2025, Helvellyn, inversion reported (date confirmed).** The UKC thread: the Helvellyn
+    fell-top assessor reported "cloud inversions putting on a great show"; one poster thought the top
+    "looked quite low, sub 700 m"; from Helvellyn at about 11:00 the cloud was "surging over" Fairfield
+    (873 m) with Cofa Pike (820 m) poking out, and the north almost clear. ⚠️ The "677 m" in the first
+    draft was a misreading: 676 m was the poster's own height in the Howgills, where they "failed to break
+    the inversion". **Reported cloud top: roughly 700–870 m, varying across the fells.** Valley (Glenridding,
+    161 m) at 09:00: 975 hPa −0.8 at 469 m, 950 −0.1 at 682 m, 925 +0.8 at 902 m; earlier hours 950
+    +0.6..+1.3, 925 +1.5..+2.6. Thirlmere (260 m) the same shape. Valley visibility 180 m at 06:00 (fog),
+    low cloud 23–63%. **The warm layer starts at about 470–680 m and runs to about 900 m; the reported top
+    sits inside it.**
+  - **(b) Wednesday 15 Oct 2025, inversions reported (date corrected).** The Cumbria Crack article is
+    dated 17 Oct but describes "this week": Scafell Pike on Wednesday EVENING ("stayed until dark"),
+    Blencathra (868 m) on Wednesday MORNING from 05:30, Red Pike (755 m) from Buttermere on an unstated
+    day. Re-fetched for 14–16 Oct with 900 hPa added and Blencathra plus Scales below it
+    (`2b2-scafell-blencathra-2025-10-15.json`; the first file, `2b-scafell-2025-10-17.json`, is the wrong
+    two days and is kept only as a 16–17 Oct record).
+    - Morning, 07:00 (sunrise slot), Keswick 92 m: 975 −2.3 at 470 m, 950 −3.1 at 683 m, **925 +0.2 at
+      903 m, 900 +2.3 at 1,130 m**, 850 +1.2. Temperature falls to about 680 m then rises 3.3 °C by 900 m:
+      **warm-layer base between about 680 and 900 m, top near 1,130 m.** Valley low cloud 78% (it formed
+      between 05:00 and 06:00 after a clear night: 2–11% at 03:00–05:00). Scales (152 m) the same shape.
+      **Blencathra's summit cell (836 m): 0–12% low cloud, 10 km visibility: above it.** Matches the
+      report.
+    - Evening, 16:00 (sunset slot), Wasdale 163 m: 950 −4.1 at 675 m, 925 −2.1 at 894 m, 900 +0.6 at
+      1,122 m; valley low cloud 97%. Base again about 680–900 m. Scafell's summit cell (961 m) 89% low cloud
+      at 16:00, 41% at 17:00: **the top was close to the summit**, consistent with a viewer on the top.
+    - Tuesday 14 Oct had the same layer (925 +1.2..+3.5 over the valleys); Thursday 16 Oct did not (every
+      level to 900 hPa colder over the valleys). "This week" checks out.
+  - **(c) 4 Nov 2024, Keswick/Skiddaw, NO inversion (date confirmed).** UKC, 4 Nov 2024: "murky… thicker
+    cloud around and above the summits, no sign of inversion"; Wensleydale "cloud base above 600 m but not
+    by much… doesn't look like you'd get above the clag"; cloud around the tops in the western Highlands.
+    Profile: warm layer between 864 m and 1,552 m (no 900 hPa in this fetch), valley low cloud 80–100%;
+    Skiddaw's cell (911 m) 96% low cloud and 2.6 km visibility (in cloud). At 925/850 alone this looks like
+    an inversion morning; only the summit cell's cloud says otherwise. **900 hPa is needed** (the 15 Oct
+    fetch shows it placing the warm layer well), and the summit's own cloud and visibility are a useful
+    second signal.
+  - **The summit trap, confirmed.** At the summit points (836–961 m), 975 and 950 hPa sit BELOW the
+    ground, and "975 minus surface" reads +3 to +11 °C on every morning, including (c) with no inversion.
+    That is the ordinary lapse rate, not an inversion. The 1b rule "skip any level not above the reference
+    height" is required, not optional.
+  - **What these say about the clearance rule.** The reported cloud tops sit inside the warm layer, near its
+    lower part: (a) layer from about 470–680 m, tops 700–870 m; (b) layer from about 680–900 m, Red Pike
+    (755 m) and Blencathra (868 m) above it. 1b's clearance should compare the viewpoint with the warm
+    layer's BASE (conservatively) and treat the band up to the next level as MARGINAL.
+  - ⚠️ **The roster cannot see these seas.** Both confirmed inversion mornings topped out at about
+    700–900 m, and every inversion-eligible site is at or below 597 m. **No roster site could have seen
+    either.** Two regimes follow, and v2 must keep them apart:
+    1. *Deep seas* (stratus under a warm layer at 700–1,500 m, the ones people photograph from summits):
+       visible only from viewpoints above about 750 m. The roster has none. Adding a few high viewpoints
+       (Blencathra, Helvellyn, Skiddaw, Scafell Pike, Red Pike) is an owner decision (§7).
+    2. *Shallow valley fog* (radiation fog tens to a few hundred metres deep, the Latrigg/Cat Bells shot
+       over Derwent Water): visible from the 200–600 m roster. Its top sits below 975 hPa (about 450 m),
+       so the pressure levels cannot place it; the valley's own surface readings (the mist set-up) are
+       the evidence. This argues for Option B (§4 Phase 2) and for not letting a deep-sea reading boost a
+       roster site.
+  - **A likely false positive today.** On 15 Oct 07:00, scored on the Keswick cell's numbers for a 451 m
+    viewpoint, the current calculator gives gap 1.9 → 3, wind 0.9 → 3, low cloud 78% → in band, 1 point
+    = 7; boundary layer 85 m < 451 m passes the clearance gate; 925 reversal +0.2 caps at 8 → **7,
+    MODERATE: the prompt's inversion block and a rating boost, for a viewpoint that was inside a cloud
+    sea topping out at 700–900 m.** (Illustrative: production scores each site on its own cell.) The
+    boundary-layer clearance gate is the weak link: 85 m said "clear" while the cloud reached 900 m.
 - **1a `elevation=` test (Cat Bells, 451 m; raw file `3-catbells-elevation.json`).** Same coordinates
   (54.568, −3.170), three requests:
   - `elevation=nan` (Open-Meteo's choice): snapped to 54.574, −3.183, **252 m**;
