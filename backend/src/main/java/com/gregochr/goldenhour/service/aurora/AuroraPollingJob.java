@@ -164,6 +164,7 @@ public class AuroraPollingJob {
     AuroraPollOutcome executePoll() {
         ZonedDateTime now = ZonedDateTime.now(clock.withZone(UTC));
         TonightWindow tonight = calculateTonightWindow(now);
+        orchestrator.restoreOnce(tonight);
         if (now.isBefore(tonight.dusk())) {
             return orchestrator.runForecastLookahead(tonight, now);
         }

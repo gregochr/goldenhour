@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.AuroraSimulationRequest;
 import com.gregochr.goldenhour.model.AuroraSimulationResponse;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.aurora.AuroraAlertSnapshotStore;
 import com.gregochr.goldenhour.service.aurora.AuroraPollOutcome;
 import com.gregochr.goldenhour.service.aurora.AuroraPollingJob;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -48,6 +49,7 @@ public class AuroraAdminController {
     private final JobRunService jobRunService;
     private final Executor forecastExecutor;
     private final LocationRepository locationRepository;
+    private final AuroraAlertSnapshotStore snapshotStore;
 
     /**
      * Constructs the admin controller with all aurora management dependencies.
@@ -59,6 +61,8 @@ public class AuroraAdminController {
      * @param jobRunService      job run service for tracking enrichment runs
      * @param forecastExecutor   executor for running enrichment asynchronously
      * @param locationRepository location data access for counting eligible locations
+     * @param snapshotStore      the persisted standing alert, deleted when the state machine is reset or
+     *                           a simulation replaces the real alert
      */
     public AuroraAdminController(BortleEnrichmentService enrichmentService,
             AuroraProperties properties,
@@ -66,7 +70,8 @@ public class AuroraAdminController {
             AuroraPollingJob pollingJob,
             JobRunService jobRunService,
             Executor forecastExecutor,
-            LocationRepository locationRepository) {
+            LocationRepository locationRepository,
+            AuroraAlertSnapshotStore snapshotStore) {
         this.enrichmentService = enrichmentService;
         this.properties = properties;
         this.stateCache = stateCache;
@@ -74,6 +79,7 @@ public class AuroraAdminController {
         this.jobRunService = jobRunService;
         this.forecastExecutor = forecastExecutor;
         this.locationRepository = locationRepository;
+        this.snapshotStore = snapshotStore;
     }
 
     /**
@@ -162,6 +168,7 @@ public class AuroraAdminController {
     @PostMapping("/reset")
     public ResponseEntity<Map<String, String>> resetStateCache() {
         stateCache.reset();
+        snapshotStore.clear();
         LOG.info("Admin reset aurora state cache to IDLE");
         return ResponseEntity.ok(Map.of("status", "Aurora state machine reset to IDLE"));
     }
@@ -194,6 +201,7 @@ public class AuroraAdminController {
         AuroraStateCache.SimulatedNoaaData simData = new AuroraStateCache.SimulatedNoaaData(
                 request.kp(), request.ovationProbability(), request.bzNanoTesla(), request.gScale());
         stateCache.activateSimulation(level, simData);
+        snapshotStore.clear();
 
         int bortleThreshold = (level == AlertLevel.STRONG)
                 ? properties.getBortleThreshold().getStrong()

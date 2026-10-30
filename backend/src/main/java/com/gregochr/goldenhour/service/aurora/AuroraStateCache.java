@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -41,6 +42,11 @@ import java.util.concurrent.locks.ReentrantLock;
  * remembered: CLEAR left the trigger and the simulation behind, so a simulation nobody cleared
  * outlived the alert it faked, and the next real alert was served to every Pro user as
  * "(SIMULATED)", with the simulation's G-scale.
+ *
+ * <p>⚠️ The standing <em>real</em> alert is persisted by the callers, never here ({@link #realAlertView()}
+ * and {@link #restore}; {@code AuroraAlertSnapshotStore}): a restart would otherwise start IDLE and
+ * re-buy the scoring of an alert already standing. A simulation is never persisted or restored. See
+ * {@code docs/engineering/aurora-restart-restore-plan.md}.
  *
  * <p>Thread safety: the machine is written from several threads — the polling job's cycle (a
  * scheduled poll, the Scheduler screen's Run Now, and the admin {@code POST /run} all reach
@@ -118,6 +124,27 @@ public class AuroraStateCache {
             double ovationProbability,
             double bzNanoTesla,
             String gScale) {
+    }
+
+    /**
+     * An immutable copy of the standing <em>real</em> alert, taken under the transition lock: what
+     * {@code AuroraAlertSnapshotStore} persists and {@link #restore(RealAlertView)} re-applies.
+     *
+     * @param level          the alert level (MODERATE or STRONG)
+     * @param activeSince    when the alert became active or last escalated
+     * @param triggerType    the trigger of the last NOTIFY, or {@code null}
+     * @param triggerKp      the Kp that drove the last NOTIFY, or {@code null}
+     * @param darkSkyCount   number of Bortle-eligible locations
+     * @param clearCount     number of locations that passed cloud triage, or {@code null}
+     * @param scores         the cached scores (copied)
+     */
+    public record RealAlertView(AlertLevel level, Instant activeSince, TriggerType triggerType,
+            Double triggerKp, int darkSkyCount, Integer clearCount, List<AuroraForecastScore> scores) {
+
+        /** Copies the scores, so the view cannot change under its reader. */
+        public RealAlertView {
+            scores = List.copyOf(scores);
+        }
     }
 
     private enum State { IDLE, ACTIVE }
@@ -504,6 +531,48 @@ public class AuroraStateCache {
     }
 
     /**
+     * The standing real alert as one immutable record, read under the transition lock so its fields
+     * describe one state.
+     *
+     * @return the view, or empty when IDLE <em>or while a simulation is running</em>: a simulation is
+     *         never persisted
+     */
+    public Optional<RealAlertView> realAlertView() {
+        transitionLock.lock();
+        try {
+            if (state != State.ACTIVE || simulatedData != null || currentLevel == null) {
+                return Optional.empty();
+            }
+            return Optional.of(new RealAlertView(currentLevel, activeSince, lastTriggerType,
+                    lastTriggerKp, darkSkyLocationCount, clearLocationCount, cachedScores));
+        } finally {
+            transitionLock.unlock();
+        }
+    }
+
+    /**
+     * Re-applies a persisted real alert after a restart, only if the machine is IDLE with no
+     * simulation. Every field is written in one transition, scores and counts included, and the
+     * served epoch is bumped once, last, so no reader sees ACTIVE with empty scores.
+     *
+     * @param view the alert to restore
+     * @return {@code true} if applied; {@code false} if the machine was ACTIVE or simulating
+     */
+    public boolean restore(RealAlertView view) {
+        transitionLock.lock();
+        try {
+            if (state != State.IDLE || simulatedData != null) {
+                return false;
+            }
+            become(State.ACTIVE, view.level(), view.activeSince(), view.triggerType(),
+                    view.triggerKp(), null, view.scores(), view.darkSkyCount(), view.clearCount());
+            return true;
+        } finally {
+            transitionLock.unlock();
+        }
+    }
+
+    /**
      * The lock every write (and {@link #wouldNotify}/{@link #wouldClear}) holds. Package-private for
      * {@code AuroraStateCacheTest}: no write calls out to anything a test could park inside, so the
      * test holds the lock itself on its own thread and runs each write on a second one, to prove the
@@ -534,17 +603,27 @@ public class AuroraStateCache {
      */
     private void become(State newState, AlertLevel level, Instant since, TriggerType trigger,
             Double triggerKp, SimulatedNoaaData simulation) {
+        become(newState, level, since, trigger, triggerKp, simulation, List.of(), 0, null);
+    }
+
+    /**
+     * {@link #become(State, AlertLevel, Instant, TriggerType, Double, SimulatedNoaaData)} with the
+     * scores and counts supplied too, for {@link #restore}. One write, one epoch bump, last.
+     */
+    private void become(State newState, AlertLevel level, Instant since, TriggerType trigger,
+            Double triggerKp, SimulatedNoaaData simulation, List<AuroraForecastScore> scores,
+            int darkSkyCount, Integer clearCount) {
         if (simulation != null) {
             simulatedData = simulation;
         }
         state = newState;
         currentLevel = level;
         activeSince = since;
-        cachedScores = List.of();
+        cachedScores = List.copyOf(scores);
         lastTriggerType = trigger;
         lastTriggerKp = triggerKp;
-        darkSkyLocationCount = 0;
-        clearLocationCount = null;
+        darkSkyLocationCount = darkSkyCount;
+        clearLocationCount = clearCount;
         if (simulation == null) {
             simulatedData = null;
         }
