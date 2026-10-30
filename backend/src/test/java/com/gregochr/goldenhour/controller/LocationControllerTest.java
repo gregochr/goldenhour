@@ -453,7 +453,9 @@ class LocationControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/locations/{id} carries the height fields through to the UpdateLocationRequest")
     void updateLocation_heightFields_reachTheService() throws Exception {
-        when(locationService.update(eq(7L), any(UpdateLocationRequest.class)))
+        UpdateLocationRequest expected = new UpdateLocationRequest(null, null, null, null, null, null, null,
+                null, null, 368, 80, 54.575, -3.152, Boolean.FALSE);
+        when(locationService.update(7L, expected))
                 .thenReturn(buildEntity(7L, "Latrigg", 54.6, -3.1));
 
         mockMvc.perform(put("/api/locations/7")
@@ -463,21 +465,16 @@ class LocationControllerTest extends AbstractControllerTest {
                                 + "\"clearValleyFloor\":false}"))
                 .andExpect(status().isOk());
 
-        ArgumentCaptor<UpdateLocationRequest> captor = ArgumentCaptor.forClass(UpdateLocationRequest.class);
-        verify(locationService).update(eq(7L), captor.capture());
-        UpdateLocationRequest sent = captor.getValue();
-        assertThat(sent.elevationMetres()).isEqualTo(368);
-        assertThat(sent.valleyFloorMetres()).isEqualTo(80);
-        assertThat(sent.valleyFloorLat()).isEqualTo(54.575);
-        assertThat(sent.valleyFloorLng()).isEqualTo(-3.152);
-        assertThat(sent.clearValleyFloor()).isEqualTo(Boolean.FALSE);
+        verify(locationService).update(7L, expected);
     }
 
     @Test
     @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/locations/{id} with none of the height keys leaves them all null")
     void updateLocation_noHeightKeys_allNull() throws Exception {
-        when(locationService.update(eq(7L), any(UpdateLocationRequest.class)))
+        UpdateLocationRequest expected = new UpdateLocationRequest("Latrigg", null, null, null, null, null, null,
+                null, null, null, null, null, null, null);
+        when(locationService.update(7L, expected))
                 .thenReturn(buildEntity(7L, "Latrigg", 54.6, -3.1));
 
         mockMvc.perform(put("/api/locations/7")
@@ -485,14 +482,7 @@ class LocationControllerTest extends AbstractControllerTest {
                         .content("{\"name\":\"Latrigg\"}"))
                 .andExpect(status().isOk());
 
-        ArgumentCaptor<UpdateLocationRequest> captor = ArgumentCaptor.forClass(UpdateLocationRequest.class);
-        verify(locationService).update(eq(7L), captor.capture());
-        UpdateLocationRequest sent = captor.getValue();
-        assertThat(sent.elevationMetres()).isNull();
-        assertThat(sent.valleyFloorMetres()).isNull();
-        assertThat(sent.valleyFloorLat()).isNull();
-        assertThat(sent.valleyFloorLng()).isNull();
-        assertThat(sent.clearValleyFloor()).isNull();
+        verify(locationService).update(7L, expected);
     }
 
     @Test

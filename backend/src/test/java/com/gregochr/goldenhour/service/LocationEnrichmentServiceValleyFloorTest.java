@@ -27,7 +27,6 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -51,6 +50,10 @@ class LocationEnrichmentServiceValleyFloorTest {
     private static final double SITE = 300.0;
     private static final double FLAT = 290.0;
     private static final Locale ORIGINAL_LOCALE = Locale.getDefault();
+    private static final int SECTORS = 8;
+    private static final double[] RING_METRES = {1000, 2000, 3000, 4000, 5000};
+    private static final String EXPECTED_LATS = expectedCoordinates(0);
+    private static final String EXPECTED_LONS = expectedCoordinates(1);
 
     @Mock
     private LightPollutionClient lightPollutionClient;
@@ -92,7 +95,7 @@ class LocationEnrichmentServiceValleyFloorTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private void stubElevation(Map<String, Object> body) {
         when(restClient.get()).thenReturn((RestClient.RequestHeadersUriSpec) getSpec);
-        when(((RestClient.RequestHeadersUriSpec) getSpec).uri(eq(ELEVATION_URL), anyString(), anyString()))
+        when(((RestClient.RequestHeadersUriSpec) getSpec).uri(ELEVATION_URL, EXPECTED_LATS, EXPECTED_LONS))
                 .thenAnswer(inv -> {
                     sentLats.add(inv.getArgument(1));
                     sentLons.add(inv.getArgument(2));
@@ -105,9 +108,27 @@ class LocationEnrichmentServiceValleyFloorTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private void stubElevationThrows(RuntimeException failure) {
         when(restClient.get()).thenReturn((RestClient.RequestHeadersUriSpec) getSpec);
-        when(((RestClient.RequestHeadersUriSpec) getSpec).uri(eq(ELEVATION_URL), anyString(), anyString()))
+        when(((RestClient.RequestHeadersUriSpec) getSpec).uri(ELEVATION_URL, EXPECTED_LATS, EXPECTED_LONS))
                 .thenReturn(headersSpec);
         when(((RestClient.RequestHeadersSpec) headersSpec).retrieve()).thenThrow(failure);
+    }
+
+    /**
+     * The exact comma-joined coordinate list the service must send for ({@link #LAT}, {@link #LON}): the site, then
+     * 12 points in each of 8 sectors, cycling the 1-5 km rings, each formatted to five decimals with a dot.
+     */
+    private static String expectedCoordinates(int axis) {
+        double sectorDegrees = 360.0 / SECTORS;
+        List<String> out = new ArrayList<>();
+        out.add(String.format(Locale.ROOT, "%.5f", axis == 0 ? LAT : LON));
+        for (int sector = 0; sector < SECTORS; sector++) {
+            for (int k = 0; k < PER_SECTOR; k++) {
+                double bearing = sector * sectorDegrees - sectorDegrees / 2 + sectorDegrees * (k + 0.5) / PER_SECTOR;
+                double[] point = GeoUtils.offsetPoint(LAT, LON, bearing, RING_METRES[k % RING_METRES.length]);
+                out.add(String.format(Locale.ROOT, "%.5f", point[axis]));
+            }
+        }
+        return String.join(",", out);
     }
 
     /** 97 heights: the site first, then every sampled point at {@link #FLAT} unless overridden by index. */
