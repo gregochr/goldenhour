@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -115,6 +116,8 @@ class AuroraPollingCycleTest {
             .id(1L).name("Kielder").lat(55.23).lon(-2.58).bortleClass(2).build();
 
     private final AtomicReference<AuroraAlertSnapshotEntity> snapshotRow = new AtomicReference<>();
+    /** When set, the fake's next {@code save} throws once, as a database outage would. */
+    private final AtomicBoolean failNextSave = new AtomicBoolean(false);
     private final AuroraAlertSnapshotRepository snapshotRepository = fakeSnapshotRepository();
 
     private AuroraProperties properties;
@@ -702,6 +705,30 @@ class AuroraPollingCycleTest {
     }
 
     @Test
+    @DisplayName("a NOTIFY whose snapshot save failed is repaired by the next SUPPRESS, and survives a restart")
+    void failedSave_isRebuiltBySuppress_thenRestored() {
+        when(locationRepository.findAllById(List.of(1L))).thenReturn(List.of(kielder));
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        clock.set("2027-01-14T12:00");
+        noaa.blocks = kpProduct(2.33, Map.of("2027-01-14T21:00", 5.33));
+        failNextSave.set(true);
+
+        assertThat(poll()).isEqualTo(new AfterPoll(1, true, 1));
+        assertThat(snapshotRow.get()).as("the save failed, so no row").isNull();
+
+        clock.advance(POLL_INTERVAL);
+        assertThat(job.executePoll().action()).isEqualTo(AuroraStateCache.Action.SUPPRESS);
+        assertThat(snapshotRow.get()).as("confirm rebuilt the row from the cache").isNotNull();
+        assertThat(snapshotRow.get().getAlertLevel()).isEqualTo("MODERATE");
+
+        restart();
+        clock.advance(POLL_INTERVAL);
+        assertThat(job.executePoll().action()).isEqualTo(AuroraStateCache.Action.SUPPRESS);
+        assertThat(claudeCalls).as("no further Claude call").hasSize(1);
+        assertThat(stateCache.getCachedScores()).hasSize(1);
+    }
+
+    @Test
     @DisplayName("a CLEAR deletes the snapshot, so a later restart starts IDLE")
     void clear_deletesTheSnapshot() {
         kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
@@ -776,6 +803,9 @@ class AuroraPollingCycleTest {
         AuroraAlertSnapshotRepository repository = mock(AuroraAlertSnapshotRepository.class,
                 withSettings().strictness(Strictness.LENIENT));
         when(repository.save(any())).thenAnswer(invocation -> {
+            if (failNextSave.getAndSet(false)) {
+                throw new IllegalStateException("db down");
+            }
             AuroraAlertSnapshotEntity row = invocation.getArgument(0);
             snapshotRow.set(row);
             return row;

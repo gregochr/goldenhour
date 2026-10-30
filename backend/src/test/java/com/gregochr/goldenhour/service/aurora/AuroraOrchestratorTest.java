@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -1216,9 +1217,25 @@ class AuroraOrchestratorTest {
 
         orchestrator.runNightPoll(TONIGHT, utc("2027-01-14T22:00"));
 
-        verify(snapshotStore).confirm(eq(NIGHT), any());
+        verifyConfirmSuppliesTheCachesAlert();
         verify(snapshotStore, never()).save(any(), any());
+    }
+
+    /**
+     * The orchestrator handed {@code confirm} a supplier that reads the state machine's real alert, and
+     * did not evaluate it itself: a wrong callback would break the repair of a missing snapshot.
+     */
+    private void verifyConfirmSuppliesTheCachesAlert() {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Supplier<Optional<AuroraStateCache.RealAlertView>>> supplier =
+                ArgumentCaptor.forClass(Supplier.class);
+        verify(snapshotStore).confirm(eq(NIGHT), supplier.capture());
         verify(stateCache, never()).realAlertView();
+
+        Optional<AuroraStateCache.RealAlertView> standing = Optional.of(aView());
+        when(stateCache.realAlertView()).thenReturn(standing);
+
+        assertThat(supplier.getValue().get()).isSameAs(standing);
     }
 
     @Test
@@ -1329,7 +1346,7 @@ class AuroraOrchestratorTest {
 
         orchestrator.runForecastLookahead(TONIGHT, utc("2027-01-14T12:00"));
 
-        verify(snapshotStore).confirm(eq(NIGHT), any());
+        verifyConfirmSuppliesTheCachesAlert();
         verify(snapshotStore, never()).save(any(), any());
     }
 
