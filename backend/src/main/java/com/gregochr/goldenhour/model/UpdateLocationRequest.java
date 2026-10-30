@@ -74,7 +74,6 @@ public record UpdateLocationRequest(
                 null, null, null, null, null);
     }
 
-
     /**
      * Constructor for callers that predate the sub-region field: {@code subRegionId} reads as
      * "don't change".

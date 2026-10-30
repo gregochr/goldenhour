@@ -40,7 +40,7 @@ import {
   fetchValleyFloorCandidates, fetchValleyFloorCell,
 } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
-import { fetchAreas, fetchUncoveredLocations, fetchLocationAliases } from '../api/areaApi';
+import { fetchAreas, fetchUncoveredLocations, fetchLocationAliases, setLocationAliases } from '../api/areaApi';
 import { fetchTideStats } from '../api/tideApi';
 
 const MOCK_LOCATIONS = [
@@ -1434,7 +1434,7 @@ describe('LocationManagementView — heights in the inline editor', () => {
     await waitFor(() => expect(fetchValleyFloorCell).toHaveBeenCalledWith(54.57, -3.15, 60));
     expect(screen.getByTestId('inline-edit-valley-floor-height')).toHaveValue(60);
     expect(await screen.findByTestId('inline-edit-valley-floor-cell'))
-      .toHaveTextContent('Model cell 54.575, -3.152, 80 m, 0.4 km from the floor');
+      .toHaveTextContent('Model cell 54.575, -3.152 (0.4 km from the floor)');
 
     save();
     await waitFor(() => expect(updateLocation).toHaveBeenCalled());
@@ -1573,5 +1573,100 @@ describe('LocationManagementView — heights in the inline editor', () => {
 
     fireEvent.change(screen.getByTestId('inline-edit-lon'), { target: { value: '-3.1' } });
     expect(screen.queryByTestId('inline-edit-coords-hint')).toBeNull();
+  });
+
+  it('warns when an edit crosses 200 m downwards on an overlooks-water site', async () => {
+    fetchLocations.mockResolvedValue([{ ...PLACE, elevationMetres: 210 }, BARE]);
+    await openEditor();
+    expect(screen.queryByTestId('inline-edit-elevation-warning')).toBeNull();
+
+    fireEvent.change(screen.getByTestId('inline-edit-elevation'), { target: { value: '190' } });
+
+    expect(screen.getByTestId('inline-edit-elevation-warning')).toHaveTextContent('out of inversion scoring');
+  });
+
+  it('a rejected model-cell lookup sets the status and keeps the pick', async () => {
+    fetchValleyFloorCandidates.mockResolvedValue(CANDIDATES);
+    fetchValleyFloorCell.mockRejectedValue({ response: { data: { error: 'no cell' } } });
+    await openEditor();
+    fireEvent.click(screen.getByTestId('inline-edit-valley-floor-suggest'));
+    fireEvent.click(await screen.findByTestId('inline-edit-valley-floor-candidate-0'));
+
+    expect(await screen.findByTestId('inline-edit-valley-floor-status')).toHaveTextContent('no cell');
+    expect(screen.getByTestId('inline-edit-valley-floor-height')).toHaveValue(60);
+    expect(screen.queryByTestId('inline-edit-valley-floor-cell')).toBeNull();
+  });
+
+  it('Save is disabled while a pick\'s cell lookup is running', async () => {
+    let resolve;
+    fetchValleyFloorCandidates.mockResolvedValue(CANDIDATES);
+    fetchValleyFloorCell.mockReturnValue(new Promise((r) => { resolve = r; }));
+    await openEditor();
+    fireEvent.click(screen.getByTestId('inline-edit-valley-floor-suggest'));
+    fireEvent.click(await screen.findByTestId('inline-edit-valley-floor-candidate-0'));
+
+    expect(screen.getByTestId('inline-edit-save')).toBeDisabled();
+    resolve(CELL);
+    await screen.findByTestId('inline-edit-valley-floor-cell');
+    expect(screen.getByTestId('inline-edit-save')).not.toBeDisabled();
+  });
+
+  it('an empty floor height blocks Save', async () => {
+    await openEditor();
+    fireEvent.change(screen.getByTestId('inline-edit-valley-floor-height'), { target: { value: '' } });
+    save();
+
+    expect(await screen.findByTestId('inline-edit-error')).toHaveTextContent('Valley floor height');
+    expect(updateLocation).not.toHaveBeenCalled();
+  });
+
+  it('editing the floor height drops a cell reply still in flight for the old height', async () => {
+    let resolve;
+    fetchValleyFloorCandidates.mockResolvedValue(CANDIDATES);
+    fetchValleyFloorCell.mockReturnValue(new Promise((r) => { resolve = r; }));
+    await openEditor();
+    fireEvent.click(screen.getByTestId('inline-edit-valley-floor-suggest'));
+    fireEvent.click(await screen.findByTestId('inline-edit-valley-floor-candidate-0'));
+    fireEvent.change(screen.getByTestId('inline-edit-valley-floor-height'), { target: { value: '70' } });
+    resolve(CELL);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(screen.queryByTestId('inline-edit-valley-floor-cell')).toBeNull();
+  });
+
+  it('editing the coordinates clears candidates fetched for the old ones', async () => {
+    fetchValleyFloorCandidates.mockResolvedValue(CANDIDATES);
+    await openEditor();
+    fireEvent.click(screen.getByTestId('inline-edit-valley-floor-suggest'));
+    await screen.findByTestId('inline-edit-valley-floor-candidate-0');
+
+    fireEvent.change(screen.getByTestId('inline-edit-lon'), { target: { value: '-3.2' } });
+
+    expect(screen.queryByTestId('inline-edit-valley-floor-candidate-0')).toBeNull();
+  });
+
+  it('after a save whose other-names write fails, the heights and coordinates just saved are the new baselines', async () => {
+    setLocationAliases.mockRejectedValue({ response: { data: { error: 'alias clash' } } });
+    await openEditor();
+    await waitFor(() => expect(screen.getByTestId('inline-edit-aliases')).not.toBeDisabled());
+    fireEvent.change(screen.getByTestId('inline-edit-elevation'), { target: { value: '250' } });
+    fireEvent.click(screen.getByTestId('inline-edit-valley-floor-clear'));
+    fireEvent.change(screen.getByTestId('inline-edit-lon'), { target: { value: '-3.2' } });
+    fireEvent.change(screen.getByTestId('inline-edit-aliases'), { target: { value: 'The Fell' } });
+    save();
+
+    expect(await screen.findByTestId('inline-edit-error')).toHaveTextContent('Location saved; its other names were not');
+    const first = updateLocation.mock.calls[0][1];
+    expect(first.elevationMetres).toBe(250);
+    expect(first.clearValleyFloor).toBe(true);
+    // The saved values are now the baseline: no hint, no warning, nothing re-sent.
+    expect(screen.queryByTestId('inline-edit-coords-hint')).toBeNull();
+    expect(screen.queryByTestId('inline-edit-elevation-warning')).toBeNull();
+
+    save();
+    await waitFor(() => expect(updateLocation).toHaveBeenCalledTimes(2));
+    const second = updateLocation.mock.calls[1][1];
+    expect(second).not.toHaveProperty('elevationMetres');
+    expect(second).not.toHaveProperty('clearValleyFloor');
   });
 });

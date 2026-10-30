@@ -288,7 +288,7 @@ public class LocationEnrichmentService {
      */
     public ValleyFloorCell valleyFloorCell(double lat, double lon, double elevation) {
         requireCoordinates(lat, lon);
-        if (elevation < MIN_ELEVATION_M || elevation > MAX_ELEVATION_M) {
+        if (Double.isNaN(elevation) || elevation < MIN_ELEVATION_M || elevation > MAX_ELEVATION_M) {
             throw new IllegalArgumentException("Elevation must be between -50 and 1500 metres");
         }
         OpenMeteoForecastResponse response;

@@ -577,6 +577,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
         if (value === prev.regionBaseline) next.subRegionId = prev.subRegionBaseline;
         else if (!stillInRegion) next.subRegionId = '';
       }
+      if (field === 'lat' || field === 'lon') {
+        // Candidates were fetched for the old coordinates: they must not be pickable for the new ones.
+        next.floorCandidates = null;
+        next.floorStatus = '';
+      }
       if (field === 'locationTypes') {
         const wasCoastal = (prev.locationTypes || []).includes('SEASCAPE');
         const isCoastal = value.includes('SEASCAPE');
@@ -639,6 +644,12 @@ export default function LocationManagementView({ onLocationsChanged }) {
         floorStatus: err?.response?.data?.error ?? 'Could not look up the model cell for that point.',
       } : prev));
     }
+  }
+
+  function handleFloorHeightChange(value) {
+    // Drops a cell reply still in flight for the previous height.
+    floorToken.current += 1;
+    setEditValues((prev) => ({ ...prev, floorMetres: value, floorCell: null, floorBusy: false }));
   }
 
   function handleClearFloor() {
@@ -749,9 +760,23 @@ export default function LocationManagementView({ onLocationsChanged }) {
           await refreshLocations();
           onLocationsChanged();
           // The location itself is saved: what the form holds for region and sub-region is now the stored truth.
-          setEditValues((prev) => (prev
-            ? { ...prev, regionBaseline: prev.regionId, subRegionBaseline: prev.subRegionId }
-            : prev));
+          // The same goes for the heights and coordinates this save just wrote.
+          setEditValues((prev) => {
+            if (!prev) return prev;
+            const floorSet = !prev.floorCleared && prev.floorLat !== null && prev.floorLng !== null;
+            return {
+              ...prev,
+              regionBaseline: prev.regionId,
+              subRegionBaseline: prev.subRegionId,
+              elevationBaseline: parseMetres(prev.elevation),
+              floorBaseline: floorSet
+                ? { metres: parseMetres(prev.floorMetres), lat: prev.floorLat, lng: prev.floorLng }
+                : null,
+              floorCleared: false,
+              latBaseline: parseFloat(prev.lat),
+              lonBaseline: parseFloat(prev.lon),
+            };
+          });
           setEditError('Location saved; its other names were not');
           setAliasDetail(aliasErr?.response?.data?.error ?? '');
           return;
@@ -1336,10 +1361,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                       inputMode="numeric"
                                       className={inlineInputClass + ' w-20'}
                                       value={editValues.floorMetres}
-                                      onChange={(e) => {
-                                        handleEditChange('floorMetres', e.target.value);
-                                        handleEditChange('floorCell', null);
-                                      }}
+                                      onChange={(e) => handleFloorHeightChange(e.target.value)}
                                       data-testid="inline-edit-valley-floor-height"
                                     />
                                     <span className="text-plex-text-muted">
@@ -1391,9 +1413,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                               )}
                               {editValues.floorCell && (
                                 <div className="mt-1 text-xs text-plex-text-muted" data-testid="inline-edit-valley-floor-cell">
-                                  Model cell {editValues.floorCell.cellLat}, {editValues.floorCell.cellLng},{' '}
-                                  {Math.round(editValues.floorCell.cellElevationMetres)} m,{' '}
-                                  {editValues.floorCell.cellDistanceKm.toFixed(1)} km from the floor
+                                  Model cell {editValues.floorCell.cellLat.toFixed(3)}, {editValues.floorCell.cellLng.toFixed(3)}{' '}
+                                  ({editValues.floorCell.cellDistanceKm.toFixed(1)} km from the floor)
                                 </div>
                               )}
                               <div className="mt-1.5 flex items-center gap-2 text-xs">

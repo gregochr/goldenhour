@@ -297,6 +297,10 @@ class LocationEnrichmentServiceValleyFloorTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.valleyFloorCell(54.0, -3.0, 2000.0))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.valleyFloorCell(54.0, -3.0, Double.NaN))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.valleyFloorCell(Double.NaN, -3.0, 10.0))
+                .isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(openMeteoForecastApi);
     }
 }
