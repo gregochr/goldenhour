@@ -9,6 +9,8 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.service.DirectionalSamplingGeometry;
+import com.gregochr.goldenhour.model.InversionClearance;
+import com.gregochr.goldenhour.model.InversionV2Result;
 import com.gregochr.goldenhour.service.InversionScoreCalculator;
 import com.gregochr.goldenhour.service.ValleyMistCalculator;
 import com.gregochr.goldenhour.model.MistTrend;
@@ -663,7 +665,11 @@ public class PromptBuilder {
                     potential == InversionPotential.STRONG
                             ? "Dramatic blanket below viewpoint; clear sky above"
                             : "Visible cloud layer below; light touching cloud tops"));
-            appendInversionReversal(sb, data);
+            if (data.inversionV2() != null && data.inversionV2().v2Drove()) {
+                appendWarmLayer(sb, data.inversionV2());
+            } else {
+                appendInversionReversal(sb, data);
+            }
         }
 
         // Valley mist conditions - mist-prone sites only (data.mistPotential() is null for every
@@ -831,6 +837,29 @@ public class PromptBuilder {
                         && aerosol.aerosolOpticalDepth().doubleValue() > DUST_AOD_THRESHOLD)
                 || (aerosol.dustUgm3() != null
                         && aerosol.dustUgm3().doubleValue() > DUST_UGM3_THRESHOLD);
+    }
+
+    /**
+     * Appends the v2 warm layer behind the inversion score (inversion-v2-plan Phase 1b), as a standalone line
+     * in the user message only, in place of the old 925 hPa "Measured reversal" line, which would compare a
+     * level with the viewpoint cell's own temperature. Omitted when the layer's figures are absent. A viewpoint
+     * inside the layer caps the score at 6, so it never reaches this block: only "clear" and "at its edge" read.
+     *
+     * @param sb the prompt under construction
+     * @param v2 the v2 carrier that drove the stored score
+     */
+    private static void appendWarmLayer(StringBuilder sb, InversionV2Result v2) {
+        if (v2.baseMetres() == null || v2.topMetres() == null || v2.strengthCelsius() == null
+                || v2.valleyFloorMetres() == null || v2.viewpointMetres() == null
+                || v2.clearance() == null) {
+            return;
+        }
+        String standing = v2.clearance() == InversionClearance.CLEAR ? "clear of it" : "at its edge";
+        sb.append(String.format(
+                "%nWarm layer: %+.1f\u00b0C from about %d m to %d m above a valley at %d m; "
+                + "this viewpoint (%d m) is %s.",
+                v2.strengthCelsius(), Math.round(v2.baseMetres()), Math.round(v2.topMetres()),
+                v2.valleyFloorMetres(), v2.viewpointMetres(), standing));
     }
 
     /**

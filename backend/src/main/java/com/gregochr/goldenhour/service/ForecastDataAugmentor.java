@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.config.InversionProperties;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.BluebellConditionScore;
@@ -13,6 +14,7 @@ import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.CoastalParameters;
+import com.gregochr.goldenhour.model.InversionV2Result;
 import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.TideContext;
@@ -22,6 +24,7 @@ import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -43,6 +46,20 @@ public class ForecastDataAugmentor {
 
     private static final Logger LOG = LoggerFactory.getLogger(ForecastDataAugmentor.class);
 
+    /**
+     * Viewpoint height in metres below which the v2 inversion score may raise a site's score by at most
+     * {@link #RAISE_CAP_POINTS} over the old score (the first-winter asymmetry, owner decision 2026-10-30,
+     * option A). At or above it a summit is uncapped: the old score reads a summit's own clear cell and would
+     * hold confirmed inversions down.
+     */
+    public static final int RAISE_CAP_MAX_ELEVATION_M = 600;
+
+    /**
+     * The most v2 may raise a low site's score over the old one. With whole-number scores this also means a
+     * site the old calculator scored below MODERATE (7) can never be raised to STRONG (9).
+     */
+    static final double RAISE_CAP_POINTS = 1.0;
+
     private final OpenMeteoService openMeteoService;
     private final SolarService solarService;
     private final TideService tideService;
@@ -51,9 +68,11 @@ public class ForecastDataAugmentor {
     private final SurgeCalibrationLogger surgeCalibrationLogger;
     private final BluebellConditionService bluebellConditionService;
     private final SeasonalWindow bluebellSeason;
+    private final InversionProperties inversionProperties;
 
     /**
-     * Constructs a {@code ForecastDataAugmentor} with the services needed for data enrichment.
+     * Constructs a {@code ForecastDataAugmentor} with the services needed for data enrichment, with the v2
+     * inversion switches at their defaults (v2 on, raise cap on).
      *
      * @param openMeteoService             retrieves directional cloud data from Open-Meteo
      * @param solarService                 calculates solar event times and golden/blue windows
@@ -71,6 +90,32 @@ public class ForecastDataAugmentor {
             SurgeCalibrationLogger surgeCalibrationLogger,
             BluebellConditionService bluebellConditionService,
             SeasonalWindow bluebellSeason) {
+        this(openMeteoService, solarService, tideService, tideFactDeriver, weatherAugmentedTideService,
+                surgeCalibrationLogger, bluebellConditionService, bluebellSeason, new InversionProperties());
+    }
+
+    /**
+     * Constructs a {@code ForecastDataAugmentor} with the v2 inversion switches supplied.
+     *
+     * @param openMeteoService             retrieves directional cloud data from Open-Meteo
+     * @param solarService                 calculates solar event times and golden/blue windows
+     * @param tideService                  fetches tide data for coastal locations
+     * @param tideFactDeriver              the single seam for deriving tide facts (snapshot)
+     * @param weatherAugmentedTideService  storm surge calculation service
+     * @param surgeCalibrationLogger       structured logging for surge calibration
+     * @param bluebellConditionService     scores bluebell photography conditions
+     * @param bluebellSeason               the configured bluebell season window
+     * @param inversionProperties          the v2 inversion switches ({@code photocast.inversion})
+     */
+    @Autowired
+    public ForecastDataAugmentor(OpenMeteoService openMeteoService, SolarService solarService,
+            TideService tideService,
+            TideFactDeriver tideFactDeriver,
+            WeatherAugmentedTideService weatherAugmentedTideService,
+            SurgeCalibrationLogger surgeCalibrationLogger,
+            BluebellConditionService bluebellConditionService,
+            SeasonalWindow bluebellSeason,
+            InversionProperties inversionProperties) {
         this.openMeteoService = openMeteoService;
         this.solarService = solarService;
         this.tideService = tideService;
@@ -79,6 +124,16 @@ public class ForecastDataAugmentor {
         this.surgeCalibrationLogger = surgeCalibrationLogger;
         this.bluebellConditionService = bluebellConditionService;
         this.bluebellSeason = bluebellSeason;
+        this.inversionProperties = inversionProperties;
+    }
+
+    /**
+     * Whether the v2 inversion score is switched on ({@code photocast.inversion.v2.enabled}).
+     *
+     * @return true when v2 drives the stored inversion score for sites that have a valley profile
+     */
+    public boolean inversionV2Enabled() {
+        return inversionProperties.getV2().isEnabled();
     }
 
     /**
@@ -428,10 +483,21 @@ public class ForecastDataAugmentor {
 
     /**
      * Returns a copy of {@code base} with a cloud inversion score for elevated water-overlook
-     * locations. The score combines surface conditions (temperature-dew point gap, wind speed,
-     * low cloud cover) with the measured temperature reversal aloft and the viewpoint's clearance
-     * of the stable layer. Returns the original data unchanged if the location does not meet the
-     * elevation/water criteria.
+     * locations. Returns the original data unchanged if the location does not meet the elevation/water
+     * criteria.
+     *
+     * <p>Without a v2 valley profile on {@code base} (a site with no confirmed valley floor, a failed fetch, or
+     * the switch off) the score is the old {@link InversionScoreCalculator}'s, exactly as before. With one,
+     * BOTH calculators run and the stored value follows these rules:
+     * <ul>
+     *   <li>v2 cannot score (hours missing): the old score.</li>
+     *   <li>the old score is null but v2 scores: v2, capped at
+     *       {@value InversionScoreCalculator#VETOED_CEILING}.</li>
+     *   <li>otherwise v2's value, except that for a viewpoint below {@value #RAISE_CAP_MAX_ELEVATION_M} m, with
+     *       {@code photocast.inversion.v2.raise-cap-enabled} on, v2 may raise the old score by at most
+     *       {@value #RAISE_CAP_POINTS} point. A summit is uncapped.</li>
+     * </ul>
+     * One INFO line per scored slot records the old and new scores and why.
      *
      * @param base             atmospheric data to augment
      * @param elevationMetres  location elevation in metres, or null
@@ -446,12 +512,60 @@ public class ForecastDataAugmentor {
             return base;
         }
         warnIfNoVerticalProfile(base);
-        Double score = InversionScoreCalculator.calculate(base, elevationMetres);
-        if (score == null) {
-            return base;
+        Double old = InversionScoreCalculator.calculate(base, elevationMetres);
+        InversionV2Result v2 = inversionV2Enabled()
+                ? InversionScoreCalculatorV2.calculate(base, elevationMetres) : null;
+        if (v2 == null) {
+            if (old == null) {
+                return base;
+            }
+            LOG.debug("Inversion score for {}: {}/10", base.locationName(), old);
+            return base.withInversionScore(old);
         }
-        LOG.debug("Inversion score for {}: {}/10", base.locationName(), score);
-        return base.withInversionScore(score);
+
+        double stored = v2.v2Raw();
+        String caps = v2.caps();
+        if (old == null) {
+            if (stored > InversionScoreCalculator.VETOED_CEILING) {
+                stored = InversionScoreCalculator.VETOED_CEILING;
+                caps = appendCap(caps, "no-v1", stored);
+            }
+        } else if (inversionProperties.getV2().isRaiseCapEnabled()
+                && elevationMetres < RAISE_CAP_MAX_ELEVATION_M
+                && stored > old + RAISE_CAP_POINTS) {
+            stored = old + RAISE_CAP_POINTS;
+            caps = appendCap(caps, "raise", stored);
+        }
+        InversionV2Result scored = v2.withCaps(caps).withStorage(old, stored, true);
+        logInversionV2(base, scored);
+        return base.withInversionScore(stored).withInversionV2(scored);
+    }
+
+    private static String appendCap(String caps, String name, double value) {
+        String cap = name + "(" + (int) value + ")";
+        return "-".equals(caps) ? cap : caps + "," + cap;
+    }
+
+    /** The one INFO line per scored slot that lets the old and new scores be compared in the logs. */
+    private static void logInversionV2(AtmosphericData base, InversionV2Result r) {
+        LOG.info("[INVERSION v2] {} {} {} old={} new={} regime={} base={} top={} strength={} viewpoint={} "
+                        + "valley={} caps={}",
+                base.locationName(), base.solarEventTime().toLocalDate(), base.targetType(),
+                formatScore(r.v1Score()), formatScore(r.stored()), r.regime(),
+                formatMetres(r.baseMetres()), formatMetres(r.topMetres()),
+                r.strengthCelsius() == null ? "-" : String.format("%.1f", r.strengthCelsius()),
+                r.viewpointMetres(), r.valleyFloorMetres(), r.caps());
+    }
+
+    private static String formatScore(Double score) {
+        if (score == null) {
+            return "-";
+        }
+        return score == Math.rint(score) ? String.valueOf((int) Math.rint(score)) : String.format("%.1f", score);
+    }
+
+    private static String formatMetres(Double metres) {
+        return metres == null ? "-" : String.valueOf(Math.round(metres));
     }
 
     /**

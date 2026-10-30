@@ -126,5 +126,37 @@ public class OpenMeteoForecastResponse {
         /** Temperature at the 850 hPa pressure level (≈ 1500 m) — deeper fallback level. */
         @JsonProperty("temperature_850hPa")
         private List<Double> temperature850hPa;
+
+        /** Temperature at 975 hPa (about 450 m). Read only by the inversion valley profile. */
+        @JsonProperty("temperature_975hPa")
+        private List<Double> temperature975hPa;
+
+        /** Temperature at 950 hPa (about 680 m). Read only by the inversion valley profile. */
+        @JsonProperty("temperature_950hPa")
+        private List<Double> temperature950hPa;
+
+        /** Temperature at 900 hPa (about 1,130 m). Read only by the inversion valley profile. */
+        @JsonProperty("temperature_900hPa")
+        private List<Double> temperature900hPa;
+
+        /** Geopotential height of the 975 hPa level in metres. Read only by the inversion profile. */
+        @JsonProperty("geopotential_height_975hPa")
+        private List<Double> geopotentialHeight975hPa;
+
+        /** Geopotential height of the 950 hPa level in metres. Read only by the inversion profile. */
+        @JsonProperty("geopotential_height_950hPa")
+        private List<Double> geopotentialHeight950hPa;
+
+        /** Geopotential height of the 925 hPa level in metres. Read only by the inversion profile. */
+        @JsonProperty("geopotential_height_925hPa")
+        private List<Double> geopotentialHeight925hPa;
+
+        /** Geopotential height of the 900 hPa level in metres. Read only by the inversion profile. */
+        @JsonProperty("geopotential_height_900hPa")
+        private List<Double> geopotentialHeight900hPa;
+
+        /** Geopotential height of the 850 hPa level in metres. Read only by the inversion profile. */
+        @JsonProperty("geopotential_height_850hPa")
+        private List<Double> geopotentialHeight850hPa;
     }
 }

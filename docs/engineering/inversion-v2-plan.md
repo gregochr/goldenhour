@@ -1,6 +1,6 @@
 # Cloud inversion v2: measure the warm layer where the fells are (2026-10-28)
 
-**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) built and reviewed (2026-10-30; this PR). Phase 1b spec written and reviewed, raise cap decided (A); builds once 1-pre merges. **Owner decision
+**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) merged (#1520, V201). Phase 1b built and reviewed (2026-10-30; this PR, V202), with the build-review amendments below the spec revisions. **Owner decision
 2026-10-30: no shadow period.** Phases 1b–3 ship LIVE, each with two safety nets instead: the old score is
 still computed and logged beside the new one (so the comparison still happens, after the switch rather
 than before it), and a config switch (`photocast.inversion.v2.enabled`, default on) puts the old score back
@@ -556,6 +556,22 @@ From a physics review that re-ran the algorithm on the four mornings, and a code
 summit's own clear cell, which the low-cloud gate caps at 5–6, so Helvellyn on 15 Jan (confirmed) would be
 stored 6, NONE. Recommendation: apply the cap only where E < 600 m (where the false positives were),
 summits uncapped. Alternative: no cap, relying on per-site revert.
+
+**Build-review amendments (2026-10-30, planner; these override the walk above).** A physics review of
+the built code found that the "first rise" rule lets a shallow surface blip hide the real layer (2b2,
+Scales 04:00: a 0.6 °C rise to 471 m masked 4.4 °C from 685 to 1,134 m), and can rate a viewpoint clear
+when it is inside a higher-based layer.
+- *Strongest segment:* each hour takes every maximal strictly rising run along the floor point and the
+  valid levels; a run whose rounded strength is below `MIN_LAYER_STRENGTH_C` = 0.3 °C is noise (no
+  0.0 °C "layers"); the hour's layer is the strongest remaining run, a tie keeping the lower one.
+- *Base of a run from the floor:* surface-based only when its top is the first valid level; a run from
+  the floor that goes on past the first level is elevated with base = the first valid level. Known
+  discontinuity, deliberately conservative: a viewpoint between h0 + 100 m and the first level can flip
+  edge ↔ inside on a small 950 hPa change.
+- *Switch off* skips V2 and its profile fetch entirely (a true revert; no old-vs-new comparison while off).
+- *Era marker:* `inversion_score_v2_raw IS NOT NULL` is the exact per-row marker; `inversion_score_v1` is
+  null in the rare case where the old calculator could not score.
+- None of the six fixture rows changed.
 
 **Code integration (integration review).**
 1. *Plumbing.* `fetchWeatherAndTriage` gains an overload carrying `Map<Long, InversionProfile>` keyed by
