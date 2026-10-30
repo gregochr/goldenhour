@@ -6,7 +6,11 @@ import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AddLocationRequest;
 import com.gregochr.goldenhour.model.LocationEnrichmentResult;
+import com.gregochr.goldenhour.exception.UpstreamLookupException;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
+import com.gregochr.goldenhour.model.ValleyFloorCandidate;
+import com.gregochr.goldenhour.model.ValleyFloorCandidates;
+import com.gregochr.goldenhour.model.ValleyFloorCell;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -441,6 +445,166 @@ class LocationControllerTest extends AbstractControllerTest {
                         .param("lat", "54.0")
                         .param("lon", "-2.0"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // --- valley-floor endpoints and the height fields on PUT ---
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id} carries the height fields through to the UpdateLocationRequest")
+    void updateLocation_heightFields_reachTheService() throws Exception {
+        UpdateLocationRequest expected = new UpdateLocationRequest(null, null, null, null, null, null, null,
+                null, null, 368, 80, 54.575, -3.152, Boolean.FALSE);
+        when(locationService.update(7L, expected))
+                .thenReturn(buildEntity(7L, "Latrigg", 54.6, -3.1));
+
+        mockMvc.perform(put("/api/locations/7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"elevationMetres\":368,\"valleyFloorMetres\":80,"
+                                + "\"valleyFloorLat\":54.575,\"valleyFloorLng\":-3.152,"
+                                + "\"clearValleyFloor\":false}"))
+                .andExpect(status().isOk());
+
+        verify(locationService).update(7L, expected);
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id} with none of the height keys leaves them all null")
+    void updateLocation_noHeightKeys_allNull() throws Exception {
+        UpdateLocationRequest expected = new UpdateLocationRequest("Latrigg", null, null, null, null, null, null,
+                null, null, null, null, null, null, null);
+        when(locationService.update(7L, expected))
+                .thenReturn(buildEntity(7L, "Latrigg", 54.6, -3.1));
+
+        mockMvc.perform(put("/api/locations/7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Latrigg\"}"))
+                .andExpect(status().isOk());
+
+        verify(locationService).update(7L, expected);
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/locations/valley-floor-candidates returns the always-present shape for an admin")
+    void valleyFloorCandidates_admin_returnsShape() throws Exception {
+        when(locationEnrichmentService.valleyFloorCandidates(54.6, -3.1)).thenReturn(
+                new ValleyFloorCandidates(300, List.of(new ValleyFloorCandidate(120, 54.58, -3.15, 2.4, "SW"))));
+
+        mockMvc.perform(get("/api/locations/valley-floor-candidates")
+                        .param("lat", "54.6").param("lon", "-3.1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.siteSampleMetres").value(300))
+                .andExpect(jsonPath("$.candidates.length()").value(1))
+                .andExpect(jsonPath("$.candidates[0].metres").value(120))
+                .andExpect(jsonPath("$.candidates[0].lat").value(54.58))
+                .andExpect(jsonPath("$.candidates[0].lng").value(-3.15))
+                .andExpect(jsonPath("$.candidates[0].distanceKm").value(2.4))
+                .andExpect(jsonPath("$.candidates[0].bearing").value("SW"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/locations/valley-floor-candidates serves an empty list as an empty list")
+    void valleyFloorCandidates_none_emptyList() throws Exception {
+        when(locationEnrichmentService.valleyFloorCandidates(54.6, -3.1))
+                .thenReturn(new ValleyFloorCandidates(300, List.of()));
+
+        mockMvc.perform(get("/api/locations/valley-floor-candidates")
+                        .param("lat", "54.6").param("lon", "-3.1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.candidates.length()").value(0));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/locations/valley-floor-candidates is a 502 with a message when the lookup fails")
+    void valleyFloorCandidates_upstreamFailure_502() throws Exception {
+        when(locationEnrichmentService.valleyFloorCandidates(54.6, -3.1))
+                .thenThrow(new UpstreamLookupException("Could not look up the surrounding heights"));
+
+        mockMvc.perform(get("/api/locations/valley-floor-candidates")
+                        .param("lat", "54.6").param("lon", "-3.1"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error").value("Could not look up the surrounding heights"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/locations/valley-floor-candidates is a 400 for out-of-range coordinates")
+    void valleyFloorCandidates_badCoordinates_400() throws Exception {
+        when(locationEnrichmentService.valleyFloorCandidates(95.0, 0.0))
+                .thenThrow(new IllegalArgumentException("Latitude must be between -90 and 90"));
+
+        mockMvc.perform(get("/api/locations/valley-floor-candidates")
+                        .param("lat", "95").param("lon", "0"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("GET /api/locations/valley-floor-candidates is 403 for PRO_USER")
+    void valleyFloorCandidates_pro_403() throws Exception {
+        mockMvc.perform(get("/api/locations/valley-floor-candidates")
+                        .param("lat", "54.6").param("lon", "-3.1"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(locationEnrichmentService);
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/locations/valley-floor-candidates is 403 for LITE_USER")
+    void valleyFloorCandidates_lite_403() throws Exception {
+        mockMvc.perform(get("/api/locations/valley-floor-candidates")
+                        .param("lat", "54.6").param("lon", "-3.1"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/locations/valley-floor-cell returns the cell for an admin")
+    void valleyFloorCell_admin_returnsCell() throws Exception {
+        when(locationEnrichmentService.valleyFloorCell(54.58, -3.15, 80.0))
+                .thenReturn(new ValleyFloorCell(54.575, -3.152, 80.0, 0.4));
+
+        mockMvc.perform(get("/api/locations/valley-floor-cell")
+                        .param("lat", "54.58").param("lon", "-3.15").param("elevation", "80"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.cellLat").value(54.575))
+                .andExpect(jsonPath("$.cellLng").value(-3.152))
+                .andExpect(jsonPath("$.cellElevationMetres").value(80.0))
+                .andExpect(jsonPath("$.cellDistanceKm").value(0.4));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/locations/valley-floor-cell is a 502 when the lookup fails")
+    void valleyFloorCell_upstreamFailure_502() throws Exception {
+        when(locationEnrichmentService.valleyFloorCell(54.58, -3.15, 80.0))
+                .thenThrow(new UpstreamLookupException("no cell"));
+
+        mockMvc.perform(get("/api/locations/valley-floor-cell")
+                        .param("lat", "54.58").param("lon", "-3.15").param("elevation", "80"))
+                .andExpect(status().isBadGateway());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("GET /api/locations/valley-floor-cell is 403 for PRO_USER")
+    void valleyFloorCell_pro_403() throws Exception {
+        mockMvc.perform(get("/api/locations/valley-floor-cell")
+                        .param("lat", "54.58").param("lon", "-3.15").param("elevation", "80"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/locations/valley-floor-cell is 403 for LITE_USER")
+    void valleyFloorCell_lite_403() throws Exception {
+        mockMvc.perform(get("/api/locations/valley-floor-cell")
+                        .param("lat", "54.58").param("lon", "-3.15").param("elevation", "80"))
+                .andExpect(status().isForbidden());
     }
 
     private LocationEntity buildEntity(Long id, String name, double lat, double lon) {

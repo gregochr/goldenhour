@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.JobRunEntity;
@@ -8,6 +9,7 @@ import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastRequest;
+import com.gregochr.goldenhour.model.InversionProfile;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
@@ -25,6 +27,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +46,7 @@ public class OpenMeteoService {
 
     private final OpenMeteoClient openMeteoClient;
     private final JobRunService jobRunService;
+    private final InversionProfileFetcher inversionProfileFetcher;
 
     /**
      * Constructs an {@code OpenMeteoService}.
@@ -53,6 +57,30 @@ public class OpenMeteoService {
     public OpenMeteoService(OpenMeteoClient openMeteoClient, JobRunService jobRunService) {
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
+        this.inversionProfileFetcher = new InversionProfileFetcher(openMeteoClient);
+    }
+
+    /**
+     * Pre-fetches the v2 inversion valley profile for a run's locations (inversion-v2-plan Phase 1b), one
+     * batched request per 20 distinct valley-floor points. Best effort: never throws, and a location with
+     * no entry in the result has no profile.
+     *
+     * @param locations the run's locations; ineligible ones are ignored
+     * @return location id to profile, holding only the locations that got one
+     */
+    public Map<Long, InversionProfile> prefetchInversionProfiles(Collection<LocationEntity> locations) {
+        return inversionProfileFetcher.prefetch(locations);
+    }
+
+    /**
+     * Fetches the v2 inversion valley profile for one location, for callers with no prefetch. Memoised per
+     * valley-floor request for a few minutes, so repeated slots of one site cost one request. Never throws.
+     *
+     * @param location the location
+     * @return the profile, or null when the location is ineligible or the fetch failed
+     */
+    public InversionProfile fetchInversionProfileOnDemand(LocationEntity location) {
+        return inversionProfileFetcher.fetchOnDemand(location);
     }
 
     /**

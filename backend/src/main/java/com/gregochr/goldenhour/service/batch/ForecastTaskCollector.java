@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.CloudPointCache;
+import com.gregochr.goldenhour.model.InversionProfile;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
@@ -317,6 +318,8 @@ public class ForecastTaskCollector {
             cloudCache = null;
         }
 
+        Map<Long, InversionProfile> inversionProfiles = prefetchInversionProfiles(candidates);
+
         Map<String, GridCellStabilityResult> stabilityByCell =
                 gridCellStabilityService.classifyGridCellsAndPublishSnapshot(
                         candidates, prefetchedWeather, ephemeral);
@@ -362,7 +365,7 @@ public class ForecastTaskCollector {
             int daysAhead = ForecastHorizon.daysAhead(candidate.date(), clock);
             try {
                 ForecastPreEvalResult preEval = triageCandidate(candidate, nearTermModel,
-                        prefetchedWeather, cloudCache, tideSnapshot);
+                        prefetchedWeather, cloudCache, tideSnapshot, inversionProfiles);
                 // Record conditions for every place this cycle fetched weather for — no longer a
                 // call made here. `ForecastService.fetchWeatherAndTriage` above now makes this
                 // write itself, immediately after assembling the atmospheric data and before its
@@ -756,6 +759,8 @@ public class ForecastTaskCollector {
             cloudCache = null;
         }
 
+        Map<Long, InversionProfile> inversionProfiles = prefetchInversionProfiles(candidates);
+
         List<EvaluationTask.Forecast> inland = new ArrayList<>();
         List<EvaluationTask.Forecast> coastal = new ArrayList<>();
         Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
@@ -773,7 +778,7 @@ public class ForecastTaskCollector {
                 // and then records nothing for it, while the scheduled loop, which decides the
                 // woodland lane strictly AFTER this same call, does.
                 ForecastPreEvalResult preEval = triageCandidate(candidate, model,
-                        prefetchedWeather, cloudCache, tideSnapshot);
+                        prefetchedWeather, cloudCache, tideSnapshot, inversionProfiles);
 
                 // Canopy sites never belong in the sky lane, and this path has no woodland
                 // bucket to route them to (unlike the scheduled loop's own `woodland` list) —
@@ -843,21 +848,36 @@ public class ForecastTaskCollector {
     }
 
     /**
-     * Fetches and triages one candidate, passing the collection's tide snapshot when there is one.
-     * With no snapshot it calls the eight-argument form, exactly as before.
+     * Pre-fetches the v2 inversion valley profiles for the candidate set (inversion-v2-plan Phase 1b), after the
+     * weather and cloud pre-fetches. Never throws and never returns null: a switched-off or failed
+     * prefetch is an empty map, which the per-candidate call reads as "no profile" and does NOT replace with
+     * an on-demand fetch per slot.
+     */
+    private Map<Long, InversionProfile> prefetchInversionProfiles(List<ForecastCandidate> candidates) {
+        try {
+            if (!forecastService.inversionV2Enabled()) {
+                return Map.of();
+            }
+            return batchWeatherPrefetcher.prefetchInversionProfiles(candidates);
+        } catch (Exception e) {
+            LOG.warn("Forecast batch: inversion profile pre-fetch failed — continuing without v2 profiles: {}",
+                    e.getMessage());
+            return Map.of();
+        }
+    }
+
+    /**
+     * Fetches and triages one candidate, passing the collection's tide snapshot (null for live reads) and
+     * the run's inversion profiles (a map, never null, so no slot fetches a profile of its own).
      */
     private ForecastPreEvalResult triageCandidate(ForecastCandidate candidate,
             EvaluationModel model, Map<String, WeatherExtractionResult> prefetchedWeather,
-            CloudPointCache cloudCache, TideExtremeSnapshot tideSnapshot) {
-        if (tideSnapshot == null) {
-            return forecastService.fetchWeatherAndTriage(
-                    candidate.location(), candidate.date(), candidate.targetType(),
-                    candidate.location().getTideType(), model, null, prefetchedWeather, cloudCache);
-        }
+            CloudPointCache cloudCache, TideExtremeSnapshot tideSnapshot,
+            Map<Long, InversionProfile> inversionProfiles) {
         return forecastService.fetchWeatherAndTriage(
                 candidate.location(), candidate.date(), candidate.targetType(),
                 candidate.location().getTideType(), model, null, prefetchedWeather, cloudCache,
-                tideSnapshot);
+                tideSnapshot, inversionProfiles);
     }
 
     /**

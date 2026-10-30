@@ -97,7 +97,7 @@ function spokenTail(chip, date) {
  * every `fireEvent`, not every render. Native readings exist for Chromium alone. Those runs
  * removed separators and read names, so they bear on the first two items below — except the
  * browse-mode clause, which no run read — and on the fifth, through the space that sits inside
- * {@code SlotLocationName}'s icon span; the third and fourth rest on earlier targeted probes.
+ * the since-deleted {@code SlotLocationName}'s icon span; the third and fourth rest on earlier targeted probes.
  *
  * <ul>
  *   <li>A separator matters <b>only between plain {@code display: inline} content</b> — inline

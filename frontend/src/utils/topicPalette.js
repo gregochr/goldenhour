@@ -70,9 +70,6 @@ const TOPIC_META = {
   LUNAR_ECLIPSE: { glyph: '🌘', name: 'Lunar eclipse', shortName: 'Lunar ecl.', chipName: 'Lunar' },
 };
 
-/** Every type the palette knows, for tests and for callers that need to enumerate. */
-export const TOPIC_PALETTE_TYPES = Object.keys(TOPIC_META);
-
 /**
  * How one topic type is drawn.
  *

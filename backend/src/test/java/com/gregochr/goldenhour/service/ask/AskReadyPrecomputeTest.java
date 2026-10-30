@@ -205,7 +205,7 @@ class AskReadyPrecomputeTest {
         verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), offer.capture(), any(), any(), any(),
                 any());
         assertThat(offer.getAllValues()).extracting(ReadyQuestion.Offer::text).contains("Best spot this weekend?",
-                "Best spot tonight?", "Best coastal spot at high tide?", "Sunrise or sunset tomorrow?",
+                "Best spot this evening?", "Best coastal spot at high tide?", "Sunrise or sunset tomorrow?",
                 "Any rare events coming up?", "Is there snow on the tops?");
     }
 
@@ -219,7 +219,7 @@ class AskReadyPrecomputeTest {
         assertThat(weekend.options().anchor().windowIds()).containsExactlyInAnyOrder("2026-10-10_sunrise",
                 "2026-10-10_sunset", "2026-10-11_sunrise", "2026-10-11_sunset");
         assertThat(weekend.question().windowId()).isNull();
-        Call next = callFor("Best spot tonight?", List.of());
+        Call next = callFor("Best spot this evening?", List.of());
         assertThat(next.options().anchor().windowIds()).containsExactly("2026-10-09_sunset");
         assertThat(next.question().windowId()).isEqualTo("2026-10-09_sunset");
         assertThat(callFor("Best coastal spot at high tide?", List.of()).options().anchor()).isNull();
@@ -400,7 +400,7 @@ class AskReadyPrecomputeTest {
             if (text.equals("Best spot this weekend?") && call.question().regionIds().isEmpty()) {
                 throw new IllegalStateException("boom");
             }
-            if (text.equals("Best spot tonight?") && call.question().regionIds().isEmpty()) {
+            if (text.equals("Best spot this evening?") && call.question().regionIds().isEmpty()) {
                 return failed("the model refused");
             }
             if (text.equals("Best coastal spot at high tide?") && call.question().regionIds().isEmpty()) {
@@ -441,7 +441,7 @@ class AskReadyPrecomputeTest {
             AskAnswer answer = good.outcome().answer();
             return switch (text) {
                 case "Best spot this weekend?" -> ok(new AskAnswer(true, "None.", List.of(), List.of(), null));
-                case "Best spot tonight?" -> ok(new AskAnswer(true, "Saturday.", List.of(onWindow(answer.picks()
+                case "Best spot this evening?" -> ok(new AskAnswer(true, "Saturday.", List.of(onWindow(answer.picks()
                         .getFirst(), "2026-10-10_sunset")), List.of(), null));
                 case "Best coastal spot at high tide?" -> new AskRun(new AskOutcome(AskOutcome.Status.OK, answer,
                         true, 2), List.of(), null);
@@ -488,7 +488,7 @@ class AskReadyPrecomputeTest {
             if (text.equals("Is there snow on the tops?")) {
                 return ok(new AskAnswer(true, "Snow and an aurora.", List.of(), List.of(aurora, snow), null));
             }
-            if (text.equals("Best spot tonight?")) {
+            if (text.equals("Best spot this evening?")) {
                 return ok(new AskAnswer(true, answer.summary(), answer.picks(), List.of(aurora), null));
             }
             return good;
@@ -520,6 +520,49 @@ class AskReadyPrecomputeTest {
         // The three SNOW_TOPS questions (ALL and both regions) are skipped; nothing failed.
         assertThat(result).isEqualTo(new AskReadyPrecompute.Result(14, NOT_OFFERED + 3, 0, null));
         assertThat(storedKeys()).doesNotContain("ALL/SNOW_TOPS", "1/SNOW_TOPS", "2/SNOW_TOPS");
+    }
+
+    private static AskRun cant(String missing) {
+        return new AskRun(new AskOutcome(AskOutcome.Status.CANT, new AskAnswer(false, "No.", List.of(),
+                List.of(), missing), false, 1), List.of(), null);
+    }
+
+    @Test
+    @DisplayName("a 'can't' on the events question SNOW_TOPS is a skip, not a failure, and nothing is stored")
+    void cantOnAnEventsQuestionIsSkipped() {
+        model = call -> call.question().sanitised().equals("Is there snow on the tops?")
+                ? cant("snow data") : goodModel(call, snapshot);
+
+        AskReadyPrecompute.Result result = service.precompute(1L);
+
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(14, NOT_OFFERED + 3, 0, null));
+        assertThat(storedKeys()).doesNotContain("ALL/SNOW_TOPS", "1/SNOW_TOPS", "2/SNOW_TOPS");
+        verify(jobRunService).completeRun(job, 14, 0);
+    }
+
+    @Test
+    @DisplayName("a 'can't' on the pick question BEST_NEXT still counts as failed")
+    void cantOnAPickQuestionStaysFailed() {
+        model = call -> call.question().sanitised().equals("Best spot this evening?")
+                && call.question().regionIds().isEmpty() ? cant("nothing") : goodModel(call, snapshot);
+
+        AskReadyPrecompute.Result result = service.precompute(1L);
+
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(storedKeys()).doesNotContain("ALL/BEST_NEXT");
+        verify(jobRunService).completeRun(job, result.written(), 1);
+    }
+
+    @Test
+    @DisplayName("a FAILED status on SNOW_TOPS is still a failure")
+    void failedOnAnEventsQuestionStaysFailed() {
+        model = call -> call.question().sanitised().equals("Is there snow on the tops?")
+                ? failed("the model refused") : goodModel(call, snapshot);
+
+        AskReadyPrecompute.Result result = service.precompute(1L);
+
+        assertThat(result.failed()).isEqualTo(3);
+        verify(jobRunService).completeRun(job, result.written(), 3);
     }
 
     @Test

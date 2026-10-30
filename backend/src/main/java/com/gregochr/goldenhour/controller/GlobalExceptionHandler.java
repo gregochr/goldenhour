@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.exception.AreaConflictException;
 import com.gregochr.goldenhour.exception.NameClashException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
+import com.gregochr.goldenhour.exception.UpstreamLookupException;
 import com.gregochr.goldenhour.exception.SubRegionsLockedException;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
 import org.slf4j.Logger;
@@ -273,6 +274,19 @@ public class GlobalExceptionHandler {
         LOG.error("Unhandled exception", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ErrorResponse("An unexpected error occurred"));
+    }
+
+    /**
+     * Maps {@link UpstreamLookupException} to HTTP 502 Bad Gateway: an admin-initiated lookup failed.
+     *
+     * @param ex the exception, whose message is safe to show
+     * @return a 502 response with a structured error body
+     */
+    @ExceptionHandler(UpstreamLookupException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public ErrorResponse handleUpstreamLookup(UpstreamLookupException ex) {
+        LOG.warn("Upstream lookup failed: {}", ex.getMessage());
+        return new ErrorResponse(ex.getMessage());
     }
 
     /**

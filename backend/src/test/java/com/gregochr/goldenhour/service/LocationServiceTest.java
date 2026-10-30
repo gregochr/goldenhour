@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.AddLocationRequest;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
+import com.gregochr.goldenhour.util.GeoUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -1247,6 +1249,197 @@ class LocationServiceTest {
                 "Brathay", null, null, null, null, null, null));
 
         assertThat(result.isMistProne()).isTrue();
+    }
+
+    // --- heights: elevation and valley floor (inversion v2 Phase 1-pre) ---
+
+    private LocationEntity existingWithFloor() {
+        LocationEntity existing = buildEntity("Latrigg", 54.6, -3.1);
+        existing.setGridLat(54.6);
+        existing.setGridLng(-3.1);
+        existing.setElevationMetres(368);
+        existing.setValleyFloorMetres(80);
+        existing.setValleyFloorLat(54.58);
+        existing.setValleyFloorLng(-3.12);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        return existing;
+    }
+
+    /** As {@link #existingWithFloor()}, for tests whose updates are accepted: saving that exact entity is stubbed. */
+    private LocationEntity persistedWithFloor() {
+        LocationEntity existing = existingWithFloor();
+        when(locationRepository.save(existing)).thenReturn(existing);
+        return existing;
+    }
+
+    private static UpdateLocationRequest heights(Double lat, Double lon, Integer elevation, Integer floor,
+            Double floorLat, Double floorLng, Boolean clear) {
+        return new UpdateLocationRequest(null, lat, lon, null, null, null, null, null, null,
+                elevation, floor, floorLat, floorLng, clear);
+    }
+
+    @Test
+    @DisplayName("update() sets an in-range elevation and leaves it alone when absent")
+    void update_elevation_setAndUnchanged() {
+        LocationEntity existing = persistedWithFloor();
+
+        locationService.update(1L, heights(null, null, null, null, null, null, null));
+        assertThat(existing.getElevationMetres()).isEqualTo(368);
+
+        locationService.update(1L, heights(null, null, 412, null, null, null, null));
+        assertThat(existing.getElevationMetres()).isEqualTo(412);
+        locationService.update(1L, heights(null, null, -50, null, null, null, null));
+        assertThat(existing.getElevationMetres()).isEqualTo(-50);
+        locationService.update(1L, heights(null, null, 1500, null, null, null, null));
+        assertThat(existing.getElevationMetres()).isEqualTo(1500);
+        verify(locationRepository, atLeastOnce()).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() rejects an elevation outside -50..1500 as a 400 and saves nothing")
+    void update_elevation_outOfRange() {
+        existingWithFloor();
+
+        assertThatThrownBy(() -> locationService.update(1L, heights(null, null, 1501, null, null, null, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> locationService.update(1L, heights(null, null, -51, null, null, null, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(locationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("update() sets all three floor fields together")
+    void update_floor_setsAllThree() {
+        LocationEntity existing = persistedWithFloor();
+
+        locationService.update(1L, heights(null, null, null, 95, 54.59, -3.11, null));
+
+        assertThat(existing.getValleyFloorMetres()).isEqualTo(95);
+        assertThat(existing.getValleyFloorLat()).isEqualTo(54.59);
+        assertThat(existing.getValleyFloorLng()).isEqualTo(-3.11);
+        verify(locationRepository, atLeastOnce()).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() rejects one or two of the three floor fields as a 400")
+    void update_floor_partialIsRejected() {
+        existingWithFloor();
+
+        assertThatThrownBy(() -> locationService.update(1L, heights(null, null, null, 95, null, null, null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("together");
+        assertThatThrownBy(() -> locationService.update(1L, heights(null, null, null, 95, 54.59, null, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> locationService.update(1L, heights(null, null, null, null, 54.59, -3.11, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(locationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("update() clearValleyFloor alone nulls all three; with any value it is a 400")
+    void update_floor_clear() {
+        LocationEntity existing = persistedWithFloor();
+
+        assertThatThrownBy(() -> locationService.update(1L, heights(null, null, null, 95, null, null, true)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(existing.getValleyFloorMetres()).isEqualTo(80);
+
+        locationService.update(1L, heights(null, null, null, null, null, null, true));
+        assertThat(existing.getValleyFloorMetres()).isNull();
+        assertThat(existing.getValleyFloorLat()).isNull();
+        assertThat(existing.getValleyFloorLng()).isNull();
+        verify(locationRepository, atLeastOnce()).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() clearValleyFloor=false with no values changes nothing")
+    void update_floor_clearFalse_noop() {
+        LocationEntity existing = persistedWithFloor();
+
+        locationService.update(1L, heights(null, null, null, null, null, null, false));
+
+        assertThat(existing.getValleyFloorMetres()).isEqualTo(80);
+        verify(locationRepository, atLeastOnce()).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() validates a new floor's height and coordinates")
+    void update_floor_rangeChecks() {
+        existingWithFloor();
+
+        assertThatThrownBy(() -> locationService.update(1L, heights(null, null, null, 1501, 54.59, -3.11, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> locationService.update(1L, heights(null, null, null, -51, 54.59, -3.11, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> locationService.update(1L, heights(null, null, null, 90, 91.0, -3.11, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> locationService.update(1L, heights(null, null, null, 90, 54.59, 181.0, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(locationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("update() accepts a floor 6.8 km away and rejects one 10 km+ away")
+    void update_floor_distanceLimit() {
+        LocationEntity existing = persistedWithFloor();
+
+        // About 6.8 km due south (Keswick-to-Blencathra scale): allowed.
+        double[] near = GeoUtils.offsetPoint(54.6, -3.1, 180, 6800);
+        locationService.update(1L, heights(null, null, null, 90, near[0], near[1], null));
+        assertThat(existing.getValleyFloorMetres()).isEqualTo(90);
+
+        double[] far = GeoUtils.offsetPoint(54.6, -3.1, 180, 10_500);
+        assertThatThrownBy(() -> locationService.update(1L,
+                heights(null, null, null, 70, far[0], far[1], null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("10 km");
+        verify(locationRepository, atLeastOnce()).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() measures the floor distance from the coordinates this same request leaves")
+    void update_floor_distanceUsesRequestsOwnCoordinates() {
+        LocationEntity existing = persistedWithFloor();
+        double[] floor = GeoUtils.offsetPoint(54.6, -3.1, 180, 4000);
+        // Moving the location 20 km north strands a floor that was 4 km away: rejected.
+        double[] moved = GeoUtils.offsetPoint(54.6, -3.1, 0, 20_000);
+        assertThatThrownBy(() -> locationService.update(1L,
+                heights(moved[0], moved[1], null, 60, floor[0], floor[1], null)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // Moving the location and the floor together is fine.
+        double[] movedFloor = GeoUtils.offsetPoint(moved[0], moved[1], 180, 4000);
+        locationService.update(1L, heights(moved[0], moved[1], null, 60, movedFloor[0], movedFloor[1], null));
+        assertThat(existing.getValleyFloorMetres()).isEqualTo(60);
+        verify(locationRepository, atLeastOnce()).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() does not re-validate an unchanged floor, so a far stored floor survives a re-save")
+    void update_floor_unchangedFloorNotRevalidated() {
+        LocationEntity existing = persistedWithFloor();
+        existing.setValleyFloorLat(55.5);
+        existing.setValleyFloorLng(-3.1);
+
+        locationService.update(1L, heights(null, null, null, 80, 55.5, -3.1, null));
+
+        assertThat(existing.getValleyFloorLat()).isEqualTo(55.5);
+        verify(locationRepository, atLeastOnce()).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() leaves both heights alone when the coordinates change")
+    void update_coordinateChange_leavesHeightsAlone() {
+        LocationEntity existing = persistedWithFloor();
+        when(locationEnrichmentService.fetchGridCell(54.61, -3.11))
+                .thenReturn(new double[]{54.7, -3.2});
+
+        locationService.update(1L, heights(54.61, -3.11, null, null, null, null, null));
+
+        assertThat(existing.getLat()).isEqualTo(54.61);
+        assertThat(existing.getElevationMetres()).isEqualTo(368);
+        assertThat(existing.getValleyFloorMetres()).isEqualTo(80);
+        assertThat(existing.getValleyFloorLat()).isEqualTo(54.58);
+        assertThat(existing.getValleyFloorLng()).isEqualTo(-3.12);
+        verify(locationRepository, atLeastOnce()).save(existing);
     }
 
     // --- sub-regions ---

@@ -82,7 +82,6 @@ vi.mock('../api/astroApi.js', () => ({
   getAstroAvailableDates: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockResolvedValue([]) }));
-vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 // A thin observable stub, not `() => null` — D-7's reverse-order clause ("a peek press clears the

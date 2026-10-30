@@ -86,7 +86,10 @@ public class LocationDtoMapper {
                 entity.getStructureLabel(),
                 entity.isWoodlandOnly(),
                 subRegion == null ? null : subRegion.areaId(),
-                subRegion == null ? null : subRegion.areaName());
+                subRegion == null ? null : subRegion.areaName(),
+                entity.getValleyFloorMetres(),
+                entity.getValleyFloorLat(),
+                entity.getValleyFloorLng());
     }
 
     private LocationRegionDto toRegionDto(RegionEntity region) {

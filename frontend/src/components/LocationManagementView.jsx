@@ -1,6 +1,6 @@
-import React, { useEffect, useOptimistic, useState, useTransition, useMemo } from 'react';
+import React, { useEffect, useOptimistic, useRef, useState, useTransition, useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace, enrichLocation } from '../api/forecastApi.js';
+import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace, enrichLocation, fetchValleyFloorCandidates, fetchValleyFloorCell } from '../api/forecastApi.js';
 import { fetchRegions } from '../api/regionApi.js';
 import { fetchTideStats } from '../api/tideApi.js';
 import { fetchAreas, fetchLocationAliases, setLocationAliases } from '../api/areaApi.js';
@@ -302,6 +302,42 @@ SubRegionSelect.propTypes = {
   testId: PropTypes.string.isRequired,
 };
 
+const MIN_HEIGHT_M = -50;
+const MAX_HEIGHT_M = 1500;
+// Inversion scoring reads a site's own height from here up (InversionScoreCalculator.MIN_ELEVATION_METRES).
+const INVERSION_MIN_ELEVATION_M = 200;
+
+/** Parses a whole-metre input: '' is null, a non-number is NaN, anything else is rounded. */
+function parseMetres(value) {
+  if (value === '' || value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : NaN;
+}
+
+/** True when the edited lat/lon text is a valid coordinate pair. */
+function coordsValid(lat, lon) {
+  const a = parseFloat(lat);
+  const b = parseFloat(lon);
+  return !isNaN(a) && a >= -90 && a <= 90 && !isNaN(b) && b >= -180 && b <= 180;
+}
+
+/** True when an elevation edit moves an overlooks-water site across the 200 m inversion threshold. */
+function crossesInversionThreshold(values) {
+  if (!values.overlooksWater) return false;
+  const next = parseMetres(values.elevation);
+  if (next === null || Number.isNaN(next)) return false;
+  const was = (values.elevationBaseline ?? -Infinity) >= INVERSION_MIN_ELEVATION_M;
+  return was !== (next >= INVERSION_MIN_ELEVATION_M);
+}
+
+/** True when the edited lat/lon differ from the stored coordinates. */
+function coordinatesChanged(values) {
+  const lat = parseFloat(values.lat);
+  const lon = parseFloat(values.lon);
+  if (isNaN(lat) || isNaN(lon)) return false;
+  return lat !== values.latBaseline || lon !== values.lonBaseline;
+}
+
 export default function LocationManagementView({ onLocationsChanged }) {
   const [locations, setLocations] = useState([]);
   const [regions, setRegions] = useState([]);
@@ -311,6 +347,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [editValues, setEditValues] = useState(null);
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  // Identifies the latest valley-floor request of the open editor. Bumped on open, Cancel, Clear and every
+  // new request, so a reply that no longer belongs to the editor on screen is dropped.
+  const floorToken = useRef(0);
   // Other names per location id; null until loaded, and stays null if the load fails so the field is
   // disabled rather than offering to overwrite names it never saw.
   // Every area and sub-region (null until read). A location's sub-region is the SUB_REGION area listing it; it is
@@ -466,6 +505,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
   }
 
   function handleStartEdit(loc) {
+    floorToken.current += 1;
+    const hasStoredFloor = loc.valleyFloorMetres != null && loc.valleyFloorLat != null && loc.valleyFloorLng != null;
     setEditingRowId(loc.id);
     setEditValues({
       name: loc.name,
@@ -484,6 +525,23 @@ export default function LocationManagementView({ onLocationsChanged }) {
       aliases: formatAliases(aliasesByLocation?.[loc.id]),
       aliasesBaseline: formatAliases(aliasesByLocation?.[loc.id]),
       aliasesLoaded: aliasesByLocation !== null,
+      // Heights: the baselines are what the server holds; a save sends a height field only when it differs.
+      elevation: loc.elevationMetres != null ? String(loc.elevationMetres) : '',
+      elevationBaseline: loc.elevationMetres ?? null,
+      overlooksWater: loc.overlooksWater === true,
+      latBaseline: loc.lat,
+      lonBaseline: loc.lon,
+      floorMetres: hasStoredFloor ? String(loc.valleyFloorMetres) : '',
+      floorLat: hasStoredFloor ? loc.valleyFloorLat : null,
+      floorLng: hasStoredFloor ? loc.valleyFloorLng : null,
+      floorBaseline: hasStoredFloor
+        ? { metres: loc.valleyFloorMetres, lat: loc.valleyFloorLat, lng: loc.valleyFloorLng }
+        : null,
+      floorCleared: false,
+      floorCandidates: null,
+      floorCell: null,
+      floorStatus: '',
+      floorBusy: false,
     });
     setEditError('');
     setAliasDetail('');
@@ -500,6 +558,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
   }
 
   function handleEditCancel() {
+    floorToken.current += 1;
     setEditingRowId(null);
     setEditValues(null);
     setEditError('');
@@ -518,6 +577,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
         if (value === prev.regionBaseline) next.subRegionId = prev.subRegionBaseline;
         else if (!stillInRegion) next.subRegionId = '';
       }
+      if (field === 'lat' || field === 'lon') {
+        // Candidates were fetched for the old coordinates: they must not be pickable for the new ones.
+        next.floorCandidates = null;
+        next.floorStatus = '';
+      }
       if (field === 'locationTypes') {
         const wasCoastal = (prev.locationTypes || []).includes('SEASCAPE');
         const isCoastal = value.includes('SEASCAPE');
@@ -529,6 +593,109 @@ export default function LocationManagementView({ onLocationsChanged }) {
       }
       return next;
     });
+  }
+
+  async function handleSuggestFloor() {
+    const token = ++floorToken.current;
+    const lat = parseFloat(editValues.lat);
+    const lon = parseFloat(editValues.lon);
+    setEditValues((prev) => ({ ...prev, floorBusy: true, floorStatus: '' }));
+    try {
+      const result = await fetchValleyFloorCandidates(lat, lon);
+      if (token !== floorToken.current) return;
+      const list = result?.candidates ?? [];
+      setEditValues((prev) => (prev ? {
+        ...prev,
+        floorBusy: false,
+        floorCandidates: list,
+        floorStatus: list.length === 0 ? 'No valley floor 30 m below within 5 km' : '',
+      } : prev));
+    } catch (err) {
+      if (token !== floorToken.current) return;
+      setEditValues((prev) => (prev ? {
+        ...prev,
+        floorBusy: false,
+        floorStatus: err?.response?.data?.error ?? 'Could not look up valley floors; try again shortly.',
+      } : prev));
+    }
+  }
+
+  async function handlePickFloor(candidate) {
+    const token = ++floorToken.current;
+    setEditValues((prev) => ({
+      ...prev,
+      floorMetres: String(candidate.metres),
+      floorLat: candidate.lat,
+      floorLng: candidate.lng,
+      floorCleared: false,
+      floorCell: null,
+      floorStatus: '',
+      floorBusy: true,
+    }));
+    try {
+      const cell = await fetchValleyFloorCell(candidate.lat, candidate.lng, candidate.metres);
+      if (token !== floorToken.current) return;
+      setEditValues((prev) => (prev ? { ...prev, floorBusy: false, floorCell: cell } : prev));
+    } catch (err) {
+      if (token !== floorToken.current) return;
+      setEditValues((prev) => (prev ? {
+        ...prev,
+        floorBusy: false,
+        floorStatus: err?.response?.data?.error ?? 'Could not look up the model cell for that point.',
+      } : prev));
+    }
+  }
+
+  function handleFloorHeightChange(value) {
+    // Drops a cell reply still in flight for the previous height.
+    floorToken.current += 1;
+    setEditValues((prev) => ({ ...prev, floorMetres: value, floorCell: null, floorBusy: false }));
+  }
+
+  function handleClearFloor() {
+    floorToken.current += 1;
+    setEditValues((prev) => ({
+      ...prev,
+      floorMetres: '',
+      floorLat: null,
+      floorLng: null,
+      floorCleared: true,
+      floorCell: null,
+      floorStatus: '',
+      floorBusy: false,
+    }));
+  }
+
+  // Height fields of the save payload, each present only when it differs from what the server holds.
+  // Returns { error } for a value that cannot be sent, otherwise { fields }.
+  function heightPayload() {
+    const fields = {};
+    const elevation = parseMetres(editValues.elevation);
+    if (elevation === null && editValues.elevationBaseline !== null) {
+      return { error: "Elevation can't be cleared; enter a value" };
+    }
+    if (elevation !== null) {
+      if (Number.isNaN(elevation) || elevation < MIN_HEIGHT_M || elevation > MAX_HEIGHT_M) {
+        return { error: 'Elevation must be a whole number between -50 and 1,500 m.' };
+      }
+      if (elevation !== editValues.elevationBaseline) fields.elevationMetres = elevation;
+    }
+    const baseline = editValues.floorBaseline;
+    if (editValues.floorCleared) {
+      if (baseline) fields.clearValleyFloor = true;
+    } else if (editValues.floorLat !== null && editValues.floorLng !== null) {
+      const metres = parseMetres(editValues.floorMetres);
+      if (metres === null || Number.isNaN(metres) || metres < MIN_HEIGHT_M || metres > MAX_HEIGHT_M) {
+        return { error: 'Valley floor height must be a whole number between -50 and 1,500 m, or clear the floor.' };
+      }
+      if (!baseline || metres !== baseline.metres
+        || editValues.floorLat !== baseline.lat || editValues.floorLng !== baseline.lng) {
+        fields.valleyFloorMetres = metres;
+        fields.valleyFloorLat = editValues.floorLat;
+        fields.valleyFloorLng = editValues.floorLng;
+      }
+    }
+    return { fields };
   }
 
   async function handleEditSave() {
@@ -555,6 +722,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
       setEditError('A location must have at least one type.');
       return;
     }
+    const heights = heightPayload();
+    if (heights.error) {
+      setEditError(heights.error);
+      return;
+    }
     setEditSaving(true);
     setEditError('');
     setAliasDetail('');
@@ -572,6 +744,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         regionId: editValues.regionId ? Number(editValues.regionId) : null,
         mistProne: editValues.mistProne === true,
         ...subRegionChange,
+        ...heights.fields,
       });
       // The region and sub-region may both have moved memberships: read them again.
       await refreshAreas();
@@ -587,9 +760,23 @@ export default function LocationManagementView({ onLocationsChanged }) {
           await refreshLocations();
           onLocationsChanged();
           // The location itself is saved: what the form holds for region and sub-region is now the stored truth.
-          setEditValues((prev) => (prev
-            ? { ...prev, regionBaseline: prev.regionId, subRegionBaseline: prev.subRegionId }
-            : prev));
+          // The same goes for the heights and coordinates this save just wrote.
+          setEditValues((prev) => {
+            if (!prev) return prev;
+            const floorSet = !prev.floorCleared && prev.floorLat !== null && prev.floorLng !== null;
+            return {
+              ...prev,
+              regionBaseline: prev.regionId,
+              subRegionBaseline: prev.subRegionId,
+              elevationBaseline: parseMetres(prev.elevation),
+              floorBaseline: floorSet
+                ? { metres: parseMetres(prev.floorMetres), lat: prev.floorLat, lng: prev.floorLng }
+                : null,
+              floorCleared: false,
+              latBaseline: parseFloat(prev.lat),
+              lonBaseline: parseFloat(prev.lon),
+            };
+          });
           setEditError('Location saved; its other names were not');
           setAliasDetail(aliasErr?.response?.data?.error ?? '');
           return;
@@ -1000,7 +1187,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   <button
                                     className="text-xs px-2 py-0.5 rounded bg-green-900/40 text-green-400 hover:bg-green-900/60 disabled:opacity-50"
                                     onClick={handleEditSave}
-                                    disabled={editSaving}
+                                    disabled={editSaving || editValues.floorBusy === true}
                                     data-testid="inline-edit-save"
                                   >
                                     {editSaving ? 'Saving…' : 'Save'}
@@ -1115,7 +1302,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                         {isEditing && (
                           <tr className="border-b border-plex-surface">
                             <td colSpan={10} className="py-1.5 pl-1">
-                              <div className="flex items-center gap-2 text-xs">
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
                                 <span className="text-plex-text-muted">Lat</span>
                                 <input
                                   type="number"
@@ -1134,7 +1321,102 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   onChange={(e) => handleEditChange('lon', e.target.value)}
                                   data-testid="inline-edit-lon"
                                 />
+                                <label htmlFor={`inline-edit-elevation-${loc.id}`} className="text-plex-text-muted">
+                                  Elevation (m)
+                                </label>
+                                <input
+                                  id={`inline-edit-elevation-${loc.id}`}
+                                  type="number"
+                                  step="1"
+                                  inputMode="numeric"
+                                  className={inlineInputClass + ' w-24'}
+                                  value={editValues.elevation}
+                                  onChange={(e) => handleEditChange('elevation', e.target.value)}
+                                  data-testid="inline-edit-elevation"
+                                />
                               </div>
+                              {crossesInversionThreshold(editValues) && (
+                                <div className="mt-1 text-xs text-amber-400" data-testid="inline-edit-elevation-warning">
+                                  {parseMetres(editValues.elevation) >= INVERSION_MIN_ELEVATION_M
+                                    ? 'This makes the site eligible for inversion scoring (200 m or higher, overlooks water).'
+                                    : 'This takes the site out of inversion scoring (below 200 m).'}
+                                </div>
+                              )}
+                              {coordinatesChanged(editValues) && (
+                                <div className="mt-1 text-xs text-amber-400" data-testid="inline-edit-coords-hint">
+                                  Coordinates changed: check elevation and valley floor
+                                </div>
+                              )}
+                              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs" data-testid="inline-edit-valley-floor">
+                                <span className="text-plex-text-muted">Valley floor</span>
+                                {editValues.floorLat !== null ? (
+                                  <>
+                                    <label htmlFor={`inline-edit-floor-height-${loc.id}`} className="sr-only">
+                                      Valley floor height (m)
+                                    </label>
+                                    <input
+                                      id={`inline-edit-floor-height-${loc.id}`}
+                                      type="number"
+                                      step="1"
+                                      inputMode="numeric"
+                                      className={inlineInputClass + ' w-20'}
+                                      value={editValues.floorMetres}
+                                      onChange={(e) => handleFloorHeightChange(e.target.value)}
+                                      data-testid="inline-edit-valley-floor-height"
+                                    />
+                                    <span className="text-plex-text-muted">
+                                      m at {editValues.floorLat.toFixed(4)}, {editValues.floorLng.toFixed(4)}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="text-plex-text-muted" data-testid="inline-edit-valley-floor-none">—</span>
+                                )}
+                                <button
+                                  type="button"
+                                  className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-muted hover:bg-plex-border hover:text-plex-text disabled:opacity-50"
+                                  onClick={handleSuggestFloor}
+                                  disabled={!coordsValid(editValues.lat, editValues.lon) || editValues.floorBusy === true}
+                                  data-testid="inline-edit-valley-floor-suggest"
+                                >
+                                  Suggest
+                                </button>
+                                <button
+                                  type="button"
+                                  className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-muted hover:bg-plex-border hover:text-plex-text disabled:opacity-50"
+                                  onClick={handleClearFloor}
+                                  disabled={editValues.floorLat === null}
+                                  data-testid="inline-edit-valley-floor-clear"
+                                >
+                                  Clear
+                                </button>
+                                {editValues.floorStatus && (
+                                  <span className="text-plex-text-secondary" data-testid="inline-edit-valley-floor-status">
+                                    {editValues.floorStatus}
+                                  </span>
+                                )}
+                              </div>
+                              {editValues.floorCandidates && editValues.floorCandidates.length > 0 && (
+                                <ul className="mt-1 flex flex-wrap gap-1 text-xs">
+                                  {editValues.floorCandidates.map((c, i) => (
+                                    <li key={`${c.lat}-${c.lng}`}>
+                                      <button
+                                        type="button"
+                                        className="px-2 py-0.5 rounded bg-plex-surface-light text-plex-text hover:bg-plex-border"
+                                        onClick={() => handlePickFloor(c)}
+                                        data-testid={`inline-edit-valley-floor-candidate-${i}`}
+                                      >
+                                        {c.metres} m, {c.distanceKm.toFixed(1)} km {c.bearing}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              {editValues.floorCell && (
+                                <div className="mt-1 text-xs text-plex-text-muted" data-testid="inline-edit-valley-floor-cell">
+                                  Model cell {editValues.floorCell.cellLat.toFixed(3)}, {editValues.floorCell.cellLng.toFixed(3)}{' '}
+                                  ({editValues.floorCell.cellDistanceKm.toFixed(1)} km from the floor)
+                                </div>
+                              )}
                               <div className="mt-1.5 flex items-center gap-2 text-xs">
                                 <label htmlFor={`inline-edit-aliases-${loc.id}`} className="text-plex-text-muted shrink-0">
                                   Also known as

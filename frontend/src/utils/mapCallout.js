@@ -224,7 +224,7 @@ export function calloutFacts({
 }
 
 /**
- * Whether a location is coastal-and-tidal — the same test {@code MarkerPopupContent} already applies
+ * Whether a location is coastal-and-tidal — the same test the since-deleted {@code MarkerPopupContent} applied
  * ({@code (location.tideType ?? []).filter(...)}): a location with no {@code tideType} preference at
  * all has no tide to align with, so a tide topic on its window is not about it.
  *

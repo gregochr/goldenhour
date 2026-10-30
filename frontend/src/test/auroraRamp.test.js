@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  AURORA_STOPS, AURORA_BLOOM, AURORA_TOGGLE_SWATCH, AURORA_RAMP,
+  AURORA_STOPS, AURORA_BLOOM, AURORA_RAMP,
   auroraRampRgb, auroraRampHex, auroraRampGradientCss,
 } from '../utils/auroraRamp.js';
 
@@ -93,9 +93,8 @@ describe('auroraRamp', () => {
     for (let i = 1; i < l.length; i += 1) expect(l[i]).toBeGreaterThan(l[i - 1]);
   });
 
-  it('carries the bloom, the toggle swatch and the one-prop object', () => {
+  it('carries the bloom and the one-prop object', () => {
     expect(AURORA_BLOOM).toEqual({ rgb: [120, 255, 170], from: 3.4, a: 150 });
-    expect(AURORA_TOGGLE_SWATCH).toBe('linear-gradient(90deg,#1F7F78,#76FFA0)');
     expect(AURORA_RAMP.rgb).toBe(auroraRampRgb);
     expect(AURORA_RAMP.hex).toBe(auroraRampHex);
     expect(AURORA_RAMP.gradientCss).toBe(auroraRampGradientCss);

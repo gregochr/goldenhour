@@ -107,9 +107,6 @@ vi.mock('../api/settingsApi.js', () => ({
 vi.mock('../components/BottomSheet.jsx', () => ({
   default: ({ children }) => <div>{children}</div>,
 }));
-vi.mock('../components/MarkerPopupContent.jsx', () => ({
-  default: () => <div data-testid="popup-content" />,
-}));
 vi.mock('../components/InfoTip.jsx', () => ({
   default: ({ text }) => <span data-testid="infotip-text">{text}</span>,
 }));

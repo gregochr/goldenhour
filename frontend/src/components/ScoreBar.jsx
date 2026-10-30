@@ -10,9 +10,9 @@ import { rampHex, starFromScore } from '../utils/scoreRamp.js';
  * <p>Merges what were two components (heat-scale-unification-plan.md, Stage 5b): the Plan pane's
  * {@code PlanScoreBar} (itself extracted from {@code WindowSpotPeek}'s module-private
  * {@code PeekScoreBar}, location-sheet superset plan Phase 1) and the map popup's module-private
- * {@code PopupScoreRow} in {@code MarkerPopupContent.jsx}. Both drew the same two measurements from
+ * {@code PopupScoreRow} in the since-deleted {@code MarkerPopupContent.jsx}. Both drew the same two measurements from
  * quoted copies of the same two gradient strings; once the fill is derived from the ramp instead of
- * hard-coded, the reason to keep them apart (importing MarkerPopupContent's ~1,300-line module graph
+ * hard-coded, the reason to keep them apart (importing the since-deleted MarkerPopupContent's ~1,300-line module graph
  * to fetch two strings) evaporates.
  *
  * <p><b>The fill is a continuous solid colour</b>, not a gradient —

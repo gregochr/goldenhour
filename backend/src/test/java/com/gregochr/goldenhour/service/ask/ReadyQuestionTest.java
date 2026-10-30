@@ -115,13 +115,15 @@ class ReadyQuestionTest {
     // -- BEST_NEXT --------------------------------------------------------------------------
 
     @Test
-    @DisplayName("BEST_NEXT words the next window from the UK civil date: tonight, this morning, tomorrow "
+    @DisplayName("BEST_NEXT words the next window from the UK civil date: this evening, this morning, tomorrow "
             + "morning, tomorrow evening, and a weekday when it is further off")
     void bestNextDayWords() {
         assertThat(offerText(ReadyQuestion.BEST_NEXT, at(ReadyFixtures.MONDAY_NOON,
-                day(oct(5), false, true, null, northumberland())))).isEqualTo("Best spot tonight?");
+                day(oct(5), false, true, null, northumberland())))).isEqualTo("Best spot this evening?");
         assertThat(offerText(ReadyQuestion.BEST_NEXT, at(ReadyFixtures.MONDAY_BEFORE_DAWN,
                 both(oct(5), northumberland())))).isEqualTo("Best spot this morning?");
+        assertThat(offerText(ReadyQuestion.BEST_NEXT, at(ReadyFixtures.MONDAY_NOON,
+                day(oct(5), true, true, null, northumberland())))).isEqualTo("Best spot this evening?");
         assertThat(offerText(ReadyQuestion.BEST_NEXT, at(LocalDateTime.of(2026, 10, 5, 19, 0),
                 day(oct(6), true, true, null, northumberland())))).isEqualTo("Best spot tomorrow morning?");
         assertThat(offerText(ReadyQuestion.BEST_NEXT, at(LocalDateTime.of(2026, 10, 5, 19, 0),

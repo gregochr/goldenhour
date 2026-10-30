@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, within } from '@testing-library/react';
-import AuroraBanner, { SEVERITY, bzStatus, formatDetectedAt } from '../components/AuroraBanner.jsx';
+import AuroraBanner, { SEVERITY, formatDetectedAt } from '../components/AuroraBanner.jsx';
 import { auroraRampHex } from '../utils/auroraRamp.js';
 
 // Mock the useAuroraStatus hook
@@ -1490,55 +1490,6 @@ describe('AuroraBanner', () => {
     renderBanner({ ...MODERATE, forecastKp: 6 });
     expect(screen.getByTestId('aurora-banner-meter')).toHaveAttribute('aria-hidden', 'true');
     expect(screen.getByTestId('aurora-banner-kp')).not.toHaveAttribute('aria-hidden');
-  });
-
-  // ---------------------------------------------------------------------------
-  // bzStatus helper — unit tests (SkyRatingEvalView still imports it)
-  // ---------------------------------------------------------------------------
-
-  describe('bzStatus()', () => {
-    it('returns ✅ and "favourable for aurora" for Bz < −1', () => {
-      const result = bzStatus(-9.2);
-      expect(result.emoji).toBe('✅');
-      expect(result.label).toBe('Bz south (-9.2 nT)');
-      expect(result.explanation).toBe('favourable for aurora');
-    });
-
-    it('returns ✅ for moderate negative Bz (−3.1)', () => {
-      const result = bzStatus(-3.1);
-      expect(result.emoji).toBe('✅');
-      expect(result.label).toBe('Bz south (-3.1 nT)');
-      expect(result.explanation).toBe('favourable for aurora');
-    });
-
-    it('returns ➖ and "neutral" for Bz near zero (−0.5)', () => {
-      const result = bzStatus(-0.5);
-      expect(result.emoji).toBe('➖');
-      expect(result.label).toBe('Bz near zero (-0.5 nT)');
-      expect(result.explanation).toBe('neutral');
-    });
-
-    it('returns ⚠️ and "poor for aurora" for Bz north (+3.2)', () => {
-      const result = bzStatus(3.2);
-      expect(result.emoji).toBe('⚠️');
-      expect(result.label).toBe('Bz north (+3.2 nT)');
-      expect(result.explanation).toBe('poor for aurora');
-    });
-
-    it('returns ⚠️ and "poor for aurora" for Bz firmly north (+7.8)', () => {
-      const result = bzStatus(7.8);
-      expect(result.emoji).toBe('⚠️');
-      expect(result.label).toBe('Bz north (+7.8 nT)');
-      expect(result.explanation).toBe('poor for aurora');
-    });
-
-    it('contains no interpretive severity language', () => {
-      // Bz text should be factual only — severity comes from the Kp headline
-      for (const bz of [-9.2, -3.1, -0.5, 3.2, 7.8]) {
-        const result = bzStatus(bz);
-        expect(result.explanation).not.toMatch(/faint|strong|should be visible|aurora possible|aurora unlikely|aurora expected|blocked|borderline/i);
-      }
-    });
   });
 
   // ---------------------------------------------------------------------------

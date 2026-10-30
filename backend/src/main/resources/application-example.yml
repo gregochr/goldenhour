@@ -169,6 +169,15 @@ photocast:
   #     solar-reference:
   #       lat: 54.776               # degrees north, -90..90
   #       lon: -1.575               # degrees east, -180..180
+  # Cloud inversion v2 (docs/engineering/inversion-v2-plan.md, Phase 1b): the warm layer measured from each
+  # site's confirmed valley floor. Both keys are read once at startup, so changing either needs a backend
+  # restart (an environment variable on the production host), which is the revert path. Defaults shown.
+  #   inversion:
+  #     v2:
+  #       enabled: true             # false = every site back on the old calculator, and no valley profile
+  #                                 # is fetched (PHOTOCAST_INVERSION_V2_ENABLED)
+  #       raise-cap-enabled: true   # true = a site below 600 m may be raised at most one point over the old
+  #                                 # score; summits are never capped. false lifts the cap
   # Ask PhotoCast (docs/engineering/ask-photocast-plan.md §2.9). Every key is optional; each default
   # is shown. Uncomment to change one. A value outside its stated range fails startup.
   #   ask:

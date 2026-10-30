@@ -74,6 +74,29 @@ public class OpenMeteoClient {
     /** Total time the pressure-level fetch may spend before leaving the remaining cells null. */
     static final Duration PRESSURE_LEVEL_FETCH_BUDGET = Duration.ofSeconds(90);
 
+    /**
+     * Hourly variables of the v2 inversion valley profile (inversion-v2-plan Phase 1b), fetched at a
+     * location's valley-floor point with {@code elevation=} set to the floor. Requested on their own, never
+     * added to {@link #FORECAST_PARAMS}, so no mist input or main-fetch variable changes.
+     */
+    static final String INVERSION_PROFILE_PARAMS =
+            "temperature_2m,dew_point_2m,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,"
+            + "wind_speed_10m,"
+            + "temperature_975hPa,temperature_950hPa,temperature_925hPa,temperature_900hPa,temperature_850hPa,"
+            + "geopotential_height_975hPa,geopotential_height_950hPa,geopotential_height_925hPa,"
+            + "geopotential_height_900hPa,geopotential_height_850hPa,"
+            + "wind_speed_975hPa,wind_speed_950hPa,wind_speed_925hPa,wind_speed_900hPa,wind_speed_850hPa";
+
+    /**
+     * Days of history the inversion profile request adds ({@code past_days}), so a day-0 sunrise still has
+     * the previous evening for the clear-night measure (inversion-v2-plan Phase 2). Sent on the profile
+     * request ONLY; the main, pressure-level and generic batches send none.
+     */
+    static final int INVERSION_PROFILE_PAST_DAYS = 1;
+
+    /** Total time the inversion profile fetch may spend before leaving the remaining sites without one. */
+    static final Duration INVERSION_PROFILE_FETCH_BUDGET = Duration.ofSeconds(90);
+
     /** Comma-separated hourly air quality parameters requested from Open-Meteo. */
     static final String AIR_QUALITY_PARAMS = "pm2_5,dust,aerosol_optical_depth";
 
@@ -286,6 +309,55 @@ public class OpenMeteoClient {
             } catch (Exception e) {
                 LOG.warn("Pressure-level cloud chunk {} failed, stopping with {} of {} cells unfetched: {}",
                         i / BATCH_COORD_LIMIT + 1, coords.size() - i, coords.size(),
+                        e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+                break;
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Fetches the v2 inversion valley profile for many valley-floor points (inversion-v2-plan Phase 1b).
+     * Best effort, data only: it copies {@link #fetchPressureLevelCloudBatch}'s resilience.
+     *
+     * <p>Shares only the {@code open-meteo} rate limiter with the rating-affecting fetches. It has no retry
+     * and no circuit breaker, so a failure here can never open the {@code open-meteo} breaker those fetches
+     * use. Points are chunked at {@value #BATCH_COORD_LIMIT} with the usual inter-chunk pause, and each chunk
+     * sends a comma-separated {@code elevation} list the same length as the coordinate lists, pinning each
+     * point to its own valley-floor height. The first chunk that throws (a 429 included) stops the fetch with
+     * one WARN and no backoff, and the fetch also stops once {@link #INVERSION_PROFILE_FETCH_BUDGET} has
+     * elapsed. Positions not fetched are {@code null}; callers must guard against that.
+     *
+     * @param points list of [lat, lon, valley floor metres] triples
+     * @return list of length {@code points.size()} with {@code null} where nothing was fetched
+     */
+    @RateLimiter(name = "open-meteo")
+    public List<OpenMeteoForecastResponse> fetchInversionProfileBatch(List<double[]> points) {
+        List<OpenMeteoForecastResponse> results =
+                new ArrayList<>(Collections.nCopies(points.size(), null));
+        long startMs = elapsedClockMs.getAsLong();
+        for (int i = 0; i < points.size(); i += BATCH_COORD_LIMIT) {
+            if (elapsedClockMs.getAsLong() - startMs >= INVERSION_PROFILE_FETCH_BUDGET.toMillis()) {
+                LOG.info("Inversion profile fetch budget of {}s reached, {} of {} points skipped",
+                        INVERSION_PROFILE_FETCH_BUDGET.toSeconds(), points.size() - i, points.size());
+                break;
+            }
+            if (i > 0) {
+                sleepQuietly(interChunkDelayMs);
+            }
+            List<double[]> chunk = points.subList(i, Math.min(i + BATCH_COORD_LIMIT, points.size()));
+            List<double[]> coords = chunk.stream().map(p -> new double[]{p[0], p[1]}).toList();
+            List<Integer> elevations = chunk.stream().map(p -> (int) Math.round(p[2])).toList();
+            try {
+                List<OpenMeteoForecastResponse> chunkResults = fetchForecastChunk(
+                        coords, INVERSION_PROFILE_PARAMS, forecastRestClient, elevations,
+                        INVERSION_PROFILE_PAST_DAYS);
+                for (int j = 0; j < chunkResults.size() && i + j < results.size(); j++) {
+                    results.set(i + j, chunkResults.get(j));
+                }
+            } catch (Exception e) {
+                LOG.warn("Inversion profile chunk {} failed, stopping with {} of {} points unfetched: {}",
+                        i / BATCH_COORD_LIMIT + 1, points.size() - i, points.size(),
                         e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
                 break;
             }
@@ -684,6 +756,19 @@ public class OpenMeteoClient {
 
     private List<OpenMeteoForecastResponse> fetchForecastChunk(
             List<double[]> coords, String hourlyParams, RestClient client) {
+        return fetchForecastChunk(coords, hourlyParams, client, null, null);
+    }
+
+    /**
+     * Fetches one chunk, optionally pinning each point's model surface with a comma-separated
+     * {@code elevation} list (one value per coordinate, in order), and optionally adding {@code past_days}
+     * (null sends none).
+     */
+    private List<OpenMeteoForecastResponse> fetchForecastChunk(
+            List<double[]> coords, String hourlyParams, RestClient client, List<Integer> elevations,
+            Integer pastDays) {
+        String elevationList = elevations == null ? null
+                : elevations.stream().map(String::valueOf).collect(Collectors.joining(","));
         String latitudes = coords.stream()
                 .map(c -> String.valueOf(c[0])).collect(Collectors.joining(","));
         String longitudes = coords.stream()
@@ -692,14 +777,22 @@ public class OpenMeteoClient {
         LOG.debug("Open-Meteo batch forecast chunk: {} points, params={}",
                 coords.size(), hourlyParams.substring(0, Math.min(30, hourlyParams.length())) + "...");
         String json = client.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/v1/forecast")
-                        .queryParam("latitude", latitudes)
-                        .queryParam("longitude", longitudes)
-                        .queryParam("hourly", hourlyParams)
-                        .queryParam("wind_speed_unit", "ms")
-                        .queryParam("timezone", "UTC")
-                        .build())
+                .uri(uriBuilder -> {
+                    uriBuilder
+                            .path("/v1/forecast")
+                            .queryParam("latitude", latitudes)
+                            .queryParam("longitude", longitudes)
+                            .queryParam("hourly", hourlyParams)
+                            .queryParam("wind_speed_unit", "ms")
+                            .queryParam("timezone", "UTC");
+                    if (elevationList != null) {
+                        uriBuilder.queryParam("elevation", elevationList);
+                    }
+                    if (pastDays != null) {
+                        uriBuilder.queryParam("past_days", pastDays);
+                    }
+                    return uriBuilder.build();
+                })
                 .retrieve()
                 .body(String.class);
 

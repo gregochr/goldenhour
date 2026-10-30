@@ -51,6 +51,10 @@ import java.util.Set;
  *                                  when it has none; a role-free fact (ETag-safe), read from
  *                                  {@code location_sub_region}
  * @param subRegionName             that sub-region's name, or {@code null}
+ * @param valleyFloorMetres         height of the valley floor below the viewpoint in metres, or {@code null};
+ *                                  a role-free terrain fact (ETag-safe)
+ * @param valleyFloorLat            latitude of the chosen valley-floor point, or {@code null}
+ * @param valleyFloorLng            longitude of the chosen valley-floor point, or {@code null}
  */
 public record LocationDto(
         Long id,
@@ -83,5 +87,8 @@ public record LocationDto(
         String structureLabel,
         boolean woodlandOnly,
         Long subRegionId,
-        String subRegionName) {
+        String subRegionName,
+        Integer valleyFloorMetres,
+        Double valleyFloorLat,
+        Double valleyFloorLng) {
 }

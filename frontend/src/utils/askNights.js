@@ -34,19 +34,6 @@ export function isNightType(targetType) {
   return NIGHT_TYPES.has(targetType);
 }
 
-/**
- * The window id a night is addressed by in a question and in the thread: {@code yyyy-MM-dd_astro} or
- * {@code yyyy-MM-dd_aurora} (`AskWindowId`'s night arms). {@code toLowerCase}, not a locale form, for
- * the reason {@code askWindowId} gives.
- *
- * @param {string} date the night's date (the date its dusk falls on)
- * @param {string} nightType {@code ASTRO} or {@code AURORA}
- * @returns {string}
- */
-export function nightWindowId(date, nightType) {
-  return `${date}_${String(nightType).toLowerCase()}`;
-}
-
 /** The dates, sorted and distinct. */
 function distinctSorted(dates) {
   return [...new Set(dates)].sort();

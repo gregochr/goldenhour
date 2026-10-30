@@ -29,6 +29,14 @@ import java.util.Set;
  *                         on an EXISTING location (null = don't change)
  * @param subRegionId      the sub-region (an area of kind SUB_REGION) to move the location into; it must be
  *                         in the location's region, as changed by this same request (null = don't change)
+ * @param elevationMetres   the viewpoint's height in metres, -50 to 1,500 (null = don't change; an elevation
+ *                         cannot be cleared through this API)
+ * @param valleyFloorMetres height of the valley floor below the viewpoint in metres, -50 to 1,500; set with
+ *                         {@code valleyFloorLat} and {@code valleyFloorLng} or not at all (null = don't change)
+ * @param valleyFloorLat   latitude of the valley-floor point (null = don't change)
+ * @param valleyFloorLng   longitude of the valley-floor point (null = don't change)
+ * @param clearValleyFloor {@code true} to null all three valley-floor columns; rejected alongside any of the
+ *                         three values (null or false = don't clear)
  */
 public record UpdateLocationRequest(
         String name,
@@ -39,8 +47,33 @@ public record UpdateLocationRequest(
         Set<TideType> tideTypes,
         Long regionId,
         Boolean mistProne,
-        Long subRegionId
+        Long subRegionId,
+        Integer elevationMetres,
+        Integer valleyFloorMetres,
+        Double valleyFloorLat,
+        Double valleyFloorLng,
+        Boolean clearValleyFloor
 ) {
+    /**
+     * Constructor for callers that predate the height fields: all five read as "don't change".
+     *
+     * @param name            optional new name
+     * @param lat             optional new latitude
+     * @param lon             optional new longitude
+     * @param solarEventTypes which solar events to evaluate (null = don't change)
+     * @param locationTypes   photography types (null = don't change)
+     * @param tideTypes       tide preferences (null = don't change)
+     * @param regionId        optional region ID
+     * @param mistProne       whether mist forms around this location (null = don't change)
+     * @param subRegionId     the sub-region to move into (null = don't change)
+     */
+    public UpdateLocationRequest(String name, Double lat, Double lon,
+            Set<SolarEventType> solarEventTypes, Set<LocationType> locationTypes,
+            Set<TideType> tideTypes, Long regionId, Boolean mistProne, Long subRegionId) {
+        this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, mistProne, subRegionId,
+                null, null, null, null, null);
+    }
+
     /**
      * Constructor for callers that predate the sub-region field: {@code subRegionId} reads as
      * "don't change".
@@ -57,7 +90,8 @@ public record UpdateLocationRequest(
     public UpdateLocationRequest(String name, Double lat, Double lon,
             Set<SolarEventType> solarEventTypes, Set<LocationType> locationTypes,
             Set<TideType> tideTypes, Long regionId, Boolean mistProne) {
-        this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, mistProne, null);
+        this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, mistProne, null,
+                null, null, null, null, null);
     }
 
     /**
@@ -75,7 +109,8 @@ public record UpdateLocationRequest(
     public UpdateLocationRequest(String name, Double lat, Double lon,
             Set<SolarEventType> solarEventTypes, Set<LocationType> locationTypes,
             Set<TideType> tideTypes, Long regionId) {
-        this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, null, null);
+        this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, null, null,
+                null, null, null, null, null);
     }
 
     /**

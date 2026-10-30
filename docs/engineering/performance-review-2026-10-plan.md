@@ -532,7 +532,8 @@ P1 and P2 touch disjoint files and may be built in parallel worktrees; each stil
 | P4f | `perf/p4f-chip-tooltip-observer` | #1508 | 2026-10-29 | `MapLabels` no commit on `pointermove`; modal observer ignores Leaflet churn |
 | P4d+e | `perf/p4de-mapview-renders-memos` | #1509 | 2026-10-29 | a pan that changes no derived answer does not re-render `MapView`; event memos hit between clock boundaries |
 | P4a | — | — | 2026-10-30 | **measured; both gates fire.** 4× CPU throttle, 219 heat points, system Chrome via Playwright. `drawTiles` p90 at 390 px: **32.7–35.0 ms** (gate 10; the median of 25–26 ms is also above it). `MapLabels` paint + layout p90 per frame: **13.4–14.7 ms** on phone drag and pinch (gate 6), 8.6–9.8 ms at 1440. Layout (the forced reflow plus `placeLabelPass`) is most of it, about 10 ms median; paint alone is about 1.5–3 ms. Detail below the table |
-| P4b, P4c | — | — | — | **gated open, not built**: waiting on the owner's D7 answer (chips from an edge appear at `moveend`; field hidden during `zoomanim`) |
+| P4b | `perf/p4b-heat-no-mid-gesture-redraw` | #1522 | 2026-10-30 | heat field: no `drawTiles` on `move`; pinch/fly frames re-register the bitmap by transform; settle on the drawn view |
+| P4c | `perf/p4c-labels-no-mid-gesture-repaint` | #1523 | 2026-10-30 | labels: no re-place on a pan; hidden only during a pinch; fly frames keep the throttled repaint; `placeLabelPass` copies obstacles once |
 | P6b | — | — | — | **owner**: `docker-compose.yml` heap percentage (D5) and removing `-Djdk.tracePinnedThreads` are production config |
 
 ### P4a measurement detail (2026-10-30)
@@ -566,6 +567,32 @@ What the numbers say about P4b and P4c:
 - **P4b:** `drawTiles` alone costs more than a 60 fps frame on every `move`, at both widths.
 - **P4c:** the label cost is dominated by the forced reflow plus placement, not by `paint`. Skipping the pass on `move` removes most of
   it; the `obstacles` copy-once change in `placeLabelPass` would trim only the remainder.
+
+### After P4b and P4c (2026-10-30, main @ `2d8de563b`)
+
+The same driver and the same `p4a:*` marks were re-applied by hand to the new code, plus a flag recording whether each redraw ran
+inside a settle handler (`moveend` / `zoomend`) or mid-gesture. Nothing was committed.
+
+The host was saturated by other jobs during the run (1-minute load average about 370–400, against about 5–7 for the baseline), so
+the absolute milliseconds are inflated several times over and the per-redraw ms gates cannot be judged from this run. The redraw
+counts do not depend on load, and they are the result:
+
+| gesture | heat redraws per gesture, before → after | label paints per gesture, before → after | redraws mid-gesture after |
+|---|---|---|---|
+| 390 drag | 126 / 129 → 5 / 7 | 126 / 129 → 5 / 7 | 0 |
+| 390 pinch | 74 / 74 → 5 / 5 | 81 / 81 → 10 / 10 | 0 |
+| 1440 drag | 76 / 77 → 1 / 1 | 76 / 77 → 1 / 1 | 0 |
+| 1440 wheel zoom | 20 / 20 → 7 / 7 | 40 / 40 → 14 / 14 | 0 |
+
+- Every heat redraw and label paint now happens on a settle. Wheel zoom still redraws once per tick, because each tick settles on its
+  own `moveend` (by design, D7).
+- The phone-drag share of frames over 50 ms fell from about 36 % to 12–14 % even under the load. The other gestures' frame figures are
+  load noise and are not attributed.
+- After settle, the heat field registers to the coastline (no offset or stale canvas), and the labels, rings and home marker are
+  present (checked in the screenshots).
+- **Open:** the per-redraw cost on a quiet host. The baseline was 33–35 ms (`drawTiles`) and 13–15 ms (labels) per redraw at 390 px,
+  and P4b and P4c did not change the cost of one redraw; they removed nearly all of them. If the settle-time cost matters, re-run the
+  driver when the host is idle before scoping any further work.
 
 ## 11. What the review changed (draft 1 → draft 2)
 

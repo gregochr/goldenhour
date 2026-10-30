@@ -314,8 +314,10 @@ class ForecastTaskCollectorForceEvalTest {
 
     private void stubTriagePass(LocationEntity loc, LocalDate date, int daysAhead,
             boolean coastal) {
-        when(forecastService.fetchWeatherAndTriage(
-                org.mockito.ArgumentMatchers.eq(loc), any(), any(), any(), any(), any(), any(), any()))
+        // The scheduled collector triages every candidate on the near-term model; the far-term model is
+        // applied later, when the task is bucketed.
+        when(CollectorTriageStubs.triageOf(forecastService, loc, date, TargetType.SUNSET,
+                EvaluationModel.SONNET))
                 .thenReturn(preEval(loc, date, daysAhead, coastal));
     }
 

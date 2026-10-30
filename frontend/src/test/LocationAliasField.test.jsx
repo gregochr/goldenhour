@@ -15,7 +15,6 @@ vi.mock('../api/regionApi', () => ({ fetchRegions: vi.fn() }));
 vi.mock('../api/tideApi', () => ({
   fetchTideStats: vi.fn(),
   fetchAllTideStats: vi.fn(),
-  fetchTidesForDate: vi.fn(),
 }));
 vi.mock('../api/areaApi', () => ({
   fetchAreas: vi.fn(),

@@ -9,6 +9,8 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.service.DirectionalSamplingGeometry;
+import com.gregochr.goldenhour.model.InversionClearance;
+import com.gregochr.goldenhour.model.InversionV2Result;
 import com.gregochr.goldenhour.service.InversionScoreCalculator;
 import com.gregochr.goldenhour.service.ValleyMistCalculator;
 import com.gregochr.goldenhour.model.MistTrend;
@@ -663,7 +665,11 @@ public class PromptBuilder {
                     potential == InversionPotential.STRONG
                             ? "Dramatic blanket below viewpoint; clear sky above"
                             : "Visible cloud layer below; light touching cloud tops"));
-            appendInversionReversal(sb, data);
+            if (data.inversionV2() != null && data.inversionV2().v2Drove()) {
+                appendWarmLayer(sb, data.inversionV2());
+            } else {
+                appendInversionReversal(sb, data);
+            }
         }
 
         // Valley mist conditions - mist-prone sites only (data.mistPotential() is null for every
@@ -831,6 +837,64 @@ public class PromptBuilder {
                         && aerosol.aerosolOpticalDepth().doubleValue() > DUST_AOD_THRESHOLD)
                 || (aerosol.dustUgm3() != null
                         && aerosol.dustUgm3().doubleValue() > DUST_UGM3_THRESHOLD);
+    }
+
+    /**
+     * Appends the v2 warm layer behind the inversion score (inversion-v2-plan Phase 1b), as a standalone line
+     * in the user message only, in place of the old 925 hPa "Measured reversal" line, which would compare a
+     * level with the viewpoint cell's own temperature. Omitted when the layer's figures are absent. A viewpoint
+     * inside the layer caps the score at 6, so it never reaches this block: only "clear" and "at its edge" read.
+     *
+     * @param sb the prompt under construction
+     * @param v2 the v2 carrier that drove the stored score
+     */
+    private static void appendWarmLayer(StringBuilder sb, InversionV2Result v2) {
+        if (v2.baseMetres() == null || v2.topMetres() == null || v2.strengthCelsius() == null
+                || v2.valleyFloorMetres() == null || v2.viewpointMetres() == null
+                || v2.clearance() == null) {
+            return;
+        }
+        String standing = v2.clearance() == InversionClearance.CLEAR ? "clear of it" : "at its edge";
+        sb.append(String.format(
+                "%nWarm layer: %+.1f\u00b0C from about %d m to %d m above a valley at %d m; "
+                + "this viewpoint (%d m) is %s%s.",
+                v2.strengthCelsius(), Math.round(v2.baseMetres()), Math.round(v2.topMetres()),
+                v2.valleyFloorMetres(), v2.viewpointMetres(), standing, nightClause(v2) + windClause(v2)));
+    }
+
+    /**
+     * The night clause of the warm layer line (inversion-v2-plan Phase 2): present only when the night is why
+     * the score reads as it does, so a score the night did not move keeps the line byte-identical.
+     *
+     * @param v2 the v2 carrier that drove the stored score
+     * @return "; under a cloudy night" when the night cap lowered the score, "; after a clear, calm night" when
+     *         Option B made an unconfirmed layer an edge, else the empty string
+     */
+    private static String nightClause(InversionV2Result v2) {
+        if (v2.nightCapBound()) {
+            return "; under a cloudy night";
+        }
+        if (v2.optionBBound()) {
+            return "; after a clear, calm night";
+        }
+        return "";
+    }
+
+    /**
+     * The wind clause of the warm layer line (inversion-v2-plan Phase 3), after any night clause: present only
+     * when the summit-wind cap lowered the score (only the cap of 8 can reach a stored 7 or more, so the block
+     * never shows the cap of 6), so a score the wind did not move keeps the line byte-identical.
+     *
+     * @param v2 the v2 carrier that drove the stored score
+     * @return "; wind across the top about N m/s at the X hPa level" when the wind cap bound, else the empty
+     *         string
+     */
+    private static String windClause(InversionV2Result v2) {
+        if (!v2.windCapBound() || v2.windMs() == null || v2.windLevelHpa() == null) {
+            return "";
+        }
+        return String.format("; wind across the top about %d m/s at the %d hPa level",
+                Math.round(v2.windMs()), v2.windLevelHpa());
     }
 
     /**

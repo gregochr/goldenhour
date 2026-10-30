@@ -129,6 +129,26 @@ class OpenMeteoForecastApiContractTest {
     }
 
     @Test
+    @DisplayName("GET /v1/forecast with elevation sends the elevation parameter, and the response's elevation reads")
+    void forecastAtElevationCarriesElevation() {
+        server.expect(requestTo(containsString("/v1/forecast")))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(queryParam("latitude", "54.7753"))
+                .andExpect(queryParam("longitude", "-1.5849"))
+                .andExpect(queryParam("elevation", "80.0"))
+                .andRespond(withSuccess(
+                        "{\"latitude\":54.75,\"longitude\":-1.6,\"elevation\":80.0}",
+                        MediaType.APPLICATION_JSON));
+
+        OpenMeteoForecastResponse response =
+                api.getForecastAtElevation(LAT, LON, "temperature_2m", "ms", "UTC", 80.0);
+
+        assertThat(response.getElevation()).isEqualTo(80.0);
+        assertThat(response.getLatitude()).isEqualTo(54.75);
+        server.verify();
+    }
+
+    @Test
     @DisplayName("A well-formed Open-Meteo forecast body deserialises into OpenMeteoForecastResponse")
     void forecastResponseDeserialises() {
         server.expect(requestTo(containsString("/v1/forecast")))

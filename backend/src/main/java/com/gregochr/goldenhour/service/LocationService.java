@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.AddLocationRequest;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
+import com.gregochr.goldenhour.util.GeoUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,15 @@ import java.util.Set;
 public class LocationService {
 
     private static final Logger LOG = LoggerFactory.getLogger(LocationService.class);
+
+    /** Lowest accepted elevation or valley-floor height in metres. */
+    private static final int MIN_HEIGHT_M = -50;
+
+    /** Highest accepted elevation or valley-floor height in metres. */
+    private static final int MAX_HEIGHT_M = 1500;
+
+    /** The valley floor must lie within this distance of the location, in kilometres. */
+    private static final double MAX_FLOOR_DISTANCE_KM = 10.0;
 
     private static final double MIN_LAT = -90.0;
     private static final double MAX_LAT = 90.0;
@@ -309,6 +319,8 @@ public class LocationService {
             location.setMistProne(request.mistProne());
         }
 
+        applyHeights(location, request);
+
         boolean coordinatesMoved = Double.compare(previousLat, location.getLat()) != 0
                 || Double.compare(previousLon, location.getLon()) != 0;
         refreshGridCell(location, coordinatesMoved);
@@ -333,6 +345,67 @@ public class LocationService {
                 saved.getName(), saved.getLocationType(), saved.getSolarEventType(),
                 saved.getTideType());
         return saved;
+    }
+
+    /**
+     * Applies the viewpoint elevation and valley-floor fields of an update (inversion v2 Phase 1-pre).
+     *
+     * <p>All null means "don't change". Runs after the coordinates are applied, so the distance check uses
+     * the coordinates as this same request leaves them. A coordinate change touches neither height.
+     * Every failure is an {@link IllegalArgumentException} (HTTP 400).
+     *
+     * @param location the location being updated, mutated in place
+     * @param request  the update request
+     */
+    private void applyHeights(LocationEntity location, UpdateLocationRequest request) {
+        if (request.elevationMetres() != null) {
+            requireHeight(request.elevationMetres(), "Elevation");
+            location.setElevationMetres(request.elevationMetres());
+        }
+
+        Integer floorMetres = request.valleyFloorMetres();
+        Double floorLat = request.valleyFloorLat();
+        Double floorLng = request.valleyFloorLng();
+        int present = (floorMetres != null ? 1 : 0) + (floorLat != null ? 1 : 0) + (floorLng != null ? 1 : 0);
+        if (Boolean.TRUE.equals(request.clearValleyFloor())) {
+            if (present > 0) {
+                throw new IllegalArgumentException("Clear the valley floor or set it, not both");
+            }
+            location.setValleyFloorMetres(null);
+            location.setValleyFloorLat(null);
+            location.setValleyFloorLng(null);
+            return;
+        }
+        if (present == 0) {
+            return;
+        }
+        if (floorMetres == null || floorLat == null || floorLng == null) {
+            throw new IllegalArgumentException(
+                    "A valley floor needs its height, latitude and longitude together");
+        }
+        boolean differs = !floorMetres.equals(location.getValleyFloorMetres())
+                || !floorLat.equals(location.getValleyFloorLat())
+                || !floorLng.equals(location.getValleyFloorLng());
+        if (differs) {
+            requireHeight(floorMetres, "Valley floor height");
+            if (floorLat < MIN_LAT || floorLat > MAX_LAT || floorLng < MIN_LON || floorLng > MAX_LON) {
+                throw new IllegalArgumentException("Valley floor coordinates are out of range");
+            }
+            double distanceKm = GeoUtils.distanceKm(location.getLat(), location.getLon(), floorLat, floorLng);
+            if (distanceKm > MAX_FLOOR_DISTANCE_KM) {
+                throw new IllegalArgumentException(
+                        "The valley floor must be within 10 km of the location");
+            }
+        }
+        location.setValleyFloorMetres(floorMetres);
+        location.setValleyFloorLat(floorLat);
+        location.setValleyFloorLng(floorLng);
+    }
+
+    private static void requireHeight(int metres, String what) {
+        if (metres < MIN_HEIGHT_M || metres > MAX_HEIGHT_M) {
+            throw new IllegalArgumentException(what + " must be between -50 and 1500 metres");
+        }
     }
 
     /**

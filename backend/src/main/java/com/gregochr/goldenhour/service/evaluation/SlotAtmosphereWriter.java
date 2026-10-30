@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.InversionV2Result;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -190,6 +191,12 @@ public class SlotAtmosphereWriter {
         // Codex P1 against round 3's own unify-onto-one-rule fix).
         row.setInversionScore(data.inversionScore());
         row.setInversionScored(true);
+        // V2 inversion evidence (V202): the old score and v2's raw score, written on EVERY write and null
+        // when v2 did not compute, so a cleared valley floor or a switched-off v2 leaves no stale value.
+        InversionV2Result v2 = data.inversionV2();
+        boolean v2Scored = v2 != null && v2.v2Raw() != null;
+        row.setInversionScoreV1(v2Scored ? v2.v1Score() : null);
+        row.setInversionScoreV2Raw(v2Scored ? v2.v2Raw() : null);
         // Valley mist (V185, valley-mist-plan M1a): the identical rule. augmentWithValleyMist ran
         // ValleyMistCalculator for a mist_prone site before this write, so data.mistScore() is
         // populated for a flagged site the calculator could score and null for an unflagged one or

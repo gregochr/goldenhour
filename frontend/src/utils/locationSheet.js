@@ -205,7 +205,7 @@ export function lightWindows(score, targetType) {
 }
 
 /**
- * Every slot in an event summary, regioned and unregioned alike — {@code solarEventTimes}' rule.
+ * Every slot in an event summary, regioned and unregioned alike — the since-deleted {@code solarEventTimes}' rule.
  *
  * <p>Exported for {@code utils/askModel.js}, whose pick join walks one window's slots rather than
  * building a second index; it must read the same population every index in this file reads.
