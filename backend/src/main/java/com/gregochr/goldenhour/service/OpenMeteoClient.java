@@ -84,7 +84,8 @@ public class OpenMeteoClient {
             + "wind_speed_10m,"
             + "temperature_975hPa,temperature_950hPa,temperature_925hPa,temperature_900hPa,temperature_850hPa,"
             + "geopotential_height_975hPa,geopotential_height_950hPa,geopotential_height_925hPa,"
-            + "geopotential_height_900hPa,geopotential_height_850hPa";
+            + "geopotential_height_900hPa,geopotential_height_850hPa,"
+            + "wind_speed_975hPa,wind_speed_950hPa,wind_speed_925hPa,wind_speed_900hPa,wind_speed_850hPa";
 
     /**
      * Days of history the inversion profile request adds ({@code past_days}), so a day-0 sunrise still has

@@ -97,6 +97,18 @@ import java.util.List;
  * </ul>
  * A night cap enters {@code caps} only when it binds.
  *
+ * <p><b>Wind at summit height</b> (Phase 3, an elevated layer only). A surface-based layer is already covered
+ * by the 10 m valley wind term (a low-level jet over a surface inversion is the classic fog set-up) and no
+ * layer is already capped at 6. For an elevated layer the wind is read at the EVENT SLOT hour, as the larger of
+ * the wind at the level at the layer's base and at the next valid level above it: the churn that erodes a sea
+ * is at the cloud top, in the layer's lower part, and wind above a strong inversion does not mix down. The
+ * layer may have been chosen from another hour of the window, so the chosen layer's base HEIGHT is matched to
+ * the nearest valid level of the slot hour's profile (a tie goes to the higher level). A level is valid when
+ * its height is at least {@value #MIN_LEVEL_ABOVE_FLOOR_M} m above h0, the walk's own filter; a level with no
+ * wind is skipped, and with no wind at either level there is no wind cap. A wind of at least
+ * {@value #SUMMIT_WIND_MARGINAL_MS} m/s caps at 8 and one of at least {@value #SUMMIT_WIND_VETO_MS} m/s caps
+ * at 6. Like the night cap it enters {@code caps} (as {@code summit-wind}) only when it binds.
+ *
  * <p><b>Option B</b> reads a clear, calm, moist night: night measure under {@value #NIGHT_PARTLY_PERCENT},
  * valley wind of at most {@value #WIND_LIGHT_MS} m/s in at least half the night hours that have a wind
  * reading, and a valley gap of at most {@value #FOG_GAP_CELSIUS} degC in at least one night hour. Its only
@@ -163,6 +175,16 @@ public final class InversionScoreCalculatorV2 {
     /** Fewest counted night hours (mid and high both present) that make "night data". */
     static final int NIGHT_MIN_HOURS = 6;
 
+    /**
+     * Wind in m/s across the top of an elevated layer at or over which the score is capped at 8. A prior, not a
+     * tuned figure: the confirmed Helvellyn morning (15 Jan 2025) had 10 to 12 m/s at 925 hPa from 05:00 to
+     * 08:00 and the sea held; we have no observed case of wind destroying one.
+     */
+    static final double SUMMIT_WIND_MARGINAL_MS = 12.0;
+
+    /** Wind in m/s across the top of an elevated layer at or over which the score is capped at 6 (a prior). */
+    static final double SUMMIT_WIND_VETO_MS = 18.0;
+
     /** Top of the score range, allowed only by a layer of at least the strong threshold. */
     static final double MAX_SCORE = 10.0;
 
@@ -190,6 +212,12 @@ public final class InversionScoreCalculatorV2 {
      * The night's reading: the unrounded mean measure and mean mid cloud over the counted hours.
      */
     private record Night(double percent, double midPercent) {
+    }
+
+    /**
+     * The wind across the top of an elevated layer: its speed and the pressure level it was read at.
+     */
+    private record SummitWind(double metresPerSecond, int levelHpa) {
     }
 
     /**
@@ -262,6 +290,8 @@ public final class InversionScoreCalculatorV2 {
         InversionClearance clearance;
         boolean byNightFog = false;
         boolean nightCapBound = false;
+        SummitWind summitWind = null;
+        boolean windCapBound = false;
         if (best == null) {
             clearance = InversionClearance.NO_LAYER;
             score = applyCap(score, InversionScoreCalculator.VETOED_CEILING, "none", caps);
@@ -282,6 +312,14 @@ public final class InversionScoreCalculatorV2 {
             score = applyNightCap(score, best.regime(), night, caps);
             nightCapBound = score < before;
         }
+        if (best != null && best.regime() == InversionRegime.ELEVATED) {
+            summitWind = summitWind(slot, best.base().height(), h0);
+            if (summitWind != null) {
+                double before = score;
+                score = applyWindCap(score, summitWind.metresPerSecond(), caps);
+                windCapBound = score < before;
+            }
+        }
         score = Math.min(score, MAX_SCORE);
 
         return new InversionV2Result(profile, null, score, null,
@@ -291,7 +329,55 @@ public final class InversionScoreCalculatorV2 {
                 best == null ? null : best.strength(),
                 h0, elevationMetres, clearance, caps.isEmpty() ? "-" : String.join(",", caps), false,
                 night == null ? null : night.percent(), night == null ? null : night.midPercent(), optionB,
-                nightCapBound, byNightFog);
+                nightCapBound, byNightFog, summitWind == null ? null : summitWind.metresPerSecond(),
+                summitWind == null ? null : summitWind.levelHpa(), windCapBound);
+    }
+
+    /**
+     * The wind across the top of an elevated layer at the event slot: the larger of the wind at the level
+     * nearest the layer's base height and at the next valid level above it.
+     *
+     * @param slot       the event slot's valley hour, whose levels are read
+     * @param baseHeight the chosen layer's base height in metres (the layer may come from another hour)
+     * @param h0         the valley floor, for the walk's {@value #MIN_LEVEL_ABOVE_FLOOR_M} m level filter
+     * @return the wind and its level, or null when neither level has a wind reading
+     */
+    private static SummitWind summitWind(InversionProfile.Hour slot, double baseHeight, int h0) {
+        List<InversionProfile.Level> valid = slot.levels().stream()
+                .filter(l -> l.heightMetres() != null && l.heightMetres() >= h0 + MIN_LEVEL_ABOVE_FLOOR_M)
+                .sorted(Comparator.comparingDouble(InversionProfile.Level::heightMetres))
+                .toList();
+        if (valid.isEmpty()) {
+            return null;
+        }
+        int baseIndex = 0;
+        for (int i = 1; i < valid.size(); i++) {
+            // Ascending, so <= lets a tie go to the higher level.
+            if (Math.abs(valid.get(i).heightMetres() - baseHeight)
+                    <= Math.abs(valid.get(baseIndex).heightMetres() - baseHeight)) {
+                baseIndex = i;
+            }
+        }
+        SummitWind found = null;
+        for (int i = baseIndex; i <= Math.min(baseIndex + 1, valid.size() - 1); i++) {
+            InversionProfile.Level level = valid.get(i);
+            // Strictly larger only, so a tie keeps the lower level.
+            if (level.windSpeedMs() != null && (found == null || level.windSpeedMs() > found.metresPerSecond())) {
+                found = new SummitWind(level.windSpeedMs(), level.pressureHpa());
+            }
+        }
+        return found;
+    }
+
+    /** The summit-wind cap: 8 from the marginal wind, 6 from the veto wind, recorded only when it binds. */
+    private static double applyWindCap(double score, double windMs, List<String> caps) {
+        if (windMs >= SUMMIT_WIND_VETO_MS) {
+            return applyBindingCap(score, InversionScoreCalculator.VETOED_CEILING, "summit-wind", caps);
+        }
+        if (windMs >= SUMMIT_WIND_MARGINAL_MS) {
+            return applyBindingCap(score, InversionScoreCalculator.MARGINAL_CEILING, "summit-wind", caps);
+        }
+        return score;
     }
 
     /**

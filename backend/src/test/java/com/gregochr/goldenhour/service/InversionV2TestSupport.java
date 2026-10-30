@@ -43,6 +43,7 @@ final class InversionV2TestSupport {
         private Double wind = 1.0;
         private Double[] temps = {null, null, null, null, null};
         private Double[] heights = HEIGHTS;
+        private Double[] winds = {null, null, null, null, null};
 
         H(LocalDateTime time) {
             this.time = time;
@@ -102,6 +103,12 @@ final class InversionV2TestSupport {
             return this;
         }
 
+        /** The 975, 950, 925, 900 and 850 hPa wind speeds in m/s; null for a missing level. */
+        H winds(Double... v) {
+            this.winds = v;
+            return this;
+        }
+
         H heights(Double... v) {
             this.heights = v;
             return this;
@@ -111,7 +118,7 @@ final class InversionV2TestSupport {
             int[] hpa = {975, 950, 925, 900, 850};
             List<InversionProfile.Level> levels = new ArrayList<>();
             for (int i = 0; i < hpa.length; i++) {
-                levels.add(new InversionProfile.Level(hpa[i], temps[i], heights[i]));
+                levels.add(new InversionProfile.Level(hpa[i], temps[i], heights[i], winds[i]));
             }
             return new InversionProfile.Hour(time, t2, dew, low, mid, high, vis, wind, List.copyOf(levels));
         }

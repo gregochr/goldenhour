@@ -143,4 +143,39 @@ class PromptBuilderInversionV2Test {
         assertThat(promptBuilder.buildUserMessage(withNightFigures)).isEqualTo(promptBuilder.buildUserMessage(plain));
         assertThat(promptBuilder.buildUserMessage(sameFigures)).isEqualTo(promptBuilder.buildUserMessage(plain));
     }
+
+    /** A driving carrier with the wind fields: 13.4 m/s at 925 hPa, with the night and wind flags as given. */
+    private static InversionV2Result windDrove(boolean nightCapBound, boolean windCapBound) {
+        return new InversionV2Result(null, 6.0, 8.0, 8.0, InversionRegime.ELEVATED, 682.0, 1130.0, 4.6,
+                152, 868, InversionClearance.CLEAR, "summit-wind(8)", true, 75.0, 75.0, false, nightCapBound,
+                false, 13.4, 925, windCapBound);
+    }
+
+    @Test
+    @DisplayName("the wind cap bound: the Warm layer line gains '; wind across the top about N m/s at the X hPa level'")
+    void windCapClause() {
+        AtmosphericData data = slot(8.0).build().withInversionV2(windDrove(false, true));
+
+        assertThat(promptBuilder.buildUserMessage(data)).contains("Warm layer: +4.6°C from about 682 m to 1130 m "
+                + "above a valley at 152 m; this viewpoint (868 m) is clear of it; "
+                + "wind across the top about 13 m/s at the 925 hPa level.");
+    }
+
+    @Test
+    @DisplayName("night and wind both bound: the night clause comes first, then the wind clause")
+    void nightClauseThenWindClause() {
+        AtmosphericData data = slot(8.0).build().withInversionV2(windDrove(true, true));
+
+        assertThat(promptBuilder.buildUserMessage(data)).contains("is clear of it; under a cloudy night; "
+                + "wind across the top about 13 m/s at the 925 hPa level.");
+    }
+
+    @Test
+    @DisplayName("a wind that bound nothing leaves the line byte-identical, whatever the wind figures say")
+    void unboundWindChangesNothing() {
+        AtmosphericData plain = slot(8.0).build().withInversionV2(drove(InversionClearance.CLEAR));
+        AtmosphericData withWindFigures = slot(8.0).build().withInversionV2(windDrove(false, false));
+
+        assertThat(promptBuilder.buildUserMessage(withWindFigures)).isEqualTo(promptBuilder.buildUserMessage(plain));
+    }
 }

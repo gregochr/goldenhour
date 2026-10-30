@@ -158,5 +158,25 @@ public class OpenMeteoForecastResponse {
         /** Geopotential height of the 850 hPa level in metres. Read only by the inversion profile. */
         @JsonProperty("geopotential_height_850hPa")
         private List<Double> geopotentialHeight850hPa;
+
+        /** Wind speed at 975 hPa in m/s (the request sets the unit). Read only by the inversion profile. */
+        @JsonProperty("wind_speed_975hPa")
+        private List<Double> windSpeed975hPa;
+
+        /** Wind speed at 950 hPa in m/s. Read only by the inversion profile. */
+        @JsonProperty("wind_speed_950hPa")
+        private List<Double> windSpeed950hPa;
+
+        /** Wind speed at 925 hPa in m/s. Read only by the inversion profile. */
+        @JsonProperty("wind_speed_925hPa")
+        private List<Double> windSpeed925hPa;
+
+        /** Wind speed at 900 hPa in m/s. Read only by the inversion profile. */
+        @JsonProperty("wind_speed_900hPa")
+        private List<Double> windSpeed900hPa;
+
+        /** Wind speed at 850 hPa in m/s. Read only by the inversion profile. */
+        @JsonProperty("wind_speed_850hPa")
+        private List<Double> windSpeed850hPa;
     }
 }

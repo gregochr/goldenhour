@@ -53,7 +53,11 @@ import static org.mockito.Mockito.mock;
  *   Latrigg 368 m, 4 Nov 08:00        expected inside, 6  old 5  raw 6  stored 6  INSIDE, base 863
  *   Helvellyn 950 m, 15 Jan 09:00     expected clear 6-7  old 5  raw 7  stored 7  CLEAR, base 464, top 900, 2.9 C
  * </pre>
- * Blencathra and Scafell Pike rise 6 to 7, within the raise cap's one point; only Helvellyn (5 to 7) depends on
+ * Phase 3 (summit wind) moves no row: every chosen wind is under the 12 m/s cap. The wind at the event slot,
+ * as m/s at hPa, is pinned on each row (Blencathra 1.9 at 925, Scafell Pike 1.9 at 925, the 451 m site 2.58 at
+ * 950, Skiddaw-like and Latrigg 5.47 at 925, Helvellyn 7.85 at 950).
+ *
+ * <p>Blencathra and Scafell Pike rise 6 to 7, within the raise cap's one point; only Helvellyn (5 to 7) depends on
  * summits (viewpoint of 600 m or more) being exempt from the raise cap.
  */
 class InversionV2FixtureTest {
@@ -76,7 +80,8 @@ class InversionV2FixtureTest {
     /** One row of the expected-results table. */
     private record Outcome(int old, double raw, double stored, InversionRegime regime,
             InversionClearance clearance, Double base, Double top, Double strength, String caps,
-            Double night, Double nightMid, boolean optionB) {
+            Double night, Double nightMid, boolean optionB, Double windMs, Integer windLevelHpa,
+            boolean windCapBound) {
     }
 
     private static OpenMeteoForecastResponse[] load(String resource) throws IOException {
@@ -114,7 +119,22 @@ class InversionV2FixtureTest {
         InversionV2Result r = stored.inversionV2();
         return new Outcome((int) old, raw.v2Raw(), stored.inversionScore(), r.regime(), r.clearance(),
                 r.baseMetres(), r.topMetres(), r.strengthCelsius(), r.caps(), r.nightPercent(),
-                r.nightMidPercent(), r.optionB());
+                r.nightMidPercent(), r.optionB(), r.windMs(), r.windLevelHpa(), r.windCapBound());
+    }
+
+    /**
+     * Pins the Phase 3 summit-wind reading of a row. Every row is elevated and every wind is under the 12 m/s
+     * cap, so the cap binds nowhere and no score or caps string moved.
+     */
+    private static void assertWind(Outcome o, Double windMs, Integer windLevelHpa) {
+        if (windMs == null) {
+            assertThat(o.windMs()).as("wind m/s").isNull();
+            assertThat(o.windLevelHpa()).as("wind level").isNull();
+        } else {
+            assertThat(o.windMs()).as("wind m/s").isCloseTo(windMs, within(1e-9));
+            assertThat(o.windLevelHpa()).as("wind level").isEqualTo(windLevelHpa);
+        }
+        assertThat(o.windCapBound()).as("wind cap bound").isFalse();
     }
 
     /**
@@ -140,6 +160,7 @@ class InversionV2FixtureTest {
 
         Outcome o = run(cells[4], cells[3], 868, LocalDateTime.of(2025, 10, 15, 6, 41), TargetType.SUNRISE);
         assertNight(o, 0.611111111111111, 0.0, true);
+        assertWind(o, 1.9, 925);
 
         // Expected: edge, cap 8, about 7, base about 683 m. The 06:00 hour has the strongest layer (4.6 degC);
         // its base is the 950 hPa level at 682 m and the next level up is 925 hPa at 901 m, so 868 m is the edge.
@@ -161,6 +182,7 @@ class InversionV2FixtureTest {
 
         Outcome o = run(cells[1], cells[0], 978, LocalDateTime.of(2025, 10, 15, 16, 20), TargetType.SUNSET);
         assertNight(o, null, null, false);
+        assertWind(o, 1.9, 925);
 
         // Expected: base about 675 m, next level 894 m, clear, strength about 4.7, about 7.
         assertThat(o.clearance()).isEqualTo(InversionClearance.CLEAR);
@@ -180,6 +202,7 @@ class InversionV2FixtureTest {
 
         Outcome o = run(cells[2], cells[2], 451, LocalDateTime.of(2025, 10, 15, 6, 41), TargetType.SUNRISE);
         assertNight(o, 13.1666666666667, 0.0, false);
+        assertWind(o, 2.58, 950);
 
         // The false positive the series exists to remove: the old calculator reads 7 (MODERATE).
         assertThat(o.old()).isEqualTo(7);
@@ -197,6 +220,7 @@ class InversionV2FixtureTest {
 
         Outcome o = run(cells[2], cells[0], 911, LocalDateTime.of(2024, 11, 4, 7, 30), TargetType.SUNRISE);
         assertNight(o, 47.3333333333333, 0.0, false);
+        assertWind(o, 5.47, 925);
 
         // The 2c fetch has no 900 hPa; the profile must still score. The summit cell has 96% low cloud and
         // 2.6 km visibility, so the in-cloud cap binds even though 911 m is only at the edge of the layer.
@@ -215,6 +239,7 @@ class InversionV2FixtureTest {
 
         Outcome o = run(cells[2], cells[1], 368, LocalDateTime.of(2024, 11, 4, 7, 30), TargetType.SUNRISE);
         assertNight(o, 47.3333333333333, 0.0, false);
+        assertWind(o, 5.47, 925);
 
         assertThat(o.clearance()).isEqualTo(InversionClearance.INSIDE);
         assertThat(o.base()).isEqualTo(863.0);
@@ -232,6 +257,10 @@ class InversionV2FixtureTest {
 
         Outcome o = run(cells[1], cells[0], 950, LocalDateTime.of(2025, 1, 15, 8, 15), TargetType.SUNRISE);
         assertNight(o, 34.7777777777778, 0.0, false);
+        // The layer's 464 m base comes from the 07:00 and 08:00 hours (975 hPa); at the 09:00 slot hour the level
+        // nearest 464 m is 975 hPa (469 m, 6.2 m/s) and the one above is 950 hPa (682 m, 7.85 m/s), so the larger
+        // is 7.85 m/s at 950 hPa. The 10 to 12 m/s at 925 hPa the owner cites is a level above both, so is not read.
+        assertWind(o, 7.85, 950);
 
         // Expected: base about 469-682 m, clear, about 6-7. A confirmed inversion morning: the old score read
         // the summit's own clear cell and said 5, which is why summits are exempt from the raise cap.

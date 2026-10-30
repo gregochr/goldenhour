@@ -62,6 +62,25 @@ class InversionProfileTest {
     }
 
     @Test
+    @DisplayName("from() reads each level's wind by hour: 975 and 925 present, the rest null, the 3-arg Level has none")
+    void fromReadsLevelWinds() {
+        OpenMeteoForecastResponse r = response(3);
+        r.getHourly().setWindSpeed975hPa(List.of(4.0, 5.0, 6.0));
+        r.getHourly().setWindSpeed925hPa(List.of(10.0, 11.0));
+
+        InversionProfile p = InversionProfile.from(r, 80);
+
+        List<InversionProfile.Level> second = p.hours().get(1).levels();
+        assertThat(second.get(0).windSpeedMs()).isEqualTo(5.0);
+        assertThat(second.get(1).windSpeedMs()).isNull();
+        assertThat(second.get(2).windSpeedMs()).isEqualTo(11.0);
+        assertThat(second.get(3).windSpeedMs()).isNull();
+        assertThat(second.get(4).windSpeedMs()).isNull();
+        assertThat(p.hours().get(2).levels().get(2).windSpeedMs()).isNull();
+        assertThat(new InversionProfile.Level(975, 5.0, 450.0).windSpeedMs()).isNull();
+    }
+
+    @Test
     @DisplayName("from() is null for a missing response, hourly block, time list or an empty one")
     void fromNullForUnusableResponses() {
         assertThat(InversionProfile.from(null, 80)).isNull();

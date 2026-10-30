@@ -318,7 +318,7 @@ class ForecastDataAugmentorInversionV2Test {
                     assertThat(e.getFormattedMessage()).isEqualTo(
                             "[INVERSION v2] Test Fell 2025-10-15 SUNRISE old=6 new=7 regime=SURFACE_BASED "
                             + "base=100 top=450 strength=2.0 viewpoint=450 valley=100 caps=edge(8),raise(7) "
-                            + "night=- optionB=false");
+                            + "night=- optionB=false wind=-@-");
                 });
     }
 
@@ -340,6 +340,27 @@ class ForecastDataAugmentorInversionV2Test {
         assertThat(result.inversionV2().optionB()).isTrue();
         assertThat(logs.list).filteredOn(e -> e.getFormattedMessage().startsWith("[INVERSION v2]"))
                 .singleElement().satisfies(e -> assertThat(e.getFormattedMessage())
-                        .endsWith("caps=edge(8),raise(7) night=25.0 optionB=true"));
+                        .endsWith("caps=edge(8),raise(7) night=25.0 optionB=true wind=-@-"));
+    }
+
+    @Test
+    @DisplayName("an elevated layer under a 13 m/s top: caps record summit-wind, the log carries wind=<m/s>@<hPa>, "
+            + "and withStorage and withCaps keep the figures")
+    void logLineWithWind() {
+        InversionProfile p = profile(H0,
+                H.at(7).t2(8.0).dew(7.8).wind(1.0).low(90).vis(10000.0).temps(6.0, 5.0, 9.0, 11.0, 10.0)
+                        .winds(null, 13.0, 5.0, null, null));
+        AtmosphericData base = withProfile(cell(6).build(), p);
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 2000, true);
+
+        assertThat(result.inversionScore()).isEqualTo(8.0);
+        assertThat(result.inversionV2().caps()).isEqualTo("summit-wind(8)");
+        assertThat(result.inversionV2().windMs()).isEqualTo(13.0);
+        assertThat(result.inversionV2().windLevelHpa()).isEqualTo(950);
+        assertThat(result.inversionV2().windCapBound()).isTrue();
+        assertThat(logs.list).filteredOn(e -> e.getFormattedMessage().startsWith("[INVERSION v2]"))
+                .singleElement().satisfies(e -> assertThat(e.getFormattedMessage())
+                        .endsWith("caps=summit-wind(8) night=- optionB=false wind=13.0@950"));
     }
 }
