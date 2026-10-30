@@ -6,8 +6,6 @@ import LocationManagementView from './LocationManagementView.jsx';
 import RegionManagementView from './RegionManagementView.jsx';
 import JobRunsMetricsView from './JobRunsMetricsView.jsx';
 import ModelSelectionView from './ModelSelectionView.jsx';
-import ModelTestView from './ModelTestView.jsx';
-import BriefingModelTestView from './BriefingModelTestView.jsx';
 import SchedulerView from './SchedulerView.jsx';
 import TravelDaysView from './TravelDaysView.jsx';
 import SkyRatingEvalView from './SkyRatingEvalView.jsx';
@@ -37,8 +35,6 @@ const GROUPS = [
       { value: 'pipelineruns', label: 'Pipeline Runs' },
       { value: 'metrics', label: 'Job Runs' },
       { value: 'models', label: 'Run Config' },
-      { value: 'modeltest', label: 'Location Model Test' },
-      { value: 'briefingmodeltest', label: 'Briefing Model Test' },
       { value: 'skyeval', label: 'Sky Eval' },
       { value: 'scheduler', label: 'Scheduler' },
       { value: 'traveldays', label: 'Travel Days' },
@@ -207,20 +203,6 @@ export default function ManageView({ onComplete }) {
 
         {activeTab === 'models' && (
           <ModelSelectionView />
-        )}
-
-        {activeTab === 'modeltest' && (
-          <div className="card flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">Location Model Comparison Test</p>
-            <ModelTestView />
-          </div>
-        )}
-
-        {activeTab === 'briefingmodeltest' && (
-          <div className="card flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">Briefing Model Comparison Test</p>
-            <BriefingModelTestView />
-          </div>
         )}
 
         {activeTab === 'skyeval' && (

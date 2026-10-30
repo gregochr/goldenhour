@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.35.2] - 2026-10-30
+
+### Changed — the tide lifts a coastal rating at most one star above the sky
+
+At a coastal location the star is the average of the sky score and the tide score. A well-timed
+tide could previously rescue a weak sky by two stars (a 2★ sky with a 5 tide became 4★, a 1★ sky
+became 3★). The tide makes the foreground, not the colour, so the combined rating is now capped at
+one star above the sky score: 2★ sky + 5 tide is 3★, 1★ sky + 5 tide is 2★. A tide dragging the
+rating down is unchanged, and the cap applies only to a sky + tide pair (bluebell ratings are
+untouched).
+
+### Removed — Location Model Test and Briefing Model Test screens
+
+The two Operations screens that compared Haiku, Sonnet and Opus (Location Model Test and Briefing Model Test) are gone, along with their controllers and services (`/api/model-test/*`, `/api/briefing/compare-models*`), entities, repositories and tests. Sky Eval is now the only model-test screen: it runs the same prompt against frozen fixtures with ground-truth bands, which answers the better question and knows the 5.5 models. Migration V199 deletes the `briefing_model_comparison` scheduled job row, so the daily five-call comparison can no longer run whatever its status was in production. The four `*_model_test_*` tables stay for one release so the previous image remains a safe rollback, and are dropped next. Local H2 keeps those four tables and the job row (Trigger now on it throws locally; delete the row by hand in the H2 console).
+
+### Docs — performance series: P4a map frame-time measurement
+
+Records the P4a measurement: heat `drawTiles` p90 is 33–35 ms at 390 px (gate 10 ms) and label paint + layout p90 is 13–15 ms (gate 6 ms), so P4b and P4c are gated open, pending the owner's D7 decision.
+
 ## [v2.35.1] - 2026-10-30
 
 ### Changed — polls pause when hidden, and an unchanged reply changes nothing

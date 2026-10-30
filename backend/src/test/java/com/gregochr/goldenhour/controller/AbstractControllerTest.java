@@ -13,7 +13,6 @@ import com.gregochr.goldenhour.repository.RefreshTokenRepository;
 import com.gregochr.goldenhour.repository.WaitlistEmailRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.HotTopicSimulationService;
-import com.gregochr.goldenhour.service.BriefingModelTestService;
 import com.gregochr.goldenhour.service.BatchSummaryDeriver;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.BriefingService;
@@ -32,7 +31,6 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationEnrichmentService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
-import com.gregochr.goldenhour.service.ModelTestService;
 import com.gregochr.goldenhour.service.NlcSightingService;
 import com.gregochr.goldenhour.service.PasswordResetService;
 import com.gregochr.goldenhour.service.RegistrationService;
@@ -111,9 +109,6 @@ abstract class AbstractControllerTest {
     protected HotTopicSimulationService hotTopicSimulationService;
 
     @MockitoBean
-    protected BriefingModelTestService briefingModelTestService;
-
-    @MockitoBean
     protected BriefingService briefingService;
 
     @MockitoBean
@@ -165,9 +160,6 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected ModelSelectionService modelSelectionService;
-
-    @MockitoBean
-    protected ModelTestService modelTestService;
 
     @MockitoBean
     protected NlcSightingService nlcSightingService;

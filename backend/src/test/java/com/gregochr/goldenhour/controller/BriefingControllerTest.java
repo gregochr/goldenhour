@@ -1,9 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.entity.BriefingModelTestResultEntity;
 import com.gregochr.goldenhour.entity.CoastalStructure;
-import com.gregochr.goldenhour.entity.BriefingModelTestRunEntity;
-import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.BigSeasDay;
@@ -310,58 +307,6 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    // ── Compare models endpoints ──
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/briefing/compare-models returns 200 for ADMIN")
-    void compareModels_adminSuccess() throws Exception {
-        BriefingModelTestRunEntity run = BriefingModelTestRunEntity.builder()
-                .id(1L).succeeded(3).failed(0).build();
-        when(briefingModelTestService.runComparison()).thenReturn(run);
-
-        mockMvc.perform(post("/api/briefing/compare-models"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.succeeded").value(3));
-    }
-
-    @Test
-    @WithMockUser(roles = {"PRO_USER"})
-    @DisplayName("POST /api/briefing/compare-models returns 403 for non-admin")
-    void compareModels_nonAdminForbidden() throws Exception {
-        mockMvc.perform(post("/api/briefing/compare-models"))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("GET /api/briefing/compare-models/runs returns recent runs")
-    void getComparisonRuns_adminSuccess() throws Exception {
-        when(briefingModelTestService.getRecentRuns()).thenReturn(List.of(
-                BriefingModelTestRunEntity.builder().id(1L).succeeded(3).failed(0).build()));
-
-        mockMvc.perform(get("/api/briefing/compare-models/runs"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].id").value(1));
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("GET /api/briefing/compare-models/results returns results for run")
-    void getComparisonResults_adminSuccess() throws Exception {
-        when(briefingModelTestService.getResults(1L)).thenReturn(List.of(
-                BriefingModelTestResultEntity.builder()
-                        .id(1L).testRunId(1L).evaluationModel(EvaluationModel.HAIKU)
-                        .succeeded(true).createdAt(LocalDateTime.now()).build()));
-
-        mockMvc.perform(get("/api/briefing/compare-models/results").param("runId", "1"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].evaluationModel").value("HAIKU"));
-    }
-
     // ── GET /api/briefing: the role-shaped tide body (tide-pro-gate-plan.md §7) ───────────────
     //
     // BriefingRoleShaper is the REAL bean here, never a @MockitoBean: a mock would fork
@@ -598,7 +543,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     void getBriefing_proAndAdminAreServedTheServiceObjectItself() {
         DailyBriefingResponse served = tideLightBriefing();
         when(briefingService.getCachedBriefingForApi()).thenReturn(served);
-        BriefingController controller = new BriefingController(briefingService, null, null,
+        BriefingController controller = new BriefingController(briefingService, null,
                 new BriefingRoleShaper(),
                 new com.gregochr.goldenhour.service.LitePickShaper(null,
                         new com.gregochr.goldenhour.config.SubRegionProperties()));

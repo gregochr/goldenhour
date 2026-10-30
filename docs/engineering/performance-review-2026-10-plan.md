@@ -531,8 +531,41 @@ P1 and P2 touch disjoint files and may be built in parallel worktrees; each stil
 | P3d | `perf/p3d-one-viewline-source` | #1507 | 2026-10-29 | one viewline poll for map + banner (was two); overlay positions memoised |
 | P4f | `perf/p4f-chip-tooltip-observer` | #1508 | 2026-10-29 | `MapLabels` no commit on `pointermove`; modal observer ignores Leaflet churn |
 | P4d+e | `perf/p4de-mapview-renders-memos` | #1509 | 2026-10-29 | a pan that changes no derived answer does not re-render `MapView`; event memos hit between clock boundaries |
-| P4a–c | — | — | — | **not run**: P4a's browser measurement needs a local backend with data, and starting it can trigger scheduled briefing builds that bill Anthropic. P4b/P4c stay gated on that measurement |
+| P4a | — | — | 2026-10-30 | **measured; both gates fire.** 4× CPU throttle, 219 heat points, system Chrome via Playwright. `drawTiles` p90 at 390 px: **32.7–35.0 ms** (gate 10; the median of 25–26 ms is also above it). `MapLabels` paint + layout p90 per frame: **13.4–14.7 ms** on phone drag and pinch (gate 6), 8.6–9.8 ms at 1440. Layout (the forced reflow plus `placeLabelPass`) is most of it, about 10 ms median; paint alone is about 1.5–3 ms. Detail below the table |
+| P4b, P4c | — | — | — | **gated open, not built**: waiting on the owner's D7 answer (chips from an edge appear at `moveend`; field hidden during `zoomanim`) |
 | P6b | — | — | — | **owner**: `docker-compose.yml` heap percentage (D5) and removing `-Djdk.tracePinnedThreads` are production config |
+
+### P4a measurement detail (2026-10-30)
+
+How it was run: a local backend with an invalid Anthropic key, so nothing could bill. The roster was the main checkout's H2 copy plus
+`scripts/dev-seed-locations.sh --dense` (220 locations), with synthetic `cached_evaluation` ratings for today to +3 inserted by SQL.
+Temporary `performance.measure` marks went round the `drawTiles` call in `MapHeatLayer` and round `MapLabels`' `paint` and its
+layout effect; they were not committed. Each gesture ran for 10 s, twice. The phone context was 390×844 with touch: drag used CDP
+`synthesizeScrollGesture` and zoom was a real CDP pinch, covering z 6.3–11. The desktop context was 1440×900: mouse drag, and wheel
+zoom covering z 7.6–8.4. Figures are count / median / p90 / p99, in ms.
+
+| viewport | gesture | run | drawTiles | labels paint | labels layout | paint+layout / frame | rAF delta | frames > 50 ms |
+|---|---|---|---|---|---|---|---|---|
+| 390 | drag | 1 | 126 / 26.1 / 32.8 / 49.3 | 126 / 1.5 / 2.4 / 4.2 | 73 / 9.7 / 11.1 / 12.4 | 107 / 9.3 / 13.4 / 21.2 | 174 / 33.3 / 100 / 283 | 64 of 174 |
+| 390 | drag | 2 | 129 / 25.6 / 32.7 / 44.5 | 129 / 1.6 / 2.7 / 6.7 | 66 / 9.8 / 11.3 / 13.4 | 110 / 8.6 / 14.7 / 24.3 | 182 / 33.3 / 100 / 283 | 62 of 182 |
+| 390 | pinch | 1 | 74 / 25.2 / 34.5 / 70.6 | 81 / 1.6 / 2.8 / 4.8 | 34 / 10.6 / 14.3 / 28.9 | 72 / 4.6 / 14.6 / 30.8 | 330 / 16.7 / 66.7 / 183 | 39 of 330 |
+| 390 | pinch | 2 | 74 / 25.7 / 35.0 / 44.9 | 81 / 1.8 / 2.9 / 3.6 | 33 / 10.1 / 13.9 / 14.9 | 75 / 4.2 / 14.2 / 15.9 | 327 / 16.7 / 66.7 / 183 | 40 of 327 |
+| 1440 | drag | 1 | 76 / 40.6 / 62.8 / 86 | 76 / 1.8 / 3.3 / 4.8 | 76 / 7.9 / 9.7 / 12.2 | 148 / 4.7 / 9.4 / 12.2 | 301 / 33.3 / 50 / 83 | 29 of 301 |
+| 1440 | drag | 2 | 77 / 41.8 / 48.9 / 84.9 | 77 / 1.9 / 3.6 / 6.4 | 77 / 7.5 / 9.8 / 11.3 | 146 / 4.7 / 9.4 / 12.0 | 307 / 16.8 / 50 / 83 | 35 of 307 |
+| 1440 | wheel | 1 | 20 / 42.8 / 49.9 / 50.7 | 40 / 1.9 / 3.5 / 3.9 | 20 / 7.1 / 8.8 / 9.4 | 40 / 5.2 / 8.6 / 9.4 | 412 / 16.7 / 33.3 / 167 | 22 of 412 |
+| 1440 | wheel | 2 | 20 / 43.6 / 65.3 / 86 | 40 / 1.7 / 4.2 / 5.8 | 20 / 7.2 / 10.4 / 11.4 | 41 / 5.9 / 9.6 / 12.7 | 424 / 16.7 / 33.3 / 167 | 24 of 424 |
+
+Caveats:
+- The synthetic phone swipes run slowly under throttle, which inflates the phone-drag rAF figures.
+- The per-frame label figure counts paint-only frames as well, which is why its median sits below the layout median.
+- Layout fires only when a new frame object is produced.
+- The marks add a little overhead.
+- The roster is the dev seed: it is denser in chips and thinner in regions than production.
+
+What the numbers say about P4b and P4c:
+- **P4b:** `drawTiles` alone costs more than a 60 fps frame on every `move`, at both widths.
+- **P4c:** the label cost is dominated by the forced reflow plus placement, not by `paint`. Skipping the pass on `move` removes most of
+  it; the `obstacles` copy-once change in `placeLabelPass` would trim only the remainder.
 
 ## 11. What the review changed (draft 1 → draft 2)
 

@@ -25,9 +25,10 @@ public enum EvaluationModel {
      * adaptive default (it rejects {@code thinking: disabled}) and effort is sent as low. The enum
      * name is capped at 10 characters because every column storing a model name is VARCHAR(10) in
      * production (as of 2026-10-04): api_call_log.evaluation_model,
-     * briefing_model_test_result.evaluation_model, forecast_evaluation.evaluation_model,
-     * job_run.evaluation_model, model_selection.active_model, model_test_result.evaluation_model,
-     * prompt_test_result.evaluation_model, prompt_test_run.evaluation_model (both dropped by V198) and
+     * briefing_model_test_result.evaluation_model (historic rows only, dropped in Phase 2),
+     * forecast_evaluation.evaluation_model, job_run.evaluation_model, model_selection.active_model,
+     * model_test_result.evaluation_model (likewise), prompt_test_result.evaluation_model,
+     * prompt_test_run.evaluation_model (both dropped by V198) and
      * sky_rating_eval_run.model.
      *
      * <p>A refusal from this model counts as a failed result for {@code LocationFailureService}

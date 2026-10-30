@@ -5,7 +5,6 @@ import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.TextBlockParam;
-import com.anthropic.models.messages.ThinkingBlock;
 import com.anthropic.models.messages.ThinkingConfigAdaptive;
 import com.anthropic.models.messages.StopReason;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -36,7 +35,6 @@ import org.springframework.stereotype.Component;
 import com.gregochr.goldenhour.model.TokenUsage;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -534,133 +532,11 @@ public class BriefingBestBetAdvisor {
     }
 
     /**
-     * Result of evaluating the briefing rollup with a single Claude model.
+     * Maps a stop reason to the rejection message the caller surfaces, or null when the response
+     * is usable. Shared by {@link #advise} and {@link #replayWithPrompt}.
      *
-     * @param model           the model used
-     * @param rawResponse     raw text from Claude, or null on failure
-     * @param parsedPicks     picks before validation (empty on failure)
-     * @param validatedPicks  picks after validation (empty on failure)
-     * @param durationMs      API call duration in milliseconds
-     * @param tokenUsage      token counts from the API response
-     * @param thinkingText    raw extended thinking chain text, or null for non-ET variants
-     */
-    public record ModelComparisonResult(EvaluationModel model, String rawResponse,
-            List<BestBet> parsedPicks, List<BestBet> validatedPicks,
-            long durationMs, TokenUsage tokenUsage, String thinkingText) {
-    }
-
-    /**
-     * Aggregated result of a multi-model comparison run.
-     *
-     * @param rollupJson the JSON sent to all five variants
-     * @param results    one result per variant (HAIKU, SONNET, SONNET_ET, OPUS, OPUS_ET)
-     */
-    public record ComparisonRun(String rollupJson, List<ModelComparisonResult> results) {
-    }
-
-    /**
-     * Calls all five variants (Haiku, Sonnet, Sonnet+ET, Opus, Opus+ET) sequentially with
-     * the same briefing rollup and returns the parsed, validated picks for each.
-     *
-     * <p>Variants run sequentially (not in parallel) to stay within the Claude bulkhead
-     * concurrency cap. Per-variant failures are caught and returned as failed results with
-     * null rawResponse, so partial success is possible.
-     *
-     * @param days     the fully assembled briefing days (triage complete)
-     * @param driveMap unused — retained for API compatibility (pass {@code Map.of()})
-     * @return comparison run containing the rollup JSON and all variant results
-     * @throws com.fasterxml.jackson.core.JsonProcessingException if rollup JSON build fails
-     */
-    public ComparisonRun compareModels(List<BriefingDay> days,
-            Map<String, Integer> driveMap) throws com.fasterxml.jackson.core.JsonProcessingException {
-        return compareModels(List.of(
-                EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.SONNET_ET,
-                EvaluationModel.OPUS, EvaluationModel.OPUS_ET), days);
-    }
-
-    /**
-     * Runs the comparison over an explicit list of variants (the scheduled comparison keeps its
-     * fixed five; this overload lets a test, or a future harness, name others such as Sonnet 5.5).
-     *
-     * @param models   the variants to call, in order
-     * @param days     the fully assembled briefing days (triage complete)
-     * @return comparison run containing the rollup JSON and one result per variant
-     * @throws com.fasterxml.jackson.core.JsonProcessingException if rollup JSON build fails
-     */
-    ComparisonRun compareModels(List<EvaluationModel> models, List<BriefingDay> days)
-            throws com.fasterxml.jackson.core.JsonProcessingException {
-        LocalDateTime now = LocalDateTime.now(clock);
-        RollupResult rollup = rollupBuilder.buildRollupJson(days, now);
-
-        List<ModelComparisonResult> results = new ArrayList<>();
-        for (EvaluationModel model : models) {
-            results.add(callModel(model, rollup, days));
-        }
-        return new ComparisonRun(rollup.json(), results);
-    }
-
-    private ModelComparisonResult callModel(EvaluationModel model, RollupResult rollup,
-            List<BriefingDay> days) {
-        try {
-            boolean extendedThinking = model.isExtendedThinking();
-            long startMs = System.currentTimeMillis();
-
-            MessageCreateParams.Builder builder = MessageCreateParams.builder()
-                    .model(model.getModelId())
-                    .maxTokens(extendedThinking || ModelRequestSupport.thinksAdaptively(model)
-                        ? MAX_TOKENS_THINKING : maxTokens)
-                    .systemOfTextBlockParams(List.of(
-                            TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
-                    .addUserMessage(rollup.json());
-
-            if (extendedThinking) {
-                builder.thinking(ThinkingConfigAdaptive.builder()
-                        .display(ThinkingConfigAdaptive.Display.SUMMARIZED)
-                        .build());
-            }
-
-            Message response = anthropicApiClient.createMessage(
-                    ModelRequestSupport.tune(builder, model).build());
-            long durationMs = System.currentTimeMillis() - startMs;
-            // Refusal or truncation: a failed variant (caught below), never parsed picks.
-            ModelRequestSupport.checkStopReason(response);
-
-            // Text blocks only — thinking blocks are filtered out here
-            String raw = extractFirstText(response);
-
-            // Extract thinking chain text (null for non-ET variants)
-            String thinkingText = response.content().stream()
-                    .filter(ContentBlock::isThinking)
-                    .map(ContentBlock::asThinking)
-                    .map(ThinkingBlock::thinking)
-                    .filter(t -> t != null && !t.isBlank())
-                    .findFirst()
-                    .orElse(null);
-
-            TokenUsage tokenUsage = TokenUsage.from(response.usage());
-
-            List<BestBet> parsed = parseBestBets(raw);
-            List<BestBet> validated = validateAndFilterPicks(
-                    parsed, rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
-            List<BestBet> covered = applyCoverageAwareRanking(validated, rollup.coverageByKey());
-            List<BestBet> enriched = enricher.enrichWithEventData(covered, days);
-
-            LOG.info("Model comparison {} completed ({}ms, {} picks, thinking={})",
-                    model, durationMs, enriched.size(), thinkingText != null);
-            return new ModelComparisonResult(model, raw, parsed, enriched, durationMs, tokenUsage, thinkingText);
-        } catch (Exception e) {
-            LOG.warn("Model comparison {} failed: {}", model, e.getMessage());
-            return new ModelComparisonResult(model, null, List.of(), List.of(), 0, TokenUsage.EMPTY, null);
-        }
-    }
-
-    /**
-     * Extracts the first text block from a Claude response, or {@code ""} when none is present.
-     * Shared by {@link #advise}, {@link #callModel} and {@link #replayWithPrompt} so every path
-     * reads the response identically.
-     *
-     * @param response the Claude message
-     * @return the first text block's content, or an empty string
+     * @param stopReason the response's stop reason, possibly null
+     * @return a rejection message for a refusal or truncation, or null
      */
     private static String rejectionReason(StopReason stopReason) {
         if (StopReason.REFUSAL.equals(stopReason)) {
@@ -673,6 +549,14 @@ public class BriefingBestBetAdvisor {
         return null;
     }
 
+    /**
+     * Extracts the first text block from a Claude response, or {@code ""} when none is present.
+     * Shared by {@link #advise} and {@link #replayWithPrompt} so every path reads the response
+     * identically.
+     *
+     * @param response the Claude message
+     * @return the first text block's content, or an empty string
+     */
     private static String extractFirstText(Message response) {
         return response.content().stream()
                 .filter(ContentBlock::isText)

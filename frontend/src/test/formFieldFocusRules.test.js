@@ -126,7 +126,7 @@ function skipBraces(text, i) {
  * merely narrating old `className="...focus:outline-none..."` example syntax reads as a real call
  * site (the anchor regexes have no idea a comment is not code). And the sharper failure: a comment's
  * own apostrophe, nested inside a template literal's `${…}` — the exact shape at
- * `ModelTestView.jsx:654`'s row-selection ternary, which already carries a `//` comment there — is
+ * the since-deleted `ModelTestView`'s row-selection ternary, which carried a `//` comment there — is
  * misread by `skipQuoted` as *opening* a string, which then hunts for the next quote, swallows past
  * the real one, and desyncs the whole walk (`unterminated string`), failing every test in this
  * file's first `describe` at once. Reproduced by changing four characters of that real file's prose
@@ -266,7 +266,7 @@ function classVariableDefinitions(rawSource) {
 const classListsIn = (source) => [...classNameAttributeValues(source), ...classVariableDefinitions(source)];
 
 describe('blankComments — a comment cannot fabricate a call site or crash the walk', () => {
-  // The real shape at ModelTestView.jsx:654-665: a `//` comment sits between a ternary's operator
+  // The real shape in the since-deleted ModelTestView: a `//` comment sits between a ternary's operator
   // and its first operand, inside a template literal's `${…}` interpolation. Adversarial review
   // reproduced a crash here by changing four characters of that file's actual prose — this pins the
   // same shape directly, as a standalone fixture, rather than depending on that file's wording never
@@ -347,8 +347,9 @@ describe('form-field focus outlines — their call sites', () => {
 
   it('finds every focus:outline-(none|hidden) a line-by-line search finds', () => {
     // A walk that found nothing would pass every test below vacuously. `blankComments` first, same
-    // as the two extractors above, so ModelTestView.jsx:640 — which names `focus:outline-none` only
-    // in prose, inside a comment explaining why a *different* fix was needed there — is correctly
+    // as the two extractors above, so a comment like the since-deleted ModelTestView's — which named
+    // `focus:outline-none` only in prose, inside a comment explaining why a *different* fix was needed
+    // there — is correctly
     // excluded regardless of where on its line the comment starts, not just a leading `// `.
     const sameLine = files.flatMap((file) => blankComments(read(`../${file}`)).split('\n'))
       .filter((line) => /\bfocus(-visible)?:outline-(none|hidden)\b/.test(line));

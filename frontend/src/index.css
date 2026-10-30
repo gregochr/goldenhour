@@ -3705,7 +3705,7 @@ button.wf-hc.also.on:hover {
    It reuses `.wf-seg`/`.wf-seg-btn` above rather than growing its own buttons, and that is not
    only tidiness: the ad-hoc first cut named `bg-plex-accent/25` for its pressed state, a token
    this project has never had, so Tailwind emitted no rule and the selected segment painted
-   nothing (the same defect `TravelDaysView.jsx:163` and `ModelTestView.jsx:639` already record).
+   nothing (the same defect `TravelDaysView.jsx:163` and the since-deleted `ModelTestView` recorded).
    The shared classes bring the pressed fill, the `:focus-visible` ring — clipped to the inside,
    because the group is `overflow: hidden` — and a 25px tall button, which is what clears SC 2.5.8's
    24px target. Three fixes for one class name.

@@ -17,6 +17,7 @@ import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
@@ -340,5 +341,61 @@ class RatingCombinerTest {
         assertThat(result.components())
                 .extracting(ComponentScore::type)
                 .containsExactly(ForecastType.SKY);
+    }
+
+    // ── One-star tide lift cap ────────────────────────────────────────────────
+
+    private static int skyAndTide(int sky, int tide) {
+        RatingCombiner combiner = new RatingCombiner(List.of(
+                stub(true, sky, ForecastType.SKY), stub(true, tide, ForecastType.TIDAL)));
+        return combiner.combine(location("X"), contextWithRating(sky)).rating();
+    }
+
+    @ParameterizedTest(name = "sky {0} + tide {1} -> {2}")
+    @CsvSource({"3,5,4", "4,5,5", "2,4,3", "2,5,3", "1,5,2", "1,4,2", "5,1,3", "3,1,2", "4,3,4"})
+    @DisplayName("tide lifts the combined rating at most one star above the sky; penalties unchanged")
+    void tideLift_cappedAtOneStar(int sky, int tide, int expected) {
+        assertThat(skyAndTide(sky, tide)).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("cap keeps all components recorded")
+    void tideLift_componentsUnchanged() {
+        RatingCombiner combiner = new RatingCombiner(List.of(
+                stub(true, 1, ForecastType.SKY), stub(true, 5, ForecastType.TIDAL)));
+        RatingCombiner.CombinedRating result =
+                combiner.combine(location("X"), contextWithRating(1));
+        assertThat(result.rating()).isEqualTo(2);
+        assertThat(result.components()).extracting(ComponentScore::type)
+                .containsExactly(ForecastType.SKY, ForecastType.TIDAL);
+    }
+
+    @Test
+    @DisplayName("WOODLAND bluebell with tide present: bluebell is the sole peer, no clamp")
+    void tideLift_woodlandBluebellSolePeer_notClamped() {
+        RatingCombiner combiner = new RatingCombiner(List.of(
+                stub(true, 1, ForecastType.SKY), stub(true, 5, ForecastType.TIDAL),
+                stub(true, 5, ForecastType.BLUEBELL)));
+        assertThat(combiner.combine(
+                bluebell("Hardcastle Crags",
+                        com.gregochr.goldenhour.entity.BluebellExposure.WOODLAND),
+                skyAndBluebell(1, 5)).rating()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("tide + bluebell with no sky: uncapped average")
+    void tideLift_tideAndBluebellNoSky_uncapped() {
+        RatingCombiner combiner = new RatingCombiner(List.of(
+                stub(true, 5, ForecastType.TIDAL), stub(true, 5, ForecastType.BLUEBELL)));
+        assertThat(combiner.combine(location("X"), contextWithRating(null)).rating())
+                .isEqualTo(5);
+    }
+
+    @ParameterizedTest(name = "out-of-range sky {0} + tide 5 -> no clamp")
+    @ValueSource(ints = {0, 7})
+    @DisplayName("out-of-range sky score: clamp does not apply")
+    void tideLift_invalidSky_notClamped(int sky) {
+        // avg(0,5)=2.5 -> 3 (a clamp to sky+1 would give 1); avg(7,5)=6.
+        assertThat(skyAndTide(sky, 5)).isEqualTo((int) Math.round((sky + 5) / 2.0));
     }
 }
