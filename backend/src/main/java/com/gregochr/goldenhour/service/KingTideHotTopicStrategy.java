@@ -315,30 +315,6 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     record Alignment(String text, boolean carriesRosterSize) {}
 
     /**
-     * Returns the first king tide info found in the given briefing day.
-     *
-     * @param day the briefing day to scan
-     * @return first matching {@link BriefingSlot.TideInfo}, or null if none
-     */
-    static BriefingSlot.TideInfo findKingTide(BriefingDay day) {
-        for (BriefingEventSummary event : day.eventSummaries()) {
-            for (BriefingRegion region : event.regions()) {
-                for (BriefingSlot slot : region.slots()) {
-                    if (isPerigeanSpring(slot.tide())) {
-                        return slot.tide();
-                    }
-                }
-            }
-            for (BriefingSlot slot : event.unregioned()) {
-                if (isPerigeanSpring(slot.tide())) {
-                    return slot.tide();
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
      * The first slot on this day carrying a tide worth a card, on <b>either</b> axis.
      *
      * <p>Shared by both strategies, because "is there a tide here" and "what is it called" are now
@@ -512,21 +488,5 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                         ? " coastal location"
                         : " coastal locations");
         return sb.toString();
-    }
-
-    static String formatCatch(int count, String event) {
-        return count == 1
-                ? String.format("1 location catches %s", event)
-                : String.format("%d locations catch %s", count, event);
-    }
-
-    static String formatCatchShort(int count, String event) {
-        return count == 1
-                ? String.format("1 catches %s", event)
-                : String.format("%d catch %s", count, event);
-    }
-
-    static String formatLocationCount(int count) {
-        return count == 1 ? "1 location" : count + " locations";
     }
 }

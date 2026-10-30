@@ -128,7 +128,7 @@ final class LunarEclipseWording {
      * The umbral magnitude as a whole-number percentage, capped at 100 — a total eclipse's own
      * magnitude runs past {@code 1.0} (see the class javadoc), so an un-capped figure would print
      * an impossible "125% in shadow". Every caller in this codebase reads {@code "total"} instead
-     * of a percentage for a TOTAL eclipse ({@link #coverageWord}, {@link #shadowClause}), so this
+     * of a percentage for a TOTAL eclipse ({@link #shadowClause}), so this
      * cap is a defensive backstop against a future caller that forgets to branch on
      * {@link #depthOf} first, not a value any current template actually prints.
      *
@@ -137,18 +137,6 @@ final class LunarEclipseWording {
      */
     static int coveragePct(LunarEclipse eclipse) {
         return Math.min(100, (int) Math.round(eclipse.umbralMagnitude() * 100));
-    }
-
-    /**
-     * The short headline word for a fact chip or a Coming-up metric: {@code "total"} for a TOTAL
-     * eclipse (never a percentage — there is nothing left uncovered to measure), otherwise
-     * {@code "N%"} with the capped figure.
-     *
-     * @param eclipse the catalogued eclipse
-     * @return {@code "total"} or {@code "N%"}
-     */
-    static String coverageWord(LunarEclipse eclipse) {
-        return depthOf(eclipse) == Depth.TOTAL ? "total" : coveragePct(eclipse) + "%";
     }
 
     /**

@@ -92,6 +92,11 @@ class ForecastTaskCollectorForceEvalTest {
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
     @Mock private com.gregochr.goldenhour.service.TravelDayService travelDayService;
 
+    private static ScheduledBatchTasks collectNightly(ForecastTaskCollector collector) {
+        return collector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE);
+    }
+
     private ForecastTaskCollector collectorWithCap(int cap) {
         ForecastTaskCollector c = new ForecastTaskCollector(
                 locationService, briefingService, briefingEvaluationService,
@@ -125,7 +130,7 @@ class ForecastTaskCollectorForceEvalTest {
         stubStability(loc, ForecastStability.UNSETTLED);
 
         ForecastTaskCollector collector = collectorWithCap(1);
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         // Single path: the forced eval lands in the ordinary far-inland bucket on
         // the far-term model — no separate structure.
@@ -161,7 +166,7 @@ class ForecastTaskCollectorForceEvalTest {
         stubStability(loc, ForecastStability.UNSETTLED);
 
         ForecastTaskCollector collector = collectorWithCap(1);
-        ScheduledBatchTasks result = collector.collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collector);
 
         assertThat(result.woodland()).hasSize(1);
         assertThat(result.woodland().get(0).location().getName()).isEqualTo("Bamburgh");
@@ -188,7 +193,7 @@ class ForecastTaskCollectorForceEvalTest {
         stubTriagePass(loc, TODAY.plusDays(3), 3, false);
         stubStability(loc, ForecastStability.UNSETTLED);
 
-        ScheduledBatchTasks result = collectorWithCap(0).collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collectorWithCap(0));
 
         assertThat(result.isEmpty()).isTrue();
         assertThat(result.dispositions())
@@ -224,7 +229,7 @@ class ForecastTaskCollectorForceEvalTest {
                         inv.getArgument(0), inv.getArgument(1), inv.getArgument(2),
                         ForecastStability.UNSETTLED, "active", 0));
 
-        ScheduledBatchTasks result = collectorWithCap(2).collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collectorWithCap(2));
 
         long forced = result.dispositions().stream()
                 .filter(d -> d.category() == DispositionCategory.FORCE_EVALUATED).count();
@@ -262,7 +267,7 @@ class ForecastTaskCollectorForceEvalTest {
                         inv.getArgument(0), inv.getArgument(1), inv.getArgument(2),
                         ForecastStability.UNSETTLED, "active", 0));
 
-        ScheduledBatchTasks result = collectorWithCap(1).collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collectorWithCap(1));
 
         List<CandidateDisposition> forced = result.dispositions().stream()
                 .filter(d -> d.category() == DispositionCategory.FORCE_EVALUATED).toList();
@@ -281,7 +286,7 @@ class ForecastTaskCollectorForceEvalTest {
         stubPrefetch(loc);
         stubTriagePass(loc, TODAY.plusDays(1), 1, false);
 
-        ScheduledBatchTasks result = collectorWithCap(6).collectScheduledBatches();
+        ScheduledBatchTasks result = collectNightly(collectorWithCap(6));
 
         assertThat(result.nearInland()).hasSize(1);
         assertThat(result.dispositions())

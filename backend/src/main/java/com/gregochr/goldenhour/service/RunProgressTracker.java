@@ -360,17 +360,6 @@ public class RunProgressTracker {
     }
 
     /**
-     * Whether a run has completed (normally, or through {@link #failRun}) and its entry is still held.
-     *
-     * @param jobRunId the job run ID
-     * @return {@code true} once the run's {@code run-complete} has been produced; {@code false} while it
-     *         is still going, and for an id the tracker does not hold
-     */
-    public boolean isComplete(long jobRunId) {
-        return completions.containsKey(jobRunId);
-    }
-
-    /**
      * Evicts the entries that have outlived their keep.
      *
      * <p>A run that has completed is evicted {@link #COMPLETED_RUN_RETENTION} after it COMPLETED (however

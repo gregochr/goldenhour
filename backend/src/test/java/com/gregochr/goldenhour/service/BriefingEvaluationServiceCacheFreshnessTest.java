@@ -126,13 +126,13 @@ class BriefingEvaluationServiceCacheFreshnessTest {
             injectCacheEntry(key, Instant.now().minus(Duration.ofHours(48)),
                     sampleResult("Bamburgh"));
 
-            assertThat(service.hasEvaluation(key)).isTrue();
+            assertThat(BriefingEvaluationTestSupport.hasEvaluation(service, key)).isTrue();
         }
 
         @Test
         @DisplayName("returns false when absent")
         void absentEntry() {
-            assertThat(service.hasEvaluation("Missing|2026-04-24|SUNRISE")).isFalse();
+            assertThat(BriefingEvaluationTestSupport.hasEvaluation(service, "Missing|2026-04-24|SUNRISE")).isFalse();
         }
     }
 }

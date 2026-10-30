@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * Response DTO for a single scheduled job run.
  *
  * <p>Exposes only the fields the admin metrics UI needs, deliberately excluding the
- * {@code triggeredManually} flag and the lazy {@code apiCalls} child collection.
+ * {@code triggeredManually} flag.
  *
  * @param id                     the database identifier
  * @param runType                the type of forecast run (what was requested)

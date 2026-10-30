@@ -48,9 +48,6 @@ class ScheduledForecastServiceTest {
     private JobRunService jobRunService;
 
     @Mock
-    private BriefingService briefingService;
-
-    @Mock
     private DynamicSchedulerService dynamicSchedulerService;
 
     private ScheduledForecastService scheduledForecastService;
@@ -58,7 +55,7 @@ class ScheduledForecastServiceTest {
     @BeforeEach
     void setUp() {
         scheduledForecastService = new ScheduledForecastService(
-                tideService, locationService, jobRunService, briefingService,
+                tideService, locationService, jobRunService,
                 dynamicSchedulerService);
     }
 
@@ -258,23 +255,6 @@ class ScheduledForecastServiceTest {
                 .isInstanceOf(RejectedExecutionException.class);
 
         assertThat(scheduledForecastService.startTideRefresh(task -> { })).isTrue();
-    }
-
-    // -------------------------------------------------------------------------
-    // refreshDailyBriefing — the dormant daily_briefing scheduler target
-    // -------------------------------------------------------------------------
-
-    /**
-     * The scheduler target must take the REFUSING entry point: a fire that meets the pipeline's
-     * build in progress would otherwise queue a second full build behind it.
-     */
-    @Test
-    @DisplayName("refreshDailyBriefing() uses the refusing entry point, never the waiting one")
-    void refreshDailyBriefing_usesTheRefusingEntryPoint() {
-        scheduledForecastService.refreshDailyBriefing();
-
-        verify(briefingService).refreshBriefingIfIdle();
-        verify(briefingService, never()).refreshBriefing();
     }
 
     // -------------------------------------------------------------------------

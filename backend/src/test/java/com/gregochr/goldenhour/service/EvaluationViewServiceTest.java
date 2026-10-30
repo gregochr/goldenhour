@@ -2857,8 +2857,8 @@ class EvaluationViewServiceTest {
      * weather-triage {@code Verdict}. These tests drive it through the real public method, mocking
      * only {@link ForecastRunDispositionRepository#findLatestNonCachedDispositions} — exactly what
      * production's bulk query returns — and separately prove {@link
-     * EvaluationViewService#getTriagedByBatchLocationNames}/{@code
-     * getTriagedByBatchLocationNamesBulk} report the disposition-sourced set for a region/date/event,
+     * EvaluationViewService#getTriagedByBatchLocationNamesBulk} reports the disposition-sourced set
+     * for a region/date/event,
      * INDEPENDENTLY of whatever {@code getScoresForEnrichment}/{@code Bulk} separately resolve for
      * the same slot.
      *
@@ -2991,10 +2991,10 @@ class EvaluationViewServiceTest {
         }
 
         @Test
-        @DisplayName("getTriagedByBatchLocationNames reports a purely-batch-triaged slot (no "
+        @DisplayName("getTriagedByBatchLocationNamesBulk reports a purely-batch-triaged slot (no "
                 + "rating or cache entry of its own) — and getScoresForEnrichment separately "
                 + "resolves nothing for it, proving the two lookups are genuinely independent")
-        void getTriagedByBatchLocationNames_reportsPurelyBatchTriagedSlot() {
+        void getTriagedByBatchLocationNamesBulk_reportsPurelyBatchTriagedSlot() {
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Map.of());
@@ -3003,8 +3003,9 @@ class EvaluationViewServiceTest {
                             nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
                                     Instant.parse("2026-04-22T01:00:00Z"))));
 
-            Set<String> triagedNames =
-                    service.getTriagedByBatchLocationNames(REGION_NAME, DATE, SUNRISE);
+            Set<String> triagedNames = service
+                    .getTriagedByBatchLocationNamesBulk(DATE, DATE, Set.of(SUNRISE))
+                    .getOrDefault(REGION_NAME + "|" + DATE + "|" + SUNRISE, Set.of());
             BriefingEvaluationResult scoreResult =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
 
@@ -3017,27 +3018,7 @@ class EvaluationViewServiceTest {
         }
 
         @Test
-        @DisplayName("getTriagedByBatchLocationNamesBulk agrees with getTriagedByBatchLocationNames "
-                + "— same slot, both readers")
-        void bulkAgreesWithSingleRegionOnTriagedNames() {
-            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
-            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
-                    .thenReturn(List.<Object[]>of(
-                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
-                                    Instant.parse("2026-04-22T01:00:00Z"))));
-
-            Map<String, Set<String>> bulk =
-                    service.getTriagedByBatchLocationNamesBulk(DATE, DATE, Set.of(SUNRISE));
-            Set<String> bulkResult = bulk.get(REGION_NAME + "|" + DATE + "|" + SUNRISE);
-            Set<String> singleResult =
-                    service.getTriagedByBatchLocationNames(REGION_NAME, DATE, SUNRISE);
-
-            assertThat(bulkResult).containsExactly("Bamburgh");
-            assertThat(singleResult).containsExactly("Bamburgh");
-        }
-
-        @Test
-        @DisplayName("getTriagedByBatchLocationNames reports a slot regardless of whether it is "
+        @DisplayName("getTriagedByBatchLocationNamesBulk reports a slot regardless of whether it is "
                 + "SEPARATELY rated — the two lookups are independent, so a caller (the rollup) "
                 + "combines them rather than either one silently overriding the other")
         void triagedNameSetIsIndependentOfWhatTheScoreMapResolves() {
@@ -3050,8 +3031,9 @@ class EvaluationViewServiceTest {
                             nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
                                     Instant.parse("2026-04-22T01:00:00Z"))));
 
-            Set<String> triagedNames =
-                    service.getTriagedByBatchLocationNames(REGION_NAME, DATE, SUNRISE);
+            Set<String> triagedNames = service
+                    .getTriagedByBatchLocationNamesBulk(DATE, DATE, Set.of(SUNRISE))
+                    .getOrDefault(REGION_NAME + "|" + DATE + "|" + SUNRISE, Set.of());
             BriefingEvaluationResult scoreResult =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
 
@@ -3941,16 +3923,6 @@ class EvaluationViewServiceTest {
                     index.getOrDefault(regionName + "|" + date + "|" + targetType, Set.of());
         }
 
-        /** The single-key sibling of {@link #bulkScoreResolver}. */
-        private RegionScoreResolver singleKeyScoreResolver() {
-            return service::getScoresForEnrichment;
-        }
-
-        /** The single-key sibling of {@link #bulkTriagedResolver}. */
-        private TriagedByBatchResolver singleKeyTriagedResolver() {
-            return service::getTriagedByBatchLocationNames;
-        }
-
         private BriefingRegion enrichedRegion(List<BriefingSlot> slots, Verdict triageFallback,
                 RegionScoreResolver scoreResolver, TriagedByBatchResolver triagedResolver) {
             List<BriefingDay> enriched = rollup.enrich(
@@ -4018,32 +3990,6 @@ class EvaluationViewServiceTest {
             assertThat(region.sampleSufficient()).isTrue();
             assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
             assertThat(region.meanRating()).isEqualTo(4.0);
-        }
-
-        @Test
-        @DisplayName("the identical near window, SINGLE-KEY resolvers: agrees with the bulk result")
-        void nearWindow_singleKeyResolvers_agreesWithBulk() {
-            List<LocationEntity> triagedLocations = new ArrayList<>();
-            List<LocationEntity> ratedLocations = new ArrayList<>();
-            List<LocationEntity> allLocations = new ArrayList<>();
-            for (int i = 0; i < 35; i++) {
-                LocationEntity loc = location(i, "Triaged" + i);
-                triagedLocations.add(loc);
-                allLocations.add(loc);
-            }
-            for (int i = 0; i < 15; i++) {
-                LocationEntity loc = location(100 + i, "Rated" + i);
-                ratedLocations.add(loc);
-                allLocations.add(loc);
-            }
-            stubNearWindowRoster(triagedLocations, ratedLocations, allLocations);
-
-            BriefingRegion fromSingleKey = enrichedRegion(nearWindowRoster(allLocations),
-                    Verdict.STANDDOWN, singleKeyScoreResolver(), singleKeyTriagedResolver());
-
-            assertThat(fromSingleKey.sampleSufficient()).isTrue();
-            assertThat(fromSingleKey.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
-            assertThat(fromSingleKey.meanRating()).isEqualTo(4.0);
         }
 
         @Test

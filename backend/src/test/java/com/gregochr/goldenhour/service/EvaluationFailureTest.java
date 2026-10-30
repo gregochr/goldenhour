@@ -2,10 +2,8 @@ package com.gregochr.goldenhour.service;
 
 import com.anthropic.errors.AnthropicIoException;
 import com.anthropic.errors.AnthropicServiceException;
-import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
-import com.gregochr.goldenhour.exception.EvaluationFailedException;
 import io.github.resilience4j.bulkhead.Bulkhead;
 import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
@@ -16,60 +14,22 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import java.net.SocketTimeoutException;
-import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * The one mapping from a failed Claude evaluation to the fixed phrase an admin reads: every kind the
- * code can tell apart gets exactly its phrase, and nothing an exception carries ever reaches one.
+ * The one naming of a failed Claude evaluation as an {@code errorType} string, and the HTTP status that
+ * travels with it.
  */
 class EvaluationFailureTest {
-
-    private static final String UNKNOWN = "Evaluation failed (see server log).";
 
     private static AnthropicServiceException serviceError(int status, String message) {
         AnthropicServiceException ex = mock(AnthropicServiceException.class);
         when(ex.statusCode()).thenReturn(status);
         when(ex.getMessage()).thenReturn(message);
         return ex;
-    }
-
-    @ParameterizedTest(name = "{0} -> {1}")
-    @CsvSource(delimiter = '|', value = {
-            "anthropic_401|Claude rejected the API key.",
-            "anthropic_403|Claude rejected the API key.",
-            "anthropic_429|Claude's rate limit was reached.",
-            "anthropic_529|Claude was overloaded.",
-            "anthropic_500|Claude returned a server error.",
-            "anthropic_502|Claude returned a server error.",
-            "anthropic_503|Claude returned a server error.",
-            "anthropic_599|Claude returned a server error.",
-            "AnthropicIoException|Claude could not be reached.",
-            "parse_error|Claude's reply could not be read.",
-            "reply_unreadable|Claude's reply could not be read.",
-            "refusal|Claude declined to evaluate this place.",
-            "content_filter|Claude declined to evaluate this place.",
-            "anthropic_400|Evaluation failed (see server log).",
-            "anthropic_404|Evaluation failed (see server log).",
-            "anthropic_abc|Evaluation failed (see server log).",
-            "circuit_open|Not attempted: Claude calls are paused after repeated failures. Try again in a minute.",
-            "bulkhead_full|Not attempted: too many Claude calls were already waiting.",
-            "IllegalStateException|Evaluation failed (see server log).",
-            "unknown|Evaluation failed (see server log).",
-    })
-    @DisplayName("each errorType the engine reports maps to exactly its fixed phrase")
-    void fromErrorType_mapsToExactPhrase(String errorType, String phrase) {
-        assertThat(EvaluationFailure.fromErrorType(errorType).reason()).isEqualTo(phrase);
-    }
-
-    @Test
-    @DisplayName("a null errorType is the fallback phrase, not an NPE")
-    void fromErrorType_null_isFallback() {
-        assertThat(EvaluationFailure.fromErrorType(null)).isEqualTo(EvaluationFailure.UNKNOWN);
-        assertThat(EvaluationFailure.UNKNOWN.reason()).isEqualTo(UNKNOWN);
     }
 
     @Test
@@ -102,60 +62,33 @@ class EvaluationFailureTest {
     }
 
     @Test
-    @DisplayName("of() maps a thrown exception through errorTypeOf: a timeout is 'could not be reached'")
-    void of_ioException_isUnreachable() {
-        EvaluationFailure kind = EvaluationFailure.of(
-                new AnthropicIoException("Request timed out", new SocketTimeoutException("timeout")));
-
-        assertThat(kind).isEqualTo(EvaluationFailure.UNREACHABLE);
-        assertThat(kind.reason()).isEqualTo("Claude could not be reached.");
+    @DisplayName("errorTypeOf names the SDK's I/O failure (a timeout) by its class")
+    void errorTypeOf_ioException_isItsSimpleName() {
+        assertThat(EvaluationFailure.errorTypeOf(
+                new AnthropicIoException("Request timed out", new SocketTimeoutException("timeout"))))
+                .isEqualTo("AnthropicIoException");
     }
 
     @Test
-    @DisplayName("of() reads the errorType an EvaluationFailedException carries")
-    void of_evaluationFailedException_usesItsErrorType() {
-        EvaluationFailedException failed = new EvaluationFailedException(
-                "anthropic_401", "invalid x-api-key", "Durham", TargetType.SUNSET, LocalDate.parse("2026-10-03"));
-
-        assertThat(EvaluationFailure.of(failed)).isEqualTo(EvaluationFailure.KEY_REJECTED);
-    }
-
-    @Test
-    @DisplayName("of() finds a recognised failure down the cause chain")
-    void of_looksDownTheCauseChain() {
-        RuntimeException wrapped = new RuntimeException("wrapper", serviceError(429, "slow down"));
-
-        assertThat(EvaluationFailure.of(wrapped)).isEqualTo(EvaluationFailure.RATE_LIMITED);
-    }
-
-    @Test
-    @DisplayName("of() maps an open or half-open circuit breaker refusal to its own not-attempted phrase, "
-            + "and it does not stop the run")
-    void of_circuitOpen_isCircuitOpen() {
+    @DisplayName("errorTypeOf names an open or half-open circuit breaker refusal circuit_open")
+    void errorTypeOf_circuitOpen() {
         CircuitBreaker breaker = CircuitBreaker.ofDefaults("anthropic");
         breaker.transitionToOpenState();
 
         CallNotPermittedException refused = CallNotPermittedException.createCallNotPermittedException(breaker);
 
-        EvaluationFailure kind = EvaluationFailure.of(refused);
-
-        assertThat(kind).isEqualTo(EvaluationFailure.CIRCUIT_OPEN);
-        assertThat(kind.reason())
-                .isEqualTo("Not attempted: Claude calls are paused after repeated failures. Try again in a minute.");
         assertThat(EvaluationFailure.errorTypeOf(refused)).isEqualTo("circuit_open");
+        assertThat(EvaluationFailure.errorTypeOf(refused)).isEqualTo(EvaluationFailure.TYPE_CIRCUIT_OPEN);
     }
 
     @Test
-    @DisplayName("of() maps a bulkhead refusal to its own not-attempted phrase")
-    void of_bulkheadFull_isBulkheadFull() {
+    @DisplayName("errorTypeOf names a bulkhead refusal bulkhead_full")
+    void errorTypeOf_bulkheadFull() {
         Bulkhead bulkhead = Bulkhead.ofDefaults("claude");
         BulkheadFullException refused = BulkheadFullException.createBulkheadFullException(bulkhead);
 
-        EvaluationFailure kind = EvaluationFailure.of(refused);
-
-        assertThat(kind).isEqualTo(EvaluationFailure.BULKHEAD_FULL);
-        assertThat(kind.reason()).isEqualTo("Not attempted: too many Claude calls were already waiting.");
         assertThat(EvaluationFailure.errorTypeOf(refused)).isEqualTo("bulkhead_full");
+        assertThat(EvaluationFailure.errorTypeOf(refused)).isEqualTo(EvaluationFailure.TYPE_BULKHEAD_FULL);
     }
 
     @ParameterizedTest(name = "HTTP {0} -> status {0}")
@@ -180,25 +113,5 @@ class EvaluationFailureTest {
         assertThat(EvaluationFailure.httpStatusOf(
                 BulkheadFullException.createBulkheadFullException(Bulkhead.ofDefaults("claude")))).isNull();
         assertThat(EvaluationFailure.httpStatusOf(new IllegalStateException("boom"))).isNull();
-    }
-
-    @Test
-    @DisplayName("a phrase never contains the exception's message or class name, even a hostile one")
-    void reason_neverCarriesTheRawMessage() {
-        String hostile = "401: invalid x-api-key sk-ant-api03-SECRET at https://api.anthropic.com";
-        for (EvaluationFailure kind : new EvaluationFailure[] {
-                EvaluationFailure.of(serviceError(401, hostile)),
-                EvaluationFailure.of(serviceError(500, hostile)),
-                EvaluationFailure.of(new IllegalStateException(hostile)),
-                EvaluationFailure.of(new ClaudeRefusalException(hostile))}) {
-            assertThat(kind.reason()).doesNotContain("SECRET").doesNotContain("sk-ant")
-                    .doesNotContain("Exception").doesNotContain("https://");
-        }
-    }
-
-    @Test
-    @DisplayName("the rejected-key phrase is exactly the agreed text")
-    void fixedPhrases_areExactlyTheAgreedText() {
-        assertThat(EvaluationFailure.KEY_REJECTED.reason()).isEqualTo("Claude rejected the API key.");
     }
 }

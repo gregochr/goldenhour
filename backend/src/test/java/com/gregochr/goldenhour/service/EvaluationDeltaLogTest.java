@@ -150,7 +150,7 @@ class EvaluationDeltaLogTest {
             service.writeFromBatch(cacheKey, List.of(result("Bamburgh", 5)));
 
             // Verify the cache was updated despite the logging failure
-            assertThat(service.hasEvaluation(cacheKey)).isTrue();
+            assertThat(BriefingEvaluationTestSupport.hasEvaluation(service, cacheKey)).isTrue();
         }
 
         @Test

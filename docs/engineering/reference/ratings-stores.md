@@ -388,7 +388,7 @@ Two consequences worth stating plainly:
   real `forecast_evaluation` triage row alongside `SKIPPED_TRIAGED`) — so `examinedCount` silently
   collapsed to rated-only on the production shape the gate exists to protect (a 50-slot region with
   35 batch-triaged, 15 rated read 15-of-50, under half, INSUFFICIENT). `EvaluationViewService
-  .getTriagedByBatchLocationNames`/`getTriagedByBatchLocationNamesBulk` are the fix: they read the
+  .getTriagedByBatchLocationNamesBulk` (its single-region form was later removed, unused) is the fix: they read the
   same `loadTriagedByBatch` disposition-sourced set as before, but return it as a location-name set
   keyed identically to `getScoresForEnrichmentBulk`'s own map — `findAllEnabled` + `loadTriagedByBatch`,
   **2** queries — ⚠️ **and the second is written as a `NOT EXISTS` anti-join, never as

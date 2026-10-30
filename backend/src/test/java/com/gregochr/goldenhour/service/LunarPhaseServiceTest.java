@@ -308,7 +308,7 @@ class LunarPhaseServiceTest {
                 boolean qualifying = service.classifyTide(date) != LunarTideType.REGULAR_TIDE;
                 if (qualifying && !inRun) {
                     runs++;
-                    assertThat(service.isNewOrFullMoon(date))
+                    assertThat(service.isNewMoon(date) || service.isFullMoon(date))
                             .as("run starting %s is not on a syzygy", date).isTrue();
                 }
                 inRun = qualifying;

@@ -79,8 +79,8 @@ import java.util.Set;
  * <p><b>What it writes</b> (all idempotent, run again and nothing doubles):
  * <ul>
  *   <li>three regions and their locations, through the repositories — nothing seeds a local database
- *       with regions or locations (the {@code forecast.locations} block in
- *       {@code application-local.yml} is bound by nothing), so the fixture brings its own:
+ *       with regions or locations (the former {@code forecast.locations} block in
+ *       {@code application-local.yml} was bound by nothing and has been deleted), so the fixture brings its own:
  *       <b>Fixture Northumberland Coast</b> (seven sky locations — three of them coastal — and a
  *       wood), <b>Fixture Lake District</b> (six) and <b>Fixture Yorkshire Dales</b> (eight);</li>
  *   <li>rated entries for the next {@value #WINDOWS} upcoming solar windows, written through

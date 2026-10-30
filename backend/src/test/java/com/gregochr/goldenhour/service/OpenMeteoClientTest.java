@@ -110,36 +110,6 @@ class OpenMeteoClientTest {
                 eq(OpenMeteoClient.AIR_QUALITY_PARAMS), eq("UTC"));
     }
 
-    @Test
-    @DisplayName("fetchCloudOnly() delegates to forecastApi with cloud-only parameters")
-    void fetchCloudOnly_delegatesToApi() {
-        OpenMeteoForecastResponse expected = new OpenMeteoForecastResponse();
-        when(forecastApi.getForecast(anyDouble(), anyDouble(), anyString(), anyString(), anyString()))
-                .thenReturn(expected);
-
-        OpenMeteoForecastResponse result = openMeteoClient.fetchCloudOnly(54.77, -1.57);
-
-        assertThat(result).isSameAs(expected);
-        verify(forecastApi).getForecast(
-                eq(54.77), eq(-1.57),
-                eq(OpenMeteoClient.CLOUD_ONLY_PARAMS), eq("ms"), eq("UTC"));
-    }
-
-    @Test
-    @DisplayName("fetchForecastBriefing() delegates to forecastApi with briefing parameters")
-    void fetchForecastBriefing_delegatesToApi() {
-        OpenMeteoForecastResponse expected = new OpenMeteoForecastResponse();
-        when(forecastApi.getForecast(anyDouble(), anyDouble(), anyString(), anyString(), anyString()))
-                .thenReturn(expected);
-
-        OpenMeteoForecastResponse result = openMeteoClient.fetchForecastBriefing(54.77, -1.57);
-
-        assertThat(result).isSameAs(expected);
-        verify(forecastApi).getForecast(
-                eq(54.77), eq(-1.57),
-                eq(OpenMeteoClient.FORECAST_PARAMS), eq("ms"), eq("UTC"));
-    }
-
     // ── Batch parsing tests ────────────────────────────────────────────────────
 
     @Test

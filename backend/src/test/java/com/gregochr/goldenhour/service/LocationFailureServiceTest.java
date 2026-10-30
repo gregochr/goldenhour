@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence;
+import com.gregochr.goldenhour.model.CyclePlaceEvidenceFixtures;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.PipelineRunRepository;
@@ -256,8 +257,8 @@ class LocationFailureServiceTest {
             + "clock's time, and the 9 that scored are reset")
     void oneSkyFailureOfTen_counts() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 0, true)));
 
@@ -282,8 +283,8 @@ class LocationFailureServiceTest {
             + "other sky results succeeded. The 4 that scored are still reset")
     void sixSkyFailuresOfTen_countForNone() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 4, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        put(evidence, 5, 10, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 4, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        put(evidence, 5, 10, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
 
         settle(evidence);
 
@@ -301,8 +302,8 @@ class LocationFailureServiceTest {
             + "half'): 5 succeeded and 6 failed leaves 5 of the 10 others for each failed place")
     void exactlyHalfOfTheOthers_counts() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 5, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        put(evidence, 6, 11, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 5, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        put(evidence, 6, 11, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         List<LocationEntity> failing = new ArrayList<>();
         for (long id = 6; id <= 11; id++) {
             failing.add(place(id, "P" + id, 0, true));
@@ -321,8 +322,8 @@ class LocationFailureServiceTest {
             + "the 10 others for each failed place")
     void justUnderHalfOfTheOthers_countsForNone() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 4, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        put(evidence, 5, 11, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 4, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        put(evidence, 5, 11, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
 
         settle(evidence);
 
@@ -334,7 +335,7 @@ class LocationFailureServiceTest {
     @DisplayName("a cycle that fails everything counts for nobody: 510 sky failures, none succeeded")
     void everythingFailed_countsForNobody() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 510, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 510, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
 
         settle(evidence);
 
@@ -347,7 +348,7 @@ class LocationFailureServiceTest {
             + "was working, so it is not counted")
     void loneFailedPlace_notCounted() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        evidence.put(1L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        evidence.put(1L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         evidence.put(2L, CyclePlaceEvidence.nothing());
 
         settle(evidence);
@@ -359,8 +360,8 @@ class LocationFailureServiceTest {
     @DisplayName("a sky failure among 10 sky results of which 5 succeeded counts")
     void skyFailure_fiveOfTenSucceeded_counts() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 5, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        put(evidence, 6, 10, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 5, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        put(evidence, 6, 10, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         List<LocationEntity> failing = new ArrayList<>();
         for (long id = 6; id <= 10; id++) {
             failing.add(place(id, "P" + id, 0, true));
@@ -377,8 +378,8 @@ class LocationFailureServiceTest {
             + "count: triaged places never touched Claude, so they are no evidence about Claude")
     void skyFailure_successesAreTriageOnly_doesNotCount() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 5, CyclePlaceEvidence.triagedOnly());
-        put(evidence, 6, 10, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 5, CyclePlaceEvidenceFixtures.triagedOnly());
+        put(evidence, 6, 10, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
 
         settle(evidence);
 
@@ -393,9 +394,9 @@ class LocationFailureServiceTest {
             + "score and 50 are triaged counts nobody: woodland places are judged against woodland")
     void woodlandRegression_countsNobody() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 200, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        put(evidence, 201, 250, CyclePlaceEvidence.triagedOnly());
-        put(evidence, 251, 255, CyclePlaceEvidence.failedIn(Lane.WOODLAND));
+        put(evidence, 1, 200, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        put(evidence, 201, 250, CyclePlaceEvidenceFixtures.triagedOnly());
+        put(evidence, 251, 255, CyclePlaceEvidenceFixtures.failedIn(Lane.WOODLAND));
 
         settle(evidence);
 
@@ -409,8 +410,8 @@ class LocationFailureServiceTest {
             + "nobody, whatever the sky lane did")
     void oneLaneExpiresEntirely_countsNobody() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 100, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        put(evidence, 101, 108, CyclePlaceEvidence.failedIn(Lane.BLUEBELL));
+        put(evidence, 1, 100, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        put(evidence, 101, 108, CyclePlaceEvidenceFixtures.failedIn(Lane.BLUEBELL));
 
         settle(evidence);
 
@@ -422,8 +423,8 @@ class LocationFailureServiceTest {
     @DisplayName("a woodland failure counts when most other woodland results succeeded")
     void woodlandFailure_mostWoodlandSucceeded_counts() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.WOODLAND));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.WOODLAND));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.WOODLAND));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.WOODLAND));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Wallington Woods", 0, true)));
 
@@ -436,9 +437,9 @@ class LocationFailureServiceTest {
     @DisplayName("a place failing in two lanes counts once, when either lane qualifies")
     void failureInTwoLanes_countsOnce() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        put(evidence, 10, 14, CyclePlaceEvidence.failedIn(Lane.WOODLAND));
-        evidence.put(15L, CyclePlaceEvidence.failedIn(Lane.SKY, Lane.WOODLAND));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        put(evidence, 10, 14, CyclePlaceEvidenceFixtures.failedIn(Lane.WOODLAND));
+        evidence.put(15L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY, Lane.WOODLAND));
         when(locationRepository.findAllById(List.of(15L)))
                 .thenReturn(List.of(place(15L, "Alnwick", 1, true)));
 
@@ -454,8 +455,8 @@ class LocationFailureServiceTest {
             + "reason says 'data could not be collected', not that weather failed")
     void collectionError_counts_withNeutralWording() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.triagedOnly());
-        evidence.put(10L, CyclePlaceEvidence.collectionError());
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.triagedOnly());
+        evidence.put(10L, CyclePlaceEvidenceFixtures.collectionError());
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
         when(locationRepository.autoDisable(10L, 3, NOW_UTC, COLLECTION_REASON)).thenReturn(1);
@@ -475,8 +476,8 @@ class LocationFailureServiceTest {
             + "itself was failing, which is systemic")
     void mostCollectionsFailed_countsNobody() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 4, CyclePlaceEvidence.triagedOnly());
-        put(evidence, 5, 10, CyclePlaceEvidence.collectionError());
+        put(evidence, 1, 4, CyclePlaceEvidenceFixtures.triagedOnly());
+        put(evidence, 5, 10, CyclePlaceEvidenceFixtures.collectionError());
 
         settle(evidence);
 
@@ -490,8 +491,8 @@ class LocationFailureServiceTest {
             + "evaluation failure")
     void collectionPopulationBad_butSkyLaneGood_countsAsEvaluation() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 20, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        put(evidence, 21, 50, CyclePlaceEvidence.collectionError());
+        put(evidence, 1, 20, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        put(evidence, 21, 50, CyclePlaceEvidenceFixtures.collectionError());
         evidence.put(51L, new CyclePlaceEvidence(false, true, java.util.Set.of(),
                 java.util.Set.of(Lane.SKY)));
         when(locationRepository.findAllById(List.of(51L)))
@@ -510,8 +511,8 @@ class LocationFailureServiceTest {
             + "column-scoped reset")
     void gotThrough_resetsCounter() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        evidence.put(7L, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(8L, CyclePlaceEvidence.triagedOnly());
+        evidence.put(7L, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(8L, CyclePlaceEvidenceFixtures.triagedOnly());
 
         settle(evidence);
 
@@ -553,8 +554,8 @@ class LocationFailureServiceTest {
             + "the clock's time, and the alert carries that cycle's own type and trigger time")
     void reachingThree_disables_alertCarriesCycleTypeAndTriggerTime() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
         when(locationRepository.autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(1);
@@ -573,8 +574,8 @@ class LocationFailureServiceTest {
     @DisplayName("a place reaching 2 is counted but not disabled and nobody is told")
     void reachingTwo_notDisabled() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 1, true)));
 
@@ -593,8 +594,8 @@ class LocationFailureServiceTest {
             + "listed in name order whatever order the evidence arrived in")
     void fivePlacesReachingThree_allDisabled_alertListSortedByName() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 20, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        put(evidence, 21, 25, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 20, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        put(evidence, 21, 25, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         // Names deliberately out of id order, so only a real sort can produce the expected list.
         String[] names = {"Zeta", "Alpha", "Mid", "Beta", "Omega"};
         List<LocationEntity> failing = new ArrayList<>();
@@ -623,8 +624,8 @@ class LocationFailureServiceTest {
             + "while the counters still advance")
     void sixPlacesReachingThree_noneDisabled_capAlertSent() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 20, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        put(evidence, 21, 26, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 20, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        put(evidence, 21, 26, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         List<LocationEntity> failing = new ArrayList<>();
         for (long id = 21; id <= 26; id++) {
             failing.add(place(id, "P" + id, 2, true));
@@ -655,8 +656,8 @@ class LocationFailureServiceTest {
             + "read and the update) sends no alert and logs no disable")
     void autoDisableUpdatesNothing_noAlert() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
         when(locationRepository.autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(0);
@@ -671,8 +672,8 @@ class LocationFailureServiceTest {
     @DisplayName("a place an admin disabled mid-cycle is skipped, not counted and not disabled")
     void alreadyDisabledPlace_skipped() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 2, false)));
 
@@ -688,8 +689,8 @@ class LocationFailureServiceTest {
     @DisplayName("a failed place the repository no longer returns (deleted mid-cycle) is skipped")
     void failedPlaceMissingFromRepository_skipped() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L))).thenReturn(List.of());
 
         settle(evidence);
@@ -704,8 +705,8 @@ class LocationFailureServiceTest {
     @DisplayName("a null stored counter counts as zero")
     void nullCounter_countsFromZero() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", null, true)));
 
@@ -718,8 +719,8 @@ class LocationFailureServiceTest {
     @DisplayName("an alert dispatch that throws is swallowed: the place stays disabled")
     void alertThrows_placeStaysDisabled() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
         when(locationRepository.autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(1);
@@ -737,8 +738,8 @@ class LocationFailureServiceTest {
 
     private Map<Long, CyclePlaceEvidence> oneDisableEvidence() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
         when(locationRepository.autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(1);
@@ -776,8 +777,8 @@ class LocationFailureServiceTest {
     @DisplayName("the cap alert is likewise sent only after the commit, and not when it fails")
     void capAlert_afterCommitOnly() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 20, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        put(evidence, 21, 26, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 20, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        put(evidence, 21, 26, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         List<LocationEntity> failing = new ArrayList<>();
         for (long id = 21; id <= 26; id++) {
             failing.add(place(id, "P" + id, 2, true));
@@ -801,8 +802,8 @@ class LocationFailureServiceTest {
         java.util.concurrent.CountDownLatch aInside = new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.CountDownLatch releaseA = new java.util.concurrent.CountDownLatch(1);
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 0, true)));
         when(resolver.resolve(RUN_ID)).thenAnswer(invocation -> {
@@ -862,14 +863,14 @@ class LocationFailureServiceTest {
         storedCounts.put(1L, 2);
         storedCounts.put(2L, 2);
         Map<Long, CyclePlaceEvidence> newerCycle = cycle();
-        newerCycle.put(1L, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        newerCycle.put(1L, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
         when(resolver.resolve(RUN_ID + 1)).thenReturn(newerCycle);
         // The older cycle: place 1 and 3..11 scored, place 2 failed. Settled FULL, place 2 would
         // count (10 of the 10 others got through); RESETS_ONLY must not count it.
         Map<Long, CyclePlaceEvidence> olderCycle = cycle();
-        put(olderCycle, 3, 11, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        olderCycle.put(1L, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        olderCycle.put(2L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(olderCycle, 3, 11, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        olderCycle.put(1L, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        olderCycle.put(2L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(resolver.resolve(RUN_ID)).thenReturn(olderCycle);
 
         service.settleCycle(run(RUN_ID + 1, CycleType.NIGHTLY, newer));
@@ -896,8 +897,8 @@ class LocationFailureServiceTest {
     void tailSettleOfNewestCycle_isFull() {
         settledRuns.put(RUN_ID - 1, TRIGGER.minusSeconds(3600));
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 0, true)));
 
@@ -930,9 +931,9 @@ class LocationFailureServiceTest {
         storedCounts.put(1L, 2);
         storedCounts.put(2L, 1);
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        evidence.put(1L, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        put(evidence, 3, 11, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(2L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        evidence.put(1L, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        put(evidence, 3, 11, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(2L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         PipelineRunEntity first = run(RUN_ID, CycleType.NIGHTLY, TRIGGER);
         PipelineRunEntity second = run(RUN_ID + 1, CycleType.INTRADAY, TRIGGER.plusSeconds(3600));
         unsettled(first, second);
@@ -993,13 +994,13 @@ class LocationFailureServiceTest {
     void tailSettle_sweepsFirst_thenOwnCycleFull() {
         storedCounts.put(1L, 2);
         Map<Long, CyclePlaceEvidence> earlier = cycle();
-        earlier.put(1L, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        earlier.put(1L, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
         PipelineRunEntity earlierRun = run(RUN_ID - 1, CycleType.NIGHTLY, TRIGGER.minusSeconds(3600));
         unsettled(earlierRun);
         when(resolver.resolve(RUN_ID - 1)).thenReturn(earlier);
         Map<Long, CyclePlaceEvidence> own = cycle();
-        put(own, 2, 10, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        own.put(11L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(own, 2, 10, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        own.put(11L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(11L)))
                 .thenReturn(List.of(place(11L, "Bamburgh", 0, true)));
 
@@ -1112,8 +1113,8 @@ class LocationFailureServiceTest {
     /** A tail whose evidence would count place 10 from 2 to 3 (and so disable it) if FULL. */
     private Map<Long, CyclePlaceEvidence> failureThatWouldDisable() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         place(10L, "Bamburgh", 2, true);
         return evidence;
     }
@@ -1263,8 +1264,8 @@ class LocationFailureServiceTest {
             + "counter written exactly once")
     void sameCycleSettledTwice_countedOnce() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(resolver.resolve(RUN_ID)).thenReturn(evidence);
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 0, true)));
@@ -1296,8 +1297,8 @@ class LocationFailureServiceTest {
             + "the claim lives in pipeline_run, not in memory")
     void claimSurvivesANewServiceInstance() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(resolver.resolve(RUN_ID)).thenReturn(evidence);
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 0, true)));
@@ -1317,8 +1318,8 @@ class LocationFailureServiceTest {
             + "and applies it, the other is refused")
     void concurrentSettlesOfOneCycle_onlyOneClaims() throws Exception {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
-        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
-        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        put(evidence, 1, 9, CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
         when(resolver.resolve(RUN_ID)).thenReturn(evidence);
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 0, true)));

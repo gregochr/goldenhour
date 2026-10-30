@@ -37,7 +37,6 @@ public class ScheduledForecastService {
     private final TideService tideService;
     private final LocationService locationService;
     private final JobRunService jobRunService;
-    private final BriefingService briefingService;
     private final DynamicSchedulerService dynamicSchedulerService;
 
     /**
@@ -65,27 +64,23 @@ public class ScheduledForecastService {
      * @param tideService              the service that fetches and stores tide extremes
      * @param locationService          the service providing persisted locations
      * @param jobRunService            the service for tracking job run metrics
-     * @param briefingService          the service that generates daily briefings
      * @param dynamicSchedulerService  the dynamic scheduler for job registration
      */
     public ScheduledForecastService(TideService tideService, LocationService locationService,
             JobRunService jobRunService,
-            BriefingService briefingService,
             DynamicSchedulerService dynamicSchedulerService) {
         this.tideService = tideService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
-        this.briefingService = briefingService;
         this.dynamicSchedulerService = dynamicSchedulerService;
     }
 
     /**
-     * Registers tide refresh and daily briefing jobs with the dynamic scheduler.
+     * Registers the tide refresh job with the dynamic scheduler.
      */
     @PostConstruct
     void registerJobs() {
         dynamicSchedulerService.registerJobTarget("tide_refresh", this::refreshTideExtremes);
-        dynamicSchedulerService.registerJobTarget("daily_briefing", this::refreshDailyBriefing);
     }
 
     /**
@@ -171,23 +166,6 @@ public class ScheduledForecastService {
         jobRunService.completeRun(jobRun, succeeded, failed);
         LOG.info("Weekly tide refresh complete — {} succeeded, {} failed",
                 succeeded, failed);
-    }
-
-    /**
-     * The {@code daily_briefing} scheduler target — a pre-flight check of weather and tide
-     * conditions across all enabled colour locations.
-     *
-     * <p>Dormant: V103 deleted the job's row, so nothing schedules it and the Scheduler screen
-     * has no Run Now for it (the briefing is built at the tail of each pipeline cycle). It stays
-     * registered as the one-line revert path V103 describes. If that revert is ever taken, a fire
-     * that meets a build already in progress skips it rather than queuing a second one behind it.
-     */
-    public void refreshDailyBriefing() {
-        try {
-            briefingService.refreshBriefingIfIdle();
-        } catch (Exception e) {
-            LOG.error("Daily briefing refresh failed: {}", e.getMessage(), e);
-        }
     }
 
     /**

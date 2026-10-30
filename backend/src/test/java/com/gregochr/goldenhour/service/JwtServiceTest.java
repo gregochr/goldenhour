@@ -46,7 +46,7 @@ class JwtServiceTest {
     @DisplayName("Generated access token contains correct role claim")
     void generateAccessToken_containsCorrectRole() {
         String token = jwtService.generateAccessToken("alice", UserRole.ADMIN);
-        assertThat(jwtService.extractRole(token)).isEqualTo(UserRole.ADMIN);
+        assertThat(JwtTestClaims.roleOf(token)).isEqualTo(UserRole.ADMIN);
     }
 
     @Test
@@ -57,7 +57,7 @@ class JwtServiceTest {
         assertThat(jwtService.extractUserId(token)).isEqualTo(4_000_000_000L);
         assertThat(jwtService.extractCredentialsVersion(token)).isEqualTo(7L);
         assertThat(jwtService.extractUsername(token)).isEqualTo("alice");
-        assertThat(jwtService.extractRole(token)).isEqualTo(UserRole.PRO_USER);
+        assertThat(JwtTestClaims.roleOf(token)).isEqualTo(UserRole.PRO_USER);
     }
 
     @Test
@@ -166,12 +166,12 @@ class JwtServiceTest {
         assertThat(expiry).isBefore(after);
     }
 
-    @ParameterizedTest(name = "extractRole round-trips {0}")
+    @ParameterizedTest(name = "role claim round-trips {0}")
     @EnumSource(UserRole.class)
-    @DisplayName("extractRole returns the correct role for every role value")
-    void extractRole_roundTripsAllRoles(UserRole role) {
+    @DisplayName("the access token carries the correct role for every role value")
+    void accessToken_roleClaim_roundTripsAllRoles(UserRole role) {
         String token = jwtService.generateAccessToken("alice", role);
-        assertThat(jwtService.extractRole(token)).isEqualTo(role);
+        assertThat(JwtTestClaims.roleOf(token)).isEqualTo(role);
     }
 
     @Test

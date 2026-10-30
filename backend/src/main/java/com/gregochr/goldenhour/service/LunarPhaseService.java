@@ -206,16 +206,6 @@ public class LunarPhaseService {
     }
 
     /**
-     * Returns true when the date is near either syzygy — the condition for a spring tide.
-     *
-     * @param date the calendar date
-     * @return true if near a new or full moon
-     */
-    public boolean isNewOrFullMoon(LocalDate date) {
-        return isNewMoon(date) || isFullMoon(date);
-    }
-
-    /**
      * Returns days from midday on the given date to the nearest true new moon.
      *
      * @param date the calendar date

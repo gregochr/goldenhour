@@ -36,11 +36,6 @@ public record BatchSubmissionSummary(
     public record FailedBucket(String label, int requestCount) {
     }
 
-    /** @return the summary for a cycle where no bucket had any tasks to submit. */
-    public static BatchSubmissionSummary allEmpty() {
-        return new BatchSubmissionSummary(0, 0, List.of());
-    }
-
     /**
      * @return {@code true} when every attempted bucket reached Anthropic (including the trivial
      *         zero-bucket case — nothing to submit is not a failure)

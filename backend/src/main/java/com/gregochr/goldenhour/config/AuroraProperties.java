@@ -21,13 +21,6 @@ public class AuroraProperties {
     /** Whether the aurora polling job is active. Defaults to {@code true}. */
     private boolean enabled = true;
 
-    /**
-     * ⚠️ Not read anywhere. The poll interval is the {@code aurora_polling} row's
-     * {@code fixed_delay_ms} in {@code scheduler_job_config} (5 minutes, seeded by V68), which the
-     * Scheduler screen edits. Defaults to 5.
-     */
-    private int pollIntervalMinutes = 5;
-
     /** API key for lightpollutionmap.info QueryRaster endpoint. */
     private String lightPollutionApiKey;
 
@@ -94,19 +87,6 @@ public class AuroraProperties {
          * its polls read the forecast to tonight's dawn. Defaults to 6.
          */
         private int kpForecastLookaheadHours = 6;
-
-        /**
-         * ⚠️ Not read anywhere. Meant for a de-escalation hysteresis that has never been built: a
-         * night poll clears an alert as soon as its level falls below MODERATE, unless the last
-         * completed block's reading is still due (for up to an hour after the block ends).
-         * Defaults to 5.
-         */
-        private double kpClearThreshold = 5.0;
-
-        /**
-         * ⚠️ Not read anywhere, for the same reason as {@link #kpClearThreshold}. Defaults to 15.
-         */
-        private double ovationClearThreshold = 15.0;
     }
 
     /**
@@ -121,12 +101,6 @@ public class AuroraProperties {
 
         /** Data layer to query (e.g. sb_2025 for Sky Brightness 2025). */
         private String queryLayer = "sb_2025";
-
-        /** Maximum API requests per day. Quota resets at GMT+1. */
-        private int dailyLimit = 1000;
-
-        /** Delay in milliseconds between consecutive API calls. */
-        private int delayBetweenCallsMs = 500;
     }
 
     /**

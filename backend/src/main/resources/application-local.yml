@@ -52,58 +52,6 @@ logging:
   level:
     com.gregochr.goldenhour.config.RequestLoggingInterceptor: INFO
 
-
-forecast:
-  locations:
-    - name: Berwick-Upon-Tweed
-      lat: 55.7702
-      lon: -2.0054
-      tideType: HIGH
-      locationType: SEASCAPE
-    - name: Spittal Beach
-      lat: 55.7592
-      lon: -1.9912
-      tideType:
-        - HIGH
-        - LOW
-      locationType: SEASCAPE
-    - name: Cocklawburn Beach
-      lat: 55.7296
-      lon: -1.9525
-      solarEventType:
-        - SUNRISE
-      tideType:
-        - HIGH
-        - MID
-      locationType: SEASCAPE
-    - name: Angel of the North
-      lat: 54.9141
-      lon: -1.5895
-      locationType: LANDSCAPE
-      solarEventType:
-        - SUNRISE
-        - SUNSET
-    - name: Lowes Barns, Witton Le Wear
-      lat: 54.717
-      lon: -1.761
-      locationType: WILDLIFE
-    - name: Keswick
-      lat: 54.6
-      lon: -3.13
-      locationType: LANDSCAPE
-      solarEventType:
-        - SUNRISE
-        - SUNSET
-    - name: Wharton Park, Durham
-      lat: 54.7806
-      lon: -1.5833
-      locationType: LANDSCAPE
-      solarEventType:
-        - SUNRISE
-
-  schedule:
-    cron: "0 0 6,18 * * *"
-
 jwt:
   # Local dev secret — not used in production. Generate production value with: openssl rand -base64 32
   secret: bG9jYWwtZGV2LXNlY3JldC1rZXktZm9yLXRlc3Rpbmctb25seQ==

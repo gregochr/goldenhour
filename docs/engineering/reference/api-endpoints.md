@@ -328,7 +328,7 @@ tide runs, meteor peaks, supermoons, equinox/solstice, the NLC season, `EclipseA
 **The tide path measures
 water, not the moon** — `TideSizeIndex` applies the Plan tab's own two tests (a day's biggest high
 water clearing that location's `springTideThreshold`, or its `p95HighMetres`, strictly greater, *any*
-coastal location — `TideFactDeriver`'s comparisons and `KingTideHotTopicStrategy.findKingTide`'s
+coastal location — `TideFactDeriver`'s comparisons and the king-tide strategy's
 roster-wide rule, lifted unchanged) across the whole 90 days, then `TideRunBuilder` supplies metres
 and clock times. ⚠️ **`LunarPhaseService.classifyTide` was the detector and must not be restored as
 one.** It qualifies a date within ±1 day of syzygy and the biggest water of a cycle arrives a day or

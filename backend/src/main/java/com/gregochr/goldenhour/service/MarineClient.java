@@ -63,20 +63,6 @@ public class MarineClient {
     }
 
     /**
-     * Fetches the 7-day hourly sea-state series for a coastal location.
-     *
-     * @param lat latitude in decimal degrees
-     * @param lon longitude in decimal degrees
-     * @return the deserialised marine response (hourly arrays may be empty for a land grid cell)
-     */
-    @Retry(name = "open-meteo-briefing")
-    @CircuitBreaker(name = "open-meteo-briefing")
-    @RateLimiter(name = "open-meteo")
-    public OpenMeteoMarineResponse fetchMarine(double lat, double lon) {
-        return marineApi.getMarine(lat, lon, HOURLY_PARAMS, TIMEZONE, FORECAST_DAYS);
-    }
-
-    /**
      * Fetches the 7-day hourly sea-state series for several locations in one request.
      *
      * <p>The caller chunks at {@link #BATCH_COORD_LIMIT}. A single coordinate goes through the
@@ -115,7 +101,7 @@ public class MarineClient {
      * {@code hourly.time} strings (both UTC). Returns empty when the response has no series, the
      * hour is outside the fetched window, or the grid cell returned no wave value (a land point).
      *
-     * @param response    a response from {@link #fetchMarine(double, double)}, or null
+     * @param response    a response from {@link #fetchMarineBatch}, or null
      * @param eventTimeUtc the UTC event time to sample at (e.g. sunrise or sunset), or null
      * @return the sea-state sample at that hour, or empty when unavailable
      */
@@ -150,7 +136,7 @@ public class MarineClient {
      * midpoint, which may be just outside the window. Empty on a land cell (no wave values), a missing
      * series, or a window with no usable hour.
      *
-     * @param response a response from {@link #fetchMarine(double, double)}, or null
+     * @param response a response from {@link #fetchMarineBatch}, or null
      * @param fromUtc  window start, UTC, or null
      * @param toUtc    window end, UTC, or null
      * @return the peak hour's sea state, or empty when unavailable

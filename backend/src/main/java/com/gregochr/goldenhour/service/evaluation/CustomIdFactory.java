@@ -248,23 +248,6 @@ public final class CustomIdFactory {
     }
 
     /**
-     * Builds a JFDI custom ID.
-     *
-     * @param locationId database ID of the location
-     * @param date       forecast date
-     * @param targetType SUNRISE, SUNSET, or HOURLY
-     * @return an ID of the form {@code "jfdi-{locationId}-{date}-{targetType}"}
-     * @throws IllegalArgumentException if the resulting ID exceeds the Anthropic 64-char
-     *                                  limit or contains invalid characters
-     */
-    public static String forJfdi(Long locationId, LocalDate date, TargetType targetType) {
-        Objects.requireNonNull(locationId, "locationId");
-        Objects.requireNonNull(date, "date");
-        Objects.requireNonNull(targetType, "targetType");
-        return validate(PREFIX_JFDI + locationId + "-" + date + "-" + targetType.name());
-    }
-
-    /**
      * Builds a force-submit custom ID.
      *
      * <p>The region name is sanitised by stripping every non-ASCII-alphanumeric character

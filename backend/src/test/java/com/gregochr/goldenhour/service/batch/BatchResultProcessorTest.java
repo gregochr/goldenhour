@@ -371,7 +371,6 @@ class BatchResultProcessorTest {
 
         processor.processResults(batch);
 
-        verify(forecastResultHandler, never()).flushCacheKey(any(), any());
         ArgumentCaptor<ForecastBatchEntity> captor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
         verify(batchRepository).save(captor.capture());
@@ -718,7 +717,6 @@ class BatchResultProcessorTest {
 
         verify(forecastResultHandler).mergeCacheKey(
                 eq("North East|2026-04-07|SUNRISE"), eq(List.of(res)));
-        verify(forecastResultHandler, never()).flushCacheKey(any(), any());
     }
 
     // ── AURORA ───────────────────────────────────────────────────────────────

@@ -70,26 +70,6 @@ cost:
   world-tides-micro-dollars: 3000   # ~$0.003 per call
   open-meteo-micro-dollars: 0       # free
 
-forecast:
-  locations:
-    - name: Durham UK
-      lat: 54.7753
-      lon: -1.5849
-    - name: Whitley Bay
-      lat: 55.04
-      lon: -1.44
-    - name: Keswick
-      lat: 54.6
-      lon: -3.13
-    - name: Ambleside
-      lat: 54.43
-      lon: -2.96
-    - name: Dunstanburgh
-      lat: 55.4894
-      lon: -1.5951
-  schedule:
-    cron: "0 0 6,18 * * *"
-
 jwt:
   secret: YOUR_JWT_SECRET_BASE64   # generate with: openssl rand -base64 32
   access-token-expiry-hours: 24
@@ -104,13 +84,10 @@ openrouteservice:
 
 aurora:
   enabled: true
-  poll-interval-minutes: 5
   light-pollution-api-key: ${LIGHT_POLLUTION_API_KEY}  # https://www.lightpollutionmap.info
   light-pollution:
     api-url: https://www.lightpollutionmap.info/api/queryraster
     query-layer: sb_2025          # Sky Brightness 2025 (replaces wa_2015 World Atlas)
-    daily-limit: 1000             # quota resets at GMT+1
-    delay-between-calls-ms: 500
   noaa:
     kp-url: https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json
     kp-forecast-url: https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json
@@ -122,8 +99,6 @@ aurora:
     kp-threshold: 5.0
     ovation-probability-threshold: 20.0
     kp-forecast-lookahead-hours: 6   # aurora batch job's level check only; polling reads to dawn
-    kp-clear-threshold: 5.0          # not read — de-escalation hysteresis was never built
-    ovation-clear-threshold: 15.0    # not read — as above
   bortle-threshold:
     moderate: 4   # max Bortle class for MODERATE alerts
     strong: 5     # max Bortle class for STRONG alerts (relax threshold for bright displays)

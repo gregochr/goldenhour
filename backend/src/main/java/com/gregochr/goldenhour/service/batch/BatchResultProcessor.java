@@ -158,7 +158,7 @@ public class BatchResultProcessor {
      * <p>Streams individual responses, dispatches each through
      * {@link ForecastResultHandler#parseBatchResponse}, groups successful results by
      * {@code "regionName|date|targetType"}, and flushes each group to
-     * {@link ForecastResultHandler#flushCacheKey} after the loop.
+     * {@link ForecastResultHandler#mergeCacheKey} after the loop.
      */
     private void processForecastBatch(ForecastBatchEntity batch) {
         Map<String, List<BriefingEvaluationResult>> byKey = new HashMap<>();
@@ -301,7 +301,7 @@ public class BatchResultProcessor {
                     LOG.warn("Forecast batch: malformed customId '{}', skipping", customId);
                     errored++;
                     inlineFailureLog(context, customId,
-                            "parse_error", "malformed customId", null, null);
+                            EvaluationFailure.TYPE_PARSE_ERROR, "malformed customId", null, null);
                     continue;
                 }
 
@@ -338,7 +338,7 @@ public class BatchResultProcessor {
                                 + "skipping", customId);
                         errored++;
                         inlineFailureLog(context, customId,
-                                "parse_error", "aurora customId in forecast batch",
+                                EvaluationFailure.TYPE_PARSE_ERROR, "aurora customId in forecast batch",
                                 null, null);
                         continue;
                     }

@@ -170,74 +170,7 @@ public class OpenMeteoService {
     }
 
     /**
-     * Batch pre-fetches forecast and air quality data for a set of unique locations.
-     *
-     * <p>Open-Meteo returns 7 days of hourly data regardless of which date is being evaluated,
-     * so a single response per location covers all dates and events. This method deduplicates
-     * coordinates and makes two batch API calls (forecast + air quality) instead of 2N individual
-     * calls.
-     *
-     * @param coords list of unique [lat, lon] pairs
-     * @param jobRun the parent job run for metrics tracking, or {@code null}
-     * @return map from coordinate key ("lat,lon") to the paired responses
-     */
-    public Map<String, WeatherExtractionResult> prefetchWeatherBatch(
-            List<double[]> coords, JobRunEntity jobRun) {
-        if (coords.isEmpty()) {
-            LOG.info("Open-Meteo batch prefetch: 0 locations — skipping");
-            return Map.of();
-        }
-        LOG.info("Open-Meteo batch prefetch: {} unique locations", coords.size());
-        long startMs = System.currentTimeMillis();
-
-        try {
-            List<OpenMeteoForecastResponse> forecasts = openMeteoClient.fetchForecastBatch(coords);
-            List<OpenMeteoAirQualityResponse> airQualities = openMeteoClient.fetchAirQualityBatch(coords);
-
-            Map<String, WeatherExtractionResult> cache = new LinkedHashMap<>();
-            int nullCount = 0;
-            for (int i = 0; i < coords.size(); i++) {
-                if (forecasts.get(i) == null) {
-                    nullCount++;
-                    continue;
-                }
-                String key = coordKey(coords.get(i)[0], coords.get(i)[1]);
-                cache.put(key, new WeatherExtractionResult(null, forecasts.get(i),
-                        airQualities.get(i)));
-            }
-
-            long durationMs = System.currentTimeMillis() - startMs;
-            LOG.info("Open-Meteo batch prefetch complete: {}/{} locations in {}ms (2 API calls)",
-                    cache.size(), coords.size(), durationMs);
-            if (nullCount > 0) {
-                LOG.warn("Weather batch: {} location(s) missing forecast due to chunk failure",
-                        nullCount);
-            }
-            if (jobRun != null) {
-                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "batch-forecast(" + coords.size() + ")", null, durationMs,
-                        200, null, true, null);
-                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_AIR_QUALITY,
-                        "GET", "batch-air-quality(" + coords.size() + ")", null, durationMs,
-                        200, null, true, null);
-            }
-            return cache;
-        } catch (Exception e) {
-            long durationMs = System.currentTimeMillis() - startMs;
-            LOG.error("Open-Meteo batch prefetch failed ({}ms): {}", durationMs, e.getMessage());
-            if (jobRun != null) {
-                String errorMsg = e.getMessage() != null ? e.getMessage()
-                        : e.getClass().getSimpleName();
-                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "batch-forecast(" + coords.size() + ")", null, durationMs,
-                        getStatusCode(e), null, false, errorMsg);
-            }
-            throw e;
-        }
-    }
-
-    /**
-     * Resilient variant of {@link #prefetchWeatherBatch} for use by the overnight batch.
+     * Resilient batch prefetch for use by the overnight batch.
      *
      * <p>Uses briefing-grade chunk retry and isolation so that a single timed-out chunk
      * does not abort the entire pre-fetch. Returns partial results — callers must handle

@@ -8,7 +8,6 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import lombok.AllArgsConstructor;
@@ -18,14 +17,13 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * JPA entity representing a single scheduled job run.
  *
  * <p>Tracks the run type (what was requested), the evaluation model used (if any),
- * overall timing, and success/failure counts. Child {@link ApiCallLogEntity}
- * records detail which individual API calls occurred during this run.
+ * overall timing, and success/failure counts. {@link ApiCallLogEntity}
+ * rows point back at a run through their {@code jobRunId}.
  */
 @Entity
 @Table(name = "job_run")
@@ -106,10 +104,6 @@ public class JobRunEntity {
     /** Free-text notes for this run (e.g. Anthropic batch ID for SCHEDULED_BATCH runs). */
     @Column(name = "notes", length = 500)
     private String notes;
-
-    /** Child API call log entries for this job run. */
-    @OneToMany(mappedBy = "jobRunId")
-    private List<ApiCallLogEntity> apiCalls;
 
     /**
      * Read-time enrichment for batch run types (SCHEDULED_BATCH / BATCH_NEAR_TERM /

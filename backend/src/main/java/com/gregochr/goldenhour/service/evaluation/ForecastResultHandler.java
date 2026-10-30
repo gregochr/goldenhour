@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationFailure;
 import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.visitor.ComponentScore;
@@ -233,7 +234,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      *
      * <p>Returns the parsed {@link BatchSuccess} on success; returns {@link Optional#empty}
      * on failure (after logging the error and writing a failure {@code api_call_log} row).
-     * The orchestrator collects successes and calls {@link #flushCacheKey} once per cache
+     * The orchestrator collects successes and calls {@link #mergeCacheKey} once per cache
      * key after the loop.
      *
      * @param location the resolved {@link LocationEntity} (orchestrator already
@@ -286,7 +287,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             LOG.warn("Forecast batch: raw response for '{}': {}",
                     outcome.customId(), outcome.rawText());
             ClaudeBatchOutcome parseFailure = ClaudeBatchOutcome.failure(
-                    outcome.customId(), "PARSE_FAILED", "parse_error", e.getMessage());
+                    outcome.customId(), "PARSE_FAILED", EvaluationFailure.TYPE_PARSE_ERROR, e.getMessage());
             persistBatchLog(context, parseFailure, parsed.date(), parsed.targetType(), null);
             return Optional.empty();
         }
@@ -345,29 +346,10 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             LOG.warn("Bluebell batch: raw response for '{}': {}",
                     outcome.customId(), outcome.rawText());
             ClaudeBatchOutcome parseFailure = ClaudeBatchOutcome.failure(
-                    outcome.customId(), "PARSE_FAILED", "parse_error", e.getMessage());
+                    outcome.customId(), "PARSE_FAILED", EvaluationFailure.TYPE_PARSE_ERROR, e.getMessage());
             persistBatchLog(context, parseFailure, parsed.date(), parsed.targetType(), null);
             return Optional.empty();
         }
-    }
-
-    /**
-     * Writes a finalised group of batch results to {@code cached_evaluation} via the
-     * existing {@link BriefingEvaluationService#writeFromBatch} entry point.
-     *
-     * @deprecated REPLACES the region's whole cache entry with {@code results}. That is only safe
-     *     when the caller owns every location in the region for that date and event, and no caller
-     *     does: coastal/inland are split per-location across separate batches, and bluebell and
-     *     woodland are their own buckets, so whichever finished second deleted the first's
-     *     locations. Use {@link #mergeCacheKey} instead. Retained only so the destructive
-     *     behaviour stays directly testable.
-     *
-     * @param cacheKey region cache key
-     * @param results  all locations in that cache key for this batch
-     */
-    @Deprecated
-    public void flushCacheKey(String cacheKey, List<BriefingEvaluationResult> results) {
-        briefingEvaluationService.writeFromBatch(cacheKey, results);
     }
 
     /**
@@ -375,7 +357,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * the existing cache entry rather than replacing it.
      *
      * <p>A retry batch carries only the locations that failed in the precursor batch.
-     * Routing those through {@link #flushCacheKey} would replace the region's entry and
+     * Replacing the region's whole entry would
      * lose the locations that originally succeeded. {@link #mergeCacheKey} overlays the
      * recovered locations onto the prior entry, preserving the rest. The processor
      * selects this path when the batch is flagged {@code is_retry}.
@@ -466,7 +448,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             LOG.warn("Woodland batch: raw response for '{}': {}",
                     outcome.customId(), outcome.rawText());
             ClaudeBatchOutcome parseFailure = ClaudeBatchOutcome.failure(
-                    outcome.customId(), "PARSE_FAILED", "parse_error", e.getMessage());
+                    outcome.customId(), "PARSE_FAILED", EvaluationFailure.TYPE_PARSE_ERROR, e.getMessage());
             persistBatchLog(context, parseFailure, parsed.date(), parsed.targetType(), null);
             return Optional.empty();
         }

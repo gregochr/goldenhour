@@ -1417,35 +1417,6 @@ class OpenMeteoServiceTest {
     // --- Batch prefetch and cache tests ---
 
     @Test
-    @DisplayName("prefetchWeatherBatch() returns map keyed by coordKey for each location")
-    void prefetchWeatherBatch_returnsMapKeyedByCoords() {
-        OpenMeteoForecastResponse f1 = buildForecastResponse(
-                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30),
-                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
-                List.of(80), List.of(200.0), List.of(500.0));
-        OpenMeteoForecastResponse f2 = buildForecastResponse(
-                List.of("2026-06-21T06:00"), List.of(50), List.of(40), List.of(60),
-                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
-                List.of(80), List.of(200.0), List.of(500.0));
-        OpenMeteoAirQualityResponse aq1 = buildAirQualityResponse(
-                List.of("2026-06-21T06:00"), List.of(5.0), List.of(10.0), List.of(0.1));
-        OpenMeteoAirQualityResponse aq2 = buildAirQualityResponse(
-                List.of("2026-06-21T06:00"), List.of(8.0), List.of(15.0), List.of(0.2));
-
-        List<double[]> coords = List.of(new double[]{55.0, -1.5}, new double[]{54.0, -2.0});
-        when(openMeteoClient.fetchForecastBatch(anyList())).thenReturn(List.of(f1, f2));
-        when(openMeteoClient.fetchAirQualityBatch(anyList())).thenReturn(List.of(aq1, aq2));
-
-        var cache = openMeteoService.prefetchWeatherBatch(coords, null);
-
-        assertThat(cache).hasSize(2);
-        assertThat(cache).containsKey("55.0,-1.5");
-        assertThat(cache).containsKey("54.0,-2.0");
-        assertThat(cache.get("55.0,-1.5").forecastResponse()).isSameAs(f1);
-        assertThat(cache.get("54.0,-2.0").forecastResponse()).isSameAs(f2);
-    }
-
-    @Test
     @DisplayName("getAtmosphericDataFromCache() extracts data from pre-fetched cache")
     void getAtmosphericDataFromCache_extractsFromPrefetched() {
         OpenMeteoForecastResponse forecast = buildForecastResponse(
@@ -1485,50 +1456,6 @@ class OpenMeteoServiceTest {
     void coordKey_formatsLatLon() {
         assertThat(OpenMeteoService.coordKey(54.77, -1.57)).isEqualTo("54.77,-1.57");
         assertThat(OpenMeteoService.coordKey(-33.87, 151.21)).isEqualTo("-33.87,151.21");
-    }
-
-    @Test
-    @DisplayName("prefetchWeatherBatch() calls both batch APIs exactly once")
-    void prefetchWeatherBatch_callsBothApis() {
-        OpenMeteoForecastResponse f1 = buildForecastResponse(
-                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30),
-                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
-                List.of(80), List.of(200.0), List.of(500.0));
-        OpenMeteoAirQualityResponse aq1 = buildAirQualityResponse(
-                List.of("2026-06-21T06:00"), List.of(5.0), List.of(10.0), List.of(0.1));
-
-        List<double[]> coords = List.of(new double[]{55.0, -1.5});
-        when(openMeteoClient.fetchForecastBatch(anyList())).thenReturn(List.of(f1));
-        when(openMeteoClient.fetchAirQualityBatch(anyList())).thenReturn(List.of(aq1));
-
-        openMeteoService.prefetchWeatherBatch(coords, null);
-
-        verify(openMeteoClient).fetchForecastBatch(anyList());
-        verify(openMeteoClient).fetchAirQualityBatch(anyList());
-    }
-
-    @Test
-    @DisplayName("prefetchWeatherBatch() propagates exception when forecast batch fails")
-    void prefetchWeatherBatch_apiFailure_propagatesException() {
-        when(openMeteoClient.fetchForecastBatch(anyList()))
-                .thenThrow(new RuntimeException("batch API timeout"));
-
-        List<double[]> coords = List.of(new double[]{55.0, -1.5});
-
-        assertThatThrownBy(() -> openMeteoService.prefetchWeatherBatch(coords, null))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("batch API timeout");
-    }
-
-    @Test
-    @DisplayName("prefetchWeatherBatch() returns empty map for empty coord list without calling APIs")
-    void prefetchWeatherBatch_emptyCoordList_returnsEmptyMap() {
-        var cache = openMeteoService.prefetchWeatherBatch(List.of(), null);
-
-        assertThat(cache).isEmpty();
-        // Kills mutation: removing the empty guard — no API calls should be made
-        verify(openMeteoClient, never()).fetchForecastBatch(anyList());
-        verify(openMeteoClient, never()).fetchAirQualityBatch(anyList());
     }
 
     @Test
@@ -1599,37 +1526,6 @@ class OpenMeteoServiceTest {
         assertThat(cache).hasSize(1);
         assertThat(cache.get("55.0,-1.5").forecastResponse()).isSameAs(f1);
         assertThat(cache.get("55.0,-1.5").airQualityResponse()).isNull();
-    }
-
-    @Test
-    @DisplayName("prefetchWeatherBatch() omits locations with null forecast entry from cache")
-    void prefetchWeatherBatch_nullForecastEntry_omittedFromCache() {
-        OpenMeteoForecastResponse f1 = buildForecastResponse(
-                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30),
-                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
-                List.of(80), List.of(200.0), List.of(500.0));
-        OpenMeteoAirQualityResponse aq1 = buildAirQualityResponse(
-                List.of("2026-06-21T06:00"), List.of(5.0), List.of(10.0), List.of(0.1));
-        OpenMeteoAirQualityResponse aq2 = buildAirQualityResponse(
-                List.of("2026-06-21T06:00"), List.of(5.0), List.of(10.0), List.of(0.1));
-
-        List<double[]> coords = List.of(new double[]{55.0, -1.5}, new double[]{54.0, -2.0});
-        // First coord has a valid forecast; second's chunk failed and was left as null
-        when(openMeteoClient.fetchForecastBatch(
-                org.mockito.ArgumentMatchers.argThat(
-                        (java.util.List<double[]> c) -> c.size() == 2)))
-                .thenReturn(java.util.Arrays.asList(f1, null));
-        when(openMeteoClient.fetchAirQualityBatch(
-                org.mockito.ArgumentMatchers.argThat(
-                        (java.util.List<double[]> c) -> c.size() == 2)))
-                .thenReturn(List.of(aq1, aq2));
-
-        var cache = openMeteoService.prefetchWeatherBatch(coords, null);
-
-        assertThat(cache).hasSize(1);
-        assertThat(cache).containsKey("55.0,-1.5");
-        assertThat(cache).doesNotContainKey("54.0,-2.0");
-        assertThat(cache.get("55.0,-1.5").forecastResponse()).isSameAs(f1);
     }
 
     @Test
@@ -2080,37 +1976,6 @@ class OpenMeteoServiceTest {
 
             assertThatThrownBy(() ->
                     openMeteoService.getAtmosphericDataWithResponse(request, eventTime, jobRun))
-                    .isInstanceOf(RuntimeException.class);
-
-            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
-                    any(), any(), any(), anyLong(), any(), any(), eq(false), any());
-        }
-
-        @Test
-        @DisplayName("prefetchWeatherBatch success logs forecast and air-quality batch calls")
-        void prefetchWeatherBatch_success_logsBothBatchCalls() {
-            when(openMeteoClient.fetchForecastBatch(anyList()))
-                    .thenReturn(List.of(singleSlotForecast()));
-            when(openMeteoClient.fetchAirQualityBatch(anyList()))
-                    .thenReturn(List.of(singleSlotAq()));
-
-            openMeteoService.prefetchWeatherBatch(List.of(new double[]{55.0, -1.5}), jobRun);
-
-            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
-                    any(), any(), any(), anyLong(), any(), any(), eq(true), any());
-            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_AIR_QUALITY),
-                    any(), any(), any(), anyLong(), any(), any(), eq(true), any());
-        }
-
-        @Test
-        @DisplayName("prefetchWeatherBatch failure logs forecast batch call with success=false")
-        void prefetchWeatherBatch_failure_logsApiCallFailure() {
-            when(openMeteoClient.fetchForecastBatch(anyList()))
-                    .thenThrow(new RuntimeException("batch timeout"));
-
-            assertThatThrownBy(() ->
-                    openMeteoService.prefetchWeatherBatch(
-                            List.of(new double[]{55.0, -1.5}), jobRun))
                     .isInstanceOf(RuntimeException.class);
 
             verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
@@ -2605,13 +2470,14 @@ class OpenMeteoServiceTest {
 
     /**
      * Kills NullReturnValsMutator on {@code return new CloudApproachData(trend, upwind)} and
-     * NullReturnValsMutator on {@code computeSolarHorizonPoint}.
+     * NullReturnValsMutator on the solar horizon point.
      */
     @Test
     @DisplayName("fetchCloudApproachDataFromCache returns non-null when solar point is in cache")
     void fetchCloudApproachDataFromCache_solarPointInCache_returnsNonNull() {
         // Build a cache containing the exact grid cell for the solar horizon point
-        double[] solarPoint = DirectionalSamplingGeometry.computeSolarHorizonPoint(55.0, -1.5, 270);
+        double[] solarPoint = com.gregochr.goldenhour.util.GeoUtils.offsetPoint(55.0, -1.5, 270,
+                DirectionalSamplingGeometry.DIRECTIONAL_OFFSET_METRES);
         String key = com.gregochr.goldenhour.model.CloudPointCache.gridKey(
                 solarPoint[0], solarPoint[1]);
         OpenMeteoForecastResponse cloud = buildCloudOnlyResponse(
@@ -2638,7 +2504,8 @@ class OpenMeteoServiceTest {
         int windFromDeg = 270;
         double windSpeedMs = 5.0;
 
-        double[] solarPoint = DirectionalSamplingGeometry.computeSolarHorizonPoint(55.0, -1.5, 270);
+        double[] solarPoint = com.gregochr.goldenhour.util.GeoUtils.offsetPoint(55.0, -1.5, 270,
+                DirectionalSamplingGeometry.DIRECTIONAL_OFFSET_METRES);
         double[] upwindPoint = openMeteoService.computeUpwindPoint(
                 55.0, -1.5, windFromDeg, windSpeedMs, currentTime, eventTime);
         assertThat(upwindPoint).isNotNull();
