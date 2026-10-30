@@ -399,7 +399,9 @@ export function fallbackChipSpots({ suppressedNames, ...rest }) {
  *          shrunk (README: "an unreadable name is worse than a missing one").
  */
 export function placeLabelPass(items, frameWidth, frameHeight, obstacles = []) {
-  let boxes = obstacles;
+  // P4c (performance review F18): one copy per pass, pushed into, instead of a spread per placement.
+  // The caller's `obstacles` is reused after the pass (MapLabels' compact-dot fallback) and never mutated.
+  const boxes = [...obstacles];
   const placed = new Map();
   for (const item of items) {
     const box = placeWithNudges(
@@ -411,7 +413,7 @@ export function placeLabelPass(items, frameWidth, frameHeight, obstacles = []) {
       { dy: MAP_NUDGES, dx: mapDxOffsets },
     );
     if (box) {
-      boxes = [...boxes, box];
+      boxes.push(box);
       placed.set(item.key, box);
     }
   }

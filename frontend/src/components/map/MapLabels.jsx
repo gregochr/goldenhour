@@ -40,6 +40,8 @@ import { pickedLineText } from '../../utils/pickGeography.js';
  */
 const LABEL_PANE = 'wf-labels';
 const LABEL_PANE_Z = 650;
+// Tailwind's `visibility: hidden`, put on the pane (not React-managed) between the first off-zoom `zoom` and `zoomend`.
+const GESTURE_HIDE_CLASS = 'invisible';
 
 /**
  * What a place the server marked {@code gated} is called on its chip and in its tooltip (sub-regions S5a).
@@ -381,6 +383,7 @@ export default function MapLabels({
     const height = size.y;
     if (!(width > 20) || !(height > 20)) return;
     const zoom = map.getZoom();
+    paintedZoomRef.current = zoom;
     const project = (spot) => {
       const p = map.latLngToContainerPoint([spot.lat, spot.lng]);
       return [p.x, p.y];
@@ -469,6 +472,11 @@ export default function MapLabels({
    * listener storm" (map-tab-v2-plan.md §3 P8).
    */
   const paintRef = useRef(paint);
+  // P4c / F18 (owner decision D7): the zoom of the last paint, null until the first. Labels are
+  // positioned in layer pixels inside `_mapPane`, which Leaflet translates during a drag, so a pure
+  // pan needs no paint at all; they re-place at `moveend`. A chip entering from an edge therefore
+  // appears at `moveend`, not mid-drag.
+  const paintedZoomRef = useRef(null);
   useLayoutEffect(() => { paintRef.current = paint; }, [paint]);
   const rafRef = useRef(0);
   const repaintNow = useCallback(() => {
@@ -488,13 +496,31 @@ export default function MapLabels({
 
   useEffect(() => {
     if (typeof map?.on !== 'function') return undefined;
-    map.on('move zoom viewreset resize', repaint);
-    map.on('moveend zoomend', repaintNow);
-    return () => {
-      map.off('move zoom viewreset resize', repaint);
-      map.off('moveend zoomend', repaintNow);
+    // Before any paint, today's throttled repaint. After one, `move` is skipped (pure pan, or the
+    // `move` half of a pinch frame), and a `zoom` at a different zoom hides the layer's pane until
+    // `zoomend` (a pinch fires `zoom` per frame at fractional zoom; text cannot be CSS-scaled, and a
+    // per-frame repaint costs ~14 ms at 390 px). Wheel/button zoom fires no `zoom` until its end.
+    const onMove = () => { if (paintedZoomRef.current == null) repaint(); };
+    const onZoom = () => {
+      if (paintedZoomRef.current == null) { repaint(); return; }
+      if (map.getZoom() !== paintedZoomRef.current) pane?.classList.add(GESTURE_HIDE_CLASS);
     };
-  }, [map, repaint, repaintNow]);
+    const settle = () => {
+      pane?.classList.remove(GESTURE_HIDE_CLASS);
+      repaintNow();
+    };
+    map.on('move', onMove);
+    map.on('zoom', onZoom);
+    map.on('viewreset resize', repaint);
+    map.on('moveend zoomend', settle);
+    return () => {
+      map.off('move', onMove);
+      map.off('zoom', onZoom);
+      map.off('viewreset resize', repaint);
+      map.off('moveend zoomend', settle);
+      pane?.classList.remove(GESTURE_HIDE_CLASS);
+    };
+  }, [map, pane, repaint, repaintNow]);
 
   useEffect(() => () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);

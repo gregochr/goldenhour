@@ -10,6 +10,7 @@ import {
   verdictWord, WORTH_IT_THRESHOLD, MAYBE_THRESHOLD,
   standDownRegionItems, withStandDownLabels,
 } from '../utils/mapLabels.js';
+import { MAP_NUDGES, mapDxOffsets, placeWithNudges } from '../utils/labelPlacement.js';
 import { withoutBigSeasDuplicates } from '../utils/bigSeasChips.js';
 import * as verdictWordModule from '../utils/verdictWord.js';
 
@@ -486,6 +487,49 @@ describe('mapLabels — placeLabelPass (the whole greedy priority pass)', () => 
       key: 'a', x: 200, y: 200, w: 10, h: 10,
     }], 300, 300, obstacles);
     expect(obstacles).toEqual(before);
+  });
+});
+
+describe('mapLabels — placeLabelPass: P4c copy-once equivalence', () => {
+  // The pre-P4c algorithm, verbatim: a fresh spread per placement.
+  const oldPass = (items, w, h, obstacles = []) => {
+    let boxes = obstacles;
+    const placed = new Map();
+    for (const item of items) {
+      const box = placeWithNudges(
+        { x: item.x, y: item.y }, { w: item.w, h: item.h }, boxes, w, h,
+        { dy: MAP_NUDGES, dx: mapDxOffsets },
+      );
+      if (box) { boxes = [...boxes, box]; placed.set(item.key, box); }
+    }
+    return placed;
+  };
+  const items = [
+    { key: 'home', x: 200, y: 150, w: 40, h: 14 },
+    { key: 'region:a', x: 210, y: 155, w: 80, h: 14 },
+    { key: 'region:b', x: 60, y: 60, w: 70, h: 14 },
+    ...Array.from({ length: 14 }, (_, i) => ({
+      key: `chip:${i}`, x: 120 + (i % 4) * 22, y: 100 + Math.floor(i / 4) * 9, w: 60, h: 20,
+    })),
+    { key: 'edge', x: 2, y: 2, w: 60, h: 20 },
+    { key: 'off', x: 500, y: 500, w: 60, h: 20 },
+  ];
+  const obstacles = [{ x: 0, y: 0, w: 120, h: 40 }, { x: 150, y: 90, w: 30, h: 30 }];
+
+  it('produces the identical placement to the spread-per-item algorithm', () => {
+    const now = placeLabelPass(items, 400, 300, obstacles);
+    const before = oldPass(items, 400, 300, obstacles);
+    expect([...now.entries()]).toEqual([...before.entries()]);
+    expect(now.size).toBeGreaterThan(3);
+    expect(now.size).toBeLessThan(items.length);
+  });
+
+  it('never mutates the caller\'s obstacles array', () => {
+    const copy = obstacles.map((o) => ({ ...o }));
+    const ref = [...obstacles];
+    placeLabelPass(items, 400, 300, obstacles);
+    expect(obstacles).toHaveLength(ref.length);
+    expect(obstacles).toEqual(copy);
   });
 });
 
