@@ -49,11 +49,10 @@ class LocationTideFactTest {
     void fromReturnsNullWithoutTideState() {
         assertThat(LocationTideFact.from(null)).isNull();
         assertThat(LocationTideFact.from(
-                new BriefingSlot(1L, "Durham", null, Verdict.GO, null, null, java.util.List.of(),
-                        null))).isNull();
+                new BriefingSlot(1L, "Durham", null, Verdict.GO, null, null, java.util.List.of()))).isNull();
         assertThat(LocationTideFact.from(
                 new BriefingSlot(1L, "Durham", null, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                        java.util.List.of(), null))).isNull();
+                        java.util.List.of()))).isNull();
     }
 
     private static Class<?> boxed(Class<?> type) {

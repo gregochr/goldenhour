@@ -50,7 +50,7 @@ class PlanPayloadFieldSerializationTest {
             List<PlanRenderedEvent> rendered) {
         DailyBriefingResponse base = new DailyBriefingResponse(
                 LocalDateTime.of(DATE, java.time.LocalTime.NOON), "headline", days,
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
         return rendered == null ? base : base.withPlan(days, rendered);
     }
 

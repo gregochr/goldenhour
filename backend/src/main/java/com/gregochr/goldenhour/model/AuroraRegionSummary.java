@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.List;
 
 /**
@@ -19,6 +20,7 @@ import java.util.List;
  * @param glossHeadline              Claude-generated short headline (~7 words, nullable)
  * @param glossDetail                Claude-generated 2-3 sentence explanation (nullable)
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record AuroraRegionSummary(
         String regionName,
         String verdict,

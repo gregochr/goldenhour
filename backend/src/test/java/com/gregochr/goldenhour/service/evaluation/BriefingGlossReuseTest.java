@@ -54,13 +54,13 @@ class BriefingGlossReuseTest {
                 LocalDateTime.of(2026, 4, 10, 18, 5), BigDecimal.valueOf(5.2), true, true,
                 LunarTideType.KING_TIDE, "FULL_MOON", true);
         BriefingSlot coastal = new BriefingSlot("Bamburgh", LocalDateTime.of(2026, 4, 10, 18, 30),
-                Verdict.GO, weather(15), tide, List.of("Cloud building"), null)
+                Verdict.GO, weather(15), tide, List.of("Cloud building"))
                 .withClaudeScores(4, 80, 70, "Good light");
         BriefingSlot inland = new BriefingSlot("Inland", LocalDateTime.of(2026, 4, 10, 18, 30),
                 Verdict.MARGINAL, weather(60), BriefingSlot.TideInfo.NONE,
-                List.of("Clear all layers"), null).withClaudeScores(2, 40, 30, "Flat");
+                List.of("Clear all layers")).withClaudeScores(2, 40, 30, "Flat");
         BriefingSlot wood = BriefingSlot.canopySlot("Bluebell Wood",
-                LocalDateTime.of(2026, 4, 10, 18, 30), Verdict.GO, weather(20), List.of(), null)
+                LocalDateTime.of(2026, 4, 10, 18, 30), Verdict.GO, weather(20), List.of())
                 .withClaudeScores(5, 80, 70, "Carpet");
         return new BriefingRegion("Northumberland", Verdict.GO, "Summary", List.of("High tide"),
                 List.of(coastal, inland, wood), 10.0, 8.0, 3.5, 0, "Headline", "Detail");
@@ -68,7 +68,7 @@ class BriefingGlossReuseTest {
 
     private static DailyBriefingResponse responseOf(BriefingDay day) {
         return new DailyBriefingResponse(LocalDateTime.of(2026, 4, 10, 6, 0), "Headline",
-                List.of(day), List.of(), null, null, false, false, 0, null, List.of(), List.of(),
+                List.of(day), List.of(), null, null, false, null, List.of(), List.of(),
                 null, null, null, null, null, null);
     }
 
@@ -120,7 +120,7 @@ class BriefingGlossReuseTest {
 
     private static BriefingRegion regionWithLowCloud(String name, int low) {
         BriefingSlot slot = new BriefingSlot("Loc", LocalDateTime.of(2026, 4, 10, 18, 30), Verdict.GO,
-                weather(low), BriefingSlot.TideInfo.NONE, List.of(), null);
+                weather(low), BriefingSlot.TideInfo.NONE, List.of());
         return new BriefingRegion(name, Verdict.GO, "Summary", List.of(), List.of(slot),
                 10.0, 8.0, 3.5, 0, null, null);
     }
@@ -247,7 +247,7 @@ class BriefingGlossReuseTest {
     @DisplayName("A STANDDOWN region is glossed and its gloss reused like any other")
     void standdownRegion_isGlossedAndReused() {
         BriefingSlot slot = new BriefingSlot("Loc", LocalDateTime.of(2026, 4, 10, 18, 30), Verdict.STANDDOWN,
-                weather(90), BriefingSlot.TideInfo.NONE, List.of(), "Heavy rain");
+                weather(90), BriefingSlot.TideInfo.NONE, List.of());
         BriefingRegion standdown = new BriefingRegion("S", Verdict.STANDDOWN, "Summary", List.of(),
                 List.of(slot), 10.0, 8.0, 3.5, 0, null, null);
 

@@ -37,8 +37,7 @@ class WindowTideFactsWireContractTest extends AbstractControllerTest {
     private MockMvc mockMvc;
 
     private static BriefingWindow window(List<LocationTideFact> facts) {
-        return new BriefingWindow(null, DisplayVerdict.AWAITING, null, null, null, List.of(), null,
-                null, facts);
+        return new BriefingWindow(null, DisplayVerdict.AWAITING, null, null, null, List.of(), null, facts);
     }
 
     @Test
@@ -58,7 +57,7 @@ class WindowTideFactsWireContractTest extends AbstractControllerTest {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.of(2026, 10, 8, 6, 0), "h",
                 List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(withFacts, without))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
 
         String facts = "$.days[0].eventSummaries[0].window.tideFacts";
@@ -105,17 +104,17 @@ class WindowTideFactsWireContractTest extends AbstractControllerTest {
                 "HW 06:12 · 25m after sunrise", 0.83, "RISING", "4.9 m", "wants higher",
                 "Tide suits this spot");
         BriefingSlot slot = new BriefingSlot(7L, "Bamburgh", LocalDateTime.of(2026, 10, 11, 6, 0),
-                Verdict.GO, null, null, List.of(), null, null, null, null, null, null,
+                Verdict.GO, null, null, List.of(), null, null, null, null, null,
                 DisplayVerdict.AWAITING, null, false, null);
         BriefingRegion region = new BriefingRegion("North East", Verdict.GO, "s", List.of(),
                 List.of(slot), null, null, null, null, null, null, DisplayVerdict.AWAITING, 0,
-                null, false, null);
+                null, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE,
                 List.of(region), List.of(slot), null, window(List.of(fact)));
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.of(2026, 10, 8, 6, 0), "h",
                 List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
 
         String es = "$.days[0].eventSummaries[0]";
@@ -144,7 +143,7 @@ class WindowTideFactsWireContractTest extends AbstractControllerTest {
         when(briefingService.getCachedBriefingForApi()).thenReturn(new DailyBriefingResponse(
                 LocalDateTime.of(2026, 10, 8, 6, 0), "h",
                 List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of()));
+                List.of(), null, null, false, null, List.of(), List.of()));
     }
 
     @Test

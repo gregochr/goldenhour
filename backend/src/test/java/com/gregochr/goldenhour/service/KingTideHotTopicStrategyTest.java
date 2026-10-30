@@ -856,10 +856,10 @@ class KingTideHotTopicStrategyTest {
                 LunarTideType.KING_TIDE, "Full Moon", true);
         BriefingSlot regularSlot = new BriefingSlot(
                 "Coastal", null, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null);
+                List.of());
         BriefingSlot kingSlot = new BriefingSlot(
                 "Orphan Coastal", null, Verdict.GO, null, kingTide,
-                List.of(), null);
+                List.of());
         BriefingRegion region = new BriefingRegion(
                 "Northumberland", Verdict.GO, null, List.of(),
                 List.of(regularSlot), null, null, null, null, null, null);
@@ -919,9 +919,9 @@ class KingTideHotTopicStrategyTest {
                 LunarTideType.KING_TIDE, "Full Moon", true);
         BriefingSlot regularSlot = new BriefingSlot(
                 "Coastal", null, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null);
+                List.of());
         BriefingSlot kingSlot = new BriefingSlot(
-                "Coastal", null, Verdict.GO, null, kingTide, List.of(), null);
+                "Coastal", null, Verdict.GO, null, kingTide, List.of());
         BriefingRegion sunriseRegion = new BriefingRegion(
                 "Northumberland", Verdict.GO, null, List.of(),
                 List.of(regularSlot), null, null, null, null, null, null);
@@ -1271,7 +1271,7 @@ class KingTideHotTopicStrategyTest {
 
     private BriefingDay buildDayWithTide(LocalDate date, BriefingSlot.TideInfo tideInfo) {
         BriefingSlot slot = new BriefingSlot(
-                "Coastal", null, Verdict.GO, null, tideInfo, List.of(), null);
+                "Coastal", null, Verdict.GO, null, tideInfo, List.of());
         BriefingRegion region = new BriefingRegion(
                 "Northumberland", Verdict.GO, null, List.of(), List.of(slot),
                 null, null, null, null, null, null);
@@ -1301,7 +1301,7 @@ class KingTideHotTopicStrategyTest {
             tideInfo = BriefingSlot.TideInfo.NONE;
         }
         BriefingSlot slot = new BriefingSlot(
-                "Orphan Coastal", null, Verdict.GO, null, tideInfo, List.of(), null);
+                "Orphan Coastal", null, Verdict.GO, null, tideInfo, List.of());
         BriefingEventSummary event = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(), List.of(slot));
         return new BriefingDay(date, List.of(event));
@@ -1380,16 +1380,13 @@ class KingTideHotTopicStrategyTest {
             int measured) {
         return new TideRunDay(
                 "KING RUN", 1, 1, "THU 16", "St. Mary's Lighthouse",
-                "4.2 m", null, "2.5 m", "+0.5 m over spring", "0.4 m off the record",
-                "05:37", "20:38", null, List.of(),
+                "4.2 m", null, "2.5 m", "05:37", "20:38", null, List.of(),
                 alignedEvent == null
                         ? "no clear tide/sun alignment"
                         : "HW 04:58 · 39m before " + alignedEvent,
                 // bestAligned mirrors aligned: this is a one-day run, so an aligned day is
                 // trivially the run's best and is the card that takes the accent.
-                alignedEvent != null, alignedEvent != null, alignedEvent,
-                // Non-null with alignedEvent, as the builder guarantees.
-                alignedEvent == null ? null : "HW 04:58 · 39m before " + alignedEvent,
+                alignedEvent != null, alignedEvent,
                 new TideRunDay.RosterAlignment(sunriseAligned, sunsetAligned, measured),
                 false, null);
     }

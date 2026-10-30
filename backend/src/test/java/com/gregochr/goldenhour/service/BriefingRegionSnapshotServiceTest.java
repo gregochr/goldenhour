@@ -66,25 +66,25 @@ class BriefingRegionSnapshotServiceTest {
     /** An open-sky slot with no rating — it votes, and contributes nothing to the mean. */
     private static BriefingSlot sky(String name) {
         return new BriefingSlot(name, DAWN, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null);
+                List.of());
     }
 
     /** An open-sky slot the batch has scored — it votes. */
     private static BriefingSlot scoredSky(String name) {
         return new BriefingSlot(name, DAWN, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null).withClaudeScores(4, 70, 60, "Colour likely.");
+                List.of()).withClaudeScores(4, 70, 60, "Colour likely.");
     }
 
     /** A canopy slot the bluebell prompt has scored — it never votes. */
     private static BriefingSlot scoredWood(String name) {
-        return BriefingSlot.canopySlot(name, DAWN, Verdict.GO, null, List.of(), null)
+        return BriefingSlot.canopySlot(name, DAWN, Verdict.GO, null, List.of())
                 .withClaudeScores(5, 0, 0, "Bluebells at peak.");
     }
 
     private static BriefingRegion region(String name, Double mean, List<BriefingSlot> slots) {
         return new BriefingRegion(name, Verdict.GO, "Clear.", List.of(), slots,
                 null, null, null, null, null, null,
-                DisplayVerdict.WORTH_IT, slots.size(), null, false, null, mean, null);
+                DisplayVerdict.WORTH_IT, slots.size(), null, null, mean, null);
     }
 
     private static BriefingEventSummary summary(TargetType type, List<BriefingRegion> regions) {

@@ -39,8 +39,6 @@ public class AuroraController {
 
     private static final Logger LOG = LoggerFactory.getLogger(AuroraController.class);
 
-    private static final String DATA_SOURCE = "NOAA SWPC";
-
     private final AuroraStateCache stateCache;
     private final NoaaSwpcClient noaaClient;
     private final AuroraForecastRunService forecastRunService;
@@ -195,7 +193,6 @@ public class AuroraController {
                 triggerTypeStr,
                 ovation,
                 bz,
-                DATA_SOURCE,
                 updatedAt != null ? updatedAt : ZonedDateTime.now(ZoneOffset.UTC),
                 simulated,
                 activeSince,

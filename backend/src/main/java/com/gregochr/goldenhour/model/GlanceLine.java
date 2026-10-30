@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -12,6 +13,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * @param badge      {@code "PEAK"}, {@code "FULL"} or null
  * @param weather    true when the topic is weather-driven (only knowable from the forecast)
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record GlanceLine(
         @JsonInclude(JsonInclude.Include.NON_NULL)
         String value,

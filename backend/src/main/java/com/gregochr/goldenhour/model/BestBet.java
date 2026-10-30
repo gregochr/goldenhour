@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
@@ -32,6 +33,7 @@ import java.util.List;
  * @param differsBy               dimensions in which this pick differs from rank 1
  *                                (subset of DATE, EVENT, REGION); null/empty for rank 1 or SAME_SLOT
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record BestBet(
         int rank,
         String headline,

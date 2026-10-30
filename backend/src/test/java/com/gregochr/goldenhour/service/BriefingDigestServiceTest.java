@@ -62,7 +62,7 @@ class BriefingDigestServiceTest {
         BriefingWindow.Pick pick = new BriefingWindow.Pick(BriefingWindow.PickKind.BEST,
                 "Lake District", "A long clear run to the west", "Detail", 4.25, "Keswick", 7L);
         BriefingWindow window = new BriefingWindow(LocalDateTime.of(2026, 3, 25, 18, 30),
-                DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null, null);
+                DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null);
         stubBriefing(day(DAY_ONE, summary(TargetType.SUNSET, window)));
 
         BriefingDigestResponse.Window only = service.digest(6).windows().getFirst();
@@ -139,7 +139,7 @@ class BriefingDigestServiceTest {
     @DisplayName("a window with no event time counts as current, never as past")
     void digest_nullEventTime_kept() {
         BriefingWindow timeless = new BriefingWindow(null, DisplayVerdict.AWAITING, null, null,
-                null, List.of(), null, null);
+                null, List.of(), null);
         stubBriefing(day(DAY_ONE, summary(TargetType.SUNSET, timeless)));
 
         assertThat(service.digest(6).windows()).hasSize(1);
@@ -224,7 +224,7 @@ class BriefingDigestServiceTest {
         for (int minutesBack = 0; minutesBack <= 60; minutesBack += 5) {
             LocalDateTime eventTime = NOW.minusMinutes(minutesBack);
             BriefingWindow window = new BriefingWindow(eventTime, DisplayVerdict.MAYBE, 3,
-                    Confidence.MEDIUM, null, List.of(), null, null);
+                    Confidence.MEDIUM, null, List.of(), null);
             stubBriefing(day(DAY_ONE, summary(TargetType.SUNSET, window)));
 
             assertThat(service.digest(6).windows())
@@ -249,7 +249,7 @@ class BriefingDigestServiceTest {
         when(freshness.now()).thenReturn(NOW);
         when(briefingService.getCachedBriefingForApi()).thenReturn(new DailyBriefingResponse(
                 LocalDateTime.of(2026, 3, 25, 9, 0), "headline", List.of(days), List.of(),
-                null, null, false, false, 0, "Opus", List.of(), List.of()));
+                null, null, false, "Opus", List.of(), List.of()));
     }
 
     private static BriefingDay day(LocalDate date, BriefingEventSummary... summaries) {
@@ -270,6 +270,6 @@ class BriefingDigestServiceTest {
      */
     private static BriefingWindow windowAt(LocalDate date, int hour, int minute) {
         return new BriefingWindow(date.atTime(hour, minute),
-                DisplayVerdict.MAYBE, 3, Confidence.MEDIUM, null, List.of(), null, null);
+                DisplayVerdict.MAYBE, 3, Confidence.MEDIUM, null, List.of(), null);
     }
 }

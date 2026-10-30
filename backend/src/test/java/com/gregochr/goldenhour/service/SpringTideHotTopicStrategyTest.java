@@ -689,10 +689,10 @@ class SpringTideHotTopicStrategyTest {
                 LunarTideType.SPRING_TIDE, "New Moon", false);
         BriefingSlot regularSlot = new BriefingSlot(
                 "Coastal", null, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null);
+                List.of());
         BriefingSlot springSlot = new BriefingSlot(
                 "Orphan Coastal", null, Verdict.GO, null, springTide,
-                List.of(), null);
+                List.of());
         BriefingRegion region = new BriefingRegion(
                 "Northumberland", Verdict.GO, null, List.of(),
                 List.of(regularSlot), null, null, null, null, null, null);
@@ -752,9 +752,9 @@ class SpringTideHotTopicStrategyTest {
                 LunarTideType.SPRING_TIDE, "New Moon", false);
         BriefingSlot regularSlot = new BriefingSlot(
                 "Coastal", null, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null);
+                List.of());
         BriefingSlot springSlot = new BriefingSlot(
-                "Coastal", null, Verdict.GO, null, springTide, List.of(), null);
+                "Coastal", null, Verdict.GO, null, springTide, List.of());
         BriefingRegion sunriseRegion = new BriefingRegion(
                 "Northumberland", Verdict.GO, null, List.of(),
                 List.of(regularSlot), null, null, null, null, null, null);
@@ -884,7 +884,7 @@ class SpringTideHotTopicStrategyTest {
 
     private BriefingDay buildDayWithTide(LocalDate date, BriefingSlot.TideInfo tideInfo) {
         BriefingSlot slot = new BriefingSlot(
-                "Coastal", null, Verdict.GO, null, tideInfo, List.of(), null);
+                "Coastal", null, Verdict.GO, null, tideInfo, List.of());
         BriefingRegion region = new BriefingRegion(
                 "Northumberland", Verdict.GO, null, List.of(), List.of(slot),
                 null, null, null, null, null, null);
@@ -914,7 +914,7 @@ class SpringTideHotTopicStrategyTest {
             tideInfo = BriefingSlot.TideInfo.NONE;
         }
         BriefingSlot slot = new BriefingSlot(
-                "Orphan Coastal", null, Verdict.GO, null, tideInfo, List.of(), null);
+                "Orphan Coastal", null, Verdict.GO, null, tideInfo, List.of());
         BriefingEventSummary event = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(), List.of(slot));
         return new BriefingDay(date, List.of(event));
@@ -957,16 +957,13 @@ class SpringTideHotTopicStrategyTest {
     private static TideRunDay runDay(String alignedEvent) {
         return new TideRunDay(
                 "SPRING RUN", 1, 1, "THU 16", "St. Mary's Lighthouse",
-                "4.2 m", "+0.4", null, null, null,
-                "05:37", "20:38", null, List.of(),
+                "4.2 m", "+0.4", null, "05:37", "20:38", null, List.of(),
                 alignedEvent == null
                         ? "no clear tide/sun alignment"
                         : "LW 05:44 \u00b7 7m after " + alignedEvent,
                 // bestAligned mirrors aligned: this is a one-day run, so an aligned day is
                 // trivially the run's best and is the card that takes the accent.
-                alignedEvent != null, alignedEvent != null, alignedEvent,
-                // Non-null with alignedEvent, as the builder guarantees.
-                alignedEvent == null ? null : "LW 05:44 · 7m after " + alignedEvent,
+                alignedEvent != null, alignedEvent,
                 new TideRunDay.RosterAlignment(
                         "sunrise".equals(alignedEvent) ? 12 : 0,
                         "sunset".equals(alignedEvent) ? 12 : 0,

@@ -26,7 +26,7 @@ class BriefingSlotNeighbourOutlierTest {
 
     private static BriefingSlot rated() {
         return new BriefingSlot(7L, "Caw Gap", TIME, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null, 4, 4, 60, 55, "summary", DisplayVerdict.WORTH_IT, null, false);
+                List.of(), 4, 4, 60, 55, "summary", DisplayVerdict.WORTH_IT, null, false);
     }
 
     @Test
@@ -34,11 +34,11 @@ class BriefingSlotNeighbourOutlierTest {
     void legacyConstructorsDefaultToNull() {
         assertThat(rated().neighbourOutlier()).isNull();
         assertThat(new BriefingSlot(7L, "A", TIME, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null).neighbourOutlier()).isNull();
-        assertThat(new BriefingSlot("A", TIME, Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of(),
-                null).neighbourOutlier()).isNull();
+                List.of()).neighbourOutlier()).isNull();
+        assertThat(new BriefingSlot("A", TIME, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
+        List.of()).neighbourOutlier()).isNull();
         BriefingSlot seventeen = new BriefingSlot(7L, "A", TIME, Verdict.GO, null,
-                BriefingSlot.TideInfo.NONE, List.of(), null, 4, 4, 60, 55, "s", DisplayVerdict.WORTH_IT,
+                BriefingSlot.TideInfo.NONE, List.of(), 4, 4, 60, 55, "s", DisplayVerdict.WORTH_IT,
                 null, false, null);
         assertThat(seventeen.neighbourOutlier()).isNull();
     }
@@ -46,9 +46,9 @@ class BriefingSlotNeighbourOutlierTest {
     @Test
     @DisplayName("canopySlot, both overloads, carries no mark")
     void canopySlotCarriesNoMark() {
-        assertThat(BriefingSlot.canopySlot(7L, "Wood", TIME, Verdict.GO, null, List.of(), null)
+        assertThat(BriefingSlot.canopySlot(7L, "Wood", TIME, Verdict.GO, null, List.of())
                 .neighbourOutlier()).isNull();
-        assertThat(BriefingSlot.canopySlot("Wood", TIME, Verdict.GO, null, List.of(), null)
+        assertThat(BriefingSlot.canopySlot("Wood", TIME, Verdict.GO, null, List.of())
                 .neighbourOutlier()).isNull();
     }
 

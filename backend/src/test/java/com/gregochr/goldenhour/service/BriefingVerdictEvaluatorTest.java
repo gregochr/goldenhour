@@ -350,14 +350,6 @@ class BriefingVerdictEvaluatorTest {
                     .contains("Clear all layers");
         }
 
-        @Test
-        @DisplayName("StanddownReason.CLEAR_SKY label derivable")
-        void clearSkyReasonLabel() {
-            var metrics = new BriefingVerdictEvaluator.WeatherMetrics(
-                    5, BigDecimal.ZERO, 15000, 70, 8, 10, false);
-            assertThat(evaluator.deriveStanddownReason(metrics, false, null))
-                    .isEqualTo("Clear sky — no canvas");
-        }
     }
 
     // ── Horizon cloud demotion ──
@@ -595,134 +587,6 @@ class BriefingVerdictEvaluatorTest {
         }
     }
 
-    // ── Standdown reason derivation ──
-
-    @Nested
-    @DisplayName("Standdown reason derivation")
-    class StanddownReasonTests {
-
-        @Test
-        @DisplayName("Heavy cloud when low cloud > 80%")
-        void heavyCloud() {
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            85, BigDecimal.ZERO, 15000, 70, null, null, false),
-                    false, null)).isEqualTo("Heavy cloud");
-        }
-
-        @Test
-        @DisplayName("Overcast when mid-cloud >= 80%")
-        void overcast() {
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            30, BigDecimal.ZERO, 15000, 70, 85, null, false),
-                    false, null)).isEqualTo("Overcast");
-        }
-
-        @Test
-        @DisplayName("Rain when precip > 2mm")
-        void rain() {
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            30, new BigDecimal("3.0"), 15000, 70, null, null, false),
-                    false, null)).isEqualTo("Rain");
-        }
-
-        @Test
-        @DisplayName("Poor visibility when below 5000m")
-        void poorVisibility() {
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            30, BigDecimal.ZERO, 3000, 70, null, null, false),
-                    false, null)).isEqualTo("Poor visibility");
-        }
-
-        @Test
-        @DisplayName("Building cloud when trend detected")
-        void buildingCloud() {
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            30, BigDecimal.ZERO, 15000, 70, null, null, true),
-                    false, null)).isEqualTo("Building cloud");
-        }
-
-        @Test
-        @DisplayName("Tide mismatch when tides not aligned")
-        void tideMismatch() {
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            30, BigDecimal.ZERO, 15000, 70, 50, 50, false),
-                    true, null)).isEqualTo("Tide mismatch");
-        }
-
-        @Test
-        @DisplayName("Fallback to 'Poor conditions' when no specific reason")
-        void fallback() {
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            30, BigDecimal.ZERO, 15000, 70, 50, 50, false),
-                    false, null)).isEqualTo("Poor conditions");
-        }
-
-        @Test
-        @DisplayName("Priority: heavy cloud takes precedence over rain")
-        void priority_cloudOverRain() {
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            85, new BigDecimal("5.0"), 3000, 70, 90, null, true),
-                    true, null)).isEqualTo("Heavy cloud");
-        }
-
-        @Test
-        @DisplayName("Sun blocked at horizon when overhead clear but horizon cloud >= 70%")
-        void sunBlockedHorizon_clearOverhead() {
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            5, BigDecimal.ZERO, 15000, 70, 8, 10, false),
-                    false, 80)).isEqualTo("Sun blocked at horizon");
-        }
-
-        @Test
-        @DisplayName("Priority: sun blocked at horizon takes precedence over clear-sky fallthrough")
-        void priority_horizonOverClearSky() {
-            // All cloud layers below CLEAR_ALL_LAYERS_MAX (15%) but horizon is blocked at 70%+
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            5, BigDecimal.ZERO, 15000, 70, 5, 5, false),
-                    false, 75)).isEqualTo("Sun blocked at horizon");
-        }
-
-        @Test
-        @DisplayName("Priority: heavy overhead cloud still wins over horizon block")
-        void priority_heavyCloudOverHorizon() {
-            // Overcast overhead AND blocked horizon — overcast reported, not horizon
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            85, BigDecimal.ZERO, 15000, 70, null, null, false),
-                    false, 90)).isEqualTo("Heavy cloud");
-        }
-
-        @Test
-        @DisplayName("Horizon below 70% does not trigger SUN_BLOCKED_HORIZON")
-        void horizonBelowThreshold_noTrigger() {
-            // Horizon at 65% (below STANDDOWN threshold) — falls through to CLEAR_SKY
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            5, BigDecimal.ZERO, 15000, 70, 8, 10, false),
-                    false, 65)).isEqualTo("Clear sky — no canvas");
-        }
-
-        @Test
-        @DisplayName("Null horizon data falls through to existing cascade")
-        void nullHorizon_fallsThrough() {
-            // Clear overhead, no horizon reading available — CLEAR_SKY still wins
-            assertThat(evaluator.deriveStanddownReason(
-                    new BriefingVerdictEvaluator.WeatherMetrics(
-                            5, BigDecimal.ZERO, 15000, 70, 8, 10, false),
-                    false, null)).isEqualTo("Clear sky — no canvas");
-        }
-    }
-
     // ── Tide highlights ──
 
     @Nested
@@ -739,7 +603,7 @@ class BriefingVerdictEvaluatorTest {
                     new BriefingSlot.TideInfo("HIGH", true,
                             LocalDateTime.of(2026, 3, 25, 6, 15), new BigDecimal("1.85"),
                             true, false, null, null, null),
-                    List.of(), null);
+                    List.of());
             assertThat(evaluator.buildTideHighlights(List.of(s)))
                     .containsExactly("Extra Extra High at 1 coastal spot");
         }
@@ -753,7 +617,7 @@ class BriefingVerdictEvaluatorTest {
                             8.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null, null, false, true,
                             null, null, null),
-                    List.of(), null);
+                    List.of());
             assertThat(evaluator.buildTideHighlights(List.of(s)))
                     .containsExactly("Extra High at 1 coastal spot");
         }
@@ -767,7 +631,7 @@ class BriefingVerdictEvaluatorTest {
                             8.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null, null, false, false,
                             LunarTideType.SPRING_TIDE, "Full Moon", false),
-                    List.of(), null);
+                    List.of());
             assertThat(evaluator.buildTideHighlights(List.of(s)))
                     .containsExactly("Spring Tide at 1 coastal spot");
         }
@@ -781,7 +645,7 @@ class BriefingVerdictEvaluatorTest {
                             8.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null, null, true, false,
                             LunarTideType.KING_TIDE, "New Moon", true),
-                    List.of(), null);
+                    List.of());
             assertThat(evaluator.buildTideHighlights(List.of(s)))
                     .containsExactly("King Tide, Extra Extra High at 1 coastal spot");
         }
@@ -1013,6 +877,6 @@ class BriefingVerdictEvaluatorTest {
                 LocalDateTime.of(2026, 3, 25, 18, 0), verdict,
                 new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                         8.0, null, null, BigDecimal.ONE, 0, 0),
-                BriefingSlot.TideInfo.NONE, List.of(), null);
+                BriefingSlot.TideInfo.NONE, List.of());
     }
 }

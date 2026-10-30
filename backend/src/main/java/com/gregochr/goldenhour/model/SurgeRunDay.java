@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -46,6 +47,7 @@ import java.util.List;
  * @param datumNote     states what the curve's zero is, since no absolute level can be claimed
  * @param phrase        the editorial line for this event type
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record SurgeRunDay(
         String locationName,
         List<Double> surgeMetres,

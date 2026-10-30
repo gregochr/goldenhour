@@ -111,8 +111,8 @@ final class ReadyFixtures {
     /** The slot with its served display verdict replaced. */
     static BriefingSlot withVerdict(BriefingSlot base, DisplayVerdict verdict) {
         return new BriefingSlot(base.locationId(), base.locationName(), base.solarEventTime(),
-                base.verdict(), base.weather(), base.tide(), base.flags(), base.standdownReason(),
-                base.claudeRating(), base.skyRating(), null, null, null, verdict,
+                base.verdict(), base.weather(), base.tide(), base.flags(), base.claudeRating(), base.skyRating(),
+                null, null, null, verdict,
                 base.claudeHeadline(), base.canopy(), null);
     }
 

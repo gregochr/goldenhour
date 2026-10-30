@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.gregochr.goldenhour.entity.CoastalStructure;
 
 import java.time.LocalDateTime;
@@ -18,6 +19,7 @@ import java.time.LocalDateTime;
  * @param aligned          whether its window contains its own date's sunrise or sunset; always
  *                         false on the Lite wire
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record BigSeasStructure(
         long locationId,
         String label,

@@ -22,7 +22,7 @@ class BriefingRegionSerializationTest {
     private static BriefingRegion region(Confidence confidence) {
         return new BriefingRegion("North East", Verdict.GO, "Clear skies",
                 List.of(), List.of(), 10.0, 9.0, 3.0, 1, null, null,
-                DisplayVerdict.WORTH_IT, 3, null, false, confidence);
+                DisplayVerdict.WORTH_IT, 3, null, confidence);
     }
 
     @Test
@@ -133,7 +133,6 @@ class BriefingRegionSerializationTest {
 
         assertThat(rated.withMeanRating(3.0).bestRating()).isEqualTo(5);
         assertThat(rated.withConfidence(Confidence.LOW).bestRating()).isEqualTo(5);
-        assertThat(rated.withLightlyEvaluated().bestRating()).isEqualTo(5);
         assertThat(rated.withGloss("Head", "Detail").bestRating()).isEqualTo(5);
     }
 
@@ -154,7 +153,6 @@ class BriefingRegionSerializationTest {
         assertThat(r.withMeanRatingDelta(0.5).picksBestRating()).isEqualTo(3);
         assertThat(r.withSampleSufficient(true).picksBestRating()).isEqualTo(3);
         assertThat(r.withForcedSample(true).picksBestRating()).isEqualTo(3);
-        assertThat(r.withLightlyEvaluated().picksBestRating()).isEqualTo(3);
         assertThat(r.withConfidence(Confidence.LOW).picksBestRating()).isEqualTo(3);
         assertThat(r.withGloss("h", "d").picksBestRating()).isEqualTo(3);
         assertThat(r.withSlots(List.of()).picksBestRating()).isEqualTo(3);
@@ -168,7 +166,7 @@ class BriefingRegionSerializationTest {
         // the client's switch on "UNRATED" and a restart reloading a cached row share one spelling.
         BriefingRegion unrated = new BriefingRegion("North East", Verdict.GO, "Clear skies",
                 List.of(), List.of(), 10.0, 9.0, 3.0, 1, null, null,
-                DisplayVerdict.UNRATED, 38, null, false, Confidence.LOW);
+                DisplayVerdict.UNRATED, 38, null, Confidence.LOW);
 
         String json = mapper.writeValueAsString(unrated);
 
@@ -181,7 +179,7 @@ class BriefingRegionSerializationTest {
 
     private static BriefingRegion blanked(CoverageReason reason) {
         return new BriefingRegion("North East", Verdict.GO, "Clear skies", List.of(), List.of(), 10.0, 9.0, 3.0, 1,
-                null, null, DisplayVerdict.STAND_DOWN, 0, null, false, null, null, null, null, null, null, reason);
+                null, null, DisplayVerdict.STAND_DOWN, 0, null, null, null, null, null, null, null, reason);
     }
 
     @Test
@@ -211,7 +209,6 @@ class BriefingRegionSerializationTest {
         assertThat(r.withMeanRatingDelta(0.5).coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
         assertThat(r.withSampleSufficient(true).coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
         assertThat(r.withForcedSample(true).coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
-        assertThat(r.withLightlyEvaluated().coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
         assertThat(r.withConfidence(Confidence.LOW).coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
         assertThat(r.withGloss("h", "d").coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
         assertThat(r.withSlots(List.of()).coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);

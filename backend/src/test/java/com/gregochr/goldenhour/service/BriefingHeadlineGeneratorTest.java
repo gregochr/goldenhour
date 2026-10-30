@@ -341,7 +341,7 @@ class BriefingHeadlineGeneratorTest {
             BriefingSlot nullTimeSlot = new BriefingSlot("Location", null, Verdict.GO,
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                             8.0, null, null, BigDecimal.ONE, 0, 0),
-                    BriefingSlot.TideInfo.NONE, List.of(), null);
+                    BriefingSlot.TideInfo.NONE, List.of());
             BriefingRegion region = new BriefingRegion("Northumberland", Verdict.GO, "Clear",
                     List.of(), List.of(nullTimeSlot), null, null, null, null, null, null);
             BriefingDay day = new BriefingDay(today, List.of(
@@ -667,6 +667,6 @@ class BriefingHeadlineGeneratorTest {
         return new BriefingSlot(name, time, verdict,
                 new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                         8.0, null, null, BigDecimal.ONE, 0, 0),
-                BriefingSlot.TideInfo.NONE, List.of(), null);
+                BriefingSlot.TideInfo.NONE, List.of());
     }
 }

@@ -40,7 +40,7 @@ class BriefingRoleShaperTest {
     private static final Set<String> SLOT_STRIPPED = Set.of("fierySkyPotential", "goldenHourPotential",
             "claudeSummary", "claudeHeadline");
     private static final Set<String> SLOT_KEPT = Set.of("locationId", "locationName", "solarEventTime",
-            "verdict", "weather", "tide", "flags", "standdownReason", "claudeRating", "skyRating",
+            "verdict", "weather", "tide", "flags", "claudeRating", "skyRating",
             "displayVerdict", "canopy", "eclipse", "neighbourOutlier", "gated");
 
     private final BriefingRoleShaper shaper = new BriefingRoleShaper();
@@ -61,8 +61,8 @@ class BriefingRoleShaperTest {
     }
 
     private static BriefingSlot slot(String name, List<String> flags, String standdownReason) {
-        return new BriefingSlot(7L, name, AT, Verdict.GO, null, null, flags, standdownReason,
-                null, null, null, null, null, DisplayVerdict.AWAITING, null, false, null);
+        return new BriefingSlot(7L, name, AT, Verdict.GO, null, null, flags, null, null, null, null, null,
+        DisplayVerdict.AWAITING, null, false, null);
     }
 
     private static DailyBriefingResponse response(BriefingWindow window) {
@@ -70,17 +70,17 @@ class BriefingRoleShaperTest {
         BriefingSlot unregioned = slot("Whitby", List.of("Tide not aligned"), null);
         BriefingRegion region = new BriefingRegion("North East", Verdict.GO, "s", List.of(),
                 List.of(regioned), null, null, null, null, null, null, DisplayVerdict.AWAITING, 0,
-                null, false, null);
+                null, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE,
                 List.of(region), List.of(unregioned), AT, window);
         return new DailyBriefingResponse(AT, "h",
                 List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
     }
 
     private static BriefingWindow fullWindow() {
-        return new BriefingWindow(AT, DisplayVerdict.WORTH_IT, 4, null, null, List.of(), null,
-                fullTide(), List.of(fullFact()));
+        return new BriefingWindow(AT, DisplayVerdict.WORTH_IT, 4, null, null, List.of(), fullTide(),
+        List.of(fullFact()));
     }
 
     private static BriefingEventSummary summaryOf(DailyBriefingResponse r) {
@@ -148,24 +148,22 @@ class BriefingRoleShaperTest {
             + "reason goes, any other reason stays")
     void forLite_keepsStanddownVerdictAndReason() {
         BriefingSlot other = new BriefingSlot(7L, "Bamburgh", AT, Verdict.STANDDOWN, null, null,
-                List.of(), "Building cloud", null, null, null, null, null,
+                List.of(), null, null, null, null, null,
                 DisplayVerdict.AWAITING, null, false, null);
-        assertThat(other.forLite().standdownReason()).isEqualTo("Building cloud");
         assertThat(other.forLite().verdict()).isEqualTo(Verdict.STANDDOWN);
         BriefingSlot standdown = new BriefingSlot(7L, "Bamburgh", AT, Verdict.STANDDOWN, null, null,
-                List.of("Tide not aligned"), "Tide mismatch", null, null, null, null, null,
+                List.of("Tide not aligned"), null, null, null, null, null,
                 DisplayVerdict.AWAITING, null, false, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(),
                 List.of(standdown), AT, null);
         DailyBriefingResponse in = new DailyBriefingResponse(AT, "h",
                 List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
 
         BriefingSlot lite = summaryOf(shaper.forLite(in)).unregioned().get(0);
 
         assertThat(lite.flags()).isEmpty();
         assertThat(lite.verdict()).isEqualTo(Verdict.STANDDOWN);
-        assertThat(lite.standdownReason()).as("the tide-mismatch reason states the water vs the light").isNull();
     }
 
     @Test
@@ -203,7 +201,7 @@ class BriefingRoleShaperTest {
     @DisplayName("A window with no tide and no facts stays that way, and a summary with no window is untouched")
     void forLite_toleratesAbsentTideFactsAndWindow() {
         BriefingWindow bare = new BriefingWindow(AT, DisplayVerdict.AWAITING, null, null, null,
-                List.of(), null, null, null);
+                List.of(), null, null);
 
         BriefingWindow lite = summaryOf(shaper.forLite(response(bare))).window();
         BriefingEventSummary noWindow = summaryOf(shaper.forLite(response(null)));
@@ -217,7 +215,7 @@ class BriefingRoleShaperTest {
     @DisplayName("A null briefing and a briefing with no days pass through")
     void forLite_nullAndEmptyDays() {
         DailyBriefingResponse empty = new DailyBriefingResponse(AT, "h", List.of(), List.of(), null,
-                null, false, false, 0, null, List.of(), List.of());
+                null, false, null, List.of(), List.of());
 
         assertThat(shaper.forLite(null)).isNull();
         assertThat(shaper.forLite(empty).days()).isEmpty();
@@ -281,8 +279,7 @@ class BriefingRoleShaperTest {
     void everyBriefingWindowComponentIsClassified() {
         Set<String> stripped = Set.of("pick");
         Set<String> handledAsTide = Set.of("tide", "tideFacts", "badges");
-        Set<String> kept = Set.of("eventTime", "verdict", "bestRating", "confidence",
-                "topRarityRank");
+        Set<String> kept = Set.of("eventTime", "verdict", "bestRating", "confidence");
 
         assertThat(componentNames(BriefingWindow.class))
                 .as("a new component must be classified here and handled in forLite()")
@@ -295,7 +292,7 @@ class BriefingRoleShaperTest {
         Set<String> stripped = Set.of("bestBets", "bestBetModel", "bestBetStatus", "bestBetsWithdrawn");
         Set<String> rebuiltViaDays = Set.of("days", "hotTopics", "bigSeas");
         Set<String> kept = Set.of("generatedAt", "headline", "auroraTonight", "auroraTomorrow",
-                "stale", "partialFailure", "failedLocationCount", "seasonalFeatures",
+                "stale", "seasonalFeatures",
                 "renderedEvents", "previousGeneratedAt", "allowedLocationIds");
 
         assertThat(componentNames(DailyBriefingResponse.class))
@@ -357,20 +354,20 @@ class BriefingRoleShaperTest {
         BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo("HIGH", true, AT,
                 new BigDecimal("1.5"), false, false, null, null, null, 30, "HW", true,
                 "HW 06:30 · 30m after sunrise");
-        return new BriefingSlot(7L, "Bamburgh", AT, Verdict.GO, weather, tide, flags, "reason",
-                4, 3, 81, 66, "Clear sky over the castle.", DisplayVerdict.WORTH_IT,
+        return new BriefingSlot(7L, "Bamburgh", AT, Verdict.GO, weather, tide, flags, 4, 3, 81, 66,
+        "Clear sky over the castle.", DisplayVerdict.WORTH_IT,
                 "Clear over the castle", true, null, Boolean.TRUE);
     }
 
     private static DailyBriefingResponse responseOf(BriefingSlot regioned, BriefingSlot unregioned) {
         BriefingRegion region = new BriefingRegion("North East", Verdict.GO, "region prose", List.of(),
                 List.of(regioned), null, null, null, null, "Gloss headline", "Gloss detail",
-                DisplayVerdict.AWAITING, 0, null, false, null);
+                DisplayVerdict.AWAITING, 0, null, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE,
                 List.of(region), List.of(unregioned), AT, null);
         return new DailyBriefingResponse(AT, "h",
                 List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
     }
 
     @Test

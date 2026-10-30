@@ -337,7 +337,6 @@ class PlanWindowProjectorTest {
             assertThat(w.bestRating()).isNull();
             assertThat(w.pick()).isNull();
             assertThat(w.badges()).isEmpty();
-            assertThat(w.topRarityRank()).isNull();
         }
     }
 
@@ -489,7 +488,7 @@ class PlanWindowProjectorTest {
         void noSlotCarriesATimeYieldsNull() {
             BriefingRegion timeless = regionWithSlots("R", List.of(
                     new BriefingSlot("Loc", null, Verdict.GO, null,
-                            BriefingSlot.TideInfo.NONE, List.of(), null)));
+                            BriefingSlot.TideInfo.NONE, List.of())));
 
             assertThat(projectOne(timeless).eventTime()).isNull();
         }
@@ -631,7 +630,7 @@ class PlanWindowProjectorTest {
             // copy out of the recommendation slot.
             BriefingRegion r = new BriefingRegion("R", Verdict.GO, "summary", List.of(),
                     ratedSlots(4), 14.0, 13.0, 4.5, 3, HEADLINE, null,
-                    DisplayVerdict.WORTH_IT, 1, null, false, null)
+                    DisplayVerdict.WORTH_IT, 1, null, null)
                     .withSampleSufficient(true);
 
             assertThat(projectOne(r).pick().headline()).isEqualTo(HEADLINE);
@@ -772,10 +771,10 @@ class PlanWindowProjectorTest {
             // slots happen to carry no solar time — a silent, total failure.
             BriefingRegion timeless = new BriefingRegion("R", Verdict.GO, "summary", List.of(),
                     List.of(new BriefingSlot("Loc", null, Verdict.GO, null,
-                            BriefingSlot.TideInfo.NONE, List.of(), null)
+                            BriefingSlot.TideInfo.NONE, List.of())
                             .withClaudeScores(4, 60, 55, "s")),
                     14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
-                    DisplayVerdict.WORTH_IT, 1, null, false, null)
+                    DisplayVerdict.WORTH_IT, 1, null, null)
                     .withSampleSufficient(true);
 
             DailyBriefingResponse out = projectAt(List.of(dayOf(TODAY, timeless)), List.of(),
@@ -1139,21 +1138,6 @@ class PlanWindowProjectorTest {
             DailyBriefingResponse out = project(twoWindowDay(), List.of(topic("DUST", "SUNSET")));
 
             assertThat(windowOf(out, TargetType.SUNSET).badges().get(0).facts()).isEmpty();
-        }
-
-        @Test
-        void theRarestBadgeSetsTheWindowsRank() {
-            DailyBriefingResponse out = project(twoWindowDay(),
-                    List.of(topic("SPRING_TIDE", "SUNSET"), topic("SUPERMOON", "SUNSET")));
-
-            BriefingWindow w = windowOf(out, TargetType.SUNSET);
-            assertThat(w.badges()).hasSize(2);
-            assertThat(w.topRarityRank()).isEqualTo(TopicRarity.rankOf("SUPERMOON"));
-        }
-
-        @Test
-        void noBadgesMeansNoRank() {
-            assertThat(projectOne(region("R", 4)).topRarityRank()).isNull();
         }
     }
 
@@ -1522,7 +1506,7 @@ class PlanWindowProjectorTest {
                 "North East", Verdict.GO, "summary", List.of(),
                 List.of(unratedSlot("Bamburgh"), unratedSlot("Alnmouth")),
                 14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
-                DisplayVerdict.WORTH_IT, 0, null, false, Confidence.HIGH)
+                DisplayVerdict.WORTH_IT, 0, null, Confidence.HIGH)
                 .withSampleSufficient(true);
         DailyBriefingResponse raw = response(
                 List.of(new BriefingDay(TODAY, List.of(
@@ -1807,7 +1791,7 @@ class PlanWindowProjectorTest {
             // genuinely deserialise to null rather than to an explicit false.
             BriefingRegion legacy = new BriefingRegion("R", Verdict.GO, "summary", List.of(),
                     ratedSlots(4, 4, 4), 14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
-                    DisplayVerdict.WORTH_IT, 3, null, false, null);
+                    DisplayVerdict.WORTH_IT, 3, null, null);
 
             assertThat(legacy.sampleSufficient()).isNull();
             assertThat(legacy.forcedSample()).isNull();
@@ -1977,7 +1961,7 @@ class PlanWindowProjectorTest {
     private static DailyBriefingResponse response(List<BriefingDay> days, List<HotTopic> topics) {
         return new DailyBriefingResponse(
                 LocalDateTime.of(TODAY, LocalTime.NOON), "headline", days,
-                List.of(), null, null, false, false, 0, null, topics, List.of());
+                List.of(), null, null, false, null, topics, List.of());
     }
 
     private static List<BriefingDay> twoWindowDay() {
@@ -2032,8 +2016,7 @@ class PlanWindowProjectorTest {
                         r.tideHighlights(),
                         r.slots().stream().map(sl -> {
                             BriefingSlot moved = new BriefingSlot(sl.locationId(), sl.locationName(),
-                                    when, sl.verdict(), sl.weather(), sl.tide(), sl.flags(),
-                                    sl.standdownReason());
+                                    when, sl.verdict(), sl.weather(), sl.tide(), sl.flags());
                             return sl.claudeRating() == null ? moved
                                     : moved.withClaudeScores(sl.claudeRating(),
                                             sl.fierySkyPotential(), sl.goldenHourPotential(),
@@ -2042,7 +2025,7 @@ class PlanWindowProjectorTest {
                         r.regionTemperatureCelsius(), r.regionApparentTemperatureCelsius(),
                         r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
-                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating())
+                        r.verdictLabel(), r.confidence(), r.meanRating())
                         .withBestRating(r.bestRating())
                         .withSampleSufficient(r.sampleSufficient())
                         .withForcedSample(r.forcedSample()))
@@ -2058,7 +2041,7 @@ class PlanWindowProjectorTest {
                         r.regionTemperatureCelsius(), r.regionApparentTemperatureCelsius(),
                         r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
-                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating())
+                        r.verdictLabel(), r.confidence(), r.meanRating())
                         .withBestRating(r.bestRating())
                         .withSampleSufficient(r.sampleSufficient())
                         .withForcedSample(r.forcedSample()))
@@ -2072,7 +2055,7 @@ class PlanWindowProjectorTest {
         }
         BriefingSlot moved = new BriefingSlot(slot.locationId(), slot.locationName(),
                 LocalDateTime.of(date, slot.solarEventTime().toLocalTime()), slot.verdict(),
-                slot.weather(), slot.tide(), slot.flags(), slot.standdownReason());
+                slot.weather(), slot.tide(), slot.flags());
         return slot.claudeRating() == null ? moved
                 : moved.withClaudeScores(slot.claudeRating(), slot.fierySkyPotential(),
                         slot.goldenHourPotential(), slot.claudeSummary());
@@ -2140,7 +2123,7 @@ class PlanWindowProjectorTest {
         // fixtures explicitly.
         return new BriefingRegion(name, Verdict.GO, "summary", List.of(), slots,
                 14.0, 13.0, 4.5, 3, headline, headline == null ? null : DETAIL,
-                dv, slots.size(), null, false, confidence)
+                dv, slots.size(), null, confidence)
                 .withSampleSufficient(true);
     }
 
@@ -2155,29 +2138,29 @@ class PlanWindowProjectorTest {
     private static BriefingSlot identifiedSlot(String name, int rating, boolean canopy, long id) {
         BriefingSlot base = canopy
                 ? BriefingSlot.canopySlot(id, name, at(LocalTime.of(21, 11)), Verdict.GO, null,
-                        List.of(), null)
+                        List.of())
                 : new BriefingSlot(id, name, at(LocalTime.of(21, 11)), Verdict.GO, null,
-                        BriefingSlot.TideInfo.NONE, List.of(), null);
+                        BriefingSlot.TideInfo.NONE, List.of());
         return base.withClaudeScores(rating, 60, 55, "summary");
     }
 
     private static BriefingSlot ratedSlot(String name, int rating, boolean canopy) {
         BriefingSlot base = canopy
                 ? BriefingSlot.canopySlot(name, at(LocalTime.of(21, 11)), Verdict.GO, null,
-                        List.of(), null)
+                        List.of())
                 : new BriefingSlot(name, at(LocalTime.of(21, 11)), Verdict.GO, null,
-                        BriefingSlot.TideInfo.NONE, List.of(), null);
+                        BriefingSlot.TideInfo.NONE, List.of());
         return base.withClaudeScores(rating, 60, 55, "summary");
     }
 
     private static BriefingSlot unratedSlot(String name) {
         return new BriefingSlot(name, at(LocalTime.of(21, 11)), Verdict.GO, null,
-                BriefingSlot.TideInfo.NONE, List.of(), null);
+                BriefingSlot.TideInfo.NONE, List.of());
     }
 
     private static BriefingSlot slotAt(String name, LocalTime time) {
         return new BriefingSlot(name, at(time), Verdict.GO, null,
-                BriefingSlot.TideInfo.NONE, List.of(), null).withClaudeScores(4, 60, 55, "s");
+                BriefingSlot.TideInfo.NONE, List.of()).withClaudeScores(4, 60, 55, "s");
     }
 
     private static LocalDateTime at(LocalTime time) {

@@ -178,11 +178,9 @@ public class BriefingService {
     private CircuitBreakerRegistry circuitBreakerRegistry;
 
     /**
-     * Coverage fraction below which the honesty filter flags a region as
-     * lightly evaluated on the API read path. A region with a positive but
-     * below-threshold {@code scoredLocationCount / rosterSize} is framed as
-     * covering only the evaluated spots rather than the whole roster. Tunable
-     * without redeploy; {@code 0.0} disables the tier.
+     * Coverage fraction threaded to the honesty filter. The filter's "lightly evaluated" tier was
+     * removed (nothing read its flag), so this no longer changes the served briefing; the same
+     * configuration key still drives {@code BriefingGlossService}'s hedge.
      */
     @Value("${photocast.briefing.min-coverage-ratio:0.5}")
     private double minCoverageRatio;
@@ -719,7 +717,6 @@ public class BriefingService {
         AuroraTonightSummary auroraTonight = auroraSummaryBuilder.buildAuroraTonight();
         AuroraTomorrowSummary auroraTomorrow = auroraSummaryBuilder.buildAuroraTomorrow();
 
-        boolean partialFailure = failed > 0;
         int total = succeeded + failed;
         boolean aboveThreshold = total == 0 || (succeeded * 100 / total) >= 50;
 
@@ -767,8 +764,8 @@ public class BriefingService {
         if (aboveThreshold) {
             DailyBriefingResponse response = new DailyBriefingResponse(
                     LocalDateTime.now(clock), headline, days, bestBets,
-                    auroraTonight, auroraTomorrow, false, partialFailure, failed,
-                    bestBetAdvisor.getModelDisplayName(), hotTopics, seasonalFeatures,
+                    auroraTonight, auroraTomorrow, false, bestBetAdvisor.getModelDisplayName(), hotTopics,
+                    seasonalFeatures,
                     bestBetStatus);
             cache.set(response);
             lastKnownGood.set(response);
@@ -783,8 +780,7 @@ public class BriefingService {
             if (lkg != null) {
                 DailyBriefingResponse staleResponse = new DailyBriefingResponse(
                         lkg.generatedAt(), lkg.headline(), lkg.days(), lkg.bestBets(),
-                        auroraTonight, auroraTomorrow, true, true, failed,
-                        lkg.bestBetModel(), hotTopics, seasonalFeatures,
+                        auroraTonight, auroraTomorrow, true, lkg.bestBetModel(), hotTopics, seasonalFeatures,
                         lkg.bestBetStatus());
                 cache.set(staleResponse);
                 LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below 50% threshold, "
@@ -793,8 +789,8 @@ public class BriefingService {
             } else {
                 DailyBriefingResponse response = new DailyBriefingResponse(
                         LocalDateTime.now(clock), headline, days, bestBets,
-                        auroraTonight, auroraTomorrow, false, partialFailure, failed,
-                        bestBetAdvisor.getModelDisplayName(), hotTopics, seasonalFeatures,
+                        auroraTonight, auroraTomorrow, false, bestBetAdvisor.getModelDisplayName(), hotTopics,
+                        seasonalFeatures,
                         bestBetStatus);
                 cache.set(response);
                 // Snapshotted like the healthy branch, and deliberately: this partial response IS

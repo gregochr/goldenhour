@@ -70,7 +70,7 @@ class BriefingRegionEvaluationRollupTest {
      */
     private static BriefingSlot ratedSlot() {
         return new BriefingSlot(LOCATION, EVENT_TIME, Verdict.GO, WEATHER,
-                BriefingSlot.TideInfo.NONE, List.of("Clear"), null)
+                BriefingSlot.TideInfo.NONE, List.of("Clear"))
                 .withClaudeScores(4, 4, 75, 60, "Great sky", "Fiery dawn over the Angel");
     }
 
@@ -158,12 +158,11 @@ class BriefingRegionEvaluationRollupTest {
                         BriefingEvaluationResult.retracted(LOCATION)));
         BriefingSlot neverTouched = enrichedSlot(
                 new BriefingSlot(LOCATION, EVENT_TIME, Verdict.GO, WEATHER,
-                        BriefingSlot.TideInfo.NONE, List.of("Clear"), null),
+                        BriefingSlot.TideInfo.NONE, List.of("Clear")),
                 (regionName, date, targetType) -> Map.of());
 
         assertThat(ratedThenRetracted.displayVerdict()).isEqualTo(neverTouched.displayVerdict());
         assertThat(ratedThenRetracted.verdict()).isEqualTo(neverTouched.verdict());
-        assertThat(ratedThenRetracted.standdownReason()).isEqualTo(neverTouched.standdownReason());
         assertThat(ratedThenRetracted.claudeRating()).isEqualTo(neverTouched.claudeRating());
     }
 
@@ -177,7 +176,6 @@ class BriefingRegionEvaluationRollupTest {
         // The slot's own GO triage verdict survives untouched — retraction clears Claude's fields
         // only, never substitutes a stand-down reason of its own.
         assertThat(result.verdict()).isEqualTo(Verdict.GO);
-        assertThat(result.standdownReason()).isNull();
         assertThat(result.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
     }
 
@@ -228,7 +226,7 @@ class BriefingRegionEvaluationRollupTest {
         /** A rated, non-canopy voting slot — GO triage, a Claude rating already embedded. */
         private BriefingSlot rated(String name, int rating) {
             return new BriefingSlot(name, EVENT_TIME, Verdict.GO, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of(), null)
+                    BriefingSlot.TideInfo.NONE, List.of())
                     .withClaudeScores(rating, 75, 60, "summary");
         }
 
@@ -244,7 +242,7 @@ class BriefingRegionEvaluationRollupTest {
          */
         private BriefingSlot triaged(String name) {
             return new BriefingSlot(name, EVENT_TIME, Verdict.STANDDOWN, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of(), "Grey ceiling");
+                    BriefingSlot.TideInfo.NONE, List.of());
         }
 
         /**
@@ -288,7 +286,7 @@ class BriefingRegionEvaluationRollupTest {
         /** A voting slot nobody has looked at this cycle — beyond Gate 4's horizon, unforced. */
         private BriefingSlot untouched(String name) {
             return new BriefingSlot(name, EVENT_TIME, Verdict.GO, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of(), null);
+                    BriefingSlot.TideInfo.NONE, List.of());
         }
 
         /** {@code count} untouched slots, named {@code prefix0..count-1}. */
@@ -477,7 +475,7 @@ class BriefingRegionEvaluationRollupTest {
             // A GO-verdict slot (never STANDDOWN) the batch nonetheless decided SKIPPED_TRIAGED
             // for — a stale briefing verdict computed before the batch's own, independent pass.
             BriefingSlot goButTriaged = new BriefingSlot("GoButTriaged", EVENT_TIME, Verdict.GO,
-                    WEATHER, BriefingSlot.TideInfo.NONE, List.of(), null);
+                    WEATHER, BriefingSlot.TideInfo.NONE, List.of());
             slots.add(goButTriaged);
             // 19 more triaged (via the resolver) to clear the 50% coverage line alongside it.
             List<String> triagedNames = new ArrayList<>(List.of("GoButTriaged"));
@@ -600,7 +598,7 @@ class BriefingRegionEvaluationRollupTest {
             List<BriefingSlot> slots = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
                 slots.add(BriefingSlot.canopySlot("Wood" + i, EVENT_TIME, Verdict.GO, WEATHER,
-                                List.of(), null)
+                                List.of())
                         .withClaudeScores(4, 75, 60, "summary"));
             }
 

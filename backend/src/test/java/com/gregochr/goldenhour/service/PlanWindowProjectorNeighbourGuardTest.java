@@ -34,7 +34,7 @@ class PlanWindowProjectorNeighbourGuardTest {
     private static BriefingWindow.Pick pickOf(BriefingSlot... slots) {
         DailyBriefingResponse in = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 17, 3, 0),
                 "headline", List.of(day(D, TargetType.SUNRISE, region("North", slots))), List.of(), null,
-                null, false, false, 0, null, List.of(), List.of());
+                null, false, null, List.of(), List.of());
         return PlanWindowProjector.apply(in, NOW, Map.of(), Map.of()).days().get(0).eventSummaries().get(0)
                 .window().pick();
     }
@@ -97,7 +97,7 @@ class PlanWindowProjectorNeighbourGuardTest {
         DailyBriefingResponse in = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 17, 3, 0),
                 "headline", List.of(day(D, TargetType.SUNRISE, region("North",
                         flagged(sky(1L, "A", 4)), sky(2L, "B", 3), sky(3L, "C", 3)))), List.of(), null,
-                null, false, false, 0, null, List.of(), List.of());
+                null, false, null, List.of(), List.of());
 
         BriefingWindow window = PlanWindowProjector.apply(in, NOW, Map.of(), Map.of()).days().get(0)
                 .eventSummaries().get(0).window();

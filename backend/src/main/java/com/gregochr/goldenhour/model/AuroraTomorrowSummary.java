@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.List;
 
 /**
@@ -17,6 +18,7 @@ import java.util.List;
  *                            (e.g. {@code "WAXING_GIBBOUS"}), or {@code null}
  * @param moonIlluminationPct lunar illumination percentage (0–100), or {@code null}
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record AuroraTomorrowSummary(
         double peakKp,
         String label,

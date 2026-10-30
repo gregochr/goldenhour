@@ -74,6 +74,11 @@ class PostcodePromptRoundTripTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /** The dismissal instant as the row holds it: the response no longer serves it. */
+    private Instant storedDismissal() {
+        return userRepository.findByUsername(USERNAME).orElseThrow().getPostcodePromptDismissedAt();
+    }
+
     private final Authentication auth = new TestingAuthenticationToken(USERNAME, "n/a");
 
     @BeforeEach
@@ -99,17 +104,17 @@ class PostcodePromptRoundTripTest {
     void dismissEndsThePromptAndTheNextReadAgrees() {
         UserSettingsResponse before = settingsService.getSettings(auth);
         assertThat(before.postcodePromptDue()).isTrue();
-        assertThat(before.postcodePromptDismissedAt()).isNull();
+        assertThat(storedDismissal()).isNull();
 
         // The response of the write itself must be built from the row AFTER the write: a service that
         // read first and wrote second would answer due=true with no instant here.
         UserSettingsResponse dismissed = settingsService.markPostcodePromptDismissed(auth);
         assertThat(dismissed.postcodePromptDue()).isFalse();
-        assertThat(dismissed.postcodePromptDismissedAt()).isEqualTo(NOW);
+        assertThat(storedDismissal()).isEqualTo(NOW);
 
         UserSettingsResponse after = settingsService.getSettings(auth);
         assertThat(after.postcodePromptDue()).isFalse();
-        assertThat(after.postcodePromptDismissedAt()).isEqualTo(NOW);
+        assertThat(storedDismissal()).isEqualTo(NOW);
         assertThat(after.homePostcode()).isNull();
     }
 
@@ -120,7 +125,7 @@ class PostcodePromptRoundTripTest {
         UserSettingsResponse second = settingsService.markPostcodePromptDismissed(auth);
 
         assertThat(second.postcodePromptDue()).isFalse();
-        assertThat(second.postcodePromptDismissedAt()).isEqualTo(NOW);
+        assertThat(storedDismissal()).isEqualTo(NOW);
     }
 
     @Test
@@ -130,7 +135,7 @@ class PostcodePromptRoundTripTest {
         UserSettingsResponse saved = settingsService.saveHome(auth,
                 new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, null));
         assertThat(saved.postcodePromptDue()).isFalse();
-        assertThat(saved.postcodePromptDismissedAt()).isNull();
+        assertThat(storedDismissal()).isNull();
 
         UserSettingsResponse dismissed = settingsService.markPostcodePromptDismissed(auth);
         assertThat(dismissed.homePostcode()).isEqualTo("DH1 3LE");
@@ -146,7 +151,7 @@ class PostcodePromptRoundTripTest {
         UserSettingsResponse saved = settingsService.saveHome(auth,
                 new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, null));
 
-        assertThat(saved.postcodePromptDismissedAt()).isEqualTo(NOW);
+        assertThat(storedDismissal()).isEqualTo(NOW);
         assertThat(saved.postcodePromptDue()).isFalse();
     }
 
