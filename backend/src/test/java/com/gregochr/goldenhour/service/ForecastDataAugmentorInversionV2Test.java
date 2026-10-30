@@ -317,7 +317,29 @@ class ForecastDataAugmentorInversionV2Test {
                     assertThat(e.getLevel()).isEqualTo(Level.INFO);
                     assertThat(e.getFormattedMessage()).isEqualTo(
                             "[INVERSION v2] Test Fell 2025-10-15 SUNRISE old=6 new=7 regime=SURFACE_BASED "
-                            + "base=100 top=450 strength=2.0 viewpoint=450 valley=100 caps=edge(8),raise(7)");
+                            + "base=100 top=450 strength=2.0 viewpoint=450 valley=100 caps=edge(8),raise(7) "
+                            + "night=- optionB=false");
                 });
+    }
+
+    @Test
+    @DisplayName("with a night side the log line carries night=<%> optionB=<bool>, and the carrier keeps the figures")
+    void logLineWithNight() {
+        java.util.List<InversionProfile.Hour> night = new java.util.ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            night.add(H.on(java.time.LocalDateTime.of(2025, 10, 14, 20, 0).plusHours(i)).t2(8.0).dew(7.8).wind(1.0)
+                    .low(0).vis(10000.0).mid(25).high(10).build());
+        }
+        InversionProfile p = profile(H0, night, H.at(7).t2(5.0).dew(4.8).vis(3000.0).temps(7.0, 6.0, 5.0, 4.0, 3.0));
+        AtmosphericData base = withProfile(cell(6).build(), p);
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 450, true);
+
+        assertThat(result.inversionV2().nightPercent()).isEqualTo(25.0);
+        assertThat(result.inversionV2().nightMidPercent()).isEqualTo(25.0);
+        assertThat(result.inversionV2().optionB()).isTrue();
+        assertThat(logs.list).filteredOn(e -> e.getFormattedMessage().startsWith("[INVERSION v2]"))
+                .singleElement().satisfies(e -> assertThat(e.getFormattedMessage())
+                        .endsWith("caps=edge(8),raise(7) night=25.0 optionB=true"));
     }
 }

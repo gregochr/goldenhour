@@ -6,7 +6,12 @@ import com.gregochr.goldenhour.model.InversionProfile;
 import com.gregochr.goldenhour.model.InversionRegime;
 import com.gregochr.goldenhour.model.InversionV2Result;
 
+import com.gregochr.goldenhour.util.ForecastHorizon;
+
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -61,8 +66,8 @@ import java.util.List;
  *
  * <p><b>Surface terms</b> come from the valley cell at the event slot: moisture
  * ({@link MoistureScoring#gapScore}, called and not changed), wind 0-3 (the old steps), and sea evidence 0-2
- * (2 for valley low cloud of at least {@value #SEA_LOW_CLOUD_PERCENT} percent at the event or night-side
- * visibility under {@value #DENSE_FOG_VISIBILITY_METRES} m; 1 for night-side visibility under
+ * (2 for valley low cloud of at least {@value #SEA_LOW_CLOUD_PERCENT} percent at the event or event-window
+ * visibility under {@value #DENSE_FOG_VISIBILITY_METRES} m; 1 for event-window visibility under
  * {@value #FOG_VISIBILITY_METRES} m; else 0). A layer of at least
  * {@value InversionScoreCalculator#STRONG_REVERSAL_CELSIUS} degC allows 10, a weaker one caps at 8, no layer
  * caps at 6.
@@ -73,6 +78,31 @@ import java.util.List;
  * <p><b>Consequence for the roster.</b> An elevated "clear" needs E at or above the level above the base,
  * which is never below about 640 m, so no site below 600 m can exceed 8 here; the STRONG band comes only from
  * summits. That is intended: a low site cannot see a deep sea.
+ *
+ * <p><b>The clear night</b> (Phase 2, sunrise only; a sunset and a profile with no night side have none). A
+ * clear night is what lets valley air cool and a sea form; a cloudy one holds it back. Per night hour
+ * ({@link InversionProfile#nightHours()}, 21:00 local the evening before to 05:00 local) the measure is
+ * max(mid cloud, {@value #NIGHT_HIGH_WEIGHT} of high cloud, lid), where the lid is that hour's valley low
+ * cloud when its valley visibility is at least {@value #FOG_VISIBILITY_METRES} m, else 0: a low deck over
+ * good visibility stops the cooling, while low cloud with poor visibility is the fog or sea itself. Only
+ * hours with both mid and high cloud count, and the mean is of the unrounded values. Fewer than
+ * {@value #NIGHT_MIN_HOURS} counted hours, or none before local midnight (a half night), is "no night data"
+ * and changes nothing. A night only ever lowers the score, by regime:
+ * <ul>
+ *   <li>Surface-based: the full measure, at least {@value #NIGHT_OVERCAST_PERCENT} caps at 6, at least
+ *       {@value #NIGHT_PARTLY_PERCENT} caps at 8.</li>
+ *   <li>Elevated: only the night's mean MID cloud, at least {@value #NIGHT_MID_ELEVATED_PERCENT} caps at 8
+ *       (an elevated sea survives cirrus, frontal altostratus is what threatens it).</li>
+ *   <li>No layer: nothing, it is already capped at 6.</li>
+ * </ul>
+ * A night cap enters {@code caps} only when it binds.
+ *
+ * <p><b>Option B</b> reads a clear, calm, moist night: night measure under {@value #NIGHT_PARTLY_PERCENT},
+ * valley wind of at most {@value #WIND_LIGHT_MS} m/s in at least half the night hours that have a wind
+ * reading, and a valley gap of at most {@value #FOG_GAP_CELSIUS} degC in at least one night hour. Its only
+ * effect is to count as fog evidence for a surface-based layer: an unconfirmed viewpoint at least
+ * {@value #SURFACE_EDGE_MIN_ABOVE_FLOOR_M} m above h0 becomes an edge (cap 8, recorded as
+ * {@code night-fog(8)}). It never touches the sea term and never lifts another cap.
  *
  * <p><b>Known fragile thresholds</b> (priors from four mornings, not tuned): the {@value #FOG_VISIBILITY_METRES}
  * m visibility test (Thirlmere's 4,960 m sits 40 m under the line); the 975 hPa level
@@ -118,6 +148,21 @@ public final class InversionScoreCalculatorV2 {
     /** Wind speed in m/s at or under which the stability term scores 1. */
     static final double WIND_BREEZE_MS = 5.0;
 
+    /** Night measure at or over which a surface-based layer is capped at 6. */
+    static final double NIGHT_OVERCAST_PERCENT = 70.0;
+
+    /** Night measure at or over which a surface-based layer is capped at 8; under it Option B may apply. */
+    static final double NIGHT_PARTLY_PERCENT = 40.0;
+
+    /** Mean night MID cloud at or over which an elevated layer is capped at 8. */
+    static final double NIGHT_MID_ELEVATED_PERCENT = 70.0;
+
+    /** Weight of high cloud (thin cirrus) in the night measure. */
+    static final double NIGHT_HIGH_WEIGHT = 0.5;
+
+    /** Fewest counted night hours (mid and high both present) that make "night data". */
+    static final int NIGHT_MIN_HOURS = 6;
+
     /** Top of the score range, allowed only by a layer of at least the strong threshold. */
     static final double MAX_SCORE = 10.0;
 
@@ -139,6 +184,18 @@ public final class InversionScoreCalculatorV2 {
     private static final double TENTH = 10.0;
 
     private InversionScoreCalculatorV2() {
+    }
+
+    /**
+     * The night's reading: the unrounded mean measure and mean mid cloud over the counted hours.
+     */
+    private record Night(double percent, double midPercent) {
+    }
+
+    /**
+     * Where the viewpoint stands, and whether Option B is what made it an edge.
+     */
+    private record Standing(InversionClearance clearance, boolean byNightFog) {
     }
 
     /**
@@ -198,20 +255,32 @@ public final class InversionScoreCalculatorV2 {
         double sea = seaScore(slot, minVisibility);
         double score = moisture + wind + sea;
 
+        Night night = night(profile);
+        boolean optionB = night != null && night.percent() < NIGHT_PARTLY_PERCENT && calmNight(profile)
+                && moistNight(profile);
         List<String> caps = new ArrayList<>();
         InversionClearance clearance;
+        boolean byNightFog = false;
+        boolean nightCapBound = false;
         if (best == null) {
             clearance = InversionClearance.NO_LAYER;
             score = applyCap(score, InversionScoreCalculator.VETOED_CEILING, "none", caps);
         } else {
-            clearance = clearanceFor(best, elevationMetres, h0, profile);
-            score = applyClearanceCap(score, clearance, caps);
+            Standing standing = clearanceFor(best, elevationMetres, h0, profile, optionB);
+            clearance = standing.clearance();
+            byNightFog = standing.byNightFog();
+            score = applyClearanceCap(score, clearance, byNightFog, caps);
             if (best.strength() < InversionScoreCalculator.STRONG_REVERSAL_CELSIUS) {
                 score = applyCap(score, InversionScoreCalculator.MARGINAL_CEILING, "weak", caps);
             }
         }
         if (viewpointInCloud(data)) {
             score = applyCap(score, InversionScoreCalculator.VETOED_CEILING, "in-cloud", caps);
+        }
+        if (best != null && night != null) {
+            double before = score;
+            score = applyNightCap(score, best.regime(), night, caps);
+            nightCapBound = score < before;
         }
         score = Math.min(score, MAX_SCORE);
 
@@ -220,7 +289,84 @@ public final class InversionScoreCalculatorV2 {
                 best == null ? null : best.base().height(),
                 best == null ? null : best.top().height(),
                 best == null ? null : best.strength(),
-                h0, elevationMetres, clearance, caps.isEmpty() ? "-" : String.join(",", caps), false);
+                h0, elevationMetres, clearance, caps.isEmpty() ? "-" : String.join(",", caps), false,
+                night == null ? null : night.percent(), night == null ? null : night.midPercent(), optionB,
+                nightCapBound, byNightFog);
+    }
+
+    /**
+     * The night's cloud reading from {@link InversionProfile#nightHours()}.
+     *
+     * @return the unrounded mean measure and mean mid cloud, or null for "no night data": fewer than
+     *         {@value #NIGHT_MIN_HOURS} hours with both mid and high cloud, or none of them before local
+     *         midnight on the event date
+     */
+    private static Night night(InversionProfile profile) {
+        if (profile.nightHours() == null || profile.slotTime() == null) {
+            return null;
+        }
+        LocalDate eventDate = ForecastHorizon.civilDate(profile.slotTime().toInstant(ZoneOffset.UTC));
+        Instant midnight = eventDate.atStartOfDay(InversionProfile.LONDON).toInstant();
+        int counted = 0;
+        boolean beforeMidnight = false;
+        double sum = 0.0;
+        double midSum = 0.0;
+        for (InversionProfile.Hour hour : profile.nightHours()) {
+            if (hour.midCloudPercent() == null || hour.highCloudPercent() == null) {
+                continue;
+            }
+            counted++;
+            beforeMidnight |= hour.time().toInstant(ZoneOffset.UTC).isBefore(midnight);
+            boolean lidded = hour.lowCloudPercent() != null && hour.visibilityMetres() != null
+                    && hour.visibilityMetres() >= FOG_VISIBILITY_METRES;
+            double lid = lidded ? hour.lowCloudPercent() : 0.0;
+            sum += Math.max(Math.max(hour.midCloudPercent(), NIGHT_HIGH_WEIGHT * hour.highCloudPercent()), lid);
+            midSum += hour.midCloudPercent();
+        }
+        if (counted < NIGHT_MIN_HOURS || !beforeMidnight) {
+            return null;
+        }
+        return new Night(sum / counted, midSum / counted);
+    }
+
+    /** Option B's wind condition: calm in at least half the night hours that have a wind reading. */
+    private static boolean calmNight(InversionProfile profile) {
+        long read = profile.nightHours().stream().filter(h -> h.windSpeedMs() != null).count();
+        long calm = profile.nightHours().stream()
+                .filter(h -> h.windSpeedMs() != null && h.windSpeedMs() <= WIND_LIGHT_MS).count();
+        return read > 0 && 2 * calm >= read;
+    }
+
+    /** Option B's moisture condition: a valley gap of at most {@value #FOG_GAP_CELSIUS} degC in one night hour. */
+    private static boolean moistNight(InversionProfile profile) {
+        return profile.nightHours().stream().anyMatch(h -> h.temperatureCelsius() != null
+                && h.dewPointCelsius() != null
+                && h.temperatureCelsius() - h.dewPointCelsius() <= FOG_GAP_CELSIUS);
+    }
+
+    /**
+     * Applies the night cap for the layer's regime, recording it only when it lowers the score.
+     */
+    private static double applyNightCap(double score, InversionRegime regime, Night night, List<String> caps) {
+        if (regime == InversionRegime.SURFACE_BASED) {
+            if (night.percent() >= NIGHT_OVERCAST_PERCENT) {
+                return applyBindingCap(score, InversionScoreCalculator.VETOED_CEILING, "overcast-night", caps);
+            }
+            if (night.percent() >= NIGHT_PARTLY_PERCENT) {
+                return applyBindingCap(score, InversionScoreCalculator.MARGINAL_CEILING, "cloudy-night", caps);
+            }
+        } else if (regime == InversionRegime.ELEVATED && night.midPercent() >= NIGHT_MID_ELEVATED_PERCENT) {
+            return applyBindingCap(score, InversionScoreCalculator.MARGINAL_CEILING, "night-mid", caps);
+        }
+        return score;
+    }
+
+    /** A cap that enters {@code caps} only when it changes the value. */
+    private static double applyBindingCap(double score, double cap, String name, List<String> caps) {
+        if (score <= cap) {
+            return score;
+        }
+        return applyCap(score, cap, name, caps);
     }
 
     /**
@@ -305,28 +451,34 @@ public final class InversionScoreCalculatorV2 {
         return Duration.between(layer.hour().time(), profile.slotTime()).abs();
     }
 
-    private static InversionClearance clearanceFor(Layer layer, int elevation, int h0, InversionProfile profile) {
+    private static Standing clearanceFor(Layer layer, int elevation, int h0, InversionProfile profile,
+            boolean optionB) {
+        boolean aboveEdge = elevation >= h0 + SURFACE_EDGE_MIN_ABOVE_FLOOR_M;
         if (layer.regime() == InversionRegime.SURFACE_BASED) {
             if (!fogEvidence(profile)) {
-                return InversionClearance.UNCONFIRMED;
+                // Option B: a clear, calm, moist night stands in for the fog evidence.
+                return optionB && aboveEdge
+                        ? new Standing(InversionClearance.EDGE, true)
+                        : new Standing(InversionClearance.UNCONFIRMED, false);
             }
-            return elevation >= h0 + SURFACE_EDGE_MIN_ABOVE_FLOOR_M
-                    ? InversionClearance.EDGE : InversionClearance.INSIDE;
+            return new Standing(aboveEdge ? InversionClearance.EDGE : InversionClearance.INSIDE, false);
         }
         if (elevation < layer.base().height()) {
-            return InversionClearance.INSIDE;
+            return new Standing(InversionClearance.INSIDE, false);
         }
         if (layer.nextLevelHeight() != null && elevation >= layer.nextLevelHeight()) {
-            return InversionClearance.CLEAR;
+            return new Standing(InversionClearance.CLEAR, false);
         }
-        return InversionClearance.EDGE;
+        return new Standing(InversionClearance.EDGE, false);
     }
 
-    private static double applyClearanceCap(double score, InversionClearance clearance, List<String> caps) {
+    private static double applyClearanceCap(double score, InversionClearance clearance, boolean byNightFog,
+            List<String> caps) {
         return switch (clearance) {
             case INSIDE -> applyCap(score, InversionScoreCalculator.VETOED_CEILING, "inside", caps);
             case UNCONFIRMED -> applyCap(score, InversionScoreCalculator.VETOED_CEILING, "unconfirmed", caps);
-            case EDGE -> applyCap(score, InversionScoreCalculator.MARGINAL_CEILING, "edge", caps);
+            case EDGE -> applyCap(score, InversionScoreCalculator.MARGINAL_CEILING,
+                    byNightFog ? "night-fog" : "edge", caps);
             default -> score;
         };
     }

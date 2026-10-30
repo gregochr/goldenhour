@@ -80,10 +80,18 @@ public class OpenMeteoClient {
      * added to {@link #FORECAST_PARAMS}, so no mist input or main-fetch variable changes.
      */
     static final String INVERSION_PROFILE_PARAMS =
-            "temperature_2m,dew_point_2m,cloud_cover_low,visibility,wind_speed_10m,"
+            "temperature_2m,dew_point_2m,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,"
+            + "wind_speed_10m,"
             + "temperature_975hPa,temperature_950hPa,temperature_925hPa,temperature_900hPa,temperature_850hPa,"
             + "geopotential_height_975hPa,geopotential_height_950hPa,geopotential_height_925hPa,"
             + "geopotential_height_900hPa,geopotential_height_850hPa";
+
+    /**
+     * Days of history the inversion profile request adds ({@code past_days}), so a day-0 sunrise still has
+     * the previous evening for the clear-night measure (inversion-v2-plan Phase 2). Sent on the profile
+     * request ONLY; the main, pressure-level and generic batches send none.
+     */
+    static final int INVERSION_PROFILE_PAST_DAYS = 1;
 
     /** Total time the inversion profile fetch may spend before leaving the remaining sites without one. */
     static final Duration INVERSION_PROFILE_FETCH_BUDGET = Duration.ofSeconds(90);
@@ -371,7 +379,8 @@ public class OpenMeteoClient {
             List<Integer> elevations = chunk.stream().map(p -> (int) Math.round(p[2])).toList();
             try {
                 List<OpenMeteoForecastResponse> chunkResults = fetchForecastChunk(
-                        coords, INVERSION_PROFILE_PARAMS, forecastRestClient, elevations);
+                        coords, INVERSION_PROFILE_PARAMS, forecastRestClient, elevations,
+                        INVERSION_PROFILE_PAST_DAYS);
                 for (int j = 0; j < chunkResults.size() && i + j < results.size(); j++) {
                     results.set(i + j, chunkResults.get(j));
                 }
@@ -776,15 +785,17 @@ public class OpenMeteoClient {
 
     private List<OpenMeteoForecastResponse> fetchForecastChunk(
             List<double[]> coords, String hourlyParams, RestClient client) {
-        return fetchForecastChunk(coords, hourlyParams, client, null);
+        return fetchForecastChunk(coords, hourlyParams, client, null, null);
     }
 
     /**
      * Fetches one chunk, optionally pinning each point's model surface with a comma-separated
-     * {@code elevation} list (one value per coordinate, in order).
+     * {@code elevation} list (one value per coordinate, in order), and optionally adding {@code past_days}
+     * (null sends none).
      */
     private List<OpenMeteoForecastResponse> fetchForecastChunk(
-            List<double[]> coords, String hourlyParams, RestClient client, List<Integer> elevations) {
+            List<double[]> coords, String hourlyParams, RestClient client, List<Integer> elevations,
+            Integer pastDays) {
         String elevationList = elevations == null ? null
                 : elevations.stream().map(String::valueOf).collect(Collectors.joining(","));
         String latitudes = coords.stream()
@@ -805,6 +816,9 @@ public class OpenMeteoClient {
                             .queryParam("timezone", "UTC");
                     if (elevationList != null) {
                         uriBuilder.queryParam("elevation", elevationList);
+                    }
+                    if (pastDays != null) {
+                        uriBuilder.queryParam("past_days", pastDays);
                     }
                     return uriBuilder.build();
                 })

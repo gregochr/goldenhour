@@ -549,12 +549,13 @@ public class ForecastDataAugmentor {
     /** The one INFO line per scored slot that lets the old and new scores be compared in the logs. */
     private static void logInversionV2(AtmosphericData base, InversionV2Result r) {
         LOG.info("[INVERSION v2] {} {} {} old={} new={} regime={} base={} top={} strength={} viewpoint={} "
-                        + "valley={} caps={}",
+                        + "valley={} caps={} night={} optionB={}",
                 base.locationName(), base.solarEventTime().toLocalDate(), base.targetType(),
                 formatScore(r.v1Score()), formatScore(r.stored()), r.regime(),
                 formatMetres(r.baseMetres()), formatMetres(r.topMetres()),
                 r.strengthCelsius() == null ? "-" : String.format("%.1f", r.strengthCelsius()),
-                r.viewpointMetres(), r.valleyFloorMetres(), r.caps());
+                r.viewpointMetres(), r.valleyFloorMetres(), r.caps(),
+                r.nightPercent() == null ? "-" : String.format("%.1f", r.nightPercent()), r.optionB());
     }
 
     private static String formatScore(Double score) {

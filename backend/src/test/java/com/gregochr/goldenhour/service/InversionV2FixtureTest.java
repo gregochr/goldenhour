@@ -25,6 +25,7 @@ import java.time.LocalDateTime;
 import java.time.MonthDay;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.Mockito.mock;
 
 /**
@@ -74,7 +75,8 @@ class InversionV2FixtureTest {
 
     /** One row of the expected-results table. */
     private record Outcome(int old, double raw, double stored, InversionRegime regime,
-            InversionClearance clearance, Double base, Double top, Double strength, String caps) {
+            InversionClearance clearance, Double base, Double top, Double strength, String caps,
+            Double night, Double nightMid, boolean optionB) {
     }
 
     private static OpenMeteoForecastResponse[] load(String resource) throws IOException {
@@ -111,7 +113,24 @@ class InversionV2FixtureTest {
         AtmosphericData stored = augmentor.augmentWithInversionScore(withProfile, elevation, true);
         InversionV2Result r = stored.inversionV2();
         return new Outcome((int) old, raw.v2Raw(), stored.inversionScore(), r.regime(), r.clearance(),
-                r.baseMetres(), r.topMetres(), r.strengthCelsius(), r.caps());
+                r.baseMetres(), r.topMetres(), r.strengthCelsius(), r.caps(), r.nightPercent(),
+                r.nightMidPercent(), r.optionB());
+    }
+
+    /**
+     * Pins the Phase 2 night reading of a row. The scores and caps strings above did not move: the night cap
+     * binds only a surface-based layer (or an elevated one under a mid-cloud night), and Option B affects only
+     * a surface-based layer, and no fixture row is surface-based.
+     */
+    private static void assertNight(Outcome o, Double night, Double nightMid, boolean optionB) {
+        if (night == null) {
+            assertThat(o.night()).as("night %").isNull();
+            assertThat(o.nightMid()).as("night mid %").isNull();
+        } else {
+            assertThat(o.night()).as("night %").isCloseTo(night, within(1e-9));
+            assertThat(o.nightMid()).as("night mid %").isCloseTo(nightMid, within(1e-9));
+        }
+        assertThat(o.optionB()).as("Option B").isEqualTo(optionB);
     }
 
     @Test
@@ -120,6 +139,7 @@ class InversionV2FixtureTest {
         OpenMeteoForecastResponse[] cells = load(OCT_15);
 
         Outcome o = run(cells[4], cells[3], 868, LocalDateTime.of(2025, 10, 15, 6, 41), TargetType.SUNRISE);
+        assertNight(o, 0.611111111111111, 0.0, true);
 
         // Expected: edge, cap 8, about 7, base about 683 m. The 06:00 hour has the strongest layer (4.6 degC);
         // its base is the 950 hPa level at 682 m and the next level up is 925 hPa at 901 m, so 868 m is the edge.
@@ -140,6 +160,7 @@ class InversionV2FixtureTest {
         OpenMeteoForecastResponse[] cells = load(OCT_15);
 
         Outcome o = run(cells[1], cells[0], 978, LocalDateTime.of(2025, 10, 15, 16, 20), TargetType.SUNSET);
+        assertNight(o, null, null, false);
 
         // Expected: base about 675 m, next level 894 m, clear, strength about 4.7, about 7.
         assertThat(o.clearance()).isEqualTo(InversionClearance.CLEAR);
@@ -158,6 +179,7 @@ class InversionV2FixtureTest {
         OpenMeteoForecastResponse[] cells = load(OCT_15);
 
         Outcome o = run(cells[2], cells[2], 451, LocalDateTime.of(2025, 10, 15, 6, 41), TargetType.SUNRISE);
+        assertNight(o, 13.1666666666667, 0.0, false);
 
         // The false positive the series exists to remove: the old calculator reads 7 (MODERATE).
         assertThat(o.old()).isEqualTo(7);
@@ -174,6 +196,7 @@ class InversionV2FixtureTest {
         OpenMeteoForecastResponse[] cells = load(SKIDDAW);
 
         Outcome o = run(cells[2], cells[0], 911, LocalDateTime.of(2024, 11, 4, 7, 30), TargetType.SUNRISE);
+        assertNight(o, 47.3333333333333, 0.0, false);
 
         // The 2c fetch has no 900 hPa; the profile must still score. The summit cell has 96% low cloud and
         // 2.6 km visibility, so the in-cloud cap binds even though 911 m is only at the edge of the layer.
@@ -191,6 +214,7 @@ class InversionV2FixtureTest {
         OpenMeteoForecastResponse[] cells = load(SKIDDAW);
 
         Outcome o = run(cells[2], cells[1], 368, LocalDateTime.of(2024, 11, 4, 7, 30), TargetType.SUNRISE);
+        assertNight(o, 47.3333333333333, 0.0, false);
 
         assertThat(o.clearance()).isEqualTo(InversionClearance.INSIDE);
         assertThat(o.base()).isEqualTo(863.0);
@@ -207,6 +231,7 @@ class InversionV2FixtureTest {
         OpenMeteoForecastResponse[] cells = load(HELVELLYN);
 
         Outcome o = run(cells[1], cells[0], 950, LocalDateTime.of(2025, 1, 15, 8, 15), TargetType.SUNRISE);
+        assertNight(o, 34.7777777777778, 0.0, false);
 
         // Expected: base about 469-682 m, clear, about 6-7. A confirmed inversion morning: the old score read
         // the summit's own clear cell and said 5, which is why summits are exempt from the raise cap.
