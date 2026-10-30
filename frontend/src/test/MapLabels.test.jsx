@@ -73,14 +73,15 @@ function makeMap({
     getCenter: () => ({ lat: 55, lng: -2 }),
     getBounds: () => ({ contains: () => boundsContainsAll }),
     latLngToContainerPoint: ([lat, lng]) => ({ x: (lng + 3) * 10, y: (56 - lat) * 10 }),
-    containerPointToLayerPoint: (p) => ({ x: -40 + p[0], y: -25 + p[1] }),
+    offset: { x: -40, y: -25 },
+    containerPointToLayerPoint(p) { return { x: this.offset.x + p[0], y: this.offset.y + p[1] }; },
     on(events, fn) { for (const e of events.split(' ')) handlers.set(e, [...(handlers.get(e) || []), fn]); },
     off(events, fn) {
       for (const e of events.split(' ')) {
         handlers.set(e, (handlers.get(e) || []).filter((h) => h !== fn));
       }
     },
-    fire(event) { for (const fn of handlers.get(event) || []) fn(); },
+    fire(event, data) { for (const fn of handlers.get(event) || []) fn(data); },
   };
 }
 
@@ -1423,7 +1424,7 @@ describe('MapLabels — re-paints on the same rAF-guarded cadence as the field',
   // fooled by that reuse (it can only ever detect a subtree REPLACEMENT, not a genuine re-render
   // that leaves familiar-looking output). Counting the underlying projection call is what
   // `MapHeatLayer.test.jsx` does too, via its own spied `drawTiles`.
-  it('coalesces a burst of move/zoom events into one paint, on the next frame', async () => {
+  it('coalesces a burst of resize/viewreset events into one paint, on the next frame', async () => {
     restoreMeasure = withMeasuredLabels(30, 14);
     currentMap = makeFullMap({ zoom: 9 });
     const projectSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
@@ -1435,14 +1436,136 @@ describe('MapLabels — re-paints on the same rAF-guarded cadence as the field',
     projectSpy.mockClear();
 
     await act(async () => {
-      currentMap.fire('move');
-      currentMap.fire('move');
-      currentMap.fire('zoom');
+      currentMap.fire('resize');
+      currentMap.fire('resize');
+      currentMap.fire('viewreset');
     });
     // Nothing repainted yet — the first event scheduled a frame and the other two were dropped.
     expect(projectSpy).not.toHaveBeenCalled();
     await act(async () => { runFrames(); });
     expect(projectSpy).toHaveBeenCalledTimes(1);
+  });
+
+  describe('P4c / F18 (D7): no repaint mid-gesture', () => {
+    async function painted() {
+      restoreMeasure = withMeasuredLabels(30, 14);
+      currentMap = makeFullMap({ zoom: 9 });
+      const projectSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+      await mount({ spots: [], homeCoords: HOME });
+      await act(async () => { runFrames(); });
+      projectSpy.mockClear();
+      return projectSpy;
+    }
+
+    it('a `move` at the painted zoom neither paints nor requests a frame', async () => {
+      const projectSpy = await painted();
+      frames = [];
+      await act(async () => { currentMap.fire('move'); currentMap.fire('move'); });
+      expect(frames.filter(Boolean)).toHaveLength(0);
+      await act(async () => { runFrames(); });
+      expect(projectSpy).not.toHaveBeenCalled();
+    });
+
+    it('`moveend` after a pan re-places exactly once', async () => {
+      const projectSpy = await painted();
+      await act(async () => { currentMap.fire('move'); currentMap.fire('moveend'); });
+      expect(projectSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('a pinch `zoom` hides the pane without painting, even at the painted zoom; `zoomend` shows it and re-places', async () => {
+      const projectSpy = await painted();
+      const pane = currentMap.panes['wf-labels'];
+      await act(async () => { currentMap.fire('zoom', { pinch: true }); });
+      expect(pane.classList.contains('invisible')).toBe(true);
+      currentMap.zoom = 9.4;
+      await act(async () => { currentMap.fire('zoom', { pinch: true }); currentMap.fire('move', { pinch: true }); });
+      await act(async () => { runFrames(); });
+      expect(projectSpy).not.toHaveBeenCalled();
+      currentMap.zoom = 10;
+      await act(async () => { currentMap.fire('zoomend'); });
+      expect(pane.classList.contains('invisible')).toBe(false);
+      expect(projectSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('`moveend` also unhides a pinched pane', async () => {
+      await painted();
+      const pane = currentMap.panes['wf-labels'];
+      await act(async () => { currentMap.fire('zoom', { pinch: true }); });
+      await act(async () => { currentMap.fire('moveend'); });
+      expect(pane.classList.contains('invisible')).toBe(false);
+    });
+
+    it('a non-pinch `zoom` (off-zoom or fly) repaints on the throttle and never hides; a same-zoom `zoom` does nothing', async () => {
+      const projectSpy = await painted();
+      const pane = currentMap.panes['wf-labels'];
+      await act(async () => { currentMap.fire('zoom', {}); });
+      await act(async () => { runFrames(); });
+      expect(projectSpy).not.toHaveBeenCalled();
+      currentMap.zoom = 9.5;
+      await act(async () => { currentMap.fire('zoom', {}); currentMap.fire('zoom', { flyTo: true }); });
+      await act(async () => { runFrames(); });
+      expect(projectSpy).toHaveBeenCalledTimes(1);
+      expect(pane.classList.contains('invisible')).toBe(false);
+    });
+
+    it('a `move` carrying `flyTo` repaints on the throttle', async () => {
+      const projectSpy = await painted();
+      await act(async () => { currentMap.fire('move', { flyTo: true }); currentMap.fire('move', { flyTo: true }); });
+      await act(async () => { runFrames(); });
+      expect(projectSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('unmount clears the hidden class (the pane is reused)', async () => {
+      restoreMeasure = withMeasuredLabels(30, 14);
+      currentMap = makeFullMap({ zoom: 9 });
+      const { unmount } = await mount({ spots: [], homeCoords: HOME });
+      await act(async () => { runFrames(); });
+      const pane = currentMap.panes['wf-labels'];
+      await act(async () => { currentMap.fire('zoom', { pinch: true }); });
+      expect(pane.classList.contains('invisible')).toBe(true);
+      await act(async () => { unmount(); });
+      expect(pane.classList.contains('invisible')).toBe(false);
+    });
+
+    it('M1: a re-render with no paint keeps the root glued to the PAINTED origin; the next paint moves it', async () => {
+      restoreMeasure = withMeasuredLabels(30, 14);
+      currentMap = makeFullMap({ zoom: 9 });
+      const none = [];
+      const { rerender } = await mount({ spots: none, homeCoords: HOME });
+      await act(async () => { runFrames(); });
+      const lastPos = () => setPosition.mock.calls.at(-1)[1];
+      expect(lastPos()).toEqual({ x: -40, y: -25 });
+      currentMap.offset = { x: -140, y: -75 };
+      await act(async () => { currentMap.fire('move'); });
+      await act(async () => { rerender(<MapLabels spots={none} homeCoords={HOME} />); });
+      expect(lastPos()).toEqual({ x: -40, y: -25 });
+      await act(async () => { currentMap.fire('moveend'); });
+      expect(lastPos()).toEqual({ x: -140, y: -75 });
+    });
+
+    it('`resize` and `viewreset` still schedule a repaint', async () => {
+      const projectSpy = await painted();
+      await act(async () => { currentMap.fire('resize'); });
+      await act(async () => { runFrames(); });
+      expect(projectSpy).toHaveBeenCalledTimes(1);
+      await act(async () => { currentMap.fire('viewreset'); });
+      await act(async () => { runFrames(); });
+      expect(projectSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('before any paint, `move` falls back to the throttled repaint', async () => {
+      restoreMeasure = withMeasuredLabels(30, 14);
+      // On screen is false at mount, so the first paint bails; it then becomes visible.
+      currentMap = makeFullMap({ zoom: 9, onScreen: false });
+      const projectSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+      await mount({ spots: [], homeCoords: HOME });
+      await act(async () => { runFrames(); });
+      Object.defineProperty(currentMap.container, 'offsetWidth', { value: 800, configurable: true });
+      projectSpy.mockClear();
+      await act(async () => { currentMap.fire('move'); });
+      await act(async () => { runFrames(); });
+      expect(projectSpy).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('paints immediately on moveend/zoomend, in the calling tick', async () => {

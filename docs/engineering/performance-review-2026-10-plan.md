@@ -532,7 +532,8 @@ P1 and P2 touch disjoint files and may be built in parallel worktrees; each stil
 | P4f | `perf/p4f-chip-tooltip-observer` | #1508 | 2026-10-29 | `MapLabels` no commit on `pointermove`; modal observer ignores Leaflet churn |
 | P4d+e | `perf/p4de-mapview-renders-memos` | #1509 | 2026-10-29 | a pan that changes no derived answer does not re-render `MapView`; event memos hit between clock boundaries |
 | P4a | — | — | 2026-10-30 | **measured; both gates fire.** 4× CPU throttle, 219 heat points, system Chrome via Playwright. `drawTiles` p90 at 390 px: **32.7–35.0 ms** (gate 10; the median of 25–26 ms is also above it). `MapLabels` paint + layout p90 per frame: **13.4–14.7 ms** on phone drag and pinch (gate 6), 8.6–9.8 ms at 1440. Layout (the forced reflow plus `placeLabelPass`) is most of it, about 10 ms median; paint alone is about 1.5–3 ms. Detail below the table |
-| P4b, P4c | — | — | — | **gated open, not built**: waiting on the owner's D7 answer (chips from an edge appear at `moveend`; field hidden during `zoomanim`) |
+| P4b | `perf/p4b-heat-no-mid-gesture-redraw` | #1522 | 2026-10-30 | heat field: no `drawTiles` on `move`; pinch/fly frames re-register the bitmap by transform; settle on the drawn view |
+| P4c | `perf/p4c-labels-no-mid-gesture-repaint` | — | — | labels: no re-place on a pan; hidden only during a pinch; fly frames keep the throttled repaint; `placeLabelPass` copies obstacles once |
 | P6b | — | — | — | **owner**: `docker-compose.yml` heap percentage (D5) and removing `-Djdk.tracePinnedThreads` are production config |
 
 ### P4a measurement detail (2026-10-30)
