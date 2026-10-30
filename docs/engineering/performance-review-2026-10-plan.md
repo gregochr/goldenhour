@@ -506,7 +506,7 @@ P1 and P2 touch disjoint files and may be built in parallel worktrees; each stil
 | D4 | ~~Retention windows~~ — decided 2026-10-28: no retention; index audit instead (§7.1) | — |
 | D5 | Production heap percentage | owner sets from host RAM |
 | D6 | Drop the possibly redundant indexes (§7.1) | leave them, not in this series |
-| D7 | P4b/P4c behaviour: chips entering from an edge appear at `moveend`; field stays hidden during `zoomanim` | accept both |
+| D7 | P4b/P4c behaviour: chips entering from an edge appear at `moveend`; field stays hidden during `zoomanim` | accept both (**accepted by the owner 2026-10-30**) |
 
 ## 10. Phase log
 
