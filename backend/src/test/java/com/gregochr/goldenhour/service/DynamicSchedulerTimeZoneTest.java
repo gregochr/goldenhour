@@ -27,7 +27,6 @@ import java.util.concurrent.ScheduledFuture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -60,7 +59,6 @@ class DynamicSchedulerTimeZoneTest {
     private SolarCatchUpPolicy solarCatchUp;
 
     private DynamicSchedulerService serviceAt(String instant) {
-        lenient().when(auroraProperties.isEnabled()).thenReturn(true);
         Clock clock = Clock.fixed(Instant.parse(instant), ZoneOffset.UTC);
         return new DynamicSchedulerService(repository, taskScheduler, auroraProperties,
                 solarTriggers, solarCatchUp, clock);
