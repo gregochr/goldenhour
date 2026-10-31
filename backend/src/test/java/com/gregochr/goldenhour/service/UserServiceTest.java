@@ -130,6 +130,20 @@ class UserServiceTest {
         }
 
         @Test
+        @DisplayName("an admin-created user has NOT consented to marketing email")
+        void adminCreatedUser_hasMarketingOptInFalse() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+            when(passwordEncoder.encode("pass")).thenReturn("hashed");
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createUser("bob", "pass", UserRole.LITE_USER, "bob@example.com");
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().isMarketingEmailOptIn()).isFalse();
+        }
+
+        @Test
         @DisplayName("sets enabled=true on new user")
         void setsEnabledTrue() {
             when(userRepository.existsByUsername("bob")).thenReturn(false);

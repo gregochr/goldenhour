@@ -43,7 +43,7 @@
 > management calls are ADMIN only (403 for Lite and Pro, 401 unauthenticated).
 
 ### Auth (Bearer required)
-`POST /api/auth/logout|change-password` | `PUT /api/auth/marketing-emails`
+`POST /api/auth/logout|change-password` | `PUT /api/auth/marketing-emails` (`{optIn}`; caller: the Settings "Emails" checkbox via `authApi.updateMarketingEmailOptIn`)
 
 > `POST /api/auth/change-password` `{currentPassword, newPassword, turnstileToken?}`: **200** `{message: "Password
 > updated", …the /login body}` (fresh tokens for this device); **400** `{"error":"Current password is required"}` when
@@ -439,7 +439,7 @@ interrupt — the design's own ~10/year, one-or-two-interrupts target.
 `GET /api/astro/conditions` | `GET /api/astro/conditions/available-dates`
 
 ### User Settings (Bearer)
-`GET /api/user/settings` | `POST /api/user/settings/home/lookup` | `POST /api/user/settings/home/reverse` ("Use my location": `{latitude, longitude}` → the nearest UK postcode within 2 km, persisting nothing; 400 for a missing, non-finite or out-of-range value or a point with no postcode, 502 "Postcode lookup is unavailable right now" when postcodes.io fails — neither echoes the upstream) | `PUT /api/user/settings/home` |
+`GET /api/user/settings` (also carries the caller's `marketingEmailOptIn`, the last field of `UserSettingsResponse`; read from the user row, so the Settings Emails toggle never seeds from `AuthContext`) | `POST /api/user/settings/home/lookup` | `POST /api/user/settings/home/reverse` ("Use my location": `{latitude, longitude}` → the nearest UK postcode within 2 km, persisting nothing; 400 for a missing, non-finite or out-of-range value or a point with no postcode, 502 "Postcode lookup is unavailable right now" when postcodes.io fails — neither echoes the upstream) | `PUT /api/user/settings/home` |
 `POST /api/user/settings/drive-times/refresh` (PRO_USER/ADMIN; LITE 403) | `GET /api/user/settings/drive-times` (PRO_USER/ADMIN; LITE 403) |
 `GET /api/user/settings/reach` (PRO_USER/ADMIN; LITE 403) | `GET /api/user/settings/light` |
 `GET /api/user/settings/ask` (Ask PhotoCast's allowance read — `{enabled, used, limit, left, typedAvailable}`, always 200 for every role and zeros with `enabled:false`

@@ -93,7 +93,7 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
         when(settingsService.getSettings(any())).thenReturn(new UserSettingsResponse(
                 "testuser", "test@example.com", "PRO_USER",
                 "DH1 3LE", 54.7761, -1.5733, "Durham, County Durham",
-                null, Instant.parse("2026-04-16T10:15:30Z"), null, null, null, null, false));
+                null, Instant.parse("2026-04-16T10:15:30Z"), null, null, null, null, false, false));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
@@ -108,7 +108,7 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
         when(settingsService.getSettings(any())).thenReturn(new UserSettingsResponse(
                 "testuser", "test@example.com", "PRO_USER",
                 null, null, null, null,
-                null, null, null, null, null, Instant.parse("2026-10-17T08:05:09Z"), false));
+                null, null, null, null, null, Instant.parse("2026-10-17T08:05:09Z"), false, false));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())

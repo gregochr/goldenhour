@@ -660,7 +660,7 @@ class UserControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$[0].termsAcceptedAt").doesNotExist())
                 .andExpect(jsonPath("$[0].termsVersion").doesNotExist())
                 .andExpect(jsonPath("$[0].homePostcode").doesNotExist())
-                .andExpect(jsonPath("$[0].marketingEmailOptIn").value(true));
+                .andExpect(jsonPath("$[0].marketingEmailOptIn").value(false));
     }
 
     @Test
@@ -728,7 +728,7 @@ class UserControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$[0].marketingEmailOptIn").value(true))
                 .andExpect(jsonPath("$[1].termsAcceptedAt").doesNotExist())
                 .andExpect(jsonPath("$[1].homePostcode").doesNotExist())
-                .andExpect(jsonPath("$[1].marketingEmailOptIn").value(true));
+                .andExpect(jsonPath("$[1].marketingEmailOptIn").value(false));
     }
 
     // --- DELETE /api/users/{id} endpoint ---

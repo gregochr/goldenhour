@@ -1260,6 +1260,31 @@ class UserSettingsServiceTest {
     // ── the one-time sign-in postcode prompt (login-registration plan §2 #3, R4a) ──
 
     @Nested
+    @DisplayName("marketingEmailOptIn is served from the user row")
+    class MarketingEmailOptIn {
+
+        @Test
+        @DisplayName("an account that never opted in is served false")
+        void notOptedIn_servedFalse() {
+            stubAuth();
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(buildUser()));
+
+            assertThat(service.getSettings(auth).marketingEmailOptIn()).isFalse();
+        }
+
+        @Test
+        @DisplayName("an account that opted in is served true")
+        void optedIn_servedTrue() {
+            stubAuth();
+            AppUserEntity user = buildUser();
+            user.setMarketingEmailOptIn(true);
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+            assertThat(service.getSettings(auth).marketingEmailOptIn()).isTrue();
+        }
+    }
+
+    @Nested
     @DisplayName("postcodePromptDue and markPostcodePromptDismissed")
     class PostcodePrompt {
 
