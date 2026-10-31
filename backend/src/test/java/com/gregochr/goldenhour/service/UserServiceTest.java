@@ -36,6 +36,7 @@ import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -134,13 +135,15 @@ class UserServiceTest {
         void adminCreatedUser_hasMarketingOptInFalse() {
             when(userRepository.existsByUsername("bob")).thenReturn(false);
             when(passwordEncoder.encode("pass")).thenReturn("hashed");
-            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            // Pinned to the exact account an admin creates, not a broad any().
+            when(userRepository.save(argThat(u -> "bob".equals(u.getUsername())
+                    && u.getRole() == UserRole.LITE_USER && u.isEnabled() && u.isPasswordChangeRequired()
+                    && !u.isMarketingEmailOptIn()))).thenAnswer(inv -> inv.getArgument(0));
 
-            userService.createUser("bob", "pass", UserRole.LITE_USER, "bob@example.com");
+            AppUserEntity created = userService.createUser("bob", "pass", UserRole.LITE_USER, "bob@example.com");
 
-            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
-            verify(userRepository).save(captor.capture());
-            assertThat(captor.getValue().isMarketingEmailOptIn()).isFalse();
+            assertThat(created).isNotNull();
+            assertThat(created.isMarketingEmailOptIn()).isFalse();
         }
 
         @Test
