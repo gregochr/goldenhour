@@ -51,11 +51,11 @@ vi.mock('../components/MapHeatLayer.jsx', () => ({
     return <div data-testid="map-heat-layer" />;
   },
 }));
-const labelProps = { last: null };
+const labelProps = { last: null, extra: null };
 vi.mock('../components/map/MapLabels.jsx', () => ({
   default: (props) => {
     labelProps.last = props;
-    return <div data-testid="map-labels-stub" />;
+    return <div data-testid="map-labels-stub">{labelProps.extra}</div>;
   },
 }));
 
@@ -80,6 +80,12 @@ vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockRes
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
+// The callout is a probe: only its close button is read (the focus-return test below).
+vi.mock('../components/map/MapCallout.jsx', () => ({
+  default: (props) => (
+    <button type="button" data-testid="map-callout-close" onClick={props.onClose}>close</button>
+  ),
+}));
 
 import MapView from '../components/MapView.jsx';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
@@ -118,7 +124,7 @@ function entryFor({ rated = [], stood = {} }) {
     entry: {
       unrated: [],
       stood: SPOTS.filter((s) => s.id in stood).map((s) => ({
-        lat: s.lat, lng: s.lng, reason: stood[s.id], rid: s.rid, key: `#${s.id}`,
+        id: s.id, name: s.name, lat: s.lat, lng: s.lng, reason: stood[s.id], rid: s.rid, key: `#${s.id}`,
       })),
       states,
     },
@@ -158,7 +164,7 @@ const verdictIndex = (regions) => buildRegionVerdictIndex([{
 }]);
 
 let nonce = 0;
-const makeLocations = () => SPOTS.map((s) => ({
+const makeLocations = (triaged = {}) => SPOTS.map((s) => ({
   id: s.id,
   name: `${s.name}-${nonce}`,
   lat: s.lat,
@@ -167,14 +173,17 @@ const makeLocations = () => SPOTS.map((s) => ({
   bortleClass: s.bortleClass,
   locationType: ['LANDSCAPE'],
   forecastsByDate: new Map([[TODAY, {
-    sunset: { rating: 4, solarEventTime: `${TODAY}T16:12:00` },
+    // A place in `triaged` is a forecast-row stand-down (no rating, a triage reason), as the callout reads it.
+    sunset: s.id in triaged
+      ? { rating: null, triageReason: triaged[s.id], solarEventTime: `${TODAY}T16:12:00` }
+      : { rating: 4, solarEventTime: `${TODAY}T16:12:00` },
     sunrise: { rating: 4, solarEventTime: `${TODAY}T08:24:00` },
   }]]),
 }));
 
-async function renderMap(props = {}) {
+async function renderMap({ triaged = {}, ...props } = {}) {
   let result;
-  const locations = makeLocations();
+  const locations = makeLocations(triaged);
   await act(async () => {
     result = render(<MapView locations={locations} date={TODAY} autoEventType={null} {...props} />);
   });
@@ -190,6 +199,7 @@ beforeEach(() => {
   localStorage.clear();
   heatLayerProps.last = null;
   labelProps.last = null;
+  labelProps.extra = null;
   mapEventHandlers = [];
   mockIsMobile = false;
   auroraStatus = null;
@@ -375,7 +385,7 @@ describe('MapView stand-down — the footer', () => {
     expect(count).toHaveTextContent('· 1 stood down');
     expect(screen.getByTestId('wf-map-counts-footer')).toContainElement(count);
     // The cause word is named on the ground, not repeated here.
-    expect(count).not.toHaveTextContent(/cloud|rain|murk|weather/);
+    expect(count).not.toHaveTextContent(/cloud|rain|visibility|weather/);
   });
 
   it('counts the whole catalogue on the Everywhere scope', async () => {
@@ -442,7 +452,7 @@ describe('MapView stand-down — the regions that earn a label', () => {
     await renderMap({
       heat: heatFor({ rated: [3], stood: { 1: 'LOW_VISIBILITY', 2: 'LOW_VISIBILITY' }, bestRating: 4 }),
     });
-    expect(regionsOf()).toEqual([['North East', 'murk']]);
+    expect(regionsOf()).toEqual([['North East', 'visibility']]);
   });
 
   it('is judged over the states map, not the star floor: a stood-only region qualifies with nothing drawn', async () => {
@@ -610,5 +620,127 @@ describe('MapView stand-down — review corrections', () => {
     expect(screen.queryByTestId('wf-map-counts-standdown')).toBeNull();
     openLegend();
     expect(screen.queryByTestId('wf-legend-standdown')).toBeNull();
+  });
+});
+
+describe('MapView stand-down — the stood place labels MapLabels names', () => {
+  const placesOf = () => labelProps.last.stoodPlaces.map((p) => p.key);
+  const TRIAGE_ALL = {
+    1: 'HIGH_CLOUD', 2: 'HIGH_CLOUD', 3: 'HIGH_CLOUD', 4: 'HIGH_CLOUD', 5: 'HIGH_CLOUD', 6: 'HIGH_CLOUD',
+  };
+
+  it('hands a weather stand-down the callout agrees with, named, caused and joined to its drive time', async () => {
+    await renderMap({
+      heat: heatFor({ rated: [1], stood: { 3: 'LOW_VISIBILITY' }, bestRating: 4 }),
+      triaged: { 3: 'LOW_VISIBILITY' },
+      reachById: new Map([[3, { driveMinutes: 95 }]]),
+    });
+    expect(labelProps.last.stoodPlaces).toHaveLength(1);
+    expect(labelProps.last.stoodPlaces[0]).toMatchObject({
+      key: '#3', name: `Wastwater-${nonce}`, reason: 'LOW_VISIBILITY', driveMinutes: 95,
+    });
+  });
+
+  it('hands only the weather place of a mixed window (HIGH_CLOUD with TIDE_MISALIGNED)', async () => {
+    await renderMap({
+      heat: heatFor({ rated: [1], stood: { 3: 'TIDE_MISALIGNED', 4: 'HIGH_CLOUD' }, bestRating: 4 }),
+      triaged: { 3: 'TIDE_MISALIGNED', 4: 'HIGH_CLOUD' },
+    });
+    expect(placesOf()).toEqual(['#4']);
+  });
+
+  it('orders by drive time ascending, unknown last, then name', async () => {
+    const stood = { 2: 'HIGH_CLOUD', 3: 'HIGH_CLOUD', 4: 'HIGH_CLOUD', 5: 'HIGH_CLOUD' };
+    await renderMap({
+      heat: heatFor({ rated: [1], stood, bestRating: 4 }),
+      triaged: stood,
+      reachById: new Map([[3, { driveMinutes: 20 }], [2, { driveMinutes: 60 }]]),
+    });
+    // Wastwater (20), Tynemouth (60), then the unknown two by name: Alnmouth, Kelso.
+    expect(placesOf()).toEqual(['#3', '#2', '#5', '#4']);
+  });
+
+  it('is narrowed by the dark-sky pool, as the hatch is', async () => {
+    const stood = { 2: 'HIGH_CLOUD', 3: 'HIGH_CLOUD' };
+    await renderMap({ heat: heatFor({ rated: [1], stood, bestRating: 4 }), triaged: stood });
+    expect(placesOf().sort()).toEqual(['#2', '#3']);
+    openFilters();
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+    expect(placesOf()).toEqual(['#3']);
+  });
+
+  it('shares the hatch\'s pool: the same places, so the lens that narrows one narrows the other', async () => {
+    const stood = { 2: 'HIGH_CLOUD', 3: 'HIGH_CLOUD' };
+    await renderMap({ heat: heatFor({ rated: [1], stood, bestRating: 4 }), triaged: stood });
+    expect(placesOf().sort()).toEqual(heatLayerProps.last.stood.map((p) => p.key).sort());
+  });
+
+  it('hands none on an astro night', async () => {
+    await renderMap({
+      heat: heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 }),
+      triaged: TRIAGE_ALL,
+      autoEventType: 'ASTRO',
+    });
+    expect(labelProps.last.stoodPlaces).toEqual([]);
+  });
+
+  it('hands none on an aurora night', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TODAY };
+    getAuroraLocations.mockResolvedValue([{ location: { name: SPOTS[0].name }, stars: 4 }]);
+    await renderMap({
+      heat: heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 }),
+      triaged: TRIAGE_ALL,
+      autoEventType: 'AURORA',
+    });
+    await screen.findByTestId('map-heat-layer');
+    expect(labelProps.last.stoodPlaces).toEqual([]);
+  });
+
+  it('⚠️ the agreement guard: triaged in the briefing row but rated 4 stars in the forecast row is not labelled', async () => {
+    // The hatch (heat states) says stood; the forecast row the callout reads says 4 stars.
+    await renderMap({ heat: heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 }) });
+    expect(heatLayerProps.last.stood.map((p) => p.key)).toEqual(['#3']);
+    expect(labelProps.last.stoodPlaces).toEqual([]);
+  });
+
+  it('keeps the same list across a re-render with the same inputs (the label pass is not repainted)', async () => {
+    const locations = makeLocations({ 3: 'HIGH_CLOUD' });
+    const heat = heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 });
+    const element = <MapView locations={locations} date={TODAY} autoEventType={null} heat={heat} />;
+    let view;
+    await act(async () => { view = render(element); });
+    const first = labelProps.last.stoodPlaces;
+    expect(first).toHaveLength(1);
+    await act(async () => { view.rerender(<MapView locations={locations} date={TODAY} autoEventType={null} heat={heat} />); });
+    expect(labelProps.last.stoodPlaces).toBe(first);
+  });
+
+  it('the selected stood place is not pushed as an ordinary chip, and closing the callout refocuses its label', async () => {
+    labelProps.extra = <button type="button" data-testid="map-label-stood" data-selected="true">stood label</button>;
+    await renderMap({
+      heat: heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 }),
+      triaged: { 3: 'HIGH_CLOUD' },
+      autoEventType: 'SUNSET',
+    });
+    const name = `Wastwater-${nonce}`;
+    await act(async () => { labelProps.last.onSelect(name); });
+    // Without the skip the selection would be appended as a chip and unmount the focused stood label.
+    expect(labelProps.last.spots.map((s) => s.name)).not.toContain(name);
+    const close = await screen.findByTestId('map-callout-close');
+    await act(async () => { fireEvent.click(close); });
+    expect(document.activeElement).toBe(screen.getByText('stood label'));
+  });
+
+  it('a selected place that is NOT stood is still pushed as a chip, as ever', async () => {
+    await renderMap({ heat: heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 }), triaged: { 3: 'HIGH_CLOUD' } });
+    const name = `Kelso-${nonce}`;
+    await act(async () => { labelProps.last.onSelect(name); });
+    expect(labelProps.last.spots.map((s) => s.name)).toContain(name);
+  });
+
+  it('the empty answer is one frozen list', async () => {
+    await renderMap({ heat: heatFor({ rated: [1], bestRating: 4 }) });
+    expect(labelProps.last.stoodPlaces).toEqual([]);
+    expect(Object.isFrozen(labelProps.last.stoodPlaces)).toBe(true);
   });
 });

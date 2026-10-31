@@ -377,6 +377,44 @@ export function fallbackChipSpots({ suppressedNames, ...rest }) {
   return chipCandidates(rest).filter((spot) => suppressedNames.has(spot.name));
 }
 
+// ── Stood-down place labels ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * A stood-down place is named from this zoom up: exactly where the region stand-down labels stop
+ * ({@link REGION_LABEL_MAX_ZOOM}), so a reader sees the region's name or the places', never neither.
+ */
+export const STOOD_PLACE_LABEL_MIN_ZOOM = REGION_LABEL_MAX_ZOOM;
+
+/**
+ * The stood-down places to offer the placer: the zoom gate, the SAME unpadded in-view test chips use,
+ * a de-dup against the places that already have a chip, and the density budget the ordinary chips
+ * left over. A pure filter over {@code stoodPlaces}, which arrive pre-sorted (drive time, then name);
+ * it rates and thresholds nothing.
+ *
+ * <p>The selected place is exempt from the budget and leads the list, so pressing a stood label never
+ * unmounts it; it is still subject to the view and de-dup tests.
+ *
+ * @param {object} args
+ * @param {Array<{key: string, name: string, lat: number, lng: number}>} args.stoodPlaces the places the
+ *        hatch paints, pre-sorted
+ * @param {number} args.zoom the map's current zoom
+ * @param {?{contains: Function}} [args.bounds] the map's bounds; null treats every place as in view
+ * @param {?Set<string>} [args.takenKeys] {@code heatSpotKey}s of places that already carry a chip
+ * @param {number} args.budgetLeft how many more labels the density budget allows
+ * @param {?string} [args.selectedName] the selected place's name
+ * @returns {Array<object>} the stood places to measure and place, in priority order
+ */
+export function stoodPlaceCandidates({
+  stoodPlaces, zoom, bounds = null, takenKeys = null, budgetLeft, selectedName = null,
+}) {
+  if (zoom < STOOD_PLACE_LABEL_MIN_ZOOM || !Array.isArray(stoodPlaces) || stoodPlaces.length === 0) return [];
+  const eligible = stoodPlaces.filter((p) => (!takenKeys || !takenKeys.has(p.key))
+    && (!bounds || bounds.contains([p.lat, p.lng])));
+  const selected = selectedName == null ? [] : eligible.filter((p) => p.name === selectedName);
+  const rest = eligible.filter((p) => selectedName == null || p.name !== selectedName);
+  return [...selected, ...rest.slice(0, Math.max(0, budgetLeft))];
+}
+
 // ── The placement pass ───────────────────────────────────────────────────────────────────────────
 
 /**

@@ -306,11 +306,11 @@ describe('LocationFourDaySheet', () => {
     ]);
     const stateOf = (key) => within(row(key)).getByTestId('location-sheet-state');
 
-    it('says "Not rated" for an UNRATED slot and "Poor" for a triage stand-down', () => {
+    it('says "Not rated" for an UNRATED slot and "Stood down" for a triage stand-down', () => {
       setup({ scoreIndex: VERDICTS });
       expect(stateOf('2026-08-15:SUNRISE')).toHaveTextContent('Not rated');
       expect(stateOf('2026-08-15:SUNRISE')).not.toHaveTextContent('Not scored yet');
-      expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Poor');
+      expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Stood down');
     });
 
     it('keeps "Not scored yet" for an AWAITING slot, a missing row and a legacy row', () => {
@@ -349,13 +349,13 @@ describe('LocationFourDaySheet', () => {
         };
       }));
 
-      it('reads "Not rated" for a briefing UNRATED slot and "Poor" for a briefing STAND_DOWN one', () => {
+      it('reads "Not rated" for a briefing UNRATED slot and "Stood down" for a briefing STAND_DOWN one', () => {
         setup({
           scoreIndex: buildScoreIndex([]),
           slotIndex: slotsWith({ '2026-08-15:SUNRISE': 'UNRATED', '2026-08-15:SUNSET': 'STAND_DOWN' }),
         });
         expect(stateOf('2026-08-15:SUNRISE')).toHaveTextContent('Not rated');
-        expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Poor');
+        expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Stood down');
         // A window whose slot carries no verdict keeps the old phrase.
         expect(stateOf('2026-08-14:SUNSET')).toHaveTextContent('Not scored yet');
       });
@@ -365,7 +365,7 @@ describe('LocationFourDaySheet', () => {
           scoreIndex: VERDICTS,
           slotIndex: slotsWith({ '2026-08-15:SUNSET': 'UNRATED' }),
         });
-        expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Poor');
+        expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Stood down');
         expect(stateOf('2026-08-15:SUNSET')).not.toHaveTextContent('Not rated');
       });
 

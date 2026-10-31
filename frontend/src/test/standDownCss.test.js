@@ -135,3 +135,41 @@ describe('the stand-down swatch', () => {
       .toBeGreaterThan(css.indexOf('.wf-legend-swatch {'));
   });
 });
+
+describe('the stood-down place label (stood-down-place-labels-plan.md)', () => {
+  it('reads the stand-down tokens for its name and cause, with no raw hex in either rule', () => {
+    const name = ruleFor('.wf-maplab-stood .wf-maplab-chip-n');
+    const cause = ruleFor('.wf-maplab-stood-w');
+    expect(name).toContain('var(--color-standdown-ink)');
+    expect(cause).toContain('var(--color-standdown-ink-2)');
+    for (const body of [name, cause]) expect(body).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+  });
+
+  it('never quietens the label with opacity (opacity is how the map DIMS a chip)', () => {
+    const css = readCss();
+    const rules = topLevelBlocks(css).filter((b) => b.selector.includes('wf-maplab-stood'));
+    expect(rules.length).toBeGreaterThan(3);
+    for (const rule of rules) expect(rule.bodyInner).not.toMatch(/opacity/);
+  });
+
+  it('wears a dotted hairline in place of the solid ring, and the hover and selected ring returns', () => {
+    expect(ruleFor('.wf-maplab-chip.wf-maplab-stood')).toMatch(/border:\s*1px dotted/);
+    for (const sel of ['.wf-maplab-chip.wf-maplab-stood:hover', ".wf-maplab-chip.wf-maplab-stood[data-selected='true']"]) {
+      expect(ruleFor(sel)).toContain('inset 0 0 0 1.5px var(--color-home)');
+    }
+  });
+
+  it('keeps a swatch at least 13px wide, above the base swatch rule\'s specificity', () => {
+    expect(ruleFor('.wf-maplab-stood .wf-maplab-stood-sw')).toMatch(/width:\s*(1[3-9]|[2-9]\d)px/);
+  });
+
+  it('forced colours: the plate keeps a dotted border', () => {
+    expect(ruleFor('.wf-maplab-chip.wf-maplab-stood', 'forced-colors')).toContain('1px dotted CanvasText');
+  });
+
+  it('the phone\'s tiny frame clips the name to 90px with an ellipsis', () => {
+    const tiny = ruleFor('.wf-maplab-stood[data-tiny=\'true\'] .wf-maplab-chip-n');
+    expect(tiny).toContain('max-width: 90px');
+    expect(tiny).toContain('text-overflow: ellipsis');
+  });
+});

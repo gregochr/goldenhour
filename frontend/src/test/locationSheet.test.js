@@ -734,9 +734,9 @@ describe('buildScoreIndex', () => {
 });
 
 describe('unratedSlotWord (unrated-verdict-plan.md U2)', () => {
-  it('says "Not rated" for UNRATED and "Poor" for a weather STAND_DOWN', () => {
+  it('says "Not rated" for UNRATED and "Stood down" for a weather STAND_DOWN', () => {
     expect(unratedSlotWord('UNRATED')).toBe('Not rated');
-    expect(unratedSlotWord('STAND_DOWN')).toBe('Poor');
+    expect(unratedSlotWord('STAND_DOWN')).toBe('Stood down');
   });
 
   it('keeps "Not scored yet" for AWAITING, null, a legacy row and any word it does not know', () => {
@@ -798,7 +798,7 @@ describe('buildLocationSheet rows', () => {
     ]));
     const sheet = build({ scoreIndex });
     expect(sheet.rows[1]).toMatchObject({ rating: null, unratedWord: 'Not rated' });
-    expect(sheet.rows[2]).toMatchObject({ rating: null, unratedWord: 'Poor' });
+    expect(sheet.rows[2]).toMatchObject({ rating: null, unratedWord: 'Stood down' });
     expect(sheet.rows[3]).toMatchObject({ rating: null, unratedWord: 'Not scored yet' });
     // No row at all, and a legacy row with no field: the old phrase.
     expect(sheet.rows[4].unratedWord).toBe('Not scored yet');
@@ -830,17 +830,17 @@ describe('buildLocationSheet rows', () => {
       })),
     );
 
-    it('no score row + briefing UNRATED reads "Not rated"; briefing STAND_DOWN reads "Poor"', () => {
+    it('no score row + briefing UNRATED reads "Not rated"; briefing STAND_DOWN reads "Stood down"', () => {
       const sheet = build({
         scoreIndex: buildScoreIndex([]),
         slotIndex: slotsWith(['UNRATED', 'UNRATED', 'STAND_DOWN']),
       });
       expect(sheet.rows[0]).toMatchObject({ rating: null, unratedWord: 'Not rated' });
       expect(sheet.rows[1]).toMatchObject({ rating: null, unratedWord: 'Not rated' });
-      expect(sheet.rows[2]).toMatchObject({ rating: null, unratedWord: 'Poor' });
+      expect(sheet.rows[2]).toMatchObject({ rating: null, unratedWord: 'Stood down' });
     });
 
-    it('⚠️ the score row wins when both speak: a triage STAND_DOWN beside a briefing UNRATED is "Poor"', () => {
+    it('⚠️ the score row wins when both speak: a triage STAND_DOWN beside a briefing UNRATED is "Stood down"', () => {
       // The scores read is retraction-aware and more recent, so it can say STAND_DOWN for a triage
       // row the briefing still shows otherwise. Reversing the order would print "Not rated" here.
       const sheet = build({
@@ -849,7 +849,7 @@ describe('buildLocationSheet rows', () => {
         ])),
         slotIndex: slotsWith([undefined, 'UNRATED']),
       });
-      expect(sheet.rows[1].unratedWord).toBe('Poor');
+      expect(sheet.rows[1].unratedWord).toBe('Stood down');
     });
 
     it('no score row and no briefing verdict keeps "Not scored yet"', () => {

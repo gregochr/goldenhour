@@ -447,14 +447,14 @@ export function buildEclipseIndex(days) {
  * and the callout — still hardcoded "Not scored yet" for every unrated slot. For a slot the weather
  * screen passed and no rating called, that is a false statement ("nothing has looked yet" — the
  * pipeline did look, and the server now says UNRATED); for a weather stand-down it hid a decision
- * that the Plan card and the map pill both state as "Poor". The server already serves the answer
+ * the place was never asked to rate. The server already serves the answer
  * per slot ({@code LocationEvaluationView.displayVerdict}); this reads it, deriving nothing.
  *
  * <ul>
  *   <li>{@code UNRATED} → "Not rated" (the weather passed it; no rating called it).</li>
- *   <li>{@code STAND_DOWN} → "Poor" — a weather stand-down is a decision AGAINST that slot, the
- *       product's long-standing reading (the two-question rule), and it is the word the region and
- *       window levels already print for it.</li>
+ *   <li>{@code STAND_DOWN} → "Stood down" — for a slot with no rating the stand-down is the whole
+ *       fact: the model was never asked, so it is not a 1-2 star "Poor". (Region and window levels
+ *       still print "Poor" for a mix of low ratings; this is the single unrated slot.)</li>
  *   <li>Anything else — {@code AWAITING}, null, a legacy row with no field, a verdict this build
  *       does not know, even a rated verdict on a row whose rating was out of bounds — keeps
  *       "Not scored yet": unknown never claims more than it knew.</li>
@@ -464,9 +464,8 @@ export function buildEclipseIndex(days) {
  * @returns {string} the word to print for an unrated slot
  */
 export function unratedSlotWord(displayVerdict) {
-  return displayVerdict === 'UNRATED' || displayVerdict === 'STAND_DOWN'
-    ? SLOT_VERDICT_LABEL[displayVerdict]
-    : 'Not scored yet';
+  if (displayVerdict === 'STAND_DOWN') return 'Stood down';
+  return displayVerdict === 'UNRATED' ? SLOT_VERDICT_LABEL[displayVerdict] : 'Not scored yet';
 }
 
 /**
@@ -522,7 +521,7 @@ export function slotVerdictOf(score, slot) {
  * @param {Array} scoreRows raw {@code LocationEvaluationView} rows
  * <p>And the slot's served {@code displayVerdict} (unrated-verdict-plan.md U2, Codex review of
  * #1140), kept beside the rating as the raw string: it is what lets a row with NO rating say
- * "Not rated" / "Poor" / "Not scored yet" by the slot's own served word ({@link unratedSlotWord})
+ * "Not rated" / "Stood down" / "Not scored yet" by the slot's own served word ({@link unratedSlotWord})
  * instead of one hardcoded phrase. Fail-soft: a legacy row with no field, or a non-string, is null,
  * which reads "Not scored yet" as before.
  *

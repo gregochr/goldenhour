@@ -182,3 +182,13 @@ describe('hit-testing in the top-left chrome group', () => {
     expect(pe('sky')).toBe('none');
   });
 });
+
+describe('a stood-down place label', () => {
+  const STOOD = 'wf-maplab-chip wf-maplab-stood';
+
+  it('steps back with the other chips while a topic is selected, and is kept by the same exclusions', () => {
+    expect(opacityOf(mark('button', STOOD))).toBe('0.5');
+    expect(opacityOf(mark('button', STOOD, { 'data-ask': 'fade' }))).toBe('0.25');
+    expect(opacityOf(mark('button', STOOD, { 'data-selected': 'true' }))).not.toBe('0.5');
+  });
+});

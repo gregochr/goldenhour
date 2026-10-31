@@ -11,9 +11,11 @@ import {
   chipBoxWithinBadgedBox, chipCandidates, hasRatedBadge, homeLabelItems, placeLabelPass,
   fallbackChipSpots, labelTierOrder, regionLabelItems, ringLabelItems, standDownRegionItems, verdictWord,
   selectedBigSeasFirst, withBadgeOverhang, withFallbackChips, withoutBigSeasDuplicates,
-  withStandDownLabels, NO_BIG_SEAS_CHIPS,
-  REGION_TINY_FRAME_WIDTH,
+  withStandDownLabels, NO_BIG_SEAS_CHIPS, stoodPlaceCandidates,
+  REGION_TINY_FRAME_WIDTH, chipBudget,
 } from '../../utils/mapLabels.js';
+import { heatSpotKey } from '../../utils/heatSpots.js';
+import { stoodPlaceAriaLabel, stoodPlaceCauseWord } from '../../utils/standDown.js';
 import MapChipTooltip from './MapChipTooltip.jsx';
 import useChipTipPosition from '../../hooks/useChipTipPosition.js';
 import BigSeasChip, { BigSeasTipLines } from './BigSeasChip.jsx';
@@ -52,6 +54,9 @@ export const OUTSIDE_PICKS_WORDS = 'outside your sub-regions';
 
 /** No stood-down region labels: one stable identity, so the default never repaints the pass. */
 const NO_STAND_REGIONS = [];
+
+/** No stood-down places: one stable identity, so the default never repaints the pass. */
+const NO_STOOD_PLACES = Object.freeze([]);
 
 /**
  * Live chrome to seed as obstacles (README §6: "the window bar, Regions/Heat/Pins/Filters bar,
@@ -290,7 +295,7 @@ function forcedDot(x, y, frameWidth, frameHeight) {
 export default function MapLabels({
   spots: allSpots, standRegions = NO_STAND_REGIONS, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
   onSelect = null, onSelectAskPick = null, eventLabel = '', bottomInset = 0, chromeKey = '', rampHex = defaultRampHex,
-  omitUnrated = false, bigSeasChips = NO_BIG_SEAS_CHIPS, regionPicks = null,
+  omitUnrated = false, bigSeasChips = NO_BIG_SEAS_CHIPS, regionPicks = null, stoodPlaces = NO_STOOD_PLACES,
 }) {
   const map = useMap();
 
@@ -363,6 +368,8 @@ export default function MapLabels({
   const regionRefs = useRef(new Map());
   const chipRefs = useRef(new Map());
   const seasRefs = useRef(new Map());
+  // Separate from `chipRefs` (keyed by bare name): a stood label must never be found by a chip lookup.
+  const stoodRefs = useRef(new Map());
   const {
     attach: attachTip, place: placeTip, move: moveTipPos, refresh: refreshTip,
   } = useChipTipPosition(map);
@@ -432,6 +439,37 @@ export default function MapLabels({
       const [x, y] = project(spot);
       return { spot, x, y };
     });
+    const fallbackChips = fallbackChipSpots({
+      spots,
+      suppressedNames: new Set(bigSeasChips.map((it) => it.name)),
+      inViewNames: inViewAll,
+      zoom,
+      selectedName,
+    }).map((spot) => {
+      const [x, y] = project(spot);
+      return { spot, x, y };
+    });
+
+    // The stood-down places (stood-down-place-labels-plan.md §3): only the chips that SPEND the density
+    // budget count against it (not Ask picks, best-per-region, topic-ring places or the selection).
+    const inViewPool = inViewNames ? pool.filter((s) => inViewNames.has(s.name)) : pool;
+    const budgetedChipCount = Math.min(inViewPool.filter((s) => !s.topicRing).length, chipBudget(zoom));
+    const takenKeys = new Set([
+      ...chips.map(({ spot }) => heatSpotKey(spot)),
+      ...fallbackChips.map(({ spot }) => heatSpotKey(spot)),
+      ...bigSeasChips.map((it) => `#${it.locationId}`),
+    ]);
+    const stood = stoodPlaceCandidates({
+      stoodPlaces,
+      zoom,
+      bounds: typeof map.getBounds === 'function' ? map.getBounds() : null,
+      takenKeys,
+      budgetLeft: Math.max(0, chipBudget(zoom) - budgetedChipCount),
+      selectedName,
+    }).map((place) => {
+      const [x, y] = project(place);
+      return { place, x, y };
+    });
 
     setFrame({
       width,
@@ -453,23 +491,15 @@ export default function MapLabels({
       chips,
       // The places a big-seas chip stands for. Their ordinary chips are drawn only if that big-seas
       // chip cannot be placed (see the placement effect), so a place never loses both labels.
-      fallbackChips: fallbackChipSpots({
-        spots,
-        suppressedNames: new Set(bigSeasChips.map((it) => it.name)),
-        inViewNames: inViewAll,
-        zoom,
-        selectedName,
-      }).map((spot) => {
-        const [x, y] = project(spot);
-        return { spot, x, y };
-      }),
+      fallbackChips,
+      stood,
       bigSeasItems: selectedBigSeasFirst(bigSeasChips, selectedName).map((it) => {
         const [x, y] = project(it);
         return { ...it, x, y };
       }),
       tiny: width < REGION_TINY_FRAME_WIDTH,
     });
-  }, [map, spots, standRegions, homeCoords, rings, reachMeasured, selectedName, bigSeasChips]);
+  }, [map, spots, standRegions, stoodPlaces, homeCoords, rings, reachMeasured, selectedName, bigSeasChips]);
 
   /**
    * The rAF-guarded throttle/settle pair, mirroring `MapHeatLayer.jsx`'s own — "never their own
@@ -668,6 +698,19 @@ export default function MapLabels({
         placed.set(`chip:${spot.name}`, dot);
         compact.add(spot.name);
       }
+    }
+    // The stood-down place labels: a THIRD pass, after everything else is committed (chips, big-seas
+    // chips, region names, rings, home, the Ask pick dots above), so a stood label can only ever take
+    // air nothing else wanted. Never part of `labelTierOrder` or the passes above.
+    const stoodItems = frame.stood.map(({ place, x, y }) => {
+      const node = stoodRefs.current.get(place.key);
+      const w = node?.offsetWidth ?? 0;
+      const h = node?.offsetHeight ?? 0;
+      return w > 0 && h > 0 ? { key: `stood:${place.key}`, x, y, w, h } : null;
+    }).filter(Boolean);
+    if (stoodItems.length > 0) {
+      const stoodPlaced = placeLabelPass(stoodItems, frame.width, frame.height, [...obstacles, ...placed.values()]);
+      for (const [key, box] of stoodPlaced) placed.set(key, box);
     }
     // A badged chip was placed as its badge-inclusive box (above); the chip is DRAWN inside it. Done
     // last, so every later pass above saw the whole reserved box and only the style reads this one.
@@ -1014,6 +1057,38 @@ export default function MapLabels({
         );
       })}
 
+      {frame.stood.map(({ place }) => {
+        const key = `stood:${place.key}`;
+        const cause = stoodPlaceCauseWord(place.reason);
+        return (
+          <button
+            key={key}
+            type="button"
+            ref={(node) => {
+              if (node) stoodRefs.current.set(place.key, node);
+              else stoodRefs.current.delete(place.key);
+            }}
+            className="wf-maplab-chip wf-maplab-stood"
+            data-testid="map-label-stood"
+            data-selected={selectedName === place.name ? 'true' : undefined}
+            data-tiny={frame.tiny ? 'true' : undefined}
+            data-ask={askActive ? 'fade' : undefined}
+            style={styleFor(key)}
+            aria-label={stoodPlaceAriaLabel(place.name, place.reason)}
+            onClick={() => {
+              hideTip();
+              onSelect?.(place.name);
+            }}
+          >
+            <i className="wf-legend-swatch wf-legend-swatch-standdown wf-maplab-stood-sw" aria-hidden="true" />
+            <b className="wf-maplab-chip-n">{place.name}</b>
+            <span className="wf-maplab-stood-w" aria-hidden="true">
+              {frame.tiny || cause == null ? 'stood down' : `stood down · ${cause}`}
+            </span>
+          </button>
+        );
+      })}
+
     </div>,
     pane,
   );
@@ -1115,6 +1190,19 @@ MapLabels.propTypes = {
       lng: PropTypes.number,
       rid: PropTypes.string,
     })).isRequired,
+  })),
+  /**
+   * The places this window stood down for the weather (`MapView`'s `stoodPlaces`): each named by a muted
+   * "stood down · cause" label from zoom 11.2, never scored, placed last. Pre-sorted by drive time then
+   * name. Default none.
+   */
+  stoodPlaces: PropTypes.arrayOf(PropTypes.shape({
+    key: PropTypes.string.isRequired,
+    name: PropTypes.string.isRequired,
+    lat: PropTypes.number.isRequired,
+    lng: PropTypes.number.isRequired,
+    reason: PropTypes.string,
+    driveMinutes: PropTypes.number,
   })),
   /** A `(score) => '#rrggbb'` for the chip swatch; defaults to the shared ramp (aurora passes its own). */
   rampHex: PropTypes.func,
