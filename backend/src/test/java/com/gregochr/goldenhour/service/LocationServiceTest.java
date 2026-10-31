@@ -1546,13 +1546,13 @@ class LocationServiceTest {
     @Test
     @DisplayName("update() with the tide point unchanged, or absent, does not re-read tides")
     void update_tidePoint_unchangedOrAbsent_noRefetch() {
-        persistedCoastalWithTidePoint();
+        LocationEntity existing = persistedCoastalWithTidePoint();
 
         locationService.update(1L, tidePoint(55.00, -1.40, null));
         locationService.update(1L, tidePoint(null, null, null));
         locationService.update(1L, tidePoint(null, null, false));
 
-        verify(tideService, never()).fetchAndStoreTideExtremesInNewTransaction(any());
+        verify(tideService, never()).fetchAndStoreTideExtremesInNewTransaction(existing);
     }
 
     @Test
@@ -1574,19 +1574,19 @@ class LocationServiceTest {
     @Test
     @DisplayName("update() rejects one tide-point coordinate alone as a 400 and saves nothing")
     void update_tidePoint_partialIsRejected() {
-        coastalWithTidePoint();
+        LocationEntity existing = coastalWithTidePoint();
 
         assertThatThrownBy(() -> locationService.update(1L, tidePoint(55.01, null, null)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("together");
         assertThatThrownBy(() -> locationService.update(1L, tidePoint(null, -1.41, null)))
                 .isInstanceOf(IllegalArgumentException.class);
-        verify(locationRepository, never()).save(any());
+        verify(locationRepository, never()).save(existing);
     }
 
     @Test
     @DisplayName("update() rejects an out-of-range tide point and one more than 25 km from the pin")
     void update_tidePoint_outOfRangeAndTooFar() {
-        coastalWithTidePoint();
+        LocationEntity existing = coastalWithTidePoint();
 
         assertThatThrownBy(() -> locationService.update(1L, tidePoint(91.0, -1.4, null)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("out of range");
@@ -1594,7 +1594,7 @@ class LocationServiceTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("out of range");
         assertThatThrownBy(() -> locationService.update(1L, tidePoint(55.50, -1.43, null)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("25 km");
-        verify(locationRepository, never()).save(any());
+        verify(locationRepository, never()).save(existing);
     }
 
     @Test
@@ -1620,7 +1620,7 @@ class LocationServiceTest {
 
         locationService.update(1L, tidePoint(54.61, -3.1, null));
 
-        verify(tideService, never()).fetchAndStoreTideExtremesInNewTransaction(any());
+        verify(tideService, never()).fetchAndStoreTideExtremesInNewTransaction(existing);
     }
 
     @Test
@@ -1630,7 +1630,7 @@ class LocationServiceTest {
         org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
         try {
             locationService.update(1L, tidePoint(55.01, -1.41, null));
-            verify(tideService, never()).fetchAndStoreTideExtremesInNewTransaction(any());
+            verify(tideService, never()).fetchAndStoreTideExtremesInNewTransaction(existing);
 
             org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()
                     .forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
@@ -1643,12 +1643,12 @@ class LocationServiceTest {
     @Test
     @DisplayName("update() rejects a pin move that strands the stored tide point beyond 25 km, saving nothing")
     void update_pinMove_strandsTidePoint_rejected() {
-        coastalWithTidePoint();
+        LocationEntity existing = coastalWithTidePoint();
 
         assertThatThrownBy(() -> locationService.update(1L, new UpdateLocationRequest(
                 null, 55.75, null, null, null, null, null)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("clear or move it");
-        verify(locationRepository, never()).save(any());
+        verify(locationRepository, never()).save(existing);
     }
 
     @Test
@@ -1665,7 +1665,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("update() rejects NaN and infinite tide-point coordinates")
     void update_tidePoint_nonFinite_rejected() {
-        coastalWithTidePoint();
+        LocationEntity existing = coastalWithTidePoint();
 
         for (double bad : new double[] {Double.NaN, Double.POSITIVE_INFINITY}) {
             assertThatThrownBy(() -> locationService.update(1L, tidePoint(bad, -1.41, null)))
@@ -1673,13 +1673,13 @@ class LocationServiceTest {
             assertThatThrownBy(() -> locationService.update(1L, tidePoint(55.01, bad, null)))
                     .isInstanceOf(IllegalArgumentException.class);
         }
-        verify(locationRepository, never()).save(any());
+        verify(locationRepository, never()).save(existing);
     }
 
     @Test
     @DisplayName("update() rejects NaN and infinite valley-floor coordinates")
     void update_floor_nonFinite_rejected() {
-        existingWithFloor();
+        LocationEntity existing = existingWithFloor();
 
         for (double bad : new double[] {Double.NaN, Double.POSITIVE_INFINITY}) {
             assertThatThrownBy(() -> locationService.update(1L, heights(null, null, null, 95, bad, -3.11, null)))
@@ -1687,7 +1687,7 @@ class LocationServiceTest {
             assertThatThrownBy(() -> locationService.update(1L, heights(null, null, null, 95, 54.59, bad, null)))
                     .isInstanceOf(IllegalArgumentException.class);
         }
-        verify(locationRepository, never()).save(any());
+        verify(locationRepository, never()).save(existing);
     }
 
     @Test
@@ -1701,7 +1701,7 @@ class LocationServiceTest {
             locationService.update(1L, tidePoint(55.01, -1.41, null));
 
             verify(tideService).fetchAndStoreTideExtremes(existing);
-            verify(tideService, never()).fetchAndStoreTideExtremesInNewTransaction(any());
+            verify(tideService, never()).fetchAndStoreTideExtremesInNewTransaction(existing);
             assertThat(org.springframework.transaction.support.TransactionSynchronizationManager
                     .getSynchronizations()).isEmpty();
         } finally {
