@@ -494,6 +494,9 @@ public class TideService {
      * {@value #HIGH_LOW_THRESHOLD_MINUTES} minutes of the midpoint between consecutive
      * HIGH and LOW extremes — not merely "not HIGH and not LOW".
      *
+     * <p>A location that wants every {@link TideType} (HIGH, MID and LOW) suits any tide, so it is
+     * always aligned, including at the gaps between the three bands.
+     *
      * @param tideData          the tide data snapshot at the solar event time
      * @param locationTideTypes the location's acceptable tide states
      * @return true if the tide state matches any of the location's preferences
@@ -501,6 +504,9 @@ public class TideService {
     public boolean calculateTideAligned(TideData tideData, Set<TideType> locationTideTypes) {
         if (locationTideTypes.isEmpty()) {
             return false;
+        }
+        if (TideType.coversEveryState(locationTideTypes)) {
+            return true;
         }
         TideState tideState = tideData.tideState();
         return locationTideTypes.stream().anyMatch(pref -> switch (pref) {
