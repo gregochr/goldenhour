@@ -57,10 +57,10 @@ class DirectionalCloudDataJsonTest {
     }
 
     @Test
-    @DisplayName("an 18-component record survives serialise then deserialise")
-    void eighteenComponents_roundTrip() throws Exception {
+    @DisplayName("a 20-component record survives serialise then deserialise")
+    void twentyComponents_roundTrip() throws Exception {
         DirectionalCloudData original = new DirectionalCloudData(
-                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18);
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
 
         DirectionalCloudData read = mapper.readValue(mapper.writeValueAsString(original),
                 DirectionalCloudData.class);
@@ -68,10 +68,12 @@ class DirectionalCloudDataJsonTest {
         assertThat(read).isEqualTo(original);
         assertThat(read.farSolarCloud850hPa()).isEqualTo(13);
         assertThat(read.farSolarCloud300hPa()).isEqualTo(18);
+        assertThat(read.farSolarCloud250hPa()).isEqualTo(19);
+        assertThat(read.farSolarCloud200hPa()).isEqualTo(20);
     }
 
     @Test
-    @DisplayName("old 7-key and 12-key JSON deserialise with the six pressure-level values null")
+    @DisplayName("old 7-key, 12-key and 18-key JSON deserialise with the absent pressure-level values null")
     void oldJson_deserialisesWithPressureLevelsNull() throws Exception {
         String sevenKeys = "{\"solarLowCloudPercent\":1,\"solarMidCloudPercent\":2,"
                 + "\"solarHighCloudPercent\":3,\"antisolarLowCloudPercent\":4,"
@@ -81,6 +83,11 @@ class DirectionalCloudDataJsonTest {
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12))
                 .replaceAll(",\"farSolarCloud\\d+hPa\":null", "");
         assertThat(twelveKeys).doesNotContain("hPa");
+        String eighteenKeys = mapper.writeValueAsString(new DirectionalCloudData(
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20))
+                .replace(",\"farSolarCloud250hPa\":19", "")
+                .replace(",\"farSolarCloud200hPa\":20", "");
+        assertThat(eighteenKeys).doesNotContain("250hPa").doesNotContain("200hPa");
 
         for (String json : new String[] {sevenKeys, twelveKeys}) {
             DirectionalCloudData read = mapper.readValue(json, DirectionalCloudData.class);
@@ -91,11 +98,18 @@ class DirectionalCloudDataJsonTest {
             assertThat(read.farSolarCloud500hPa()).isNull();
             assertThat(read.farSolarCloud400hPa()).isNull();
             assertThat(read.farSolarCloud300hPa()).isNull();
+            assertThat(read.farSolarCloud250hPa()).isNull();
+            assertThat(read.farSolarCloud200hPa()).isNull();
         }
+
+        DirectionalCloudData old18 = mapper.readValue(eighteenKeys, DirectionalCloudData.class);
+        assertThat(old18.farSolarCloud300hPa()).isEqualTo(18);
+        assertThat(old18.farSolarCloud250hPa()).isNull();
+        assertThat(old18.farSolarCloud200hPa()).isNull();
     }
 
     @Test
-    @DisplayName("the 12-argument constructor leaves the six pressure-level values null")
+    @DisplayName("the 12-argument constructor leaves the eight pressure-level values null")
     void twelveArgConstructor_leavesPressureLevelsNull() {
         DirectionalCloudData data = new DirectionalCloudData(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
 
@@ -105,5 +119,7 @@ class DirectionalCloudDataJsonTest {
         assertThat(data.farSolarCloud500hPa()).isNull();
         assertThat(data.farSolarCloud400hPa()).isNull();
         assertThat(data.farSolarCloud300hPa()).isNull();
+        assertThat(data.farSolarCloud250hPa()).isNull();
+        assertThat(data.farSolarCloud200hPa()).isNull();
     }
 }

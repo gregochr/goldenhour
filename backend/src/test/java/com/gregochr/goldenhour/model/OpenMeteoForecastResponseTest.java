@@ -107,8 +107,8 @@ class OpenMeteoForecastResponseTest {
     }
 
     @Test
-    @DisplayName("Deserializes the six pressure-level cloud series into their own lists")
-    void deserialize_pressureLevelCloud_sixLists() throws Exception {
+    @DisplayName("Deserializes the eight pressure-level cloud series into their own lists")
+    void deserialize_pressureLevelCloud_eightLists() throws Exception {
         String json = """
                 {
                   "hourly": {
@@ -118,7 +118,9 @@ class OpenMeteoForecastResponseTest {
                     "cloud_cover_600hPa": [33],
                     "cloud_cover_500hPa": [44],
                     "cloud_cover_400hPa": [55],
-                    "cloud_cover_300hPa": [66]
+                    "cloud_cover_300hPa": [66],
+                    "cloud_cover_250hPa": [77],
+                    "cloud_cover_200hPa": [88]
                   }
                 }
                 """;
@@ -132,6 +134,8 @@ class OpenMeteoForecastResponseTest {
         assertThat(hourly.getCloudCover500hPa()).containsExactly(44);
         assertThat(hourly.getCloudCover400hPa()).containsExactly(55);
         assertThat(hourly.getCloudCover300hPa()).containsExactly(66);
+        assertThat(hourly.getCloudCover250hPa()).containsExactly(77);
+        assertThat(hourly.getCloudCover200hPa()).containsExactly(88);
         assertThat(hourly.getCloudCoverLow()).isNull();
     }
 }

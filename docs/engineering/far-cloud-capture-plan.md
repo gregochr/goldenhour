@@ -545,6 +545,8 @@ leaks and where.
 
 ## 7. T7 — S0 pressure-level cloud (PR #B, straight after PR #A)
 
+*See also `far-cloud-cirrus-levels-plan.md`: 250 and 200 hPa added later (V209), data only.*
+
 **Decided by the owner, 2026-10-13: T7 runs straight after PR #A.** An earlier deferral (the same
 evening) was withdrawn after two checks:
 

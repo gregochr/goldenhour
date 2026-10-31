@@ -12,7 +12,7 @@ package com.gregochr.goldenhour.model;
  * horizon low cloud is a thin strip (drops sharply beyond the horizon) or an extensive blanket
  * (stays high). May be {@code null} if the additional fetch fails.
  *
- * <p>The eleven trailing far-point components are recorded for later analysis and are never
+ * <p>The thirteen trailing far-point components are recorded for later analysis and are never
  * prompted: no prompt builder and no triage rule reads them.
  *
  * <p>The dark-side slot is adjacent to the stored slot. When {@code TimeSlotUtils.findBestIndex}
@@ -56,6 +56,8 @@ package com.gregochr.goldenhour.model;
  * @param farSolarCloud500hPa      as {@code farSolarCloud850hPa}, at 500 hPa
  * @param farSolarCloud400hPa      as {@code farSolarCloud850hPa}, at 400 hPa
  * @param farSolarCloud300hPa      as {@code farSolarCloud850hPa}, at 300 hPa
+ * @param farSolarCloud250hPa      as {@code farSolarCloud850hPa}, at 250 hPa (cirrus levels)
+ * @param farSolarCloud200hPa      as {@code farSolarCloud850hPa}, at 200 hPa (cirrus levels)
  */
 public record DirectionalCloudData(
         int solarLowCloudPercent,
@@ -75,7 +77,9 @@ public record DirectionalCloudData(
         Integer farSolarCloud600hPa,
         Integer farSolarCloud500hPa,
         Integer farSolarCloud400hPa,
-        Integer farSolarCloud300hPa) {
+        Integer farSolarCloud300hPa,
+        Integer farSolarCloud250hPa,
+        Integer farSolarCloud200hPa) {
 
     /**
      * Creates directional cloud data without the recorded pressure-level values, which are all
@@ -111,12 +115,12 @@ public record DirectionalCloudData(
                 antisolarLowCloudPercent, antisolarMidCloudPercent, antisolarHighCloudPercent,
                 farSolarLowCloudPercent, farSolarMidCloudPercent, farSolarHighCloudPercent,
                 farSolarLowCloudPercentDarkHour, farSolarMidCloudPercentDarkHour,
-                farSolarHighCloudPercentDarkHour, null, null, null, null, null, null);
+                farSolarHighCloudPercentDarkHour, null, null, null, null, null, null, null, null);
     }
 
     /**
      * Creates directional cloud data without the recorded far-point mid, high and dark-hour
-     * values or the six pressure-level values, which are all left {@code null}.
+     * values or the eight pressure-level values, which are all left {@code null}.
      *
      * @param solarLowCloudPercent      low cloud at the solar horizon point (113 km)
      * @param solarMidCloudPercent      mid cloud at the solar horizon point (113 km)

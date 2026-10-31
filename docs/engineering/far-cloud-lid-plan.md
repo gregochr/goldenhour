@@ -252,6 +252,12 @@ mixes a 3 km deck below the line with a 6 km one across it.
   lies above that of H1 ∪ H2 (the aggregate gate) on the same firings. Height must earn its keep
   over the bands.
 
+*Note, 2026-10-31 (H5 itself is unchanged).* Stored levels now run 850 to 200 hPa
+(`far-cloud-cirrus-levels-plan.md`, V209), but pressure-level cloud still under-reports thin cirrus:
+in an owner sample of 384 hours with single-level high >= 30, 144 had 500, 400 and 300 hPa all 0,
+and only 78 of those (54%) showed anything at 250 or 200 hPa. So "all levels 0" is not "no cloud
+above the line"; about 46% of high-only hours stay invisible to every level.
+
 **Unit.** One firing is a region × date × event, judged on the latest run before the event (the one
 readers saw), stratified by lead (T+0, T+1, T+2). Sunsets and sunrises are reported separately.
 

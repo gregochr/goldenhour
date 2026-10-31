@@ -67,6 +67,12 @@ public class OpenMeteoForecastResponse {
         @JsonProperty("cloud_cover_300hPa")
         private List<Integer> cloudCover300hPa;
 
+        @JsonProperty("cloud_cover_250hPa")
+        private List<Integer> cloudCover250hPa;
+
+        @JsonProperty("cloud_cover_200hPa")
+        private List<Integer> cloudCover200hPa;
+
         private List<Double> visibility;
 
         @JsonProperty("wind_speed_10m")

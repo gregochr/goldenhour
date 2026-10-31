@@ -844,7 +844,7 @@ class OpenMeteoServiceTest {
     }
 
     @Test
-    @DisplayName("fetchDirectionalCloudData() fills the six pressure levels from the second call")
+    @DisplayName("fetchDirectionalCloudData() fills the eight pressure levels from the second call")
     void fetchDirectionalCloudData_fillsPressureLevelsFromSecondCall() {
         LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
         List<String> times = List.of("2026-06-21T20:00", "2026-06-21T21:00");
@@ -876,6 +876,8 @@ class OpenMeteoServiceTest {
         assertThat(result.farSolarCloud500hPa()).isEqualTo(50);
         assertThat(result.farSolarCloud400hPa()).isEqualTo(40);
         assertThat(result.farSolarCloud300hPa()).isEqualTo(30);
+        assertThat(result.farSolarCloud250hPa()).isEqualTo(20);
+        assertThat(result.farSolarCloud200hPa()).isEqualTo(10);
     }
 
     @Test
@@ -911,6 +913,8 @@ class OpenMeteoServiceTest {
                 withLevels.farSolarHighCloudPercentDarkHour()));
         assertThat(withoutLevels.farSolarCloud850hPa()).isNull();
         assertThat(withoutLevels.farSolarCloud300hPa()).isNull();
+        assertThat(withoutLevels.farSolarCloud250hPa()).isNull();
+        assertThat(withoutLevels.farSolarCloud200hPa()).isNull();
     }
 
     private static OpenMeteoForecastResponse pressureLevelResponse(List<String> times) {
@@ -923,6 +927,8 @@ class OpenMeteoServiceTest {
         hourly.setCloudCover500hPa(List.of(50, 51));
         hourly.setCloudCover400hPa(List.of(40, 41));
         hourly.setCloudCover300hPa(List.of(30, 31));
+        hourly.setCloudCover250hPa(List.of(20, 21));
+        hourly.setCloudCover200hPa(List.of(10, 11));
         response.setHourly(hourly);
         return response;
     }

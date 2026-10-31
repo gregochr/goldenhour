@@ -129,7 +129,7 @@ class CloudPointCacheReaderTest {
     }
 
     @Test
-    @DisplayName("fills the six pressure levels from the level response at the event slot")
+    @DisplayName("fills the eight pressure levels from the level response at the event slot")
     void pressureLevels_filledFromLevelResponse() {
         DirectionalCloudData data = readWithLevels(farResponse(), levelResponse(TIMES),
                 TargetType.SUNSET, SUNSET);
@@ -141,6 +141,41 @@ class CloudPointCacheReaderTest {
         assertThat(data.farSolarCloud500hPa()).isEqualTo(51);
         assertThat(data.farSolarCloud400hPa()).isEqualTo(41);
         assertThat(data.farSolarCloud300hPa()).isEqualTo(31);
+        assertThat(data.farSolarCloud250hPa()).isEqualTo(21);
+        assertThat(data.farSolarCloud200hPa()).isEqualTo(11);
+    }
+
+    @Test
+    @DisplayName("a level response missing the 250 and 200 hPa series nulls only those two")
+    void pressureLevels_missingCirrusSeries_nullsOnlyLevelsSixAndSeven() {
+        OpenMeteoForecastResponse noCirrus = levelResponse(TIMES);
+        noCirrus.getHourly().setCloudCover250hPa(null);
+        noCirrus.getHourly().setCloudCover200hPa(null);
+
+        DirectionalCloudData data = readWithLevels(farResponse(), noCirrus, TargetType.SUNSET, SUNSET);
+
+        assertThat(data).isNotNull();
+        assertThat(data.farSolarCloud850hPa()).isEqualTo(81);
+        assertThat(data.farSolarCloud700hPa()).isEqualTo(71);
+        assertThat(data.farSolarCloud600hPa()).isEqualTo(61);
+        assertThat(data.farSolarCloud500hPa()).isEqualTo(51);
+        assertThat(data.farSolarCloud400hPa()).isEqualTo(41);
+        assertThat(data.farSolarCloud300hPa()).isEqualTo(31);
+        assertThat(data.farSolarCloud250hPa()).isNull();
+        assertThat(data.farSolarCloud200hPa()).isNull();
+    }
+
+    @Test
+    @DisplayName("readPressureLevels returns eight nulls on the all-null failure path")
+    void readPressureLevels_failurePath_returnsEightNulls() {
+        OpenMeteoForecastResponse badTime = levelResponse(TIMES);
+        badTime.getHourly().setTime(List.of("not-a-time", "also-not", "nope"));
+
+        Integer[] fromBadTime = CloudPointCacheReader.readPressureLevels(badTime, SUNSET, TargetType.SUNSET);
+        Integer[] fromNull = CloudPointCacheReader.readPressureLevels(null, SUNSET, TargetType.SUNSET);
+
+        assertThat(fromBadTime).hasSize(8).containsOnlyNulls();
+        assertThat(fromNull).hasSize(8).containsOnlyNulls();
     }
 
     @Test
@@ -155,7 +190,7 @@ class CloudPointCacheReaderTest {
     }
 
     @Test
-    @DisplayName("a malformed level response nulls only the six levels, never another field or the result")
+    @DisplayName("a malformed level response nulls only the eight levels, never another field or the result")
     void pressureLevels_malformedResponse_leavesEverythingElseIdentical() {
         DirectionalCloudData baseline = readWithLevels(farResponse(), null, TargetType.SUNSET, SUNSET);
 
@@ -173,6 +208,8 @@ class CloudPointCacheReaderTest {
             assertThat(data).isEqualTo(baseline);
             assertThat(data.farSolarCloud850hPa()).isNull();
             assertThat(data.farSolarCloud300hPa()).isNull();
+            assertThat(data.farSolarCloud250hPa()).isNull();
+            assertThat(data.farSolarCloud200hPa()).isNull();
         }
     }
 
@@ -214,6 +251,8 @@ class CloudPointCacheReaderTest {
         hourly.setCloudCover500hPa(List.of(50, 51, 52));
         hourly.setCloudCover400hPa(List.of(40, 41, 42));
         hourly.setCloudCover300hPa(List.of(30, 31, 32));
+        hourly.setCloudCover250hPa(List.of(20, 21, 22));
+        hourly.setCloudCover200hPa(List.of(10, 11, 12));
         response.setHourly(hourly);
         return response;
     }
