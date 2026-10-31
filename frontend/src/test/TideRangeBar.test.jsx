@@ -83,8 +83,23 @@ describe('TideRangeBar', () => {
 
   it('leaves out of its name whatever is missing, and says so when everything is', () => {
     const { rerender } = render(<TideRangeBar {...FULL} p95High={null} />);
-    expect(screen.getByRole('img').getAttribute('aria-label')).not.toContain('P95');
+    expect(screen.getByRole('img')).toHaveAccessibleName(
+      'Tide range: lowest low -1.50 m to highest high 1.80 m; average low -1.20 m to average high 1.40 m',
+    );
     rerender(<TideRangeBar />);
     expect(screen.getByRole('img')).toHaveAccessibleName('Tide range: no data');
+  });
+
+  it('draws no band when the minimum is above the maximum, but still reads the numbers', () => {
+    render(<TideRangeBar minLow={2} maxHigh={1} avgLow={-1} avgHigh={1} />);
+    expect(screen.queryByTestId('tide-range-bar-full')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tide-range-bar-avg')).toBeInTheDocument();
+    expect(screen.getByRole('img').getAttribute('aria-label')).toContain('lowest low 2.00 m to highest high 1.00 m');
+  });
+
+  it('draws no band that lies wholly off the scale', () => {
+    render(<TideRangeBar minLow={4} maxHigh={6} avgLow={-8} avgHigh={-5} />);
+    expect(screen.queryByTestId('tide-range-bar-full')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tide-range-bar-avg')).not.toBeInTheDocument();
   });
 });

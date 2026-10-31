@@ -263,8 +263,11 @@ result or valid manual coordinates. On success: refresh, `onLocationsChanged`, s
 
 ## 7. Tides (P3, built)
 
-*Built departures:* sub-regions are not on `GET /api/locations`, so the tab also reads `GET /api/areas` (`SUB_REGION`
-members); the search also matches the sub-region; chip counts follow the search and region.
+*Built departures:* the search also matches the sub-region (from the location's `subRegionName`); chip counts follow the
+search and region; the thin-data median excludes the location itself and the "against about" clause drops with fewer than
+three other locations; a failed locations fetch shows a notice and keeps a deep link, rows then open nothing; list cells
+are bare figures (the card line keeps `m`), the P95 column is not amber, counts carry en-GB thousands separators; the
+panel subtitle is `{sub-region} · {n} readings` and the large bar has min / 0 / max labels.
 
 Read-only. Header *Tides* + *{n} coastal locations · heights in metres* (the Unit column goes). Chips All · Thin data
 (`dataPoints < THIN_TIDE_READINGS`, a constant = 2000) | All regions ▾. Key under the chips: light band *Lowest low to

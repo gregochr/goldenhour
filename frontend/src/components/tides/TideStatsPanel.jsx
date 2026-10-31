@@ -6,8 +6,15 @@ import StatusDot from '../data/StatusDot.jsx';
 import TideRangeBar from '../data/TideRangeBar.jsx';
 import usePanelEscape from '../../hooks/usePanelEscape.js';
 import {
-  NO_VALUE, fmtMetres, fmtPercent, isThin, numOrNull, tideTypesText,
+  NO_VALUE, fmtCount, fmtMetres, fmtPercent, isThin, numOrNull, tideTypesText,
 } from '../../utils/tideAdmin.js';
+
+/** A signed metres figure for the bar's end labels ("−2.89 m", "+2.87 m"), or an em dash. */
+function signedMetres(val) {
+  const n = numOrNull(val);
+  if (n == null) return NO_VALUE;
+  return `${n < 0 ? '\u2212' : '+'}${Math.abs(n).toFixed(2)} m`;
+}
 
 /** A metres figure with its unit, or an em dash. */
 function metres(val) {
@@ -56,14 +63,16 @@ export default function TideStatsPanel({ row, median, onClose, panelRef }) {
   return (
     <PanelShell
       title={row.name}
-      subtitle={[row.subRegion, row.region].filter(Boolean).join(' · ') || undefined}
+      subtitle={[row.subRegion, s.dataPoints == null ? null : `${fmtCount(s.dataPoints)} readings`]
+        .filter(Boolean).join(' · ') || undefined}
       onClose={onClose}
       testIdPrefix="tide-panel-shell"
     >
       {isThin(row) && (
         <div className="border-b border-plex-border bg-verdict-marginal/10 px-[18px] py-3 text-[13px] text-plex-text max-[639px]:px-4" role="note" data-testid="tide-thin-warning">
-          {s.dataPoints} readings
-          {median != null ? `, against about ${median} for its neighbours` : ''}. Percentiles here are less reliable.
+          <p className="mb-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-verdict-marginal">Thin data</p>
+          {fmtCount(s.dataPoints)} readings
+          {median != null ? `, against about ${fmtCount(median)} for its neighbours` : ''}. Percentiles here are less reliable.
         </div>
       )}
       <PanelSection label="Range">
@@ -76,6 +85,11 @@ export default function TideStatsPanel({ row, median, onClose, panelRef }) {
           p95High={numOrNull(s.p95HighMetres)}
           testId="tide-panel-bar"
         />
+        <div className="mt-1 flex justify-between font-mono text-[11px] text-plex-text-secondary" data-testid="tide-panel-bar-labels">
+          <span>{signedMetres(s.minLowMetres)}</span>
+          <span>0</span>
+          <span>{signedMetres(s.maxHighMetres)}</span>
+        </div>
         <div className="mt-3 grid grid-cols-3 gap-x-3 gap-y-3">
           <Stat label="Highest high" value={metres(s.maxHighMetres)} testId="tide-panel-max-high" />
           <Stat label="Average high" value={metres(s.avgHighMetres)} testId="tide-panel-avg-high" />
@@ -84,7 +98,7 @@ export default function TideStatsPanel({ row, median, onClose, panelRef }) {
           <Stat label="Average low" value={metres(s.avgLowMetres)} testId="tide-panel-avg-low" />
           <Stat
             label="Readings"
-            value={s.dataPoints == null ? NO_VALUE : String(s.dataPoints)}
+            value={fmtCount(s.dataPoints)}
             tone={isThin(row) ? 'text-verdict-marginal' : ''}
             testId="tide-panel-readings"
           />
@@ -94,7 +108,7 @@ export default function TideStatsPanel({ row, median, onClose, panelRef }) {
         <div className="grid grid-cols-3 gap-x-3">
           <Stat label="P75" value={metres(s.p75HighMetres)} testId="tide-panel-p75" />
           <Stat label="P90" value={metres(s.p90HighMetres)} testId="tide-panel-p90" />
-          <Stat label="P95" value={metres(s.p95HighMetres)} tone="text-verdict-marginal" testId="tide-panel-p95" />
+          <Stat label="P95 · king" value={metres(s.p95HighMetres)} tone="text-verdict-marginal" testId="tide-panel-p95" />
         </div>
       </PanelSection>
       <PanelSection label="Spring and king tides">
@@ -102,17 +116,17 @@ export default function TideStatsPanel({ row, median, onClose, panelRef }) {
           items={[
             {
               label: 'Spring',
-              value: s.springTideThreshold == null && s.springTideFrequency == null
+              value: s.springTideThreshold == null
                 ? null
-                : `above ${fmtMetres(s.springTideThreshold)} m · ${fmtPercent(s.springTideFrequency)} of highs · ${s.springTideCount ?? NO_VALUE}`,
+                : `above ${fmtMetres(s.springTideThreshold)} m · ${fmtPercent(s.springTideFrequency)} of highs · ${fmtCount(s.springTideCount)}`,
               mono: true,
               testId: 'tide-panel-spring',
             },
             {
               label: 'King',
-              value: s.kingTideThreshold == null && s.kingTideCount == null
+              value: s.kingTideThreshold == null
                 ? null
-                : `above ${fmtMetres(s.kingTideThreshold)} m · ${s.kingTideCount ?? NO_VALUE}`,
+                : `above ${fmtMetres(s.kingTideThreshold)} m · ${fmtCount(s.kingTideCount)} highs`,
               mono: true,
               testId: 'tide-panel-king',
             },

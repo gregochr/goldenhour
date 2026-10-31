@@ -55,8 +55,10 @@ export default function TideRangeBar({
   const full = [tidePosition(minLow), tidePosition(maxHigh)];
   const avg = [tidePosition(avgLow), tidePosition(avgHigh)];
   const p95 = tidePosition(p95High);
-  const hasFull = full[0] != null && full[1] != null;
-  const hasAvg = avg[0] != null && avg[1] != null;
+  // A band needs both ends and a clamped right edge past its left: min above max, or a band wholly off the scale
+  // (both ends clamp to the same edge), draws nothing. The label still reads the real numbers.
+  const hasFull = full[0] != null && full[1] != null && full[1] > full[0];
+  const hasAvg = avg[0] != null && avg[1] != null && avg[1] > avg[0];
   const zero = tidePosition(0);
 
   return (

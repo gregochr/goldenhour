@@ -1,16 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import TideManagementView from '../components/TideManagementView.jsx';
 import { fetchAllTideStats } from '../api/tideApi.js';
 import { fetchLocations } from '../api/forecastApi.js';
-import { fetchAreas } from '../api/areaApi.js';
 
 vi.mock('../api/tideApi.js', () => ({
   fetchAllTideStats: vi.fn(),
   fetchTideStats: vi.fn(),
 }));
 vi.mock('../api/forecastApi.js', () => ({ fetchLocations: vi.fn() }));
-vi.mock('../api/areaApi.js', () => ({ fetchAreas: vi.fn() }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn(() => false) }));
 
 function stats(overrides = {}) {
@@ -36,15 +34,10 @@ const MOCK_STATS = {
 };
 
 const LOCATIONS = [
-  { id: 11, name: 'Berwick-Upon-Tweed', enabled: true, region: { id: 1, name: 'Northumberland' }, tideType: ['HIGH', 'MID'] },
-  { id: 12, name: 'Cocklawburn Beach', enabled: true, region: { id: 1, name: 'Northumberland' }, tideType: ['HIGH', 'MID', 'LOW'] },
+  { id: 11, name: 'Berwick-Upon-Tweed', enabled: true, region: { id: 1, name: 'Northumberland' }, tideType: ['HIGH', 'MID'], subRegionName: 'Berwickshire coast' },
+  { id: 12, name: 'Cocklawburn Beach', enabled: true, region: { id: 1, name: 'Northumberland' }, tideType: ['HIGH', 'MID', 'LOW'], subRegionName: 'Berwickshire coast' },
   { id: 13, name: 'Seahouses', enabled: false, region: { id: 2, name: 'The Lakes' }, tideType: [] },
   { id: 14, name: 'Holy Island', enabled: true, region: { id: 1, name: 'Northumberland' }, tideType: ['LOW'] },
-];
-
-const AREAS = [
-  { id: 1, kind: 'SUB_REGION', name: 'Berwickshire coast', regionId: 1, locationIds: [11, 12] },
-  { id: 2, kind: 'NAMED', name: 'Not a sub-region', regionId: null, locationIds: [11] },
 ];
 
 async function renderLoaded(data = MOCK_STATS) {
@@ -63,7 +56,6 @@ describe('TideManagementView', () => {
     vi.clearAllMocks();
     window.location.hash = '';
     fetchLocations.mockResolvedValue(LOCATIONS);
-    fetchAreas.mockResolvedValue(AREAS);
   });
 
   describe('loading and failure', () => {
@@ -86,17 +78,43 @@ describe('TideManagementView', () => {
       expect(screen.queryByTestId('tides-search')).not.toBeInTheDocument();
     });
 
-    it('still lists the statistics when the locations and areas fail to load', async () => {
+    it('still lists the statistics when the locations fail to load, with a notice', async () => {
       fetchLocations.mockRejectedValue(new Error('down'));
-      fetchAreas.mockRejectedValue(new Error('down'));
       await renderLoaded();
       expect(listedNames()).toHaveLength(5);
+      expect(screen.getByTestId('tides-locations-failed')).toHaveTextContent("Couldn't load locations, so rows can't open.");
       // With no locations nothing joins, so no row opens.
       expect(screen.queryAllByRole('button', { name: /Berwick/ })).toHaveLength(0);
     });
   });
 
   describe('the list', () => {
+    it('shows no notice when the locations load', async () => {
+      await renderLoaded();
+      expect(screen.queryByTestId('tides-locations-failed')).not.toBeInTheDocument();
+    });
+
+    it('keeps a deep link in the address when the locations failed', async () => {
+      fetchLocations.mockRejectedValue(new Error('down'));
+      window.location.hash = '#manage/tides/11';
+      await renderLoaded();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(window.location.hash).toBe('#manage/tides/11');
+      expect(screen.queryByTestId('tide-panel-shell')).not.toBeInTheDocument();
+    });
+
+    it('hides the Region chip when no location has a region', async () => {
+      fetchLocations.mockResolvedValue(LOCATIONS.map((l) => ({ ...l, region: null })));
+      await renderLoaded();
+      expect(screen.queryByTestId('tides-region')).not.toBeInTheDocument();
+      expect(screen.getByTestId('tides-chip-thin')).toBeInTheDocument();
+    });
+
+    it('captions the Range column with the scale', async () => {
+      await renderLoaded();
+      expect(screen.getByTestId('tides-header')).toHaveTextContent('Range −3.5 · 0 · +3.5');
+    });
+
     it('shows the header, the subtitle and the key', async () => {
       await renderLoaded();
       expect(screen.getByRole('heading', { name: 'Tides' })).toBeInTheDocument();
@@ -117,10 +135,11 @@ describe('TideManagementView', () => {
       expect(listedNames()).toEqual(['Berwick-Upon-Tweed', 'Cocklawburn Beach', 'Holy Island', 'Mystery Bay', 'Seahouses']);
       expect(screen.getByTestId('tides-sort-name')).toHaveTextContent('Location ▲');
       expect(screen.getByTestId('tides-cell-location-11')).toHaveTextContent('Berwickshire coast');
-      expect(screen.getByTestId('tide-avg-range-11')).toHaveTextContent('2.60 m');
-      expect(screen.getByTestId('tides-cell-p95High-11')).toHaveTextContent('1.78 m');
+      expect(screen.getByTestId('tide-avg-range-11')).toHaveTextContent(/^2\.60$/);
+      expect(screen.getByTestId('tides-cell-p95High-11')).toHaveTextContent(/^1\.78$/);
+      expect(screen.getByTestId('tides-cell-p95High-11').innerHTML).not.toContain('text-verdict-marginal');
       expect(screen.getByTestId('tides-cell-spring-11')).toHaveTextContent('5.0%');
-      expect(screen.getByTestId('tide-readings-11')).toHaveTextContent('5000');
+      expect(screen.getByTestId('tide-readings-11')).toHaveTextContent('5,000');
     });
 
     it('draws a range bar on every row', async () => {
@@ -271,7 +290,7 @@ describe('TideManagementView', () => {
     it('gives a matched row a button name that reads the row', async () => {
       await renderLoaded();
       const row = screen.getByRole('button', { name: /^Cocklawburn Beach, Berwickshire coast, average range 2.40 m/ });
-      expect(row).toHaveAccessibleName(expect.stringContaining('1500 readings, thin data'));
+      expect(row).toHaveAccessibleName(expect.stringContaining('1,500 readings, thin data'));
     });
 
     it('takes the sub-region from SUB_REGION areas only', async () => {
@@ -286,19 +305,20 @@ describe('TideManagementView', () => {
       fireEvent.click(screen.getByTestId('tides-row-11'));
       expect(window.location.hash).toBe('#manage/tides/11');
       expect(screen.getByTestId('tide-panel-shell-title')).toHaveTextContent('Berwick-Upon-Tweed');
-      expect(screen.getByTestId('tide-panel-shell-subtitle')).toHaveTextContent('Berwickshire coast · Northumberland');
+      expect(screen.getByTestId('tide-panel-shell-subtitle')).toHaveTextContent('Berwickshire coast · 5,000 readings');
+      expect(screen.getByTestId('tide-panel-bar-labels')).toHaveTextContent('−1.50 m0+1.80 m');
       expect(screen.getByTestId('tide-panel-bar')).toBeInTheDocument();
       expect(screen.getByTestId('tide-panel-max-high')).toHaveTextContent('1.80 m');
       expect(screen.getByTestId('tide-panel-avg-high')).toHaveTextContent('1.40 m');
       expect(screen.getByTestId('tide-panel-avg-range')).toHaveTextContent('2.60 m');
       expect(screen.getByTestId('tide-panel-min-low')).toHaveTextContent('-1.50 m');
       expect(screen.getByTestId('tide-panel-avg-low')).toHaveTextContent('-1.20 m');
-      expect(screen.getByTestId('tide-panel-readings')).toHaveTextContent('5000');
+      expect(screen.getByTestId('tide-panel-readings')).toHaveTextContent('5,000');
       expect(screen.getByTestId('tide-panel-p75')).toHaveTextContent('1.60 m');
       expect(screen.getByTestId('tide-panel-p90')).toHaveTextContent('1.72 m');
       expect(screen.getByTestId('tide-panel-p95')).toHaveTextContent('1.78 m');
       expect(screen.getByTestId('tide-panel-spring')).toHaveTextContent('above 1.75 m · 5.0% of highs · 5');
-      expect(screen.getByTestId('tide-panel-king')).toHaveTextContent('above 1.78 m · 2');
+      expect(screen.getByTestId('tide-panel-king')).toHaveTextContent('above 1.78 m · 2 highs');
       expect(screen.getByText('Spring is more than 125% of the average high. King is above P95.')).toBeInTheDocument();
       expect(screen.getByTestId('tide-panel-tide-types')).toHaveTextContent('High, Mid');
       expect(screen.getByTestId('tide-panel-status')).toHaveTextContent('Active');
@@ -375,11 +395,43 @@ describe('TideManagementView', () => {
     it('shows the thin-data warning with the median reading count', async () => {
       await renderLoaded();
       fireEvent.click(screen.getByTestId('tides-row-12'));
-      // Readings are 5000, 1500, 9000, 800 and 4000: the median is 4000.
+      // The others read 5000, 9000, 800 and 4000: their median is 4500 (its own 1500 is left out).
+      expect(screen.getByTestId('tide-thin-warning')).toHaveTextContent('Thin data');
       expect(screen.getByTestId('tide-thin-warning')).toHaveTextContent(
-        '1500 readings, against about 4000 for its neighbours. Percentiles here are less reliable.',
+        '1,500 readings, against about 4,500 for its neighbours. Percentiles here are less reliable.',
       );
       expect(screen.getByTestId('tide-panel-readings').className).toContain('text-verdict-marginal');
+    });
+
+    it('drops the comparison when fewer than three other locations have counts', async () => {
+      await renderLoaded({ A: stats({ dataPoints: 500 }), B: stats({ dataPoints: 6000 }), C: stats({ dataPoints: 7000 }) });
+      fetchLocations.mockResolvedValue([{ id: 1, name: 'A', enabled: true }]);
+      cleanup();
+      render(<TideManagementView />);
+      await screen.findByTestId('tides');
+      fireEvent.click(screen.getByTestId('tides-row-1'));
+      const warning = screen.getByTestId('tide-thin-warning');
+      expect(warning).toHaveTextContent('500 readings. Percentiles here are less reliable.');
+      expect(warning).not.toHaveTextContent('against about');
+    });
+
+    it('reads a null threshold as a dash for the whole value, and labels the P95 stat "P95 · king"', async () => {
+      await renderLoaded({
+        ...MOCK_STATS,
+        'Holy Island': stats({ springTideThreshold: null, kingTideThreshold: null, dataPoints: null }),
+      });
+      fireEvent.click(screen.getByTestId('tides-row-14'));
+      expect(screen.getByTestId('tide-panel-spring')).toHaveTextContent(/^—$/);
+      expect(screen.getByTestId('tide-panel-king')).toHaveTextContent(/^—$/);
+      expect(screen.getByText('P95 · king')).toBeInTheDocument();
+      expect(screen.queryByTestId('tide-panel-shell-subtitle')).not.toBeInTheDocument();
+      expect(screen.getByTestId('tide-panel-readings')).toHaveTextContent('—');
+    });
+
+    it('omits the readings part of a row name when the count is missing', async () => {
+      await renderLoaded({ ...MOCK_STATS, 'Holy Island': stats({ dataPoints: null }) });
+      const row = screen.getByTestId('tides-row-14');
+      expect(row.getAttribute('aria-label')).not.toContain('readings');
     });
 
     it('shows no warning for a location with enough readings', async () => {

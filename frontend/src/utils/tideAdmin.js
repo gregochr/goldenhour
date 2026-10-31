@@ -49,15 +49,27 @@ export function isThin(row) {
   return n != null && n < THIN_TIDE_READINGS;
 }
 
+/** The fewest other locations with a reading count for the "against about" comparison to mean anything. */
+export const MIN_NEIGHBOURS = 3;
+
+/** A count with en-GB thousands separators ("5,000"), or an em dash when there is none. */
+export function fmtCount(val) {
+  const n = numOrNull(val);
+  return n == null ? NO_VALUE : n.toLocaleString('en-GB');
+}
+
 /**
- * The median reading count across the rows that have one (rounded), or null when none do.
+ * The median reading count across the OTHER rows that have one (rounded), or null when fewer than
+ * {@link MIN_NEIGHBOURS} do. Pass {@code exclude} so a location is not compared with itself.
  *
  * @param {Array<{stats: {dataPoints: number|null}}>} rows
+ * @param {object} [exclude] a row to leave out
  * @returns {number|null}
  */
-export function medianReadings(rows) {
-  const counts = rows.map((r) => numOrNull(r.stats.dataPoints)).filter((n) => n != null).sort((a, b) => a - b);
-  if (counts.length === 0) return null;
+export function medianReadings(rows, exclude = undefined) {
+  const counts = rows.filter((r) => r !== exclude).map((r) => numOrNull(r.stats.dataPoints))
+    .filter((n) => n != null).sort((a, b) => a - b);
+  if (counts.length < MIN_NEIGHBOURS) return null;
   const mid = Math.floor(counts.length / 2);
   return Math.round(counts.length % 2 === 1 ? counts[mid] : (counts[mid - 1] + counts[mid]) / 2);
 }
@@ -74,18 +86,12 @@ export function tideTypesText(types) {
  * matching location still gets a row, with {@code locationId: null} (its row opens nothing).
  *
  * @param {Object<string, object>} statsByName the bulk stats
- * @param {Array<object>} locations GET /api/locations
- * @param {Array<object>} areas GET /api/areas (sub-regions carry {@code locationIds})
+ * @param {Array<object>} locations GET /api/locations (carries {@code subRegionName})
  * @returns {Array<{id: string|number, name: string, stats: object, locationId: number|null, region: string|null,
  *   subRegion: string|null, tideTypes: string[], enabled: boolean|null}>}
  */
-export function buildTideRows(statsByName, locations, areas) {
+export function buildTideRows(statsByName, locations) {
   const byName = new Map((locations ?? []).map((l) => [l.name, l]));
-  const subRegionOf = new Map();
-  for (const area of areas ?? []) {
-    if (area.kind !== 'SUB_REGION') continue;
-    for (const id of area.locationIds ?? []) subRegionOf.set(id, area.name);
-  }
   return Object.entries(statsByName ?? {}).map(([name, stats]) => {
     const loc = byName.get(name);
     return {
@@ -94,7 +100,7 @@ export function buildTideRows(statsByName, locations, areas) {
       stats: stats ?? {},
       locationId: loc ? loc.id : null,
       region: loc?.region?.name ?? null,
-      subRegion: loc ? (subRegionOf.get(loc.id) ?? null) : null,
+      subRegion: loc?.subRegionName ?? null,
       tideTypes: Array.isArray(loc?.tideType) ? loc.tideType : [],
       enabled: loc ? loc.enabled !== false : null,
     };

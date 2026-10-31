@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { fetchAllTideStats } from '../api/tideApi.js';
 import { fetchLocations } from '../api/forecastApi.js';
-import { fetchAreas } from '../api/areaApi.js';
 import Pagination from './Pagination.jsx';
 import DataGrid from './data/DataGrid.jsx';
 import DataSplitLayout from './data/DataSplitLayout.jsx';
@@ -16,7 +15,7 @@ import useHashSelection from '../hooks/useHashSelection.js';
 import usePagination from '../hooks/usePagination.js';
 import useSortAndFilter from '../hooks/useSortAndFilter.js';
 import {
-  NO_VALUE, TIDE_SORT_ACCESSORS, buildTideRows, fmtMetres, fmtPercent, isThin, medianReadings, numOrNull,
+  NO_VALUE, TIDE_SORT_ACCESSORS, buildTideRows, fmtCount, fmtMetres, fmtPercent, isThin, medianReadings, numOrNull,
 } from '../utils/tideAdmin.js';
 
 /** The Manage tab key; the hash is {@code #manage/tides/{locationId}}. */
@@ -42,7 +41,7 @@ const locationIdOf = (row) => row.locationId;
 
 const canOpen = (row) => row.locationId != null;
 
-/** A metres figure with its unit, or an em dash. */
+/** A metres figure with its unit (the card line and the row's spoken name), or an em dash. */
 function metresText(val) {
   const text = fmtMetres(val);
   return text === NO_VALUE ? text : `${text} m`;
@@ -57,7 +56,7 @@ function rowLabel(row) {
     `average range ${metresText(s.avgRangeMetres)}`,
     `P95 high ${metresText(s.p95HighMetres)}`,
     `spring ${fmtPercent(s.springTideFrequency)}`,
-    `${s.dataPoints ?? NO_VALUE} readings${isThin(row) ? ', thin data' : ''}`,
+    s.dataPoints == null ? null : `${fmtCount(s.dataPoints)} readings${isThin(row) ? ', thin data' : ''}`,
   ].filter(Boolean).join(', ');
 }
 
@@ -97,7 +96,7 @@ const COLUMNS = [
   },
   {
     key: 'range',
-    header: 'Range',
+    header: 'Range \u22123.5 \u00b7 0 \u00b7 +3.5',
     width: '1.6fr',
     card: 'summary',
     cell: (row) => <RangeCell row={row} />,
@@ -109,7 +108,7 @@ const COLUMNS = [
     sortKey: 'avgRange',
     cell: (row) => (
       <span className="font-mono text-[12.5px]" data-testid={`tide-avg-range-${row.id}`}>
-        {metresText(row.stats.avgRangeMetres)}
+        {fmtMetres(row.stats.avgRangeMetres)}
       </span>
     ),
   },
@@ -119,7 +118,7 @@ const COLUMNS = [
     width: '.6fr',
     sortKey: 'p95High',
     cell: (row) => (
-      <span className="font-mono text-[12.5px] text-verdict-marginal">{metresText(row.stats.p95HighMetres)}</span>
+      <span className="font-mono text-[12.5px]">{fmtMetres(row.stats.p95HighMetres)}</span>
     ),
   },
   {
@@ -143,7 +142,7 @@ const COLUMNS = [
         className={`font-mono text-[12.5px] ${isThin(row) ? 'text-verdict-marginal' : 'text-plex-text-secondary'}`}
         data-testid={`tide-readings-${row.id}`}
       >
-        {row.stats.dataPoints ?? NO_VALUE}
+        {fmtCount(row.stats.dataPoints)}
       </span>
     ),
   },
@@ -162,13 +161,13 @@ const COLUMNS = [
  * compare), the average range, the P95 high and, on a wide list, the spring share and the reading count (amber when
  * thin). A row opens a panel ({@code #manage/tides/{locationId}}) with the full figures. The bulk statistics are keyed
  * by location name, so they are joined to the locations by name; an entry that matches no location still lists, but
- * its row opens nothing. The locations and areas fetches only decorate the rows (sub-region, region, tide types,
- * status): if either fails the statistics still show.
+ * its row opens nothing. The locations fetch only decorates the rows (sub-region, region, tide types, status): if it
+ * fails the statistics still show, with a notice, and a deep link is kept.
  */
 export default function TideManagementView() {
   const [statsByName, setStatsByName] = useState(null);
   const [locations, setLocations] = useState([]);
-  const [areas, setAreas] = useState([]);
+  const [locationsFailed, setLocationsFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -180,26 +179,24 @@ export default function TideManagementView() {
 
   useEffect(() => {
     let live = true;
-    // The locations and areas only decorate the statistics, so their failure is not the view's.
+    // The locations only decorate the statistics, so their failure is not the view's: the rows list, but cannot open.
     Promise.all([
       fetchAllTideStats(),
-      fetchLocations().catch(() => []),
-      fetchAreas().catch(() => []),
+      fetchLocations().then((locs) => ({ locs })).catch(() => ({ failed: true })),
     ])
-      .then(([stats, locs, areaList]) => {
+      .then(([stats, loaded]) => {
         if (!live) return;
         setStatsByName(stats ?? {});
-        setLocations(Array.isArray(locs) ? locs : []);
-        setAreas(Array.isArray(areaList) ? areaList : []);
+        setLocations(Array.isArray(loaded.locs) ? loaded.locs : []);
+        setLocationsFailed(Boolean(loaded.failed));
       })
       .catch(() => { if (live) setError('Failed to load tide statistics.'); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, []);
 
-  const rows = useMemo(() => buildTideRows(statsByName, locations, areas), [statsByName, locations, areas]);
-  const median = useMemo(() => medianReadings(rows), [rows]);
-  const regionNames = useMemo(
+  const rows = useMemo(() => buildTideRows(statsByName, locations), [statsByName, locations]);
+    const regionNames = useMemo(
     () => [...new Set(rows.map((r) => r.region).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
     [rows],
   );
@@ -225,8 +222,8 @@ export default function TideManagementView() {
 
   // A selection that is not on the list (a pasted unknown id) leaves the bare tab address, replacing the entry.
   useEffect(() => {
-    if (!loading && !error && selectedId != null && selected == null) clear({ replace: true });
-  }, [loading, error, selectedId, selected, clear]);
+    if (!loading && !error && !locationsFailed && selectedId != null && selected == null) clear({ replace: true });
+  }, [loading, error, locationsFailed, selectedId, selected, clear]);
 
   if (loading) {
     return <p className="text-sm text-plex-text-muted animate-pulse">Loading tide statistics...</p>;
@@ -300,6 +297,12 @@ export default function TideManagementView() {
         </span>
       </div>
 
+      {locationsFailed && (
+        <p className="text-xs text-plex-text-secondary" role="status" data-testid="tides-locations-failed">
+          Couldn&apos;t load locations, so rows can&apos;t open.
+        </p>
+      )}
+
       {rows.length > 0 && (
         <>
           <DataTools>
@@ -357,7 +360,7 @@ export default function TideManagementView() {
       <DataSplitLayout
         list={list}
         panel={selected && (
-          <TideStatsPanel key={selected.id} row={selected} median={median} onClose={clear} panelRef={panelRef} />
+          <TideStatsPanel key={selected.id} row={selected} median={medianReadings(rows, selected)} onClose={clear} panelRef={panelRef} />
         )}
         onClose={clear}
         panelLabel={selected ? `Tide statistics for ${selected.name}` : 'Tide statistics'}
