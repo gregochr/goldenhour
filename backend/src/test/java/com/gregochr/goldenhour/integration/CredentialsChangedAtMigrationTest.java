@@ -66,6 +66,7 @@ class CredentialsChangedAtMigrationTest extends IntegrationTestBase {
     private long newUser(String name, boolean enabled, String password) {
         return users.save(AppUserEntity.builder().username(name).email(name + "@example.com")
                 .password(password).role(UserRole.PRO_USER).enabled(enabled).passwordChangeRequired(true)
+                .marketingEmailOptIn(true)
                 .createdAt(LocalDateTime.of(2026, 1, 1, 12, 0)).build()).getId();
     }
 

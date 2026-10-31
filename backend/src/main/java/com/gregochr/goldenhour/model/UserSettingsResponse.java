@@ -36,6 +36,10 @@ import java.time.LocalDate;
  *                                 response, never inferred by a client, so an existing account
  *                                 without a postcode is asked once and a postcode saved anywhere
  *                                 ends the question (login-registration plan §2 #3)
+ * @param marketingEmailOptIn      whether the caller has consented to marketing email (feature updates and
+ *                                 photography tips), read from the user row; false for an account that
+ *                                 never ticked the registration box. Personal data, so it rides this
+ *                                 never-cached path and no shared payload
  */
 public record UserSettingsResponse(
         String username,
@@ -50,5 +54,6 @@ public record UserSettingsResponse(
         String mapColourScale,
         LocalDate comingUpLastSeenDate,
         String mapTideMode,
-        boolean postcodePromptDue) {
+        boolean postcodePromptDue,
+        boolean marketingEmailOptIn) {
 }

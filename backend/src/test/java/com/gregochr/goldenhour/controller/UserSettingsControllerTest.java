@@ -21,6 +21,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
@@ -47,13 +48,26 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.getSettings(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         "DH1 3LE", 54.7761, -1.5733, "Durham, County Durham",
-                        null, Instant.parse("2026-04-01T10:00:00Z"), null, null, null, false));
+                        null, Instant.parse("2026-04-01T10:00:00Z"), null, null, null, false, false));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("testuser"))
                 .andExpect(jsonPath("$.homePostcode").value("DH1 3LE"))
                 .andExpect(jsonPath("$.homePlaceName").value("Durham, County Durham"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/user/settings serves marketingEmailOptIn=true as a JSON boolean")
+    void getSettings_servesMarketingEmailOptInTrue() throws Exception {
+        when(settingsService.getSettings(argThat(auth -> auth != null && "user".equals(auth.getName())))).thenReturn(
+                new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
+                        null, null, null, null, null, null, null, null, null, false, true));
+
+        mockMvc.perform(get("/api/user/settings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.marketingEmailOptIn").value(true));
     }
 
     @Test
@@ -85,7 +99,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveHome_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveHome(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null, null, null, false));
+                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null, null, null, false, false));
 
         mockMvc.perform(put("/api/user/settings/home")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -100,7 +114,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveMapColourPreferences_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveMapColourPreferences(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, "temp", null, null, false));
+                        null, null, null, null, null, null, "temp", null, null, false, false));
 
         mockMvc.perform(put("/api/user/settings/map-colours")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -137,7 +151,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveMapTideMode_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveMapTideMode(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, null, null, "always", false));
+                        null, null, null, null, null, null, null, null, "always", false, false));
 
         mockMvc.perform(put("/api/user/settings/map-tide-mode")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -175,7 +189,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.markComingUpSeen(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         null, null, null, null, null, null, null,
-                        java.time.LocalDate.of(2026, 8, 29), null, false));
+                        java.time.LocalDate.of(2026, 8, 29), null, false, false));
 
         mockMvc.perform(put("/api/user/settings/coming-up-seen"))
                 .andExpect(status().isOk())
@@ -310,7 +324,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void getSettings_liteAllowed() throws Exception {
         when(settingsService.getSettings(any(Authentication.class))).thenReturn(
                 new UserSettingsResponse("lite", "lite@example.com", "LITE_USER", null, null, null, null,
-                        null, null, null, null, null, false));
+                        null, null, null, null, null, false, false));
 
         mockMvc.perform(get("/api/user/settings")).andExpect(status().isOk());
     }
@@ -495,7 +509,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.markPostcodePromptDismissed(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         null, null, null, null, null, null, null, null, null,
-                        false));
+                        false, false));
 
         mockMvc.perform(put("/api/user/settings/postcode-prompt-dismissed"))
                 .andExpect(status().isOk())
@@ -509,7 +523,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.markPostcodePromptDismissed(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "LITE_USER",
                         null, null, null, null, null, null, null, null, null,
-                        false));
+                        false, false));
 
         mockMvc.perform(put("/api/user/settings/postcode-prompt-dismissed"))
                 .andExpect(status().isOk());
@@ -529,7 +543,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void getSettings_carriesThePromptFlag() throws Exception {
         when(settingsService.getSettings(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, null, null, null, true));
+                        null, null, null, null, null, null, null, null, null, true, false));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())

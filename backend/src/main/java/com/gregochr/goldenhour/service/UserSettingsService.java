@@ -715,6 +715,7 @@ public class UserSettingsService {
                 user.getMapTideMode(),
                 // The one place the flag is decided, on every response this service builds: no
                 // postcode and never dismissed (plan §2 #3). A postcode saved anywhere ends it.
-                user.getHomePostcode() == null && user.getPostcodePromptDismissedAt() == null);
+                user.getHomePostcode() == null && user.getPostcodePromptDismissedAt() == null,
+                user.isMarketingEmailOptIn());
     }
 }

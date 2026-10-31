@@ -6,6 +6,7 @@ import Modal from './shared/Modal';
 import SubRegionSettingsSection from './subregions/SubRegionSettingsSection.jsx';
 import PasswordInput from './auth/PasswordInput.jsx';
 import { deleteAccount } from '../api/accountApi.js';
+import { updateMarketingEmailOptIn } from '../api/authApi';
 import {
   getSettings, lookupPostcode, saveHome, refreshDriveTimes, saveMapColourPreferences,
 } from '../api/settingsApi';
@@ -62,6 +63,17 @@ const DELETE_FAILED = 'Couldn’t delete your account. Try again.';
  */
 const LANDING_TARGET = '-mx-1 px-1 rounded-sm focus-visible:outline-2 focus-visible:outline-plex-gold';
 
+/**
+ * Whether focus has been ORPHANED — `<body>`, the document, nothing, or this dialog's own root —
+ * rather than the reader having moved on to a control. The one rule both focus restorers in this
+ * dialog share: neither may take focus back from a reader who chose where they are.
+ */
+function isFocusOrphaned(dialog) {
+  const focused = document.activeElement;
+  return !focused || focused === document.body
+    || focused === document.documentElement || focused === dialog;
+}
+
 export default function UserSettingsModal({
   onClose, onDriveTimesRefreshed, startSettingsRead, onHomeSaved, onDriveTimesRecalculated,
   onColourSaved, colourSaveQueue = null, focusField = null, restoreFocusFallback = null,
@@ -98,6 +110,20 @@ export default function UserSettingsModal({
   const [mapColourScale, setMapColourScale] = useState(() => resolveMode(undefined));
   const [colourSaving, setColourSaving] = useState(false);
   const [colourError, setColourError] = useState(false);
+  // Marketing-email consent (UK GDPR Art 7(3): withdrawing must be as easy as giving). Seeded ONLY
+  // from the server's settings payload, never from `AuthContext`, whose copy defaults to true when
+  // unknown. A missing field is "not consented".
+  const [marketingOptIn, setMarketingOptIn] = useState(false);
+  const [marketingSaving, setMarketingSaving] = useState(false);
+  const [marketingSaved, setMarketingSaved] = useState(false);
+  const [marketingError, setMarketingError] = useState(false);
+  const marketingBoxRef = useRef(null);
+  const marketingErrorId = useId();
+  // True when the checkbox held focus as a save began: a disabled control drops focus, so the
+  // reader is put back once the save settles (see the effect below).
+  const marketingRefocus = useRef(false);
+  // A read that lands while a save is out must not overwrite the save's own answer.
+  const marketingSavingRef = useRef(false);
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupError, setLookupError] = useState(null);
   const [lookingUp, setLookingUp] = useState(false);
@@ -178,10 +204,7 @@ export default function UserSettingsModal({
   useLayoutEffect(() => {
     if (!focusRequest) return;
     const dialog = viewRef.current?.closest('[role="dialog"]') ?? null;
-    const focused = document.activeElement;
-    const orphaned = !focused || focused === document.body
-      || focused === document.documentElement || focused === dialog;
-    if (!orphaned) return;
+    if (!isFocusOrphaned(dialog)) return;
     for (const ref of focusRequest) {
       const el = ref.current;
       if (!el) continue;
@@ -222,6 +245,7 @@ export default function UserSettingsModal({
     try {
       const data = await getSettings();
       setSettings(data);
+      if (!marketingSavingRef.current) setMarketingOptIn(data.marketingEmailOptIn === true);
       if (data.homePostcode) setPostcode(data.homePostcode);
       setRadius(data.localRadiusMiles ?? DEFAULT_RADIUS_MILES);
       // Whether the value came from the SERVER or is just the slider's display fallback. Without
@@ -432,6 +456,42 @@ export default function UserSettingsModal({
     setColourSaving(false);
     setColourError(outcome === 'failed');
   };
+
+  /**
+   * Saves the marketing-email consent. One save at a time: the checkbox is disabled while the request
+   * is out. The state follows the SERVER's answer on success and reverts on failure.
+   */
+  const handleMarketingChange = async (e) => {
+    if (marketingSavingRef.current) return;
+    const next = e.target.checked;
+    marketingRefocus.current = document.activeElement === marketingBoxRef.current;
+    marketingSavingRef.current = true;
+    // Optimistic: the box shows the pending value (disabled) while the request is out, so a failure's
+    // revert below is a real change the reader sees, not a no-op.
+    setMarketingOptIn(next);
+    setMarketingSaving(true);
+    setMarketingSaved(false);
+    setMarketingError(false);
+    try {
+      const updated = await updateMarketingEmailOptIn(next);
+      setMarketingOptIn(updated?.marketingEmailOptIn === true);
+      setMarketingSaved(true);
+    } catch {
+      setMarketingOptIn(!next);
+      setMarketingError(true);
+    } finally {
+      marketingSavingRef.current = false;
+      setMarketingSaving(false);
+    }
+  };
+
+  // The checkbox is enabled again: if it held focus when the save began, give it back.
+  useEffect(() => {
+    if (marketingSaving || !marketingRefocus.current) return;
+    marketingRefocus.current = false;
+    const box = marketingBoxRef.current;
+    if (box && isFocusOrphaned(box.closest('[role="dialog"]'))) box.focus();
+  }, [marketingSaving]);
 
   /**
    * Recalculates the drive times, through three views of this one dialog: the settings body, a
@@ -961,6 +1021,44 @@ export default function UserSettingsModal({
               {colourError && (
                 <p className="text-xs text-plex-error" data-testid="settings-colour-error">
                   Could not save the colour preference. Try again.
+                </p>
+              )}
+            </div>
+          </section>
+          {/* Emails — every role, no Pro pill: consent is not a feature. The wording is the
+              registration checkbox's, so withdrawing reads as giving did. */}
+          <section data-testid="settings-marketing-section">
+            <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Emails</h3>
+            <div className="flex flex-col gap-1">
+              <label className="flex items-start gap-2 text-sm text-plex-text cursor-pointer">
+                <input
+                  ref={marketingBoxRef}
+                  type="checkbox"
+                  checked={marketingOptIn}
+                  onChange={handleMarketingChange}
+                  disabled={marketingSaving}
+                  aria-describedby={marketingError ? marketingErrorId : undefined}
+                  className="mt-0.5 accent-plex-gold"
+                  data-testid="settings-marketing-checkbox"
+                />
+                <span>Send me occasional emails about new features and photography tips</span>
+              </label>
+              <p className="text-xs text-plex-text-muted">We only send account emails otherwise.</p>
+              <span
+                className="font-mono text-xs text-plex-text-muted"
+                aria-live="polite"
+                data-testid="settings-marketing-status"
+              >
+                {marketingSaving ? 'Saving…' : marketingSaved ? 'Saved' : ''}
+              </span>
+              {marketingError && (
+                <p
+                  id={marketingErrorId}
+                  role="alert"
+                  className="text-xs text-plex-error"
+                  data-testid="settings-marketing-error"
+                >
+                  Could not save the email preference. Try again.
                 </p>
               )}
             </div>
