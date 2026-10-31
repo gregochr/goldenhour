@@ -219,6 +219,7 @@ public class TideService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void fetchAndStoreTideExtremesInNewTransaction(LocationEntity location) {
+        // The returned source change is ignored on purpose: an admin edit never raises a tide-source alert.
         ingestionService.fetchAndStoreTideExtremes(location);
     }
 
