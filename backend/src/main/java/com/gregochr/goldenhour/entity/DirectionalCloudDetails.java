@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
  * antisolar horizon points (113 km) and the far-field strip-vs-blanket sample (226 km). The far
  * point also records mid and high cloud and a dark-side hour (low, mid and high); these are
  * recorded, never prompted (far-cloud-lid-plan P2). It also records pressure-level cloud
- * (850 to 300 hPa) at the far point's event hour (V176). All
+ * (850 to 200 hPa) at the far point's event hour (V176). All
  * fields are null when directional sampling was unavailable, in which case Hibernate
  * materialises the whole embeddable as {@code null} on read (use
  * {@link #orEmpty(DirectionalCloudDetails)}).
@@ -100,6 +100,14 @@ public class DirectionalCloudDetails {
     @Column(name = "far_solar_cloud_300hpa")
     private Integer farSolarCloud300;
 
+    /** Pressure-level cloud at the far point at the event's hour, 250 hPa (recorded as data only). */
+    @Column(name = "far_solar_cloud_250hpa")
+    private Integer farSolarCloud250;
+
+    /** Pressure-level cloud at the far point at the event's hour, 200 hPa (recorded as data only). */
+    @Column(name = "far_solar_cloud_200hpa")
+    private Integer farSolarCloud200;
+
     /**
      * Builds the embeddable from the pipeline's directional cloud data.
      *
@@ -129,6 +137,8 @@ public class DirectionalCloudDetails {
                 .farSolarCloud500(dc.farSolarCloud500hPa())
                 .farSolarCloud400(dc.farSolarCloud400hPa())
                 .farSolarCloud300(dc.farSolarCloud300hPa())
+                .farSolarCloud250(dc.farSolarCloud250hPa())
+                .farSolarCloud200(dc.farSolarCloud200hPa())
                 .build();
     }
 

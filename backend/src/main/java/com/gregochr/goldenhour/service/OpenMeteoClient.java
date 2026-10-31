@@ -64,12 +64,13 @@ public class OpenMeteoClient {
     static final String CLOUD_ONLY_PARAMS = "cloud_cover_low,cloud_cover_mid,cloud_cover_high";
 
     /**
-     * Comma-separated pressure-level cloud parameters, 850 hPa to 300 hPa. Requested on their own,
+     * Comma-separated pressure-level cloud parameters, 850 hPa to 200 hPa. Requested on their own,
      * never alongside {@link #CLOUD_ONLY_PARAMS}, so a refusal cannot touch directional cloud.
      */
     static final String PRESSURE_LEVEL_CLOUD_PARAMS =
             "cloud_cover_850hPa,cloud_cover_700hPa,cloud_cover_600hPa,"
-            + "cloud_cover_500hPa,cloud_cover_400hPa,cloud_cover_300hPa";
+            + "cloud_cover_500hPa,cloud_cover_400hPa,cloud_cover_300hPa,"
+            + "cloud_cover_250hPa,cloud_cover_200hPa";
 
     /** Total time the pressure-level fetch may spend before leaving the remaining cells null. */
     static final Duration PRESSURE_LEVEL_FETCH_BUDGET = Duration.ofSeconds(90);
@@ -271,7 +272,7 @@ public class OpenMeteoClient {
     }
 
     /**
-     * Fetches pressure-level cloud cover (850 to 300 hPa) for multiple points. Best effort, data
+     * Fetches pressure-level cloud cover (850 to 200 hPa) for multiple points. Best effort, data
      * only.
      *
      * <p>Shares only the {@code open-meteo} rate limiter with the rating-affecting fetches (the

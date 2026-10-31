@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Proves that the far-point values recorded for far-cloud-lid-plan P2 (mid, high and the dark-side
- * hour) and the six far-point pressure-level cloud values (T7) can never reach a prompt or triage.
+ * hour) and the eight far-point pressure-level cloud values (T7) can never reach a prompt or triage.
  * Each state is built twice: once with the recorded components null, once with every component
  * outside the originally prompted seven set to a loud value, tried at 0, 50 and 95. Every prompt builder entry
  * point and the triage evaluator must give identical output.
@@ -76,7 +76,7 @@ class FarCloudCaptureInvarianceTest {
             assertEquals(95, c.getAccessor().invoke(loud(70, 20, 95).directionalCloud()),
                     c.getName() + " must carry the loud value on the loud variant");
         }
-        assertTrue(unprompted >= 11, "T1 added five recorded components and T7 six pressure levels");
+        assertTrue(unprompted >= 13, "T1 five, T7 six levels, cirrus two");
     }
 
     @Test

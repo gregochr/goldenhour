@@ -120,13 +120,13 @@ class ForecastEvaluationRepositoryTest {
     }
 
     @Test
-    @DisplayName("The six far-point pressure-level readings persist and reload from the database")
+    @DisplayName("The eight far-point pressure-level readings persist and reload from the database")
     void farPointPressureLevels_persistAndReload() {
         ForecastEvaluationEntity entity = buildSonnetEvaluation(
                 durham, LocalDate.of(2026, 2, 20), TargetType.SUNSET,
                 LocalDateTime.of(2026, 2, 18, 6, 0), 2);
         entity.setDirectionalCloud(DirectionalCloudDetails.from(new DirectionalCloudData(
-                35, 45, 20, 40, 50, 15, 55, 61, 72, 18, 27, 83, 11, 22, 33, 44, 55, 66)));
+                35, 45, 20, 40, 50, 15, 55, 61, 72, 18, 27, 83, 11, 22, 33, 44, 55, 66, 77, 88)));
 
         Long id = entityManager.persistAndFlush(entity).getId();
         entityManager.clear();
@@ -139,11 +139,13 @@ class ForecastEvaluationRepositoryTest {
         assertThat(reloaded.getFarSolarCloud500()).isEqualTo(44);
         assertThat(reloaded.getFarSolarCloud400()).isEqualTo(55);
         assertThat(reloaded.getFarSolarCloud300()).isEqualTo(66);
+        assertThat(reloaded.getFarSolarCloud250()).isEqualTo(77);
+        assertThat(reloaded.getFarSolarCloud200()).isEqualTo(88);
         assertThat(reloaded.getFarSolarHighDark()).isEqualTo(83);
     }
 
     @Test
-    @DisplayName("A row built from a 12-argument record reloads with the six pressure levels null")
+    @DisplayName("A row built from a 12-argument record reloads with the eight pressure levels null")
     void farPointPressureLevels_twelveArgumentRecord_reloadsNulls() {
         ForecastEvaluationEntity entity = buildSonnetEvaluation(
                 durham, LocalDate.of(2026, 2, 20), TargetType.SUNSET,
@@ -163,6 +165,8 @@ class ForecastEvaluationRepositoryTest {
         assertThat(reloaded.getFarSolarCloud500()).isNull();
         assertThat(reloaded.getFarSolarCloud400()).isNull();
         assertThat(reloaded.getFarSolarCloud300()).isNull();
+        assertThat(reloaded.getFarSolarCloud250()).isNull();
+        assertThat(reloaded.getFarSolarCloud200()).isNull();
     }
 
     @Test

@@ -43,7 +43,7 @@ import java.util.stream.Collectors;
  * corridor and only the near edge of an 8 km high canvas's, whose centre is ~319 km — see
  * {@code DirectionalSamplingGeometry.FAR_SOLAR_OFFSET_METRES}).
  *
- * <p>Pressure-level cloud (850 to 300 hPa, recorded on the forecast side only) is deliberately NOT
+ * <p>Pressure-level cloud (850 to 200 hPa, recorded on the forecast side only) is deliberately NOT
  * fetched from the ERA5 archive: the archive returns null for those variables (checked 2026-10-13),
  * so do not add them to {@code ARCHIVE_HOURLY}.
  *

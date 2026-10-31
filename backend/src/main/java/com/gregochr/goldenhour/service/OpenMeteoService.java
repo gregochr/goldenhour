@@ -315,7 +315,7 @@ public class OpenMeteoService {
      * Batch pre-fetches cloud-only data, then pressure-level cloud at the far points.
      *
      * <p>The cloud fetch is exactly that of the two-argument method, including its failure
-     * behaviour. When it succeeds, the far points' pressure levels (850 to 300 hPa) are then
+     * behaviour. When it succeeds, the far points' pressure levels (850 to 200 hPa) are then
      * requested in a separate best-effort call, deduplicated by grid cell: any exception or null
      * response means no levels for that cell, and can never affect the cloud map. When the cloud
      * fetch fails, no pressure-level request is made and the empty cache is returned.
@@ -597,8 +597,8 @@ public class OpenMeteoService {
      *
      * <p>Makes up to five additional Open-Meteo calls (cloud layers only): three for the
      * solar cone, one for the antisolar point, and one for the far solar point, plus one
-     * separate best-effort call for the far point's six pressure-level cloud values (850 to
-     * 300 hPa, recorded, never prompted). That call's failure leaves only those six
+     * separate best-effort call for the far point's eight pressure-level cloud values (850 to
+     * 200 hPa, recorded, never prompted). That call's failure leaves only those eight
      * {@code null}. Returns
      * {@code null} if the core solar/antisolar fetches fail; the far fetch failing leaves
      * every far field (low, mid, high and the dark-hour trio) {@code null} and nothing else, not the
@@ -697,11 +697,12 @@ public class OpenMeteoService {
                     ah.getCloudCoverMid().get(antisolarIdx),
                     ah.getCloudCoverHigh().get(antisolarIdx),
                     farSolarLow, farSolarMid, farSolarHigh, farLowDark, farMidDark, farHighDark,
-                    levels[0], levels[1], levels[2], levels[3], levels[4], levels[5]);
+                    levels[0], levels[1], levels[2], levels[3], levels[4], levels[5],
+                    levels[6], levels[7]);
 
             LOG.info("Directional cloud -> solar(avg3): L{}% M{}% H{}%, antisolar: L{}% M{}% H{}%, "
                     + "farSolar: L{}% M{}% H{}%, farSolar dark hour: L{}% M{}% H{}%, "
-                    + "farSolar levels 850/700/600/500/400/300 hPa: {}/{}/{}/{}/{}/{}% "
+                    + "farSolar levels 850/700/600/500/400/300/250/200 hPa: {}/{}/{}/{}/{}/{}/{}/{}% "
                     + "({}ms for the cloud calls, excluding the separate pressure-level call)",
                     result.solarLowCloudPercent(), result.solarMidCloudPercent(),
                     result.solarHighCloudPercent(),
@@ -714,7 +715,8 @@ public class OpenMeteoService {
                     result.farSolarHighCloudPercentDarkHour(),
                     result.farSolarCloud850hPa(), result.farSolarCloud700hPa(),
                     result.farSolarCloud600hPa(), result.farSolarCloud500hPa(),
-                    result.farSolarCloud400hPa(), result.farSolarCloud300hPa(), durationMs);
+                    result.farSolarCloud400hPa(), result.farSolarCloud300hPa(),
+                    result.farSolarCloud250hPa(), result.farSolarCloud200hPa(), durationMs);
 
             return result;
         } catch (Exception e) {
@@ -732,7 +734,7 @@ public class OpenMeteoService {
 
     /**
      * Best-effort pressure-level cloud fetch for the single far point. Never throws: any exception
-     * or null response yields six nulls.
+     * or null response yields eight nulls.
      */
     private Integer[] fetchFarPressureLevels(double[] farPoint, LocalDateTime solarEventTime,
             TargetType targetType, JobRunEntity jobRun) {

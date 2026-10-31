@@ -29,22 +29,22 @@ public final class CloudPointCacheReader {
 
     private static final Logger LOG = LoggerFactory.getLogger(CloudPointCacheReader.class);
 
-    /** Number of pressure levels recorded (850, 700, 600, 500, 400 and 300 hPa). */
-    static final int PRESSURE_LEVEL_COUNT = 6;
+    /** Number of pressure levels recorded (850, 700, 600, 500, 400, 300, 250 and 200 hPa). */
+    static final int PRESSURE_LEVEL_COUNT = 8;
 
     private CloudPointCacheReader() {
     }
 
     /**
-     * Reads the six pressure-level cloud values (850, 700, 600, 500, 400, 300 hPa, in that order)
+     * Reads the eight pressure-level cloud values (850, 700, 600, 500, 400, 300, 250, 200 hPa, in order)
      * at the event's hour from a pressure-level response. Shared by the cache reader and the live
      * reader. Has its own failure isolation: a null response, null hourly block or time list, an
-     * unparseable time or any other exception yields six nulls, and never throws.
+     * unparseable time or any other exception yields eight nulls, and never throws.
      *
      * @param response       the pressure-level response for the far point, or {@code null}
      * @param solarEventTime UTC time of the solar event
      * @param targetType     SUNRISE or SUNSET
-     * @return array of six values in level order, each possibly {@code null}
+     * @return array of eight values in level order, each possibly {@code null}
      */
     static Integer[] readPressureLevels(OpenMeteoForecastResponse response,
             LocalDateTime solarEventTime, TargetType targetType) {
@@ -62,6 +62,8 @@ public final class CloudPointCacheReader {
             levels[3] = OpenMeteoResponseParser.integerAt(h.getCloudCover500hPa(), idx);
             levels[4] = OpenMeteoResponseParser.integerAt(h.getCloudCover400hPa(), idx);
             levels[5] = OpenMeteoResponseParser.integerAt(h.getCloudCover300hPa(), idx);
+            levels[6] = OpenMeteoResponseParser.integerAt(h.getCloudCover250hPa(), idx);
+            levels[7] = OpenMeteoResponseParser.integerAt(h.getCloudCover200hPa(), idx);
             return levels;
         } catch (Exception e) {
             LOG.warn("Pressure-level cloud extraction failed, levels not recorded: {}",
@@ -78,7 +80,7 @@ public final class CloudPointCacheReader {
      * far point (a null hourly block, a null or short low-cloud series) still nulls the whole
      * result, deliberately unchanged: that outcome removes the prompt's directional block and
      * switches triage's cloud source, so it is a rating input. The far mid, high and dark-hour
-     * values are read null-safely and can never throw. The six pressure-level values come from
+     * values are read null-safely and can never throw. The eight pressure-level values come from
      * {@link CloudPointCache#getPressureLevels} through a helper with its own failure isolation, so
      * they can never affect any other field or the result's nullness.
      *
@@ -160,7 +162,8 @@ public final class CloudPointCacheReader {
                     ah.getCloudCoverMid().get(antisolarIdx),
                     ah.getCloudCoverHigh().get(antisolarIdx),
                     farSolarLow, farSolarMid, farSolarHigh, farLowDark, farMidDark, farHighDark,
-                    levels[0], levels[1], levels[2], levels[3], levels[4], levels[5]);
+                    levels[0], levels[1], levels[2], levels[3], levels[4], levels[5],
+                    levels[6], levels[7]);
         } catch (Exception e) {
             LOG.warn("Directional cloud extraction from cache failed: {}", e.getMessage());
             return null;

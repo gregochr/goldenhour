@@ -428,14 +428,15 @@ class OpenMeteoClientTest {
     // ── Requested hourly variables ────────────────────────────────────────────
 
     @Test
-    @DisplayName("fetchPressureLevelCloudBatch requests exactly the six pressure-level cloud variables")
-    void fetchPressureLevelCloudBatch_requestsExactlySixLevels() {
+    @DisplayName("fetchPressureLevelCloudBatch requests exactly the eight pressure-level cloud variables")
+    void fetchPressureLevelCloudBatch_requestsExactlyEightLevels() {
         String hourly = hourlyParamSentBy(c -> c.fetchPressureLevelCloudBatch(buildCoords(2)));
 
         assertThat(hourly).isEqualTo("cloud_cover_850hPa,cloud_cover_700hPa,cloud_cover_600hPa,"
-                + "cloud_cover_500hPa,cloud_cover_400hPa,cloud_cover_300hPa");
+                + "cloud_cover_500hPa,cloud_cover_400hPa,cloud_cover_300hPa,"
+                + "cloud_cover_250hPa,cloud_cover_200hPa");
         assertThat(hourly).isEqualTo(OpenMeteoClient.PRESSURE_LEVEL_CLOUD_PARAMS);
-        assertThat(hourly.split(",")).hasSize(6);
+        assertThat(hourly.split(",")).hasSize(8);
     }
 
     @Test
