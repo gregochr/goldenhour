@@ -1,0 +1,5 @@
+*.csv
+out*/
+cache/
+__pycache__/
+!tests/fixtures/*.csv
